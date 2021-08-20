@@ -1,0 +1,236 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <Filter Include="xGPU">
+      <UniqueIdentifier>{197b6799-231b-4749-a2b2-a14c027d8d52}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Tutorials">
+      <UniqueIdentifier>{4c7e4720-ce07-4e69-bf89-823623728181}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Tutorials\Details">
+      <UniqueIdentifier>{94c0050f-ade9-4bb5-a868-19b28ee9af80}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="xGPU\Details">
+      <UniqueIdentifier>{8d0de3c7-88f8-4daf-8e39-cf78094d5350}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="xGPU\Details\Vulkan">
+      <UniqueIdentifier>{808af6cb-b7f2-4d49-b198-adb57413d933}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="xGPU\Details\System">
+      <UniqueIdentifier>{dce4cb0d-c9c5-4876-a7ea-710579a75ca5}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="xGPU\Details\System\Windows">
+      <UniqueIdentifier>{2933c64e-17bb-4090-8c49-3f5d6cfcc0a1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="xGPU\Details\Vulkan\Source %28Not compiling%29">
+      <UniqueIdentifier>{4bc3339f-fa70-4fca-9392-de558aa80b24}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="xGPU\Details\System\Windows\Source %28Not Compiling%29">
+      <UniqueIdentifier>{75e3a073-fc68-4888-8fa9-6e272a16c8c0}</UniqueIdentifier>
+    </Filter>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\Src\Tutorials\main.cpp" />
+    <ClCompile Include="..\..\Src\Tutorials\T01_Initialize\T01_Initialize.cpp">
+      <Filter>Tutorials\Details</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\xGPU.cpp">
+      <Filter>xGPU</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_device.cpp">
+      <Filter>xGPU\Details\Vulkan\Source %28Not compiling%29</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_instance.cpp">
+      <Filter>xGPU\Details\Vulkan\Source %28Not compiling%29</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_local_storage.cpp">
+      <Filter>xGPU\Details\Vulkan\Source %28Not compiling%29</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_pipeline.cpp">
+      <Filter>xGPU\Details\Vulkan\Source %28Not compiling%29</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_pipeline_instance.cpp">
+      <Filter>xGPU\Details\Vulkan\Source %28Not compiling%29</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_shader.cpp">
+      <Filter>xGPU\Details\Vulkan\Source %28Not compiling%29</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_texture.cpp">
+      <Filter>xGPU\Details\Vulkan\Source %28Not compiling%29</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_vertex_descriptor.cpp">
+      <Filter>xGPU\Details\Vulkan\Source %28Not compiling%29</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_window.cpp">
+      <Filter>xGPU\Details\Vulkan\Source %28Not compiling%29</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan.cpp">
+      <Filter>xGPU\Details\Vulkan\Source %28Not compiling%29</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\System\Windows\xGPU_windows.cpp">
+      <Filter>xGPU\Details\System\Windows\Source %28Not Compiling%29</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\System\Windows\xGPU_windows_instance.cpp">
+      <Filter>xGPU\Details\System\Windows\Source %28Not Compiling%29</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\System\Windows\xGPU_windows_keyboad.cpp">
+      <Filter>xGPU\Details\System\Windows\Source %28Not Compiling%29</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\System\Windows\xGPU_windows_localstorage.cpp">
+      <Filter>xGPU\Details\System\Windows\Source %28Not Compiling%29</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\System\Windows\xGPU_windows_window.cpp">
+      <Filter>xGPU\Details\System\Windows\Source %28Not Compiling%29</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_buffer.cpp">
+      <Filter>xGPU\Details\Vulkan\Source %28Not compiling%29</Filter>
+    </ClCompile>
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\Src\xGPU.h">
+      <Filter>xGPU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Tutorials\Tutorials.h">
+      <Filter>Tutorials</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\xGPU_window.h">
+      <Filter>xGPU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\xGPU_window_inline.h">
+      <Filter>xGPU\Details</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\xGPU_instance.h">
+      <Filter>xGPU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\xGPU_device.h">
+      <Filter>xGPU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\xGPU_instance_inline.h">
+      <Filter>xGPU\Details</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_instance.h">
+      <Filter>xGPU\Details\Vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan.h">
+      <Filter>xGPU\Details\Vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_device.h">
+      <Filter>xGPU\Details\Vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\xGPU_device_inline.h">
+      <Filter>xGPU\Details</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_window.h">
+      <Filter>xGPU\Details\Vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\xGPU_keyboard.h">
+      <Filter>xGPU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\xGPU_mouse.h">
+      <Filter>xGPU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\xGPU_keyboard_inline.h">
+      <Filter>xGPU\Details</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\xGPU_mouse_inline.h">
+      <Filter>xGPU\Details</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows.h">
+      <Filter>xGPU\Details\System\Windows</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows_keyboard.h">
+      <Filter>xGPU\Details\System\Windows</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows_mouse.h">
+      <Filter>xGPU\Details\System\Windows</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows_window.h">
+      <Filter>xGPU\Details\System\Windows</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\System\xGPU_system.h">
+      <Filter>xGPU\Details\System</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows_instance.h">
+      <Filter>xGPU\Details\System\Windows</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\xGPU_cmd_buffer.h">
+      <Filter>xGPU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\xGPU_pipeline.h">
+      <Filter>xGPU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\xGPU_pipeline_inline.h">
+      <Filter>xGPU\Details</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_pipeline.h">
+      <Filter>xGPU\Details\Vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\xGPU_renderpass.h">
+      <Filter>xGPU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\xGPU_renderpass_inline.h">
+      <Filter>xGPU\Details</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_shader.h">
+      <Filter>xGPU\Details\Vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\xGPU_shader.h">
+      <Filter>xGPU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\xGPU_shader_inline.h">
+      <Filter>xGPU\Details</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\xGPU_vertex_descriptor.h">
+      <Filter>xGPU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\xGPU_vertex_descriptor_inline.h">
+      <Filter>xGPU\Details</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_vertex_descriptor.h">
+      <Filter>xGPU\Details\Vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\xGPU_pipeline_instance.h">
+      <Filter>xGPU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\xGPU_texture.h">
+      <Filter>xGPU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\xGPU_texture_instance_inline.h">
+      <Filter>xGPU\Details</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_texture.h">
+      <Filter>xGPU\Details\Vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\xGPU_texture_inline.h">
+      <Filter>xGPU\Details</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows_localstorage.h">
+      <Filter>xGPU\Details\System\Windows</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_local_storage.h">
+      <Filter>xGPU\Details\Vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\xGPU_pipeline_instance_inline.h">
+      <Filter>xGPU\Details</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_pipeline_instance.h">
+      <Filter>xGPU\Details\Vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\xGPU_buffer.h">
+      <Filter>xGPU</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\xGPU_buffer_inline.h">
+      <Filter>xGPU\Details</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_buffer.h">
+      <Filter>xGPU\Details\Vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Details\xGPU_cmd_buffer_inline.h">
+      <Filter>xGPU\Details</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="draw_frag.glsl" />
+    <CustomBuild Include="draw_vert.glsl" />
+  </ItemGroup>
+</Project>

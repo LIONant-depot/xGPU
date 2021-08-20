@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <ItemGroup>
+    <ClCompile Include="..\..\Src\Details\System\Windows\xGPU_windows.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\System\Windows\xGPU_windows_instance.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\System\Windows\xGPU_windows_keyboad.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\System\Windows\xGPU_windows_localstorage.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\System\Windows\xGPU_windows_window.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_buffer.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_device.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_instance.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_local_storage.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_pipeline.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_pipeline_instance.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_shader.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_texture.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_vertex_descriptor.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_window.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Tutorials\main.cpp" />
+    <ClCompile Include="..\..\Src\Tutorials\T01_Initialize\T01_Initialize.cpp" />
+    <ClCompile Include="..\..\Src\xGPU.cpp" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="..\..\Src\Details\System\xGPU_system.h" />
+    <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows.h" />
+    <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows_instance.h" />
+    <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows_keyboard.h" />
+    <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows_localstorage.h" />
+    <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows_mouse.h" />
+    <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows_window.h" />
+    <ClInclude Include="..\..\Src\Details\xGPU_buffer_inline.h" />
+    <ClInclude Include="..\..\Src\Details\xGPU_cmd_buffer_inline.h" />
+    <ClInclude Include="..\..\Src\Details\xGPU_device_inline.h" />
+    <ClInclude Include="..\..\Src\Details\xGPU_instance_inline.h" />
+    <ClInclude Include="..\..\Src\Details\xGPU_keyboard_inline.h" />
+    <ClInclude Include="..\..\Src\Details\xGPU_mouse_inline.h" />
+    <ClInclude Include="..\..\Src\Details\xGPU_pipeline_inline.h" />
+    <ClInclude Include="..\..\Src\Details\xGPU_pipeline_instance_inline.h" />
+    <ClInclude Include="..\..\Src\Details\xGPU_renderpass_inline.h" />
+    <ClInclude Include="..\..\Src\Details\xGPU_shader_inline.h" />
+    <ClInclude Include="..\..\Src\Details\xGPU_texture_inline.h" />
+    <ClInclude Include="..\..\Src\Details\xGPU_texture_instance_inline.h" />
+    <ClInclude Include="..\..\Src\Details\xGPU_vertex_descriptor_inline.h" />
+    <ClInclude Include="..\..\Src\Details\xGPU_window_inline.h" />
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan.h" />
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_buffer.h" />
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_device.h" />
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_instance.h" />
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_local_storage.h" />
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_pipeline.h" />
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_pipeline_instance.h" />
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_shader.h" />
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_texture.h" />
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_vertex_descriptor.h" />
+    <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_window.h" />
+    <ClInclude Include="..\..\Src\Tutorials\Tutorials.h" />
+    <ClInclude Include="..\..\Src\xGPU.h" />
+    <ClInclude Include="..\..\Src\xGPU_buffer.h" />
+    <ClInclude Include="..\..\Src\xGPU_cmd_buffer.h" />
+    <ClInclude Include="..\..\Src\xGPU_device.h" />
+    <ClInclude Include="..\..\Src\xGPU_instance.h" />
+    <ClInclude Include="..\..\Src\xGPU_keyboard.h" />
+    <ClInclude Include="..\..\Src\xGPU_pipeline_instance.h" />
+    <ClInclude Include="..\..\Src\xGPU_mouse.h" />
+    <ClInclude Include="..\..\Src\xGPU_pipeline.h" />
+    <ClInclude Include="..\..\Src\xGPU_renderpass.h" />
+    <ClInclude Include="..\..\Src\xGPU_shader.h" />
+    <ClInclude Include="..\..\Src\xGPU_texture.h" />
+    <ClInclude Include="..\..\Src\xGPU_vertex_descriptor.h" />
+    <ClInclude Include="..\..\Src\xGPU_window.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <CustomBuild Include="draw_frag.glsl">
+      <FileType>Document</FileType>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=frag %(FullPath) -mfmt=num -o  $(ProjectDir)%(FileName).h</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(FileName).h</Outputs>
+      <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</DeploymentContent>
+    </CustomBuild>
+    <CustomBuild Include="draw_vert.glsl">
+      <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</DeploymentContent>
+      <FileType>Document</FileType>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=vert %(FullPath) -mfmt=num -o  $(ProjectDir)%(FileName).h</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(FileName).h</Outputs>
+    </CustomBuild>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <VCProjectVersion>16.0</VCProjectVersion>
+    <Keyword>Win32Proj</Keyword>
+    <ProjectGuid>{b188909a-c7df-40ad-9aae-e1f50f82027c}</ProjectGuid>
+    <RootNamespace>xGPUTutorials</RootNamespace>
+    <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>true</UseDebugLibraries>
+    <PlatformToolset>v142</PlatformToolset>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'" Label="Configuration">
+    <ConfigurationType>Application</ConfigurationType>
+    <UseDebugLibraries>false</UseDebugLibraries>
+    <PlatformToolset>v142</PlatformToolset>
+    <WholeProgramOptimization>true</WholeProgramOptimization>
+    <CharacterSet>Unicode</CharacterSet>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ImportGroup Label="ExtensionSettings">
+  </ImportGroup>
+  <ImportGroup Label="Shared">
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <ImportGroup Label="PropertySheets" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
+  </ImportGroup>
+  <PropertyGroup Label="UserMacros" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <LinkIncremental>true</LinkIncremental>
+    <SourcePath>$(VC_SourcePath);</SourcePath>
+    <IncludePath>./;$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../src</IncludePath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <LinkIncremental>false</LinkIncremental>
+    <SourcePath>$(VC_SourcePath);</SourcePath>
+    <IncludePath>$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../src</IncludePath>
+  </PropertyGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>$(VULKAN_SDK)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <WarningLevel>Level3</WarningLevel>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <SDLCheck>true</SDLCheck>
+      <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <ConformanceMode>true</ConformanceMode>
+      <LanguageStandard>stdcpplatest</LanguageStandard>
+    </ClCompile>
+    <Link>
+      <SubSystem>Console</SubSystem>
+      <EnableCOMDATFolding>true</EnableCOMDATFolding>
+      <OptimizeReferences>true</OptimizeReferences>
+      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalLibraryDirectories>$(VULKAN_SDK)</AdditionalLibraryDirectories>
+    </Link>
+  </ItemDefinitionGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+  <ImportGroup Label="ExtensionTargets">
+  </ImportGroup>
+</Project>

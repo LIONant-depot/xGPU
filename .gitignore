@@ -1,5 +1,4 @@
-﻿################################################################################
-# This .gitignore file was automatically created by Microsoft(R) Visual Studio.
-################################################################################
-
-/.vs
+﻿/.vs
+/Dependencies
+/Build/xGPUTutorials.vs2019/x64
+/Build/xGPUTutorials.vs2019/.vs/

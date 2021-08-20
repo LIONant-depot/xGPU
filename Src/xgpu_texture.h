@@ -1,0 +1,65 @@
+namespace xgpu
+{
+    struct texture
+    {
+        enum class format : std::uint8_t
+        {
+            R4G4B4A4
+        ,   R8G8B8
+        ,   U8R8G8B8
+        ,   A8R8G8B8
+        ,   R8G8B8A8
+        ,   R8G8B8U8
+
+        ,   ETC2_4RGB
+        ,   ETC2_4RGBA1
+        ,   ETC2_8RGBA
+
+        ,   BC1_4RGB
+        ,   BC1_4RGBA1
+        ,   BC2_8RGBA
+        ,   BC3_8RGBA
+        ,   BC4_4R
+        ,   BC5_8RG
+        ,   BC6H_8RGB_FLOAT
+        ,   BC7_8RGBA
+
+        ,   ENUM_COUNT
+        ,   DEFAULT = R8G8B8A8
+        };
+
+        enum class type : std::uint8_t
+        {
+            GAMMA
+        ,   LINEAR
+        ,   NORMAL
+        ,   ENUM_COUNT
+        };
+
+        enum class wrapping : std::uint8_t
+        {
+            NOT_WRAPPING
+        ,   WRAPPING
+        };
+
+        struct setup
+        {
+            struct mip
+            {
+                std::size_t m_Size;
+            };
+
+            format                  m_Format                { format::DEFAULT };
+            type                    m_Type                  { type::GAMMA };
+            std::array<wrapping,3>  m_Coordinate            { wrapping::WRAPPING, wrapping::WRAPPING, wrapping::WRAPPING };
+            bool                    m_hasSignedChannels     { false };
+            int                     m_Width                 { -1 };
+            int                     m_Height                { -1 };
+            std::size_t             m_TotalMemory           { 0 };
+            std::span<mip>          m_MipChain              {};
+            std::byte*              m_pData                 {nullptr};
+        };
+
+        std::shared_ptr<details::texture_handle> m_Private;
+    };
+}
