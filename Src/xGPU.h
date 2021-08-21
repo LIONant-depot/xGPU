@@ -24,7 +24,6 @@ namespace xgpu::details
     struct mouse_handle;
     struct pipeline_handle;
     struct pipeline_instance_handle;
-    struct renderpass_handle;
     struct shader_handle;
     struct vertex_descriptor_handle;
     struct texture_handle;

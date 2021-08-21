@@ -56,7 +56,7 @@ namespace xgpu::vulkan
         virtual
         void                                    setConstants                ( xgpu::shader::type    Type
                                                                             , int                   Offset
-                                                                            , void*                 pData
+                                                                            , const void*           pData
                                                                             , int                   Size 
                                                                             ) noexcept override;
         virtual

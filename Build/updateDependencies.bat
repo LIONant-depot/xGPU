@@ -18,12 +18,16 @@ powershell write-host -fore White ----------------------------------------------
 
 echo.
 
-rem rmdir "../dependencies/xcore" /S /Q
-rem git clone https://gitlab.com/LIONant/xcore.git "../dependencies/xcore"
-rem if %ERRORLEVEL% GEQ 1 goto :PAUSE
-rem cd ../dependencies/xcore/builds
-rem call UpdateDependencies.bat "return"
-rem cd /d %MECS_PATH%
+rem ------------------------------------------------------------
+rem XCORE
+rem ------------------------------------------------------------
+
+rmdir "../dependencies/xcore" /S /Q
+git clone https://gitlab.com/LIONant/xcore.git "../dependencies/xcore"
+if %ERRORLEVEL% GEQ 1 goto :PAUSE
+cd ../dependencies/xcore/builds
+call UpdateDependencies.bat "return"
+cd /d %MECS_PATH%
 
 rem ------------------------------------------------------------
 rem Download and install ShaderC

@@ -2,7 +2,7 @@
 #include <iostream>
 
 //------------------------------------------------------------------------------------------------
-
+static
 void DebugMessage(std::string_view View)
 {
     printf("%s\n", View.data());

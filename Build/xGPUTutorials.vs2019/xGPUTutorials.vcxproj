@@ -11,6 +11,14 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui.cpp" />
+    <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_demo.cpp" />
+    <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_draw.cpp" />
+    <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_tables.cpp" />
+    <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_widgets.cpp" />
+    <ClCompile Include="..\..\Dependencies\xcore\src\xcore.cpp" />
+    <ClCompile Include="..\..\Dependencies\xcore\src\xcore_profiler_1.cpp" />
+    <ClCompile Include="..\..\Dependencies\xcore\src\xcore_profiler_2.cpp" />
     <ClCompile Include="..\..\Src\Details\System\Windows\xGPU_windows.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
@@ -77,9 +85,65 @@
     </ClCompile>
     <ClCompile Include="..\..\Src\Tutorials\main.cpp" />
     <ClCompile Include="..\..\Src\Tutorials\T01_Initialize\T01_Initialize.cpp" />
+    <ClCompile Include="..\..\Src\Tutorials\T02_UsingUtilities\T02_UsingTools.cpp" />
     <ClCompile Include="..\..\Src\xGPU.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_internal.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imstb_rectpack.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imstb_textedit.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imstb_truetype.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_arglist.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_array.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_assert.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_bits.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_cmdline.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_compression.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_context.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_crc.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_endian.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_error.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_event.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_file.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_function.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_global.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_guid.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_lock.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_lockless_pool.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_lockless_queues.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_log.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_matrix4.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_quaternion.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_radian3.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_shapes.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_transform.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_vector2.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_vector3.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_vector4.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_memory.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_profiler.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_ptr.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_random.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_rtti.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_scheduler_channel.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_scheduler_job.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_scheduler_system.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_scheduler_trigger.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_serialicer.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_serializer.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_span.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_string.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_system_reg.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_target.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_textfile.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_textfile2.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_types.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_unique_span.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_units.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_vector.h" />
     <ClInclude Include="..\..\Src\Details\System\xGPU_system.h" />
     <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows.h" />
     <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows_instance.h" />
@@ -112,6 +176,9 @@
     <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_texture.h" />
     <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_vertex_descriptor.h" />
     <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_window.h" />
+    <ClInclude Include="..\..\Src\Tutorials\Settings\imconfig.h" />
+    <ClInclude Include="..\..\Src\Tutorials\Settings\PropertyConfig.h" />
+    <ClInclude Include="..\..\Src\Tutorials\Settings\xcore_user_settings.h" />
     <ClInclude Include="..\..\Src\Tutorials\Tutorials.h" />
     <ClInclude Include="..\..\Src\xGPU.h" />
     <ClInclude Include="..\..\Src\xGPU_buffer.h" />
@@ -122,11 +189,12 @@
     <ClInclude Include="..\..\Src\xGPU_pipeline_instance.h" />
     <ClInclude Include="..\..\Src\xGPU_mouse.h" />
     <ClInclude Include="..\..\Src\xGPU_pipeline.h" />
-    <ClInclude Include="..\..\Src\xGPU_renderpass.h" />
     <ClInclude Include="..\..\Src\xGPU_shader.h" />
     <ClInclude Include="..\..\Src\xGPU_texture.h" />
     <ClInclude Include="..\..\Src\xGPU_vertex_descriptor.h" />
     <ClInclude Include="..\..\Src\xGPU_window.h" />
+    <ClInclude Include="..\..\Tools\xgpu_view.h" />
+    <ClInclude Include="..\..\Tools\xgpu_view_inline.h" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="draw_frag.glsl">
@@ -145,6 +213,9 @@
   <ItemGroup>
     <None Include="..\..\LICENSE" />
     <None Include="..\..\README.md" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\LICENSE.txt" />
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>
@@ -182,12 +253,16 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
     <SourcePath>$(VC_SourcePath);</SourcePath>
-    <IncludePath>./;$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../src</IncludePath>
+    <IncludePath>../../Src\Tutorials\Settings;$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../Dependencies\xcore\src;./;../../src</IncludePath>
+    <PublicIncludeDirectories>
+    </PublicIncludeDirectories>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
     <SourcePath>$(VC_SourcePath);</SourcePath>
     <IncludePath>$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../src</IncludePath>
+    <PublicIncludeDirectories>
+    </PublicIncludeDirectories>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <ClCompile>
@@ -196,11 +271,12 @@
       <PreprocessorDefinitions>_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpplatest</LanguageStandard>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(VULKAN_SDK)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(VULKAN_SDK);../../Dependencies\xcore</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">

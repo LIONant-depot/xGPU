@@ -17,7 +17,7 @@ namespace xgpu
             virtual     void                            DrawInstance            ( int InstanceCount, int IndexCount, int FirstInstance, int FirstIndex, int VertexOffset ) noexcept = 0;
             virtual     void                            setViewport             ( float x, float y, float w, float h, float minDepth, float maxDepth ) noexcept = 0;
             virtual     void                            setScissor              ( int x, int y, int w, int h )                              noexcept = 0;
-            virtual     void                            setConstants            ( xgpu::shader::type Type, int Offset, void* pData, int Size ) noexcept = 0;
+            virtual     void                            setConstants            ( xgpu::shader::type Type, int Offset, const void* pData, int Size ) noexcept = 0;
             virtual     void                            setClearColor           ( float R, float G, float B, float A )                      noexcept = 0;
 
 //            virtual     bool                            HandleEvents(void)                                                    noexcept = 0;

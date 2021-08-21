@@ -1026,7 +1026,7 @@ namespace xgpu::vulkan
 
     //------------------------------------------------------------------------------------------------------------------------
 
-    void window::setConstants( xgpu::shader::type Type, int Offset, void* pData, int Size ) noexcept
+    void window::setConstants( xgpu::shader::type Type, int Offset, const void* pData, int Size ) noexcept
     {
         auto& Frame = m_Frames[m_FrameIndex];
         vkCmdPushConstants
