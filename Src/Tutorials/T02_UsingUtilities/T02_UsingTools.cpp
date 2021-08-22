@@ -241,6 +241,24 @@ int T02_Example()
     float          Distance = 2;
     while (Instance.ProcessInputEvents())
     {
+        //
+        // Input
+        //
+        if (Mouse.isPressed(xgpu::mouse::digital::BTN_RIGHT))
+        {
+            auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
+            Angles.m_Pitch.m_Value -= 0.01f * MousePos[1];
+            Angles.m_Yaw.m_Value -= 0.01f * MousePos[0];
+        }
+        Distance += -1.0f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
+        if (Distance < 2) Distance = 2;
+
+        // Update the camera
+        View.LookAt(Distance, Angles, { 0,0,0 });
+
+        //
+        // Rendering
+        //
         for (auto& W : lWindow)
         {
             // Windows can not display when they are minimize
@@ -249,45 +267,43 @@ int T02_Example()
             // Update the view with latest window size
             View.setViewport({ 0, 0, W.getWidth(), W.getHeight() });
 
+            // Get the command buffer ready to render
             {
-                auto CmdBuffer = W.getCmdBuffer();
-                CmdBuffer.setPipelineInstance(PipeLineInstance[0]);
-                CmdBuffer.setBuffer(VertexBuffer);
-                CmdBuffer.setBuffer(IndexBuffer);
+                auto        CmdBuffer = W.getCmdBuffer();
+                const auto  W2C       = View.getW2C();
 
-                View.LookAt( Distance, Angles, {0,0,0}) ;
-
-                if ( Mouse.isPressed( xgpu::mouse::digital::BTN_RIGHT ) )
+                // Render first object (animated mesh)
                 {
-                    auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
-                    Angles.m_Pitch.m_Value -= 0.01f * MousePos[1];
-                    Angles.m_Yaw.m_Value   -= 0.01f * MousePos[0];
+                    CmdBuffer.setPipelineInstance(PipeLineInstance[0]);
+                    CmdBuffer.setBuffer(VertexBuffer);
+                    CmdBuffer.setBuffer(IndexBuffer);
+
+                    static xcore::radian R{ 0 };
+                    R += xcore::radian{ 0.001f };
+
+                    xcore::matrix4 L2W;
+                    L2W.setIdentity();
+                    L2W.RotateY(R);
+                    L2W = (W2C * L2W);
+
+                    CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0, &L2W, static_cast<std::uint32_t>(sizeof(xcore::matrix4)));
+                    CmdBuffer.Draw(IndexBuffer.getEntryCount());
                 }
-                Distance += -1.0f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
 
-                const auto W2C = View.getW2C();
+                // Render second object 
+                {
+                    xcore::matrix4 L2W;
+                    L2W.setIdentity();
+                    L2W.Translate({0,-0.5f, -1.1f });
+                    L2W = W2C * L2W;
 
-                xcore::matrix4 L2W;
-                static xcore::radian R{ 0 };
-
-                R += xcore::radian{ 0.001f };
-
-                L2W.setIdentity();
-                L2W.RotateY(R);
-                L2W = (W2C * L2W);
-
-                CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0, &L2W, static_cast<std::uint32_t>(sizeof(xcore::matrix4)));
-                CmdBuffer.Draw(IndexBuffer.getEntryCount());
-
-                L2W.setIdentity();
-                L2W.Translate({0,-0.5f, -1.1f });
-                L2W = W2C * L2W;
-
-                CmdBuffer.setPipelineInstance(PipeLineInstance[1]);
-                CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0, &L2W, static_cast<std::uint32_t>(sizeof(xcore::matrix4)));
-                CmdBuffer.Draw(IndexBuffer.getEntryCount());
+                    CmdBuffer.setPipelineInstance(PipeLineInstance[1]);
+                    CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0, &L2W, static_cast<std::uint32_t>(sizeof(xcore::matrix4)));
+                    CmdBuffer.Draw(IndexBuffer.getEntryCount());
+                }
             }
 
+            // Swap the buffers
             W.PageFlip();
         }
     }
