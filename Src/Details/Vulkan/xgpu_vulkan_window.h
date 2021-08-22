@@ -13,11 +13,13 @@ namespace xgpu::vulkan
                                                                             ) noexcept;
         [[nodiscard]]   xgpu::device::error*    CreateWindowCommandBuffers  ( void 
                                                                             ) noexcept;
-        [[nodiscard]]   xgpu::device::error*    CreateRenderPass            ( VkSurfaceFormatKHR& VKSurfaceFormat 
+        [[nodiscard]]   xgpu::device::error*    CreateRenderPass            ( VkSurfaceFormatKHR& VKSurfaceFormat
+                                                                            , VkFormat&           VKDepthSurfaceFormat
                                                                             ) noexcept;
         [[nodiscard]]   xgpu::device::error*    DestroyRenderPass           ( void 
                                                                             ) noexcept;
-
+        [[nodiscard]]   xgpu::device::error*    CreateDepthResources        ( VkExtent2D Extents
+                                                                            ) noexcept;
 
         virtual
         void                                    RenderBegin                 ( void 
@@ -79,9 +81,13 @@ namespace xgpu::vulkan
         std::uint32_t                           m_ImageCount            {2}; // 2 for a double buffer
         std::unique_ptr<frame[]>                m_Frames                {};
         std::unique_ptr<frame_semaphores[]>     m_FrameSemaphores       {};
+        VkImage                                 m_VKDepthbuffer         {};
+        VkImageView                             m_VKDepthbufferView     {};
+        VkDeviceMemory                          m_VKDepthbufferMemory   {};
         VkRenderPass                            m_VKRenderPass          {};
         VkPipeline                              m_VKPipeline            {};
         VkSurfaceFormatKHR                      m_VKSurfaceFormat       {};
+        VkFormat                                m_VKDepthFormat         {};
         VkPresentModeKHR                        m_VKPresentMode         {};
         std::uint32_t                           m_SemaphoreIndex        {0};
         std::uint32_t                           m_FrameIndex            {0};

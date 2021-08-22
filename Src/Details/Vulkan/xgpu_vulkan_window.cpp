@@ -22,8 +22,9 @@ namespace xgpu::vulkan
     VkSurfaceFormatKHR SelectSurfaceFormat
     (   VkPhysicalDevice            VKDevice
     ,   VkSurfaceKHR                VKSurface
-    ,   std::span<const VkFormat>   request_formats
-    ,   VkColorSpaceKHR             request_color_space ) noexcept
+    ,   std::span<const VkFormat>   RequestFormats
+    ,   VkColorSpaceKHR             RequestColorSpace 
+    ) noexcept
     {
         // Per Spec Format and View Format are expected to be the same unless VK_IMAGE_CREATE_MUTABLE_BIT was set at image creation
         // Assuming that the default behavior is without setting this bit, there is no need for separate Swapchain image and image view format
@@ -44,22 +45,50 @@ namespace xgpu::vulkan
             if ( SurfaceFormats[0].format == VK_FORMAT_UNDEFINED )
             {
                 VkSurfaceFormatKHR Ret;
-                Ret.format     = request_formats[0];
-                Ret.colorSpace = request_color_space;
+                Ret.format     = RequestFormats[0];
+                Ret.colorSpace = RequestColorSpace;
                 return Ret;
             }
         }
         else
         {
             // Request several formats, the first found will be used
-            for ( const auto& R : request_formats )
+            for ( const auto& R : RequestFormats )
                 for ( const auto& S : SurfaceFormats )
-                    if ( R == S.format && S.colorSpace == request_color_space)
+                    if ( R == S.format && S.colorSpace == RequestColorSpace)
                         return S;
         }
 
         // No point in searching another format
         return SurfaceFormats[0];
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+
+    VkFormat SelectDepthFormat
+    (   VkPhysicalDevice            VKDevice
+    ,   std::span<const VkFormat>   RequestFormats
+    ,   VkImageTiling               Tiling
+    ,   VkFormatFeatureFlags        Features
+    )
+    {
+        for( VkFormat Format : RequestFormats ) 
+        {
+            VkFormatProperties Props;
+            vkGetPhysicalDeviceFormatProperties(VKDevice, Format, &Props );
+            if( Tiling == VK_IMAGE_TILING_LINEAR && (Props.linearTilingFeatures & Features) == Features ) 
+            {
+                return Format;
+            }
+            else if ( Tiling == VK_IMAGE_TILING_OPTIMAL && (Props.optimalTilingFeatures & Features) == Features ) 
+            {
+                return Format;
+            }
+        }
+
+        //Unalbe locate a good z buffer format
+        assert(false);
+        return RequestFormats[0];
     }
 
     //------------------------------------------------------------------------------------------------------------------------
@@ -114,6 +143,85 @@ namespace xgpu::vulkan
     }
 
     //------------------------------------------------------------------------------------------------------------------------
+
+    xgpu::device::error* window::CreateDepthResources( VkExtent2D Extents ) noexcept
+    {
+        VkImageCreateInfo ImageInfo
+        { .sType            = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO
+        , .flags            = 0
+        , .imageType        = VK_IMAGE_TYPE_2D
+        , .format           = m_VKDepthFormat
+        , .extent           =
+            { .width        = Extents.width
+            , .height       = Extents.height
+            , .depth        = 1
+            }
+        , .mipLevels        = 1
+        , .arrayLayers      = 1
+        , .samples          = VK_SAMPLE_COUNT_1_BIT
+        , .tiling           = VK_IMAGE_TILING_OPTIMAL
+        , .usage            = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT
+        , .sharingMode      = VK_SHARING_MODE_EXCLUSIVE
+        , .initialLayout    = VK_IMAGE_LAYOUT_UNDEFINED
+        };
+
+        if( auto VKErr = vkCreateImage(m_Device->m_VKDevice, &ImageInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKDepthbuffer ); VKErr )
+        {
+            m_Device->m_Instance->ReportError(VKErr, "Fail to create the depth buffer image");
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create the depth buffer image");
+        }
+
+        VkMemoryRequirements memRequirements;
+        vkGetImageMemoryRequirements( m_Device->m_VKDevice, m_VKDepthbuffer, &memRequirements );
+
+        std::uint32_t MemoryIndex;
+        if( false == m_Device->getMemoryType( memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, MemoryIndex ) )
+        {
+            m_Device->m_Instance->ReportError("Fail to find the right type of memory to allocate the zbuffer");
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to find the right type of memory to allocate the zbuffer");
+        }
+        VkMemoryAllocateInfo AllocInfo
+        { .sType            = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO
+        , .allocationSize   = memRequirements.size
+        , .memoryTypeIndex  = MemoryIndex
+        };
+
+        if( auto VKErr = vkAllocateMemory( m_Device->m_VKDevice, &AllocInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKDepthbufferMemory ); VKErr ) 
+        {
+            m_Device->m_Instance->ReportError(VKErr, "Fail to allocate memory for the zbuffer");
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to allocate memory for the zbuffer");
+        }
+
+        if( auto VKErr = vkBindImageMemory(m_Device->m_VKDevice, m_VKDepthbuffer, m_VKDepthbufferMemory, 0); VKErr )
+        {
+            m_Device->m_Instance->ReportError(VKErr, "Fail to bind the zbuffer with its image/memory");
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to bind the zbuffer with its image/memory");
+        }
+
+        VkImageViewCreateInfo ViewInfo
+        { .sType                        = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO
+        , .image                        = m_VKDepthbuffer
+        , .viewType                     = VK_IMAGE_VIEW_TYPE_2D
+        , .format                       = m_VKDepthFormat
+        , .subresourceRange             =
+            { .aspectMask               = VK_IMAGE_ASPECT_DEPTH_BIT
+            , .baseMipLevel             = 0
+            , .levelCount               = 1
+            , .baseArrayLayer           = 0
+            , .layerCount               = 1
+            }
+        };
+
+        if( auto VKErr = vkCreateImageView( m_Device->m_VKDevice, &ViewInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKDepthbufferView); VKErr ) 
+        {
+            m_Device->m_Instance->ReportError(VKErr, "Fail to create the depth buffer view");
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create the depth buffer view");
+        }
+
+        return nullptr;
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
     // Also destroy old swap chain and in-flight frames data, if any.
     xgpu::device::error* window::CreateWindowSwapChain( int Width, int Height ) noexcept
     {
@@ -141,6 +249,13 @@ namespace xgpu::vulkan
             }
             m_Frames.release();
             m_FrameSemaphores.release();
+
+            //
+            // Release the depth buffer as well
+            //
+            vkDestroyImageView(m_Device->m_VKDevice, m_VKDepthbufferView, m_Device->m_Instance->m_pVKAllocator );
+            vkDestroyImage( m_Device->m_VKDevice, m_VKDepthbuffer, m_Device->m_Instance->m_pVKAllocator );
+            vkFreeMemory( m_Device->m_VKDevice, m_VKDepthbufferMemory, m_Device->m_Instance->m_pVKAllocator );
         }
 
         //
@@ -204,6 +319,9 @@ namespace xgpu::vulkan
                 }
             }
 
+            if( auto Err = CreateDepthResources(SwapChainInfo.imageExtent); Err )
+                return Err;
+
             if( auto VKErr = vkCreateSwapchainKHR( m_Device->m_VKDevice, &SwapChainInfo, pAllocator, &m_VKSwapchain ); VKErr )
             {
                 m_Device->m_Instance->ReportError( VKErr, "Fail to create the Swap Chain" );
@@ -240,7 +358,7 @@ namespace xgpu::vulkan
         //
         // Create the Render Pass
         //
-        if( auto Err = CreateRenderPass(m_VKSurfaceFormat); Err )
+        if( auto Err = CreateRenderPass(m_VKSurfaceFormat, m_VKDepthFormat ); Err )
             return Err;
 
         //
@@ -286,7 +404,7 @@ namespace xgpu::vulkan
         // Create Framebuffer
         //
         {
-            std::array<VkImageView,1> Attachment;
+            std::array<VkImageView,2> Attachment;
             VkFramebufferCreateInfo CreateInfo
             {
                 .sType              = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO
@@ -302,6 +420,7 @@ namespace xgpu::vulkan
             {
                 auto& Frame = m_Frames[i];
                 Attachment[0] = Frame.m_VKBackbufferView;
+                Attachment[1] = m_VKDepthbufferView;
                 if( auto VKErr = vkCreateFramebuffer( m_Device->m_VKDevice, &CreateInfo, pAllocator, &Frame.m_VKFramebuffer ); VKErr )
                 {
                     m_Device->m_Instance->ReportError(VKErr, "Unable to create a Frame Buffer");
@@ -404,26 +523,12 @@ namespace xgpu::vulkan
 
     //--------------------------------------------------------------------------------------------
 
-    xgpu::device::error* window::CreateRenderPass( VkSurfaceFormatKHR& VKSurfaceFormat ) noexcept
+    xgpu::device::error* window::CreateRenderPass( VkSurfaceFormatKHR& VKColorSurfaceFormat, VkFormat& VKDepthSurfaceFormat ) noexcept
     {
         //
         // Create the Render Pass
         //
-        auto Attachment = std::array
-        {
-            VkAttachmentDescription
-            {
-                .format             = VKSurfaceFormat.format
-            ,   .samples            = VK_SAMPLE_COUNT_1_BIT
-            ,   .loadOp             = m_bClearOnRender ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_DONT_CARE
-            ,   .storeOp            = VK_ATTACHMENT_STORE_OP_STORE
-            ,   .stencilLoadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE
-            ,   .stencilStoreOp     = VK_ATTACHMENT_STORE_OP_DONT_CARE
-            ,   .initialLayout      = VK_IMAGE_LAYOUT_UNDEFINED
-            ,   .finalLayout        = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-            }
-        };
-        auto ColorAttachment = std::array
+        auto ColorAttachmentRef = std::array
         {
             VkAttachmentReference
             {
@@ -431,16 +536,25 @@ namespace xgpu::vulkan
             ,   .layout     = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
             }
         };
-        auto Subpass = std::array
+        auto DepthAttachmentRef = std::array
+        {
+            VkAttachmentReference
+            {
+                .attachment = 1
+            ,   .layout     = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+            }
+        };
+        auto SubpassDesc = std::array
         {
             VkSubpassDescription 
             {
-                .pipelineBindPoint      = VK_PIPELINE_BIND_POINT_GRAPHICS
-            ,   .colorAttachmentCount   = static_cast<std::uint32_t>(ColorAttachment.size())
-            ,   .pColorAttachments      = ColorAttachment.data()
+                .pipelineBindPoint       = VK_PIPELINE_BIND_POINT_GRAPHICS
+            ,   .colorAttachmentCount    = static_cast<std::uint32_t>(ColorAttachmentRef.size())
+            ,   .pColorAttachments       = ColorAttachmentRef.data()
+            ,   .pDepthStencilAttachment = DepthAttachmentRef.data()
             }
         };
-        auto Dependency = std::array
+        auto SubpassDependency = std::array
         {
             VkSubpassDependency 
             {
@@ -452,15 +566,46 @@ namespace xgpu::vulkan
             ,   .dstAccessMask      = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
             }
         };
+        auto AttachmentDesc = std::array
+        {
+            //
+            // Color Attachment
+            //
+            VkAttachmentDescription
+            {
+                .format             = VKColorSurfaceFormat.format
+            ,   .samples            = VK_SAMPLE_COUNT_1_BIT
+            ,   .loadOp             = m_bClearOnRender ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_DONT_CARE
+            ,   .storeOp            = VK_ATTACHMENT_STORE_OP_STORE
+            ,   .stencilLoadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE
+            ,   .stencilStoreOp     = VK_ATTACHMENT_STORE_OP_DONT_CARE
+            ,   .initialLayout      = VK_IMAGE_LAYOUT_UNDEFINED
+            ,   .finalLayout        = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+            }
+            //
+            // Depth Attachment
+            //
+        ,   VkAttachmentDescription
+            {
+                .format             = VKDepthSurfaceFormat
+            ,   .samples            = VK_SAMPLE_COUNT_1_BIT
+            ,   .loadOp             = VK_ATTACHMENT_LOAD_OP_CLEAR
+            ,   .storeOp            = VK_ATTACHMENT_STORE_OP_DONT_CARE
+            ,   .stencilLoadOp      = VK_ATTACHMENT_LOAD_OP_DONT_CARE
+            ,   .stencilStoreOp     = VK_ATTACHMENT_STORE_OP_DONT_CARE
+            ,   .initialLayout      = VK_IMAGE_LAYOUT_UNDEFINED
+            ,   .finalLayout        = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+            }
+        };
         auto CreateInfo = VkRenderPassCreateInfo
         {
             .sType              = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO
-        ,   .attachmentCount    = static_cast<std::uint32_t>(Attachment.size())
-        ,   .pAttachments       = Attachment.data()
-        ,   .subpassCount       = static_cast<std::uint32_t>(Subpass.size())
-        ,   .pSubpasses         = Subpass.data()
-        ,   .dependencyCount    = static_cast<std::uint32_t>(Dependency.size())
-        ,   .pDependencies      = Dependency.data()
+        ,   .attachmentCount    = static_cast<std::uint32_t>(AttachmentDesc.size())
+        ,   .pAttachments       = AttachmentDesc.data()
+        ,   .subpassCount       = static_cast<std::uint32_t>(SubpassDesc.size())
+        ,   .pSubpasses         = SubpassDesc.data()
+        ,   .dependencyCount    = static_cast<std::uint32_t>(SubpassDependency.size())
+        ,   .pDependencies      = SubpassDependency.data()
         };
 
         if( auto VKErr = vkCreateRenderPass( m_Device->m_VKDevice, &CreateInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKRenderPass ); VKErr )
@@ -573,6 +718,20 @@ namespace xgpu::vulkan
                                                 , requestSurfaceImageFormat
                                                 , requestSurfaceColorSpace );
 
+        //
+        // Select Depth Format
+        //
+        constexpr auto requestDepthFormats = std::array
+        { VK_FORMAT_D32_SFLOAT
+        , VK_FORMAT_D32_SFLOAT_S8_UINT
+        , VK_FORMAT_D24_UNORM_S8_UINT
+        };
+
+        m_VKDepthFormat = SelectDepthFormat( m_Device->m_VKPhysicalDevice
+                                           , requestDepthFormats
+                                           , VK_IMAGE_TILING_OPTIMAL
+                                           , VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT
+                                           );
         //
         // Select Present Mode
         // FIXME-VULKAN: Even thought mailbox seems to get us maximum framerate with a single window,

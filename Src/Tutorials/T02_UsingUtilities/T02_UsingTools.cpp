@@ -107,13 +107,13 @@ int T02_Example()
                 return xgpu::getErrorInt(Err);
         }
 
-        auto Shaders = std::array<const xgpu::shader*, 2>{ &MyFragmentShader, & MyVertexShader };
+        auto Shaders  = std::array<const xgpu::shader*, 2>{ &MyFragmentShader, & MyVertexShader };
         auto Samplers = std::array{ xgpu::pipeline::sampler{} };
-        auto Setup = xgpu::pipeline::setup
+        auto Setup    = xgpu::pipeline::setup
         {
             .m_VertexDescriptor = VertexDescriptor
-        ,   .m_Shaders = Shaders
-        ,   .m_Samplers = Samplers
+        ,   .m_Shaders          = Shaders
+        ,   .m_Samplers         = Samplers
         };
 
         if (auto Err = Device.Create(PipeLine, Setup); Err)
@@ -146,8 +146,8 @@ int T02_Example()
                 return xgpu::getErrorInt(Err);
         }
 
-        auto  Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
-        auto  Setup = xgpu::pipeline_instance::setup
+        auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
+        auto Setup    = xgpu::pipeline_instance::setup
         { .m_PipeLine = PipeLine
         ,   .m_SamplersBindings = Bindings
         };
@@ -232,6 +232,13 @@ int T02_Example()
     //
     xgpu::tools::view View;
 
+    xgpu::mouse Mouse;
+    {
+        Instance.Create( Mouse, {} );
+    }
+
+    xcore::radian3 Angles;
+    float          Distance = 2;
     while (Instance.ProcessInputEvents())
     {
         for (auto& W : lWindow)
@@ -248,8 +255,16 @@ int T02_Example()
                 CmdBuffer.setBuffer(VertexBuffer);
                 CmdBuffer.setBuffer(IndexBuffer);
 
-                View.setPosition({ 5.0f, 5.0f, -5.5f });
-                View.LookAt({0,0,0});
+                View.LookAt( Distance, Angles, {0,0,0}) ;
+
+                if ( Mouse.isPressed( xgpu::mouse::digital::BTN_RIGHT ) )
+                {
+                    auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
+                    Angles.m_Pitch.m_Value -= 0.01f * MousePos[1];
+                    Angles.m_Yaw.m_Value   -= 0.01f * MousePos[0];
+                }
+                Distance += -1.0f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
+
                 const auto W2C = View.getW2C();
 
                 xcore::matrix4 L2W;
