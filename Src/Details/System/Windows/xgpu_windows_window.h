@@ -20,9 +20,21 @@ namespace xgpu::windows
             return m_isMinimize;
         }
 
-        HWND getWindowHandle( void ) noexcept
+        virtual     std::size_t                     getSystemWindowHandle(void) const                                  noexcept override
         {
-            return m_hWindow;
+            return reinterpret_cast<std::size_t>(m_hWindow);
+        }
+
+        virtual     bool                            isFocused(void) const                                              noexcept override
+        {
+            return m_hWindow == GetFocus();
+        }
+
+        virtual     std::pair<int, int>             getPosition(void) const                                            noexcept override
+        {
+            RECT Rect;
+            GetWindowRect(m_hWindow, &Rect);
+            return{ Rect.left, Rect.top };
         }
 
         bool                            getResizedAndReset( void ) noexcept

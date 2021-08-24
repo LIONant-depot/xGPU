@@ -83,10 +83,12 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="..\..\Src\Tutorials\E03_ImguiBreatch\E03_ImguiBreach.cpp" />
     <ClCompile Include="..\..\Src\Tutorials\main.cpp" />
     <ClCompile Include="..\..\Src\Tutorials\T01_Initialize\T01_Initialize.cpp" />
     <ClCompile Include="..\..\Src\Tutorials\T02_UsingUtilities\T02_UsingTools.cpp" />
     <ClCompile Include="..\..\Src\xGPU.cpp" />
+    <ClCompile Include="..\..\Tools\xgpu_imgui_breach.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui.h" />
@@ -193,6 +195,7 @@
     <ClInclude Include="..\..\Src\xGPU_texture.h" />
     <ClInclude Include="..\..\Src\xGPU_vertex_descriptor.h" />
     <ClInclude Include="..\..\Src\xGPU_window.h" />
+    <ClInclude Include="..\..\Tools\xgpu_imgui_breach.h" />
     <ClInclude Include="..\..\Tools\xgpu_view.h" />
     <ClInclude Include="..\..\Tools\xgpu_view_inline.h" />
   </ItemGroup>
@@ -253,7 +256,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
     <SourcePath>$(VC_SourcePath);</SourcePath>
-    <IncludePath>../../Src\Tutorials\Settings;$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../Dependencies\xcore\src;./;../../src</IncludePath>
+    <IncludePath>../../Src\Tutorials\Settings;$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../Dependencies\xcore\src;./;../../src;../../Dependencies\xcore\dependencies\tracy\imgui</IncludePath>
     <PublicIncludeDirectories>
     </PublicIncludeDirectories>
   </PropertyGroup>

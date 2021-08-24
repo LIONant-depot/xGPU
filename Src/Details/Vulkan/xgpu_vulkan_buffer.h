@@ -2,11 +2,16 @@ namespace xgpu::vulkan
 {
     struct buffer final : xgpu::details::buffer_handle
     {
+        virtual                        ~buffer                  ( void )                                                                noexcept override;
                 xgpu::device::error*    Initialize              ( std::shared_ptr<device>&& Device, const xgpu::buffer::setup& Setup )  noexcept;
         virtual xgpu::device::error*    MapLock                 ( void*& pMemory, int StartIndex, int Count )                           noexcept override;
         virtual xgpu::device::error*    MapUnlock               ( int StartIndex, int Count )                                           noexcept override;
         virtual int                     getEntryCount           ( void ) const                                                          noexcept override;
+        virtual xgpu::buffer::error*    Resize            ( int NewEntryCount )                                                   noexcept override;
+
                 xgpu::device::error*    TransferToDestination   ( void )                                                                noexcept;
+                xgpu::device::error*    Create                  ( const xgpu::buffer::setup& Setup )                                    noexcept;
+                void                    Destroy                 ( void )                                                                noexcept;
 
 
         std::shared_ptr<device>     m_Device            {};

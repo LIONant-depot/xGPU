@@ -19,6 +19,11 @@ namespace xgpu
             virtual     void                            setScissor              ( int x, int y, int w, int h )                              noexcept = 0;
             virtual     void                            setConstants            ( xgpu::shader::type Type, int Offset, const void* pData, int Size ) noexcept = 0;
             virtual     void                            setClearColor           ( float R, float G, float B, float A )                      noexcept = 0;
+            virtual     std::size_t                     getSystemWindowHandle   ( void ) const                                              noexcept = 0;
+            virtual     bool                            isFocused               ( void ) const                                              noexcept = 0;
+            virtual     std::pair<int, int>             getPosition             ( void ) const                                              noexcept = 0;
+
+
 
 //            virtual     bool                            HandleEvents(void)                                                    noexcept = 0;
             //            virtual     void                            BeginRender             ( const eng_view& View, const bool bUpdateViewPort = true ) noexcept = 0;
@@ -36,7 +41,7 @@ namespace xgpu
 
     //--------------------------------------------------------------------------
 
-    VGPU_INLINE
+    XGPU_INLINE
     bool window::isValid(void) const noexcept
     {
         return m_Private.get() != nullptr;
@@ -44,7 +49,7 @@ namespace xgpu
 
     //--------------------------------------------------------------------------
 
-    VGPU_INLINE
+    XGPU_INLINE
     int window::getWidth(void) const noexcept
     {
         return m_Private->getWidth();
@@ -52,14 +57,14 @@ namespace xgpu
 
     //--------------------------------------------------------------------------
 
-    VGPU_INLINE
+    XGPU_INLINE
     int window::getHeight(void) const noexcept
     {
         return m_Private->getHeight();
     }
 
     //--------------------------------------------------------------------------
-    VGPU_INLINE
+    XGPU_INLINE
     void window::PageFlip(void) noexcept
     {
         m_Private->PageFlip();
@@ -67,7 +72,7 @@ namespace xgpu
 
     //--------------------------------------------------------------------------
 
-    VGPU_INLINE
+    XGPU_INLINE
     cmd_buffer window::getCmdBuffer( void ) noexcept
     {
         m_Private->RenderBegin();
@@ -76,7 +81,7 @@ namespace xgpu
 
     //--------------------------------------------------------------------------
 
-    VGPU_INLINE
+    XGPU_INLINE
     [[nodiscard]] bool
     window::isMinimized(void) const noexcept
     {
@@ -85,11 +90,35 @@ namespace xgpu
 
     //--------------------------------------------------------------------------
 
-    VGPU_INLINE
+    XGPU_INLINE
     void window::setClearColor( float R, float G, float B, float A) noexcept
     {
         return m_Private->setClearColor(R,G,B,A);
     }
 
+    //--------------------------------------------------------------------------
+
+    XGPU_INLINE
+    [[nodiscard]] std::size_t
+    window::getSystemWindowHandle( void ) const noexcept
+    {
+        return m_Private->getSystemWindowHandle();
+    }
+
+    //--------------------------------------------------------------------------
+
+    XGPU_INLINE [[nodiscard]] bool
+    window::isFocused(void) const noexcept
+    {
+        return m_Private->isFocused();
+    }
+
+    //--------------------------------------------------------------------------
+
+    XGPU_INLINE [[nodiscard]]
+    std::pair<int, int> window::getPosition(void) const noexcept
+    {
+        return m_Private->getPosition();
+    }
 
 }

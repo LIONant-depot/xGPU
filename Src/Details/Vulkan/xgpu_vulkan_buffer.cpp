@@ -4,10 +4,17 @@ namespace xgpu::vulkan
 
     xgpu::device::error* buffer::Initialize( std::shared_ptr<device>&& Device, const xgpu::buffer::setup& Setup ) noexcept
     {
+        m_Device = Device;
+        return Create(Setup);
+    }
+
+    //----------------------------------------------------------------------------------
+
+    xgpu::device::error* buffer::Create(const xgpu::buffer::setup& Setup) noexcept
+    {
         assert(Setup.m_EntryCount >= 3 );
         assert(Setup.m_EntryByteSize > 0);
 
-        m_Device = Device;
         m_Type   = Setup.m_Type;
         m_Usage  = Setup.m_Usage;
 
@@ -230,4 +237,45 @@ namespace xgpu::vulkan
         return m_nEntries;
     }
 
+    //----------------------------------------------------------------------------------
+
+    xgpu::buffer::error* buffer::Resize( int NewEntryCount ) noexcept
+    {
+        assert( m_Usage != xgpu::buffer::setup::usage::GPU_READ );
+
+        const xgpu::buffer::setup Setup
+        { .m_Type           = m_Type
+        , .m_Usage          = m_Usage
+        , .m_EntryByteSize  = m_EntrySizeBytes
+        , .m_EntryCount     = m_nEntries
+        };
+
+        Destroy();
+
+        return reinterpret_cast<xgpu::buffer::error*>(Create(Setup));
+    }
+
+    //----------------------------------------------------------------------------------
+
+    buffer::~buffer(void) noexcept
+    {
+        Destroy();
+    }
+
+    //----------------------------------------------------------------------------------
+
+    void buffer::Destroy(void) noexcept
+    {
+        if(m_VKBuffer)
+        {
+            vkDestroyBuffer( m_Device->m_VKDevice, m_VKBuffer, m_Device->m_Instance->m_pVKAllocator );
+            m_VKBuffer = VK_NULL_HANDLE;
+        }
+
+        if(m_VKBufferMemory)
+        {
+            vkFreeMemory(m_Device->m_VKDevice, m_VKBufferMemory, m_Device->m_Instance->m_pVKAllocator );
+            m_VKBufferMemory = VK_NULL_HANDLE;
+        }
+    }
 }

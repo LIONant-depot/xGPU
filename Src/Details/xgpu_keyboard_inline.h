@@ -12,21 +12,21 @@ namespace xgpu
     }
 
     //------------------------------------------------------------------------
-    VGPU_INLINE
+    XGPU_INLINE
     [[nodiscard]] bool keyboard::isPressed( digital ButtonID ) const noexcept
     {
         return m_Private->isPressedGeneric( static_cast<int>(ButtonID) );
     }
 
     //------------------------------------------------------------------------
-    VGPU_INLINE
+    XGPU_INLINE
     [[nodiscard]] bool keyboard::wasPressed( digital ButtonID ) const noexcept
     {
         return m_Private->wasPressedGeneric( static_cast<int>(ButtonID) );
     }
 
     //------------------------------------------------------------------------
-    VGPU_INLINE
+    XGPU_INLINE
     [[nodiscard]] int keyboard::getLatestChar( void ) const noexcept
     {
         return m_Private->getLatestChar();

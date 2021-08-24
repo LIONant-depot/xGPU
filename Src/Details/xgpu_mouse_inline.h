@@ -12,21 +12,21 @@ namespace xgpu
     }
 
     //----------------------------------------------------------------------------
-    VGPU_INLINE
+    XGPU_INLINE
     [[nodiscard]] bool mouse::isPressed( digital ButtonID ) const noexcept
     {
         return m_Private->isPressedGeneric(static_cast<int>(ButtonID));
     }
 
     //----------------------------------------------------------------------------
-    VGPU_INLINE
+    XGPU_INLINE
     [[nodiscard]] bool mouse::wasPressed( digital ButtonID ) const noexcept
     {
         return m_Private->wasPressedGeneric(static_cast<int>(ButtonID));
     }
 
     //----------------------------------------------------------------------------
-    VGPU_INLINE
+    XGPU_INLINE
     [[nodiscard]] std::array<float, 2> mouse::getValue( analog  PosID) const noexcept
     {
         return m_Private->getValueGeneric(static_cast<int>(PosID));

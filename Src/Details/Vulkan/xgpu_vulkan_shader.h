@@ -6,7 +6,7 @@ namespace xgpu::vulkan
                                         , const xgpu::shader::setup&        Setup
                                         ) noexcept;
 
-        using push_constant_array = std::array<VkPushConstantRange, 16>;
+        using push_constant_array = std::array<VkPushConstantRange, 1>;
 
         std::shared_ptr<vulkan::device> m_Device                {};
         VkShaderModule                  m_VKShaderModule        {};

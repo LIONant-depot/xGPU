@@ -1,3 +1,10 @@
+#ifndef _XGPU
+#define _XGPU
+#pragma once
+
+//
+// System Headers
+//
 #include<array>
 #include<memory>
 #include<string>
@@ -7,14 +14,20 @@
 #include<cassert>
 #include<mutex>
 
-#define VGPU_INLINE __forceinline
+//
+// Utility macros
+//
+#define XGPU_INLINE __forceinline
 
 #ifdef _DEBUG
-    #define VGPU_DEBUG_CMD(A) A
+    #define XGPU_DEBUG_CMD(A) A
 #else
-    #define VGPU_DEBUG_CMD(A) (void)
+    #define XGPU_DEBUG_CMD(A) (void)
 #endif
 
+//
+// Predefinitions 
+//
 namespace xgpu::details
 {
     struct window_handle;
@@ -31,6 +44,9 @@ namespace xgpu::details
     struct buffer_handle;
 }
 
+//
+// Helpful classes
+//
 namespace xgpu::details
 {
     template< auto T_ERR, std::size_t T_SIZE >
@@ -47,14 +63,14 @@ namespace xgpu::details
 
 namespace xgpu
 {
-    template<typename T> VGPU_INLINE
+    template<typename T> XGPU_INLINE
     const char* getErrorMsg(T pErr) noexcept
     {
         assert( pErr != nullptr );
         return reinterpret_cast<const char*>(&pErr[1]);
     }
 
-    template<typename T> VGPU_INLINE
+    template<typename T> XGPU_INLINE
     int getErrorInt(T pErr) noexcept
     {
         if(pErr == nullptr) return 0;
@@ -81,15 +97,15 @@ namespace xgpu
 
         auto&   get         ( void ) noexcept       { assert(m_Locked);  return m_Value;               }
         auto&   get         ( void ) const noexcept { assert(m_Locked);  return m_Value;               }
-        void    lock        ( void ) noexcept       { assert(!m_Locked); m_Mutex.lock();                    VGPU_DEBUG_CMD(m_Locked = true); }
-        void    unlock      ( void ) noexcept       { assert(m_Locked);  VGPU_DEBUG_CMD(m_Locked = false);  m_Mutex.unlock(); }
-        bool    try_lock    ( void ) noexcept       { if( m_Mutex.try_lock() ) { assert(!m_Locked); VGPU_DEBUG_CMD(m_Locked = true); return true; } return false; }
+        void    lock        ( void ) noexcept       { assert(!m_Locked); m_Mutex.lock();                    XGPU_DEBUG_CMD(m_Locked = true); }
+        void    unlock      ( void ) noexcept       { assert(m_Locked);  XGPU_DEBUG_CMD(m_Locked = false);  m_Mutex.unlock(); }
+        bool    try_lock    ( void ) noexcept       { if( m_Mutex.try_lock() ) { assert(!m_Locked); XGPU_DEBUG_CMD(m_Locked = true); return true; } return false; }
 
     protected:
 
         std::mutex  m_Mutex     {};
         T           m_Value     {};
-        VGPU_DEBUG_CMD( bool m_Locked = false );
+        XGPU_DEBUG_CMD( bool m_Locked = false );
     };
 
     #define VGPU_ERROR(CODE,STR) [&]{ static constexpr auto StrError = xgpu::details::GenerateError<CODE>( STR ); return const_cast<std::decay_t<decltype(CODE)>*>(reinterpret_cast<const decltype(CODE)*>(StrError.data())); }()
@@ -128,3 +144,4 @@ namespace xgpu
 #include "details/xgpu_texture_inline.h"
 #include "details/xgpu_texture_instance_inline.h"
 
+#endif

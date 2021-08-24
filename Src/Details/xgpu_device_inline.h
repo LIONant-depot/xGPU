@@ -38,7 +38,7 @@ namespace xgpu
 
     //------------------------------------------------------------------------------------------------
 
-    VGPU_INLINE
+    XGPU_INLINE
     [[nodiscard]] device::error* 
     device::Create
     ( window&               Window
@@ -50,7 +50,7 @@ namespace xgpu
 
     //------------------------------------------------------------------------------------------------
 
-    VGPU_INLINE
+    XGPU_INLINE
     [[nodiscard]] device::error* 
     device::Create
     (
@@ -63,7 +63,7 @@ namespace xgpu
 
     //------------------------------------------------------------------------------------------------
 
-    VGPU_INLINE 
+    XGPU_INLINE 
     [[nodiscard]] device::error*
     device::Create
     ( shader&               Shader
@@ -75,7 +75,7 @@ namespace xgpu
 
     //------------------------------------------------------------------------------------------------
 
-    VGPU_INLINE 
+    XGPU_INLINE 
     [[nodiscard]] device::error* 
     device::Create
     ( vertex_descriptor&                VDescriptor
@@ -87,7 +87,7 @@ namespace xgpu
 
     //------------------------------------------------------------------------------------------------
 
-    VGPU_INLINE 
+    XGPU_INLINE 
     [[nodiscard]] device::error* 
     device::Create
     ( texture&                          Texture
@@ -99,7 +99,7 @@ namespace xgpu
 
     //------------------------------------------------------------------------------------------------
 
-    VGPU_INLINE 
+    XGPU_INLINE 
     [[nodiscard]] device::error* 
     device::Create
     ( pipeline_instance&                PipelineInstance

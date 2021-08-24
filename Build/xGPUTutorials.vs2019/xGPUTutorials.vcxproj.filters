@@ -46,6 +46,9 @@
     <Filter Include="Tools">
       <UniqueIdentifier>{5d174e8e-9482-4886-a92d-00c8ce1d1ec9}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Tutorials\Example 03 Imgui Breach">
+      <UniqueIdentifier>{65988b05-ce6e-4da7-9cd4-d76501b64dd3}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Src\Tutorials\main.cpp" />
@@ -129,6 +132,12 @@
     </ClCompile>
     <ClCompile Include="..\..\Src\Tutorials\T02_UsingUtilities\T02_UsingTools.cpp">
       <Filter>Tutorials\Example 02 Using Tools</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Tutorials\E03_ImguiBreatch\E03_ImguiBreach.cpp">
+      <Filter>Tutorials\Example 03 Imgui Breach</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Tools\xgpu_imgui_breach.cpp">
+      <Filter>Tools</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -448,6 +457,9 @@
       <Filter>Tools</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Tools\xgpu_view_inline.h">
+      <Filter>Tools</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Tools\xgpu_imgui_breach.h">
       <Filter>Tools</Filter>
     </ClInclude>
   </ItemGroup>

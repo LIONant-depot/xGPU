@@ -73,15 +73,16 @@ namespace xgpu
             ,   ENUM_COUNT
             };
 
-            inline      void    setupBlendOff           ( void ) noexcept;
-            inline      void    setupAlphaOriginal      ( void ) noexcept;
-            inline      void    setupAlphaPreMultiply   ( void ) noexcept;
-            inline      void    setupMuliply            ( void ) noexcept;
-            inline      void    setupAdd                ( void ) noexcept;
-            inline      void    setupSubSrcFromDest     ( void ) noexcept;
-            inline      void    setupSubDestFromSrc     ( void ) noexcept;
+            constexpr static   blend    getBlendOff           ( void ) noexcept;
+            constexpr static   blend    getAlphaOriginal      ( void ) noexcept;
+            constexpr static   blend    getAlphaPreMultiply   ( void ) noexcept;
+            constexpr static   blend    getMuliply            ( void ) noexcept;
+            constexpr static   blend    getAdd                ( void ) noexcept;
+            constexpr static   blend    getSubSrcFromDest     ( void ) noexcept;
+            constexpr static   blend    getSubDestFromSrc     ( void ) noexcept;
 
             std::uint8_t    m_ColorWriteMask    { 0b1111 };       // One bit per component R,G,B,A
+            bool            m_bEnable           { false };
 
             factor          m_ColorSrcFactor    { factor::ONE };
             factor          m_ColorDstFactor    { factor::ZERO };
@@ -90,8 +91,6 @@ namespace xgpu
             factor          m_AlphaSrcFactor    { factor::ZERO };
             factor          m_AlphaDstFactor    { factor::ZERO };
             op              m_AlphaOperation    { op::ADD };
-
-            bool            m_bEnable           { false };
         };
 
         struct depth_stencil

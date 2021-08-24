@@ -29,31 +29,31 @@ namespace xgpu
             discreate   m_Discreate         { discreate::ANY_GPU };
         };
 
-        VGPU_INLINE [[nodiscard]] device::error* Create( window&                            Window
+        XGPU_INLINE [[nodiscard]] device::error* Create( window&                            Window
                                                        , const window::setup&               Setup 
                                                        ) noexcept;
 
-        VGPU_INLINE [[nodiscard]] device::error* Create( pipeline&                          Pipeline
+        XGPU_INLINE [[nodiscard]] device::error* Create( pipeline&                          Pipeline
                                                        , const pipeline::setup&             Setup 
                                                        ) noexcept;
 
-        VGPU_INLINE [[nodiscard]] device::error* Create( pipeline_instance&                 PipelineInstance
+        XGPU_INLINE [[nodiscard]] device::error* Create( pipeline_instance&                 PipelineInstance
                                                        , const pipeline_instance::setup&    Setup 
                                                        ) noexcept;
 
-        VGPU_INLINE [[nodiscard]] device::error* Create( shader&                            Shader
+        XGPU_INLINE [[nodiscard]] device::error* Create( shader&                            Shader
                                                        , const shader::setup&               Setup 
                                                        ) noexcept;
 
-        VGPU_INLINE [[nodiscard]] device::error* Create( vertex_descriptor&                 VDescriptor
+        XGPU_INLINE [[nodiscard]] device::error* Create( vertex_descriptor&                 VDescriptor
                                                        , const vertex_descriptor::setup&    Setup 
                                                        ) noexcept;
 
-        VGPU_INLINE [[nodiscard]] device::error* Create( texture&                           Texture
+        XGPU_INLINE [[nodiscard]] device::error* Create( texture&                           Texture
                                                        , const texture::setup&              Setup 
                                                        ) noexcept;
 
-        VGPU_INLINE [[nodiscard]] device::error* Create( buffer&                            Buffer
+        XGPU_INLINE [[nodiscard]] device::error* Create( buffer&                            Buffer
                                                        , const buffer::setup&               Setup 
                                                        ) noexcept;
 

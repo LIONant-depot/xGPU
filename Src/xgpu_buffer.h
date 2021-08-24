@@ -30,10 +30,14 @@ namespace xgpu
         };
 
         template< typename T_CALLBACK >
-        error*              MemoryMap        ( int StartIndex, int Count, T_CALLBACK&& Callback ) noexcept;
+        error*              MemoryMap           ( int StartIndex, int Count, T_CALLBACK&& Callback ) noexcept;
 
-        VGPU_INLINE
-        [[nodiscard]] int   getEntryCount    ( void ) const noexcept;
+        XGPU_INLINE
+        [[nodiscard]] int   getEntryCount       ( void ) const noexcept;
+
+        XGPU_INLINE
+        [[nodiscard]] 
+        error*              Resize              ( int NewEntryCount ) noexcept;
 
         std::unique_ptr<details::buffer_handle> m_Private{};
     };

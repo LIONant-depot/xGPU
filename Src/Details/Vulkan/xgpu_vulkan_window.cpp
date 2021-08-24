@@ -675,7 +675,7 @@ namespace xgpu::vulkan
             ,   .pNext      = nullptr
             ,   .flags      = 0
             ,   .hinstance  = GetModuleHandle(NULL)
-            ,   .hwnd       = xgpu::system::window::getWindowHandle()
+            ,   .hwnd       = reinterpret_cast<HWND>(xgpu::system::window::getSystemWindowHandle())
             };
 
             if( auto VKErr = VKCreateWin32Surface(Instance->m_VKInstance, &SurfaceCreateInfo, nullptr, &m_VKSurface ); VKErr )

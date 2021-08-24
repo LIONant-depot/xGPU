@@ -263,7 +263,7 @@ namespace xgpu::windows
     };
 
     //----------------------------------------------------------------------------------
-    constexpr VGPU_INLINE
+    constexpr XGPU_INLINE
     int OSKeyToKeyboardInputKeyCode( const int Key ) noexcept
     {
         return (int)s_OSKeyToKeyboardInputKeyCode[Key];

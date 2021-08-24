@@ -8,6 +8,7 @@ namespace xgpu
             virtual xgpu::device::error*                MapLock         ( void*& pMemory, int StartIndex, int Count )   noexcept = 0;
             virtual xgpu::device::error*                MapUnlock       ( int StartIndex, int Count )                   noexcept = 0;
             virtual int                                 getEntryCount   ( void )                                  const noexcept = 0;
+            virtual xgpu::buffer::error*                Resize          ( int NewEntryCount )                           noexcept = 0;
         };
     }
 
@@ -28,6 +29,14 @@ namespace xgpu
     int buffer::getEntryCount(void) const noexcept
     {
         return m_Private->getEntryCount();
+    }
+
+    //--------------------------------------------------------------------------------------------------------
+
+    [[nodiscard]] xgpu::buffer::error* 
+    buffer::Resize(int NewEntryCount) noexcept
+    {
+        return m_Private->Resize( NewEntryCount );
     }
 
 }
