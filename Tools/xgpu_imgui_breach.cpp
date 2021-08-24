@@ -115,15 +115,6 @@ static auto g_FragShaderSPV = std::array
 
 //------------------------------------------------------------------------------------------------------------
 
-struct imgui_vert
-{
-    float           m_X, m_Y, m_Z;
-    float           m_U, m_V;
-    std::uint32_t   m_Color;
-};
-
-//------------------------------------------------------------------------------------------------------------
-
 using clock        = std::chrono::high_resolution_clock;
 
 //------------------------------------------------------------------------------------------------------------
@@ -146,23 +137,23 @@ struct window_info
         {
             xgpu::vertex_descriptor::attribute
             {
-                .m_Offset = offsetof(imgui_vert, m_X)
-            ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT3
-            }
-        ,   xgpu::vertex_descriptor::attribute
-            {
-                .m_Offset = offsetof(imgui_vert, m_U)
+                .m_Offset = offsetof(ImDrawVert, pos)
             ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT2
             }
         ,   xgpu::vertex_descriptor::attribute
             {
-                .m_Offset = offsetof(imgui_vert, m_Color)
+                .m_Offset = offsetof(ImDrawVert, uv)
+            ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT2
+            }
+        ,   xgpu::vertex_descriptor::attribute
+            {
+                .m_Offset = offsetof(ImDrawVert, col)
             ,   .m_Format = xgpu::vertex_descriptor::format::UINT8_RGBA_NORMALIZED
             }
         };
         auto Setup = xgpu::vertex_descriptor::setup
         {
-            .m_VertexSize = sizeof(imgui_vert)
+            .m_VertexSize = sizeof(ImDrawVert)
         ,   .m_Attributes = Attributes
         };
 
@@ -194,7 +185,7 @@ struct window_info
             xgpu::buffer::setup Setup =
             { .m_Type           = xgpu::buffer::type::VERTEX
             , .m_Usage          = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ
-            , .m_EntryByteSize  = sizeof(imgui_vert)
+            , .m_EntryByteSize  = sizeof(ImDrawVert)
             , .m_EntryCount     = 3 * 1000
             };
 
@@ -208,7 +199,7 @@ struct window_info
             xgpu::buffer::setup Setup =
             { .m_Type           = xgpu::buffer::type::INDEX
             , .m_Usage          = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ
-            , .m_EntryByteSize  = sizeof(std::uint32_t)
+            , .m_EntryByteSize  = sizeof(ImDrawIdx)
             , .m_EntryCount     = 3 * 1000
             };
 
@@ -252,14 +243,14 @@ struct window_info
             {
                 m_IndexBuffer.MemoryMap(0, m_IndexBuffer.getEntryCount(), [&](void* pI)
                 {
-                    auto pVertex = reinterpret_cast<imgui_vert*>(pV);
-                    auto pIndex = reinterpret_cast<std::uint32_t*>(pI);
+                    auto pVertex = reinterpret_cast<ImDrawVert*>(pV);
+                    auto pIndex  = reinterpret_cast<ImDrawIdx*>(pI);
 
                     for (int n = 0; n < draw_data->CmdListsCount; n++)
                     {
                         const ImDrawList* cmd_list = draw_data->CmdLists[n];
-                        std::memcpy(pVertex, cmd_list->VtxBuffer.Data, cmd_list->VtxBuffer.Size * sizeof(imgui_vert));
-                        std::memcpy(pIndex,  cmd_list->IdxBuffer.Data, cmd_list->IdxBuffer.Size * sizeof(std::uint32_t));
+                        std::memcpy(pVertex, cmd_list->VtxBuffer.Data, cmd_list->VtxBuffer.Size * sizeof(ImDrawVert));
+                        std::memcpy(pIndex,  cmd_list->IdxBuffer.Data, cmd_list->IdxBuffer.Size * sizeof(ImDrawIdx));
                         pVertex += cmd_list->VtxBuffer.Size;
                         pIndex  += cmd_list->IdxBuffer.Size;
                     }
@@ -451,6 +442,8 @@ struct breach_instance : window_info
                 .m_VertexDescriptor = m_VertexDescritor
             ,   .m_Shaders          = Shaders
             ,   .m_Samplers         = Samplers
+            ,   .m_Primitive        = { .m_FrontFace        = xgpu::pipeline::primitive::front_face::CLOCKWISE }
+            ,   .m_DepthStencil     = { .m_bDepthTestEnable = false }
             ,   .m_Blend            = xgpu::pipeline::blend::getAlphaOriginal()
             };
 
