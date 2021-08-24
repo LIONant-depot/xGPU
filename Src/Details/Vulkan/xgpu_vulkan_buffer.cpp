@@ -247,7 +247,7 @@ namespace xgpu::vulkan
         { .m_Type           = m_Type
         , .m_Usage          = m_Usage
         , .m_EntryByteSize  = m_EntrySizeBytes
-        , .m_EntryCount     = m_nEntries
+        , .m_EntryCount     = NewEntryCount
         };
 
         Destroy();
