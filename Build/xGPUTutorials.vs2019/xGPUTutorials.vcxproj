@@ -11,6 +11,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\Dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.cpp" />
     <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui.cpp" />
     <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_demo.cpp" />
     <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_draw.cpp" />
@@ -84,6 +85,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="..\..\Src\Tutorials\E03_ImguiBreatch\E03_ImguiBreach.cpp" />
+    <ClCompile Include="..\..\Src\Tutorials\E04_Properties\E04_Properties.cpp" />
     <ClCompile Include="..\..\Src\Tutorials\main.cpp" />
     <ClCompile Include="..\..\Src\Tutorials\T01_Initialize\T01_Initialize.cpp" />
     <ClCompile Include="..\..\Src\Tutorials\T02_UsingUtilities\T02_UsingTools.cpp" />
@@ -91,6 +93,8 @@
     <ClCompile Include="..\..\Tools\xgpu_imgui_breach.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\Dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyExample.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.h" />
     <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui.h" />
     <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_internal.h" />
     <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imstb_rectpack.h" />

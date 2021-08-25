@@ -1134,8 +1134,8 @@ namespace xgpu::vulkan
         if (x < 0) x = 0;
         if (y < 0) y = 0;
 
-        assert(w>0);
-        assert(h>0);
+        assert(w>=0);
+        assert(h>=0);
 
         m_DefaultScissor.offset.x       = x;
         m_DefaultScissor.offset.y       = y;

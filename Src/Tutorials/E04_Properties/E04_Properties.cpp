@@ -1,6 +1,9 @@
+#define PROPERTY_EDITOR
 #include "xGPU.h"
 #include "xcore.h"
 #include "../../tools/xgpu_imgui_breach.h"
+#include "../../dependencies/xcore/dependencies/properties/src/Examples/ImGuiExample/ImGuiPropertyInspector.h"
+#include "../../dependencies/xcore/dependencies/properties/src/Examples/ImGuiExample/ImGuiPropertyExample.h"
 
 //------------------------------------------------------------------------------------------------
 static
@@ -11,7 +14,7 @@ void DebugMessage(std::string_view View)
 
 //------------------------------------------------------------------------------------------------
 
-int E03_Example()
+int E04_Example()
 {
     xgpu::instance Instance;
     if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = DebugMessage, .m_pLogWarning = DebugMessage }); Err)
@@ -28,14 +31,14 @@ int E03_Example()
     //
     // Setup ImGui
     //
-    xgpu::tools::imgui::CreateInstance( Instance, Device, MainWindow );
+    xgpu::tools::imgui::CreateInstance(Instance, Device, MainWindow);
 
     //
     // Main loop
     //
     while (Instance.ProcessInputEvents())
     {
-        if( xgpu::tools::imgui::isMinimize() )
+        if (xgpu::tools::imgui::isMinimize())
             continue;
 
         //
@@ -43,6 +46,8 @@ int E03_Example()
         // 
         static bool show_demo_window = true;
         ImGui::ShowDemoWindow(&show_demo_window);
+
+        DrawPropertyWindow();
 
         //
         // Render

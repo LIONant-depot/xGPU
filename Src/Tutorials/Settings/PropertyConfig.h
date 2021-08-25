@@ -1,5 +1,5 @@
 
-using string_t = xcore::string::ref<char>;
+using string_t = std::string;
 
 //--------------------------------------------------------------------------------------------
 // Some structure to show that you can add your own atomic structures

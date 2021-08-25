@@ -30,6 +30,13 @@ call UpdateDependencies.bat "return"
 cd /d %MECS_PATH%
 
 rem ------------------------------------------------------------
+rem ASSIMP
+rem ------------------------------------------------------------
+
+rmdir "../dependencies/assimp" /S /Q
+git clone https://github.com/assimp/assimp.git "../dependencies/assimp"
+
+rem ------------------------------------------------------------
 rem Download and install ShaderC
 rem ------------------------------------------------------------
 

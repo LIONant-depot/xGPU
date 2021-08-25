@@ -49,6 +49,9 @@
     <Filter Include="Tutorials\Example 03 Imgui Breach">
       <UniqueIdentifier>{65988b05-ce6e-4da7-9cd4-d76501b64dd3}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Tutorials\Example 04 Properties">
+      <UniqueIdentifier>{4c2acf3d-e908-45b8-80e0-475d9dc2a717}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Src\Tutorials\main.cpp" />
@@ -138,6 +141,12 @@
     </ClCompile>
     <ClCompile Include="..\..\Tools\xgpu_imgui_breach.cpp">
       <Filter>Tools</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.cpp">
+      <Filter>Tutorials\Example 04 Properties</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Tutorials\E04_Properties\E04_Properties.cpp">
+      <Filter>Tutorials\Example 04 Properties</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -461,6 +470,12 @@
     </ClInclude>
     <ClInclude Include="..\..\Tools\xgpu_imgui_breach.h">
       <Filter>Tools</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.h">
+      <Filter>Tutorials\Example 04 Properties</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyExample.h">
+      <Filter>Tutorials\Example 04 Properties</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
