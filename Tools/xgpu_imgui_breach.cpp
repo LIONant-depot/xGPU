@@ -616,7 +616,10 @@ struct breach_instance : window_info
                     if( LastChar == m_Keyboard.getLatestChar() )
                     {
                         Sleep += io.DeltaTime;
-                        if(Sleep < repeat_rate_v) io.ClearInputCharacters();
+                        if(Sleep < repeat_rate_v) 
+                        {
+                            //io.ClearInputCharacters();
+                        }
                         else
                         {
                             Sleep = 0;
