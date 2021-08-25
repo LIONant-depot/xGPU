@@ -221,19 +221,20 @@ struct window_info
 
     void Render( ImGuiIO& io, ImDrawData* draw_data, xgpu::pipeline_instance& PipelineInstance ) noexcept
     {
-        if( draw_data->CmdListsCount == 0 ) return;
+        //
+        // Make sure we are fully sync up before touching any dependent resources
+        // In this case the (vertex and index buffer)
+        //
+        auto CmdBuffer = m_Window.getCmdBuffer();
+
+        if( draw_data->CmdListsCount == 0 ) 
+            return;
 
         // Avoid rendering when minimized, scale coordinates for retina displays (screen coordinates != framebuffer coordinates)
         const int fb_width  = (int)(draw_data->DisplaySize.x * draw_data->FramebufferScale.x);
         const int fb_height = (int)(draw_data->DisplaySize.y * draw_data->FramebufferScale.y);
         if (fb_width <= 0 || fb_height <= 0)
             return;
-
-        //
-        // Make sure we are fully sync up before touching any dependent resources
-        // In this case the (vertex and index buffer)
-        //
-        auto CmdBuffer = m_Window.getCmdBuffer();
 
         // Get the active primitives
         auto& Prim = m_PrimitiveBuffers[m_iFrame];
@@ -570,7 +571,7 @@ struct breach_instance : window_info
                         if ( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
                         {
                             auto [WindowX, WindowY] = Info.m_Window.getPosition();
-                            printf("Mouse[%d  %d]  Win+Mouse(%d  %d)\n", int(MouseValues[0]), int(MouseValues[1]), int(WindowX + MouseValues[0]), int(WindowY + MouseValues[1]));
+                            //printf("Mouse[%d  %d]  Win+Mouse(%d  %d)\n", int(MouseValues[0]), int(MouseValues[1]), int(WindowX + MouseValues[0]), int(WindowY + MouseValues[1]));
 
                             // Multi-viewport mode: mouse position in OS absolute coordinates (io.MousePos is (0,0) when the mouse is on the upper-left of the primary monitor)
                             io.MousePos = ImVec2( (float)WindowX + MouseValues[0], (float)WindowY + MouseValues[1] );
@@ -616,20 +617,25 @@ struct breach_instance : window_info
 
 //------------------------------------------------------------------------------------------------------------
 
-void Render( void ) noexcept
+bool isMinimize(void) noexcept
 {
     GETINSTANCE;
-    ImDrawData* pMainDrawData = ImGui::GetDrawData();
-    Instance.Render( io, pMainDrawData, Instance.m_PipelineInstance );
-}
+    if (Instance.m_Window.isMinimized())
+        return true;
 
+    Instance.StartNewFrame(io);
+
+    return false;
+}
 
 //------------------------------------------------------------------------------------------------------------
 
-void NewFrame( void ) noexcept
+void Render( void ) noexcept
 {
     GETINSTANCE;
-    Instance.StartNewFrame( io );
+    ImGui::Render();
+    ImDrawData* pMainDrawData = ImGui::GetDrawData();
+    Instance.Render( io, pMainDrawData, Instance.m_PipelineInstance );
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -767,7 +773,6 @@ xgpu::device::error* CreateInstance(xgpu::instance& Intance, xgpu::device& Devic
         monitor.MainPos = monitor.WorkPos = ImVec2((float)0, (float)0);
         monitor.MainSize = monitor.WorkSize = ImVec2((float)4000.0f, (float)4000.0f);
         platform_io.Monitors.push_back(monitor);
-
     }
 
 
@@ -834,4 +839,4 @@ void Shutdown( void ) noexcept
 }
 
 //------------------------------------------------------------------------------------------------------------
-} //xgpu::tools::imgui
+} //END (xgpu::tools::imgui)

@@ -31,22 +31,22 @@ namespace xgpu::windows
                     int yPos = raw->data.mouse.lLastY;
                     if (raw->data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)
                     {
-                        pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_REL][0] = static_cast<float>(xPos) - pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][0];
-                        pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_REL][1] = static_cast<float>(yPos) - pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][1];
+                        pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_REL)][0] = static_cast<float>(xPos) - pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][0];
+                        pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_REL)][1] = static_cast<float>(yPos) - pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][1];
 
-                        pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][0] = static_cast<float>(xPos);
-                        pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][1] = static_cast<float>(yPos);
+                        pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][0] = static_cast<float>(xPos);
+                        pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][1] = static_cast<float>(yPos);
                     }
                     else
                     {
-                        pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_REL][0] = static_cast<float>(xPos);
-                        pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_REL][1] = static_cast<float>(yPos);
+                        pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_REL)][0] = static_cast<float>(xPos);
+                        pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_REL)][1] = static_cast<float>(yPos);
 
                         POINT pos;
                         GetCursorPos(&pos);
                         ScreenToClient(hWnd, &pos);
-                        pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][0] = static_cast<float>(pos.x);
-                        pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][1] = static_cast<float>(pos.y);
+                        pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][0] = static_cast<float>(pos.x);
+                        pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][1] = static_cast<float>(pos.y);
                     }
                 }
             }
@@ -58,14 +58,14 @@ namespace xgpu::windows
                 auto x = static_cast<const int>(lParam & 0xffff);
                 auto y = static_cast<const int>(lParam >> 16);
 
-                pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_REL][0] = x - pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][0];
-                pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_REL][1] = y - pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][1];
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_REL)][0] = x - pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][0];
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_REL)][1] = y - pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][1];
 
-                pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][0] = static_cast<float>(x);
-                pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][1] = static_cast<float>(y);
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][0] = static_cast<float>(x);
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][1] = static_cast<float>(y);
 
-                pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::WHEEL_REL][0] = 0;
-                pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::WHEEL_REL][1] = 0;
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::WHEEL_REL)][0] = 0;
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::WHEEL_REL)][1] = 0;
             }
             break;
         case WM_MBUTTONDOWN:
@@ -74,19 +74,19 @@ namespace xgpu::windows
                 auto x = static_cast<const int>(lParam & 0xffff);
                 auto y = static_cast<const int>(lParam >> 16);
 
-                pWin->m_Mouse->m_ButtonIsDown[(int)xgpu::mouse::digital::BTN_MIDDLE] = 1;
-                pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][0] = static_cast<float>(x);
-                pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][1] = static_cast<float>(y);
+                pWin->m_Mouse->m_ButtonIsDown[static_cast<int>(xgpu::mouse::digital::BTN_MIDDLE)] = 1;
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][0] = static_cast<float>(x);
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][1] = static_cast<float>(y);
 
-                pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_REL][0] = 0;
-                pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_REL][1] = 0;
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_REL)][0] = 0;
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_REL)][1] = 0;
             }
             break;
         case WM_MBUTTONUP:
             if( auto pWin = reinterpret_cast<windows::window*>( GetWindowLongPtr( hWnd, GWLP_USERDATA ) ); pWin )
             {
-                pWin->m_Mouse->m_ButtonIsDown[(int)xgpu::mouse::digital::BTN_MIDDLE] = 0;
-                pWin->m_Mouse->m_ButtonWasDown[ pWin->m_Mouse->m_ButtonIndex ][ (int)xgpu::mouse::digital::BTN_MIDDLE ] = 1;
+                pWin->m_Mouse->m_ButtonIsDown[static_cast<int>(xgpu::mouse::digital::BTN_MIDDLE)] = 0;
+                pWin->m_Mouse->m_ButtonWasDown[ pWin->m_Mouse->m_ButtonIndex ][ static_cast<int>(xgpu::mouse::digital::BTN_MIDDLE) ] = 1;
             }
             break;
         case WM_LBUTTONDOWN:
@@ -95,19 +95,19 @@ namespace xgpu::windows
                 auto x = static_cast<const int>(lParam & 0xffff);
                 auto y = static_cast<const int>(lParam >> 16);
 
-                pWin->m_Mouse->m_ButtonIsDown[(int)xgpu::mouse::digital::BTN_LEFT] = 1;
-                pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][0] = static_cast<float>(x);
-                pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][1] = static_cast<float>(y);
+                pWin->m_Mouse->m_ButtonIsDown[static_cast<int>(xgpu::mouse::digital::BTN_LEFT)] = 1;
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][0]      = static_cast<float>(x);
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][1]      = static_cast<float>(y);
 
-                pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_REL][0] = 0;
-                pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_REL][1] = 0;
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_REL)][0] = 0;
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_REL)][1] = 0;
             }
             break;
         case WM_LBUTTONUP:
             if( auto pWin = reinterpret_cast<windows::window*>( GetWindowLongPtr( hWnd, GWLP_USERDATA ) ); pWin )
             {
-                pWin->m_Mouse->m_ButtonIsDown[(int)xgpu::mouse::digital::BTN_LEFT] = 0;
-                pWin->m_Mouse->m_ButtonWasDown[pWin->m_Mouse->m_ButtonIndex][(int)xgpu::mouse::digital::BTN_LEFT] = 1;
+                pWin->m_Mouse->m_ButtonIsDown[static_cast<int>(xgpu::mouse::digital::BTN_LEFT)] = 0;
+                pWin->m_Mouse->m_ButtonWasDown[pWin->m_Mouse->m_ButtonIndex][static_cast<int>(xgpu::mouse::digital::BTN_LEFT)] = 1;
             }
             break;
         case WM_RBUTTONDOWN:
@@ -116,32 +116,33 @@ namespace xgpu::windows
                 auto x = static_cast<const int>(lParam & 0xffff);
                 auto y = static_cast<const int>(lParam >> 16);
 
-                pWin->m_Mouse->m_ButtonIsDown[(int)xgpu::mouse::digital::BTN_RIGHT] = 1;
-                pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][0] = static_cast<float>(x);
-                pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][1] = static_cast<float>(y);
+                pWin->m_Mouse->m_ButtonIsDown[static_cast<int>(xgpu::mouse::digital::BTN_RIGHT)] = 1;
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][0] = static_cast<float>(x);
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][1] = static_cast<float>(y);
 
-                pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_REL][0] = 0;
-                pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_REL][1] = 0;
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_REL)][0] = 0;
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_REL)][1] = 0;
             }
             break;
         case WM_RBUTTONUP:
             if( auto pWin = reinterpret_cast<windows::window*>( GetWindowLongPtr( hWnd, GWLP_USERDATA ) ); pWin )
             {
-                pWin->m_Mouse->m_ButtonIsDown[(int)xgpu::mouse::digital::BTN_RIGHT] = 0;
-                pWin->m_Mouse->m_ButtonWasDown[pWin->m_Mouse->m_ButtonIndex][(int)xgpu::mouse::digital::BTN_RIGHT] = 1;
+                pWin->m_Mouse->m_ButtonIsDown[static_cast<int>(xgpu::mouse::digital::BTN_RIGHT)] = 0;
+                pWin->m_Mouse->m_ButtonWasDown[pWin->m_Mouse->m_ButtonIndex][static_cast<int>(xgpu::mouse::digital::BTN_RIGHT)] = 1;
             }
             break;
         case WM_KEYDOWN:
             if( auto pWin = reinterpret_cast<windows::window*>( GetWindowLongPtr( hWnd, GWLP_USERDATA ) ); pWin )
             {
                 const auto Code = OSKeyToKeyboardInputKeyCode( static_cast<int>(wParam) );
-                if ( Code >= (int)xgpu::keyboard::digital::KEY_NULL && Code < (int)xgpu::keyboard::digital::ENUM_COUNT )
+                if ( Code >= static_cast<int>(xgpu::keyboard::digital::KEY_NULL) && Code < static_cast<int>(xgpu::keyboard::digital::ENUM_COUNT) )
                 {
                     pWin->m_Keyboard->m_KeyIsDown[Code] = true;
+                    pWin->m_Keyboard->m_MostRecentKey   = static_cast<xgpu::keyboard::digital>(Code);
 
-                    pWin->m_Keyboard->m_KeyIsDown[(int)xgpu::keyboard::digital::KEY_LCONTROL ] = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-                    pWin->m_Keyboard->m_KeyIsDown[(int)xgpu::keyboard::digital::KEY_LSHIFT   ] = (GetKeyState(VK_SHIFT)   & 0x8000) != 0;
-                    pWin->m_Keyboard->m_KeyIsDown[(int)xgpu::keyboard::digital::KEY_LALT     ] = (GetKeyState(VK_MENU)    & 0x8000) != 0;
+                    pWin->m_Keyboard->m_KeyIsDown[static_cast<int>(xgpu::keyboard::digital::KEY_LCONTROL) ] = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+                    pWin->m_Keyboard->m_KeyIsDown[static_cast<int>(xgpu::keyboard::digital::KEY_LSHIFT)   ] = (GetKeyState(VK_SHIFT)   & 0x8000) != 0;
+                    pWin->m_Keyboard->m_KeyIsDown[static_cast<int>(xgpu::keyboard::digital::KEY_LALT)     ] = (GetKeyState(VK_MENU)    & 0x8000) != 0;
 
                     // TODO: Optimize this....
                     // Get the ascii character
@@ -150,12 +151,12 @@ namespace xgpu::windows
                     if(kbs[VK_CONTROL] & 0x00000080)
                     {
                         kbs[VK_CONTROL] &= 0x0000007f;
-                        ::ToAscii( (std::uint32_t)wParam, ::MapVirtualKey( (std::uint32_t)wParam, MAPVK_VK_TO_VSC), kbs, &pWin->m_Keyboard->m_MostRecentChar, 0);
+                        ::ToAscii( static_cast<std::uint32_t>(wParam), ::MapVirtualKey( static_cast<std::uint32_t>(wParam), MAPVK_VK_TO_VSC), kbs, &pWin->m_Keyboard->m_MostRecentChar, 0);
                         kbs[VK_CONTROL] |= 0x00000080;
                     }
                     else
                     {
-                        ::ToAscii( (std::uint32_t)wParam, ::MapVirtualKey( (std::uint32_t)wParam, MAPVK_VK_TO_VSC), kbs, &pWin->m_Keyboard->m_MostRecentChar, 0);
+                        ::ToAscii( static_cast<std::uint32_t>(wParam), ::MapVirtualKey( static_cast<std::uint32_t>(wParam), MAPVK_VK_TO_VSC), kbs, &pWin->m_Keyboard->m_MostRecentChar, 0);
                     }
                 }
             }
@@ -164,12 +165,18 @@ namespace xgpu::windows
             if( auto pWin = reinterpret_cast<windows::window*>( GetWindowLongPtr( hWnd, GWLP_USERDATA ) ); pWin )
             {
                 const auto Code = OSKeyToKeyboardInputKeyCode( static_cast<int>(wParam) );
-                if ( Code >= (int)xgpu::keyboard::digital::KEY_NULL && Code < (int)xgpu::keyboard::digital::ENUM_COUNT )
+                if ( Code >= static_cast<int>(xgpu::keyboard::digital::KEY_NULL) && Code < static_cast<int>(xgpu::keyboard::digital::ENUM_COUNT) )
                 {
                     pWin->m_Keyboard->m_KeyIsDown[Code] = false;
-                    pWin->m_Keyboard->m_KeyIsDown[(int)xgpu::keyboard::digital::KEY_LCONTROL ] = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-                    pWin->m_Keyboard->m_KeyIsDown[(int)xgpu::keyboard::digital::KEY_LSHIFT   ] = (GetKeyState(VK_SHIFT)   & 0x8000) != 0;
-                    pWin->m_Keyboard->m_KeyIsDown[(int)xgpu::keyboard::digital::KEY_LALT     ] = (GetKeyState(VK_MENU)    & 0x8000) != 0;
+                    if( pWin->m_Keyboard->m_MostRecentKey == static_cast<xgpu::keyboard::digital>(Code) ) 
+                    {
+                        pWin->m_Keyboard->m_MostRecentChar = 0;
+                        pWin->m_Keyboard->m_MostRecentKey  = xgpu::keyboard::digital::KEY_NULL;
+                    }
+
+                    pWin->m_Keyboard->m_KeyIsDown[static_cast<int>(xgpu::keyboard::digital::KEY_LCONTROL) ] = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+                    pWin->m_Keyboard->m_KeyIsDown[static_cast<int>(xgpu::keyboard::digital::KEY_LSHIFT)   ] = (GetKeyState(VK_SHIFT)   & 0x8000) != 0;
+                    pWin->m_Keyboard->m_KeyIsDown[static_cast<int>(xgpu::keyboard::digital::KEY_LALT)     ] = (GetKeyState(VK_MENU)    & 0x8000) != 0;
 
                     pWin->m_Keyboard->m_KeyWasDown[pWin->m_Keyboard->m_KeyWasDownIndex][Code] = 1;
                 }
@@ -198,10 +205,10 @@ namespace xgpu::windows
         case WM_MOUSEWHEEL:
             if( auto pWin = reinterpret_cast<windows::window*>( GetWindowLongPtr( hWnd, GWLP_USERDATA ) ); pWin )
             {
-                auto fwKeys = GET_KEYSTATE_WPARAM(wParam);
-                auto zDelta = GET_WHEEL_DELTA_WPARAM(wParam);
-                float& V = pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::WHEEL_REL][0];
-                V = (zDelta*100.0f)/std::numeric_limits<short>::max();
+                auto   fwKeys = GET_KEYSTATE_WPARAM(wParam);
+                auto   zDelta = GET_WHEEL_DELTA_WPARAM(wParam);
+                float& V      = pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::WHEEL_REL)][0];
+                V             = (zDelta*100.0f)/std::numeric_limits<short>::max();
             }
             break;
         case WM_SYSCOMMAND:
@@ -233,18 +240,18 @@ namespace xgpu::windows
         }
 
         WNDCLASSEX wndClass;
-        wndClass.cbSize         = sizeof(WNDCLASSEX);
-        wndClass.style          = CS_HREDRAW | CS_VREDRAW;
-        wndClass.lpfnWndProc    = wndproc;
-        wndClass.cbClsExtra     = 0;
-        wndClass.cbWndExtra     = 0;
-        wndClass.hInstance      = hinstance;
-        wndClass.hIcon          = LoadIcon(NULL, IDI_APPLICATION);
-        wndClass.hCursor        = LoadCursor(NULL, IDC_ARROW);
-        wndClass.hbrBackground  = (HBRUSH)GetStockObject(WHITE_BRUSH);
-        wndClass.lpszMenuName   = NULL;
-        wndClass.lpszClassName  = TEXT("LIONClass");
-        wndClass.hIconSm        = LoadIcon(NULL, IDI_WINLOGO);
+        wndClass.cbSize        = sizeof(WNDCLASSEX);
+        wndClass.style         = CS_HREDRAW | CS_VREDRAW;
+        wndClass.lpfnWndProc   = wndproc;
+        wndClass.cbClsExtra    = 0;
+        wndClass.cbWndExtra    = 0;
+        wndClass.hInstance     = hinstance;
+        wndClass.hIcon         = LoadIcon(NULL, IDI_APPLICATION);
+        wndClass.hCursor       = LoadCursor(NULL, IDC_ARROW);
+        wndClass.hbrBackground = static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH));
+        wndClass.lpszMenuName  = NULL;
+        wndClass.lpszClassName = TEXT("LIONClass");
+        wndClass.hIconSm       = LoadIcon(NULL, IDI_WINLOGO);
 
         if (!RegisterClassEx(&wndClass))
             return VGPU_ERROR(xgpu::device::error::FAILURE, "Could not register window class!" );
@@ -297,17 +304,17 @@ namespace xgpu::windows
         RECT windowRect;
         if (bFullScreen)
         {
-            windowRect.left     = (long)0;
-            windowRect.right    = (long)screenWidth;
-            windowRect.top      = (long)0;
-            windowRect.bottom   = (long)screenHeight;
+            windowRect.left   = static_cast<long>(0);
+            windowRect.right  = static_cast<long>(screenWidth);
+            windowRect.top    = static_cast<long>(0);
+            windowRect.bottom = static_cast<long>(screenHeight);
         }
         else
         {
-            windowRect.left     = (long)screenWidth / 2 - width/2;
-            windowRect.right    = (long)width;
-            windowRect.top      = (long)screenHeight / 2 - height/2;
-            windowRect.bottom   = (long)height;
+            windowRect.left   = static_cast<long>(screenWidth) / 2 - width/2;
+            windowRect.right  = static_cast<long>(width);
+            windowRect.top    = static_cast<long>(screenHeight) / 2 - height/2;
+            windowRect.bottom = static_cast<long>(height);
         }
 
         AdjustWindowRectEx( &windowRect, dwStyle, FALSE, dwExStyle );
@@ -345,7 +352,7 @@ namespace xgpu::windows
 
     xgpu::device::error* window::Initialize( const xgpu::window::setup& Setup, xgpu::windows::instance& Instance ) noexcept
     {
-        const auto hInstance = (HINSTANCE)GetModuleHandle(NULL);
+        const auto hInstance = GetModuleHandle(NULL);
 
         if (auto Err = CreateWindowClass(hInstance, WindowProc); Err )
             return Err;

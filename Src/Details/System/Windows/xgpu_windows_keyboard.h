@@ -23,5 +23,6 @@ namespace xgpu::windows
         full_keyboard                           m_KeyIsDown         {};
         std::array<full_keyboard, 2>            m_KeyWasDown        {};
         WORD                                    m_MostRecentChar    { 0 };
+        xgpu::keyboard::digital                 m_MostRecentKey     { xgpu::keyboard::digital::KEY_NULL };
     };
 }

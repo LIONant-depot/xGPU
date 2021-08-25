@@ -20,7 +20,6 @@ namespace xgpu::windows
         m_Mouse->m_Analog[(int)xgpu::mouse::analog::WHEEL_REL][1] = 0;
 
         m_Keyboard->m_KeyWasDownIndex = 1 - m_Keyboard->m_KeyWasDownIndex;
-        m_Keyboard->m_MostRecentChar = 0;
 
         for (int i = 0; i < static_cast<int>(xgpu::keyboard::digital::ENUM_COUNT); i++)
         {
