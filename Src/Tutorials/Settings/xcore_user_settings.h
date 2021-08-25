@@ -6,6 +6,10 @@
 // In your search path make sure you point to your own version.
 //==================================================================================
 
+// Enables ImGui properties editor (Used in the examples ImGuiPropertyExample.h)
+// Also check PropertyConfig.h for details
+#define PROPERTY_EDITOR
+
 
 // Define this when we want to activate the profiler
 #define XCORE_USER_SETTINGS_PROFILE

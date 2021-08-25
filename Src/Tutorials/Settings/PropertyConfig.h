@@ -69,7 +69,7 @@ namespace property
     template< typename T >
     struct edstyle
     {
-        constexpr static editor::style_info<T> Default(void) noexcept;
+        static editor::style_info<T> Default(void) noexcept;
     };
 
     //-----------------------------------------------------------------------------------
@@ -77,9 +77,9 @@ namespace property
     template<>
     struct edstyle<int>
     {    
-        constexpr static editor::style_info<int> ScrollBar(int Min, int Max, const char* pFormat = "%d")                                                                                             noexcept;
-        constexpr static editor::style_info<int> Drag     (float Speed = 1.0f, int Min = std::numeric_limits<int>::lowest(), int Max = std::numeric_limits<int>::max(), const char* pFormat = "%d")  noexcept;
-        constexpr static editor::style_info<int> Default  (void) noexcept { return Drag(); }
+        static editor::style_info<int> ScrollBar(int Min, int Max, const char* pFormat = "%d")                                                                                             noexcept;
+        static editor::style_info<int> Drag     (float Speed = 1.0f, int Min = std::numeric_limits<int>::lowest(), int Max = std::numeric_limits<int>::max(), const char* pFormat = "%d")  noexcept;
+        static editor::style_info<int> Default  (void) noexcept { return Drag(); }
     };
 
     //-----------------------------------------------------------------------------------
@@ -87,9 +87,9 @@ namespace property
     template<>
     struct edstyle<float>
     {
-        constexpr static editor::style_info<float> ScrollBar(float Min, float Max, const char* pFormat = "%.3f", float Power = 1.0f)                                                                                                 noexcept;
-        constexpr static editor::style_info<float> Drag     (float Speed = 1.0f, float Min = std::numeric_limits<float>::lowest(), float Max = std::numeric_limits<float>::max(), const char* pFormat = "%.3f", float Power = 1.0f)  noexcept;
-        constexpr static editor::style_info<float> Default  (void) noexcept { return Drag(); }
+        static editor::style_info<float> ScrollBar(float Min, float Max, const char* pFormat = "%.3f", float Power = 1.0f)                                                                                                 noexcept;
+        static editor::style_info<float> Drag     (float Speed = 1.0f, float Min = std::numeric_limits<float>::lowest(), float Max = std::numeric_limits<float>::max(), const char* pFormat = "%.3f", float Power = 1.0f)  noexcept;
+        static editor::style_info<float> Default  (void) noexcept { return Drag(); }
     };
 
     //-----------------------------------------------------------------------------------
@@ -98,9 +98,9 @@ namespace property
     struct edstyle<string_t>
     {
         template< std::size_t N >
-        constexpr static editor::style_info<string_t> Enumeration(const std::array<std::pair<const char*, int>, N>& Array)  noexcept;
-        constexpr static editor::style_info<string_t> Button     (void)                                                     noexcept;
-        constexpr static editor::style_info<string_t> Default    (void)                                                     noexcept;
+        static editor::style_info<string_t> Enumeration(const std::array<std::pair<const char*, int>, N>& Array)  noexcept;
+        static editor::style_info<string_t> Button     (void)                                                     noexcept;
+        static editor::style_info<string_t> Default    (void)                                                     noexcept;
     };
 
     //-----------------------------------------------------------------------------------
@@ -108,15 +108,15 @@ namespace property
     //-----------------------------------------------------------------------------------
 #ifndef PROPERTY_EDITOR
     template< typename T >
-    constexpr editor::style_info<T>             edstyle<T>::            Default     (void)                                              noexcept { return {}; }
-    constexpr editor::style_info<int>           edstyle<int>::          ScrollBar   (int, int, const char*)                             noexcept { return {}; }
-    constexpr editor::style_info<int>           edstyle<int>::          Drag        (float, int, int, const char*)                      noexcept { return {}; }
-    constexpr editor::style_info<float>         edstyle<float>::        ScrollBar   (float, float, const char*, float)                  noexcept { return {}; }
-    constexpr editor::style_info<float>         edstyle<float>::        Drag        (float, float, float, const char*, float)           noexcept { return {}; }
+    __inline editor::style_info<T>             edstyle<T>::            Default     (void)                                              noexcept { return {}; }
+    __inline editor::style_info<int>           edstyle<int>::          ScrollBar   (int, int, const char*)                             noexcept { return {}; }
+    __inline editor::style_info<int>           edstyle<int>::          Drag        (float, int, int, const char*)                      noexcept { return {}; }
+    __inline editor::style_info<float>         edstyle<float>::        ScrollBar   (float, float, const char*, float)                  noexcept { return {}; }
+    __inline editor::style_info<float>         edstyle<float>::        Drag        (float, float, float, const char*, float)           noexcept { return {}; }
     template< std::size_t N >
-    constexpr editor::style_info<string_t>      edstyle<string_t>::     Enumeration (const std::array<std::pair<const char*, int>, N>&) noexcept { return {}; }
-    constexpr editor::style_info<string_t>      edstyle<string_t>::     Default     (void)                                              noexcept { return {}; }
-    constexpr editor::style_info<string_t>      edstyle<string_t>::     Button      (void)                                              noexcept { return {}; }
+    __inline editor::style_info<string_t>      edstyle<string_t>::     Enumeration (const std::array<std::pair<const char*, int>, N>&) noexcept { return {}; }
+    __inline editor::style_info<string_t>      edstyle<string_t>::     Default     (void)                                              noexcept { return {}; }
+    __inline editor::style_info<string_t>      edstyle<string_t>::     Button      (void)                                              noexcept { return {}; }
 #endif
 
     //--------------------------------------------------------------------------------------------

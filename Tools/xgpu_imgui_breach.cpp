@@ -603,9 +603,38 @@ struct breach_instance : window_info
                 bPresses |= io.KeysDown[i];
             }
 
+            //
             // Write into text boxes
-            if( bPresses && !io.KeyCtrl )
-                io.AddInputCharacter( m_Keyboard.getLatestChar() );
+            //
+            {
+                constexpr float initial_extra_wait_time_v   = -0.5f;
+                constexpr float repeat_rate_v               =  0.08f;
+                static int      LastChar                    =  0;
+                static float    Sleep                       =  initial_extra_wait_time_v;
+                if( bPresses && !io.KeyCtrl )
+                {
+                    if( LastChar == m_Keyboard.getLatestChar() )
+                    {
+                        Sleep += io.DeltaTime;
+                        if(Sleep < repeat_rate_v) io.ClearInputCharacters();
+                        else
+                        {
+                            Sleep = 0;
+                            io.AddInputCharacter(LastChar);
+                        }
+                    }
+                    else
+                    {
+                        Sleep    = initial_extra_wait_time_v;
+                        LastChar = m_Keyboard.getLatestChar();
+                        io.AddInputCharacter(LastChar);
+                    }
+                }
+                else
+                {
+                    LastChar = 0;
+                }
+            }                
         }
 
         // Start the frame
