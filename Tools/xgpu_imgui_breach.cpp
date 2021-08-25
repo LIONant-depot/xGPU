@@ -22,7 +22,7 @@ namespace xgpu::tools::imgui {
 //     Out.UV = aUV;
 //     gl_Position = vec4(aPos * pc.uScale + pc.uTranslate, 0, 1);
 // }
-static auto g_VertShaderSPV = std::array
+constexpr auto g_VertShaderSPV = std::array
 {
     0x07230203,0x00010000,0x00080001,0x0000002e,0x00000000,0x00020011,0x00000001,0x0006000b,
     0x00000001,0x4c534c47,0x6474732e,0x3035342e,0x00000000,0x0003000e,0x00000000,0x00000001,
@@ -78,7 +78,7 @@ static auto g_VertShaderSPV = std::array
 // {
 //     fColor = In.Color * texture(sTexture, In.UV.st);
 // }
-static auto g_FragShaderSPV = std::array
+constexpr auto g_FragShaderSPV = std::array
 {
     0x07230203,0x00010000,0x00080001,0x0000001e,0x00000000,0x00020011,0x00000001,0x0006000b,
     0x00000001,0x4c534c47,0x6474732e,0x3035342e,0x00000000,0x0003000e,0x00000000,0x00000001,
@@ -774,7 +774,6 @@ xgpu::device::error* CreateInstance(xgpu::instance& Intance, xgpu::device& Devic
         monitor.MainSize = monitor.WorkSize = ImVec2((float)4000.0f, (float)4000.0f);
         platform_io.Monitors.push_back(monitor);
     }
-
 
     io.KeyMap[ImGuiKey_Tab]         = static_cast<int>( xgpu::keyboard::digital::KEY_TAB       );                         // Keyboard mapping. ImGui will use those indices to peek into the io.KeyDown[] array.
     io.KeyMap[ImGuiKey_LeftArrow]   = static_cast<int>( xgpu::keyboard::digital::KEY_LEFT      );
