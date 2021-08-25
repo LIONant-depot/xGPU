@@ -121,11 +121,17 @@ using clock        = std::chrono::high_resolution_clock;
 
 struct window_info
 {
+    struct buffers
+    {
+        xgpu::buffer                m_VertexBuffer{};
+        xgpu::buffer                m_IndexBuffer{};
+    };
+
     xgpu::device                m_Device            {};
     xgpu::window                m_Window            {};
-    xgpu::buffer                m_VertexBuffer      {};
-    xgpu::buffer                m_IndexBuffer       {};
     xgpu::vertex_descriptor     m_VertexDescritor   {};
+    std::array<buffers, 2>      m_PrimitiveBuffers  {};
+    int                         m_iFrame            {0};
 
     //------------------------------------------------------------------------------------------------------------
 
@@ -189,7 +195,8 @@ struct window_info
             , .m_EntryCount     = 3 * 1000
             };
 
-            if (auto Err = m_Device.Create(m_VertexBuffer, Setup ); Err) return Err;
+            for( auto& Prim : m_PrimitiveBuffers )
+                if (auto Err = m_Device.Create( Prim.m_VertexBuffer, Setup ); Err) return Err;
         }
 
         //
@@ -203,7 +210,8 @@ struct window_info
             , .m_EntryCount     = 3 * 1000
             };
 
-            if (auto Err = m_Device.Create(m_IndexBuffer, Setup ); Err) return Err;
+            for (auto& Prim : m_PrimitiveBuffers)
+                if (auto Err = m_Device.Create( Prim.m_IndexBuffer, Setup ); Err) return Err;
         }
 
         return nullptr;
@@ -221,27 +229,41 @@ struct window_info
         if (fb_width <= 0 || fb_height <= 0)
             return;
 
+        //
+        // Make sure we are fully sync up before touching any dependent resources
+        // In this case the (vertex and index buffer)
+        //
+        auto CmdBuffer = m_Window.getCmdBuffer();
+
+        // Get the active primitives
+        auto& Prim = m_PrimitiveBuffers[m_iFrame];
+
+        // Get ready for the next frame
+        m_iFrame = (m_iFrame + 1) & 1;
+
+        //
         // If we have primitives to render
+        //
         if (draw_data->TotalVtxCount > 0)
         {
-            if (draw_data->TotalVtxCount > m_VertexBuffer.getEntryCount() )
+            if (draw_data->TotalVtxCount > Prim.m_VertexBuffer.getEntryCount() )
             {
-                auto Err = m_VertexBuffer.Resize(draw_data->TotalVtxCount);
+                auto Err = Prim.m_VertexBuffer.Resize(draw_data->TotalVtxCount);
                 assert(Err == nullptr);
             }
 
-            if (draw_data->TotalIdxCount > m_IndexBuffer.getEntryCount())
+            if (draw_data->TotalIdxCount > Prim.m_IndexBuffer.getEntryCount())
             {
-                auto Err = m_IndexBuffer.Resize(draw_data->TotalIdxCount);
+                auto Err = Prim.m_IndexBuffer.Resize(draw_data->TotalIdxCount);
                 assert(Err == nullptr);
             }
 
             //
             // Copy over the vertices
             //
-            m_VertexBuffer.MemoryMap( 0, m_VertexBuffer.getEntryCount(), [&](void* pV)
+            Prim.m_VertexBuffer.MemoryMap( 0, Prim.m_VertexBuffer.getEntryCount(), [&](void* pV)
             {
-                m_IndexBuffer.MemoryMap(0, m_IndexBuffer.getEntryCount(), [&](void* pI)
+                Prim.m_IndexBuffer.MemoryMap(0, Prim.m_IndexBuffer.getEntryCount(), [&](void* pI)
                 {
                     auto pVertex = reinterpret_cast<ImDrawVert*>(pV);
                     auto pIndex  = reinterpret_cast<ImDrawIdx*>(pI);
@@ -261,13 +283,14 @@ struct window_info
         //
         // Get ready to render
         //
-        auto CmdBuffer = m_Window.getCmdBuffer();
-        CmdBuffer.setPipelineInstance( PipelineInstance );
-        CmdBuffer.setBuffer(m_VertexBuffer);
-        CmdBuffer.setBuffer(m_IndexBuffer);
 
-        // Set the push contants
+        auto UpdateRenderState = [&]
         {
+            CmdBuffer.setPipelineInstance(PipelineInstance);
+            CmdBuffer.setBuffer(Prim.m_VertexBuffer);
+            CmdBuffer.setBuffer(Prim.m_IndexBuffer);
+
+            // Set the push contants
             auto Scale = std::array
             { 2.0f / draw_data->DisplaySize.x
             , 2.0f / draw_data->DisplaySize.y
@@ -279,7 +302,10 @@ struct window_info
 
             CmdBuffer.setConstants( xgpu::shader::type::VERTEX, 0,   Scale.data(),     static_cast<std::uint32_t>(sizeof(Scale)));
             CmdBuffer.setConstants( xgpu::shader::type::VERTEX, 2*4, Translate.data(), static_cast<std::uint32_t>(sizeof(Translate)));
-        }
+        };
+
+        // Set it!
+        UpdateRenderState();
 
         // Will project scissor/clipping rectangles into framebuffer space
         ImVec2 clip_off   = draw_data->DisplayPos;          // (0,0) unless using multi-viewports
@@ -301,7 +327,7 @@ struct window_info
                     // (ImDrawCallback_ResetRenderState is a special callback value used by the user to request the renderer to reset render state.)
                     if (pcmd->UserCallback == ImDrawCallback_ResetRenderState)
                     {
-                        // ImGui_ImplVulkan_SetupRenderState(draw_data, pipeline, command_buffer, rb, fb_width, fb_height);
+                        UpdateRenderState();
                     }
                     else
                     {
@@ -442,11 +468,10 @@ struct breach_instance : window_info
                 .m_VertexDescriptor = m_VertexDescritor
             ,   .m_Shaders          = Shaders
             ,   .m_Samplers         = Samplers
-            ,   .m_Primitive        = { .m_FrontFace        = xgpu::pipeline::primitive::front_face::CLOCKWISE }
+            ,   .m_Primitive        = { .m_Cull = xgpu::pipeline::primitive::cull::NONE }
             ,   .m_DepthStencil     = { .m_bDepthTestEnable = false }
             ,   .m_Blend            = xgpu::pipeline::blend::getAlphaOriginal()
             };
-
 
             if ( auto Err = m_Device.Create(PipeLine, Setup); Err ) return Err;
         }
@@ -510,13 +535,22 @@ struct breach_instance : window_info
 
             io.MouseWheel   = m_Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
 
+            // Windows get mouse pos
+            //POINT MousePos;
+            //GetCursorPos( &MousePos);
+            //const auto MouseValues = m_Mouse.getValue(xgpu::mouse::analog::POS_ABS);
+
+            // CURSORINFO CurInfo;
+            // CurInfo.cbSize = sizeof(CURSORINFO);
+            // GetCursorInfo( &CurInfo);
+
             const auto MouseValues = m_Mouse.getValue(xgpu::mouse::analog::POS_ABS);
 
             ImGuiPlatformIO& PlatformIO = ImGui::GetPlatformIO();
             for (int n = 0; n < PlatformIO.Viewports.Size; n++)
             {
                 ImGuiViewport*  pViewport = PlatformIO.Viewports[n];
-                auto&           Info    = *reinterpret_cast<window_info*>(pViewport->PlatformHandle);
+                auto&           Info    = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
 
 #ifdef __EMSCRIPTEN__
                 const bool focused = true;
@@ -533,38 +567,21 @@ struct breach_instance : window_info
                     }
                     else
                     {
-                        if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+                        if ( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
                         {
-                            // Multi-viewport mode: mouse position in OS absolute coordinates (io.MousePos is (0,0) when the mouse is on the upper-left of the primary monitor)
                             auto [WindowX, WindowY] = Info.m_Window.getPosition();
-                            io.MousePos = ImVec2((float)WindowX + MouseValues[0], (float)WindowY + MouseValues[1] );
+                            printf("Mouse[%d  %d]  Win+Mouse(%d  %d)\n", int(MouseValues[0]), int(MouseValues[1]), int(WindowX + MouseValues[0]), int(WindowY + MouseValues[1]));
+
+                            // Multi-viewport mode: mouse position in OS absolute coordinates (io.MousePos is (0,0) when the mouse is on the upper-left of the primary monitor)
+                            io.MousePos = ImVec2( (float)WindowX + MouseValues[0], (float)WindowY + MouseValues[1] );
                         }
                         else
                         {
                             // Single viewport mode: mouse position in client window coordinates (io.MousePos is (0,0) when the mouse is on the upper-left corner of the app window)
-                            io.MousePos = ImVec2{ MouseValues[0], MouseValues[1] };
+                            io.MousePos = ImVec2{ (float)MouseValues[0], (float)MouseValues[1] };
                         }
                     }
                 }
-
-                /*
-                // (Optional) When using multiple viewports: set io.MouseHoveredViewport to the viewport the OS mouse cursor is hovering.
-                // Important: this information is not easy to provide and many high-level windowing library won't be able to provide it correctly, because
-                // - This is _ignoring_ viewports with the ImGuiViewportFlags_NoInputs flag (pass-through windows).
-                // - This is _regardless_ of whether another viewport is focused or being dragged from.
-                // If ImGuiBackendFlags_HasMouseHoveredViewport is not set by the backend, imgui will ignore this field and infer the information by relying on the
-                // rectangles and last focused time of every viewports it knows about. It will be unaware of other windows that may be sitting between or over your windows.
-                // [GLFW] FIXME: This is currently only correct on Win32. See what we do below with the WM_NCHITTEST, missing an equivalent for other systems.
-                // See https://github.com/glfw/glfw/issues/1236 if you want to help in making this a GLFW feature.
-#if GLFW_HAS_MOUSE_PASSTHROUGH || (GLFW_HAS_WINDOW_HOVERED && defined(_WIN32))
-                const bool window_no_input = (viewport->Flags & ImGuiViewportFlags_NoInputs) != 0;
-#if GLFW_HAS_MOUSE_PASSTHROUGH
-                glfwSetWindowAttrib(window, GLFW_MOUSE_PASSTHROUGH, window_no_input);
-#endif
-                if (glfwGetWindowAttrib(window, GLFW_HOVERED) && !window_no_input)
-                    io.MouseHoveredViewport = viewport->ID;
-#endif
-*/
             }
         }
 
@@ -657,6 +674,33 @@ void SetChildWindowSize(ImGuiViewport* pViewport, ImVec2 size ) noexcept
 //------------------------------------------------------------------------------------------------------------
 
 static
+ImVec2 GetChildWindowSize(ImGuiViewport* pViewport ) noexcept
+{
+    auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
+    return { (float)Info.m_Window.getWidth(), (float)Info.m_Window.getHeight() };
+}
+//------------------------------------------------------------------------------------------------------------
+
+static
+void SetChildWindowPos(ImGuiViewport* pViewport, ImVec2 size) noexcept
+{
+
+
+}
+
+//------------------------------------------------------------------------------------------------------------
+
+static
+ImVec2 GetChildWindowPos(ImGuiViewport* pViewport)
+{
+    auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
+    auto [X,Y] = Info.m_Window.getPosition();
+    return ImVec2((float)X, (float)Y);
+}
+
+//------------------------------------------------------------------------------------------------------------
+
+static
 void RenderChildWindow(ImGuiViewport* pViewport, void*) noexcept
 {
     GETINSTANCE;
@@ -687,9 +731,44 @@ xgpu::device::error* CreateInstance(xgpu::instance& Intance, xgpu::device& Devic
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;       // Enable Keyboard Controls
     //io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;           // Enable Docking
-    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;         // Enable Multi-Viewport / Platform Windows
+  //  io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;         // Enable Multi-Viewport / Platform Windows
+    io.BackendRendererName = "xgpu_imgui_breach";
+    io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;  // We can honor the ImDrawCmd::VtxOffset field, allowing for large meshes.
+  //  io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;  // We can create multi-viewports on the Renderer side (optional)
+ //   io.BackendFlags |= ImGuiBackendFlags_PlatformHasViewports;  // We can create multi-viewports on the Platform side (optional)
     //io.ConfigViewportsNoAutoMerge = true;
     //io.ConfigViewportsNoTaskBarIcon = true;
+
+    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+    {
+        ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
+        platform_io.Renderer_CreateWindow  = CreateChildWindow;
+        platform_io.Renderer_DestroyWindow = DestroyChildWindow;
+        platform_io.Renderer_SetWindowSize = SetChildWindowSize;
+        platform_io.Renderer_RenderWindow  = RenderChildWindow;
+        platform_io.Renderer_SwapBuffers   = ChildSwapBuffers;
+
+        platform_io.Platform_CreateWindow       = CreateChildWindow;
+        platform_io.Platform_DestroyWindow      = DestroyChildWindow;
+        platform_io.Platform_ShowWindow         = [](ImGuiViewport* pViewport) {};
+        platform_io.Platform_SetWindowPos       = SetChildWindowPos;
+        platform_io.Platform_GetWindowPos       = GetChildWindowPos;
+        platform_io.Platform_SetWindowSize      = SetChildWindowSize;
+        platform_io.Platform_GetWindowSize      = GetChildWindowSize;
+//        platform_io.Platform_SetWindowFocus     = ImGui_ImplGlfw_SetWindowFocus;
+//        platform_io.Platform_GetWindowFocus     = ImGui_ImplGlfw_GetWindowFocus;
+//        platform_io.Platform_GetWindowMinimized = ImGui_ImplGlfw_GetWindowMinimized;
+        platform_io.Platform_SetWindowTitle     = [](ImGuiViewport* pViewport, const char*){};
+        platform_io.Platform_RenderWindow       = RenderChildWindow;
+        platform_io.Platform_SwapBuffers        = ChildSwapBuffers;
+
+        platform_io.Monitors.resize(0);
+        ImGuiPlatformMonitor monitor;
+        monitor.MainPos = monitor.WorkPos = ImVec2((float)0, (float)0);
+        monitor.MainSize = monitor.WorkSize = ImVec2((float)4000.0f, (float)4000.0f);
+        platform_io.Monitors.push_back(monitor);
+
+    }
 
 
     io.KeyMap[ImGuiKey_Tab]         = static_cast<int>( xgpu::keyboard::digital::KEY_TAB       );                         // Keyboard mapping. ImGui will use those indices to peek into the io.KeyDown[] array.
@@ -724,23 +803,10 @@ xgpu::device::error* CreateInstance(xgpu::instance& Intance, xgpu::device& Devic
     //
     // Setup backend capabilities flags
     //
-    io.BackendRendererName = "xgpu_imgui_breach";
-    io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;  // We can honor the ImDrawCmd::VtxOffset field, allowing for large meshes.
-    io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;  // We can create multi-viewports on the Renderer side (optional)
 
     ImGuiViewport* main_viewport    = ImGui::GetMainViewport();
-//    main_viewport->RendererUserData = nullptr;
+    main_viewport->RendererUserData = io.UserData;
     main_viewport->PlatformHandle   = io.UserData;
-
-    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
-    {
-        ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
-        platform_io.Renderer_CreateWindow  = CreateChildWindow;
-        platform_io.Renderer_DestroyWindow = DestroyChildWindow;
-        platform_io.Renderer_SetWindowSize = SetChildWindowSize;
-        platform_io.Renderer_RenderWindow  = RenderChildWindow;
-        platform_io.Renderer_SwapBuffers   = ChildSwapBuffers;
-    }
 
     //
     // Setup default style

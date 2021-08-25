@@ -32,9 +32,11 @@ namespace xgpu::windows
 
         virtual     std::pair<int, int>             getPosition(void) const                                            noexcept override
         {
-            RECT Rect;
-            GetWindowRect(m_hWindow, &Rect);
-            return{ Rect.left, Rect.top };
+            //RECT Rect;
+            //GetWindowRect(m_hWindow, &Rect);
+            POINT Point{0,0};
+            ClientToScreen(m_hWindow, &Point );
+            return{ Point.x, Point.y };
         }
 
         bool                            getResizedAndReset( void ) noexcept

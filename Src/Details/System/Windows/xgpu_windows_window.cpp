@@ -14,6 +14,44 @@ namespace xgpu::windows
             ValidateRect( hWnd, NULL );
             break;
 
+        case WM_INPUT:
+        {
+            if (auto pWin = reinterpret_cast<windows::window*>(GetWindowLongPtr(hWnd, GWLP_USERDATA)); pWin)
+            {
+                UINT dwSize = sizeof(RAWINPUT);
+                BYTE lpb[sizeof(RAWINPUT)];
+
+                GetRawInputData((HRAWINPUT)lParam, RID_INPUT, lpb, &dwSize, sizeof(RAWINPUTHEADER));
+
+                RAWINPUT* raw = (RAWINPUT*)lpb;
+
+                if (raw->header.dwType == RIM_TYPEMOUSE)
+                {
+                    int xPos = raw->data.mouse.lLastX;
+                    int yPos = raw->data.mouse.lLastY;
+                    if (raw->data.mouse.usFlags & MOUSE_MOVE_ABSOLUTE)
+                    {
+                        pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_REL][0] = static_cast<float>(xPos) - pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][0];
+                        pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_REL][1] = static_cast<float>(yPos) - pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][1];
+
+                        pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][0] = static_cast<float>(xPos);
+                        pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][1] = static_cast<float>(yPos);
+                    }
+                    else
+                    {
+                        pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_REL][0] = static_cast<float>(xPos);
+                        pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_REL][1] = static_cast<float>(yPos);
+
+                        POINT pos;
+                        GetCursorPos(&pos);
+                        ScreenToClient(hWnd, &pos);
+                        pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][0] = static_cast<float>(pos.x);
+                        pWin->m_Mouse->m_Analog[(int)xgpu::mouse::analog::POS_ABS][1] = static_cast<float>(pos.y);
+                    }
+                }
+            }
+            break;
+        }
         case WM_MOUSEMOVE:
             if( auto pWin = reinterpret_cast<windows::window*>( GetWindowLongPtr( hWnd, GWLP_USERDATA ) ); pWin )
             {
@@ -171,6 +209,7 @@ namespace xgpu::windows
                 return 0;
             break;
 
+
         }    // End switch
 
         // Pass Unhandled Messages To DefWindowProc
@@ -265,9 +304,9 @@ namespace xgpu::windows
         }
         else
         {
-            windowRect.left     = (long)screenWidth / 2 - width / 2;
+            windowRect.left     = (long)screenWidth / 2 - width/2;
             windowRect.right    = (long)width;
-            windowRect.top      = (long)screenHeight / 2 - height / 2;
+            windowRect.top      = (long)screenHeight / 2 - height/2;
             windowRect.bottom   = (long)height;
         }
 
@@ -320,6 +359,24 @@ namespace xgpu::windows
         m_Height   = Setup.m_Height;
         m_Mouse    = Instance.m_Mouse;
         m_Keyboard = Instance.m_Keyboard;
+
+        //
+        // Allow us to track the mouse outside the window (get WM_INPUT messages) for the mouse
+        //
+        #ifndef HID_USAGE_PAGE_GENERIC
+            #define HID_USAGE_PAGE_GENERIC         ((USHORT) 0x01)
+        #endif
+        #ifndef HID_USAGE_GENERIC_MOUSE
+            #define HID_USAGE_GENERIC_MOUSE        ((USHORT) 0x02)
+        #endif
+
+        RAWINPUTDEVICE Rid[1];
+        Rid[0].usUsagePage  = HID_USAGE_PAGE_GENERIC;
+        Rid[0].usUsage      = HID_USAGE_GENERIC_MOUSE;
+        Rid[0].dwFlags      = RIDEV_INPUTSINK;
+        Rid[0].hwndTarget   = m_hWindow;
+        RegisterRawInputDevices(Rid, 1, sizeof(Rid[0]));
+
 
         return nullptr;
     }
