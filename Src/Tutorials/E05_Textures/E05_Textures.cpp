@@ -6,6 +6,8 @@
 #include "../../dependencies/xbmp_tools/src/xbmp_tools.h"
 #include <format>
 
+#include "imgui_internal.h"
+
 constexpr auto g_VertShaderSPV = std::array
 {
 0x07230203,0x00010000,0x000d000a,0x0000003c,
@@ -521,11 +523,9 @@ int E05_Example()
     Inspector.AppendEntity();
     Inspector.AppendEntityComponent(property::getTable(BitmapInspector), &BitmapInspector );
 
-    xgpu::mouse Mouse;
-    {
-        Instance.Create(Mouse, {});
-    }
-
+    //
+    // Storate some input context
+    //
     float           MouseScale   =1;
     xcore::vector2  MouseTranslate(0,0);
 
@@ -540,22 +540,25 @@ int E05_Example()
         //
         // Handle Input
         //
-        auto& io = ImGui::GetIO();
-        if ( io.MouseDown[1] )
+        if( auto ctx = ImGui::GetCurrentContext(); ctx->HoveredWindow == nullptr || ctx->HoveredWindow->ID == ImGui::GetID("MainDockSpace") )
         {
-            if( io.MouseDown[0] )
+            auto& io = ImGui::GetIO();
+            if ( io.MouseDown[1] )
             {
-                MouseScale -= 8.0f * (io.MouseDelta.y * (2.0f / MainWindow.getHeight()));
+                if( io.MouseDown[0] )
+                {
+                    MouseScale -= 8.0f * (io.MouseDelta.y * (2.0f / MainWindow.getHeight()));
+                }
+                else
+                {
+                    MouseTranslate.m_X += io.MouseDelta.x * (2.0f / MainWindow.getWidth());
+                    MouseTranslate.m_Y += io.MouseDelta.y * (2.0f / MainWindow.getHeight());
+                }
             }
-            else
-            {
-                MouseTranslate.m_X += io.MouseDelta.x * (2.0f / MainWindow.getWidth());
-                MouseTranslate.m_Y += io.MouseDelta.y * (2.0f / MainWindow.getHeight());
-            }
-        }
 
-        MouseScale += 0.5f * io.MouseWheel;
-        if(MouseScale < 0.01f ) MouseScale = 0.01f;
+            MouseScale += 0.5f * io.MouseWheel;
+            if(MouseScale < 0.01f ) MouseScale = 0.01f;
+        }
 
         //
         // Render the image
