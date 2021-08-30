@@ -27,7 +27,18 @@ git clone https://gitlab.com/LIONant/xcore.git "../dependencies/xcore"
 if %ERRORLEVEL% GEQ 1 goto :PAUSE
 cd ../dependencies/xcore/builds
 call UpdateDependencies.bat "return"
-cd /d %MECS_PATH%
+cd /d %XGPU_PATH%
+
+rem ------------------------------------------------------------
+rem XBMP_TOOLS
+rem ------------------------------------------------------------
+
+rmdir "../dependencies/xbmp_tools" /S /Q
+git clone https://github.com/LIONant-depot/xbmp_tools.git "../dependencies/xbmp_tools"
+if %ERRORLEVEL% GEQ 1 goto :PAUSE
+cd ../dependencies/xbmp_tools/builds
+call UpdateDependencies.bat "return"
+cd /d %XGPU_PATH%
 
 rem ------------------------------------------------------------
 rem ASSIMP
