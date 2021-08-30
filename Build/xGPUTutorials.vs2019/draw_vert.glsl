@@ -12,12 +12,12 @@ layout (std140, push_constant) uniform PushConsts
     mat4 L2C;
 } pushConsts;
 
-layout (location = 0) out vec4 outColor;
-layout (location = 1) out vec2 outUV;
+layout(location = 0) out struct { vec4 Color; vec2 UV; } Out;
 
 void main() 
 {
-    outColor    = inColor;
-    outUV       = inUV;
-    gl_Position = pushConsts.L2C * vec4(inPos.xyz, 1.0);
+    Out.Color.rgb   = pow(inColor.rgb, vec3(2.2f));
+    Out.Color.a     = inColor.a;
+    Out.UV          = inUV;
+    gl_Position     = pushConsts.L2C * vec4(inPos.xyz, 1.0);
 }

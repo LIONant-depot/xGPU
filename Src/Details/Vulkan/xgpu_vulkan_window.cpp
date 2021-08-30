@@ -711,7 +711,7 @@ namespace xgpu::vulkan
         ,   VK_FORMAT_R8G8B8_UNORM
         };
 
-        constexpr auto requestSurfaceColorSpace = VK_COLORSPACE_SRGB_NONLINEAR_KHR;
+        constexpr auto requestSurfaceColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
 
         m_VKSurfaceFormat = SelectSurfaceFormat(  m_Device->m_VKPhysicalDevice
                                                 , m_VKSurface

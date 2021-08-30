@@ -508,6 +508,7 @@
   <ItemGroup>
     <CustomBuild Include="draw_frag.glsl" />
     <CustomBuild Include="draw_vert.glsl" />
+    <CustomBuild Include="imgui_vert.glsl" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\LICENSE" />

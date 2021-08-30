@@ -227,6 +227,12 @@
   <ItemGroup>
     <None Include="..\..\LICENSE" />
     <None Include="..\..\README.md" />
+    <CustomBuild Include="imgui_vert.glsl">
+      <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</DeploymentContent>
+      <FileType>Document</FileType>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=vert %(FullPath) -mfmt=num -o  $(ProjectDir)%(FileName).h</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(FileName).h</Outputs>
+    </CustomBuild>
   </ItemGroup>
   <ItemGroup>
     <Text Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\LICENSE.txt" />

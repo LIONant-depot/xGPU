@@ -399,6 +399,10 @@ namespace xgpu::vulkan
 
                 // Clean up staging resources
                 PerDevice.FlushVKSetupCommandBuffer();
+
+                // Clean up the staging buffer
+                vkDestroyBuffer( m_Device->m_VKDevice, StagingBuffer, m_Device->m_Instance->m_pVKAllocator );
+                vkFreeMemory( m_Device->m_VKDevice, StagingMemory, m_Device->m_Instance->m_pVKAllocator);
             }
         }
         else

@@ -9,6 +9,7 @@ namespace xgpu::vulkan
         vkGetPhysicalDeviceFeatures( Device.m_VKPhysicalDevice, &Features );
         Features.shaderClipDistance = true;
         Features.shaderCullDistance = true;
+        Features.samplerAnisotropy  = true;
 
         static constexpr auto       enabledExtensions   = std::array
         { 
