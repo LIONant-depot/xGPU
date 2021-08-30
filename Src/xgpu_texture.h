@@ -3,18 +3,19 @@ namespace xgpu
     struct texture
     {
         enum class format : std::uint8_t
-        {
-            R4G4B4A4
-        ,   R8G8B8
-        ,   U8R8G8B8
+        {   INVALID
+        ,   B8G8R8A8
+        ,   B8G8R8U8
         ,   A8R8G8B8
-        ,   R8G8B8A8
+        ,   U8R8G8B8
         ,   R8G8B8U8
-
-        ,   ETC2_4RGB
-        ,   ETC2_4RGBA1
-        ,   ETC2_8RGBA
-
+        ,   R8G8B8A8
+        ,   XCOLOR = R8G8B8A8
+        ,   R8G8B8  
+        ,   R4G4B4A4 = 10
+        ,   R5G6B5  
+        ,   B5G5R5A1
+        ,   XCOLOR_END              // end of the range of xcolor
         ,   BC1_4RGB
         ,   BC1_4RGBA1
         ,   BC2_8RGBA
@@ -23,7 +24,9 @@ namespace xgpu
         ,   BC5_8RG
         ,   BC6H_8RGB_FLOAT
         ,   BC7_8RGBA
-
+        ,   ETC2_4RGB
+        ,   ETC2_4RGBA1
+        ,   ETC2_8RGBA
         ,   ENUM_COUNT
         ,   DEFAULT = R8G8B8A8
         };

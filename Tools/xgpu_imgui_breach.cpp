@@ -649,13 +649,56 @@ struct breach_instance : window_info
 
 //------------------------------------------------------------------------------------------------------------
 
-bool isMinimize(void) noexcept
+void EnableDocking()
+{
+    //
+    // Enable docking
+    //
+    constexpr bool                  opt_padding = false;
+    constexpr ImGuiDockNodeFlags    dockspace_flags = ImGuiDockNodeFlags_AutoHideTabBar
+        | ImGuiDockNodeFlags_PassthruCentralNode;
+    constexpr ImGuiWindowFlags      window_flags = ImGuiWindowFlags_MenuBar
+        | ImGuiWindowFlags_NoDocking
+        | ImGuiWindowFlags_NoBackground
+        | ImGuiWindowFlags_NoTitleBar
+        | ImGuiWindowFlags_NoCollapse
+        | ImGuiWindowFlags_NoResize
+        | ImGuiWindowFlags_NoMove
+        | ImGuiWindowFlags_NoBringToFrontOnFocus
+        | ImGuiWindowFlags_NoNavFocus;
+
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->WorkPos);
+    ImGui::SetNextWindowSize(viewport->WorkSize);
+    ImGui::SetNextWindowViewport(viewport->ID);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+
+    if (!opt_padding)
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+
+    ImGui::Begin("Main DockSpace", nullptr, window_flags);
+    if (!opt_padding)
+        ImGui::PopStyleVar();
+
+    ImGui::PopStyleVar(2);
+
+    static ImGuiID dockspace_id = ImGui::GetID("MainDockSpace");
+    ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
+    ImGui::End();
+}
+
+//------------------------------------------------------------------------------------------------------------
+
+bool isMinimize( bool bEnableDocking ) noexcept
 {
     GETINSTANCE;
     if (Instance.m_Window.isMinimized())
         return true;
 
     Instance.StartNewFrame(io);
+
+    if(bEnableDocking) EnableDocking();
 
     return false;
 }

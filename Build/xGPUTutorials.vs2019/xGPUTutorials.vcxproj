@@ -11,6 +11,7 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\Dependencies\xbmp_tools\src\xbmp_tools.cpp" />
     <ClCompile Include="..\..\Dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.cpp" />
     <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui.cpp" />
     <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_demo.cpp" />
@@ -86,6 +87,7 @@
     </ClCompile>
     <ClCompile Include="..\..\Src\Tutorials\E03_ImguiBreatch\E03_ImguiBreach.cpp" />
     <ClCompile Include="..\..\Src\Tutorials\E04_Properties\E04_Properties.cpp" />
+    <ClCompile Include="..\..\Src\Tutorials\E05_Textures\E05_Textures.cpp" />
     <ClCompile Include="..\..\Src\Tutorials\main.cpp" />
     <ClCompile Include="..\..\Src\Tutorials\T01_Initialize\T01_Initialize.cpp" />
     <ClCompile Include="..\..\Src\Tutorials\T02_UsingUtilities\T02_UsingTools.cpp" />
@@ -93,6 +95,8 @@
     <ClCompile Include="..\..\Tools\xgpu_imgui_breach.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\Dependencies\xbmp_tools\src\xbmp_tools.h" />
+    <ClInclude Include="..\..\Dependencies\xbmp_tools\src\xbmp_tools_loaders.h" />
     <ClInclude Include="..\..\Dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyExample.h" />
     <ClInclude Include="..\..\Dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.h" />
     <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui.h" />
@@ -104,8 +108,10 @@
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_arglist.h" />
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_array.h" />
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_assert.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_bitmap.h" />
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_bits.h" />
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_cmdline.h" />
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_color.h" />
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_compression.h" />
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_context.h" />
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_crc.h" />
@@ -202,6 +208,7 @@
     <ClInclude Include="..\..\Tools\xgpu_imgui_breach.h" />
     <ClInclude Include="..\..\Tools\xgpu_view.h" />
     <ClInclude Include="..\..\Tools\xgpu_view_inline.h" />
+    <ClInclude Include="..\..\Tools\xgpu_xcore_bitmap_helpers.h" />
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="draw_frag.glsl">

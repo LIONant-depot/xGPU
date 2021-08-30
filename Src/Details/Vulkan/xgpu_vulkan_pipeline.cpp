@@ -50,6 +50,8 @@ namespace xgpu::vulkan
     {
         m_Device = Device;
 
+        m_VertexDesciptor = std::reinterpret_pointer_cast<vulkan::vertex_descriptor>(Setup.m_VertexDescriptor.m_Private);
+
         //
         // Rasterization state
         //

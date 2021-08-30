@@ -20,6 +20,8 @@ namespace xgpu::vulkan
                                                                             ) noexcept;
         [[nodiscard]]   xgpu::device::error*    CreateDepthResources        ( VkExtent2D Extents
                                                                             ) noexcept;
+        [[nodiscard]]   xgpu::device::error*    EndFrame                    ( void
+                                                                            ) noexcept;
 
         virtual
         void                                    RenderBegin                 ( void 

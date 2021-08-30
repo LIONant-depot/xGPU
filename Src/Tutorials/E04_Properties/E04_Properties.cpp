@@ -16,7 +16,7 @@ void DebugMessage(std::string_view View)
 int E04_Example()
 {
     xgpu::instance Instance;
-    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = false, .m_pLogErrorFunc = DebugMessage, .m_pLogWarning = DebugMessage }); Err)
+    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = false, .m_bEnableRenderDoc = false, .m_pLogErrorFunc = DebugMessage, .m_pLogWarning = DebugMessage }); Err)
         return xgpu::getErrorInt(Err);
 
     xgpu::device Device;

@@ -11,6 +11,7 @@ namespace xgpu::vulkan
         using samples_array             = std::array<VkSampler, 16>;
 
         std::shared_ptr<device>                             m_Device                        {};
+        std::shared_ptr<vulkan::vertex_descriptor>          m_VertexDesciptor               {};
         int                                                 m_nVKDescriptorSetLayout        { 0 };
         std::array<VkDescriptorSetLayout, 1>                m_VKDescriptorSetLayout         {};
         VkPipelineLayout                                    m_VKPipelineLayout              {};

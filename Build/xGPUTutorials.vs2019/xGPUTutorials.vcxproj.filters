@@ -25,17 +25,8 @@
     <Filter Include="xGPU\Details\System\Windows\Source %28Not Compiling%29">
       <UniqueIdentifier>{75e3a073-fc68-4888-8fa9-6e272a16c8c0}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Tutorials\Dependencies">
-      <UniqueIdentifier>{d81395d2-470f-4ea2-9ff7-ed18ae6b2fa4}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Tutorials\Settings">
       <UniqueIdentifier>{15ee91c3-4e15-49bb-8efc-f8c71d87c90f}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Tutorials\Dependencies\xCore">
-      <UniqueIdentifier>{32ce8e60-39b5-4e0a-839b-cecd94c40369}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Tutorials\Dependencies\ImGui">
-      <UniqueIdentifier>{12c7164e-2899-44fd-a014-9733c75bd926}</UniqueIdentifier>
     </Filter>
     <Filter Include="Tutorials\Example 01 Initialize">
       <UniqueIdentifier>{94c0050f-ade9-4bb5-a868-19b28ee9af80}</UniqueIdentifier>
@@ -51,6 +42,21 @@
     </Filter>
     <Filter Include="Tutorials\Example 04 Properties">
       <UniqueIdentifier>{4c2acf3d-e908-45b8-80e0-475d9dc2a717}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Dependencies">
+      <UniqueIdentifier>{d81395d2-470f-4ea2-9ff7-ed18ae6b2fa4}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Dependencies\xCore">
+      <UniqueIdentifier>{32ce8e60-39b5-4e0a-839b-cecd94c40369}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Dependencies\ImGui">
+      <UniqueIdentifier>{12c7164e-2899-44fd-a014-9733c75bd926}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Dependencies\xbmpTools">
+      <UniqueIdentifier>{644ee184-4ed2-4051-ae23-2bb251be4157}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Tutorials\Example 05 Textures">
+      <UniqueIdentifier>{de8006ce-4230-4a17-8f60-df682f363f91}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -110,28 +116,28 @@
       <Filter>xGPU\Details\Vulkan\Source %28Not compiling%29</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Dependencies\xcore\src\xcore.cpp">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Dependencies\xcore\src\xcore_profiler_1.cpp">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Dependencies\xcore\src\xcore_profiler_2.cpp">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui.cpp">
-      <Filter>Tutorials\Dependencies\ImGui</Filter>
+      <Filter>Dependencies\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_demo.cpp">
-      <Filter>Tutorials\Dependencies\ImGui</Filter>
+      <Filter>Dependencies\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_draw.cpp">
-      <Filter>Tutorials\Dependencies\ImGui</Filter>
+      <Filter>Dependencies\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_tables.cpp">
-      <Filter>Tutorials\Dependencies\ImGui</Filter>
+      <Filter>Dependencies\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_widgets.cpp">
-      <Filter>Tutorials\Dependencies\ImGui</Filter>
+      <Filter>Dependencies\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Src\Tutorials\T02_UsingUtilities\T02_UsingTools.cpp">
       <Filter>Tutorials\Example 02 Using Tools</Filter>
@@ -147,6 +153,12 @@
     </ClCompile>
     <ClCompile Include="..\..\Src\Tutorials\E04_Properties\E04_Properties.cpp">
       <Filter>Tutorials\Example 04 Properties</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Dependencies\xbmp_tools\src\xbmp_tools.cpp">
+      <Filter>Dependencies\xbmpTools</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Tutorials\E05_Textures\E05_Textures.cpp">
+      <Filter>Tutorials\Example 05 Textures</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -295,169 +307,169 @@
       <Filter>Tutorials\Settings</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_arglist.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_array.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_assert.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_bits.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_cmdline.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_compression.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_context.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_crc.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_endian.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_error.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_event.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_file.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_function.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_global.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_guid.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_lock.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_lockless_pool.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_lockless_queues.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_log.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_matrix4.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_quaternion.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_radian3.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_shapes.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_transform.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_vector2.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_vector3.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_vector4.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_memory.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_profiler.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_ptr.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_random.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_rtti.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_scheduler_channel.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_scheduler_job.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_scheduler_system.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_scheduler_trigger.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_serialicer.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_serializer.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_span.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_string.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_system_reg.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_target.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_textfile.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_textfile2.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_types.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_unique_span.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_units.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_vector.h">
-      <Filter>Tutorials\Dependencies\xCore</Filter>
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui.h">
-      <Filter>Tutorials\Dependencies\ImGui</Filter>
+      <Filter>Dependencies\ImGui</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_internal.h">
-      <Filter>Tutorials\Dependencies\ImGui</Filter>
+      <Filter>Dependencies\ImGui</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imstb_rectpack.h">
-      <Filter>Tutorials\Dependencies\ImGui</Filter>
+      <Filter>Dependencies\ImGui</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imstb_textedit.h">
-      <Filter>Tutorials\Dependencies\ImGui</Filter>
+      <Filter>Dependencies\ImGui</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imstb_truetype.h">
-      <Filter>Tutorials\Dependencies\ImGui</Filter>
+      <Filter>Dependencies\ImGui</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Src\Tutorials\Settings\imconfig.h">
       <Filter>Tutorials\Settings</Filter>
@@ -477,6 +489,21 @@
     <ClInclude Include="..\..\Dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyExample.h">
       <Filter>Tutorials\Example 04 Properties</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_color.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_bitmap.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Dependencies\xbmp_tools\src\xbmp_tools.h">
+      <Filter>Dependencies\xbmpTools</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Dependencies\xbmp_tools\src\xbmp_tools_loaders.h">
+      <Filter>Dependencies\xbmpTools</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Tools\xgpu_xcore_bitmap_helpers.h">
+      <Filter>Tools</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="draw_frag.glsl" />
@@ -488,7 +515,7 @@
   </ItemGroup>
   <ItemGroup>
     <Text Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\LICENSE.txt">
-      <Filter>Tutorials\Dependencies\ImGui</Filter>
+      <Filter>Dependencies\ImGui</Filter>
     </Text>
   </ItemGroup>
 </Project>

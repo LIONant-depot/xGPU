@@ -14,6 +14,9 @@ namespace xgpu::windows
             ValidateRect( hWnd, NULL );
             break;
 
+        // This should be more precise than the regular mouse move message but in fact it seems to be less precise
+        // as I can see things drift 
+        /*
         case WM_INPUT:
         {
             if (auto pWin = reinterpret_cast<windows::window*>(GetWindowLongPtr(hWnd, GWLP_USERDATA)); pWin)
@@ -52,6 +55,7 @@ namespace xgpu::windows
             }
             break;
         }
+        */
         case WM_MOUSEMOVE:
             if( auto pWin = reinterpret_cast<windows::window*>( GetWindowLongPtr( hWnd, GWLP_USERDATA ) ); pWin )
             {
@@ -71,6 +75,8 @@ namespace xgpu::windows
         case WM_MBUTTONDOWN:
             if( auto pWin = reinterpret_cast<windows::window*>( GetWindowLongPtr( hWnd, GWLP_USERDATA ) ); pWin )
             {
+                SetCapture(hWnd);
+
                 auto x = static_cast<const int>(lParam & 0xffff);
                 auto y = static_cast<const int>(lParam >> 16);
 
@@ -87,11 +93,15 @@ namespace xgpu::windows
             {
                 pWin->m_Mouse->m_ButtonIsDown[static_cast<int>(xgpu::mouse::digital::BTN_MIDDLE)] = 0;
                 pWin->m_Mouse->m_ButtonWasDown[ pWin->m_Mouse->m_ButtonIndex ][ static_cast<int>(xgpu::mouse::digital::BTN_MIDDLE) ] = 1;
+
+                ReleaseCapture();
             }
             break;
         case WM_LBUTTONDOWN:
             if( auto pWin = reinterpret_cast<windows::window*>( GetWindowLongPtr( hWnd, GWLP_USERDATA ) ); pWin )
             {
+                SetCapture(hWnd);
+
                 auto x = static_cast<const int>(lParam & 0xffff);
                 auto y = static_cast<const int>(lParam >> 16);
 
@@ -108,11 +118,15 @@ namespace xgpu::windows
             {
                 pWin->m_Mouse->m_ButtonIsDown[static_cast<int>(xgpu::mouse::digital::BTN_LEFT)] = 0;
                 pWin->m_Mouse->m_ButtonWasDown[pWin->m_Mouse->m_ButtonIndex][static_cast<int>(xgpu::mouse::digital::BTN_LEFT)] = 1;
+
+                ReleaseCapture();
             }
             break;
         case WM_RBUTTONDOWN:
             if( auto pWin = reinterpret_cast<windows::window*>( GetWindowLongPtr( hWnd, GWLP_USERDATA ) ); pWin )
             {
+                SetCapture(hWnd);
+
                 auto x = static_cast<const int>(lParam & 0xffff);
                 auto y = static_cast<const int>(lParam >> 16);
 
@@ -129,6 +143,8 @@ namespace xgpu::windows
             {
                 pWin->m_Mouse->m_ButtonIsDown[static_cast<int>(xgpu::mouse::digital::BTN_RIGHT)] = 0;
                 pWin->m_Mouse->m_ButtonWasDown[pWin->m_Mouse->m_ButtonIndex][static_cast<int>(xgpu::mouse::digital::BTN_RIGHT)] = 1;
+
+                ReleaseCapture();
             }
             break;
         case WM_KEYDOWN:
@@ -370,20 +386,22 @@ namespace xgpu::windows
         //
         // Allow us to track the mouse outside the window (get WM_INPUT messages) for the mouse
         //
-        #ifndef HID_USAGE_PAGE_GENERIC
-            #define HID_USAGE_PAGE_GENERIC         ((USHORT) 0x01)
-        #endif
-        #ifndef HID_USAGE_GENERIC_MOUSE
-            #define HID_USAGE_GENERIC_MOUSE        ((USHORT) 0x02)
-        #endif
+        if constexpr (false)
+        {
+            #ifndef HID_USAGE_PAGE_GENERIC
+                #define HID_USAGE_PAGE_GENERIC         ((USHORT) 0x01)
+            #endif
+            #ifndef HID_USAGE_GENERIC_MOUSE
+                #define HID_USAGE_GENERIC_MOUSE        ((USHORT) 0x02)
+            #endif
 
-        RAWINPUTDEVICE Rid[1];
-        Rid[0].usUsagePage  = HID_USAGE_PAGE_GENERIC;
-        Rid[0].usUsage      = HID_USAGE_GENERIC_MOUSE;
-        Rid[0].dwFlags      = RIDEV_INPUTSINK;
-        Rid[0].hwndTarget   = m_hWindow;
-        RegisterRawInputDevices(Rid, 1, sizeof(Rid[0]));
-
+            RAWINPUTDEVICE Rid[1];
+            Rid[0].usUsagePage  = HID_USAGE_PAGE_GENERIC;
+            Rid[0].usUsage      = HID_USAGE_GENERIC_MOUSE;
+            Rid[0].dwFlags      = RIDEV_INPUTSINK;
+            Rid[0].hwndTarget   = m_hWindow;
+            RegisterRawInputDevices(Rid, 1, sizeof(Rid[0]));
+        }
 
         return nullptr;
     }

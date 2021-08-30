@@ -7,7 +7,8 @@ int main()
     if constexpr (false) if( auto err = T01_Example(); err ) return err;
     if constexpr (false) if (auto err = T02_Example(); err) return err;
     if constexpr (false) if (auto err = E03_Example(); err) return err;
-    if constexpr (!false) if (auto err = E04_Example(); err) return err;
+    if constexpr (false) if (auto err = E04_Example(); err) return err;
+    if constexpr (!false) if (auto err = E05_Example(); err) return err;
 
     return 0;
 }

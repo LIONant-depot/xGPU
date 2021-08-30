@@ -33,16 +33,17 @@ namespace xgpu::vulkan
 
             //             xgpu::texture::format                                            VKFormat_LinearUnsigned                VKFormat_LinearSigned                   VKFormat_SRGB
             //           ---------------------------------                                  ----------------------------------    -----------------------------------    ------------------------------------
-            FormatTable[(int)xgpu::texture::format::R4G4B4A4            ] = texture_format  { VK_FORMAT_R4G4B4A4_UNORM_PACK16     , VK_FORMAT_UNDEFINED                  , VK_FORMAT_UNDEFINED                  };
-            FormatTable[(int)xgpu::texture::format::R8G8B8              ] = texture_format  { VK_FORMAT_R8G8B8_UNORM              , VK_FORMAT_R8G8B8_SNORM               , VK_FORMAT_R8G8B8_SRGB                };
-            FormatTable[(int)xgpu::texture::format::R8G8B8U8            ] = texture_format  { VK_FORMAT_R8G8B8A8_UNORM            , VK_FORMAT_R8G8B8A8_SNORM             , VK_FORMAT_R8G8B8A8_SRGB              };
-            FormatTable[(int)xgpu::texture::format::R8G8B8A8            ] = texture_format  { VK_FORMAT_R8G8B8A8_UNORM            , VK_FORMAT_R8G8B8A8_SNORM             , VK_FORMAT_R8G8B8A8_SRGB              };
+            FormatTable[(int)xgpu::texture::format::B8G8R8A8            ] = texture_format  { VK_FORMAT_B8G8R8A8_UNORM            , VK_FORMAT_B8G8R8A8_SNORM             , VK_FORMAT_B8G8R8A8_SRGB              };
+            FormatTable[(int)xgpu::texture::format::B8G8R8U8            ] = texture_format  { VK_FORMAT_B8G8R8A8_UNORM            , VK_FORMAT_B8G8R8A8_SNORM             , VK_FORMAT_B8G8R8A8_SRGB              };
             FormatTable[(int)xgpu::texture::format::A8R8G8B8            ] = texture_format  { VK_FORMAT_UNDEFINED                 , VK_FORMAT_UNDEFINED                  , VK_FORMAT_UNDEFINED                  };
             FormatTable[(int)xgpu::texture::format::U8R8G8B8            ] = texture_format  { VK_FORMAT_UNDEFINED                 , VK_FORMAT_UNDEFINED                  , VK_FORMAT_UNDEFINED                  };
+            FormatTable[(int)xgpu::texture::format::R8G8B8U8            ] = texture_format  { VK_FORMAT_R8G8B8A8_UNORM            , VK_FORMAT_R8G8B8A8_SNORM             , VK_FORMAT_R8G8B8A8_SRGB              };
+            FormatTable[(int)xgpu::texture::format::R8G8B8A8            ] = texture_format  { VK_FORMAT_R8G8B8A8_UNORM            , VK_FORMAT_R8G8B8A8_SNORM             , VK_FORMAT_R8G8B8A8_SRGB              };
+            FormatTable[(int)xgpu::texture::format::R8G8B8              ] = texture_format  { VK_FORMAT_R8G8B8_UNORM              , VK_FORMAT_R8G8B8_SNORM               , VK_FORMAT_R8G8B8_SRGB                };
+            FormatTable[(int)xgpu::texture::format::R4G4B4A4            ] = texture_format  { VK_FORMAT_R4G4B4A4_UNORM_PACK16     , VK_FORMAT_UNDEFINED                  , VK_FORMAT_R4G4B4A4_UNORM_PACK16      };
 
-            FormatTable[(int)xgpu::texture::format::ETC2_4RGB           ] = texture_format  { VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK   , VK_FORMAT_UNDEFINED                  , VK_FORMAT_ETC2_R8G8B8_SRGB_BLOCK     };
-            FormatTable[(int)xgpu::texture::format::ETC2_4RGBA1         ] = texture_format  { VK_FORMAT_ETC2_R8G8B8A1_UNORM_BLOCK , VK_FORMAT_UNDEFINED                  , VK_FORMAT_ETC2_R8G8B8A1_SRGB_BLOCK   };
-            FormatTable[(int)xgpu::texture::format::ETC2_8RGBA          ] = texture_format  { VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK , VK_FORMAT_UNDEFINED                  , VK_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK   };
+            FormatTable[(int)xgpu::texture::format::R5G6B5              ] = texture_format  { VK_FORMAT_R5G6B5_UNORM_PACK16       , VK_FORMAT_UNDEFINED                  , VK_FORMAT_R5G6B5_UNORM_PACK16        };
+            FormatTable[(int)xgpu::texture::format::B5G5R5A1            ] = texture_format  { VK_FORMAT_B5G5R5A1_UNORM_PACK16     , VK_FORMAT_UNDEFINED                  , VK_FORMAT_B5G5R5A1_UNORM_PACK16      };
 
             FormatTable[(int)xgpu::texture::format::BC1_4RGB            ] = texture_format  { VK_FORMAT_BC1_RGB_UNORM_BLOCK       , VK_FORMAT_UNDEFINED                  , VK_FORMAT_BC1_RGB_SRGB_BLOCK         };
             FormatTable[(int)xgpu::texture::format::BC1_4RGBA1          ] = texture_format  { VK_FORMAT_BC1_RGBA_UNORM_BLOCK      , VK_FORMAT_UNDEFINED                  , VK_FORMAT_BC1_RGBA_SRGB_BLOCK        };
@@ -52,6 +53,10 @@ namespace xgpu::vulkan
             FormatTable[(int)xgpu::texture::format::BC5_8RG             ] = texture_format  { VK_FORMAT_BC5_UNORM_BLOCK           , VK_FORMAT_BC5_SNORM_BLOCK            , VK_FORMAT_UNDEFINED                  };
             FormatTable[(int)xgpu::texture::format::BC6H_8RGB_FLOAT     ] = texture_format  { VK_FORMAT_BC6H_UFLOAT_BLOCK         , VK_FORMAT_BC6H_SFLOAT_BLOCK          , VK_FORMAT_UNDEFINED                  };
             FormatTable[(int)xgpu::texture::format::BC7_8RGBA           ] = texture_format  { VK_FORMAT_BC7_UNORM_BLOCK           , VK_FORMAT_UNDEFINED                  , VK_FORMAT_BC7_SRGB_BLOCK             };
+
+            FormatTable[(int)xgpu::texture::format::ETC2_4RGB           ] = texture_format  { VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK   , VK_FORMAT_UNDEFINED                  , VK_FORMAT_ETC2_R8G8B8_SRGB_BLOCK     };
+            FormatTable[(int)xgpu::texture::format::ETC2_4RGBA1         ] = texture_format  { VK_FORMAT_ETC2_R8G8B8A1_UNORM_BLOCK , VK_FORMAT_UNDEFINED                  , VK_FORMAT_ETC2_R8G8B8A1_SRGB_BLOCK   };
+            FormatTable[(int)xgpu::texture::format::ETC2_8RGBA          ] = texture_format  { VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK , VK_FORMAT_UNDEFINED                  , VK_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK   };
 
             return FormatTable;
         }();  
@@ -118,94 +123,6 @@ namespace xgpu::vulkan
             assert(false);
         }
 
-        /*
-        // Source layouts (old)
-        switch( OldImageLayout )
-        {
-        case VK_IMAGE_LAYOUT_PREINITIALIZED:
-            ImageMemoryBarrier.srcAccessMask =
-                VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
-            break;
-        case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-            ImageMemoryBarrier.srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-            break;
-        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-            ImageMemoryBarrier.srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-            break;
-        case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-            ImageMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-            break;
-        case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-            ImageMemoryBarrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-            break;
-        }
-        */
-
-        /*
-        {
-        case VK_IMAGE_LAYOUT_UNDEFINED:
-            // Only valid as initial layout, memory contents are not preserved
-            // Can be accessed directly, no source dependency required
-            ImageMemoryBarrier.srcAccessMask = 0;
-            break;
-        case VK_IMAGE_LAYOUT_PREINITIALIZED:
-            // Only valid as initial layout for linear images, preserves memory contents
-            // Make sure host writes to the image have been finished
-            ImageMemoryBarrier.srcAccessMask = VK_ACCESS_HOST_WRITE_BIT;
-            break;
-        case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-            // Old layout is transfer destination
-            // Make sure any writes to the image have been finished
-            ImageMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            break;
-        }
-        */
-
-        /*
-        // Target layouts (new)
-        switch( NewImageLayout )
-        {
-        case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-            ImageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            break;
-        case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-            ImageMemoryBarrier.srcAccessMask |= VK_ACCESS_TRANSFER_READ_BIT;
-            ImageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-            break;
-        case VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL:
-            ImageMemoryBarrier.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-            ImageMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-            break;
-        case VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL:
-            ImageMemoryBarrier.dstAccessMask |=
-                VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-            break;
-        case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-            ImageMemoryBarrier.srcAccessMask =
-                VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT;
-            ImageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-            break;
-        }
-        */
-
-        /*
-        {
-        case VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL:
-            // Transfer source (copy, blit)
-            // Make sure any reads from the image have been finished
-            ImageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
-            break;
-        case VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL:
-            // Transfer destination (copy, blit)
-            // Make sure any writes to the image have been finished
-            ImageMemoryBarrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-            break;
-        case VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL:
-            // Shader read (sampler, input attachment)
-            ImageMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-            break;
-        }
-        */
 
         // Put barrier inside setup command buffer
         vkCmdPipelineBarrier( CmdBuffer
@@ -231,8 +148,8 @@ namespace xgpu::vulkan
         m_Device = Device;
 
         const VkFormat      VKFormat = getVKTextureFormat( Setup.m_Format
-                                                         ,      Setup.m_Type == xgpu::texture::type::LINEAR
-                                                           ||   Setup.m_Type == xgpu::texture::type::NORMAL
+                                                         ,     Setup.m_Type == xgpu::texture::type::LINEAR
+                                                            || Setup.m_Type == xgpu::texture::type::NORMAL
                                                          , Setup.m_hasSignedChannels
                                                          );
 
@@ -281,7 +198,7 @@ namespace xgpu::vulkan
                 .sType          = VkStructureType::VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
             ,   .pNext          = nullptr
             ,   .flags          = 0
-            ,   .size           = Setup.m_MipChain[0].m_Size
+            ,   .size           = Setup.m_TotalMemory
             ,   .usage          = VK_BUFFER_USAGE_TRANSFER_SRC_BIT
             ,   .sharingMode    = VK_SHARING_MODE_EXCLUSIVE
             };
@@ -375,8 +292,8 @@ namespace xgpu::vulkan
                 );
 
                 // Get ready for next mip
-                Width  >>= 1;
-                Height >>= 1;
+                Width  = std::max( 1, Width>>1);
+                Height = std::max( 1, Height>>1);
                 Offset += static_cast<uint32_t>(Setup.m_MipChain[i].m_Size);
             }
 

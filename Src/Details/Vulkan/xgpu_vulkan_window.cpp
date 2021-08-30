@@ -773,6 +773,10 @@ namespace xgpu::vulkan
 
     void window::PageFlip( void ) noexcept
     {
+        assert( 0 >= --m_BeginState );
+        m_BeginState = 0;
+        (void)EndFrame();
+
         auto& Frame       = m_Frames[m_FrameIndex];
         auto& Semaphore   = m_FrameSemaphores[m_SemaphoreIndex];
 
@@ -810,6 +814,11 @@ namespace xgpu::vulkan
 
     void window::RenderBegin(void) noexcept
     {
+        if( 0 != m_BeginState++ ) return;
+
+        // Add another additional one
+        m_BeginState++;
+
         //
         // Check if window has change its size
         //
@@ -818,9 +827,6 @@ namespace xgpu::vulkan
             vkDeviceWaitIdle(m_Device->m_VKDevice);
             (void)CreateOrResizeWindow(getWidth(), getHeight());
         }
-
-        assert(m_BeginState == false);
-        m_BeginState++;
 
         //
         // Make sure we are sync with the previous frame
@@ -917,6 +923,12 @@ namespace xgpu::vulkan
     void window::RenderEnd(void) noexcept
     {
         m_BeginState--;
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+
+    xgpu::device::error* window::EndFrame(void) noexcept
+    {
         auto& Frame     = m_Frames[m_FrameIndex];
         auto& Semaphore = m_FrameSemaphores[m_SemaphoreIndex];
 
@@ -954,6 +966,8 @@ namespace xgpu::vulkan
         {
             assert(false);
         }
+
+        return nullptr;
     }
 
     //------------------------------------------------------------------------------------------------------------------------
