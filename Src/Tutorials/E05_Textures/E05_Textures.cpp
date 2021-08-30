@@ -368,12 +368,13 @@ int E05_Example()
         //
         if( auto ctx = ImGui::GetCurrentContext(); ctx->HoveredWindow == nullptr || ctx->HoveredWindow->ID == ImGui::GetID("MainDockSpace") )
         {
-            auto& io = ImGui::GetIO();
+            const float  OldScale = MouseScale;
+            auto&        io       = ImGui::GetIO();
             if ( io.MouseDown[1] )
             {
                 if( io.MouseDown[0] )
                 {
-                    MouseScale -= 8.0f * (io.MouseDelta.y * (2.0f / MainWindow.getHeight()));
+                    MouseScale -= 8000.0f * io.DeltaTime * (io.MouseDelta.y * (2.0f / MainWindow.getHeight()));
                 }
                 else
                 {
@@ -382,8 +383,22 @@ int E05_Example()
                 }
             }
 
-            MouseScale += 0.5f * io.MouseWheel;
-            if(MouseScale < 0.01f ) MouseScale = 0.01f;
+            // Wheel scale
+            MouseScale += 0.9f * io.MouseWheel;
+            if(MouseScale < 0.1f ) MouseScale = 0.1f;
+
+            // Always zoom from the perspective of the mouse
+            const float mx = ((io.MousePos.x / (float)MainWindow.getWidth()) - 0.5f) * 2.0f;
+            const float my = ((io.MousePos.y / (float)MainWindow.getHeight()) - 0.5f) * 2.0f;
+            MouseTranslate.m_X += (MouseTranslate.m_X - mx) * (MouseScale - OldScale) / OldScale;
+            MouseTranslate.m_Y += (MouseTranslate.m_Y - my) * (MouseScale - OldScale) / OldScale;
+
+            // Make sure that the picture does not leave the view
+            // should be 0.5 but I left a little bit of the picture inside the view with 0.4f
+            const float BorderX = ((BitmapInspector[iActiveImage].m_Bitmap.getWidth() * 0.4f) / (float)MainWindow.getWidth()) * MouseScale;
+            const float BorderY = ((BitmapInspector[iActiveImage].m_Bitmap.getHeight() * 0.4f) / (float)MainWindow.getHeight()) * MouseScale;
+            MouseTranslate.m_X = std::min(1.0f + BorderX, std::max(-1.0f - BorderX, MouseTranslate.m_X));
+            MouseTranslate.m_Y = std::min(1.0f + BorderY, std::max(-1.0f - BorderY, MouseTranslate.m_Y));
         }
 
         //
