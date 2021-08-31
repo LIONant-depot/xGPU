@@ -370,7 +370,8 @@ int E05_Example()
         {
             const float  OldScale = MouseScale;
             auto&        io       = ImGui::GetIO();
-            if ( io.MouseDown[1] )
+
+            if ( io.MouseDown[1] || io.MouseDown[2] )
             {
                 if( io.MouseDown[0] )
                 {

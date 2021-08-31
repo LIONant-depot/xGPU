@@ -334,6 +334,20 @@ namespace xgpu::vulkan
         }
 
         //
+        // Filter our devices that don't support the minimum version required for our implementation
+        //
+        for (std::size_t i = 0; i < PhysicalDevices.size(); ++i)
+        {
+            VkPhysicalDeviceProperties DeviceProperties;
+            vkGetPhysicalDeviceProperties(PhysicalDevices[i], &DeviceProperties);
+            if( DeviceProperties.apiVersion < VK_API_VERSION_1_1 )
+            {
+                PhysicalDevices.erase(PhysicalDevices.begin() + i);
+                i--;
+            }
+        }
+
+        //
         // Filter out base of the expected Discreateness
         //
         if (Setup.m_Discreate == xgpu::device::discreate::NON_DISCREATE_ONLY)
@@ -342,7 +356,7 @@ namespace xgpu::vulkan
             {
                 VkPhysicalDeviceProperties DeviceProperties;
                 vkGetPhysicalDeviceProperties( PhysicalDevices[i], &DeviceProperties );
-                if(DeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU )
+                if( DeviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU )
                 {
                     PhysicalDevices.erase( PhysicalDevices.begin() + i );
                     i--;
@@ -355,33 +369,32 @@ namespace xgpu::vulkan
             {
                 VkPhysicalDeviceProperties DeviceProperties;
                 vkGetPhysicalDeviceProperties(PhysicalDevices[i], &DeviceProperties);
-                if (DeviceProperties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
+                if( DeviceProperties.deviceType != VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU )
                 {
                     PhysicalDevices.erase(PhysicalDevices.begin() + i);
                     i--;
                 }
             }
         }
-        else
+        else if( PhysicalDevices.size() )
         {
             // Prioritize devices that are discreate to do that
             // we need to collect all sort the discreate devices first
             auto DeviceProperties = std::make_unique<VkPhysicalDeviceProperties[]>(PhysicalDevices.size());
             auto IndexArray       = std::make_unique<int[]>(PhysicalDevices.size());
-            for (const auto& PhysicalDevice : PhysicalDevices)
+            for (std::size_t i = 0; i < PhysicalDevices.size(); ++i)
             {
-                auto i = static_cast<std::size_t>(&PhysicalDevice - PhysicalDevices.data());
-                vkGetPhysicalDeviceProperties(PhysicalDevice, &DeviceProperties[i]);
+                vkGetPhysicalDeviceProperties( PhysicalDevices[i], &DeviceProperties[i]);
                 IndexArray[i] = static_cast<int>(i);
             }
 
             // Sort all the devices such the descrite devices are first (We always prioritize those)
             std::sort(&IndexArray[0], &IndexArray[PhysicalDevices.size()-1], [&](const int& iA, const int& iB) -> bool
-                {
-                    const int   a = DeviceProperties[iA].deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
-                    const int   b = DeviceProperties[iB].deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
-                    return a < b;
-                });
+            {
+                const int   a = DeviceProperties[iA].deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+                const int   b = DeviceProperties[iB].deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU;
+                return a < b;
+            });
         }
 
         //
