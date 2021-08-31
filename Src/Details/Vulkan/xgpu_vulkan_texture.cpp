@@ -198,7 +198,7 @@ namespace xgpu::vulkan
                 .sType          = VkStructureType::VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
             ,   .pNext          = nullptr
             ,   .flags          = 0
-            ,   .size           = Setup.m_TotalMemory
+            ,   .size           = Setup.m_Data.size()
             ,   .usage          = VK_BUFFER_USAGE_TRANSFER_SRC_BIT
             ,   .sharingMode    = VK_SHARING_MODE_EXCLUSIVE
             };
@@ -257,7 +257,7 @@ namespace xgpu::vulkan
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to map with the allocated memory for the texture");
             }
 
-            memcpy(pData, Setup.m_pData, Setup.m_TotalMemory);
+            memcpy(pData, Setup.m_Data.data(), Setup.m_Data.size());
             vkUnmapMemory( m_Device->m_VKDevice, StagingMemory );
 
             // Setup buffer copy regions for each mip level
@@ -511,8 +511,8 @@ namespace xgpu::vulkan
 
             // Copy image data into memory
             memcpy( pData
-                  , Setup.m_pData
-                  , Setup.m_MipChain.data() ? Setup.m_MipChain[ ImageSubresource.mipLevel ].m_Size : Setup.m_TotalMemory
+                  , Setup.m_Data.data()
+                  , Setup.m_MipChain.data() ? Setup.m_MipChain[ ImageSubresource.mipLevel ].m_Size : Setup.m_Data.size()
                   );
 
             vkUnmapMemory(m_Device->m_VKDevice, MappableMemory );

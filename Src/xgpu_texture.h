@@ -52,15 +52,14 @@ namespace xgpu
                 std::size_t m_Size;
             };
 
-            format                  m_Format                { format::DEFAULT };
-            type                    m_Type                  { type::GAMMA };
-            std::array<wrapping,3>  m_Coordinate            { wrapping::WRAPPING, wrapping::WRAPPING, wrapping::WRAPPING };
-            bool                    m_hasSignedChannels     { false };
-            int                     m_Width                 { -1 };
-            int                     m_Height                { -1 };
-            std::size_t             m_TotalMemory           { 0 };
-            std::span<mip>          m_MipChain              {};
-            std::byte*              m_pData                 {nullptr};
+            format                      m_Format                { format::DEFAULT };
+            type                        m_Type                  { type::GAMMA };
+            std::array<wrapping,3>      m_Coordinate            { wrapping::WRAPPING, wrapping::WRAPPING, wrapping::WRAPPING };
+            bool                        m_hasSignedChannels     { false };
+            int                         m_Width                 { -1 };
+            int                         m_Height                { -1 };
+            std::span<const mip>        m_MipChain              {};
+            std::span<const std::byte>  m_Data                  {};
         };
 
         std::shared_ptr<details::texture_handle> m_Private;

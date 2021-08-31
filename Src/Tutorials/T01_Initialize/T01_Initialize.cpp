@@ -127,17 +127,17 @@ int T01_Example()
         {
             constexpr auto          size_v = 32;
             xgpu::texture::setup    Setup;
+            auto                    Mips   = std::array{ xgpu::texture::setup::mip{ Setup.m_Height * Setup.m_Width * sizeof(std::uint32_t) }};
 
-            Setup.m_Height = size_v;
-            Setup.m_Width = size_v;
-            Setup.m_TotalMemory = Setup.m_Height * Setup.m_Width * sizeof(std::uint32_t);
-            Setup.m_MipChain = { reinterpret_cast<xgpu::texture::setup::mip*>(&Setup.m_TotalMemory), 1ull };
+            Setup.m_Height   = size_v;
+            Setup.m_Width    = size_v;
+            Setup.m_MipChain = Mips;
 
             auto TextureData = std::make_unique< std::array<std::uint32_t, size_v* size_v> >();
             if( i == 0) std::fill(TextureData->begin(), TextureData->end(), 0xffffffffu);
             else std::fill(TextureData->begin(), TextureData->end(), 0xffffu);
 
-            Setup.m_pData = reinterpret_cast<std::byte*>(TextureData->data());
+            Setup.m_Data = { reinterpret_cast<const std::byte*>(TextureData->data()), Mips[0].m_Size };
 
             if (auto Err = Device.Create(Texture, Setup); Err)
                 return xgpu::getErrorInt(Err);

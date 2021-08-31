@@ -253,6 +253,7 @@ int E05_Example()
             auto UniformConstans = std::array
             { static_cast<int>(sizeof(float) * 2)   // Scale
             , static_cast<int>(sizeof(float) * 2)   // Translation
+            , static_cast<int>(sizeof(float) * 2)   // UVScale
             };
             xgpu::shader::setup Setup
             {
@@ -342,6 +343,31 @@ int E05_Example()
     }
 
     //
+    // Create the background material
+    //
+    xgpu::pipeline_instance BackgroundMaterialInstance;
+    {
+        xgpu::texture Texture;
+        if (auto Err = xgpu::tools::bitmap::Create(Texture, Device, xcore::bitmap::getDefaultBitmap() ); Err)
+        {
+            DebugMessage(xgpu::getErrorMsg(Err));
+            std::exit(xgpu::getErrorInt(Err));
+        }
+
+        auto  Bindings  = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
+        auto  Setup     = xgpu::pipeline_instance::setup
+        { .m_PipeLine           = Pipeline
+        , .m_SamplersBindings   = Bindings
+        };
+
+        if (auto Err = Device.Create(BackgroundMaterialInstance, Setup); Err)
+        {
+            DebugMessage(xgpu::getErrorMsg(Err));
+            std::exit(xgpu::getErrorInt(Err));
+        }
+    }
+
+    //
     // Storate some input context
     //
     int             iActiveImage = 0;
@@ -407,20 +433,50 @@ int E05_Example()
         //
         {
             auto CmdBuffer = MainWindow.getCmdBuffer();
-            CmdBuffer.setPipelineInstance(BitmapInspector[iActiveImage].m_Instance);
-            CmdBuffer.setBuffer(VertexBuffer);
-            CmdBuffer.setBuffer(IndexBuffer);
 
-            // Set the push contants
-            auto Scale = std::array
-            { (MouseScale * 2.0f) / MainWindow.getWidth()    * BitmapInspector[iActiveImage].m_Bitmap.getAspectRatio()
-            , (MouseScale * 2.0f) / MainWindow.getHeight()
-            };
+            //
+            // Render background
+            //
+            {
+                CmdBuffer.setPipelineInstance(BackgroundMaterialInstance);
+                CmdBuffer.setBuffer(VertexBuffer);
+                CmdBuffer.setBuffer(IndexBuffer);
 
-            CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0,     Scale.data(), static_cast<std::uint32_t>(sizeof(Scale)));
-            CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 2 * 4, &MouseTranslate, static_cast<std::uint32_t>(sizeof(MouseTranslate)));
+                auto Scale = std::array
+                { (150 * 2.0f) / MainWindow.getWidth()
+                , (150 * 2.0f) / MainWindow.getHeight()
+                };
+                auto z = std::array{ 0,0 };
+                auto UVScale = std::array{ 100.0f,100.0f };
 
-            CmdBuffer.Draw( 6 );
+                CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0,         Scale.data(), static_cast<std::uint32_t>(sizeof(Scale)));
+                CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 2     * 4, z.data(),     static_cast<std::uint32_t>(sizeof(z)));
+                CmdBuffer.setConstants(xgpu::shader::type::VERTEX, (2*2) * 4, &UVScale,     static_cast<std::uint32_t>(sizeof(UVScale)));
+
+                CmdBuffer.Draw(6);
+            }
+
+            //
+            // Render Image
+            //
+            {
+                CmdBuffer.setPipelineInstance(BitmapInspector[iActiveImage].m_Instance);
+                CmdBuffer.setBuffer(VertexBuffer);
+                CmdBuffer.setBuffer(IndexBuffer);
+
+                auto Scale = std::array
+                { (MouseScale * 2.0f) / MainWindow.getWidth()    * BitmapInspector[iActiveImage].m_Bitmap.getAspectRatio()
+                , (MouseScale * 2.0f) / MainWindow.getHeight()
+                };
+
+                auto UVScale = std::array{ 1.0f,1.0f };
+
+                CmdBuffer.setConstants(xgpu::shader::type::VERTEX, (0*2) * 4, Scale.data(),    static_cast<std::uint32_t>(sizeof(Scale)));
+                CmdBuffer.setConstants(xgpu::shader::type::VERTEX, (1*2) * 4, &MouseTranslate, static_cast<std::uint32_t>(sizeof(MouseTranslate)));
+                CmdBuffer.setConstants(xgpu::shader::type::VERTEX, (2*2) * 4, UVScale.data(),  static_cast<std::uint32_t>(sizeof(UVScale)));
+
+                CmdBuffer.Draw( 6 );
+            }
         }
 
         //

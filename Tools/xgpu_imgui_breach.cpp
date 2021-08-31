@@ -634,9 +634,8 @@ struct breach_instance : window_info
 
             Setup.m_Height      = height;
             Setup.m_Width       = width;
-            Setup.m_TotalMemory = Mip[0].m_Size;
             Setup.m_MipChain    = Mip;
-            Setup.m_pData       = reinterpret_cast<std::byte*>(pixels);
+            Setup.m_Data        = { reinterpret_cast<const std::byte*>(pixels), Mip[0].m_Size };
 
             if (auto Err = m_Device.Create(Texture, Setup); Err)
                 return Err;

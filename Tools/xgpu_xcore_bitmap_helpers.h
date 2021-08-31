@@ -60,23 +60,21 @@ namespace xgpu::tools::bitmap
     //---------------------------------------------------------------------------------------
 
     inline
-    xgpu::device::error* Create( xgpu::texture& Texture, xgpu::device& Device, xcore::bitmap& Bitmap ) noexcept
+    xgpu::device::error* Create( xgpu::texture& Texture, xgpu::device& Device, const xcore::bitmap& Bitmap ) noexcept
     {
         xgpu::texture::setup                    Setup;
         std::vector<xgpu::texture::setup::mip>  Mips;
 
         for( int i=0, end = Bitmap.getMipCount(); i<end; ++i )
         {
-
             Mips.push_back( { Bitmap.getMipSize(i)} );
         }
 
         Setup.m_Format      = getFormat(Bitmap.getFormat());
         Setup.m_Height      = Bitmap.getHeight();
         Setup.m_Width       = Bitmap.getWidth();
-        Setup.m_TotalMemory = Bitmap.getFrameSize();
         Setup.m_MipChain    = Mips;
-        Setup.m_pData       = Bitmap.getMip<std::byte>(0).data();
+        Setup.m_Data        = std::span{ Bitmap.getMip<std::byte>(0).data(), Bitmap.getFrameSize() };
 
         if (auto Err = Device.Create(Texture, Setup); Err)
             return Err;
