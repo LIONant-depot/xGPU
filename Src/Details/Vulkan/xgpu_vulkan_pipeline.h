@@ -31,7 +31,6 @@ namespace xgpu::vulkan
         VkPipelineViewportStateCreateInfo                   m_VKViewportInfo                {};
         std::array<VkDynamicState,2>                        m_VKDyanmicStates               {};
         VkPipelineDynamicStateCreateInfo                    m_VKDynamicStateCreateInfo      {};
-        mutable lock_object<VkDescriptorPool>               m_LockedVKDescriptorPool        {};
         int                                                 m_nShaderStages                 { 0 };
         int                                                 m_nSamplers                     { 0 };
         stages_array                                        m_ShaderStages                  {};

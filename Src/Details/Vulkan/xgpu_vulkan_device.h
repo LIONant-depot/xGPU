@@ -58,15 +58,17 @@ namespace xgpu::vulkan
 
 
 
-        std::shared_ptr<xgpu::vulkan::instance> m_Instance                  {};
-        VkPhysicalDevice                        m_VKPhysicalDevice          {};
-        VkDevice                                m_VKDevice                  {};
-        std::uint32_t                           m_QueueIndex                {}; 
-        VkQueue                                 m_VKQueue                   {};
-        VkPhysicalDeviceMemoryProperties        m_VKDeviceMemoryProperties  {};
-        VkPipelineCache                         m_VKPipelineCache           {};  // ??
-        VkDeviceSize                            m_BufferMemoryAlignment     {256};
-        VkPhysicalDeviceProperties              m_VKPhysicalDeviceProperties{};
+        std::shared_ptr<xgpu::vulkan::instance>         m_Instance                  {};
+        VkPhysicalDevice                                m_VKPhysicalDevice          {};
+        VkDevice                                        m_VKDevice                  {};
+        std::uint32_t                                   m_QueueIndex                {}; 
+        VkQueue                                         m_VKQueue                   {};
+        VkPhysicalDeviceMemoryProperties                m_VKDeviceMemoryProperties  {};
+        VkPipelineCache                                 m_VKPipelineCache           {};  // ??
+        VkDeviceSize                                    m_BufferMemoryAlignment     {256};
+        VkPhysicalDeviceProperties                      m_VKPhysicalDeviceProperties{};
+        std::array<lock_object<VkDescriptorPool>, 16>   m_LockedVKDescriptorPools   {};
+
 
     };
 }

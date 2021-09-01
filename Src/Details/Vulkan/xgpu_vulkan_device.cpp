@@ -117,6 +117,49 @@ namespace xgpu::vulkan
             return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to Create the pipeline cache");
         }
 
+        //
+        // Create DecriptorPool for pipelines
+        // We create different pools for different set counts to remove fragmentation from the pools
+        // When doing multithead this could be a contention point
+        // TODO: This should probably be a histogram of some kind
+        //
+        for( auto i=1u, end = (std::uint32_t)m_LockedVKDescriptorPools.size(); i<end; ++i )
+        {
+            std::uint32_t maxCountPerSet = 256;
+
+            // We need to tell the API the number of max. requested descriptors per type
+            auto typeCounts = std::array
+            {
+                // This example only uses one descriptor type (uniform buffer) and only
+                // requests one descriptor of this type
+                VkDescriptorPoolSize
+                {
+                    .type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+                ,   .descriptorCount = maxCountPerSet * i
+                }
+            };
+
+            // Create the global descriptor pool for this material
+            auto descriptorPoolInfo = VkDescriptorPoolCreateInfo
+            {
+                .sType          = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO
+            ,   .pNext          = nullptr
+            ,   .maxSets        = maxCountPerSet
+            ,   .poolSizeCount  = static_cast<std::uint32_t>(typeCounts.size())
+            ,   .pPoolSizes     = typeCounts.data()
+            };
+
+            {
+                std::lock_guard Lk(m_LockedVKDescriptorPools[i]);
+                if (auto VKErr = vkCreateDescriptorPool(m_VKDevice, &descriptorPoolInfo, m_Instance->m_pVKAllocator, &m_LockedVKDescriptorPools[i].get()); VKErr)
+                {
+                    m_Instance->ReportError(VKErr, "Fail to create a Descriptor Pool");
+                    return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a Descriptor Pool");
+                }
+            }
+        }
+
+
         return nullptr;
     }
 

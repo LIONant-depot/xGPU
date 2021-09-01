@@ -353,37 +353,6 @@ namespace xgpu::vulkan
             }
         }
 
-        // We need to tell the API the number of max. requested descriptors per type
-        auto typeCounts = std::array
-        {
-            // This example only uses one descriptor type (uniform buffer) and only
-            // requests one descriptor of this type
-            VkDescriptorPoolSize
-            {
-                .type               = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
-            ,   .descriptorCount    = 10 * static_cast<std::uint32_t>(m_nSamplers)
-            }
-        };
-
-        // Create the global descriptor pool for this material
-        auto descriptorPoolInfo = VkDescriptorPoolCreateInfo
-        {
-            .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO
-        ,   .pNext              = nullptr
-        ,   .maxSets            = 100
-        ,   .poolSizeCount      = static_cast<std::uint32_t>(typeCounts.size())
-        ,   .pPoolSizes         = typeCounts.data()
-        };
-
-        {
-            std::lock_guard Lk(m_LockedVKDescriptorPool);
-            if (auto VKErr = vkCreateDescriptorPool(m_Device->m_VKDevice, &descriptorPoolInfo, m_Device->m_Instance->m_pVKAllocator, &m_LockedVKDescriptorPool.get()); VKErr)
-            {
-                m_Device->m_Instance->ReportError(VKErr, "Fail to create a Descriptor Pool for a pipeline");
-                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a Descriptor Pool for a pipeline");
-            }
-        }
-
         //
         // Viewport & Clip (Dynamic states)
         //

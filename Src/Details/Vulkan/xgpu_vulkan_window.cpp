@@ -845,6 +845,7 @@ namespace xgpu::vulkan
                     if ( VKErr == VK_TIMEOUT ) continue;
 
                     // TODO: Report Error???
+                    m_Device->m_Instance->ReportError(VKErr, "vkWaitForFences");
                     assert(false);
                 }
                 else
@@ -857,6 +858,7 @@ namespace xgpu::vulkan
             {
                 //if( VKErr == VK_ERROR_OUT_OF_DATE_KHR )
                 // TODO: Report Error???
+                m_Device->m_Instance->ReportError(VKErr, "vkAcquireNextImageKHR");
                 assert(false);
             }
         }
@@ -870,6 +872,7 @@ namespace xgpu::vulkan
             if( auto VKErr = vkResetCommandPool(m_Device->m_VKDevice, Frame.m_VKCommandPool, 0); VKErr )
             {
                 // TODO: Report Error???
+                m_Device->m_Instance->ReportError(VKErr, "vkResetCommandPool");
                 assert(false);
             }
 
@@ -880,6 +883,7 @@ namespace xgpu::vulkan
 
             if( auto VKErr = vkBeginCommandBuffer( Frame.m_VKCommandBuffer, &CommandBufferBeginInfo ); VKErr )
             {
+                m_Device->m_Instance->ReportError(VKErr, "vkBeginCommandBuffer");
                 assert(false);
             }
         }
@@ -938,12 +942,14 @@ namespace xgpu::vulkan
         // Officially end the Commands
         if( auto VKErr = vkEndCommandBuffer( Frame.m_VKCommandBuffer ); VKErr )
         {
+            m_Device->m_Instance->ReportError(VKErr, "vkEndCommandBuffer");
             assert(false);
         }
 
         // Reset the frame fense to know when we finish with the frame
         if( auto VKErr = vkResetFences( m_Device->m_VKDevice, 1, &Frame.m_VKFence ); VKErr )
         {
+            m_Device->m_Instance->ReportError(VKErr, "vkResetFences");
             assert(false);
         }
 
@@ -964,6 +970,7 @@ namespace xgpu::vulkan
 
         if( auto VKErr = vkQueueSubmit( m_Device->m_VKQueue, 1, &SubmitInfo, Frame.m_VKFence ); VKErr )
         {
+            m_Device->m_Instance->ReportError(VKErr, "vkQueueSubmit");
             assert(false);
         }
 
@@ -990,18 +997,20 @@ namespace xgpu::vulkan
             //
             // Create Descriptor Set:
             //
+            if(Pipeline.m_nSamplers)
             {
-                std::lock_guard Lk( Pipeline.m_LockedVKDescriptorPool );
+                std::lock_guard Lk( m_Device->m_LockedVKDescriptorPools[Pipeline.m_nSamplers] );
 
                 VkDescriptorSetAllocateInfo AllocInfo 
                 {   .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO
-                ,   .descriptorPool     = Pipeline.m_LockedVKDescriptorPool.get()
+                ,   .descriptorPool     = m_Device->m_LockedVKDescriptorPools[Pipeline.m_nSamplers].get()
                 ,   .descriptorSetCount = static_cast<std::uint32_t>(Pipeline.m_VKDescriptorSetLayout.size())
                 ,   .pSetLayouts        = Pipeline.m_VKDescriptorSetLayout.data()
                 };
 
                 if( auto VKErr = vkAllocateDescriptorSets( m_Device->m_VKDevice, &AllocInfo, &PerRenderPass.m_VKDescriptorSet); VKErr )
                 {
+                    m_Device->m_Instance->ReportError(VKErr, "vkAllocateDescriptorSets");
                     assert(false);
                 }
             }
@@ -1055,6 +1064,7 @@ namespace xgpu::vulkan
                     ; VKErr
                     )
                 {
+                    m_Device->m_Instance->ReportError(VKErr, "vkCreateGraphicsPipelines");
                     assert(false);
                 }
 
