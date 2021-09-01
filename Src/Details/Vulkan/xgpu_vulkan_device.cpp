@@ -119,39 +119,38 @@ namespace xgpu::vulkan
 
         //
         // Create DecriptorPool for pipelines
-        // We create different pools for different set counts to remove fragmentation from the pools
+        // We could create different pools with different set counts to remove fragmentation from the pools
+        //  So when even we need two textures we allocate from the ( 2 * max_descriptors_per_pool_v ) pool
         // When doing multithead this could be a contention point
-        // TODO: This should probably be a histogram of some kind
         //
-        for( auto i=1u, end = (std::uint32_t)m_LockedVKDescriptorPools.size(); i<end; ++i )
         {
-            std::uint32_t maxCountPerSet = 256;
-
-            // We need to tell the API the number of max. requested descriptors per type
-            auto typeCounts = std::array
-            {
-                // This example only uses one descriptor type (uniform buffer) and only
-                // requests one descriptor of this type
-                VkDescriptorPoolSize
-                {
-                    .type            = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
-                ,   .descriptorCount = maxCountPerSet * i
-                }
+            constexpr auto max_descriptors_per_pool_v = 1000u;
+            
+            const auto PoolSizes = std::array
+            {   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER,                   max_descriptors_per_pool_v }
+            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,    max_descriptors_per_pool_v }
+            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,             max_descriptors_per_pool_v }
+            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,             max_descriptors_per_pool_v }
+            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER,      max_descriptors_per_pool_v }
+            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER,      max_descriptors_per_pool_v }
+            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,            max_descriptors_per_pool_v }
+            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,            max_descriptors_per_pool_v }
+            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,    max_descriptors_per_pool_v }
+            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,    max_descriptors_per_pool_v }
+            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT,          max_descriptors_per_pool_v }
             };
 
-            // Create the global descriptor pool for this material
-            auto descriptorPoolInfo = VkDescriptorPoolCreateInfo
-            {
-                .sType          = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO
-            ,   .pNext          = nullptr
-            ,   .maxSets        = maxCountPerSet
-            ,   .poolSizeCount  = static_cast<std::uint32_t>(typeCounts.size())
-            ,   .pPoolSizes     = typeCounts.data()
+            VkDescriptorPoolCreateInfo PoolCreateInfo = 
+            { .sType            = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO
+            , .flags            = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT
+            , .maxSets          = static_cast<uint32_t>(max_descriptors_per_pool_v)
+            , .poolSizeCount    = static_cast<uint32_t>(PoolSizes.size())
+            , .pPoolSizes       = PoolSizes.data()
             };
 
             {
-                std::lock_guard Lk(m_LockedVKDescriptorPools[i]);
-                if (auto VKErr = vkCreateDescriptorPool(m_VKDevice, &descriptorPoolInfo, m_Instance->m_pVKAllocator, &m_LockedVKDescriptorPools[i].get()); VKErr)
+                std::lock_guard Lk( m_LockedVKDescriptorPool );
+                if (auto VKErr = vkCreateDescriptorPool(m_VKDevice, &PoolCreateInfo, m_Instance->m_pVKAllocator, &m_LockedVKDescriptorPool.get()); VKErr)
                 {
                     m_Instance->ReportError(VKErr, "Fail to create a Descriptor Pool");
                     return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a Descriptor Pool");

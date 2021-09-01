@@ -67,8 +67,6 @@ namespace xgpu::vulkan
         VkPipelineCache                                 m_VKPipelineCache           {};  // ??
         VkDeviceSize                                    m_BufferMemoryAlignment     {256};
         VkPhysicalDeviceProperties                      m_VKPhysicalDeviceProperties{};
-        std::array<lock_object<VkDescriptorPool>, 16>   m_LockedVKDescriptorPools   {};
-
-
+        lock_object<VkDescriptorPool>                   m_LockedVKDescriptorPool    {};
     };
 }

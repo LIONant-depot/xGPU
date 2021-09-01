@@ -999,11 +999,11 @@ namespace xgpu::vulkan
             //
             if(Pipeline.m_nSamplers)
             {
-                std::lock_guard Lk( m_Device->m_LockedVKDescriptorPools[Pipeline.m_nSamplers] );
+                std::lock_guard Lk( m_Device->m_LockedVKDescriptorPool );
 
                 VkDescriptorSetAllocateInfo AllocInfo 
                 {   .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO
-                ,   .descriptorPool     = m_Device->m_LockedVKDescriptorPools[Pipeline.m_nSamplers].get()
+                ,   .descriptorPool     = m_Device->m_LockedVKDescriptorPool.get()
                 ,   .descriptorSetCount = static_cast<std::uint32_t>(Pipeline.m_VKDescriptorSetLayout.size())
                 ,   .pSetLayouts        = Pipeline.m_VKDescriptorSetLayout.data()
                 };
