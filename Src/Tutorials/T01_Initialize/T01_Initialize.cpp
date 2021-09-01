@@ -29,7 +29,7 @@ int T01_Example()
     if( auto Err = Instance.Create( Device ); Err )
         return xgpu::getErrorInt(Err);
 
-    std::array<xgpu::window,1> lWindow;
+    std::array<xgpu::window,2> lWindow;
     for( int i=0; i<static_cast<int>(lWindow.size()); ++i )
         if( auto Err = Device.Create( lWindow[i], {} ); Err )
             return xgpu::getErrorInt(Err);
@@ -127,7 +127,7 @@ int T01_Example()
         {
             constexpr auto          size_v = 32;
             xgpu::texture::setup    Setup;
-            auto                    Mips   = std::array{ xgpu::texture::setup::mip{ Setup.m_Height * Setup.m_Width * sizeof(std::uint32_t) }};
+            auto                    Mips   = std::array{ xgpu::texture::setup::mip{ size_v * size_v * sizeof(std::uint32_t) }};
 
             Setup.m_Height   = size_v;
             Setup.m_Width    = size_v;
@@ -236,9 +236,6 @@ int T01_Example()
 
             {
                 auto CmdBuffer = W.getCmdBuffer();
-                CmdBuffer.setPipelineInstance(PipeLineInstance[0]);
-                CmdBuffer.setBuffer(VertexBuffer);
-                CmdBuffer.setBuffer(IndexBuffer);
 
                 auto FinalMatrix = std::array
                 { -0.90439f, -1.15167f,  0.79665f,  0.79506f
@@ -247,6 +244,9 @@ int T01_Example()
                 ,  0.00000f,  0.00000f,  5.64243f,  5.83095f
                 };
 
+                CmdBuffer.setPipelineInstance(PipeLineInstance[0]);
+                CmdBuffer.setBuffer(VertexBuffer);
+                CmdBuffer.setBuffer(IndexBuffer);
                 CmdBuffer.setConstants( xgpu::shader::type::VERTEX, 0, FinalMatrix.data(), static_cast<std::uint32_t>(sizeof(FinalMatrix)) );
                 CmdBuffer.Draw( IndexBuffer.getEntryCount() );
 

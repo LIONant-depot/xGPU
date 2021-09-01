@@ -130,7 +130,7 @@ int T02_Example()
         {
             constexpr auto          size_v = 32;
             xgpu::texture::setup    Setup;
-            auto                    Mips = std::array{ xgpu::texture::setup::mip{ Setup.m_Height * Setup.m_Width * sizeof(std::uint32_t) } };
+            auto                    Mips = std::array{ xgpu::texture::setup::mip{ size_v * size_v * sizeof(std::uint32_t) } };
 
             Setup.m_Height = size_v;
             Setup.m_Width = size_v;
@@ -274,10 +274,6 @@ int T02_Example()
 
                 // Render first object (animated mesh)
                 {
-                    CmdBuffer.setPipelineInstance(PipeLineInstance[0]);
-                    CmdBuffer.setBuffer(VertexBuffer);
-                    CmdBuffer.setBuffer(IndexBuffer);
-
                     static xcore::radian R{ 0 };
                     R += xcore::radian{ 0.001f };
 
@@ -286,6 +282,9 @@ int T02_Example()
                     L2W.RotateY(R);
                     L2W = (W2C * L2W);
 
+                    CmdBuffer.setPipelineInstance(PipeLineInstance[0]);
+                    CmdBuffer.setBuffer(VertexBuffer);
+                    CmdBuffer.setBuffer(IndexBuffer);
                     CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0, &L2W, static_cast<std::uint32_t>(sizeof(xcore::matrix4)));
                     CmdBuffer.Draw(IndexBuffer.getEntryCount());
                 }
