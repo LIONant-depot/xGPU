@@ -12,7 +12,7 @@ namespace xgpu::vulkan
         {
             pipeline_instance*  m_pPipelineInstance;
             VkDescriptorSet     m_VKDescriptorSet;
-            VkPipeline          m_VKPipeline;
+            VkPipeline          m_VKPipeline;               // Cache this here for performace but this is just a view
         };
 
         std::shared_ptr<vulkan::device>                     m_Device        {};

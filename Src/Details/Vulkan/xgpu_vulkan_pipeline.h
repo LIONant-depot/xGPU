@@ -6,6 +6,12 @@ namespace xgpu::vulkan
                                             , const xgpu::pipeline::setup& Setup
                                             ) noexcept;
 
+        struct per_renderpass
+        {
+            pipeline*       m_pPipeline;
+            VkPipeline      m_VKPipeline;
+        };
+
         using stages_array              = std::array<std::shared_ptr<xgpu::vulkan::shader>, (int)xgpu::shader::type::ENUM_COUNT>;
         using stages_createinfo_array   = std::array<VkPipelineShaderStageCreateInfo,       (int)xgpu::shader::type::ENUM_COUNT>;
         using samples_array             = std::array<VkSampler, 16>;

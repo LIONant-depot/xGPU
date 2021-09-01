@@ -73,7 +73,8 @@ namespace xgpu::vulkan
         void                                    PageFlip                    ( void 
                                                                             ) noexcept override;
 
-        using per_renderpass_map = std::unordered_map<std::uint64_t, pipeline_instance::per_renderpass>;
+        using mati_per_renderpass_map = std::unordered_map<std::uint64_t, pipeline_instance::per_renderpass>;
+        using mat_per_renderpass_map  = std::unordered_map<std::uint64_t, pipeline::per_renderpass>;
 
         std::shared_ptr<vulkan::device>         m_Device                {};
         VkSurfaceKHR                            m_VKSurface             {};
@@ -98,6 +99,7 @@ namespace xgpu::vulkan
         int                                     m_nCmds                 {0};
         VkViewport                              m_DefaultViewport       {};
         VkRect2D                                m_DefaultScissor        {};
-        per_renderpass_map                      m_PipeLineInstanceMap   {};
+        mati_per_renderpass_map                 m_PipeLineInstanceMap   {};
+        mat_per_renderpass_map                  m_PipeLineMap           {};
     };
 }

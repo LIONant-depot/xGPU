@@ -1007,22 +1007,6 @@ namespace xgpu::vulkan
             }
 
             //
-            // Create the pipeline info
-            //
-            auto VKPipelineCreateInfo = Pipeline.m_VkPipelineCreateInfo;
-            VKPipelineCreateInfo.renderPass = m_VKRenderPass;
-
-            // Create rendering pipeline
-            if (auto VKErr = vkCreateGraphicsPipelines( m_Device->m_VKDevice, m_Device->m_VKPipelineCache, 1
-                , &VKPipelineCreateInfo
-                , m_Device->m_Instance->m_pVKAllocator
-                , &PerRenderPass.m_VKPipeline
-            ); VKErr)
-            {
-                assert(false);
-            }
-
-            //
             // Setup the textures
             //
             std::array< VkDescriptorImageInfo, 16> DescImage;
@@ -1047,6 +1031,48 @@ namespace xgpu::vulkan
             }
             vkUpdateDescriptorSets( m_Device->m_VKDevice, PerRenderPass.m_pPipelineInstance->m_Pipeline->m_nSamplers, WriteDes.data(), 0, nullptr );
 
+
+            //
+            // See if we have already created this material
+            //
+            if (auto ItPipeline = m_PipeLineMap.find(reinterpret_cast<std::uint64_t>(PipelineInstance.m_Pipeline.get())); ItPipeline == m_PipeLineMap.end())
+            {
+                //
+                // Create the pipeline info
+                //
+                auto VKPipelineCreateInfo = Pipeline.m_VkPipelineCreateInfo;
+                VKPipelineCreateInfo.renderPass = m_VKRenderPass;
+
+                // Create rendering pipeline
+                if (auto VKErr = vkCreateGraphicsPipelines
+                        ( m_Device->m_VKDevice
+                        , m_Device->m_VKPipelineCache
+                        , 1
+                        , &VKPipelineCreateInfo
+                        , m_Device->m_Instance->m_pVKAllocator
+                        , &PerRenderPass.m_VKPipeline
+                        )
+                    ; VKErr
+                    )
+                {
+                    assert(false);
+                }
+
+                //
+                // Cache this Pipeline
+                //
+                pipeline::per_renderpass PipelinePerRP
+                { .m_pPipeline  = PipelineInstance.m_Pipeline.get()
+                , .m_VKPipeline = PerRenderPass.m_VKPipeline
+                };
+                m_PipeLineMap.emplace(std::pair{ reinterpret_cast<std::uint64_t>(PipelineInstance.m_Pipeline.get()), PipelinePerRP });
+            }
+            else
+            {
+                // Set the pipeline
+                PerRenderPass.m_VKPipeline = ItPipeline->second.m_VKPipeline;
+            }
+
             //
             // Cache this instance
             //
@@ -1058,9 +1084,6 @@ namespace xgpu::vulkan
         }
 
         auto& Frame = m_Frames[m_FrameIndex];
-
-
-
 
         //
         // Bind pipeline and descriptor set
