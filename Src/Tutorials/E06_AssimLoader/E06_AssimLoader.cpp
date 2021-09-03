@@ -1,5 +1,8 @@
 
 #include "ModelLoader.h"
+#include "../../tools/xgpu_view.h"
+#include "../../tools/xgpu_view_inline.h"
+#include "../../tools/xgpu_xcore_bitmap_helpers.h"
 
 using draw_vert = xgpu::assimp::vertex;
 
@@ -116,25 +119,10 @@ int E06_Example()
     for( int i=0; i< PipeLineInstance.size(); ++i )
     {
         xgpu::texture Texture;
-        {
-            constexpr auto          size_v = 32;
-            xgpu::texture::setup    Setup;
-            auto                    Mips   = std::array{ xgpu::texture::setup::mip{ size_v * size_v * sizeof(std::uint32_t) }};
-
-            Setup.m_Height   = size_v;
-            Setup.m_Width    = size_v;
-            Setup.m_MipChain = Mips;
-
-            auto TextureData = std::make_unique< std::array<std::uint32_t, size_v* size_v> >();
-            if( i == 0) std::fill(TextureData->begin(), TextureData->end(), 0xffffffffu);
-            else std::fill(TextureData->begin(), TextureData->end(), 0xffffu);
-
-            Setup.m_Data = { reinterpret_cast<const std::byte*>(TextureData->data()), Mips[0].m_Size };
-
-            if (auto Err = Device.Create(Texture, Setup); Err)
-                return xgpu::getErrorInt(Err);
-        }
-
+        
+        if( auto Err = xgpu::tools::bitmap::Create(Texture, Device, xcore::bitmap::getDefaultBitmap()); Err )
+            return xgpu::getErrorInt(Err);
+        
         auto  Bindings = std::array                     { xgpu::pipeline_instance::sampler_binding{ Texture } };
         auto  Setup    = xgpu::pipeline_instance::setup
         {   .m_PipeLine         = PipeLine
@@ -148,7 +136,7 @@ int E06_Example()
 
     xgpu::assimp::model_loader ModelLoader;
 
-    if( auto Err = ModelLoader.Load( Device, "../../Dependencies/assimp/test/models/blend/box.blend"); Err ) //FBX/box.fbx //spider.fbx
+    if( auto Err = ModelLoader.Load( Device, "../../Dependencies/assimp/test/models/FBX/spider.fbx"); Err ) //FBX/box.fbx //
     {
         assert(false);
         return -1;
@@ -157,22 +145,50 @@ int E06_Example()
     //
     // Main loop
     //
+    xgpu::tools::view View;
+
+    xgpu::mouse Mouse;
+    {
+        Instance.Create(Mouse, {});
+    }
+
+    xcore::radian3 Angles
+    { xcore::radian{ -0.230000168f }
+    , xcore::radian{ -1.40999949f  }
+    , xcore::radian{ 0.0f }
+    };
+    float          Distance = 122;
     while (Instance.ProcessInputEvents())
     {
+        //
+        // Input
+        //
+        if (Mouse.isPressed(xgpu::mouse::digital::BTN_RIGHT))
+        {
+            auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
+            Angles.m_Pitch.m_Value -= 0.01f * MousePos[1];
+            Angles.m_Yaw.m_Value -= 0.01f * MousePos[0];
+        }
+
+        Distance += -1.0f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
+        if (Distance < 2) Distance = 2;
+
+        // Update the camera
+        View.LookAt(Distance, Angles, { 0,0,0 });
+
+        //
+        // Rendering
+        //
         if (MainWindow.BeginRendering())
             continue;
 
-        auto FinalMatrix = std::array
-        { -0.90439f, -1.15167f,  0.79665f,  0.79506f
-        ,  0.00000f, -2.07017f, -0.51553f, -0.51450f
-        ,  2.23845f, -0.46530f,  0.32187f,  0.32122f
-        ,  0.00000f,  0.00000f,  5.64243f,  5.83095f
-        };
+        // Update the view with latest window size
+        View.setViewport({ 0, 0, MainWindow.getWidth(), MainWindow.getHeight() });
 
         {
             auto CmdBuffer = MainWindow.getCmdBuffer();
             CmdBuffer.setPipelineInstance(PipeLineInstance[0]);
-            CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0, FinalMatrix.data(), static_cast<std::uint32_t>(sizeof(FinalMatrix)));
+            CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0, &View.getW2C(), static_cast<std::uint32_t>(sizeof(decltype(View.getW2C()))));
             ModelLoader.Draw(CmdBuffer);
         }
 
