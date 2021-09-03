@@ -58,6 +58,9 @@
     <Filter Include="Tutorials\Example 05 Textures">
       <UniqueIdentifier>{de8006ce-4230-4a17-8f60-df682f363f91}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Tutorials\Example 06 Assim Loader">
+      <UniqueIdentifier>{73cf4bcc-b578-48b9-b0f5-b372f3283087}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Src\Tutorials\main.cpp" />
@@ -159,6 +162,12 @@
     </ClCompile>
     <ClCompile Include="..\..\Src\Tutorials\E05_Textures\E05_Textures.cpp">
       <Filter>Tutorials\Example 05 Textures</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Tutorials\E06_AssimLoader\E06_AssimLoader.cpp">
+      <Filter>Tutorials\Example 06 Assim Loader</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Tutorials\E06_AssimLoader\ModelLoader.cpp">
+      <Filter>Tutorials\Example 06 Assim Loader</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -503,6 +512,12 @@
     </ClInclude>
     <ClInclude Include="..\..\Tools\xgpu_xcore_bitmap_helpers.h">
       <Filter>Tools</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Tutorials\E06_AssimLoader\ModelLoader.h">
+      <Filter>Tutorials\Example 06 Assim Loader</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Tutorials\E06_AssimLoader\Mesh.h">
+      <Filter>Tutorials\Example 06 Assim Loader</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

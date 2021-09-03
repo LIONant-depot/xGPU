@@ -35,7 +35,7 @@ int E03_Example()
     //
     while (Instance.ProcessInputEvents())
     {
-        if( xgpu::tools::imgui::isMinimize() )
+        if( xgpu::tools::imgui::BeginRendering() )
             continue;
 
         //

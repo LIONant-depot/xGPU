@@ -262,7 +262,7 @@ int T02_Example()
         for (auto& W : lWindow)
         {
             // Windows can not display when they are minimize
-            if (W.isMinimized()) continue;
+            if (W.BeginRendering()) continue;
 
             // Update the view with latest window size
             View.setViewport({ 0, 0, W.getWidth(), W.getHeight() });

@@ -22,12 +22,14 @@ namespace xgpu::vulkan
                                                                             ) noexcept;
         [[nodiscard]]   xgpu::device::error*    EndFrame                    ( void
                                                                             ) noexcept;
-
         virtual
-        void                                    RenderBegin                 ( void 
+        bool                                    BegingRendering             ( void
                                                                             ) noexcept override;
         virtual
-        void                                    RenderEnd                   ( void 
+        void                                    CmdRenderBegin              ( void 
+                                                                            ) noexcept override;
+        virtual
+        void                                    CmdRenderEnd                ( void 
                                                                             ) noexcept override;
         virtual
         void                                    setPipelineInstance         ( xgpu::pipeline_instance& Instance 

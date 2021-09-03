@@ -19,7 +19,7 @@ namespace xgpu
 
     cmd_buffer::~cmd_buffer( void ) noexcept
     {
-        if(m_pWindow) m_pWindow->RenderEnd();
+        if(m_pWindow) m_pWindow->CmdRenderEnd();
     }
 
     //--------------------------------------------------------------------------------------
@@ -81,7 +81,7 @@ namespace xgpu
 
     void cmd_buffer::Release( void ) noexcept
     {
-        if (m_pWindow) m_pWindow->RenderEnd();
+        if (m_pWindow) m_pWindow->CmdRenderEnd();
         m_pWindow = nullptr;
     }
 }

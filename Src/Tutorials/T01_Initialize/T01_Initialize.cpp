@@ -232,7 +232,7 @@ int T01_Example()
         for( auto& W : lWindow )
         {
             // Windows can not display when they are minimize
-            if( W.isMinimized() ) continue;
+            if( W.BeginRendering() ) continue;
 
             {
                 auto CmdBuffer = W.getCmdBuffer();

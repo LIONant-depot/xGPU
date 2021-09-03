@@ -386,7 +386,7 @@ int E05_Example()
     //
     while (Instance.ProcessInputEvents())
     {
-        if (xgpu::tools::imgui::isMinimize( true ))
+        if (xgpu::tools::imgui::BeginRendering( true ))
             continue;
 
         //

@@ -9,9 +9,9 @@ namespace xgpu
             virtual     int                             getWidth                ( void ) const                                              noexcept = 0;
             virtual     int                             getHeight               ( void ) const                                              noexcept = 0;
             virtual     void                            PageFlip                ( void )                                                    noexcept = 0;
-            virtual     void                            RenderBegin             ( void )                                                    noexcept = 0;
-            virtual     void                            RenderEnd               ( void )                                                    noexcept = 0;
-            virtual     bool                            isMinimized             ( void ) const                                              noexcept = 0;
+            virtual     void                            CmdRenderBegin          ( void )                                                    noexcept = 0;
+            virtual     void                            CmdRenderEnd            ( void )                                                    noexcept = 0;
+            virtual     bool                            BegingRendering         ( void )                                                    noexcept = 0;
             virtual     void                            setPipelineInstance     ( xgpu::pipeline_instance& Instance )                       noexcept = 0;
             virtual     void                            setBuffer               ( xgpu::buffer& Buffer, int StartingElementIndex )          noexcept = 0;
             virtual     void                            DrawInstance            ( int InstanceCount, int IndexCount, int FirstInstance, int FirstIndex, int VertexOffset ) noexcept = 0;
@@ -75,7 +75,7 @@ namespace xgpu
     XGPU_INLINE
     cmd_buffer window::getCmdBuffer( void ) noexcept
     {
-        m_Private->RenderBegin();
+        m_Private->CmdRenderBegin();
         return {m_Private.get()};
     }
 
@@ -83,9 +83,10 @@ namespace xgpu
 
     XGPU_INLINE
     [[nodiscard]] bool
-    window::isMinimized(void) const noexcept
+    window::BeginRendering(void) const noexcept
     {
-        return m_Private->isMinimized();
+        if( m_Private->BegingRendering() ) return true;
+        return false;
     }
 
     //--------------------------------------------------------------------------

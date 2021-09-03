@@ -911,10 +911,10 @@ void EnableDocking()
 
 //------------------------------------------------------------------------------------------------------------
 
-bool isMinimize( bool bEnableDocking ) noexcept
+bool BeginRendering( bool bEnableDocking ) noexcept
 {
     GETINSTANCE;
-    if (Instance.m_Window.isMinimized())
+    if (Instance.m_Window.BeginRendering())
         return true;
 
     Instance.StartNewFrame(io);

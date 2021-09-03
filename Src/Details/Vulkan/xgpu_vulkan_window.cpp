@@ -773,7 +773,7 @@ namespace xgpu::vulkan
 
     void window::PageFlip( void ) noexcept
     {
-        assert( 0 >= --m_BeginState );
+        assert( 0 == --m_BeginState );
         m_BeginState = 0;
         (void)EndFrame();
 
@@ -805,18 +805,27 @@ namespace xgpu::vulkan
             }
         }
 
-        m_FrameIndex     = (m_FrameIndex + 1) % m_ImageCount;
+        m_FrameIndex     = (m_FrameIndex + 1)     % m_ImageCount;
         m_SemaphoreIndex = (m_SemaphoreIndex + 1) % m_ImageCount;
-//TODO:        m_bBeginStarted  = false;
     }
 
     //------------------------------------------------------------------------------------------------------------------------
 
-    void window::RenderBegin(void) noexcept
+    void window::CmdRenderBegin(void) noexcept
     {
-        if( 0 != m_BeginState++ ) return;
+        assert(m_BeginState>0);
+        m_BeginState++;
+    }
 
-        // Add another additional one
+    //------------------------------------------------------------------------------------------------------------------------
+
+    bool window::BegingRendering( void ) noexcept
+    {
+        assert(m_BeginState == 0);
+        if(xgpu::system::window::BegingRendering() )
+            return true;
+
+        // Mark as we have started the frame
         m_BeginState++;
 
         //
@@ -920,13 +929,16 @@ namespace xgpu::vulkan
          , .minDepth    = 0.0f
          , .maxDepth    = 1.0f
         };
+
+        return false;
     }
 
     //------------------------------------------------------------------------------------------------------------------------
 
-    void window::RenderEnd(void) noexcept
+    void window::CmdRenderEnd(void) noexcept
     {
         m_BeginState--;
+        assert(m_BeginState>0);
     }
 
     //------------------------------------------------------------------------------------------------------------------------

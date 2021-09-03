@@ -88,6 +88,8 @@
     <ClCompile Include="..\..\Src\Tutorials\E03_ImguiBreatch\E03_ImguiBreach.cpp" />
     <ClCompile Include="..\..\Src\Tutorials\E04_Properties\E04_Properties.cpp" />
     <ClCompile Include="..\..\Src\Tutorials\E05_Textures\E05_Textures.cpp" />
+    <ClCompile Include="..\..\Src\Tutorials\E06_AssimLoader\E06_AssimLoader.cpp" />
+    <ClCompile Include="..\..\Src\Tutorials\E06_AssimLoader\ModelLoader.cpp" />
     <ClCompile Include="..\..\Src\Tutorials\main.cpp" />
     <ClCompile Include="..\..\Src\Tutorials\T01_Initialize\T01_Initialize.cpp" />
     <ClCompile Include="..\..\Src\Tutorials\T02_UsingUtilities\T02_UsingTools.cpp" />
@@ -188,6 +190,8 @@
     <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_texture.h" />
     <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_vertex_descriptor.h" />
     <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_window.h" />
+    <ClInclude Include="..\..\Src\Tutorials\E06_AssimLoader\Mesh.h" />
+    <ClInclude Include="..\..\Src\Tutorials\E06_AssimLoader\ModelLoader.h" />
     <ClInclude Include="..\..\Src\Tutorials\Settings\imconfig.h" />
     <ClInclude Include="..\..\Src\Tutorials\Settings\PropertyConfig.h" />
     <ClInclude Include="..\..\Src\Tutorials\Settings\xcore_user_settings.h" />
@@ -273,7 +277,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
     <SourcePath>$(VC_SourcePath);</SourcePath>
-    <IncludePath>../../Src\Tutorials\Settings;$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../Dependencies\xcore\src;./;../../src;../../Dependencies\xcore\dependencies\tracy\imgui</IncludePath>
+    <IncludePath>../../Src\Tutorials\Settings;$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../Dependencies\xcore\src;./;../../src;../../Dependencies\assimp/include;../../Dependencies\xcore\dependencies\tracy\imgui</IncludePath>
     <PublicIncludeDirectories>
     </PublicIncludeDirectories>
   </PropertyGroup>
@@ -292,6 +296,7 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpplatest</LanguageStandard>
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -308,6 +313,7 @@
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpplatest</LanguageStandard>
+      <MultiProcessorCompilation>true</MultiProcessorCompilation>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>

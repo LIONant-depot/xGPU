@@ -15,7 +15,7 @@ namespace xgpu::windows
             return m_Height;
         }
 
-        virtual     bool                            isMinimized(void) const                                            noexcept override
+        virtual     bool                            BegingRendering(void)                                              noexcept override
         {
             return m_isMinimize;
         }

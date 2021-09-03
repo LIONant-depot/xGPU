@@ -18,7 +18,7 @@ namespace xgpu
         XGPU_INLINE [[nodiscard]]   bool            isValid                 ( void ) const noexcept;
         XGPU_INLINE [[nodiscard]]   int             getWidth                ( void ) const noexcept;
         XGPU_INLINE [[nodiscard]]   int             getHeight               ( void ) const noexcept;
-        XGPU_INLINE [[nodiscard]]   bool            isMinimized             ( void ) const noexcept;
+        XGPU_INLINE [[nodiscard]]   bool            BeginRendering             ( void ) const noexcept;
         XGPU_INLINE                 cmd_buffer      getCmdBuffer            ( void ) noexcept;
         XGPU_INLINE                 void            PageFlip                ( void ) noexcept;
         XGPU_INLINE                 void            setClearColor           ( float R, float G, float B, float A ) noexcept;
