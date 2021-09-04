@@ -61,6 +61,12 @@
     <Filter Include="Tutorials\Example 06 Assim Loader">
       <UniqueIdentifier>{73cf4bcc-b578-48b9-b0f5-b372f3283087}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Dependencies\xprim_geom">
+      <UniqueIdentifier>{d2b1823f-a227-4916-bf44-56d01bffe489}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Tutorials\Example 07 primitive geoms">
+      <UniqueIdentifier>{c3fc3b2d-14cc-40a1-b3e6-9a227ef2a111}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Src\Tutorials\main.cpp" />
@@ -168,6 +174,9 @@
     </ClCompile>
     <ClCompile Include="..\..\Src\Tutorials\E06_AssimLoader\ModelLoader.cpp">
       <Filter>Tutorials\Example 06 Assim Loader</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Tutorials\E07_PrimitiveGeoms\E07_PrimitiveGeoms.cpp">
+      <Filter>Tutorials\Example 07 primitive geoms</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -518,6 +527,36 @@
     </ClInclude>
     <ClInclude Include="..\..\Src\Tutorials\E06_AssimLoader\Mesh.h">
       <Filter>Tutorials\Example 06 Assim Loader</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom.h">
+      <Filter>Dependencies\xprim_geom</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_cube.h">
+      <Filter>Dependencies\xprim_geom</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_uvsphere.h">
+      <Filter>Dependencies\xprim_geom</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_cylinder.h">
+      <Filter>Dependencies\xprim_geom</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_rounded_cube.h">
+      <Filter>Dependencies\xprim_geom</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_capsule.h">
+      <Filter>Dependencies\xprim_geom</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_grid.h">
+      <Filter>Dependencies\xprim_geom</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_prism.h">
+      <Filter>Dependencies\xprim_geom</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_quad.h">
+      <Filter>Dependencies\xprim_geom</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_hemisphere.h">
+      <Filter>Dependencies\xprim_geom</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
