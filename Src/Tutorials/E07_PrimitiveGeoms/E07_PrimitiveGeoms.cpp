@@ -2,7 +2,7 @@
 #include "xcore.h"
 #include "../../tools/xgpu_view.h"
 #include "../../tools/xgpu_view_inline.h"
-#include "../../dependencies/xprim_geom/xprim_geom.h"
+#include "../../dependencies/xprim_geom/src/xprim_geom.h"
 #include "../../tools/xgpu_xcore_bitmap_helpers.h"
 
 //------------------------------------------------------------------------------------------------

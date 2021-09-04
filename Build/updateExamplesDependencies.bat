@@ -18,6 +18,13 @@ powershell write-host -fore White ----------------------------------------------
 echo.
 
 rem ------------------------------------------------------------
+rem XPRIM_GEOM
+rem ------------------------------------------------------------
+rmdir "../dependencies/xprim_geom" /S /Q
+git clone https://github.com/LIONant-depot/xprim_geom.git "../dependencies/xprim_geom"
+if %ERRORLEVEL% GEQ 1 goto :ERROR
+
+rem ------------------------------------------------------------
 rem XCORE
 rem ------------------------------------------------------------
 :XCORE
