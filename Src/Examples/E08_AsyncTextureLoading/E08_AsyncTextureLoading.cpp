@@ -75,26 +75,6 @@ int E08_Example()
     //
     while (Instance.ProcessInputEvents())
     {
-        if (xgpu::tools::imgui::BeginRendering(false))
-            continue;
-
-        //
-        // Create an ImGui window and display progress bar info
-        // 
-        static ImGuiWindowFlags WindowFlags = 0;
-        ImGui::SetNextWindowSize(ImVec2(650, 680));
-        ImGui::Begin("Stats", nullptr, WindowFlags );
-
-        for( int i=0; i< g_StatName.size(); ++i )
-        {
-            ImGui::ProgressBar(Stats[i].m_Percentage, ImVec2(0.0f, 0.0f) );
-            ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-            ImGui::Text("(%2.2fsec) %s", Stats[i].m_Time, g_StatName[i]);
-        }
-
-        // End of window
-        ImGui::End();
-
         //
         // Handle input
         //
@@ -193,7 +173,29 @@ int E08_Example()
         }
 
         //
-        // Render
+        // Render!
+        //
+        if (xgpu::tools::imgui::BeginRendering(false))
+            continue;
+
+        //
+        // Create an ImGui window and display progress bar info
+        // 
+        ImGui::SetNextWindowSize(ImVec2(650, 680));
+        ImGui::Begin("Stats", nullptr, 0);
+
+        for (int i = 0; i < g_StatName.size(); ++i)
+        {
+            ImGui::ProgressBar(Stats[i].m_Percentage, ImVec2(0.0f, 0.0f));
+            ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+            ImGui::Text("(%2.2fsec) %s", Stats[i].m_Time, g_StatName[i]);
+        }
+
+        // End of window
+        ImGui::End();
+
+        //
+        // Render ImGui
         //
         xgpu::tools::imgui::Render();
 
