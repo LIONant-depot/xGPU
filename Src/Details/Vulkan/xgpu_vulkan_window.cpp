@@ -447,7 +447,7 @@ namespace xgpu::vulkan
                 {
                     .sType              = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO
                 ,   .flags              = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT
-                ,   .queueFamilyIndex   = m_Device->m_QueueIndex
+                ,   .queueFamilyIndex   = m_Device->m_MainQueueIndex
                 };
                 if( auto VKErr = vkCreateCommandPool( m_Device->m_VKDevice, &CreateInfo, pAllocator, &Frame.m_VKCommandPool ); VKErr )
                 {
@@ -691,7 +691,7 @@ namespace xgpu::vulkan
         //  to solve by adding another present queue)
         {
             VkBool32 res = VK_FALSE;
-            auto VKErr = vkGetPhysicalDeviceSurfaceSupportKHR(m_Device->m_VKPhysicalDevice, m_Device->m_QueueIndex, m_VKSurface, &res);
+            auto VKErr = vkGetPhysicalDeviceSurfaceSupportKHR(m_Device->m_VKPhysicalDevice, m_Device->m_MainQueueIndex, m_VKSurface, &res);
             if ( VKErr || res != VK_TRUE )
             {
                 if(VKErr) Instance->ReportError(VKErr, "Error no WSI support on physical device");
@@ -789,7 +789,9 @@ namespace xgpu::vulkan
         , .pSwapchains          = &m_VKSwapchain
         , .pImageIndices        = &PresetIndex
         };
-        if( auto VKErr = vkQueuePresentKHR( m_Device->m_VKQueue, &Info); VKErr )
+
+        std::lock_guard Lk(m_Device->m_VKMainQueue);
+        if( auto VKErr = vkQueuePresentKHR( m_Device->m_VKMainQueue.get(), &Info); VKErr )
         {
             if( VKErr == VK_ERROR_OUT_OF_DATE_KHR || VKErr == VK_SUBOPTIMAL_KHR )
             {
@@ -980,7 +982,8 @@ namespace xgpu::vulkan
         , .pSignalSemaphores    = &Semaphore.m_VKRenderCompleteSemaphore
         };
 
-        if( auto VKErr = vkQueueSubmit( m_Device->m_VKQueue, 1, &SubmitInfo, Frame.m_VKFence ); VKErr )
+        std::lock_guard Lk(m_Device->m_VKMainQueue);
+        if( auto VKErr = vkQueueSubmit( m_Device->m_VKMainQueue.get(), 1, &SubmitInfo, Frame.m_VKFence ); VKErr )
         {
             m_Device->m_Instance->ReportError(VKErr, "vkQueueSubmit");
             assert(false);

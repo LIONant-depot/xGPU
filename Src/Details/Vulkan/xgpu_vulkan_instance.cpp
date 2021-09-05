@@ -51,31 +51,62 @@ namespace xgpu::vulkan
     }
 
     //------------------------------------------------------------------------------------------------------------------
-    void instance::ReportError( std::string_view Message ) noexcept
+    void instance::ReportError( std::string_view Message, const std::source_location& Location ) noexcept
     {
         if (m_pErrorCallback == nullptr) return;
-        m_pErrorCallback( xgpu::FormatString("ERROR: %s", Message.data() ) );
+        m_pErrorCallback
+        ( xgpu::FormatString("%s(%d/%d) [%s] ERROR: %s"
+        , Location.file_name()
+        , Location.line()
+        , Location.column()
+        , Location.function_name()
+        , Message.data() 
+        ));
     }
 
     //------------------------------------------------------------------------------------------------------------------
-    void instance::ReportError ( VkResult ErrorCode, std::string_view Message ) noexcept
+    void instance::ReportError ( VkResult ErrorCode, std::string_view Message, const std::source_location& Location ) noexcept
     {
         if (m_pErrorCallback==nullptr) return;
-        m_pErrorCallback( xgpu::FormatString( "ERROR VK%d (%s): %s", ErrorCode, VKErrorToString(ErrorCode).data(), Message.data() ) );
+        m_pErrorCallback
+        ( xgpu::FormatString( "%s(%d/%d) [%s] ERROR VK%d (%s): %s"
+        , Location.file_name()
+        , Location.line()
+        , Location.column()
+        , Location.function_name()
+        , ErrorCode
+        , VKErrorToString(ErrorCode).data()
+        , Message.data() 
+        ));
     }
 
     //------------------------------------------------------------------------------------------------------------------
-    void instance::ReportWarning( std::string_view Message ) noexcept
+    void instance::ReportWarning( std::string_view Message, const std::source_location& Location ) noexcept
     {
         if (m_pWarningCallback == nullptr) return;
-        m_pWarningCallback( xgpu::FormatString("WARNING: %s", Message.data() ) );
+        m_pWarningCallback
+        ( xgpu::FormatString("%s(%d/%d) [%s] WARNING: %s" 
+        , Location.file_name()
+        , Location.line()
+        , Location.column()
+        , Location.function_name()
+        , Message.data()
+        ));
     }
 
     //------------------------------------------------------------------------------------------------------------------
-    void instance::ReportWarning( VkResult ErrorCode, std::string_view Message ) noexcept
+    void instance::ReportWarning( VkResult ErrorCode, std::string_view Message, const std::source_location& Location ) noexcept
     {
         if (m_pWarningCallback ==nullptr) return;
-        m_pWarningCallback( xgpu::FormatString( "WARNING VK%d (%s): %s", ErrorCode, VKErrorToString(ErrorCode).data(), Message.data() ) );
+        m_pWarningCallback
+        ( xgpu::FormatString( "%s(%d/%d) [%s] WARNING VK%d (%s): %s"
+        , Location.file_name()
+        , Location.line()
+        , Location.column()
+        , Location.function_name()
+        , ErrorCode
+        , VKErrorToString(ErrorCode).data(), Message.data() 
+        ));
     }
 
     //------------------------------------------------------------------------------------------------------------------
@@ -303,24 +334,12 @@ namespace xgpu::vulkan
 
     //------------------------------------------------------------------------------------------------------------------
 
-    xgpu::device::error* instance::CreateDevice( xgpu::device& Device, const xgpu::device::setup& Setup ) noexcept
+    xgpu::device::error* instance::CollectPhysicalDevices( std::vector<VkPhysicalDevice>& PhysicalDevices, xgpu::device::discreate DecreateType ) noexcept
     {
-        static constexpr auto QueueType = []() constexpr
-        {
-            std::array<VkQueueFlagBits, static_cast<std::size_t>(xgpu::device::type::ENUM_COUNT)> QueueType{};
-
-            QueueType[static_cast<std::size_t>(xgpu::device::type::RENDER_ONLY)]    = VK_QUEUE_GRAPHICS_BIT;
-            QueueType[static_cast<std::size_t>(xgpu::device::type::RENDER_AND_SWAP)]= VK_QUEUE_GRAPHICS_BIT;
-            QueueType[static_cast<std::size_t>(xgpu::device::type::COMPUTE)]        = VK_QUEUE_COMPUTE_BIT;
-            QueueType[static_cast<std::size_t>(xgpu::device::type::COPY)]           = VK_QUEUE_TRANSFER_BIT;
-
-            return QueueType;
-        }();
-
         //
         // Now collect all the physical devices
         //
-        std::vector<VkPhysicalDevice> PhysicalDevices(100);
+        PhysicalDevices.resize(100);
         {
             auto MaxDevices = static_cast<std::uint32_t>(PhysicalDevices.size());
             if (auto VKErr = vkEnumeratePhysicalDevices(m_VKInstance, &MaxDevices, PhysicalDevices.data()); VKErr || MaxDevices == 0)
@@ -350,7 +369,7 @@ namespace xgpu::vulkan
         //
         // Filter out base of the expected Discreateness
         //
-        if (Setup.m_Discreate == xgpu::device::discreate::NON_DISCREATE_ONLY)
+        if (DecreateType == xgpu::device::discreate::NON_DISCREATE_ONLY)
         {
             for (std::size_t i=0; i< PhysicalDevices.size(); ++i )
             {
@@ -363,7 +382,7 @@ namespace xgpu::vulkan
                 }
             }
         }
-        else if (Setup.m_Discreate == xgpu::device::discreate::DISCREATE_ONLY)
+        else if (DecreateType == xgpu::device::discreate::DISCREATE_ONLY)
         {
             for (std::size_t i = 0; i < PhysicalDevices.size(); ++i)
             {
@@ -396,6 +415,32 @@ namespace xgpu::vulkan
                 return a < b;
             });
         }
+
+        return nullptr;
+    }
+
+    //------------------------------------------------------------------------------------------------------------------
+
+    xgpu::device::error* instance::CreateDevice( xgpu::device& Device, const xgpu::device::setup& Setup ) noexcept
+    {
+        static constexpr auto QueueType = []() constexpr
+        {
+            std::array<VkQueueFlagBits, static_cast<std::size_t>(xgpu::device::type::ENUM_COUNT)> QueueType{};
+
+            QueueType[static_cast<std::size_t>(xgpu::device::type::RENDER_ONLY)]    = VK_QUEUE_GRAPHICS_BIT;
+            QueueType[static_cast<std::size_t>(xgpu::device::type::RENDER_AND_SWAP)]= VK_QUEUE_GRAPHICS_BIT;
+            QueueType[static_cast<std::size_t>(xgpu::device::type::COMPUTE)]        = VK_QUEUE_COMPUTE_BIT;
+            QueueType[static_cast<std::size_t>(xgpu::device::type::COPY)]           = VK_QUEUE_TRANSFER_BIT;
+
+            return QueueType;
+        }();
+
+        //
+        // Now collect all the physical devices
+        //
+        std::vector<VkPhysicalDevice> PhysicalDevices;
+        if( auto Err = CollectPhysicalDevices( PhysicalDevices, Setup.m_Discreate ); Err )
+            return Err;
 
         //
         // Collect the properties for each device
@@ -456,6 +501,7 @@ namespace xgpu::vulkan
     }
 
     //------------------------------------------------------------------------------------------------------------------
+
     xgpu::keyboard::error* instance::CreateKeyboard(xgpu::keyboard& Keyboard, const xgpu::keyboard::setup& Setup) noexcept
     {
         Keyboard.m_Private = xgpu::system::instance::m_Keyboard;
@@ -463,6 +509,7 @@ namespace xgpu::vulkan
     }
 
     //------------------------------------------------------------------------------------------------------------------
+
     xgpu::mouse::error* instance::CreateMouse(xgpu::mouse& Mouse, const xgpu::mouse::setup& Setup) noexcept
     {
         Mouse.m_Private = xgpu::system::instance::m_Mouse;

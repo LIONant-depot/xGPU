@@ -52,17 +52,16 @@ namespace xgpu::vulkan
     //----------------------------------------------------------------------------------------------------------
 
     xgpu::device::error* device::Initialize
-    ( 
-        std::shared_ptr<xgpu::vulkan::instance>&    Instance
+    (   std::shared_ptr<xgpu::vulkan::instance>&    Instance
     ,   const xgpu::device::setup&                  Setup
-    ,   std::uint32_t                               QueueIndex
+    ,   std::uint32_t                               MainGraphicsQueueIndex
     ,   VkPhysicalDevice                            PhysicalDevice
     ,   std::vector<VkQueueFamilyProperties>        Properties ) noexcept
     {
         // Referece back to the instance
         m_Instance          = Instance;
         m_VKPhysicalDevice  = PhysicalDevice;
-        m_QueueIndex        = QueueIndex;
+        m_MainQueueIndex    = MainGraphicsQueueIndex;
 
         //
         // Vulkan device
@@ -71,7 +70,7 @@ namespace xgpu::vulkan
         VkDeviceQueueCreateInfo     queueCreateInfo
         {
             .sType              = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO
-        ,   .queueFamilyIndex   = QueueIndex
+        ,   .queueFamilyIndex   = MainGraphicsQueueIndex
         ,   .queueCount         = static_cast<std::uint32_t>(queuePriorities.size())
         ,   .pQueuePriorities   = queuePriorities.data()
         };
@@ -92,7 +91,12 @@ namespace xgpu::vulkan
         //
         // Get the graphics queue
         //
-        vkGetDeviceQueue(m_VKDevice, QueueIndex, 0, &m_VKQueue);
+        {
+            std::lock_guard Lk(m_VKMainQueue);
+            vkGetDeviceQueue(m_VKDevice, MainGraphicsQueueIndex, 0, &m_VKMainQueue.get());
+        }
+        
+    //    m_VKTransferQueue
 
         //
         // Gather physical device memory properties

@@ -97,7 +97,7 @@ namespace xgpu
 
         auto&   get         ( void ) noexcept       { assert(m_Locked);  return m_Value;               }
         auto&   get         ( void ) const noexcept { assert(m_Locked);  return m_Value;               }
-        void    lock        ( void ) noexcept       { assert(!m_Locked); m_Mutex.lock();                    XGPU_DEBUG_CMD(m_Locked = true); }
+        void    lock        ( void ) noexcept       { m_Mutex.lock(); assert(!m_Locked); XGPU_DEBUG_CMD(m_Locked = true);     }
         void    unlock      ( void ) noexcept       { assert(m_Locked);  XGPU_DEBUG_CMD(m_Locked = false);  m_Mutex.unlock(); }
         bool    try_lock    ( void ) noexcept       { if( m_Mutex.try_lock() ) { assert(!m_Locked); XGPU_DEBUG_CMD(m_Locked = true); return true; } return false; }
 
