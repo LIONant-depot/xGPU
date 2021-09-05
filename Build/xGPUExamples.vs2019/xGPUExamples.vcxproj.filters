@@ -4,9 +4,6 @@
     <Filter Include="xGPU">
       <UniqueIdentifier>{197b6799-231b-4749-a2b2-a14c027d8d52}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Tutorials">
-      <UniqueIdentifier>{4c7e4720-ce07-4e69-bf89-823623728181}</UniqueIdentifier>
-    </Filter>
     <Filter Include="xGPU\Details">
       <UniqueIdentifier>{8d0de3c7-88f8-4daf-8e39-cf78094d5350}</UniqueIdentifier>
     </Filter>
@@ -25,23 +22,8 @@
     <Filter Include="xGPU\Details\System\Windows\Source %28Not Compiling%29">
       <UniqueIdentifier>{75e3a073-fc68-4888-8fa9-6e272a16c8c0}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Tutorials\Settings">
-      <UniqueIdentifier>{15ee91c3-4e15-49bb-8efc-f8c71d87c90f}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Tutorials\Example 01 Initialize">
-      <UniqueIdentifier>{94c0050f-ade9-4bb5-a868-19b28ee9af80}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Tutorials\Example 02 Using Tools">
-      <UniqueIdentifier>{41e27713-c74d-4282-9075-a3ade7e5d2f1}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Tools">
       <UniqueIdentifier>{5d174e8e-9482-4886-a92d-00c8ce1d1ec9}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Tutorials\Example 03 Imgui Breach">
-      <UniqueIdentifier>{65988b05-ce6e-4da7-9cd4-d76501b64dd3}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Tutorials\Example 04 Properties">
-      <UniqueIdentifier>{4c2acf3d-e908-45b8-80e0-475d9dc2a717}</UniqueIdentifier>
     </Filter>
     <Filter Include="Dependencies">
       <UniqueIdentifier>{d81395d2-470f-4ea2-9ff7-ed18ae6b2fa4}</UniqueIdentifier>
@@ -55,23 +37,44 @@
     <Filter Include="Dependencies\xbmpTools">
       <UniqueIdentifier>{644ee184-4ed2-4051-ae23-2bb251be4157}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Tutorials\Example 05 Textures">
-      <UniqueIdentifier>{de8006ce-4230-4a17-8f60-df682f363f91}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Tutorials\Example 06 Assim Loader">
-      <UniqueIdentifier>{73cf4bcc-b578-48b9-b0f5-b372f3283087}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Dependencies\xprim_geom">
       <UniqueIdentifier>{d2b1823f-a227-4916-bf44-56d01bffe489}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Tutorials\Example 07 primitive geoms">
+    <Filter Include="Examples">
+      <UniqueIdentifier>{4c7e4720-ce07-4e69-bf89-823623728181}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Examples\Settings">
+      <UniqueIdentifier>{15ee91c3-4e15-49bb-8efc-f8c71d87c90f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Examples\Example 01 Initialize">
+      <UniqueIdentifier>{94c0050f-ade9-4bb5-a868-19b28ee9af80}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Examples\Example 02 Using Tools">
+      <UniqueIdentifier>{41e27713-c74d-4282-9075-a3ade7e5d2f1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Examples\Example 03 Imgui Breach">
+      <UniqueIdentifier>{65988b05-ce6e-4da7-9cd4-d76501b64dd3}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Examples\Example 04 Properties">
+      <UniqueIdentifier>{4c2acf3d-e908-45b8-80e0-475d9dc2a717}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Examples\Example 05 Textures">
+      <UniqueIdentifier>{de8006ce-4230-4a17-8f60-df682f363f91}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Examples\Example 06 Assim Loader">
+      <UniqueIdentifier>{73cf4bcc-b578-48b9-b0f5-b372f3283087}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Examples\Example 07 Primitive Geoms">
       <UniqueIdentifier>{c3fc3b2d-14cc-40a1-b3e6-9a227ef2a111}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Examples\Example 08 Async Texture Loading">
+      <UniqueIdentifier>{854ce866-e965-4c9c-a6a3-7061314ffa25}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\Src\Tutorials\main.cpp" />
-    <ClCompile Include="..\..\Src\Tutorials\T01_Initialize\T01_Initialize.cpp">
-      <Filter>Tutorials\Example 01 Initialize</Filter>
+    <ClCompile Include="..\..\Src\Examples\main.cpp" />
+    <ClCompile Include="..\..\Src\Examples\E01_Initialize\E01_Initialize.cpp">
+      <Filter>Examples\Example 01 Initialize</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Src\xGPU.cpp">
       <Filter>xGPU</Filter>
@@ -148,43 +151,46 @@
     <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_widgets.cpp">
       <Filter>Dependencies\ImGui</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\Src\Tutorials\T02_UsingUtilities\T02_UsingTools.cpp">
-      <Filter>Tutorials\Example 02 Using Tools</Filter>
+    <ClCompile Include="..\..\Src\Examples\E02_UsingUtilities\E02_UsingTools.cpp">
+      <Filter>Examples\Example 02 Using Tools</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\Src\Tutorials\E03_ImguiBreatch\E03_ImguiBreach.cpp">
-      <Filter>Tutorials\Example 03 Imgui Breach</Filter>
+    <ClCompile Include="..\..\Src\Examples\E03_ImguiBreatch\E03_ImguiBreach.cpp">
+      <Filter>Examples\Example 03 Imgui Breach</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Tools\xgpu_imgui_breach.cpp">
       <Filter>Tools</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.cpp">
-      <Filter>Tutorials\Example 04 Properties</Filter>
+      <Filter>Examples\Example 04 Properties</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\Src\Tutorials\E04_Properties\E04_Properties.cpp">
-      <Filter>Tutorials\Example 04 Properties</Filter>
+    <ClCompile Include="..\..\Src\Examples\E04_Properties\E04_Properties.cpp">
+      <Filter>Examples\Example 04 Properties</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Dependencies\xbmp_tools\src\xbmp_tools.cpp">
       <Filter>Dependencies\xbmpTools</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\Src\Tutorials\E05_Textures\E05_Textures.cpp">
-      <Filter>Tutorials\Example 05 Textures</Filter>
+    <ClCompile Include="..\..\Src\Examples\E05_Textures\E05_Textures.cpp">
+      <Filter>Examples\Example 05 Textures</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\Src\Tutorials\E06_AssimLoader\E06_AssimLoader.cpp">
-      <Filter>Tutorials\Example 06 Assim Loader</Filter>
+    <ClCompile Include="..\..\Src\Examples\E06_AssimLoader\E06_AssimLoader.cpp">
+      <Filter>Examples\Example 06 Assim Loader</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\Src\Tutorials\E06_AssimLoader\ModelLoader.cpp">
-      <Filter>Tutorials\Example 06 Assim Loader</Filter>
+    <ClCompile Include="..\..\Src\Examples\E06_AssimLoader\ModelLoader.cpp">
+      <Filter>Examples\Example 06 Assim Loader</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\Src\Tutorials\E07_PrimitiveGeoms\E07_PrimitiveGeoms.cpp">
-      <Filter>Tutorials\Example 07 primitive geoms</Filter>
+    <ClCompile Include="..\..\Src\Examples\E07_PrimitiveGeoms\E07_PrimitiveGeoms.cpp">
+      <Filter>Examples\Example 07 Primitive Geoms</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Examples\E08_AsyncTextureLoading\E08_AsyncTextureLoading.cpp">
+      <Filter>Examples\Example 08 Async Texture Loading</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Src\xGPU.h">
       <Filter>xGPU</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Src\Tutorials\Tutorials.h">
-      <Filter>Tutorials</Filter>
+    <ClInclude Include="..\..\Src\Examples\Examples.h">
+      <Filter>Examples</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Src\xGPU_window.h">
       <Filter>xGPU</Filter>
@@ -318,11 +324,11 @@
     <ClInclude Include="..\..\Src\Details\xGPU_cmd_buffer_inline.h">
       <Filter>xGPU\Details</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Src\Tutorials\Settings\PropertyConfig.h">
-      <Filter>Tutorials\Settings</Filter>
+    <ClInclude Include="..\..\Src\Examples\Settings\PropertyConfig.h">
+      <Filter>Examples\Settings</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Src\Tutorials\Settings\xcore_user_settings.h">
-      <Filter>Tutorials\Settings</Filter>
+    <ClInclude Include="..\..\Src\Examples\Settings\xcore_user_settings.h">
+      <Filter>Examples\Settings</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore.h">
       <Filter>Dependencies\xCore</Filter>
@@ -489,8 +495,8 @@
     <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imstb_truetype.h">
       <Filter>Dependencies\ImGui</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Src\Tutorials\Settings\imconfig.h">
-      <Filter>Tutorials\Settings</Filter>
+    <ClInclude Include="..\..\Src\Examples\Settings\imconfig.h">
+      <Filter>Examples\Settings</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Tools\xgpu_view.h">
       <Filter>Tools</Filter>
@@ -502,10 +508,10 @@
       <Filter>Tools</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.h">
-      <Filter>Tutorials\Example 04 Properties</Filter>
+      <Filter>Examples\Example 04 Properties</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyExample.h">
-      <Filter>Tutorials\Example 04 Properties</Filter>
+      <Filter>Examples\Example 04 Properties</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_color.h">
       <Filter>Dependencies\xCore</Filter>
@@ -522,11 +528,11 @@
     <ClInclude Include="..\..\Tools\xgpu_xcore_bitmap_helpers.h">
       <Filter>Tools</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Src\Tutorials\E06_AssimLoader\ModelLoader.h">
-      <Filter>Tutorials\Example 06 Assim Loader</Filter>
+    <ClInclude Include="..\..\Src\Examples\E06_AssimLoader\ModelLoader.h">
+      <Filter>Examples\Example 06 Assim Loader</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Src\Tutorials\E06_AssimLoader\Mesh.h">
-      <Filter>Tutorials\Example 06 Assim Loader</Filter>
+    <ClInclude Include="..\..\Src\Examples\E06_AssimLoader\Mesh.h">
+      <Filter>Examples\Example 06 Assim Loader</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom.h">
       <Filter>Dependencies\xprim_geom</Filter>

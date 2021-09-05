@@ -85,15 +85,16 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
     </ClCompile>
-    <ClCompile Include="..\..\Src\Tutorials\E03_ImguiBreatch\E03_ImguiBreach.cpp" />
-    <ClCompile Include="..\..\Src\Tutorials\E04_Properties\E04_Properties.cpp" />
-    <ClCompile Include="..\..\Src\Tutorials\E05_Textures\E05_Textures.cpp" />
-    <ClCompile Include="..\..\Src\Tutorials\E06_AssimLoader\E06_AssimLoader.cpp" />
-    <ClCompile Include="..\..\Src\Tutorials\E06_AssimLoader\ModelLoader.cpp" />
-    <ClCompile Include="..\..\Src\Tutorials\E07_PrimitiveGeoms\E07_PrimitiveGeoms.cpp" />
-    <ClCompile Include="..\..\Src\Tutorials\main.cpp" />
-    <ClCompile Include="..\..\Src\Tutorials\T01_Initialize\T01_Initialize.cpp" />
-    <ClCompile Include="..\..\Src\Tutorials\T02_UsingUtilities\T02_UsingTools.cpp" />
+    <ClCompile Include="..\..\Src\Examples\E03_ImguiBreatch\E03_ImguiBreach.cpp" />
+    <ClCompile Include="..\..\Src\Examples\E04_Properties\E04_Properties.cpp" />
+    <ClCompile Include="..\..\Src\Examples\E05_Textures\E05_Textures.cpp" />
+    <ClCompile Include="..\..\Src\Examples\E06_AssimLoader\E06_AssimLoader.cpp" />
+    <ClCompile Include="..\..\Src\Examples\E06_AssimLoader\ModelLoader.cpp" />
+    <ClCompile Include="..\..\Src\Examples\E07_PrimitiveGeoms\E07_PrimitiveGeoms.cpp" />
+    <ClCompile Include="..\..\Src\Examples\E08_AsyncTextureLoading\E08_AsyncTextureLoading.cpp" />
+    <ClCompile Include="..\..\Src\Examples\main.cpp" />
+    <ClCompile Include="..\..\Src\Examples\E01_Initialize\E01_Initialize.cpp" />
+    <ClCompile Include="..\..\Src\Examples\E02_UsingUtilities\E02_UsingTools.cpp" />
     <ClCompile Include="..\..\Src\xGPU.cpp" />
     <ClCompile Include="..\..\Tools\xgpu_imgui_breach.cpp" />
   </ItemGroup>
@@ -201,12 +202,12 @@
     <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_texture.h" />
     <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_vertex_descriptor.h" />
     <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_window.h" />
-    <ClInclude Include="..\..\Src\Tutorials\E06_AssimLoader\Mesh.h" />
-    <ClInclude Include="..\..\Src\Tutorials\E06_AssimLoader\ModelLoader.h" />
-    <ClInclude Include="..\..\Src\Tutorials\Settings\imconfig.h" />
-    <ClInclude Include="..\..\Src\Tutorials\Settings\PropertyConfig.h" />
-    <ClInclude Include="..\..\Src\Tutorials\Settings\xcore_user_settings.h" />
-    <ClInclude Include="..\..\Src\Tutorials\Tutorials.h" />
+    <ClInclude Include="..\..\Src\Examples\E06_AssimLoader\Mesh.h" />
+    <ClInclude Include="..\..\Src\Examples\E06_AssimLoader\ModelLoader.h" />
+    <ClInclude Include="..\..\Src\Examples\Settings\imconfig.h" />
+    <ClInclude Include="..\..\Src\Examples\Settings\PropertyConfig.h" />
+    <ClInclude Include="..\..\Src\Examples\Settings\xcore_user_settings.h" />
+    <ClInclude Include="..\..\Src\Examples\Examples.h" />
     <ClInclude Include="..\..\Src\xGPU.h" />
     <ClInclude Include="..\..\Src\xGPU_buffer.h" />
     <ClInclude Include="..\..\Src\xGPU_cmd_buffer.h" />
@@ -256,7 +257,7 @@
     <VCProjectVersion>16.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
     <ProjectGuid>{b188909a-c7df-40ad-9aae-e1f50f82027c}</ProjectGuid>
-    <RootNamespace>xGPUTutorials</RootNamespace>
+    <RootNamespace>xGPUExamples</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -288,7 +289,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
     <SourcePath>$(VC_SourcePath);</SourcePath>
-    <IncludePath>../../Src\Tutorials\Settings;$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../Dependencies\xcore\src;./;../../src;../../Dependencies\assimp/include;../../Dependencies\xcore\dependencies\tracy\imgui</IncludePath>
+    <IncludePath>../../Src\Examples\Settings;$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../Dependencies\xcore\src;./;../../src;../../Dependencies\assimp/include;../../Dependencies\xcore\dependencies\tracy\imgui</IncludePath>
     <PublicIncludeDirectories>
     </PublicIncludeDirectories>
   </PropertyGroup>
