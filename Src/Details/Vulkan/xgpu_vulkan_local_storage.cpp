@@ -20,18 +20,23 @@ namespace xgpu::vulkan
         ,   .pCommandBuffers    = &m_VKSetupCmdBuffer
         };        
 
-        std::lock_guard Lk(m_pDevice->m_VKMainQueue);
-        if( auto VKErr = vkQueueSubmit(m_pDevice->m_VKMainQueue.get(), 1, &SubmitInfo, VK_NULL_HANDLE); VKErr )
+        //
+        // Submit to queue and wait (note that only one thread at a time can do this)
+        //
         {
-            m_pDevice->m_Instance->ReportError(VKErr, "Fail to submit the per thread command buffer");
-            return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to submit the per thread command buffer");
-        }
+            std::lock_guard Lk(m_pDevice->m_VKMainQueue);
+            if( auto VKErr = vkQueueSubmit(m_pDevice->m_VKMainQueue.get(), 1, &SubmitInfo, VK_NULL_HANDLE); VKErr )
+            {
+                m_pDevice->m_Instance->ReportError(VKErr, "Fail to submit the per thread command buffer");
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to submit the per thread command buffer");
+            }
 
-        // TODO: This may waste a bit of CPU cycles...
-        if( auto VKErr = vkQueueWaitIdle(m_pDevice->m_VKMainQueue.get()); VKErr )
-        {
-            m_pDevice->m_Instance->ReportError(VKErr, "Fail to wait for idle state in queue, location per thread command buffer" );
-            return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to wait for idle state in queue, location per thread command buffer" );
+            // TODO: This may waste a bit of CPU cycles...
+            if( auto VKErr = vkQueueWaitIdle(m_pDevice->m_VKMainQueue.get()); VKErr )
+            {
+                m_pDevice->m_Instance->ReportError(VKErr, "Fail to wait for idle state in queue, location per thread command buffer" );
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to wait for idle state in queue, location per thread command buffer" );
+            }
         }
 
         return CreateVKSetupCommandBuffer();

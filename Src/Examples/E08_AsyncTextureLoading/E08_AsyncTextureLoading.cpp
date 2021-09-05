@@ -13,10 +13,16 @@ void DebugMessage(std::string_view View)
 
 //------------------------------------------------------------------------------------------------
 
-enum class thread_state
-{ NOT_INITIALIZED
-, WORKING
-, EXITING
+struct stinfo
+{
+    float m_Time;
+    float m_Percentage;
+};
+
+constexpr auto g_StatName = std::array
+{ "MainQ + Disk Loading"
+, "MainQ + Cache"
+, "AsyncQ + Cache"
 };
 
 //------------------------------------------------------------------------------------------------
@@ -40,12 +46,29 @@ int E08_Example()
     //
     xgpu::tools::imgui::CreateInstance(Instance, Device, MainWindow);
 
-    std::vector<xgpu::texture>                  LinearLoadedTextures(1000);
-    std::array<std::atomic<thread_state>, 5>    TheadState{};
-    std::vector<std::thread>                    WorkerThreads(TheadState.size());
-    int                                         iNextFree = 0;
-    float                                       Time = 0;
-    auto                                        T1   = std::chrono::high_resolution_clock::now();
+    std::vector<xgpu::texture>              LoadedTextures; 
+    constexpr auto                          n_textures      = 1000;
+    constexpr auto                          n_max_workers   = 20;
+    std::array<stinfo, g_StatName.size()>   Stats            {};
+    auto                                    T1              = std::chrono::high_resolution_clock::now();
+    xcore::scheduler::channel               Channel         { xconst_universal_str("LoadingTextures") };
+    std::atomic<int>                        WorkerBusy      {0};
+    xcore::bitmap                           Bitmap;
+    int                                     iActiveStat     {0};
+
+    //
+    // Make it grow!
+    //
+    LoadedTextures.reserve(n_textures);
+
+    //
+    // Load the texture ones since we don't want to measure how long it takes to load from disk
+    //
+    if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, "../../Src/Examples/E05_Textures/Alita-FullColor-Mipmaps.dds"); Err)
+    {
+        DebugMessage(xbmp::tools::getErrorMsg(Err));
+        std::exit(xbmp::tools::getErrorInt(Err));
+    }
 
     //
     // Main loop
@@ -56,73 +79,118 @@ int E08_Example()
             continue;
 
         //
-        // Show ImGui demo
+        // Create an ImGui window and display progress bar info
         // 
-        //static bool show_demo_window = true;
-        //ImGui::ShowDemoWindow(&show_demo_window);
-
-
         static ImGuiWindowFlags WindowFlags = 0;
         ImGui::SetNextWindowSize(ImVec2(650, 680));
         ImGui::Begin("Stats", nullptr, WindowFlags );
 
-        ImGui::ProgressBar(iNextFree / (float)LinearLoadedTextures.size(), ImVec2(0.0f, 0.0f));
-        ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-        ImGui::Text("(%2.2fsec) Main Queue Loading", Time );
-
-        ImGui::ProgressBar(0, ImVec2(0.0f, 0.0f));
-        ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-        ImGui::Text("(%2.2fsec) Async Queue Loading", 0);
-
-        if (iNextFree < LinearLoadedTextures.size() )
+        for( int i=0; i< g_StatName.size(); ++i )
         {
-            for( int i=0; i< TheadState.size(); ++i )
+            ImGui::ProgressBar(Stats[i].m_Percentage, ImVec2(0.0f, 0.0f) );
+            ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
+            ImGui::Text("(%2.2fsec) %s", Stats[i].m_Time, g_StatName[i]);
+        }
+
+        // End of window
+        ImGui::End();
+
+        //
+        // Handle input
+        //
+        static bool StartProfiling = false;
+        if( StartProfiling == false && ImGui::GetIO().KeysDown[(int)xgpu::keyboard::digital::KEY_SPACE] ) StartProfiling = true;
+
+        //
+        // Process the textures
+        //
+        while(iActiveStat < (int)g_StatName.size() && StartProfiling && LoadedTextures.size() < n_textures )
+        {
+            // Start the clock
+            if(LoadedTextures.size() ==0) T1 = std::chrono::high_resolution_clock::now();
+
+            if( auto nWorkers = WorkerBusy.load(std::memory_order_relaxed); nWorkers >= (n_max_workers-1) ) 
+                break;
+            else if( WorkerBusy.compare_exchange_weak(nWorkers, nWorkers + 1) )
             {
-                if(iNextFree < LinearLoadedTextures.size() && TheadState[i].load() != thread_state::WORKING )
+                LoadedTextures.emplace_back();
+
+                switch ( iActiveStat )
                 {
-                    // make sure is safe to do staff with this thread
-                    if( TheadState[i].load() == thread_state::EXITING ) WorkerThreads[i].join();
-                    TheadState[i].store(thread_state::WORKING);
-
-                    WorkerThreads[i] = std::thread( 
-                    [ &ThreadState = TheadState[i]
-                    , &Texture    = LinearLoadedTextures[iNextFree++]
-                    , &Device 
-                    ]
-                    {
-                        xcore::bitmap Bitmap;
-
-                        if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, "../../Src/Examples/E05_Textures/Alita-FullColor-Mipmaps.dds"); Err)
+                case 0: Channel.SubmitJob( 
+                        [ &WorkerBusy
+                        , &Device
+                        , &Texture = LoadedTextures.back()
+                        ]
                         {
-                            DebugMessage(xbmp::tools::getErrorMsg(Err));
-                            std::exit(xbmp::tools::getErrorInt(Err));
-                        }
+                            xcore::bitmap Bitmap;
 
-                        if (auto Err = xgpu::tools::bitmap::Create(Texture, Device, Bitmap); Err)
+                            //
+                            // Load the texture ones since we don't want to measure how long it takes to load from disk
+                            //
+                            if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, "../../Src/Examples/E05_Textures/Alita-FullColor-Mipmaps.dds"); Err)
+                            {
+                                DebugMessage(xbmp::tools::getErrorMsg(Err));
+                                std::exit(xbmp::tools::getErrorInt(Err));
+                            }
+
+                            //
+                            // Load to gpu
+                            //
+                            if (auto Err = xgpu::tools::bitmap::Create(Texture, Device, Bitmap); Err)
+                            {
+                                DebugMessage(xgpu::getErrorMsg(Err));
+                                std::exit(xgpu::getErrorInt(Err));
+                            }
+
+                            WorkerBusy--;
+                        });
+                        break;
+                case 1: Channel.SubmitJob( 
+                        [ &WorkerBusy
+                        , &Device
+                        , &Texture = LoadedTextures.back()
+                        , &Bitmap
+                        ]
                         {
-                            DebugMessage(xgpu::getErrorMsg(Err));
-                            std::exit(xgpu::getErrorInt(Err));
-                        }
+                            //
+                            // Load to gpu
+                            //
+                            if (auto Err = xgpu::tools::bitmap::Create(Texture, Device, Bitmap); Err)
+                            {
+                                DebugMessage(xgpu::getErrorMsg(Err));
+                                std::exit(xgpu::getErrorInt(Err));
+                            }
 
-                       ThreadState.store(thread_state::EXITING);
-                    });
+                            WorkerBusy--;
+                        });
+                        break;
                 }
             }
         }
 
-        if(iNextFree <= LinearLoadedTextures.size() ) 
+        // 
+        // Measure final time
+        //
+        if( iActiveStat < (int)g_StatName.size() && LoadedTextures.size() && LoadedTextures.size() <= n_textures )
         {
-            if(iNextFree == LinearLoadedTextures.size()) 
+            if( LoadedTextures.size() == n_textures )
             {
-                for (int i = 0; i < TheadState.size(); ++i) WorkerThreads[i].join();
-                iNextFree = static_cast<int>(LinearLoadedTextures.size() * 2);
+                // wait for all the workers to be done
+                Channel.join();
+                assert(WorkerBusy == 0);
+                Stats[iActiveStat].m_Time       = std::chrono::duration<float>(std::chrono::high_resolution_clock::now() - T1).count();
+                Stats[iActiveStat].m_Percentage = 1;
+                LoadedTextures.clear();
+                StartProfiling = false;
+                iActiveStat++;
             }
-            Time = std::chrono::duration<float>(std::chrono::high_resolution_clock::now() - T1).count();
+            else 
+            {
+                Stats[iActiveStat].m_Time       = std::chrono::duration<float>(std::chrono::high_resolution_clock::now() - T1).count();
+                Stats[iActiveStat].m_Percentage = LoadedTextures.size() / (float)n_textures;
+            }
         }
-
-
-        ImGui::End();
-
 
         //
         // Render

@@ -3,8 +3,58 @@ namespace xgpu::vulkan
 {
     //----------------------------------------------------------------------------------------------------------
 
-    xgpu::device::error* CreateGraphicsDevice( device& Device, const VkDeviceQueueCreateInfo& queueCreateInfo, const bool enableValidation ) noexcept
+    xgpu::device::error* CreateGraphicsDevice
+    ( device&                                       Device
+    , const bool                                    enableValidation
+    , const std::vector<VkQueueFamilyProperties>&   DeviceProperties 
+    ) noexcept
     {
+        //
+        // Lets find a transfer queue... because we are going to let assets transfer at lighting speed
+        // (So async transfers)
+        for( auto i=0u; i<DeviceProperties.size(); ++i )
+        {
+            // We want to find a queue that is not compute, or graphics
+            // we just need to transfer
+            if(     (DeviceProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT) 
+                && !(DeviceProperties[i].queueFlags & (VK_QUEUE_COMPUTE_BIT | VK_QUEUE_GRAPHICS_BIT))
+              )
+            {
+                Device.m_TransferQueueIndex = i;
+                break;
+            }
+        }
+
+        if( Device.m_TransferQueueIndex == 0xffffffff )
+        {
+            Device.m_Instance->ReportError("Unable to find a transfer only queue");
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "Unable to find a transfer only queue");
+        }
+
+        //
+        // Prepare our queues
+        //
+        static const std::array     queuePriorities    = {    0.0f };
+        auto queueCreateInfo = std::array
+        {   VkDeviceQueueCreateInfo 
+            {
+                .sType              = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO
+            ,   .queueFamilyIndex   = Device.m_MainQueueIndex
+            ,   .queueCount         = static_cast<std::uint32_t>(queuePriorities.size())
+            ,   .pQueuePriorities   = queuePriorities.data()
+            }
+        ,   VkDeviceQueueCreateInfo
+            {
+                .sType              = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO
+            ,   .queueFamilyIndex   = Device.m_TransferQueueIndex
+            ,   .queueCount         = static_cast<std::uint32_t>(queuePriorities.size())
+            ,   .pQueuePriorities   = queuePriorities.data()
+            }
+        };
+
+        //
+        // Create device now
+        //
         VkPhysicalDeviceFeatures Features{};
         vkGetPhysicalDeviceFeatures( Device.m_VKPhysicalDevice, &Features );
         Features.shaderClipDistance = true;
@@ -20,8 +70,8 @@ namespace xgpu::vulkan
         {
             .sType                      = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO
         ,   .pNext                      = nullptr
-        ,   .queueCreateInfoCount       = 1
-        ,   .pQueueCreateInfos          = &queueCreateInfo
+        ,   .queueCreateInfoCount       = static_cast<uint32_t>(queueCreateInfo.size())
+        ,   .pQueueCreateInfos          = queueCreateInfo.data()
         ,   .enabledLayerCount          = 0
         ,   .ppEnabledLayerNames        = nullptr
         ,   .enabledExtensionCount      = static_cast<uint32_t>(enabledExtensions.size())
@@ -54,27 +104,18 @@ namespace xgpu::vulkan
     xgpu::device::error* device::Initialize
     (   std::shared_ptr<xgpu::vulkan::instance>&    Instance
     ,   const xgpu::device::setup&                  Setup
-    ,   std::uint32_t                               MainGraphicsQueueIndex
+    ,   std::uint32_t                               MainQueueIndex
     ,   VkPhysicalDevice                            PhysicalDevice
     ,   std::vector<VkQueueFamilyProperties>        Properties ) noexcept
     {
         // Referece back to the instance
         m_Instance          = Instance;
         m_VKPhysicalDevice  = PhysicalDevice;
-        m_MainQueueIndex    = MainGraphicsQueueIndex;
+        m_MainQueueIndex    = MainQueueIndex;
 
         //
         // Vulkan device
         //
-        static const std::array     queuePriorities = { 0.0f };
-        VkDeviceQueueCreateInfo     queueCreateInfo
-        {
-            .sType              = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO
-        ,   .queueFamilyIndex   = MainGraphicsQueueIndex
-        ,   .queueCount         = static_cast<std::uint32_t>(queuePriorities.size())
-        ,   .pQueuePriorities   = queuePriorities.data()
-        };
-
         switch( Setup.m_Type )
         {
             case xgpu::device::type::COMPUTE:
@@ -83,21 +124,20 @@ namespace xgpu::vulkan
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create the Vulkan Device (This device is unsupported right now)");
             case xgpu::device::type::RENDER_AND_SWAP:
             case xgpu::device::type::RENDER_ONLY:
-                if( auto VErr = CreateGraphicsDevice(*this, queueCreateInfo, m_Instance->m_bValidation ); VErr )
+                if( auto VErr = CreateGraphicsDevice(*this, m_Instance->m_bValidation, Properties ); VErr )
                     return VErr;
             break;
         }
 
         //
-        // Get the graphics queue
+        // Get all the queues
         //
         {
-            std::lock_guard Lk(m_VKMainQueue);
-            vkGetDeviceQueue(m_VKDevice, MainGraphicsQueueIndex, 0, &m_VKMainQueue.get());
+            std::scoped_lock Lks(m_VKMainQueue, m_VKTransferQueue);
+            vkGetDeviceQueue(m_VKDevice, MainQueueIndex,       0, &m_VKMainQueue.get());
+            vkGetDeviceQueue(m_VKDevice, m_TransferQueueIndex, 0, &m_VKTransferQueue.get());
         }
         
-    //    m_VKTransferQueue
-
         //
         // Gather physical device memory properties
         //
@@ -125,7 +165,7 @@ namespace xgpu::vulkan
         // Create DecriptorPool for pipelines
         // We could create different pools with different set counts to remove fragmentation from the pools
         //  So when even we need two textures we allocate from the ( 2 * max_descriptors_per_pool_v ) pool
-        // When doing multithead this could be a contention point
+        // When doing multi-thread this could be a contention point
         //
         {
             constexpr auto max_descriptors_per_pool_v = 1000u;

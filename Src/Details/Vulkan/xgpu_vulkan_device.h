@@ -5,7 +5,7 @@ namespace xgpu::vulkan
         xgpu::device::error* Initialize
         (   std::shared_ptr<xgpu::vulkan::instance>&    Instance
         ,   const xgpu::device::setup&                  Setup
-        ,   std::uint32_t                               MainGraphicsQueueIndex
+        ,   std::uint32_t                               MainQueueIndex
         ,   VkPhysicalDevice                            PhysicalDevice
         ,   std::vector<VkQueueFamilyProperties>        Properties 
         ) noexcept;
@@ -61,7 +61,8 @@ namespace xgpu::vulkan
         std::shared_ptr<xgpu::vulkan::instance>         m_Instance                  {};
         VkPhysicalDevice                                m_VKPhysicalDevice          {};
         VkDevice                                        m_VKDevice                  {};
-        std::uint32_t                                   m_MainQueueIndex            {}; 
+        std::uint32_t                                   m_MainQueueIndex            {0xffffffff};
+        std::uint32_t                                   m_TransferQueueIndex        {0xffffffff};
         xgpu::lock_object<VkQueue>                      m_VKMainQueue               {};
         xgpu::lock_object<VkQueue>                      m_VKTransferQueue           {};
         VkPhysicalDeviceMemoryProperties                m_VKDeviceMemoryProperties  {};

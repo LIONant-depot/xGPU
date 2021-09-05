@@ -464,7 +464,7 @@ namespace xgpu::vulkan
             //
             // Check if it is a desirable device
             //
-            for (auto& Prop : DeviceProps)
+            for( auto& Prop : DeviceProps )
             {
                 // If property is the same type as the one requested by the user then we should consider it
                 if( Prop.queueFlags & QueueType[static_cast<std::size_t>(Setup.m_Type)] )

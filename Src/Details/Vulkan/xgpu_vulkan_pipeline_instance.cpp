@@ -4,10 +4,6 @@ namespace xgpu::vulkan
 
     pipeline_instance::~pipeline_instance( void ) noexcept
     {
-        for( int i=0; i<m_Pipeline->m_nSamplers; ++i)
-        {
-            if (m_TexturesBinds[i]) --m_TexturesBinds[i]->m_nPipelineInstances;
-        }
     }
 
     //-------------------------------------------------------------------------------
@@ -33,7 +29,6 @@ namespace xgpu::vulkan
         {
             auto& TextureBinds = m_TexturesBinds[i];
             TextureBinds = std::reinterpret_pointer_cast<vulkan::texture>( Setup.m_SamplersBindings[i].m_Texture.m_Private );
-            TextureBinds->m_nPipelineInstances++;
         }
 
         return nullptr;

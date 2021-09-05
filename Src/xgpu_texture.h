@@ -45,6 +45,11 @@ namespace xgpu
         ,   WRAPPING
         };
 
+        enum class transfer_mode : std::uint8_t
+        { SYNC
+        , ASYNC
+        };
+
         struct setup
         {
             struct mip
@@ -53,6 +58,7 @@ namespace xgpu
             };
 
             format                      m_Format                { format::DEFAULT };
+            transfer_mode               m_TransferMode          { transfer_mode::SYNC };
             type                        m_Type                  { type::GAMMA };
             std::array<wrapping,3>      m_Coordinate            { wrapping::WRAPPING, wrapping::WRAPPING, wrapping::WRAPPING };
             bool                        m_hasSignedChannels     { false };

@@ -6,6 +6,8 @@ namespace xgpu::vulkan
                                        , const xgpu::texture::setup&       Setup
                                        ) noexcept;
 
+        virtual ~texture( void ) noexcept override;
+
         int getMipCount( void ) noexcept
         {
             return 0;
@@ -16,6 +18,5 @@ namespace xgpu::vulkan
         VkImage                         m_VKImage               {};
         VkImageView                     m_VKView                {};
         VkDeviceMemory                  m_VKDeviceMemory        {};
-        std::atomic_int                 m_nPipelineInstances    { 0 };
     };
 }
