@@ -21,6 +21,7 @@ struct stinfo
 
 constexpr auto g_StatName = std::array
 { "OpenGL + Disk Loading"
+, "OpenGL + Cache"
 , "MainQ + Disk Loading"
 , "MainQ + Cache"
 };
@@ -129,7 +130,21 @@ int E08_Example()
                             nWorkerBusy.store( n_max_workers_v );
                         }
                         break;
-                case 1: Channel.SubmitJob( 
+                case 1: for( int i=0; i<Count; ++i )
+                        {
+                            //
+                            // Load to gpu
+                            //
+                            if (auto Err = xgpu::tools::bitmap::Create(LoadedTextures[Index+i], Device, CachedBitmap); Err)
+                            {
+                                DebugMessage(xgpu::getErrorMsg(Err));
+                                std::exit(xgpu::getErrorInt(Err));
+                            }
+
+                            nWorkerBusy.store( n_max_workers_v );
+                        }
+                        break;
+                case 2: Channel.SubmitJob( 
                         [ &nWorkerBusy
                         , &Device
                         , &LoadedTextures
@@ -162,7 +177,7 @@ int E08_Example()
                             nWorkerBusy--;
                         });
                         break;
-                case 2: Channel.SubmitJob( 
+                case 3: Channel.SubmitJob( 
                         [ &nWorkerBusy
                         , &Device
                         , &CachedBitmap
@@ -190,7 +205,7 @@ int E08_Example()
         }
 
         // For case 2 we have to do a bit of magic
-        if(iActiveStat == 0) nWorkerBusy.store(0);
+        if(iActiveStat <= 1) nWorkerBusy.store(0);
 
         // 
         // Measure final time
@@ -233,7 +248,7 @@ int E08_Example()
         {
             ImGui::ProgressBar(Stats[i].m_Percentage, ImVec2(0.0f, 0.0f));
             ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-            ImGui::Text("(%2.2fsec) %s", Stats[i].m_Time, g_StatName[i]);
+            ImGui::Text("(%2.2fsec) %s", Stats[i].m_Time, g_StatName[i] );
         }
 
         // End of window
