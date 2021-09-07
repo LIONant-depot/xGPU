@@ -327,13 +327,13 @@ int E05_Example()
     //
     std::array<bitmap_inspector, 7> BitmapInspector;
     constexpr auto TextureList = std::array
-    { "../../Src/Tutorials/E05_Textures/Alita-FullColor.dds"
-    , "../../Src/Tutorials/E05_Textures/Alita-FullColor-Mipmaps.dds"
-    , "../../Src/Tutorials/E05_Textures/Alita-FullColorNoAlpha-Mipmaps.dds"
-    , "../../Src/Tutorials/E05_Textures/Alita-DXT1-Mipmaps.dds"
-    , "../../Src/Tutorials/E05_Textures/Alita-DXT1-NoAlpha-Mipmaps.dds"
-    , "../../Src/Tutorials/E05_Textures/Alita-DXT3.dds"
-    , "../../Src/Tutorials/E05_Textures/Alita-DXT5.dds"
+    { "../../Src/Examples/E05_Textures/Alita-FullColor.dds"
+    , "../../Src/Examples/E05_Textures/Alita-FullColor-Mipmaps.dds"
+    , "../../Src/Examples/E05_Textures/Alita-FullColorNoAlpha-Mipmaps.dds"
+    , "../../Src/Examples/E05_Textures/Alita-DXT1-Mipmaps.dds"
+    , "../../Src/Examples/E05_Textures/Alita-DXT1-NoAlpha-Mipmaps.dds"
+    , "../../Src/Examples/E05_Textures/Alita-DXT3.dds"
+    , "../../Src/Examples/E05_Textures/Alita-DXT5.dds"
     };
     static_assert( BitmapInspector.size() == TextureList.size() );
 

@@ -564,6 +564,9 @@
     <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_hemisphere.h">
       <Filter>Dependencies\xprim_geom</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\Settings\assimp\config.h">
+      <Filter>Examples\Settings</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="draw_frag.glsl" />

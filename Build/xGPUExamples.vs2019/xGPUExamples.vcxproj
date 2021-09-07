@@ -204,6 +204,7 @@
     <ClInclude Include="..\..\Src\Details\Vulkan\xGPU_vulkan_window.h" />
     <ClInclude Include="..\..\Src\Examples\E06_AssimLoader\Mesh.h" />
     <ClInclude Include="..\..\Src\Examples\E06_AssimLoader\ModelLoader.h" />
+    <ClInclude Include="..\..\Src\Examples\Settings\assimp\config.h" />
     <ClInclude Include="..\..\Src\Examples\Settings\imconfig.h" />
     <ClInclude Include="..\..\Src\Examples\Settings\PropertyConfig.h" />
     <ClInclude Include="..\..\Src\Examples\Settings\xcore_user_settings.h" />
