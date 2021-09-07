@@ -1,4 +1,4 @@
-@echo OFF
+rem @echo OFF
 setlocal enabledelayedexpansion
 set XGPU_PATH=%cd%
 
@@ -63,18 +63,17 @@ if %ERRORLEVEL% GEQ 1 goto :ERROR
 cd ../dependencies/assimp
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
-rem Change to visual studio 2019
-powershell -Command "(gc "BUILDBINARIES_EXAMPLE.bat") -replace 'SET GENERATOR=Visual Studio 15 2017', 'SET GENERATOR=Visual Studio 16 2019' | Out-File -encoding ASCII "BUILDBINARIES_EXAMPLE.bat""
+cmake CMakeLists.txt -G "Visual Studio 16 2019" -S . -B ./BINARIES/Win32
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
-call BUILDBINARIES_EXAMPLE.bat
+cmake --build ./BINARIES/Win32 --config release
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
 cd /d %XGPU_PATH%
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
 rem copy the dlls just in case the user runs the examples 
-copy "..\dependencies\assimp\BINARIES\Win32\bin\Release\assimp-vc142-mt.dll" "xGPUTutorials.vs2019\assimp-vc142-mt.dll"
+copy "..\dependencies\assimp\BINARIES\Win32\bin\Release\assimp-vc142-mt.dll" "xGPUExamples.vs2019\assimp-vc142-mt.dll"
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
 rem ------------------------------------------------------------
@@ -110,7 +109,7 @@ goto :PAUSE
 
 :ERROR
 powershell write-host -fore Red ------------------------------------------------------------------------------------------------------
-powershell write-host -fore Red XGPU EXAMPLES - DONE!!
+powershell write-host -fore Red XGPU EXAMPLES - ERROR!!
 powershell write-host -fore Red ------------------------------------------------------------------------------------------------------
 
 :PAUSE
