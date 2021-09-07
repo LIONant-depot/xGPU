@@ -26,7 +26,7 @@ namespace xgpu
         struct setup
         {
             type        m_Type              { type::RENDER_AND_SWAP };
-            discreate   m_Discreate         { discreate::ANY_GPU };
+            discreate   m_Discreate         { discreate::DISCREATE_ONLY };
         };
 
         XGPU_INLINE [[nodiscard]] device::error* Create( window&                            Window

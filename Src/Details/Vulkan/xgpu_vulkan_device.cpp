@@ -16,8 +16,8 @@ namespace xgpu::vulkan
         {
             // We want to find a queue that is not compute, or graphics
             // we just need to transfer
-            if(     (DeviceProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT) 
-                && !(DeviceProperties[i].queueFlags & (VK_QUEUE_COMPUTE_BIT | VK_QUEUE_GRAPHICS_BIT))
+            if(    (DeviceProperties[i].queueFlags & VK_QUEUE_TRANSFER_BIT) 
+                && ( Device.m_MainQueueIndex != i )
               )
             {
                 Device.m_TransferQueueIndex = i;
