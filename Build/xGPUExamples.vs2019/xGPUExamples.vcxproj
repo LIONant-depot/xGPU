@@ -297,7 +297,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <LinkIncremental>false</LinkIncremental>
     <SourcePath>$(VC_SourcePath);</SourcePath>
-    <IncludePath>$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../src</IncludePath>
+    <IncludePath>../../Src\Examples\Settings;$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../Dependencies\xcore\src;./;../../src;../../Dependencies\assimp/include;../../Dependencies\xcore\dependencies\tracy\imgui</IncludePath>
     <PublicIncludeDirectories>
     </PublicIncludeDirectories>
   </PropertyGroup>
@@ -333,7 +333,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(VULKAN_SDK)</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(VULKAN_SDK);../../Dependencies\xcore</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

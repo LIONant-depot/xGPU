@@ -22,7 +22,7 @@
 #ifdef _DEBUG
     #define XGPU_DEBUG_CMD(A) A
 #else
-    #define XGPU_DEBUG_CMD(A) (void)
+    #define XGPU_DEBUG_CMD(A) 
 #endif
 
 //
