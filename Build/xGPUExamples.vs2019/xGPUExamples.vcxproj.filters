@@ -70,6 +70,15 @@
     <Filter Include="Examples\Example 08 Async Texture Loading">
       <UniqueIdentifier>{854ce866-e965-4c9c-a6a3-7061314ffa25}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Dependencies\xraw3D">
+      <UniqueIdentifier>{f2e6a9c1-4943-4d4b-9f12-97b46d194937}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Examples\Example 09 Raw 3D Viewer">
+      <UniqueIdentifier>{31486fce-4447-40ad-ac7c-b2bcb8ee2f0f}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Dependencies\meshoptimizer">
+      <UniqueIdentifier>{7fd41868-1cc8-42c3-bcb7-398432841c3e}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Src\Examples\main.cpp" />
@@ -183,6 +192,63 @@
     </ClCompile>
     <ClCompile Include="..\..\Src\Examples\E08_AsyncTextureLoading\E08_AsyncTextureLoading.cpp">
       <Filter>Examples\Example 08 Async Texture Loading</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xraw3D\src\xraw3d.cpp">
+      <Filter>Dependencies\xraw3D</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Examples\E09_Raw3DViewer\E09_Raw3DViewer.cpp">
+      <Filter>Examples\Example 09 Raw 3D Viewer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Tools\WindowsFileDialog\FileBrowser.cpp">
+      <Filter>Examples\Example 09 Raw 3D Viewer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Tools\WindowsFileDialog\FolderBrowser.cpp">
+      <Filter>Examples\Example 09 Raw 3D Viewer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\allocator.cpp">
+      <Filter>Dependencies\meshoptimizer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\clusterizer.cpp">
+      <Filter>Dependencies\meshoptimizer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\indexcodec.cpp">
+      <Filter>Dependencies\meshoptimizer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\indexgenerator.cpp">
+      <Filter>Dependencies\meshoptimizer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\overdrawanalyzer.cpp">
+      <Filter>Dependencies\meshoptimizer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\overdrawoptimizer.cpp">
+      <Filter>Dependencies\meshoptimizer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\simplifier.cpp">
+      <Filter>Dependencies\meshoptimizer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\spatialorder.cpp">
+      <Filter>Dependencies\meshoptimizer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\stripifier.cpp">
+      <Filter>Dependencies\meshoptimizer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\vcacheanalyzer.cpp">
+      <Filter>Dependencies\meshoptimizer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\vcacheoptimizer.cpp">
+      <Filter>Dependencies\meshoptimizer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\vertexcodec.cpp">
+      <Filter>Dependencies\meshoptimizer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\vertexfilter.cpp">
+      <Filter>Dependencies\meshoptimizer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\vfetchanalyzer.cpp">
+      <Filter>Dependencies\meshoptimizer</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\vfetchoptimizer.cpp">
+      <Filter>Dependencies\meshoptimizer</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -423,9 +489,6 @@
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_profiler.h">
       <Filter>Dependencies\xCore</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_ptr.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\Dependencies\xcore\src\xcore_random.h">
       <Filter>Dependencies\xCore</Filter>
     </ClInclude>
@@ -566,6 +629,27 @@
     </ClInclude>
     <ClInclude Include="..\..\Src\Examples\Settings\assimp\config.h">
       <Filter>Examples\Settings</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xraw3D\src\xraw3d_geom.h">
+      <Filter>Dependencies\xraw3D</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xraw3D\src\xraw3d.h">
+      <Filter>Dependencies\xraw3D</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xraw3D\src\xraw3d_anim.h">
+      <Filter>Dependencies\xraw3D</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xraw3D\src\xraw3d_assimp_import.h">
+      <Filter>Dependencies\xraw3D</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Tools\WindowsFileDialog\FolderBrowser.h">
+      <Filter>Examples\Example 09 Raw 3D Viewer</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Tools\WindowsFileDialog\FileBrowser.h">
+      <Filter>Examples\Example 09 Raw 3D Viewer</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\meshoptimizer.h">
+      <Filter>Dependencies\meshoptimizer</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

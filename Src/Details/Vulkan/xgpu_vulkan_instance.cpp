@@ -215,9 +215,9 @@ namespace xgpu::vulkan
         {
             .sType              = VK_STRUCTURE_TYPE_APPLICATION_INFO
         ,   .pNext              = nullptr
-        ,   .pApplicationName   = Setup.m_pAppName ? Setup.m_pAppName : "vGPU::Vulkan"
+        ,   .pApplicationName   = Setup.m_pAppName ? Setup.m_pAppName : "xGPU::Vulkan"
         ,   .applicationVersion = 1
-        ,   .pEngineName        = "vGPU::Vulkan"
+        ,   .pEngineName        = "xGPU::Vulkan"
         ,   .engineVersion      = 1
         ,   .apiVersion         = VK_API_VERSION_1_0
         };

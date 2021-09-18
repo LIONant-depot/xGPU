@@ -3,11 +3,17 @@ namespace xgpu
     struct vertex_descriptor
     {
         enum class format : std::uint8_t
-        {   FLOAT
-        ,   FLOAT2
-        ,   FLOAT3
-        ,   FLOAT4
-        ,   UINT8_RGBA_NORMALIZED
+        {   FLOAT_1D
+        ,   FLOAT_2D
+        ,   FLOAT_3D
+        ,   FLOAT_4D
+        ,   UINT8_1D_NORMALIZED
+        ,   UINT8_4D_NORMALIZED
+        ,   UINT8_1D
+        ,   UINT16_1D
+        ,   UINT32_1D
+        ,   SINT8_3D_NORMALIZED
+        ,   ENUM_COUNT
         };
 
         struct attribute

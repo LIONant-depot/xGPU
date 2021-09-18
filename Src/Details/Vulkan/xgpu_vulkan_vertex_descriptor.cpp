@@ -16,11 +16,16 @@ namespace xgpu::vulkan
             {
                 switch (Format)
                 {
-                case xgpu::vertex_descriptor::format::FLOAT:                    return VK_FORMAT_R32_SFLOAT;
-                case xgpu::vertex_descriptor::format::FLOAT2:                   return VK_FORMAT_R32G32_SFLOAT;
-                case xgpu::vertex_descriptor::format::FLOAT3:                   return VK_FORMAT_R32G32B32_SFLOAT;
-                case xgpu::vertex_descriptor::format::FLOAT4:                   return VK_FORMAT_R32G32B32A32_SFLOAT;
-                case xgpu::vertex_descriptor::format::UINT8_RGBA_NORMALIZED:    return VK_FORMAT_R8G8B8A8_UNORM;
+                case xgpu::vertex_descriptor::format::FLOAT_1D:                return VK_FORMAT_R32_SFLOAT;
+                case xgpu::vertex_descriptor::format::FLOAT_2D:                return VK_FORMAT_R32G32_SFLOAT;
+                case xgpu::vertex_descriptor::format::FLOAT_3D:                return VK_FORMAT_R32G32B32_SFLOAT;
+                case xgpu::vertex_descriptor::format::FLOAT_4D:                return VK_FORMAT_R32G32B32A32_SFLOAT;
+                case xgpu::vertex_descriptor::format::UINT8_1D_NORMALIZED:    return VK_FORMAT_R8_UNORM;
+                case xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED:    return VK_FORMAT_R8G8B8A8_UNORM;
+                case xgpu::vertex_descriptor::format::UINT8_1D:               return VK_FORMAT_R8_UINT;
+                case xgpu::vertex_descriptor::format::UINT16_1D:              return VK_FORMAT_R16_UINT;
+                case xgpu::vertex_descriptor::format::UINT32_1D:              return VK_FORMAT_R32_UINT;
+                case xgpu::vertex_descriptor::format::SINT8_3D_NORMALIZED:    return VK_FORMAT_R8G8B8_SNORM;
                 }
 
                 assert(false);

@@ -69,7 +69,7 @@ namespace property
     template< typename T >
     struct edstyle
     {
-        static editor::style_info<T> Default(void) noexcept;
+        consteval static editor::style_info<T> Default(void) noexcept;
     };
 
     //-----------------------------------------------------------------------------------
@@ -77,9 +77,9 @@ namespace property
     template<>
     struct edstyle<int>
     {    
-        static editor::style_info<int> ScrollBar(int Min, int Max, const char* pFormat = "%d")                                                                                             noexcept;
-        static editor::style_info<int> Drag     (float Speed = 1.0f, int Min = std::numeric_limits<int>::lowest(), int Max = std::numeric_limits<int>::max(), const char* pFormat = "%d")  noexcept;
-        static editor::style_info<int> Default  (void) noexcept { return Drag(); }
+        consteval static editor::style_info<int> ScrollBar(int Min, int Max, const char* pFormat = "%d")                                                                                             noexcept;
+        consteval static editor::style_info<int> Drag(float Speed = 1.0f, int Min = std::numeric_limits<int>::lowest(), int Max = std::numeric_limits<int>::max(), const char* pFormat = "%d")  noexcept;
+        consteval static editor::style_info<int> Default  (void) noexcept { return Drag(); }
     };
 
     //-----------------------------------------------------------------------------------
@@ -87,9 +87,9 @@ namespace property
     template<>
     struct edstyle<float>
     {
-        static editor::style_info<float> ScrollBar(float Min, float Max, const char* pFormat = "%.3f", float Power = 1.0f)                                                                                                 noexcept;
-        static editor::style_info<float> Drag     (float Speed = 1.0f, float Min = std::numeric_limits<float>::lowest(), float Max = std::numeric_limits<float>::max(), const char* pFormat = "%.3f", float Power = 1.0f)  noexcept;
-        static editor::style_info<float> Default  (void) noexcept { return Drag(); }
+        consteval static editor::style_info<float> ScrollBar(float Min, float Max, const char* pFormat = "%.3f", float Power = 1.0f)                                                                                                 noexcept;
+        consteval static editor::style_info<float> Drag     (float Speed = 1.0f, float Min = std::numeric_limits<float>::lowest(), float Max = std::numeric_limits<float>::max(), const char* pFormat = "%.3f", float Power = 1.0f)  noexcept;
+        consteval static editor::style_info<float> Default  (void) noexcept { return Drag(); }
     };
 
     //-----------------------------------------------------------------------------------
@@ -98,9 +98,9 @@ namespace property
     struct edstyle<string_t>
     {
         template< std::size_t N >
-        static editor::style_info<string_t> Enumeration(const std::array<std::pair<const char*, int>, N>& Array)  noexcept;
-        static editor::style_info<string_t> Button     (void)                                                     noexcept;
-        static editor::style_info<string_t> Default    (void)                                                     noexcept;
+        consteval static editor::style_info<string_t> Enumeration(const std::array<std::pair<const char*, int>, N>& Array)  noexcept;
+        consteval static editor::style_info<string_t> Button(void)                                                     noexcept;
+        consteval static editor::style_info<string_t> Default    (void)                                                     noexcept;
     };
 
     //-----------------------------------------------------------------------------------
@@ -128,12 +128,11 @@ namespace property
         // The properties which the property system is going to know about.
         //--------------------------------------------------------------------------------------------
         using data_variant = std::variant
-        <
-              int
-            , bool
-            , float
-            , string_t
-            , oobb
+        < int
+        , bool
+        , float
+        , string_t
+        , oobb
         >;
     
         //--------------------------------------------------------------------------------------------
@@ -179,8 +178,13 @@ namespace property
             constexpr T EDStyle( const editor::styles_info_variant&& Style ) const noexcept // Thanks to that we can make this function a constexpr function
             {
                 T r = *static_cast<const T*>(this);
+
+                // If you hit this assert it probably means you are using the wrong type
+                // of property with the editing style... for instance buttons are only
+                // for strings properties
                 assert( r.m_FunctionTypeGetSet.index() == Style.index() );                  // Make sure that the property type is the same type
-                r.m_EditStylesInfo = std::move(Style);                                      // Call using the constructor to make sure this function can stay constexpr
+
+                r.m_EditStylesInfo = std::move(Style);
                 return r;
             }
         };

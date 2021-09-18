@@ -215,17 +215,17 @@ int E05_Example()
                 xgpu::vertex_descriptor::attribute
                 {
                     .m_Offset = offsetof(vert_2d, m_X)
-                ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT2
+                ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
                 }
             ,   xgpu::vertex_descriptor::attribute
                 {
                     .m_Offset = offsetof(vert_2d, m_U)
-                ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT2
+                ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
                 }
             ,   xgpu::vertex_descriptor::attribute
                 {
                     .m_Offset = offsetof(vert_2d, m_Color)
-                ,   .m_Format = xgpu::vertex_descriptor::format::UINT8_RGBA_NORMALIZED
+                ,   .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED
                 }
             };
             auto Setup = xgpu::vertex_descriptor::setup
