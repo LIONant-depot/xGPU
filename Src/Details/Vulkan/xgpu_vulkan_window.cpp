@@ -1176,6 +1176,39 @@ namespace xgpu::vulkan
 
     //------------------------------------------------------------------------------------------------------------------------
 
+    void window::setStreamingBuffers(std::span<xgpu::buffer> Buffers, int StartingElementIndex ) noexcept
+    {
+        auto iStartBuffer = 0u;
+        {
+            auto& VBuffer = *static_cast<xgpu::vulkan::buffer*>(Buffers[iStartBuffer].m_Private.get());
+            if (VBuffer.m_Type == xgpu::buffer::type::INDEX)
+            {
+                setBuffer(Buffers[iStartBuffer], StartingElementIndex);
+                iStartBuffer++;
+            }
+        }
+
+        std::array<VkBuffer,16>         VKBuffers   {};
+        std::array<VkDeviceSize,16>     Offsets     {};
+        for( std::uint32_t i=iStartBuffer, end_i = static_cast<std::uint32_t>(Buffers.size()); i!=end_i; ++i )
+        {
+            auto& VBuffer = *static_cast<xgpu::vulkan::buffer*>(Buffers[i].m_Private.get());
+            VKBuffers[i-1] = VBuffer.m_VKBuffer;
+        }
+
+        auto& Frame = m_Frames[m_FrameIndex];
+
+        vkCmdBindVertexBuffers
+        (Frame.m_VKCommandBuffer
+        , 0 // Starting binding
+        , static_cast<std::uint32_t>(Buffers.size() - iStartBuffer)
+        , VKBuffers.data()
+        , Offsets.data()
+        );
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+
     void window::setViewport(float x, float y, float w, float h, float minDepth, float maxDepth) noexcept
     {
         m_DefaultViewport = VkViewport

@@ -14,6 +14,7 @@ namespace xgpu
             virtual     bool                            BegingRendering         ( void )                                                    noexcept = 0;
             virtual     void                            setPipelineInstance     ( xgpu::pipeline_instance& Instance )                       noexcept = 0;
             virtual     void                            setBuffer               ( xgpu::buffer& Buffer, int StartingElementIndex )          noexcept = 0;
+            virtual     void                            setStreamingBuffers     ( std::span<xgpu::buffer> Buffers, int StartingElementIndex)noexcept = 0;
             virtual     void                            DrawInstance            ( int InstanceCount, int IndexCount, int FirstInstance, int FirstIndex, int VertexOffset ) noexcept = 0;
             virtual     void                            setViewport             ( float x, float y, float w, float h, float minDepth, float maxDepth ) noexcept = 0;
             virtual     void                            setScissor              ( int x, int y, int w, int h )                              noexcept = 0;

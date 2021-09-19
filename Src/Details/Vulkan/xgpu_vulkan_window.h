@@ -38,6 +38,10 @@ namespace xgpu::vulkan
         void                                    setBuffer                   ( xgpu::buffer& Buffer
                                                                             , int           StartingElementIndex
                                                                             ) noexcept override;
+        virtual     
+        void                                    setStreamingBuffers         ( std::span<xgpu::buffer>   Buffers
+                                                                            , int                       StartingElementIndex
+                                                                            ) noexcept;
         virtual
         void                                    DrawInstance                ( int InstanceCount
                                                                             , int IndexCount

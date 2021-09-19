@@ -73,15 +73,29 @@ struct runtime_geom : geom
         //
         // Vertex attributes
         //
-        std::array<int, geom::max_stream_count_v >                                                                      AttributeCounts         {};
-        std::array<std::array<xgpu::vertex_descriptor::attribute, geom::max_stream_count_v>, geom::max_stream_count_v > Attributes              {};
+        std::array<xgpu::vertex_descriptor::attribute, geom::max_stream_count_v> Attributes {};
         for (int i = 1; i < geom::m_nStreamInfos; ++i)
         {
             auto& StreamInfo = m_StreamInfo[i];
-            auto& Attr       = Attributes[StreamInfo.m_iStream][AttributeCounts[StreamInfo.m_iStream]++];
+            auto& Attr       = Attributes[i-1];
 
-            Attr.m_Format = getVertexVectorFormat(StreamInfo);
-            Attr.m_Offset = StreamInfo.m_Offset;
+            Attr.m_Format  = getVertexVectorFormat(StreamInfo);
+            Attr.m_Offset  = StreamInfo.m_Offset;
+            Attr.m_iStream = StreamInfo.m_iStream - 1;  // Convert to zero base stream since it only cares about vertices
+        }
+
+        {
+            //
+            // Create vertex descriptors
+            // TODO: May be we should factor out the vertex descriptors???
+            const xgpu::vertex_descriptor::setup Setup
+            { .m_bUseStreaming  = geom::m_CompactedVertexSize == 0
+            , .m_Topology       = xgpu::vertex_descriptor::topology::TRIANGLE_LIST
+            , .m_VertexSize     = geom::m_CompactedVertexSize
+            , .m_Attributes     = std::span{ Attributes.data(), static_cast<std::size_t>(geom::m_nStreamInfos-1) }
+            };
+
+            if (auto Err = Device.Create(m_VertexDescriptor, Setup); Err) return Err;
         }
 
         //
@@ -93,23 +107,12 @@ struct runtime_geom : geom
             if (StreamInfo.m_Offset != 0) continue;
 
             //
-            // Create vertex descriptors
-            // TODO: May be we should factor out the vertex descriptors???
-            const xgpu::vertex_descriptor::setup Setup
-            { .m_Topology   = xgpu::vertex_descriptor::topology::TRIANGLE_LIST
-            , .m_VertexSize = std::uint32_t(geom::getVertexSize(i))
-            , .m_Attributes = std::span{ Attributes[StreamInfo.m_iStream].data(), (std::size_t)AttributeCounts[StreamInfo.m_iStream] }
-            };
-
-            if( auto Err = Device.Create( m_VertexDescriptor[i], Setup ); Err ) return Err;
-
-            //
             // Create the vertex buffer
             //
             const xgpu::buffer::setup BufferSetup
             { .m_Type           = xgpu::buffer::type::VERTEX
             , .m_Usage          = xgpu::buffer::setup::usage::GPU_READ
-            , .m_EntryByteSize  = int(Setup.m_VertexSize)
+            , .m_EntryByteSize  = geom::getVertexSize(i)
             , .m_EntryCount     = int(geom::m_nVertices)
             , .m_pData          = geom::m_Stream[StreamInfo.m_iStream]
             };
@@ -120,7 +123,7 @@ struct runtime_geom : geom
         return nullptr;
     }
 
-    std::array<xgpu::vertex_descriptor, geom::max_stream_count_v>   m_VertexDescriptor;
+    xgpu::vertex_descriptor                                         m_VertexDescriptor;
     std::array<xgpu::buffer, geom::max_stream_count_v>              m_Buffers;
 };
 
@@ -130,7 +133,7 @@ struct runtime_material
 {
     xgpu::pipeline m_Pipeline;
 
-    xgpu::device::error* Initialize( xgpu::device& Device )
+    xgpu::device::error* Initialize( xgpu::device& Device, xgpu::vertex_descriptor& VertexDescriptor )
     {
         xgpu::shader MyFragmentShader;
         {
@@ -167,6 +170,7 @@ struct runtime_material
                 return Err;
         }
 
+        /*
         xgpu::vertex_descriptor VertexDescriptor;
         {
             auto Attributes = std::array
@@ -196,7 +200,7 @@ struct runtime_material
             if (auto Err = Device.Create(VertexDescriptor, Setup); Err)
                 return Err;
         }
-
+        */
 
         auto Shaders  = std::array<const xgpu::shader*, 2>{ &MyFragmentShader, & MyVertexShader };
         auto Samplers = std::array{ xgpu::pipeline::sampler{} };
@@ -288,10 +292,8 @@ struct runtime_geom_instance
 
                     m_MaterialInstances[SubMesh.m_iMaterial]->Activate(CmdBuffer, L2C);
 
-                    for (int b = 0, end_b = m_pGeom->m_nStreams; b < end_b; ++b)
-                    {
-                        if ((m_BufferMask >> b) & 1) CmdBuffer.setBuffer(m_pGeom->m_Buffers[b] );
-                    }
+                    CmdBuffer.setStreamingBuffers({ m_pGeom->m_Buffers.data(), m_pGeom->m_nStreams });
+
 
                     CmdBuffer.Draw(SubMesh.m_nIndices, SubMesh.m_iIndex);
                 }
@@ -299,6 +301,14 @@ struct runtime_geom_instance
         }
     }
 };
+
+//
+// Setup default material and texture
+//
+runtime_texture             DefaultTexture;
+runtime_material            DefaultMaterial;
+runtime_material_instance   DefaultMaterialInstance;
+runtime_geom_instance       GeomInstance;
 
 //------------------------------------------------------------------------------------------------
 
@@ -1263,6 +1273,21 @@ struct raw3d_inspector
     {
         m_GeomCompiler.Compile(m_CompilerOptions);
         m_GeomCompiler.m_FinalGeom.InitializeRuntime(m_Device);
+
+        if (auto Err = DefaultTexture.Initialize(m_Device); Err)
+            return;
+
+        if (auto Err = DefaultMaterial.Initialize( m_Device, m_GeomCompiler.m_FinalGeom.m_VertexDescriptor ); Err)
+            return;
+
+        DefaultMaterialInstance.m_Textures.emplace_back(&DefaultTexture);
+        if (auto Err = DefaultMaterialInstance.Initialize(DefaultMaterial, m_Device); Err)
+            return;
+
+        GeomInstance.m_pGeom = &m_GeomCompiler.m_FinalGeom;
+        for (int i = 0; i < 16; i++)
+            GeomInstance.m_MaterialInstances.push_back(&DefaultMaterialInstance);
+
     }
 
     struct mesh_info
@@ -1419,28 +1444,6 @@ int E09_Example()
     // Create the inspector window
     //
     raw3d_inspector Inspector("Property", Device);
-
-    //
-    // Setup default material and texture
-    //
-    runtime_texture             DefaultTexture;
-    runtime_material            DefaultMaterial;
-    runtime_material_instance   DefaultMaterialInstance;
-    runtime_geom_instance       GeomInstance;
-
-    if( auto Err = DefaultTexture.Initialize(Device); Err )
-        return xgpu::getErrorInt(Err);
-
-    if( auto Err = DefaultMaterial.Initialize( Device ); Err )
-        return xgpu::getErrorInt(Err);
-
-    DefaultMaterialInstance.m_Textures.emplace_back(&DefaultTexture);
-    if( auto Err = DefaultMaterialInstance.Initialize( DefaultMaterial, Device ); Err )
-        return xgpu::getErrorInt(Err);
-
-    GeomInstance.m_pGeom = &Inspector.m_GeomCompiler.m_FinalGeom;
-    for( int i=0; i<16; i++ )
-        GeomInstance.m_MaterialInstances.push_back(&DefaultMaterialInstance);
 
     //
     // Main loop

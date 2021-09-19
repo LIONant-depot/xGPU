@@ -20,6 +20,7 @@ namespace xgpu
         {
             std::uint32_t       m_Offset;
             format              m_Format;
+            int                 m_iStream;
         };
 
         enum class topology : std::uint8_t
@@ -31,9 +32,10 @@ namespace xgpu
 
         struct setup
         {
-            topology                m_Topology   { topology::TRIANGLE_LIST };
-            std::uint32_t           m_VertexSize {0};
-            std::span<attribute>    m_Attributes {};
+            bool                    m_bUseStreaming = false;
+            topology                m_Topology      { topology::TRIANGLE_LIST };
+            std::uint32_t           m_VertexSize    {0};
+            std::span<attribute>    m_Attributes    {};
         };
 
         std::shared_ptr<details::vertex_descriptor_handle> m_Private;

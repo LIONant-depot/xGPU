@@ -7,7 +7,7 @@ namespace xgpu::vulkan
 
         VkPrimitiveTopology                              m_VKTopology                   {};
         VkPipelineVertexInputStateCreateInfo             m_VKInputStageCreateInfo       {};
-        std::array<VkVertexInputBindingDescription,1>    m_VKInputBindingDescription    {};
+        std::array<VkVertexInputBindingDescription,16>   m_VKInputBindingDescription    {};
         std::array<VkVertexInputAttributeDescription,16> m_VKInputAttributesDescription {};
     };
 }

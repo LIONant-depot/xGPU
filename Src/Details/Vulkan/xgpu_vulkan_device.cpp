@@ -315,10 +315,8 @@ namespace xgpu::vulkan
     ) noexcept
     {
         auto VulkanShader = std::make_shared<xgpu::vulkan::shader>();
-        if( auto Err = VulkanShader->Initialize
-        ( std::reinterpret_pointer_cast<xgpu::vulkan::device>(SharedDevice)
-        , Setup 
-        ); Err ) return Err;
+        if( auto Err = VulkanShader->Initialize( std::reinterpret_pointer_cast<xgpu::vulkan::device>(SharedDevice), Setup ); Err ) 
+            return Err;
         Shader.m_Private = VulkanShader;
         return nullptr;
     }
@@ -332,9 +330,8 @@ namespace xgpu::vulkan
     ) noexcept
     {
         auto VDesc = std::make_shared<xgpu::vulkan::vertex_descriptor>();
-        if( auto Err = VDesc->Initialize
-        ( Setup
-        ); Err ) return Err;
+        if( auto Err = VDesc->Initialize( Setup ); Err ) 
+            return Err;
         VDescriptor.m_Private = VDesc;
         return nullptr;
     }
@@ -348,10 +345,8 @@ namespace xgpu::vulkan
     ) noexcept
     {
         auto I = std::make_shared<xgpu::vulkan::texture>();
-        if( auto Err = I->Initialize
-        ( std::reinterpret_pointer_cast<xgpu::vulkan::device>(SharedDevice)
-        , Setup 
-        ); Err ) return Err;
+        if( auto Err = I->Initialize( std::reinterpret_pointer_cast<xgpu::vulkan::device>(SharedDevice), Setup ); Err ) 
+            return Err;
         Texture.m_Private = I;
         return nullptr;
     }

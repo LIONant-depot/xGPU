@@ -219,13 +219,17 @@ namespace xgpu::vulkan
         ,   .applicationVersion = 1
         ,   .pEngineName        = "xGPU::Vulkan"
         ,   .engineVersion      = 1
-        ,   .apiVersion         = VK_API_VERSION_1_0
+        ,   .apiVersion         = VK_API_VERSION_1_2
         };
 
         //
         // Determine which extensions to enable
         //
-        std::vector<const char*>    Extensions { VK_KHR_SURFACE_EXTENSION_NAME };
+        std::vector<const char*>    Extensions 
+        { VK_KHR_SURFACE_EXTENSION_NAME 
+        // , VK_EXT_VERTEX_INPUT_DYNAMIC_STATE_EXTENSION_NAME      // (NOT WORKING ON MANY GRAPHICS CARDS WILL HAVE TO WAIT...) Allows to change the vertex input to a pipeline (which should have been the default behavior)
+        };
+
         {
             // Enable surface extensions depending on os
             #if defined(_WIN32)
