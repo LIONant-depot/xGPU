@@ -12,7 +12,6 @@ namespace xgpu::vulkan
     ( const xgpu::vertex_descriptor::setup& Setup
     ) noexcept
     {
-        
         //
         // Make sure the structures are clear
         //
@@ -53,7 +52,7 @@ namespace xgpu::vulkan
             }(E.m_Format);
 
             m_VKInputAttributesDescription[i].location = i;
-            m_VKInputAttributesDescription[i].binding  = Setup.m_bUseStreaming ? E.m_iStream : 0;
+            m_VKInputAttributesDescription[i].binding  = E.m_iStream; //Setup.m_bUseStreaming ? E.m_iStream : 0;
             m_VKInputAttributesDescription[i].offset   = E.m_Offset;
             m_VKInputAttributesDescription[i].format   = Format.first;
 
@@ -64,7 +63,7 @@ namespace xgpu::vulkan
         if( !Setup.m_bUseStreaming )
         {
             m_VKInputBindingDescription[nBindings-1] = VkVertexInputBindingDescription
-            { .binding    = 0
+            { .binding    = nBindings - 1
             , .stride     = Setup.m_VertexSize
             , .inputRate  = VK_VERTEX_INPUT_RATE_VERTEX
             };
