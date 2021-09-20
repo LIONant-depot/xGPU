@@ -518,9 +518,6 @@ struct compiler
                 }
             }
         }
-
-        // Still pending... this but needs to be done when we merge all verts
-        // meshopt_optimizeVertexFetch(&vertices[0], &indices[0], indices.size(), &vertices[0], vertices.size(), sizeof(Vertex));
     }
 
     void GenerateFinalMesh(const compiler_options& CompilerOption)
@@ -624,6 +621,34 @@ struct compiler
 
             } while(true);
         }
+
+        //-----------------------------------------------------------------------------------
+        // Final Optimization Step. Optimize vertex location and remap the indices.
+        //-----------------------------------------------------------------------------------
+
+        // vertex fetch optimization should go last as it depends on the final index order
+        // note that the order of LODs above affects vertex fetch results
+        FinalVertex.resize( meshopt_optimizeVertexFetch( FinalVertex.data(), Indices32.data(), Indices32.size(), FinalVertex.data(), FinalVertex.size(), sizeof(FinalVertex[0]) ) );
+
+        const int kCacheSize = 16;
+        m_VertCacheStats = meshopt_analyzeVertexCache(Indices32.data(), Indices32.size(), FinalVertex.size(), kCacheSize, 0, 0);
+        m_VertFetchStats = meshopt_analyzeVertexFetch(Indices32.data(), Indices32.size(), FinalVertex.size(), sizeof(FinalVertex[0]));
+        m_OverdrawStats  = meshopt_analyzeOverdraw   (Indices32.data(), Indices32.size(), &FinalVertex[0].m_Position.m_X, FinalVertex.size(), sizeof(FinalVertex[0]) );
+
+        m_VertCacheNVidiaStats  = meshopt_analyzeVertexCache(Indices32.data(), Indices32.size(), FinalVertex.size(), 32, 32, 32);
+        m_VertCacheAMDStats     = meshopt_analyzeVertexCache(Indices32.data(), Indices32.size(), FinalVertex.size(), 14, 64, 128);
+        m_VertCacheIntelStats   = meshopt_analyzeVertexCache(Indices32.data(), Indices32.size(), FinalVertex.size(), 128, 0, 0);
+
+        // TODO: Translate this information into a scoring system that goes from 100% to 0% (or something that makes more sense to casual users)
+        printf("INFO: ACMR %f ATVR %f (NV %f AMD %f Intel %f) Overfetch %f Overdraw %f\n"
+        , m_VertCacheStats.acmr         // transformed vertices / triangle count; best case 0.5, worst case 3.0, optimum depends on topology
+        , m_VertCacheStats.atvr         // transformed vertices / vertex count; best case 1.0, worst case 6.0, optimum is 1.0 (each vertex is transformed once)
+        , m_VertCacheNVidiaStats.atvr   // transformed vertices / vertex count; best case 1.0, worst case 6.0, optimum is 1.0 (each vertex is transformed once)
+        , m_VertCacheAMDStats.atvr      // transformed vertices / vertex count; best case 1.0, worst case 6.0, optimum is 1.0 (each vertex is transformed once)
+        , m_VertCacheIntelStats.atvr    // transformed vertices / vertex count; best case 1.0, worst case 6.0, optimum is 1.0 (each vertex is transformed once)
+        , m_VertFetchStats.overfetch    // fetched bytes / vertex buffer size; best case 1.0 (each byte is fetched once)
+        , m_OverdrawStats.overdraw      // fetched bytes / vertex buffer size; best case 1.0 (each byte is fetched once)
+        );
 
         //-----------------------------------------------------------------------------------
         // Create Stream Infos
@@ -1176,6 +1201,12 @@ struct compiler
         }
     }
 
+    meshopt_VertexCacheStatistics   m_VertCacheAMDStats;
+    meshopt_VertexCacheStatistics   m_VertCacheNVidiaStats;
+    meshopt_VertexCacheStatistics   m_VertCacheIntelStats;
+    meshopt_VertexCacheStatistics   m_VertCacheStats;
+    meshopt_VertexFetchStatistics   m_VertFetchStats;
+    meshopt_OverdrawStatistics      m_OverdrawStats;
     runtime_geom                    m_FinalGeom;
     std::vector<mesh>               m_CompilerMesh;
     xraw3d::anim                    m_RawAnim;
