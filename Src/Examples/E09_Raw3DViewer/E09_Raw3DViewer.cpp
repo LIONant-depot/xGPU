@@ -46,7 +46,7 @@ struct runtime_geom : geom
         static_assert((int)xgpu::vertex_descriptor::format::SINT8_3D_NORMALIZED  == (int)geom::stream_info::format::SINT8_3D_NORMALIZED);
         static_assert((int)xgpu::vertex_descriptor::format::ENUM_COUNT           == (int)geom::stream_info::format::ENUM_COUNT);
 
-        return xgpu::vertex_descriptor::format(StreamInfo.m_DataType.m_Format);
+        return xgpu::vertex_descriptor::format(StreamInfo.m_Format);
     }
 
     xgpu::device::error* InitializeRuntime( xgpu::device& Device )
@@ -73,42 +73,45 @@ struct runtime_geom : geom
         //
         // Vertex attributes
         //
-        std::array<xgpu::vertex_descriptor::attribute, geom::max_stream_count_v> Attributes {};
-        for (int i = 1; i < geom::m_nStreamInfos; ++i)
         {
-            auto& StreamInfo = m_StreamInfo[i];
-            auto& Attr       = Attributes[i-1];
+            std::array<xgpu::vertex_descriptor::attribute, geom::max_stream_count_v> Attributes {};
+            int nAttributes = 0;
+            for (int i = 1; i < geom::m_nStreamInfos; ++i)
+            {
+                auto&       StreamInfo  = m_StreamInfo[i];
+                const auto  ElementSize = StreamInfo.getVectorElementSize();
 
-            Attr.m_Format  = getVertexVectorFormat(StreamInfo);
-            Attr.m_Offset  = StreamInfo.m_Offset;
-            Attr.m_iStream = StreamInfo.m_iStream - 1;  // Convert to zero base stream since it only cares about vertices
-        }
+                for( int j=0; j<StreamInfo.m_VectorCount; ++j )
+                {
+                    auto& Attr       = Attributes[nAttributes++];
 
-        {
+                    Attr.m_Format  = getVertexVectorFormat(StreamInfo);
+                    Attr.m_Offset  = StreamInfo.m_Offset + j * ElementSize;
+                    Attr.m_iStream = StreamInfo.m_iStream - 1;  // Convert to zero base stream since it only cares about vertices
+                }
+            }
+
             //
-            // Create vertex descriptors
+            // Create vertex descriptor
             // TODO: May be we should factor out the vertex descriptors???
             const xgpu::vertex_descriptor::setup Setup
             { .m_bUseStreaming  = geom::m_CompactedVertexSize == 0
             , .m_Topology       = xgpu::vertex_descriptor::topology::TRIANGLE_LIST
             , .m_VertexSize     = geom::m_CompactedVertexSize
-            , .m_Attributes     = std::span{ Attributes.data(), static_cast<std::size_t>(geom::m_nStreamInfos-1) }
+            , .m_Attributes     = std::span{ Attributes.data(), static_cast<std::size_t>(nAttributes) }
             };
 
             if (auto Err = Device.Create(m_VertexDescriptor, Setup); Err) return Err;
         }
 
         //
-        // Create Vertex Descriptors and Buffers
+        // Create Vertex Buffers
         //
         for (int i = 1; i < geom::m_nStreamInfos; ++i)
         {
             auto& StreamInfo = m_StreamInfo[i];
             if (StreamInfo.m_Offset != 0) continue;
 
-            //
-            // Create the vertex buffer
-            //
             const xgpu::buffer::setup BufferSetup
             { .m_Type           = xgpu::buffer::type::VERTEX
             , .m_Usage          = xgpu::buffer::setup::usage::GPU_READ
@@ -169,38 +172,6 @@ struct runtime_material
             if (auto Err = Device.Create(MyVertexShader, Setup); Err)
                 return Err;
         }
-
-        /*
-        xgpu::vertex_descriptor VertexDescriptor;
-        {
-            auto Attributes = std::array
-            {
-                xgpu::vertex_descriptor::attribute
-                {
-                    .m_Offset = offsetof(draw_vert, m_Position)
-                ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
-                }
-            ,   xgpu::vertex_descriptor::attribute
-                {
-                    .m_Offset = offsetof(draw_vert, m_Texcoord)
-                ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
-                }
-            ,   xgpu::vertex_descriptor::attribute
-                {
-                    .m_Offset = offsetof(draw_vert, m_Color)
-                ,   .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED
-                }
-            };
-            auto Setup = xgpu::vertex_descriptor::setup
-            {
-                .m_VertexSize = sizeof(draw_vert)
-            ,   .m_Attributes = Attributes
-            };
-
-            if (auto Err = Device.Create(VertexDescriptor, Setup); Err)
-                return Err;
-        }
-        */
 
         auto Shaders  = std::array<const xgpu::shader*, 2>{ &MyFragmentShader, & MyVertexShader };
         auto Samplers = std::array{ xgpu::pipeline::sampler{} };
@@ -670,8 +641,8 @@ struct compiler
             auto& Stream = m_FinalGeom.m_StreamInfo[m_FinalGeom.m_nStreamInfos];
             Stream.m_ElementsType.m_Value       = 0;
 
-            Stream.m_DataType.m_VectorCount     = 1;
-            Stream.m_DataType.m_Format          = Indices32.size() > 0xffffu ? geom::stream_info::format::UINT32_1D : geom::stream_info::format::UINT16_1D;
+            Stream.m_VectorCount                = 1;
+            Stream.m_Format                     = Indices32.size() > 0xffffu ? geom::stream_info::format::UINT32_1D : geom::stream_info::format::UINT16_1D;
             Stream.m_ElementsType.m_bIndex      = true;
             Stream.m_Offset                     = 0;
             Stream.m_iStream                    = m_FinalGeom.m_nStreams;
@@ -689,8 +660,8 @@ struct compiler
             auto& Stream = m_FinalGeom.m_StreamInfo[m_FinalGeom.m_nStreamInfos];
             Stream.m_ElementsType.m_Value       = 0;
 
-            Stream.m_DataType.m_VectorCount     = 1;
-            Stream.m_DataType.m_Format          = geom::stream_info::format::FLOAT_3D;
+            Stream.m_VectorCount                = 1;
+            Stream.m_Format                     = geom::stream_info::format::FLOAT_3D;
             Stream.m_ElementsType.m_bPosition   = true;
             Stream.m_Offset                     = 0;
             Stream.m_iStream                    = m_FinalGeom.m_nStreams;
@@ -723,11 +694,11 @@ struct compiler
 
             Stream.m_ElementsType.m_Value       = 0;
 
-            Stream.m_DataType.m_VectorCount     = [&] { int k = 0; for (int i = 0; i < UVDimensionCount; i++) if (CompilerOption.m_bRemoveUVs[i] == false) k++; return k; }();
-            Stream.m_DataType.m_Format          = geom::stream_info::format::FLOAT_2D;
+            Stream.m_VectorCount     = [&] { int k = 0; for (int i = 0; i < UVDimensionCount; i++) if (CompilerOption.m_bRemoveUVs[i] == false) k++; return k; }();
+            Stream.m_Format          = geom::stream_info::format::FLOAT_2D;
 
             // Do we still have UVs?
-            if( Stream.m_DataType.m_VectorCount )
+            if( Stream.m_VectorCount )
             {
                 Stream.m_ElementsType.m_bUVs        = true;
                 Stream.m_iStream                    = m_FinalGeom.m_nStreams;
@@ -757,8 +728,8 @@ struct compiler
 
             Stream.m_ElementsType.m_Value       = 0;
 
-            Stream.m_DataType.m_VectorCount     = 1;
-            Stream.m_DataType.m_Format          = geom::stream_info::format::UINT8_4D_NORMALIZED;
+            Stream.m_VectorCount                = 1;
+            Stream.m_Format                     = geom::stream_info::format::UINT8_4D_NORMALIZED;
             Stream.m_ElementsType.m_bColor      = true;
             Stream.m_iStream                    = m_FinalGeom.m_nStreams;
 
@@ -788,8 +759,8 @@ struct compiler
             {
                 Stream.m_ElementsType.m_Value       = 0;
 
-                Stream.m_DataType.m_VectorCount     = std::uint8_t(WeightDimensionCount);
-                Stream.m_DataType.m_Format          = geom::stream_info::format::UINT8_1D_NORMALIZED;
+                Stream.m_VectorCount                = std::uint8_t(WeightDimensionCount);
+                Stream.m_Format                     = geom::stream_info::format::UINT8_1D_NORMALIZED;
                 Stream.m_ElementsType.m_bBoneWeights= true;
                 Stream.m_iStream                    = m_FinalGeom.m_nStreams;
 
@@ -800,8 +771,8 @@ struct compiler
             {
                 Stream.m_ElementsType.m_Value       = 0;
 
-                Stream.m_DataType.m_VectorCount     = std::uint8_t(WeightDimensionCount);
-                Stream.m_DataType.m_Format          = geom::stream_info::format::FLOAT_1D;
+                Stream.m_VectorCount                = std::uint8_t(WeightDimensionCount);
+                Stream.m_Format                     = geom::stream_info::format::FLOAT_1D;
                 Stream.m_ElementsType.m_bBoneWeights= true; 
                 Stream.m_iStream                    = m_FinalGeom.m_nStreams;
 
@@ -832,8 +803,8 @@ struct compiler
             {
                 Stream.m_ElementsType.m_Value       = 0;
 
-                Stream.m_DataType.m_VectorCount     = std::uint8_t(WeightDimensionCount);
-                Stream.m_DataType.m_Format          = geom::stream_info::format::UINT8_1D;
+                Stream.m_VectorCount                = std::uint8_t(WeightDimensionCount);
+                Stream.m_Format                     = geom::stream_info::format::UINT8_1D;
                 Stream.m_ElementsType.m_bBoneIndices= true;
                 Stream.m_iStream                    = m_FinalGeom.m_nStreams;
 
@@ -844,8 +815,8 @@ struct compiler
             {
                 Stream.m_ElementsType.m_Value       = 0;
 
-                Stream.m_DataType.m_VectorCount     = std::uint8_t(WeightDimensionCount);
-                Stream.m_DataType.m_Format          = geom::stream_info::format::UINT16_1D;
+                Stream.m_VectorCount                = std::uint8_t(WeightDimensionCount);
+                Stream.m_Format                     = geom::stream_info::format::UINT16_1D;
                 Stream.m_ElementsType.m_bBoneIndices= true;
                 Stream.m_iStream                    = m_FinalGeom.m_nStreams;
 
@@ -878,8 +849,8 @@ struct compiler
             {
                 Stream.m_ElementsType.m_Value       = 0;
 
-                Stream.m_DataType.m_VectorCount     = 3;
-                Stream.m_DataType.m_Format          = geom::stream_info::format::FLOAT_3D;
+                Stream.m_VectorCount                = 3;
+                Stream.m_Format                     = geom::stream_info::format::FLOAT_3D;
                 Stream.m_ElementsType.m_bBTNs       = true;
                 Stream.m_iStream                    = m_FinalGeom.m_nStreams;
 
@@ -890,8 +861,8 @@ struct compiler
             {
                 Stream.m_ElementsType.m_Value       = 0;
 
-                Stream.m_DataType.m_VectorCount     = 3;
-                Stream.m_DataType.m_Format          = geom::stream_info::format::SINT8_3D_NORMALIZED;
+                Stream.m_VectorCount                = 3;
+                Stream.m_Format                     = geom::stream_info::format::SINT8_3D_NORMALIZED;
                 Stream.m_ElementsType.m_bBTNs       = true;
                 Stream.m_iStream                    = m_FinalGeom.m_nStreams;
 
@@ -956,7 +927,7 @@ struct compiler
             //
             case geom::stream_info::element_def::index_mask_v: 
             {
-                if (StreamInfo.m_DataType.m_Format == geom::stream_info::format::UINT32_1D)
+                if (StreamInfo.m_Format == geom::stream_info::format::UINT32_1D)
                 {
                     auto pIndexData = new std::uint32_t[Indices32.size()];
                     m_FinalGeom.m_Stream[StreamInfo.m_iStream] = reinterpret_cast<std::byte*>(pIndexData);
@@ -1100,7 +1071,7 @@ struct compiler
                 {
                     for (auto i = 0u; i < FinalVertex.size(); ++i)
                     {
-                        for (int j = 0; j < StreamInfo.m_DataType.m_VectorCount; ++j)
+                        for (int j = 0; j < StreamInfo.m_VectorCount; ++j)
                         {
                             pVertex[j] = std::uint8_t(FinalVertex[i].m_Weights[j].m_Weight * 0xff);
                         }
@@ -1113,7 +1084,7 @@ struct compiler
                     xassert(StreamInfo.getVectorElementSize() == 4);
                     for( auto i = 0u; i < FinalVertex.size(); ++i )
                     {
-                        for (int j = 0; j < StreamInfo.m_DataType.m_VectorCount; ++j)
+                        for (int j = 0; j < StreamInfo.m_VectorCount; ++j)
                         {
                             ((float*)pVertex)[j] = FinalVertex[i].m_Weights[j].m_Weight;
                         }
@@ -1136,7 +1107,7 @@ struct compiler
                 {
                     for (auto i = 0u; i < FinalVertex.size(); ++i)
                     {
-                        for (int j = 0; j < StreamInfo.m_DataType.m_VectorCount; ++j)
+                        for (int j = 0; j < StreamInfo.m_VectorCount; ++j)
                         {
                             *pVertex = std::uint8_t(FinalVertex[i].m_Weights[j].m_iBone);
                         }
@@ -1149,7 +1120,7 @@ struct compiler
                     xassert(StreamInfo.getVectorElementSize() == 2);
                     for( auto i = 0u; i < FinalVertex.size(); ++i )
                     {
-                        for (int j = 0; j < StreamInfo.m_DataType.m_VectorCount; ++j)
+                        for (int j = 0; j < StreamInfo.m_VectorCount; ++j)
                         {
                             ((std::uint16_t*)pVertex)[j] = FinalVertex[i].m_Weights[j].m_iBone;
                         }
