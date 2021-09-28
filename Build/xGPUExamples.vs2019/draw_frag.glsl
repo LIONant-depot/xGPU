@@ -2,7 +2,7 @@
 #extension GL_ARB_separate_shader_objects  : enable
 #extension GL_ARB_shading_language_420pack : enable
 
-layout (binding = 0)    uniform     sampler2D   uSamplerColor;
+layout (binding = 0)    uniform     sampler2D   uSamplerColor; // [INPUT_TEXTURE]
 
 layout(location = 0) in struct { vec4 Color; vec2 UV; } In;
 

@@ -5,13 +5,405 @@
 #include "../../tools/xgpu_view.h"
 #include "../../tools/xgpu_view_inline.h"
 #include "../../tools/xgpu_xcore_bitmap_helpers.h"
-#include "../../dependencies/xraw3D/src/xraw3d.h"
+#include "../../dependencies/xgeom_compiler/dependencies/xraw3D/src/xraw3d.h"
 #include "../../tools/xgpu_imgui_breach.h"
 #include "../../tools/WindowsFileDialog/FileBrowser.h"
 #include "../../dependencies/xcore/dependencies/properties/src/Examples/ImGuiExample/ImGuiPropertyInspector.h"
-#include "../../dependencies/xraw3D/dependencies/meshoptimizer/src/meshoptimizer.h"
-#include "../../dependencies/xgeom_compiler/src_runtime/geom.h"
+#include "../../dependencies/xgeom_compiler/dependencies/meshoptimizer/src/meshoptimizer.h"
+#include "../../dependencies/xgeom_compiler/src_runtime/xgeom.h"
 
+//------------------------------------------------------------------------------------------------
+static
+void DebugMessage(std::string_view View)
+{
+    printf("%s\n", View.data());
+}
+
+//------------------------------------------------------------------------------------------------
+
+struct runtime_geom
+{
+    auto getVertexVectorFormat( xgeom::stream_info& StreamInfo ) const noexcept
+    {
+        static_assert((int)xgpu::vertex_descriptor::format::FLOAT_1D             == (int)xgeom::stream_info::format::FLOAT_1D);
+        static_assert((int)xgpu::vertex_descriptor::format::FLOAT_2D             == (int)xgeom::stream_info::format::FLOAT_2D);
+        static_assert((int)xgpu::vertex_descriptor::format::FLOAT_3D             == (int)xgeom::stream_info::format::FLOAT_3D);
+        static_assert((int)xgpu::vertex_descriptor::format::FLOAT_4D             == (int)xgeom::stream_info::format::FLOAT_4D);
+        static_assert((int)xgpu::vertex_descriptor::format::UINT8_1D_NORMALIZED  == (int)xgeom::stream_info::format::UINT8_1D_NORMALIZED);
+        static_assert((int)xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED  == (int)xgeom::stream_info::format::UINT8_4D_NORMALIZED);
+        static_assert((int)xgpu::vertex_descriptor::format::UINT8_1D             == (int)xgeom::stream_info::format::UINT8_1D);
+        static_assert((int)xgpu::vertex_descriptor::format::UINT16_1D            == (int)xgeom::stream_info::format::UINT16_1D);
+        static_assert((int)xgpu::vertex_descriptor::format::UINT32_1D            == (int)xgeom::stream_info::format::UINT32_1D);
+        static_assert((int)xgpu::vertex_descriptor::format::SINT8_3D_NORMALIZED  == (int)xgeom::stream_info::format::SINT8_3D_NORMALIZED);
+        static_assert((int)xgpu::vertex_descriptor::format::ENUM_COUNT           == (int)xgeom::stream_info::format::ENUM_COUNT);
+
+        return xgpu::vertex_descriptor::format(StreamInfo.m_Format);
+    }
+
+    xgpu::device::error* InitializeRuntime( xgpu::device& Device )
+    {
+        //
+        // Deal first with the index
+        //
+        {
+            assert( m_pGeom->m_StreamInfo[0].m_iStream == 0 );
+            assert(m_pGeom->m_StreamInfo[0].m_ElementsType.m_bIndex );
+
+            auto& StreamInfo = m_pGeom->m_StreamInfo[0];
+
+            xgpu::buffer::setup Setup
+            { .m_Type           = xgpu::buffer::type::INDEX
+            , .m_Usage          = xgpu::buffer::setup::usage::GPU_READ
+            , .m_EntryByteSize  = int(StreamInfo.getVectorElementSize())
+            , .m_EntryCount     = int(m_pGeom->m_nIndices)
+            , .m_pData          = m_pGeom->getStreamData(m_pGeom->m_StreamInfo[0].m_iStream)
+            };
+            if( auto Err = Device.Create(m_Buffers[0], Setup); Err ) return Err;
+        }
+
+        //
+        // Vertex attributes
+        //
+        {
+            std::array<xgpu::vertex_descriptor::attribute, xgeom::max_stream_count_v> Attributes {};
+            int nAttributes = 0;
+            for (int i = 1; i < m_pGeom->m_nStreamInfos; ++i)
+            {
+                auto&       StreamInfo  = m_pGeom->m_StreamInfo[i];
+                const auto  ElementSize = StreamInfo.getVectorElementSize();
+
+                for( int j=0; j<StreamInfo.m_VectorCount; ++j )
+                {
+                    auto& Attr       = Attributes[nAttributes++];
+
+                    Attr.m_Format  = getVertexVectorFormat(StreamInfo);
+                    Attr.m_Offset  = StreamInfo.m_Offset + j * ElementSize;
+                    Attr.m_iStream = StreamInfo.m_iStream - 1;  // Convert to zero base stream since it only cares about vertices
+                }
+            }
+
+            //
+            // Create vertex descriptor
+            // TODO: May be we should factor out the vertex descriptors???
+            const xgpu::vertex_descriptor::setup Setup
+            { .m_bUseStreaming  = m_pGeom->m_CompactedVertexSize == 0
+            , .m_Topology       = xgpu::vertex_descriptor::topology::TRIANGLE_LIST
+            , .m_VertexSize     = m_pGeom->m_CompactedVertexSize
+            , .m_Attributes     = std::span{ Attributes.data(), static_cast<std::size_t>(nAttributes) }
+            };
+
+            if (auto Err = Device.Create(m_VertexDescriptor, Setup); Err) return Err;
+        }
+
+        //
+        // Create Vertex Buffers
+        //
+        for (int i = 1; i < m_pGeom->m_nStreamInfos; ++i)
+        {
+            auto& StreamInfo = m_pGeom->m_StreamInfo[i];
+            if (StreamInfo.m_Offset != 0) continue;
+
+            const xgpu::buffer::setup BufferSetup
+            { .m_Type           = xgpu::buffer::type::VERTEX
+            , .m_Usage          = xgpu::buffer::setup::usage::GPU_READ
+            , .m_EntryByteSize  = m_pGeom->getVertexSize(i)
+            , .m_EntryCount     = int(m_pGeom->m_nVertices)
+            , .m_pData          = m_pGeom->getStreamData(StreamInfo.m_iStream)
+            };
+
+            if( auto Err = Device.Create(m_Buffers[i], BufferSetup ); Err ) return Err;
+        }
+
+        return nullptr;
+    }
+
+
+    bool Load( xgpu::device& Device, xcore::string::view<const wchar_t> FileName ) noexcept
+    {
+        xcore::serializer::stream Steam;
+
+        if (auto Err = Steam.Load(FileName, m_pGeom); Err)
+        {
+            DebugMessage(Err.getCode().m_pString);
+            return true;
+        }
+
+        if( auto Err = InitializeRuntime(Device); Err )
+        {
+            DebugMessage( xgpu::getErrorMsg(Err) );
+            return true;
+        }
+
+        return false;
+    }
+
+    xgeom*                                                      m_pGeom = nullptr;
+    xgpu::vertex_descriptor                                     m_VertexDescriptor;
+    std::array<xgpu::buffer, xgeom::max_stream_count_v>         m_Buffers;
+};
+
+//------------------------------------------------------------------------------------------------
+
+struct runtime_material
+{
+    xgpu::pipeline m_Pipeline;
+
+    xgpu::device::error* Initialize(xgpu::device& Device, xgpu::vertex_descriptor& VertexDescriptor)
+    {
+        xgpu::shader MyFragmentShader;
+        {
+            auto RawData = xgpu::shader::setup::raw_data
+            { std::array
+                {
+                    #include "draw_frag.h"
+                }
+            };
+
+            if (auto Err = Device.Create(MyFragmentShader, { .m_Type = xgpu::shader::type::FRAGMENT, .m_Sharer = RawData }); Err)
+                return Err;
+        }
+
+        xgpu::shader MyVertexShader;
+        {
+            auto UniformConstans = std::array
+            { static_cast<int>(sizeof(float) * 4 * 4)   // LocalToClip
+            };
+            auto RawData = xgpu::shader::setup::raw_data
+            { std::array
+                {
+                    #include "draw_vert.h"
+                }
+            };
+            xgpu::shader::setup Setup
+            {
+                .m_Type = xgpu::shader::type::VERTEX
+            ,   .m_Sharer = RawData
+            ,   .m_InOrderUniformSizes = UniformConstans
+            };
+
+            if (auto Err = Device.Create(MyVertexShader, Setup); Err)
+                return Err;
+        }
+
+        auto Shaders = std::array<const xgpu::shader*, 2>{ &MyFragmentShader, & MyVertexShader };
+        auto Samplers = std::array{ xgpu::pipeline::sampler{} };
+        auto Setup = xgpu::pipeline::setup
+        {
+            .m_VertexDescriptor = VertexDescriptor
+        ,   .m_Shaders = Shaders
+        ,   .m_Samplers = Samplers
+        };
+
+        if (auto Err = Device.Create(m_Pipeline, Setup); Err)
+            return Err;
+
+
+        return nullptr;
+    }
+};
+
+//------------------------------------------------------------------------------------------------
+
+struct runtime_texture
+{
+    xgpu::texture m_Texture;
+
+    xgpu::device::error* Initialize(xgpu::device& Device)
+    {
+        if (auto Err = xgpu::tools::bitmap::Create(m_Texture, Device, xcore::bitmap::getDefaultBitmap()); Err)
+            return Err;
+
+        return nullptr;
+    }
+};
+
+//------------------------------------------------------------------------------------------------
+
+struct runtime_material_instance
+{
+    runtime_material*               m_pMaterial;
+    xgpu::pipeline_instance         m_PipelineInstance;
+    std::vector<runtime_texture*>   m_Textures;
+
+    xgpu::device::error* Initialize(runtime_material& Material, xgpu::device& Device)
+    {
+        auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ m_Textures[0]->m_Texture } };
+        auto Setup = xgpu::pipeline_instance::setup
+        { .m_PipeLine = Material.m_Pipeline
+        , .m_SamplersBindings = Bindings
+        };
+
+        if (auto Err = Device.Create(m_PipelineInstance, Setup); Err)
+            return Err;
+
+        return nullptr;
+    }
+
+    void Activate(xgpu::cmd_buffer& CmdBuffer, const xcore::matrix4& L2C)
+    {
+        CmdBuffer.setPipelineInstance(m_PipelineInstance);
+        CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0, &L2C, static_cast<std::uint32_t>(sizeof(xcore::matrix4)));
+    }
+};
+
+//------------------------------------------------------------------------------------------------
+
+struct runtime_geom_instance
+{
+    runtime_geom*                           m_pRuntimeGeom      = nullptr;
+    std::vector<runtime_material_instance*> m_MaterialInstances;
+    std::uint64_t                           m_MeshMask          = ~0ull;
+    std::uint64_t                           m_BufferMask        = ~0ull;
+
+    void Render(xgpu::cmd_buffer& CmdBuffer, const xcore::matrix4& L2C)
+    {
+        for (int i = 0, end_i = m_pRuntimeGeom->m_pGeom->m_nMeshes; i < end_i; ++i)
+        {
+            if (!((m_MeshMask >> i) & 1)) continue;
+
+            auto& Mesh = m_pRuntimeGeom->m_pGeom->m_pMesh[i];
+
+            //for (int l = 0, end_l = Mesh.m_nLODs; l < end_l; ++l)
+            int l = 0;
+            {
+                auto& LOD = m_pRuntimeGeom->m_pGeom->m_pLOD[Mesh.m_iLOD + l];
+                if (l != 0) break;
+
+                for (int s = 0, end_s = LOD.m_nSubmesh; s < end_s; ++s)
+                {
+                    auto& SubMesh = m_pRuntimeGeom->m_pGeom->m_pSubMesh[LOD.m_iSubmesh + s];
+
+                    m_MaterialInstances[SubMesh.m_iMaterial]->Activate(CmdBuffer, L2C);
+
+                    CmdBuffer.setStreamingBuffers({ m_pRuntimeGeom->m_Buffers.data(), m_pRuntimeGeom->m_pGeom->m_nStreams });
+
+                    CmdBuffer.Draw(SubMesh.m_nIndices, SubMesh.m_iIndex);
+                }
+            }
+        }
+    }
+};
+
+//------------------------------------------------------------------------------------------------
+
+int E09_Example()
+{
+    xgpu::instance Instance;
+    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = DebugMessage, .m_pLogWarning = DebugMessage }); Err)
+        return xgpu::getErrorInt(Err);
+
+    xgpu::device Device;
+    if (auto Err = Instance.Create(Device); Err)
+        return xgpu::getErrorInt(Err);
+
+    xgpu::window MainWindow;
+    if (auto Err = Device.Create(MainWindow, {}); Err)
+        return xgpu::getErrorInt(Err);
+
+    runtime_geom                RuntimeGeom;
+    runtime_texture             DefaultTexture;
+    runtime_material            DefaultMaterial;
+    runtime_material_instance   DefaultMaterialInstance;
+    runtime_geom_instance       GeomInstance;
+
+    if( auto Err = RuntimeGeom.Load( Device, xcore::string::view{ L"spider.xgeom"} ); Err )
+        return -1;
+
+    if (auto Err = DefaultTexture.Initialize(Device); Err)
+        return xgpu::getErrorInt(Err);
+
+    if (auto Err = DefaultMaterial.Initialize( Device, RuntimeGeom.m_VertexDescriptor ); Err)
+        return xgpu::getErrorInt(Err);
+
+    DefaultMaterialInstance.m_Textures.emplace_back(&DefaultTexture);
+    if (auto Err = DefaultMaterialInstance.Initialize(DefaultMaterial, Device); Err)
+        return xgpu::getErrorInt(Err);
+
+    GeomInstance.m_pRuntimeGeom = &RuntimeGeom;
+    for (int i = 0; i < 16; i++)
+        GeomInstance.m_MaterialInstances.push_back(&DefaultMaterialInstance);
+
+    //
+    // Setup ImGui
+    //
+    xgpu::tools::imgui::CreateInstance(Instance, Device, MainWindow);
+
+    //
+    // Create the inspector window
+    //
+  //  raw3d_inspector Inspector("Property", Device);
+
+    //
+    // Main loop
+    //
+    xgpu::tools::view View;
+
+    xgpu::mouse Mouse;
+    {
+        Instance.Create(Mouse, {});
+    }
+
+    xcore::radian3 Angles
+    { xcore::radian{ -0.230000168f }
+    , xcore::radian{ -1.40999949f  }
+    , xcore::radian{ 0.0f }
+    };
+    float          Distance = 122;
+    while (Instance.ProcessInputEvents())
+    {
+        //
+        // Input
+        //
+        if (Mouse.isPressed(xgpu::mouse::digital::BTN_RIGHT))
+        {
+            auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
+            Angles.m_Pitch.m_Value -= 0.01f * MousePos[1];
+            Angles.m_Yaw.m_Value -= 0.01f * MousePos[0];
+        }
+
+        Distance += -1.0f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
+        if (Distance < 2) Distance = 2;
+
+        // Update the camera
+        View.LookAt(Distance, Angles, { 0,0,0 });
+
+        //
+        // Rendering
+        //
+        if (xgpu::tools::imgui::BeginRendering())
+            continue;
+
+        // Update the view with latest window size
+        View.setViewport({ 0, 0, MainWindow.getWidth(), MainWindow.getHeight() });
+
+        {
+            auto CmdBuffer = MainWindow.getCmdBuffer();
+            GeomInstance.Render(CmdBuffer, View.getW2C());
+        }
+
+        //
+        // Render the Inspector
+        //
+//        Inspector.Show();
+
+
+        //
+        // Render ImGUI
+        //
+        xgpu::tools::imgui::Render();
+
+        //
+        // Pageflip the windows
+        //
+        MainWindow.PageFlip();
+    }
+
+    return 0;
+}
+
+
+
+#if 0
 //------------------------------------------------------------------------------------------------
 static
 void DebugMessage(std::string_view View)
@@ -30,21 +422,21 @@ struct draw_vert
 
 //------------------------------------------------------------------------------------------------
 
-struct runtime_geom : geom
+struct runtime_geom : xgeom
 {
-    auto getVertexVectorFormat( geom::stream_info& StreamInfo ) const noexcept
+    auto getVertexVectorFormat( xgeom::stream_info& StreamInfo ) const noexcept
     {
-        static_assert((int)xgpu::vertex_descriptor::format::FLOAT_1D             == (int)geom::stream_info::format::FLOAT_1D);
-        static_assert((int)xgpu::vertex_descriptor::format::FLOAT_2D             == (int)geom::stream_info::format::FLOAT_2D);
-        static_assert((int)xgpu::vertex_descriptor::format::FLOAT_3D             == (int)geom::stream_info::format::FLOAT_3D);
-        static_assert((int)xgpu::vertex_descriptor::format::FLOAT_4D             == (int)geom::stream_info::format::FLOAT_4D);
-        static_assert((int)xgpu::vertex_descriptor::format::UINT8_1D_NORMALIZED  == (int)geom::stream_info::format::UINT8_1D_NORMALIZED);
-        static_assert((int)xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED  == (int)geom::stream_info::format::UINT8_4D_NORMALIZED);
-        static_assert((int)xgpu::vertex_descriptor::format::UINT8_1D             == (int)geom::stream_info::format::UINT8_1D);
-        static_assert((int)xgpu::vertex_descriptor::format::UINT16_1D            == (int)geom::stream_info::format::UINT16_1D);
-        static_assert((int)xgpu::vertex_descriptor::format::UINT32_1D            == (int)geom::stream_info::format::UINT32_1D);
-        static_assert((int)xgpu::vertex_descriptor::format::SINT8_3D_NORMALIZED  == (int)geom::stream_info::format::SINT8_3D_NORMALIZED);
-        static_assert((int)xgpu::vertex_descriptor::format::ENUM_COUNT           == (int)geom::stream_info::format::ENUM_COUNT);
+        static_assert((int)xgpu::vertex_descriptor::format::FLOAT_1D             == (int)xgeom::stream_info::format::FLOAT_1D);
+        static_assert((int)xgpu::vertex_descriptor::format::FLOAT_2D             == (int)xgeom::stream_info::format::FLOAT_2D);
+        static_assert((int)xgpu::vertex_descriptor::format::FLOAT_3D             == (int)xgeom::stream_info::format::FLOAT_3D);
+        static_assert((int)xgpu::vertex_descriptor::format::FLOAT_4D             == (int)xgeom::stream_info::format::FLOAT_4D);
+        static_assert((int)xgpu::vertex_descriptor::format::UINT8_1D_NORMALIZED  == (int)xgeom::stream_info::format::UINT8_1D_NORMALIZED);
+        static_assert((int)xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED  == (int)xgeom::stream_info::format::UINT8_4D_NORMALIZED);
+        static_assert((int)xgpu::vertex_descriptor::format::UINT8_1D             == (int)xgeom::stream_info::format::UINT8_1D);
+        static_assert((int)xgpu::vertex_descriptor::format::UINT16_1D            == (int)xgeom::stream_info::format::UINT16_1D);
+        static_assert((int)xgpu::vertex_descriptor::format::UINT32_1D            == (int)xgeom::stream_info::format::UINT32_1D);
+        static_assert((int)xgpu::vertex_descriptor::format::SINT8_3D_NORMALIZED  == (int)xgeom::stream_info::format::SINT8_3D_NORMALIZED);
+        static_assert((int)xgpu::vertex_descriptor::format::ENUM_COUNT           == (int)xgeom::stream_info::format::ENUM_COUNT);
 
         return xgpu::vertex_descriptor::format(StreamInfo.m_Format);
     }
@@ -64,8 +456,8 @@ struct runtime_geom : geom
             { .m_Type           = xgpu::buffer::type::INDEX
             , .m_Usage          = xgpu::buffer::setup::usage::GPU_READ
             , .m_EntryByteSize  = int(StreamInfo.getVectorElementSize())
-            , .m_EntryCount     = int(geom::m_nIndices)
-            , .m_pData          = geom::m_Stream[0]
+            , .m_EntryCount     = int(xgeom::m_nIndices)
+            , .m_pData          = xgeom::getStreamData(m_StreamInfo[0].m_iStream)
             };
             if( auto Err = Device.Create(m_Buffers[0], Setup); Err ) return Err;
         }
@@ -74,9 +466,9 @@ struct runtime_geom : geom
         // Vertex attributes
         //
         {
-            std::array<xgpu::vertex_descriptor::attribute, geom::max_stream_count_v> Attributes {};
+            std::array<xgpu::vertex_descriptor::attribute, xgeom::max_stream_count_v> Attributes {};
             int nAttributes = 0;
-            for (int i = 1; i < geom::m_nStreamInfos; ++i)
+            for (int i = 1; i < xgeom::m_nStreamInfos; ++i)
             {
                 auto&       StreamInfo  = m_StreamInfo[i];
                 const auto  ElementSize = StreamInfo.getVectorElementSize();
@@ -95,9 +487,9 @@ struct runtime_geom : geom
             // Create vertex descriptor
             // TODO: May be we should factor out the vertex descriptors???
             const xgpu::vertex_descriptor::setup Setup
-            { .m_bUseStreaming  = geom::m_CompactedVertexSize == 0
+            { .m_bUseStreaming  = xgeom::m_CompactedVertexSize == 0
             , .m_Topology       = xgpu::vertex_descriptor::topology::TRIANGLE_LIST
-            , .m_VertexSize     = geom::m_CompactedVertexSize
+            , .m_VertexSize     = xgeom::m_CompactedVertexSize
             , .m_Attributes     = std::span{ Attributes.data(), static_cast<std::size_t>(nAttributes) }
             };
 
@@ -107,7 +499,7 @@ struct runtime_geom : geom
         //
         // Create Vertex Buffers
         //
-        for (int i = 1; i < geom::m_nStreamInfos; ++i)
+        for (int i = 1; i < xgeom::m_nStreamInfos; ++i)
         {
             auto& StreamInfo = m_StreamInfo[i];
             if (StreamInfo.m_Offset != 0) continue;
@@ -115,9 +507,9 @@ struct runtime_geom : geom
             const xgpu::buffer::setup BufferSetup
             { .m_Type           = xgpu::buffer::type::VERTEX
             , .m_Usage          = xgpu::buffer::setup::usage::GPU_READ
-            , .m_EntryByteSize  = geom::getVertexSize(i)
-            , .m_EntryCount     = int(geom::m_nVertices)
-            , .m_pData          = geom::m_Stream[StreamInfo.m_iStream]
+            , .m_EntryByteSize  = xgeom::getVertexSize(i)
+            , .m_EntryCount     = int(xgeom::m_nVertices)
+            , .m_pData          = xgeom::getStreamData(StreamInfo.m_iStream) //xgeom::m_Stream[StreamInfo.m_iStream]
             };
 
             if( auto Err = Device.Create(m_Buffers[i], BufferSetup ); Err ) return Err;
@@ -127,7 +519,7 @@ struct runtime_geom : geom
     }
 
     xgpu::vertex_descriptor                                         m_VertexDescriptor;
-    std::array<xgpu::buffer, geom::max_stream_count_v>              m_Buffers;
+    std::array<xgpu::buffer, xgeom::max_stream_count_v>              m_Buffers;
 };
 
 //------------------------------------------------------------------------------------------------
@@ -293,7 +685,7 @@ struct compiler
         bool                    m_GenerateLODs          = false;
         float                   m_LODReduction          = 0.7f;
         int                     m_MaxLODs               = 5;
-        bool                    m_bForceAddColorIfNone   = true;
+        bool                    m_bForceAddColorIfNone  = true;
 
         bool                    m_UseElementStreams     = false;
         bool                    m_SeparatePosition      = false;
@@ -524,9 +916,9 @@ struct compiler
     {
         std::vector<std::uint32_t>  Indices32;
         std::vector<vertex>         FinalVertex;
-        std::vector<geom::mesh>     FinalMeshes;
-        std::vector<geom::submesh>  FinalSubmeshes;
-        std::vector<geom::lod>      FinalLod;
+        std::vector<xgeom::mesh>    FinalMeshes;
+        std::vector<xgeom::submesh> FinalSubmeshes;
+        std::vector<xgeom::lod>     FinalLod;
         int                         UVDimensionCount     = 0;
         int                         WeightDimensionCount = 0;
         int                         ColorDimensionCount  = 0;
@@ -667,7 +1059,7 @@ struct compiler
             Stream.m_ElementsType.m_Value       = 0;
 
             Stream.m_VectorCount                = 1;
-            Stream.m_Format                     = Indices32.size() > 0xffffu ? geom::stream_info::format::UINT32_1D : geom::stream_info::format::UINT16_1D;
+            Stream.m_Format                     = Indices32.size() > 0xffffu ? xgeom::stream_info::format::UINT32_1D : xgeom::stream_info::format::UINT16_1D;
             Stream.m_ElementsType.m_bIndex      = true;
             Stream.m_Offset                     = 0;
             Stream.m_iStream                    = m_FinalGeom.m_nStreams;
@@ -686,7 +1078,7 @@ struct compiler
             Stream.m_ElementsType.m_Value       = 0;
 
             Stream.m_VectorCount                = 1;
-            Stream.m_Format                     = geom::stream_info::format::FLOAT_3D;
+            Stream.m_Format                     = xgeom::stream_info::format::FLOAT_3D;
             Stream.m_ElementsType.m_bPosition   = true;
             Stream.m_Offset                     = 0;
             Stream.m_iStream                    = m_FinalGeom.m_nStreams;
@@ -720,7 +1112,7 @@ struct compiler
             Stream.m_ElementsType.m_Value       = 0;
 
             Stream.m_VectorCount     = [&] { int k = 0; for (int i = 0; i < UVDimensionCount; i++) if (CompilerOption.m_bRemoveUVs[i] == false) k++; return k; }();
-            Stream.m_Format          = geom::stream_info::format::FLOAT_2D;
+            Stream.m_Format          = xgeom::stream_info::format::FLOAT_2D;
 
             // Do we still have UVs?
             if( Stream.m_VectorCount )
@@ -754,7 +1146,7 @@ struct compiler
             Stream.m_ElementsType.m_Value       = 0;
 
             Stream.m_VectorCount                = 1;
-            Stream.m_Format                     = geom::stream_info::format::UINT8_4D_NORMALIZED;
+            Stream.m_Format                     = xgeom::stream_info::format::UINT8_4D_NORMALIZED;
             Stream.m_ElementsType.m_bColor      = true;
             Stream.m_iStream                    = m_FinalGeom.m_nStreams;
 
@@ -785,7 +1177,7 @@ struct compiler
                 Stream.m_ElementsType.m_Value       = 0;
 
                 Stream.m_VectorCount                = std::uint8_t(WeightDimensionCount);
-                Stream.m_Format                     = geom::stream_info::format::UINT8_1D_NORMALIZED;
+                Stream.m_Format                     = xgeom::stream_info::format::UINT8_1D_NORMALIZED;
                 Stream.m_ElementsType.m_bBoneWeights= true;
                 Stream.m_iStream                    = m_FinalGeom.m_nStreams;
 
@@ -797,7 +1189,7 @@ struct compiler
                 Stream.m_ElementsType.m_Value       = 0;
 
                 Stream.m_VectorCount                = std::uint8_t(WeightDimensionCount);
-                Stream.m_Format                     = geom::stream_info::format::FLOAT_1D;
+                Stream.m_Format                     = xgeom::stream_info::format::FLOAT_1D;
                 Stream.m_ElementsType.m_bBoneWeights= true; 
                 Stream.m_iStream                    = m_FinalGeom.m_nStreams;
 
@@ -829,7 +1221,7 @@ struct compiler
                 Stream.m_ElementsType.m_Value       = 0;
 
                 Stream.m_VectorCount                = std::uint8_t(WeightDimensionCount);
-                Stream.m_Format                     = geom::stream_info::format::UINT8_1D;
+                Stream.m_Format                     = xgeom::stream_info::format::UINT8_1D;
                 Stream.m_ElementsType.m_bBoneIndices= true;
                 Stream.m_iStream                    = m_FinalGeom.m_nStreams;
 
@@ -841,7 +1233,7 @@ struct compiler
                 Stream.m_ElementsType.m_Value       = 0;
 
                 Stream.m_VectorCount                = std::uint8_t(WeightDimensionCount);
-                Stream.m_Format                     = geom::stream_info::format::UINT16_1D;
+                Stream.m_Format                     = xgeom::stream_info::format::UINT16_1D;
                 Stream.m_ElementsType.m_bBoneIndices= true;
                 Stream.m_iStream                    = m_FinalGeom.m_nStreams;
 
@@ -875,7 +1267,7 @@ struct compiler
                 Stream.m_ElementsType.m_Value       = 0;
 
                 Stream.m_VectorCount                = 3;
-                Stream.m_Format                     = geom::stream_info::format::FLOAT_3D;
+                Stream.m_Format                     = xgeom::stream_info::format::FLOAT_3D;
                 Stream.m_ElementsType.m_bBTNs       = true;
                 Stream.m_iStream                    = m_FinalGeom.m_nStreams;
 
@@ -887,7 +1279,7 @@ struct compiler
                 Stream.m_ElementsType.m_Value       = 0;
 
                 Stream.m_VectorCount                = 3;
-                Stream.m_Format                     = geom::stream_info::format::SINT8_3D_NORMALIZED;
+                Stream.m_Format                     = xgeom::stream_info::format::SINT8_3D_NORMALIZED;
                 Stream.m_ElementsType.m_bBTNs       = true;
                 Stream.m_iStream                    = m_FinalGeom.m_nStreams;
 
@@ -950,9 +1342,9 @@ struct compiler
             //
             // Indices
             //
-            case geom::stream_info::element_def::index_mask_v: 
+            case xgeom::stream_info::element_def::index_mask_v: 
             {
-                if (StreamInfo.m_Format == geom::stream_info::format::UINT32_1D)
+                if (StreamInfo.m_Format == xgeom::stream_info::format::UINT32_1D)
                 {
                     auto pIndexData = new std::uint32_t[Indices32.size()];
                     m_FinalGeom.m_Stream[StreamInfo.m_iStream] = reinterpret_cast<std::byte*>(pIndexData);
@@ -977,7 +1369,7 @@ struct compiler
             //
             // Positions
             //
-            case geom::stream_info::element_def::position_mask_v:
+            case xgeom::stream_info::element_def::position_mask_v:
             {
                 xassert(StreamInfo.getVectorElementSize() == 4);
 
@@ -1005,7 +1397,7 @@ struct compiler
             //
             // BTN
             //
-            case geom::stream_info::element_def::btn_mask_v:
+            case xgeom::stream_info::element_def::btn_mask_v:
             {
                 std::int8_t* pVertex = reinterpret_cast<std::int8_t*>( m_FinalGeom.m_Stream[StreamInfo.m_iStream] + StreamInfo.m_Offset );
 
@@ -1048,7 +1440,7 @@ struct compiler
             //
             // UVs
             //
-            case geom::stream_info::element_def::uv_mask_v:
+            case xgeom::stream_info::element_def::uv_mask_v:
             {
                 xassert(StreamInfo.getVectorElementSize() == 4);
                 auto* pVertex = m_FinalGeom.m_Stream[StreamInfo.m_iStream] + StreamInfo.m_Offset;
@@ -1071,7 +1463,7 @@ struct compiler
             //
             // Colors
             //
-            case geom::stream_info::element_def::color_mask_v:
+            case xgeom::stream_info::element_def::color_mask_v:
             {
                 xassert(StreamInfo.getVectorElementSize() == 1);
                 auto* pVertex = m_FinalGeom.m_Stream[StreamInfo.m_iStream] + StreamInfo.m_Offset;
@@ -1088,7 +1480,7 @@ struct compiler
             //
             // Bone Weights
             //
-            case geom::stream_info::element_def::bone_weight_mask_v:
+            case xgeom::stream_info::element_def::bone_weight_mask_v:
             {
                 auto* pVertex = reinterpret_cast<std::uint8_t*>(m_FinalGeom.m_Stream[StreamInfo.m_iStream] + StreamInfo.m_Offset);
 
@@ -1124,7 +1516,7 @@ struct compiler
             //
             // Bone Indices
             //
-            case geom::stream_info::element_def::bone_index_mask_v:
+            case xgeom::stream_info::element_def::bone_index_mask_v:
             {
                 auto* pVertex = reinterpret_cast<std::uint8_t*>(m_FinalGeom.m_Stream[StreamInfo.m_iStream] + StreamInfo.m_Offset);
 
@@ -1231,9 +1623,9 @@ struct raw3d_inspector
     {
         ImGui::SetNextWindowPos({10,10});
         m_Inspector.Show( []{}
-                        , ImGuiWindowFlags_NoBackground 
+              /*, ImGuiWindowFlags_NoBackground
                         | ImGuiWindowFlags_NoTitleBar 
-                        | ImGuiWindowFlags_NoMove 
+                        | ImGuiWindowFlags_NoMove */
                         );
     }
 
@@ -1515,3 +1907,5 @@ int E09_Example()
 
     return 0;
 }
+
+#endif

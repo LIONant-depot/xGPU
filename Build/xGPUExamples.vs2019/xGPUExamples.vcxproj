@@ -18,25 +18,25 @@
     <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_draw.cpp" />
     <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_tables.cpp" />
     <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_widgets.cpp" />
-    <ClCompile Include="..\..\Dependencies\xcore\src\xcore.cpp" />
-    <ClCompile Include="..\..\Dependencies\xcore\src\xcore_profiler_1.cpp" />
-    <ClCompile Include="..\..\Dependencies\xcore\src\xcore_profiler_2.cpp" />
-    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\allocator.cpp" />
-    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\clusterizer.cpp" />
-    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\indexcodec.cpp" />
-    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\indexgenerator.cpp" />
-    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\overdrawanalyzer.cpp" />
-    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\overdrawoptimizer.cpp" />
-    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\simplifier.cpp" />
-    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\spatialorder.cpp" />
-    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\stripifier.cpp" />
-    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\vcacheanalyzer.cpp" />
-    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\vcacheoptimizer.cpp" />
-    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\vertexcodec.cpp" />
-    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\vertexfilter.cpp" />
-    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\vfetchanalyzer.cpp" />
-    <ClCompile Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\vfetchoptimizer.cpp" />
-    <ClCompile Include="..\..\dependencies\xraw3D\src\xraw3d.cpp" />
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\allocator.cpp" />
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\clusterizer.cpp" />
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\indexcodec.cpp" />
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\indexgenerator.cpp" />
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\overdrawanalyzer.cpp" />
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\overdrawoptimizer.cpp" />
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\simplifier.cpp" />
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\spatialorder.cpp" />
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\stripifier.cpp" />
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\vcacheanalyzer.cpp" />
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\vcacheoptimizer.cpp" />
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\vertexcodec.cpp" />
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\vertexfilter.cpp" />
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\vfetchanalyzer.cpp" />
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\vfetchoptimizer.cpp" />
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore.cpp" />
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_profiler_1.cpp" />
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_profiler_2.cpp" />
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\src\xraw3d.cpp" />
     <ClCompile Include="..\..\Src\Details\System\Windows\xGPU_windows.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
@@ -127,57 +127,62 @@
     <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imstb_rectpack.h" />
     <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imstb_textedit.h" />
     <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imstb_truetype.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_arglist.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_array.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_assert.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_bitmap.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_bits.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_cmdline.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_color.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_compression.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_context.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_crc.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_endian.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_error.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_event.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_file.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_function.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_global.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_guid.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_lock.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_lockless_pool.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_lockless_queues.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_log.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_matrix4.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_quaternion.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_radian3.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_shapes.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_transform.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_vector2.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_vector3.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_math_vector4.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_memory.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_profiler.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_random.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_rtti.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_scheduler_channel.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_scheduler_job.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_scheduler_system.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_scheduler_trigger.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_serialicer.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_serializer.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_span.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_string.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_system_reg.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_target.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_textfile.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_textfile2.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_types.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_unique_span.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_units.h" />
-    <ClInclude Include="..\..\Dependencies\xcore\src\xcore_vector.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\meshoptimizer.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_arglist.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_array.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_assert.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_bitmap.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_bits.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_cmdline.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_color.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_compression.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_context.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_crc.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_endian.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_error.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_event.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_file.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_function.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_global.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_guid.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_lock.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_lockless_pool.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_lockless_queues.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_log.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_math.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_math_matrix4.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_math_quaternion.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_math_radian3.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_math_shapes.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_math_transform.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_math_vector2.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_math_vector3.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_math_vector4.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_memory.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_profiler.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_ptr.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_random.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_rtti.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_scheduler_channel.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_scheduler_job.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_scheduler_system.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_scheduler_trigger.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_serializer.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_span.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_string.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_system_reg.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_target.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_textfile.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_textfile2.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_types.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_unique_span.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_units.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_vector.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\src\xraw3d.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\src\xraw3d_anim.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\src\xraw3d_assimp_import.h" />
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\src\xraw3d_geom.h" />
     <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom.h" />
     <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_capsule.h" />
     <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_cube.h" />
@@ -188,11 +193,6 @@
     <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_quad.h" />
     <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_rounded_cube.h" />
     <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_uvsphere.h" />
-    <ClInclude Include="..\..\dependencies\xraw3D\dependencies\meshoptimizer\src\meshoptimizer.h" />
-    <ClInclude Include="..\..\dependencies\xraw3D\src\xraw3d.h" />
-    <ClInclude Include="..\..\dependencies\xraw3D\src\xraw3d_anim.h" />
-    <ClInclude Include="..\..\dependencies\xraw3D\src\xraw3d_assimp_import.h" />
-    <ClInclude Include="..\..\dependencies\xraw3D\src\xraw3d_geom.h" />
     <ClInclude Include="..\..\Src\Details\System\xGPU_system.h" />
     <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows.h" />
     <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows_instance.h" />
@@ -315,7 +315,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
     <SourcePath>$(VC_SourcePath);</SourcePath>
-    <IncludePath>../../Src\Examples\Settings;$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../Dependencies\xcore\src;./;../../src;../../Dependencies\assimp/include;../../Dependencies\xcore\dependencies\tracy\imgui</IncludePath>
+    <IncludePath>../../Src\Examples\Settings;$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src;./;../../src;../../Dependencies\assimp/include;../../Dependencies\xcore\dependencies\tracy\imgui</IncludePath>
     <PublicIncludeDirectories>
     </PublicIncludeDirectories>
   </PropertyGroup>
@@ -339,7 +339,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalLibraryDirectories>$(VULKAN_SDK);../../Dependencies\xcore</AdditionalLibraryDirectories>
+      <AdditionalLibraryDirectories>$(VULKAN_SDK);../../dependencies\xgeom_compiler\dependencies\xraw3D;../../dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore</AdditionalLibraryDirectories>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
