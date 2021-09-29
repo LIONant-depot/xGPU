@@ -18,24 +18,25 @@ powershell write-host -fore White ----------------------------------------------
 echo.
 
 rem ------------------------------------------------------------
-rem XPRIM_GEOM
+rem XGEOM_COMPILER
 rem ------------------------------------------------------------
-rmdir "../dependencies/xprim_geom" /S /Q
-git clone https://github.com/LIONant-depot/xprim_geom.git "../dependencies/xprim_geom"
+:XGEOM_COMPILER
+rmdir "../dependencies/xgeom_compiler" /S /Q
+git clone https://github.com/LIONant-depot/xgeom_compiler "../dependencies/xgeom_compiler"
+if %ERRORLEVEL% GEQ 1 goto :ERROR
+cd ../dependencies/xgeom_compiler/build
+if %ERRORLEVEL% GEQ 1 goto :ERROR
+call updateDependencies.bat "return"
+if %ERRORLEVEL% GEQ 1 goto :ERROR
+cd /d %XGPU_PATH%
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
 rem ------------------------------------------------------------
-rem XCORE
+rem XPRIM_GEOM
 rem ------------------------------------------------------------
-:XCORE
-rmdir "../dependencies/xcore" /S /Q
-git clone https://gitlab.com/LIONant/xcore.git "../dependencies/xcore"
-if %ERRORLEVEL% GEQ 1 goto :ERROR
-cd ../dependencies/xcore/builds
-if %ERRORLEVEL% GEQ 1 goto :ERROR
-call UpdateDependencies.bat "return"
-if %ERRORLEVEL% GEQ 1 goto :ERROR
-cd /d %XGPU_PATH%
+:XPRIM_GEOM
+rmdir "../dependencies/xprim_geom" /S /Q
+git clone https://github.com/LIONant-depot/xprim_geom.git "../dependencies/xprim_geom"
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
 rem ------------------------------------------------------------
@@ -50,30 +51,6 @@ if %ERRORLEVEL% GEQ 1 goto :ERROR
 call UpdateDependencies.bat "return"
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 cd /d %XGPU_PATH%
-if %ERRORLEVEL% GEQ 1 goto :ERROR
-
-rem ------------------------------------------------------------
-rem ASSIMP
-rem ------------------------------------------------------------
-:ASSIMP
-rmdir "../dependencies/assimp" /S /Q
-git clone https://github.com/assimp/assimp.git "../dependencies/assimp"
-if %ERRORLEVEL% GEQ 1 goto :ERROR
-
-cd ../dependencies/assimp
-if %ERRORLEVEL% GEQ 1 goto :ERROR
-
-cmake CMakeLists.txt -G "Visual Studio 16 2019" -S . -B ./BINARIES/Win32
-if %ERRORLEVEL% GEQ 1 goto :ERROR
-
-cmake --build ./BINARIES/Win32 --config release
-if %ERRORLEVEL% GEQ 1 goto :ERROR
-
-cd /d %XGPU_PATH%
-if %ERRORLEVEL% GEQ 1 goto :ERROR
-
-rem copy the dlls just in case the user runs the examples 
-copy "..\dependencies\assimp\BINARIES\Win32\bin\Release\assimp-vc142-mt.dll" "xGPUExamples.vs2019\assimp-vc142-mt.dll"
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
 rem ------------------------------------------------------------
@@ -98,6 +75,14 @@ if %ERRORLEVEL% GEQ 1 goto :ERROR
 
 rem Rename the "INSTALL" which is the default name of ShaderC unziped folder to the proper one
 rename install shaderc
+if %ERRORLEVEL% GEQ 1 goto :ERROR
+
+rem ------------------------------------------------------------
+rem Copy ASSIMP DLL
+rem ------------------------------------------------------------
+:ASSIMP
+rem copy the dlls just in case the user runs the examples 
+copy "..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\assimp\BINARIES\Win32\bin\Release\assimp-vc142-mt.dll" "xGPUExamples.vs2019\assimp-vc142-mt.dll"
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
 
