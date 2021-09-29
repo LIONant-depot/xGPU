@@ -1,3 +1,3 @@
 
 // Configurations should match or else you will have a bad time...
-#include "../../Dependencies/assimp/BINARIES/Win32/include/assimp/config.h"
+#include "../../Dependencies/xgeom_compiler/dependencies/xraw3D/dependencies/assimp/BINARIES/Win32/include/assimp/config.h"
