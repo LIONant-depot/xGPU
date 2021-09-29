@@ -1,4 +1,4 @@
-rem @echo OFF
+echo OFF
 setlocal enabledelayedexpansion
 set XGPU_PATH=%cd%
 
@@ -77,12 +77,15 @@ rem Rename the "INSTALL" which is the default name of ShaderC unziped folder to 
 rename install shaderc
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
+cd /d %XGPU_PATH%
+if %ERRORLEVEL% GEQ 1 goto :ERROR
+
 rem ------------------------------------------------------------
 rem Copy ASSIMP DLL
 rem ------------------------------------------------------------
 :ASSIMP
 rem copy the dlls just in case the user runs the examples 
-copy "..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\assimp\BINARIES\Win32\bin\Release\assimp-vc142-mt.dll" "xGPUExamples.vs2019\assimp-vc142-mt.dll"
+copy "..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\assimp\BINARIES\Win32\bin\Release\assimp-vc142-mt.dll" "xGPUExamples.vs2019\assimp-vc142-mt.dll" /Y
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
 
