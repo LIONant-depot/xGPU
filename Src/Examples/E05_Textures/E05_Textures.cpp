@@ -2,7 +2,7 @@
 #include "xcore.h"
 #include "../../tools/xgpu_imgui_breach.h"
 #include "../../tools/xgpu_xcore_bitmap_helpers.h"
-#include "../../dependencies/xcore/dependencies/properties/src/Examples/ImGuiExample/ImGuiPropertyInspector.h"
+#include "../../dependencies/xgeom_compiler/dependencies/xraw3D/dependencies/xcore/dependencies/properties/src/Examples/ImGuiExample/ImGuiPropertyInspector.h"
 #include "../../dependencies/xbmp_tools/src/xbmp_tools.h"
 #include <format>
 

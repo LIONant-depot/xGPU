@@ -136,21 +136,6 @@
     <ClCompile Include="..\..\Src\Details\Vulkan\xGPU_vulkan_buffer.cpp">
       <Filter>xGPU\Details\Vulkan\Source %28Not compiling%29</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui.cpp">
-      <Filter>Dependencies\ImGui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_demo.cpp">
-      <Filter>Dependencies\ImGui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_draw.cpp">
-      <Filter>Dependencies\ImGui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_tables.cpp">
-      <Filter>Dependencies\ImGui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_widgets.cpp">
-      <Filter>Dependencies\ImGui</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\Src\Examples\E02_UsingUtilities\E02_UsingTools.cpp">
       <Filter>Examples\Example 02 Using Tools</Filter>
     </ClCompile>
@@ -159,9 +144,6 @@
     </ClCompile>
     <ClCompile Include="..\..\Tools\xgpu_imgui_breach.cpp">
       <Filter>Tools</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\Dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.cpp">
-      <Filter>Examples\Example 04 Properties</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Src\Examples\E04_Properties\E04_Properties.cpp">
       <Filter>Examples\Example 04 Properties</Filter>
@@ -249,6 +231,24 @@
     </ClCompile>
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_profiler_2.cpp">
       <Filter>Dependencies\xCore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.cpp">
+      <Filter>Examples\Example 04 Properties</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui.cpp">
+      <Filter>Dependencies\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui_demo.cpp">
+      <Filter>Dependencies\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui_draw.cpp">
+      <Filter>Dependencies\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui_tables.cpp">
+      <Filter>Dependencies\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui_widgets.cpp">
+      <Filter>Dependencies\ImGui</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -396,21 +396,6 @@
     <ClInclude Include="..\..\Src\Examples\Settings\xcore_user_settings.h">
       <Filter>Examples\Settings</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui.h">
-      <Filter>Dependencies\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imgui_internal.h">
-      <Filter>Dependencies\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imstb_rectpack.h">
-      <Filter>Dependencies\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imstb_textedit.h">
-      <Filter>Dependencies\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\imstb_truetype.h">
-      <Filter>Dependencies\ImGui</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\Src\Examples\Settings\imconfig.h">
       <Filter>Examples\Settings</Filter>
     </ClInclude>
@@ -422,12 +407,6 @@
     </ClInclude>
     <ClInclude Include="..\..\Tools\xgpu_imgui_breach.h">
       <Filter>Tools</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.h">
-      <Filter>Examples\Example 04 Properties</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyExample.h">
-      <Filter>Examples\Example 04 Properties</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xbmp_tools\src\xbmp_tools.h">
       <Filter>Dependencies\xbmpTools</Filter>
@@ -651,6 +630,30 @@
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_vector.h">
       <Filter>Dependencies\xCore</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyExample.h">
+      <Filter>Examples\Example 04 Properties</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.h">
+      <Filter>Examples\Example 04 Properties</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imconfig.h">
+      <Filter>Dependencies\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui.h">
+      <Filter>Dependencies\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui_internal.h">
+      <Filter>Dependencies\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imstb_rectpack.h">
+      <Filter>Dependencies\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imstb_textedit.h">
+      <Filter>Dependencies\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imstb_truetype.h">
+      <Filter>Dependencies\ImGui</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="draw_frag.glsl" />
@@ -662,7 +665,7 @@
     <None Include="..\..\README.md" />
   </ItemGroup>
   <ItemGroup>
-    <Text Include="..\..\Dependencies\xcore\dependencies\tracy\imgui\LICENSE.txt">
+    <Text Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\LICENSE.txt">
       <Filter>Dependencies\ImGui</Filter>
     </Text>
   </ItemGroup>

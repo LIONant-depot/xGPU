@@ -8,7 +8,7 @@
 #include "../../dependencies/xgeom_compiler/dependencies/xraw3D/src/xraw3d.h"
 #include "../../tools/xgpu_imgui_breach.h"
 #include "../../tools/WindowsFileDialog/FileBrowser.h"
-#include "../../dependencies/xcore/dependencies/properties/src/Examples/ImGuiExample/ImGuiPropertyInspector.h"
+#include "../../dependencies/xgeom_compiler/dependencies/xraw3D/dependencies/xcore/dependencies/properties/src/Examples/ImGuiExample/ImGuiPropertyInspector.h"
 #include "../../dependencies/xgeom_compiler/dependencies/meshoptimizer/src/meshoptimizer.h"
 #include "../../dependencies/xgeom_compiler/src_runtime/xgeom.h"
 
