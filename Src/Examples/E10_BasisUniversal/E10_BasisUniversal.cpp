@@ -334,7 +334,7 @@ int E10_Example()
     //
     std::array<bitmap_inspector2, 1> BitmapInspector;
     constexpr auto TextureList = std::array
-    { "x64/Run3.basis"
+    { "Run3.basis"
     };
     static_assert(BitmapInspector.size() == TextureList.size());
 
