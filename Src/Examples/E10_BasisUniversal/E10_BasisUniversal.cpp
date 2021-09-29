@@ -51,13 +51,13 @@ struct bitmap_inspector2
         //
         // Create Texture
         //
-        xgpu::texture Texture = xgpu::tools::basis_universal::basis_Loader( Device, pFileName );
+        m_Texture = xgpu::tools::basis_universal::basis_Loader( Device, pFileName );
 
         //
         // Create Pipeline Instance
         //
         {
-            auto  Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
+            auto  Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ m_Texture } };
             auto  Setup = xgpu::pipeline_instance::setup
             { .m_PipeLine = Pipeline
             , .m_SamplersBindings = Bindings
@@ -73,59 +73,80 @@ struct bitmap_inspector2
 
     xgpu::pipeline_instance m_Instance;
     std::string             m_FileName;
-  //  xcore::bitmap           m_Bitmap;
+    xgpu::texture           m_Texture;
 };
 
 property_begin_name(bitmap_inspector2, "Bitmap Info")
 {
-/*
     property_var(m_FileName)
         .Flags(property::flags::SHOW_READONLY)
-        , property_var_fnbegin("Format", std::string)
+,   property_var_fnbegin("Format", std::string)
     {
         if (isRead)
         {
-            switch (Self.m_Bitmap.getFormat())
+            switch (Self.m_Texture.getFormat())
             {
-            case xcore::bitmap::format::R4G4B4A4:   InOut = "R4G4B4A4"; break;
-            case xcore::bitmap::format::R5G6B5:     InOut = "R5G6B5"; break;
-            case xcore::bitmap::format::B5G5R5A1:   InOut = "B5G5R5A1"; break;
-            case xcore::bitmap::format::R8G8B8:     InOut = "R8G8B8"; break;
-            case xcore::bitmap::format::R8G8B8U8:   InOut = "R8G8B8U8"; break;
-            case xcore::bitmap::format::R8G8B8A8:   InOut = "R8G8B8A8"; break;
-            case xcore::bitmap::format::B8G8R8A8:   InOut = "B8G8R8A8"; break;
-            case xcore::bitmap::format::B8G8R8U8:   InOut = "B8G8R8U8"; break;
-            case xcore::bitmap::format::U8R8G8B8:   InOut = "U8R8G8B8"; break;
-
-            case xcore::bitmap::format::BC1_4RGB:   InOut = "BC1_4RGB / DXT1"; break;
-            case xcore::bitmap::format::BC1_4RGBA1: InOut = "BC1_4RGBA1 / DXT1"; break;
-            case xcore::bitmap::format::BC2_8RGBA:  InOut = "BC2_8RGBA / DXT3"; break;
-            case xcore::bitmap::format::BC3_8RGBA:  InOut = "BC3_8RGBA / DXT5"; break;
+            case xgpu::texture::format::R4G4B4A4:   InOut = "R4G4B4A4"; break;
+            case xgpu::texture::format::R5G6B5:     InOut = "R5G6B5"; break;
+            case xgpu::texture::format::B5G5R5A1:   InOut = "B5G5R5A1"; break;
+            case xgpu::texture::format::R8G8B8:     InOut = "R8G8B8"; break;
+            case xgpu::texture::format::R8G8B8U8:   InOut = "R8G8B8U8"; break;
+            case xgpu::texture::format::R8G8B8A8:   InOut = "R8G8B8A8"; break;
+            case xgpu::texture::format::B8G8R8A8:   InOut = "B8G8R8A8"; break;
+            case xgpu::texture::format::B8G8R8U8:   InOut = "B8G8R8U8"; break;
+            case xgpu::texture::format::U8R8G8B8:   InOut = "U8R8G8B8"; break;
+            case xgpu::texture::format::BC1_4RGB:   InOut = "BC1_4RGB / DXT1"; break;
+            case xgpu::texture::format::BC1_4RGBA1: InOut = "BC1_4RGBA1 / DXT1"; break;
+            case xgpu::texture::format::BC2_8RGBA:  InOut = "BC2_8RGBA / DXT3"; break;
+            case xgpu::texture::format::BC3_8RGBA:  InOut = "BC3_8RGBA / DXT5"; break;
 
             default: InOut = "Unexpected format"; break;
             }
         }
     } property_var_fnend().Flags(property::flags::SHOW_READONLY)
-        , property_var_fnbegin("HasAlphaChannel", bool)
+,   property_var_fnbegin("HasAlphaChannel", bool)
     {
-        if (isRead) InOut = Self.m_Bitmap.hasAlphaChannel();
+        if (isRead)
+        {
+            switch (Self.m_Texture.getFormat())
+            {
+            case xgpu::texture::format::R4G4B4A4:   
+            case xgpu::texture::format::B5G5R5A1:   
+            case xgpu::texture::format::R8G8B8A8:   
+            case xgpu::texture::format::B8G8R8A8:   
+            case xgpu::texture::format::BC1_4RGBA1: 
+            case xgpu::texture::format::BC2_8RGBA:  
+            case xgpu::texture::format::BC3_8RGBA:  InOut = true; break;
+
+            case xgpu::texture::format::R5G6B5:     
+            case xgpu::texture::format::R8G8B8:     
+            case xgpu::texture::format::R8G8B8U8:   
+            case xgpu::texture::format::B8G8R8U8:   
+            case xgpu::texture::format::U8R8G8B8:   
+            case xgpu::texture::format::BC1_4RGB:   InOut = false; break;
+
+            default: InOut = "Unexpected format"; break;
+            }
+        }
     } property_var_fnend().Flags(property::flags::SHOW_READONLY)
-        , property_var_fnbegin("HasAlphaInfo", bool)
+,   property_var_fnbegin("Width", int)
     {
-        if (isRead) InOut = Self.m_Bitmap.hasAlphaInfo();
+        if (isRead) InOut = Self.m_Texture.getTextureDimensions()[0];
     } property_var_fnend().Flags(property::flags::SHOW_READONLY)
-        , property_var_fnbegin("Width", int)
+,   property_var_fnbegin("Height", int)
     {
-        if (isRead) InOut = Self.m_Bitmap.getWidth();
+        if (isRead) InOut = Self.m_Texture.getTextureDimensions()[1];
     } property_var_fnend().Flags(property::flags::SHOW_READONLY)
-        , property_var_fnbegin("Height", int)
+,   property_var_fnbegin("ArrayCount", int)
     {
-        if (isRead) InOut = Self.m_Bitmap.getHeight();
+        if (isRead) InOut = Self.m_Texture.getTextureDimensions()[2];
     } property_var_fnend().Flags(property::flags::SHOW_READONLY)
-        , property_var_fnbegin("SRGB", bool)
+/*
+,   property_var_fnbegin("SRGB", bool)
     {
         if (isRead) InOut = !Self.m_Bitmap.isLinearSpace();
     } property_var_fnend().Flags(property::flags::SHOW_READONLY)
+
         , property_var_fnbegin("nFrames", int)
     {
         if (isRead) InOut = Self.m_Bitmap.getFrameCount();
@@ -150,12 +171,13 @@ property_begin_name(bitmap_inspector2, "Bitmap Info")
     {
         if (isRead) InOut = Self.m_Bitmap.getMipCount();
     } property_var_fnend().Flags(property::flags::SHOW_READONLY)
-        , property_list_fnbegin("Mip", std::string)
+*/
+,   property_list_fnbegin("Mip", std::string)
     {   // Self     - is our class
         // isRead   - Will give ask us what to do
         // InOut    - is the argument
         // Index    - is the index used to access the entry, is 64 bits so we may want to cast down a bit to avoid warnings
-        if (isRead) InOut = std::format("{}x{}", std::max(1u, Self.m_Bitmap.getWidth() >> Index), std::max(1u, Self.m_Bitmap.getHeight() >> Index));
+        if (isRead) InOut = std::format("{}x{}", std::max(1, Self.m_Texture.getTextureDimensions()[0] >> Index), std::max(1, Self.m_Texture.getTextureDimensions()[1] >> Index));
     } property_list_fnenum()
     {   // Self         - is our class
         // Cmd          - Will give ask us what to do
@@ -163,18 +185,19 @@ property_begin_name(bitmap_inspector2, "Bitmap Info")
         // MemoryBlock  - block of memory that can be use to store iterators
         switch (Cmd)
         {
-        case property::lists_cmd::READ_COUNT:   InOut = Self.m_Bitmap.getMipCount(); break;
+        case property::lists_cmd::READ_COUNT:   InOut = Self.m_Texture.getMipCount(); break;
         case property::lists_cmd::WRITE_COUNT:  break;
         case property::lists_cmd::READ_FIRST:   InOut = 0; break;
-        case property::lists_cmd::READ_NEXT:    if (++InOut == Self.m_Bitmap.getMipCount()) InOut = property::lists_iterator_ends_v; break;
+        case property::lists_cmd::READ_NEXT:    if (++InOut == Self.m_Texture.getMipCount()) InOut = property::lists_iterator_ends_v; break;
         default: assert(false);
         }
     } property_list_fnend().Flags(property::flags::SHOW_READONLY)
+/*
         , property_var_fnbegin("TotalSize", int)
     {
         if (isRead) InOut = static_cast<int>(Self.m_Bitmap.getDataSize());
     } property_var_fnend().Flags(property::flags::SHOW_READONLY)
-    */
+*/
 } property_end()
 
 //------------------------------------------------------------------------------------------------
@@ -404,11 +427,14 @@ int E10_Example()
             MouseTranslate.m_Y += (MouseTranslate.m_Y - my) * (MouseScale - OldScale) / OldScale;
 
             // Make sure that the picture does not leave the view
-            // should be 0.5 but I left a little bit of the picture inside the view with 0.4f
-            //const float BorderX = ((BitmapInspector[iActiveImage].m_Bitmap.getWidth() * 0.4f) / (float)MainWindow.getWidth()) * MouseScale;
-            //const float BorderY = ((BitmapInspector[iActiveImage].m_Bitmap.getHeight() * 0.4f) / (float)MainWindow.getHeight()) * MouseScale;
-            //MouseTranslate.m_X = std::min(1.0f + BorderX, std::max(-1.0f - BorderX, MouseTranslate.m_X));
-            //MouseTranslate.m_Y = std::min(1.0f + BorderY, std::max(-1.0f - BorderY, MouseTranslate.m_Y));
+            { 
+                auto R = BitmapInspector[iActiveImage].m_Texture.getTextureDimensions();
+                // should be 0.5 but I left a little bit of the picture inside the view with 0.4f
+                const float BorderX = ((R[0] * 0.4f) / (float)R[0]) * MouseScale;
+                const float BorderY = ((R[1] * 0.4f) / (float)R[1]) * MouseScale;
+                MouseTranslate.m_X = std::min(1.0f + BorderX, std::max(-1.0f - BorderX, MouseTranslate.m_X));
+                MouseTranslate.m_Y = std::min(1.0f + BorderY, std::max(-1.0f - BorderY, MouseTranslate.m_Y));
+            }
         }
 
         //
@@ -448,7 +474,7 @@ int E10_Example()
                 CmdBuffer.setBuffer(IndexBuffer);
 
                 auto Scale = std::array
-                { (MouseScale * 2.0f) / MainWindow.getWidth() //* BitmapInspector[iActiveImage].m_Bitmap.getAspectRatio()
+                { (MouseScale * 2.0f) / MainWindow.getWidth() * [&]{ auto R = BitmapInspector[iActiveImage].m_Texture.getTextureDimensions(); return static_cast<float>(R[0])/R[1]; }()
                 , (MouseScale * 2.0f) / MainWindow.getHeight()
                 };
 

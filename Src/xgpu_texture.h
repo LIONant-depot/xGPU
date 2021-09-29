@@ -69,6 +69,15 @@ namespace xgpu
             std::span<const std::byte>  m_Data                  {};
         };
 
+        inline
+        std::array<int,3>   getTextureDimensions                ( void ) const noexcept;
+
+        inline
+        int                 getMipCount                         ( void ) const noexcept;
+
+        inline
+        format              getFormat                           ( void ) const noexcept;
+
         std::shared_ptr<details::texture_handle> m_Private;
     };
 }

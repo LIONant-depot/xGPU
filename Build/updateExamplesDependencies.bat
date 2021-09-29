@@ -54,6 +54,13 @@ cd /d %XGPU_PATH%
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
 rem ------------------------------------------------------------
+rem Basis Universal
+rem ------------------------------------------------------------
+:BASIS_UNIVERSAL
+rmdir "../dependencies/basis_universal" /S /Q
+git clone --recurse-submodules -j8 https://github.com/BinomialLLC/basis_universal.git "../dependencies/basis_universal"
+
+rem ------------------------------------------------------------
 rem Download and install ShaderC
 rem ------------------------------------------------------------
 :SHADERC

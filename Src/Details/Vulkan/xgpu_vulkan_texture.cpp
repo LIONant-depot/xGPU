@@ -152,6 +152,27 @@ namespace xgpu::vulkan
 
     //---------------------------------------------------------------------------------------
 
+    std::array<int, 3>  texture::getTextureDimensions(void) const noexcept
+    {
+        return { m_Width, m_Height, m_ArrayCount };
+    }
+
+    //---------------------------------------------------------------------------------------
+
+    int texture::getMipCount(void) const noexcept
+    {
+        return m_nMips;
+    }
+
+    //---------------------------------------------------------------------------------------
+    
+    xgpu::texture::format texture::getFormat(void) const noexcept
+    {
+        return m_Format;
+    }
+
+    //---------------------------------------------------------------------------------------
+
     xgpu::device::error* texture::Initialize
     ( std::shared_ptr<vulkan::device>&& Device
     , const xgpu::texture::setup&       Setup
@@ -159,14 +180,20 @@ namespace xgpu::vulkan
     {
         m_Device = Device;
 
+
+
+
         const VkFormat      VKFormat = getVKTextureFormat( Setup.m_Format
                                                          ,     Setup.m_Type == xgpu::texture::type::LINEAR
                                                             || Setup.m_Type == xgpu::texture::type::NORMAL
                                                          , Setup.m_hasSignedChannels
                                                          );
 
-        m_nMips = static_cast<std::uint32_t>(Setup.m_MipChain.size());
-
+        m_nMips      = static_cast<std::uint8_t>(Setup.m_MipChain.size());
+        m_Width      = static_cast<std::uint16_t>(Setup.m_Width);
+        m_Height     = static_cast<std::uint16_t>(Setup.m_Height);
+        m_ArrayCount = static_cast<std::uint16_t>(Setup.m_ArrayCount);
+        m_Format     = Setup.m_Format;
 
         // Get device properites for the requested texture format
         VkFormatProperties  VKFormatProps{};
@@ -586,7 +613,7 @@ namespace xgpu::vulkan
             ,   .baseMipLevel   = 0
                 // Linear tiling usually won't support mip maps
                 // Only set mip map count if optimal tiling is used
-            ,   .levelCount     = (bUseStaging) ? m_nMips : 1
+            ,   .levelCount     = (bUseStaging) ? static_cast<std::uint32_t>(m_nMips) : 1u
             ,   .baseArrayLayer = 0
             ,   .layerCount     = 1
             }

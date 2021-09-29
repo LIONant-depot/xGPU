@@ -8,15 +8,19 @@ namespace xgpu::vulkan
 
         virtual ~texture( void ) noexcept override;
 
-        int getMipCount( void ) noexcept
-        {
-            return 0;
-        }
+        virtual std::array<int, 3>                  getTextureDimensions(void)                  const   noexcept override;
+        virtual int                                 getMipCount         (void)                  const   noexcept override;
+        virtual xgpu::texture::format               getFormat           (void)                  const   noexcept override;
+
 
         std::shared_ptr<vulkan::device> m_Device                {};
-        std::uint32_t                   m_nMips                 {};
         VkImage                         m_VKImage               {};
         VkImageView                     m_VKView                {};
         VkDeviceMemory                  m_VKDeviceMemory        {};
+        std::uint16_t                   m_Width                 {};
+        std::uint16_t                   m_Height                {};
+        std::uint16_t                   m_ArrayCount            {};
+        std::uint8_t                    m_nMips                 {};
+        xgpu::texture::format           m_Format                {};
     };
 }
