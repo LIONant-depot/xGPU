@@ -264,7 +264,7 @@
     <ClInclude Include="..\..\Tools\xgpu_imgui_breach.h" />
     <ClInclude Include="..\..\Tools\xgpu_view.h" />
     <ClInclude Include="..\..\Tools\xgpu_view_inline.h" />
-    <ClInclude Include="..\..\Tools\xgpu_vtk2_texture_loader.h" />
+    <ClInclude Include="..\..\Tools\xgpu_basis_universal_texture_loader.h" />
     <ClInclude Include="..\..\Tools\xgpu_xcore_bitmap_helpers.h" />
   </ItemGroup>
   <ItemGroup>

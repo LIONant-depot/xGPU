@@ -693,7 +693,7 @@
     <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_uastc.h">
       <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Tools\xgpu_vtk2_texture_loader.h">
+    <ClInclude Include="..\..\Tools\xgpu_basis_universal_texture_loader.h">
       <Filter>Examples\Example 10 Basis Universal</Filter>
     </ClInclude>
   </ItemGroup>
