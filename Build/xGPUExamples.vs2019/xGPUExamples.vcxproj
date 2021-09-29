@@ -11,6 +11,9 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder.cpp">
+      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">BASISU_NO_ITERATOR_DEBUG_LEVEL;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
     <ClCompile Include="..\..\Dependencies\xbmp_tools\src\xbmp_tools.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\allocator.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\clusterizer.cpp" />
@@ -109,6 +112,7 @@
     <ClCompile Include="..\..\Src\Examples\E07_PrimitiveGeoms\E07_PrimitiveGeoms.cpp" />
     <ClCompile Include="..\..\Src\Examples\E08_AsyncTextureLoading\E08_AsyncTextureLoading.cpp" />
     <ClCompile Include="..\..\Src\Examples\E09_Raw3DViewer\E09_Raw3DViewer.cpp" />
+    <ClCompile Include="..\..\Src\Examples\E10_BasisUniversal\E10_BasisUniversal.cpp" />
     <ClCompile Include="..\..\Src\Examples\main.cpp" />
     <ClCompile Include="..\..\Src\Examples\E01_Initialize\E01_Initialize.cpp" />
     <ClCompile Include="..\..\Src\Examples\E02_UsingUtilities\E02_UsingTools.cpp" />
@@ -118,6 +122,15 @@
     <ClCompile Include="..\..\Tools\xgpu_imgui_breach.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu.h" />
+    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_containers.h" />
+    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_containers_impl.h" />
+    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_file_headers.h" />
+    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_global_selector_cb.h" />
+    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_global_selector_palette.h" />
+    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder.h" />
+    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_internal.h" />
+    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_uastc.h" />
     <ClInclude Include="..\..\Dependencies\xbmp_tools\src\xbmp_tools.h" />
     <ClInclude Include="..\..\Dependencies\xbmp_tools\src\xbmp_tools_loaders.h" />
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\meshoptimizer.h" />
@@ -251,6 +264,7 @@
     <ClInclude Include="..\..\Tools\xgpu_imgui_breach.h" />
     <ClInclude Include="..\..\Tools\xgpu_view.h" />
     <ClInclude Include="..\..\Tools\xgpu_view_inline.h" />
+    <ClInclude Include="..\..\Tools\xgpu_vtk2_texture_loader.h" />
     <ClInclude Include="..\..\Tools\xgpu_xcore_bitmap_helpers.h" />
   </ItemGroup>
   <ItemGroup>
@@ -268,6 +282,16 @@
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
+    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_astc.inc" />
+    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_astc_0_255.inc" />
+    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_atc_55.inc" />
+    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_atc_56.inc" />
+    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_bc7_m5_alpha.inc" />
+    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_bc7_m5_color.inc" />
+    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_dxt1_5.inc" />
+    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_dxt1_6.inc" />
+    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_pvrtc2_45.inc" />
+    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_pvrtc2_alpha_33.inc" />
     <None Include="..\..\LICENSE" />
     <None Include="..\..\README.md" />
     <CustomBuild Include="imgui_vert.glsl">

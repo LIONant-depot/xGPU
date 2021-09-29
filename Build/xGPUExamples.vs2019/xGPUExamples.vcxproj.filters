@@ -79,6 +79,12 @@
     <Filter Include="Dependencies\meshoptimizer">
       <UniqueIdentifier>{7fd41868-1cc8-42c3-bcb7-398432841c3e}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Examples\Example 10 Basis Universal">
+      <UniqueIdentifier>{0a217378-1808-4b55-b123-5ad090a866a1}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Examples\Example 10 Basis Universal\BaisUniversal">
+      <UniqueIdentifier>{227d0ae3-4650-466b-8b34-08c035cf0297}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Src\Examples\main.cpp" />
@@ -249,6 +255,12 @@
     </ClCompile>
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui_widgets.cpp">
       <Filter>Dependencies\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Examples\E10_BasisUniversal\E10_BasisUniversal.cpp">
+      <Filter>Examples\Example 10 Basis Universal</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder.cpp">
+      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -654,6 +666,36 @@
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imstb_truetype.h">
       <Filter>Dependencies\ImGui</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu.h">
+      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_containers.h">
+      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_containers_impl.h">
+      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_file_headers.h">
+      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_global_selector_cb.h">
+      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_global_selector_palette.h">
+      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder.h">
+      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_internal.h">
+      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_uastc.h">
+      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Tools\xgpu_vtk2_texture_loader.h">
+      <Filter>Examples\Example 10 Basis Universal</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="draw_frag.glsl" />
@@ -663,6 +705,36 @@
   <ItemGroup>
     <None Include="..\..\LICENSE" />
     <None Include="..\..\README.md" />
+    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_astc.inc">
+      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    </None>
+    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_astc_0_255.inc">
+      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    </None>
+    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_atc_55.inc">
+      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    </None>
+    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_atc_56.inc">
+      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    </None>
+    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_bc7_m5_alpha.inc">
+      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    </None>
+    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_bc7_m5_color.inc">
+      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    </None>
+    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_dxt1_5.inc">
+      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    </None>
+    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_dxt1_6.inc">
+      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    </None>
+    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_pvrtc2_45.inc">
+      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    </None>
+    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_pvrtc2_alpha_33.inc">
+      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <Text Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\LICENSE.txt">

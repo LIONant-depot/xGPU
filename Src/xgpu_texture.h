@@ -64,6 +64,7 @@ namespace xgpu
             bool                        m_hasSignedChannels     { false };
             int                         m_Width                 { -1 };
             int                         m_Height                { -1 };
+            int                         m_ArrayCount            {  1 };
             std::span<const mip>        m_MipChain              {};
             std::span<const std::byte>  m_Data                  {};
         };
