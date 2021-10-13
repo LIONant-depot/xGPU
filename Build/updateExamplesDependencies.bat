@@ -1,6 +1,6 @@
 echo OFF
 setlocal enabledelayedexpansion
-set XGPU_PATH=%cd%
+set XGPU_PATH="%cd%"
 
 rem --------------------------------------------------------------------------------------------------------
 rem Set the color of the terminal to blue with yellow text
