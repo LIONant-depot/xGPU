@@ -20,7 +20,8 @@ namespace xgpu::vulkan
 
         void                            FlushCommands       ( void 
                                                             );
-
+        virtual void                    getInstance         ( xgpu::instance& Instance 
+                                                            ) const noexcept override;
         virtual xgpu::device::error*    Create              ( xgpu::window&                             Window
                                                             , const xgpu::window::setup&                Setup
                                                             , std::shared_ptr<device_handle>&           SharedDevice

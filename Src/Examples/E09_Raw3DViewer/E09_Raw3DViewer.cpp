@@ -326,7 +326,7 @@ int E09_Example()
     //
     // Setup ImGui
     //
-    xgpu::tools::imgui::CreateInstance(Instance, Device, MainWindow);
+    xgpu::tools::imgui::CreateInstance(MainWindow);
 
     //
     // Create the inspector window

@@ -44,6 +44,12 @@ namespace xgpu::details
     struct buffer_handle;
 }
 
+namespace xgpu
+{
+    struct device;
+    struct instance;
+};
+
 //
 // Helpful classes
 //

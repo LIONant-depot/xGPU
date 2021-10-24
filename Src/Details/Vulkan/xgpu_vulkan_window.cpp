@@ -630,6 +630,13 @@ namespace xgpu::vulkan
 
     //------------------------------------------------------------------------------------------------------------------------
 
+    xgpu::device window::getDevice( void ) const noexcept
+    {
+        return xgpu::device{ m_Device };
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+
     xgpu::device::error* window::Initialize
     ( std::shared_ptr<vulkan::device>&& Device
     , const xgpu::window::setup&        Setup 

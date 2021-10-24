@@ -15,16 +15,17 @@ namespace xgpu
             float               m_ClearColorA   { 1.0f };
         };
 
-        XGPU_INLINE [[nodiscard]]   bool            isValid                 ( void ) const noexcept;
-        XGPU_INLINE [[nodiscard]]   int             getWidth                ( void ) const noexcept;
-        XGPU_INLINE [[nodiscard]]   int             getHeight               ( void ) const noexcept;
-        XGPU_INLINE [[nodiscard]]   bool            BeginRendering             ( void ) const noexcept;
-        XGPU_INLINE                 cmd_buffer      getCmdBuffer            ( void ) noexcept;
-        XGPU_INLINE                 void            PageFlip                ( void ) noexcept;
-        XGPU_INLINE                 void            setClearColor           ( float R, float G, float B, float A ) noexcept;
-        XGPU_INLINE [[nodiscard]]   std::size_t     getSystemWindowHandle   ( void ) const noexcept;
-        XGPU_INLINE [[nodiscard]]   bool            isFocused               ( void ) const noexcept;
-        XGPU_INLINE [[nodiscard]] std::pair<int,int>getPosition             ( void ) const noexcept;
+        XGPU_INLINE [[nodiscard]]   bool                isValid                 ( void ) const noexcept;
+        XGPU_INLINE [[nodiscard]]   int                 getWidth                ( void ) const noexcept;
+        XGPU_INLINE [[nodiscard]]   int                 getHeight               ( void ) const noexcept;
+        XGPU_INLINE [[nodiscard]]   bool                BeginRendering          ( void ) const noexcept;
+        XGPU_INLINE                 cmd_buffer          getCmdBuffer            ( void ) noexcept;
+        XGPU_INLINE                 void                PageFlip                ( void ) noexcept;
+        XGPU_INLINE                 void                setClearColor           ( float R, float G, float B, float A ) noexcept;
+        XGPU_INLINE [[nodiscard]]   std::size_t         getSystemWindowHandle   ( void ) const noexcept;
+        XGPU_INLINE [[nodiscard]]   bool                isFocused               ( void ) const noexcept;
+        XGPU_INLINE [[nodiscard]]   std::pair<int,int>  getPosition             ( void ) const noexcept;
+        XGPU_INLINE [[nodiscard]]   void                getDevice               ( xgpu::device& Device ) const noexcept;
 
         std::shared_ptr<details::window_handle> m_Private{};
     };

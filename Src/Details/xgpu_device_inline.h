@@ -5,6 +5,9 @@ namespace xgpu
         struct device_handle
         {
             virtual                        ~device_handle           ( void ) noexcept = default;
+
+            virtual void                    getInstance             ( xgpu::instance& Instance 
+                                                                    ) const noexcept = 0;
             virtual device::error*          Create                  ( xgpu::window&                         Window
                                                                     , const xgpu::window::setup&            Setup
                                                                     , std::shared_ptr<device_handle>&       SharedDevice
@@ -34,6 +37,16 @@ namespace xgpu
                                                                     , std::shared_ptr<device_handle>&       SharedDevice
                                                                     ) noexcept = 0;
         };
+    }
+
+    //------------------------------------------------------------------------------------------------
+
+    XGPU_INLINE
+    void device::getInstance
+    ( xgpu::instance& Instance
+    ) const noexcept
+    {
+        return m_Private->getInstance( Instance );
     }
 
     //------------------------------------------------------------------------------------------------
