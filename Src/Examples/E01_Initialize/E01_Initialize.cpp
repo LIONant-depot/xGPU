@@ -127,7 +127,7 @@ int E01_Example()
         {
             constexpr auto          size_v = 32;
             xgpu::texture::setup    Setup;
-            auto                    Mips   = std::array{ xgpu::texture::setup::mip{ size_v * size_v * sizeof(std::uint32_t) }};
+            const auto              Mips   = std::array{ xgpu::texture::setup::mip{ size_v * size_v * sizeof(std::uint32_t) }};
 
             Setup.m_Height   = size_v;
             Setup.m_Width    = size_v;
@@ -229,6 +229,13 @@ int E01_Example()
     //
     while( Instance.ProcessInputEvents() )
     {
+        //
+        // Run Logic...
+        //
+
+        //
+        // Render
+        //
         for( auto& W : lWindow )
         {
             // Windows can not display when they are minimize

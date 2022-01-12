@@ -84,6 +84,7 @@ namespace xgpu
             std::uint8_t    m_ColorWriteMask    { 0b1111 };       // One bit per component R,G,B,A
             bool            m_bEnable           { false };
 
+            // SrcC * SrcFactor  (Op)  DesC * DscFactor
             factor          m_ColorSrcFactor    { factor::ONE };
             factor          m_ColorDstFactor    { factor::ZERO };
             op              m_ColorOperation    { op::ADD };
