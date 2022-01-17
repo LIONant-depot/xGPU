@@ -78,6 +78,9 @@ namespace xgpu::vulkan
         virtual
         void                                    PageFlip                    ( void 
                                                                             ) noexcept override;
+        virtual     
+        xgpu::device                            getDevice                   ( void
+                                                                            ) const noexcept override;
 
         using mati_per_renderpass_map = std::unordered_map<std::uint64_t, pipeline_instance::per_renderpass>;
         using mat_per_renderpass_map  = std::unordered_map<std::uint64_t, pipeline::per_renderpass>;

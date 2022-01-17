@@ -1021,13 +1021,22 @@ void ChildSwapBuffers(ImGuiViewport* pViewport, void*) noexcept
 
 //------------------------------------------------------------------------------------------------------------
 
-xgpu::device::error* CreateInstance(xgpu::instance& Intance, xgpu::device& Device, xgpu::window& MainWindow ) noexcept
+xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
 {
+    xgpu::instance  XGPUInstance;
+    xgpu::device    Device;
+
+    MainWindow.getDevice(Device);
+    Device.getInstance(XGPUInstance);
+
     //
     // Setup Dear ImGui context
     //
-    IMGUI_CHECKVERSION();
-    ImGui::CreateContext();
+    if( nullptr == ImGui::GetCurrentContext() )
+    {
+        IMGUI_CHECKVERSION();
+        ImGui::CreateContext();
+    }
 
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;       // Enable Keyboard Controls
@@ -1095,7 +1104,7 @@ xgpu::device::error* CreateInstance(xgpu::instance& Intance, xgpu::device& Devic
     //
     // Initialize the instance
     //
-    auto Instance = std::make_unique<breach_instance>(Intance, Device, MainWindow);
+    auto Instance = std::make_unique<breach_instance>(XGPUInstance, Device, MainWindow);
     if( auto Err = Instance->InitializePipeline(io); Err ) return Err;
     Instance->m_LastFrameTimer = clock::now();
     io.UserData = Instance.release();
@@ -1132,6 +1141,32 @@ void Shutdown( void ) noexcept
     std::unique_ptr<breach_instance>{ reinterpret_cast<breach_instance*>(&Instance) };
     io.UserData = nullptr;
 }
+
+//------------------------------------------------------------------------------------------------------------
+
+bool isInputSleeping(void) noexcept
+{
+    GETINSTANCE
+
+    //
+    // Check mouse
+    //
+    for (int i = 0; i < (int)xgpu::mouse::digital::ENUM_COUNT; ++i )
+    {
+        if (Instance.m_Mouse.wasPressed((xgpu::mouse::digital)i)) return false;
+    }
+
+    //
+    // Check keyboard
+    //
+    for( int i=0; i < (int)xgpu::keyboard::digital::ENUM_COUNT; ++i )
+    {
+        if( Instance.m_Keyboard.wasPressed( (xgpu::keyboard::digital)i ) ) return false;
+    }
+
+    return true;
+}
+
 
 //------------------------------------------------------------------------------------------------------------
 } //END (xgpu::tools::imgui)

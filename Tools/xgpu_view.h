@@ -1,8 +1,11 @@
+#ifndef _XGPU_TOOLS_VIEW_H
+#define _XGPU_TOOLS_VIEW_H
+#pragma once
+
 #ifndef _XCORE_H
     #error "you must include xcore.h before this file gets included"
 #endif
 
-#pragma once
 namespace xgpu::tools
 {
     class view 
@@ -158,4 +161,6 @@ namespace xgpu::tools
     };
 }
 
-        
+#include "xgpu_view_inline.h"
+
+#endif

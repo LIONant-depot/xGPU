@@ -23,7 +23,7 @@ namespace xgpu
             virtual     std::size_t                     getSystemWindowHandle   ( void ) const                                              noexcept = 0;
             virtual     bool                            isFocused               ( void ) const                                              noexcept = 0;
             virtual     std::pair<int, int>             getPosition             ( void ) const                                              noexcept = 0;
-
+            virtual     xgpu::device                    getDevice               ( void ) const                                              noexcept = 0;
 
 
 //            virtual     bool                            HandleEvents(void)                                                    noexcept = 0;
@@ -123,4 +123,11 @@ namespace xgpu
         return m_Private->getPosition();
     }
 
+    //--------------------------------------------------------------------------
+
+    XGPU_INLINE [[nodiscard]]
+    void window::getDevice( xgpu::device& Device ) const noexcept
+    {
+        Device = m_Private->getDevice();
+    }
 }

@@ -208,6 +208,13 @@ namespace xgpu::vulkan
 
     //----------------------------------------------------------------------------------------------------------
 
+    void device::getInstance( xgpu::instance& Instance ) const noexcept
+    {
+        Instance.m_Private = m_Instance;
+    }
+
+    //----------------------------------------------------------------------------------------------------------
+
     bool device::getMemoryType
     ( std::uint32_t     TypeBits
     , const VkFlags     Properties

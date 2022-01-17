@@ -320,7 +320,7 @@ int E05_Example()
     //
     // Setup ImGui
     //
-    xgpu::tools::imgui::CreateInstance(Instance, Device, MainWindow);
+    xgpu::tools::imgui::CreateInstance(MainWindow);
 
     //
     // Load bitmaps
