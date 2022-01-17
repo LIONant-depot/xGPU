@@ -270,15 +270,21 @@
   <ItemGroup>
     <CustomBuild Include="draw_frag.glsl">
       <FileType>Document</FileType>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=frag %(FullPath) -mfmt=num -o  $(ProjectDir)%(FileName).h</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=frag "%(FullPath)" -mfmt=num -o  "$(ProjectDir)%(FileName).h"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(FileName).h</Outputs>
       <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</DeploymentContent>
+      <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</DeploymentContent>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=frag "%(FullPath)" -mfmt=num -o  "$(ProjectDir)%(FileName).h"</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">%(FileName).h</Outputs>
     </CustomBuild>
     <CustomBuild Include="draw_vert.glsl">
       <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</DeploymentContent>
       <FileType>Document</FileType>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=vert %(FullPath) -mfmt=num -o  $(ProjectDir)%(FileName).h</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=vert "%(FullPath)" -mfmt=num -o  "$(ProjectDir)%(FileName).h"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(FileName).h</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=vert "%(FullPath)" -mfmt=num -o  "$(ProjectDir)%(FileName).h"</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">%(FileName).h</Outputs>
+      <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</DeploymentContent>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
@@ -297,8 +303,11 @@
     <CustomBuild Include="imgui_vert.glsl">
       <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</DeploymentContent>
       <FileType>Document</FileType>
-      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=vert %(FullPath) -mfmt=num -o  $(ProjectDir)%(FileName).h</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=vert "%(FullPath)" -mfmt=num -o  "$(ProjectDir)%(FileName).h"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">%(FileName).h</Outputs>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=vert "%(FullPath)" -mfmt=num -o  "$(ProjectDir)%(FileName).h"</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">%(FileName).h</Outputs>
+      <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</DeploymentContent>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>

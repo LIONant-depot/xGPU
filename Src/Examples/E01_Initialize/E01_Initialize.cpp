@@ -22,8 +22,13 @@ struct draw_vert
 int E01_Example()
 {
     xgpu::instance Instance;
-    if( auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = DebugMessage, .m_pLogWarning = DebugMessage } ); Err )
-        return xgpu::getErrorInt(Err);
+    if( auto Err = xgpu::CreateInstance( Instance
+                                       , { .m_bDebugMode       = true
+                                         , .m_bEnableRenderDoc = true
+                                         , .m_pLogErrorFunc    = DebugMessage
+                                         , .m_pLogWarning      = DebugMessage 
+                                         }
+                                       ); Err ) return xgpu::getErrorInt(Err);
 
     xgpu::device Device;
     if( auto Err = Instance.Create( Device ); Err )
