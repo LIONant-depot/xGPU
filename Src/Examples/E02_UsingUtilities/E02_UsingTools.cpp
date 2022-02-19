@@ -148,8 +148,8 @@ int E02_Example()
 
         auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
         auto Setup    = xgpu::pipeline_instance::setup
-        { .m_PipeLine = PipeLine
-        ,   .m_SamplersBindings = Bindings
+        { .m_PipeLine         = PipeLine
+        , .m_SamplersBindings = Bindings
         };
 
         if (auto Err = Device.Create(PipeLineInstance[i], Setup); Err)
@@ -248,7 +248,7 @@ int E02_Example()
         {
             auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
             Angles.m_Pitch.m_Value -= 0.01f * MousePos[1];
-            Angles.m_Yaw.m_Value -= 0.01f * MousePos[0];
+            Angles.m_Yaw.m_Value   -= 0.01f * MousePos[0];
         }
         Distance += -1.0f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
         if (Distance < 2) Distance = 2;
@@ -280,12 +280,14 @@ int E02_Example()
                     xcore::matrix4 L2W;
                     L2W.setIdentity();
                     L2W.RotateY(R);
-                    L2W = (W2C * L2W);
+
+                    xcore::matrix4 L2C;
+                    L2C = W2C * L2W;
 
                     CmdBuffer.setPipelineInstance(PipeLineInstance[0]);
                     CmdBuffer.setBuffer(VertexBuffer);
                     CmdBuffer.setBuffer(IndexBuffer);
-                    CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0, &L2W, static_cast<std::uint32_t>(sizeof(xcore::matrix4)));
+                    CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0, &L2C, static_cast<std::uint32_t>(sizeof(xcore::matrix4)));
                     CmdBuffer.Draw(IndexBuffer.getEntryCount());
                 }
 
@@ -294,10 +296,12 @@ int E02_Example()
                     xcore::matrix4 L2W;
                     L2W.setIdentity();
                     L2W.Translate({0,-0.5f, -1.1f });
-                    L2W = W2C * L2W;
+
+                    xcore::matrix4 L2C;
+                    L2C = W2C * L2W;
 
                     CmdBuffer.setPipelineInstance(PipeLineInstance[1]);
-                    CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0, &L2W, static_cast<std::uint32_t>(sizeof(xcore::matrix4)));
+                    CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0, &L2C, static_cast<std::uint32_t>(sizeof(xcore::matrix4)));
                     CmdBuffer.Draw(IndexBuffer.getEntryCount());
                 }
             }

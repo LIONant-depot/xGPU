@@ -247,8 +247,8 @@ namespace xgpu::vulkan
                 MinimalDestroyFrame          ( m_Device->m_VKDevice, m_Frames[i],           pAllocator );
                 MinimalDestroyFrameSemaphores( m_Device->m_VKDevice, m_FrameSemaphores[i],  pAllocator );
             }
-            m_Frames.release();
-            m_FrameSemaphores.release();
+            m_Frames.reset();
+            m_FrameSemaphores.reset();
 
             //
             // Release the depth buffer as well

@@ -7,8 +7,8 @@ int main()
 {
     xcore::Init("xGPUExamples");
 
-    if constexpr (!false) if (auto err = E01_Example(); err) return err;
-    if constexpr (false) if (auto err = E02_Example(); err) return err;
+    if constexpr (false) if (auto err = E01_Example(); err) return err;
+    if constexpr (!false) if (auto err = E02_Example(); err) return err;
     if constexpr (false) if (auto err = E03_Example(); err) return err;
     if constexpr (false) if (auto err = E04_Example(); err) return err;
     if constexpr (false) if (auto err = E05_Example(); err) return err;
@@ -16,7 +16,7 @@ int main()
     if constexpr (false) if (auto err = E07_Example(); err) return err;
     if constexpr (false) if (auto err = E08_Example(); err) return err;
     if constexpr (false) if (auto err = E09_Example(); err) return err;
-    if constexpr (false) if (auto err = E10_Example(); err) return err;
+    if constexpr (!false) if (auto err = E10_Example(); err) return err;
 
     xcore::Kill();
 

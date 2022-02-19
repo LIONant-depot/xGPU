@@ -200,6 +200,10 @@ namespace xgpu::vulkan
         {
             Instance.ReportWarning( (VkResult)msgCode, xgpu::FormatString("[%s] Code %d : %s", pLayerPrefix, msgCode, pMsg) );
         }
+        else if (flags & VK_DEBUG_REPORT_PERFORMANCE_WARNING_BIT_EXT )
+        {
+            Instance.ReportWarning((VkResult)msgCode, xgpu::FormatString("[%s] Code %d : %s", pLayerPrefix, msgCode, pMsg));
+        }
 
         return false;
     }
@@ -363,7 +367,7 @@ namespace xgpu::vulkan
         {
             VkPhysicalDeviceProperties DeviceProperties;
             vkGetPhysicalDeviceProperties(PhysicalDevices[i], &DeviceProperties);
-            if( DeviceProperties.apiVersion < VK_API_VERSION_1_1 )
+            if( DeviceProperties.apiVersion < VK_API_VERSION_1_2 )
             {
                 PhysicalDevices.erase(PhysicalDevices.begin() + i);
                 i--;
@@ -470,6 +474,7 @@ namespace xgpu::vulkan
             //
             for( auto& Prop : DeviceProps )
             {
+                // TODO: Make sure it chooses the smaller subset queue
                 // If property is the same type as the one requested by the user then we should consider it
                 if( Prop.queueFlags & QueueType[static_cast<std::size_t>(Setup.m_Type)] )
                 {
