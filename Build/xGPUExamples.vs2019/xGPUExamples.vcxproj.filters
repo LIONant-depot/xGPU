@@ -85,6 +85,9 @@
     <Filter Include="Examples\Example 10 Basis Universal\BaisUniversal">
       <UniqueIdentifier>{227d0ae3-4650-466b-8b34-08c035cf0297}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Examples\Example 11 Normal Maps">
+      <UniqueIdentifier>{fd83237d-765a-4790-9d54-fc329a72d075}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Src\Examples\main.cpp" />
@@ -261,6 +264,9 @@
     </ClCompile>
     <ClCompile Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder.cpp">
       <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Examples\E11_NormalMaps\E11_NormalMaps.cpp">
+      <Filter>Examples\Example 11 Normal Maps</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -701,6 +707,8 @@
     <CustomBuild Include="draw_frag.glsl" />
     <CustomBuild Include="draw_vert.glsl" />
     <CustomBuild Include="imgui_vert.glsl" />
+    <CustomBuild Include="draw_vert_btn.glsl" />
+    <CustomBuild Include="draw_frag_btn.glsl" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\LICENSE" />

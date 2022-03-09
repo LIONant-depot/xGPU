@@ -136,7 +136,7 @@ int E06_Example()
 
     xgpu::assimp::model_loader ModelLoader;
 
-    if( auto Err = ModelLoader.Load( Device, "../../Dependencies/assimp/test/models/FBX/spider.fbx"); Err ) //FBX/box.fbx //
+    if( auto Err = ModelLoader.Load( Device, "../../dependencies/xgeom_compiler/dependencies/xraw3D/dependencies/assimp/test/models/FBX/spider.fbx"); Err ) //FBX/box.fbx //
     {
         assert(false);
         return -1;

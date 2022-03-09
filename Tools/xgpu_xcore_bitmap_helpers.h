@@ -75,6 +75,7 @@ namespace xgpu::tools::bitmap
         Setup.m_Width       = Bitmap.getWidth();
         Setup.m_MipChain    = Mips;
         Setup.m_Data        = std::span{ Bitmap.getMip<std::byte>(0).data(), Bitmap.getFrameSize() };
+        Setup.m_Type        = Bitmap.isLinearSpace()? xgpu::texture::type::LINEAR : xgpu::texture::type::GAMMA;
 
         if (auto Err = Device.Create(Texture, Setup); Err)
             return Err;

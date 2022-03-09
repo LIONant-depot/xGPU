@@ -138,9 +138,9 @@ namespace xgpu::vulkan
 
         m_Device->m_BufferMemoryAlignment = (m_Device->m_BufferMemoryAlignment > req.alignment) ? m_Device->m_BufferMemoryAlignment : req.alignment;
         VkMemoryAllocateInfo AllocInfo
-        { .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO
-        ,   .allocationSize = req.size
-        ,   .memoryTypeIndex = 0
+        { .sType            = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO
+        , .allocationSize   = req.size
+        , .memoryTypeIndex  = 0
         };
         m_Device->getMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, AllocInfo.memoryTypeIndex);
 
