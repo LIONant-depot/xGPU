@@ -88,6 +88,9 @@
     <Filter Include="Examples\Example 11 Normal Maps">
       <UniqueIdentifier>{fd83237d-765a-4790-9d54-fc329a72d075}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Examples\Example 12 Lighting">
+      <UniqueIdentifier>{07ce7c66-49d7-491e-9fe8-2484f270635b}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Src\Examples\main.cpp" />

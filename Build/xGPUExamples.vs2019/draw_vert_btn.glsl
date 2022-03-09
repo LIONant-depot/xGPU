@@ -20,20 +20,23 @@ layout(location = 0) out struct
 { 
     float VertexLighting; 
     vec2  UV; 
+    vec3  LocalSpaceLightPosition;
 	vec3  LocalSpaceLightDir;
     vec3  TangentLightDir;
     mat3  BTN;
+    vec3  LocalSpacePosition;
 } Out;
 
 void main() 
 {
     // Compute lighting information
-    Out.LocalSpaceLightDir  = normalize( pushConsts.LocalSpaceLightPos - inPos );
-    Out.VertexLighting      = max( 0, dot( inNormal, Out.LocalSpaceLightDir ));
-    Out.UV                  = inUV;
+    Out.LocalSpaceLightPosition = pushConsts.LocalSpaceLightPos;
+    Out.LocalSpaceLightDir      = normalize( pushConsts.LocalSpaceLightPos - inPos );
+    Out.VertexLighting          = max( 0, dot( inNormal, Out.LocalSpaceLightDir ));
+    Out.UV                      = inUV;
 
-    Out.BTN                 = mat3(inTangent, inBinormal, inNormal);
-    Out.TangentLightDir     = transpose(Out.BTN) * Out.LocalSpaceLightDir;
+    Out.BTN                     = mat3(inTangent, inBinormal, inNormal);
+    Out.TangentLightDir         = transpose(Out.BTN) * Out.LocalSpaceLightDir;
 
-    gl_Position             = pushConsts.L2C * vec4(inPos.xyz, 1.0);
+    gl_Position                 = pushConsts.L2C * vec4(inPos.xyz, 1.0);
 }

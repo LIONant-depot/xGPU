@@ -191,9 +191,9 @@ int E11_Example()
     //
     // Create mesh
     //
-    auto Mesh = //xprim_geom::uvsphere::Generate( 30, 30, 2, 1 );
+    auto Mesh = xprim_geom::uvsphere::Generate( 30, 30, 2, 1 );
                 //xprim_geom::capsule::Generate(30,30,1,2);//30, 30, 2, 1);
-                xprim_geom::cube::Generate( 4, 4, 4, 4, xprim_geom::float3{1,1,1} );
+                //xprim_geom::cube::Generate( 4, 4, 4, 4, xprim_geom::float3{1,1,1} );
 
     xgpu::buffer VertexBuffer;
     {
