@@ -32,6 +32,8 @@ struct push_constants
     xcore::matrix4 m_L2C;
     xcore::vector3 m_LocalSpaceLightPos;
     xcore::vector3 m_LocalSpaceEyePos;
+    xcore::vector4 m_AmbientLightColor;     // Color and Intensity
+    xcore::vector4 m_LightColor;            // Color and Intensity
 };
 
 //------------------------------------------------------------------------------------------------
@@ -138,7 +140,12 @@ int E12_Example()
         }
 
         auto Shaders  = std::array<const xgpu::shader*,2>{ &MyVertexShader, &MyFragmentShader };
-        auto Samplers = std::array{ xgpu::pipeline::sampler{}, xgpu::pipeline::sampler{} };
+        auto Samplers = std::array
+        { xgpu::pipeline::sampler{}
+        , xgpu::pipeline::sampler{}
+        , xgpu::pipeline::sampler{}
+        , xgpu::pipeline::sampler{}
+        };
         auto Setup    = xgpu::pipeline::setup
         {
             .m_VertexDescriptor  = VertexDescriptor
@@ -158,6 +165,8 @@ int E12_Example()
     {
         xgpu::texture NormalTexture;
         xgpu::texture DiffuseTexture;
+        xgpu::texture AOTexture;
+        xgpu::texture GlossinessTexture;
         
         //
         // Load Normal Texture
@@ -211,8 +220,64 @@ int E12_Example()
             }
         }
 
+        //
+        // Load Ambient Occlusion Texture
+        //
+        {
+            xcore::bitmap Bitmap;
 
-        auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ NormalTexture }, xgpu::pipeline_instance::sampler_binding{DiffuseTexture} };
+            //
+            // Load file
+            //
+            if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Ambient Occlusion.dds"); Err)
+            {
+                DebugMessage(xbmp::tools::getErrorMsg(Err));
+                std::exit(xbmp::tools::getErrorInt(Err));
+            }
+            Bitmap.setColorSpace(xcore::bitmap::color_space::SRGB);
+
+            //
+            // Create Texture
+            //
+            if (auto Err = xgpu::tools::bitmap::Create(AOTexture, Device, Bitmap); Err)
+            {
+                DebugMessage(xgpu::getErrorMsg(Err));
+                std::exit(xgpu::getErrorInt(Err));
+            }
+        }
+
+        //
+        // Load Glossiness Texture
+        //
+        {
+            xcore::bitmap Bitmap;
+
+            //
+            // Load file
+            //
+            if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Glossiness.dds"); Err)
+            {
+                DebugMessage(xbmp::tools::getErrorMsg(Err));
+                std::exit(xbmp::tools::getErrorInt(Err));
+            }
+            Bitmap.setColorSpace(xcore::bitmap::color_space::SRGB);
+
+            //
+            // Create Texture
+            //
+            if (auto Err = xgpu::tools::bitmap::Create(GlossinessTexture, Device, Bitmap); Err)
+            {
+                DebugMessage(xgpu::getErrorMsg(Err));
+                std::exit(xgpu::getErrorInt(Err));
+            }
+        }
+
+        auto Bindings = std::array
+        { xgpu::pipeline_instance::sampler_binding{ NormalTexture }
+        , xgpu::pipeline_instance::sampler_binding{DiffuseTexture} 
+        , xgpu::pipeline_instance::sampler_binding{AOTexture}
+        , xgpu::pipeline_instance::sampler_binding{GlossinessTexture}
+        };
         auto Setup    = xgpu::pipeline_instance::setup
         { .m_PipeLine           = PipeLine
         , .m_SamplersBindings   = Bindings
@@ -341,6 +406,8 @@ int E12_Example()
                 PushConstants.m_L2C                 = W2C * L2W;
                 PushConstants.m_LocalSpaceEyePos    = W2L * View.getPosition();
                 PushConstants.m_LocalSpaceLightPos  = W2L * LightPosition;
+                PushConstants.m_AmbientLightColor.setup( 0.05f, 0.05f, 0.05f, 1.0f );
+                PushConstants.m_LightColor.setup( 0.8f, 0.8f, 0.8f, 1.0f );
 
                 CmdBuffer.setPipelineInstance(PipeLineInstance);
                 CmdBuffer.setBuffer(VertexBuffer);

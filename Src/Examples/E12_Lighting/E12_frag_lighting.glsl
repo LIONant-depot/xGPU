@@ -2,8 +2,10 @@
 #extension GL_ARB_separate_shader_objects  : enable
 #extension GL_ARB_shading_language_420pack : enable
 
-layout (binding = 0)    uniform     sampler2D   SamplerNormalMap;	// [INPUT_TEXTURE_NORMAL]
-layout (binding = 1)    uniform     sampler2D   SamplerDiffuseMap;	// [INPUT_TEXTURE_DIFFUSE]
+layout (binding = 0)    uniform     sampler2D   SamplerNormalMap;		// [INPUT_TEXTURE_NORMAL]
+layout (binding = 1)    uniform     sampler2D   SamplerDiffuseMap;		// [INPUT_TEXTURE_DIFFUSE]
+layout (binding = 1)    uniform     sampler2D   SamplerAOMap;			// [INPUT_TEXTURE_AO]
+layout (binding = 1)    uniform     sampler2D   SamplerGlossivessMap;	// [INPUT_TEXTURE_GLOSSINESS]
 
 layout(location = 0) in struct 
 { 
@@ -17,18 +19,18 @@ layout (push_constant) uniform PushConsts
     mat4 L2C;
     vec4 LocalSpaceLightPos;
     vec4 LocalSpaceEyePos;
+	vec4 AmbientLightColor;
+	vec4 LightColor;
 } pushConsts;
 
 
 layout (location = 0)   out         vec4        outFragColor;
 
-vec3  GlobalLightColor = { 0.0f, 0.0f, 0.0f };
 float Shininess        = 20.9f;
 
 void main() 
 {
 	vec3 Normal			= In.BTN * normalize( texture(SamplerNormalMap, In.UV).rgb * 2.0 - 1.0);
-	vec4 DiffuseColor	= texture(SamplerDiffuseMap, In.UV);
 
 	//
 	// Different techniques to do Lighting
@@ -45,15 +47,19 @@ void main()
 
 	// The old way to Compute Specular "PHONG"
 	// Reflection == I - 2.0 * dot(N, I) * N // Where N = Normal, I = LightDirectioh
-	float SpecularI1   = pow( max(0, dot( reflect(LightDirection, Normal), EyeDirection )), Shininess );
+	float SpecularI1  = pow( max(0, dot( reflect(LightDirection, Normal), EyeDirection )), Shininess );
 
 	// Another way to compute specular "BLINN-PHONG" (https://learnopengl.com/Advanced-Lighting/Advanced-Lighting)
-	float SpecularI2   = pow( max( 0, dot(Normal, normalize( LightDirection - EyeDirection ))), Shininess);
+	float SpecularI2  = pow( max( 0, dot(Normal, normalize( LightDirection - EyeDirection ))), Shininess);
 
-	//SpecularI1   = max( 0,dot( In.LocalSpaceEyePos, In.LocalSpaceLightPosition ));
+	// Read the diffuse color
+	vec4 DiffuseColor	= texture(SamplerDiffuseMap, In.UV);
 
-	// Build the final pixel color
-	outFragColor.rgb = 0.5*SpecularI2.rrr + 0.5*DiffuseI.rrr * DiffuseColor.rgb + GlobalLightColor;
+	// Set the global constribution
+	outFragColor.rgb  = pushConsts.AmbientLightColor.rgb * DiffuseColor.rgb * texture(SamplerAOMap, In.UV).rgb;
+
+	// Add the contribution of this light
+	outFragColor.rgb += pushConsts.LightColor.rgb * ( SpecularI2.rrr *  texture(SamplerGlossivessMap, In.UV).rgb + DiffuseI.rrr * DiffuseColor.rgb );
 
 	// Convert to gamma
 	const float gamma = 2.2f;
