@@ -30,7 +30,7 @@ struct draw_vert_btn
 struct push_constants
 {
     xcore::matrix4 m_L2C;
-    xcore::vector3 m_LocalSpaceLightPos;
+    xcore::vector4 m_LocalSpaceLightPos;    // We store gamma in the w
     xcore::vector3 m_LocalSpaceEyePos;
     xcore::vector4 m_AmbientLightColor;     // Color and Intensity
     xcore::vector4 m_LightColor;            // Color and Intensity
@@ -408,6 +408,7 @@ int E12_Example()
                 PushConstants.m_LocalSpaceLightPos  = W2L * LightPosition;
                 PushConstants.m_AmbientLightColor.setup( 0.05f, 0.05f, 0.05f, 1.0f );
                 PushConstants.m_LightColor.setup( 0.8f, 0.8f, 0.8f, 1.0f );
+                PushConstants.m_LocalSpaceEyePos.m_W = 2.2f;  // We store gamma in the w component of the eye
 
                 CmdBuffer.setPipelineInstance(PipeLineInstance);
                 CmdBuffer.setBuffer(VertexBuffer);

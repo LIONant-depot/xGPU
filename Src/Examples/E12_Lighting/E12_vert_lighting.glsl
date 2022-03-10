@@ -12,23 +12,29 @@ layout (location = 5) in vec4 inColor;      //[INPUT_COLOR]
 
 layout (push_constant) uniform PushConsts 
 {
-    mat4 L2C;
-    vec4 LocalSpaceLightPos;
-    vec4 LocalSpaceEyePos;
+    mat4  L2C;
+    vec4  LocalSpaceLightPos;
+    vec4  LocalSpaceEyePos;
+	vec4  AmbientLightColor;
+	vec4  LightColor;
 } pushConsts;
 
 layout(location = 0) out struct 
 { 
     mat3  BTN;
+    vec4  VertColor;
 	vec3  LocalSpacePosition;
     vec2  UV; 
 } Out;
 
 void main() 
 {
+	const float Gamma = pushConsts.LocalSpaceEyePos.w;
+
     // Compute lighting information
     Out.BTN                     = mat3(inTangent, inBinormal, inNormal);
     Out.LocalSpacePosition      = inPos;
+    Out.VertColor               = pow( inColor, Gamma.rrrr );    // SRGB to RGB
     Out.UV                      = inUV;
 
     gl_Position                 = pushConsts.L2C * vec4(inPos.xyz, 1.0);

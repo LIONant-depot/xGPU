@@ -10,27 +10,27 @@ layout (binding = 1)    uniform     sampler2D   SamplerGlossivessMap;	// [INPUT_
 layout(location = 0) in struct 
 { 
     mat3  BTN;
+    vec4  VertColor;
 	vec3  LocalSpacePosition;
     vec2  UV; 
 } In;
 
 layout (push_constant) uniform PushConsts 
 {
-    mat4 L2C;
-    vec4 LocalSpaceLightPos;
-    vec4 LocalSpaceEyePos;
-	vec4 AmbientLightColor;
-	vec4 LightColor;
+    mat4  L2C;
+    vec4  LocalSpaceLightPos;
+    vec4  LocalSpaceEyePos;
+	vec4  AmbientLightColor;
+	vec4  LightColor;
 } pushConsts;
-
 
 layout (location = 0)   out         vec4        outFragColor;
 
-float Shininess        = 20.9f;
+float Shininess = 20.9f;
 
 void main() 
 {
-	vec3 Normal			= In.BTN * normalize( texture(SamplerNormalMap, In.UV).rgb * 2.0 - 1.0);
+	vec3 Normal = In.BTN * normalize( texture(SamplerNormalMap, In.UV).rgb * 2.0 - 1.0);
 
 	//
 	// Different techniques to do Lighting
@@ -53,7 +53,7 @@ void main()
 	float SpecularI2  = pow( max( 0, dot(Normal, normalize( LightDirection - EyeDirection ))), Shininess);
 
 	// Read the diffuse color
-	vec4 DiffuseColor	= texture(SamplerDiffuseMap, In.UV);
+	vec4 DiffuseColor	= texture(SamplerDiffuseMap, In.UV) * In.VertColor;
 
 	// Set the global constribution
 	outFragColor.rgb  = pushConsts.AmbientLightColor.rgb * DiffuseColor.rgb * texture(SamplerAOMap, In.UV).rgb;
@@ -62,9 +62,9 @@ void main()
 	outFragColor.rgb += pushConsts.LightColor.rgb * ( SpecularI2.rrr *  texture(SamplerGlossivessMap, In.UV).rgb + DiffuseI.rrr * DiffuseColor.rgb );
 
 	// Convert to gamma
-	const float gamma = 2.2f;
-	outFragColor.a   = 1;
-	outFragColor.rgb = pow( outFragColor.rgb, vec3(1.0f/gamma) );
+	const float Gamma = pushConsts.LocalSpaceEyePos.w;
+	outFragColor.a   = DiffuseColor.a;
+	outFragColor.rgb = pow( outFragColor.rgb, vec3(1.0f/Gamma) );
 }
 
 
