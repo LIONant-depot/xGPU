@@ -27,6 +27,12 @@ struct draw_vert_btn
     xcore::icolor   m_Color;
 };
 
+struct push_constans
+{
+    xcore::matrix4 m_L2C;
+    xcore::vector3 m_LocalSpaceLightPosition;
+};
+
 //------------------------------------------------------------------------------------------------
 
 int E11_Example()
@@ -98,7 +104,7 @@ int E11_Example()
             auto RawData = xgpu::shader::setup::raw_data
             { std::array
                 {
-                    #include "x64\draw_frag_btn.h"
+                    #include "x64\E11_frag_btn.h"
                 }
             };
 
@@ -108,21 +114,16 @@ int E11_Example()
 
         xgpu::shader MyVertexShader;
         {
-            auto UniformConstans = std::array
-            { static_cast<int>(sizeof(float) * 4 * 4)   // LocalToClip
-            , static_cast<int>(sizeof(xcore::vector3d)) // Light Position
-            };
             auto RawData = xgpu::shader::setup::raw_data
             { std::array
                 {
-                    #include "x64\draw_vert_btn.h"
+                    #include "x64\E11_vert_btn.h"
                 }
             };
             xgpu::shader::setup Setup
             {
                 .m_Type                 = xgpu::shader::type::VERTEX
             ,   .m_Sharer               = RawData
-            ,   .m_InOrderUniformSizes  = UniformConstans
             };
 
             if (auto Err = Device.Create(MyVertexShader, Setup); Err)
@@ -133,9 +134,10 @@ int E11_Example()
         auto Samplers = std::array{ xgpu::pipeline::sampler{} };
         auto Setup    = xgpu::pipeline::setup
         {
-            .m_VertexDescriptor = VertexDescriptor
-        ,   .m_Shaders          = Shaders
-        ,   .m_Samplers         = Samplers
+            .m_VertexDescriptor  = VertexDescriptor
+        ,   .m_Shaders           = Shaders
+        ,   .m_PushConstantsSize = sizeof(push_constans)
+        ,   .m_Samplers          = Samplers
         };
 
         if (auto Err = Device.Create(PipeLine, Setup); Err)
@@ -302,16 +304,15 @@ int E11_Example()
                 // Take the light to local space of the object
                 auto W2L = L2W;
                 W2L.InvertSRT();
-                LightPosition = W2L * LightPosition;
 
-                xcore::matrix4 L2C;
-                L2C = W2C * L2W;
+                push_constans PushConstans;
+                PushConstans.m_L2C                      = W2C * L2W;
+                PushConstans.m_LocalSpaceLightPosition  = W2L * LightPosition;
 
                 CmdBuffer.setPipelineInstance(PipeLineInstance);
                 CmdBuffer.setBuffer(VertexBuffer);
                 CmdBuffer.setBuffer(IndexBuffer);
-                CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0, &L2C,             static_cast<std::uint32_t>(sizeof(xcore::matrix4)));
-                CmdBuffer.setConstants(xgpu::shader::type::VERTEX, static_cast<std::uint32_t>(sizeof(xcore::matrix4)), &LightPosition,   static_cast<std::uint32_t>(sizeof(xcore::vector3d)));
+                CmdBuffer.setConstants( 0, &PushConstans, sizeof(push_constans) );
                 CmdBuffer.Draw(IndexBuffer.getEntryCount());
             }
         }

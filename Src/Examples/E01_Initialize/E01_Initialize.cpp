@@ -102,7 +102,6 @@ int E01_Example()
             {
                 .m_Type   = xgpu::shader::type::VERTEX
             ,   .m_Sharer = RawData
-            ,   .m_InOrderUniformSizes = UniformConstans
             };
 
             if (auto Err = Device.Create(MyVertexShader, Setup ); Err)
@@ -113,9 +112,10 @@ int E01_Example()
         auto Samplers   = std::array{ xgpu::pipeline::sampler{} };
         auto Setup      = xgpu::pipeline::setup
         {
-            .m_VertexDescriptor = VertexDescriptor
-        ,   .m_Shaders          = Shaders
-        ,   .m_Samplers         = Samplers
+            .m_VertexDescriptor  = VertexDescriptor
+        ,   .m_Shaders           = Shaders
+        ,   .m_PushConstantsSize = sizeof(float)*4*4
+        ,   .m_Samplers          = Samplers
         };
 
         if (auto Err = Device.Create(PipeLine, Setup ); Err)
@@ -259,12 +259,12 @@ int E01_Example()
                 CmdBuffer.setPipelineInstance(PipeLineInstance[0]);
                 CmdBuffer.setBuffer(VertexBuffer);
                 CmdBuffer.setBuffer(IndexBuffer);
-                CmdBuffer.setConstants( xgpu::shader::type::VERTEX, 0, FinalMatrix.data(), static_cast<std::uint32_t>(sizeof(FinalMatrix)) );
+                CmdBuffer.setConstants( 0, FinalMatrix.data(), sizeof(FinalMatrix) );
                 CmdBuffer.Draw( IndexBuffer.getEntryCount() );
 
                 FinalMatrix[ 1 + 4*3 ] = 3.1f; 
                 CmdBuffer.setPipelineInstance(PipeLineInstance[1]);
-                CmdBuffer.setConstants( xgpu::shader::type::VERTEX, 0, FinalMatrix.data(), static_cast<std::uint32_t>(sizeof(FinalMatrix)) );
+                CmdBuffer.setConstants( 0, FinalMatrix.data(), sizeof(FinalMatrix) );
                 CmdBuffer.Draw( IndexBuffer.getEntryCount() );
             }
 

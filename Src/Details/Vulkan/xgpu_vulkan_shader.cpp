@@ -79,27 +79,6 @@ namespace xgpu::vulkan
                 assert(false);
         }
 
-        //
-        // Copy over the push constant ranges
-        //
-        if(Setup.m_InOrderUniformSizes.size())
-        {
-            m_nPushConstantRanges = 1;
-
-            int Range = 0;
-            for (auto& U : Setup.m_InOrderUniformSizes)
-            {
-                Range += U;
-            }
-            m_VKPushConstantRanges[0].offset = 0;
-            m_VKPushConstantRanges[0].size   = Range;
-            m_VKPushConstantRanges[0].stageFlags = m_ShaderStageCreateInfo.stage;
-        }
-        else
-        {
-            m_nPushConstantRanges = 0;
-        }
-
         return nullptr;
     }
 

@@ -13,6 +13,13 @@
 #include "../../dependencies/xgeom_compiler/src_runtime/xgeom.h"
 
 //------------------------------------------------------------------------------------------------
+
+struct push_constants
+{
+    xcore::matrix4 m_L2C;
+};
+
+//------------------------------------------------------------------------------------------------
 static
 void DebugMessage(std::string_view View)
 {
@@ -165,9 +172,6 @@ struct runtime_material
 
         xgpu::shader MyVertexShader;
         {
-            auto UniformConstans = std::array
-            { static_cast<int>(sizeof(float) * 4 * 4)   // LocalToClip
-            };
             auto RawData = xgpu::shader::setup::raw_data
             { std::array
                 {
@@ -176,9 +180,8 @@ struct runtime_material
             };
             xgpu::shader::setup Setup
             {
-                .m_Type = xgpu::shader::type::VERTEX
+                .m_Type   = xgpu::shader::type::VERTEX
             ,   .m_Sharer = RawData
-            ,   .m_InOrderUniformSizes = UniformConstans
             };
 
             if (auto Err = Device.Create(MyVertexShader, Setup); Err)
@@ -189,9 +192,10 @@ struct runtime_material
         auto Samplers = std::array{ xgpu::pipeline::sampler{} };
         auto Setup = xgpu::pipeline::setup
         {
-            .m_VertexDescriptor = VertexDescriptor
-        ,   .m_Shaders = Shaders
-        ,   .m_Samplers = Samplers
+            .m_VertexDescriptor     = VertexDescriptor
+        ,   .m_Shaders              = Shaders
+        ,   .m_PushConstantsSize    = sizeof(push_constants)
+        ,   .m_Samplers             = Samplers
         };
 
         if (auto Err = Device.Create(m_Pipeline, Setup); Err)
@@ -242,7 +246,10 @@ struct runtime_material_instance
     void Activate(xgpu::cmd_buffer& CmdBuffer, const xcore::matrix4& L2C)
     {
         CmdBuffer.setPipelineInstance(m_PipelineInstance);
-        CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0, &L2C, static_cast<std::uint32_t>(sizeof(xcore::matrix4)));
+
+        push_constants PushConstants;
+        PushConstants.m_L2C = L2C;
+        CmdBuffer.setConstants( 0, &PushConstants,  sizeof(push_constants) );
     }
 };
 

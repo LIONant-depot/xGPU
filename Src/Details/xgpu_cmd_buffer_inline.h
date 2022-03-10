@@ -78,9 +78,9 @@ namespace xgpu
 
     //--------------------------------------------------------------------------------------
 
-    cmd_buffer& cmd_buffer::setConstants( xgpu::shader::type Type, int Offset, const void* pData, int Size ) noexcept
+    cmd_buffer& cmd_buffer::setConstants( int Offset, const void* pData, std::size_t Size ) noexcept
     {
-        m_pWindow->setConstants( Type, Offset, pData, Size );
+        m_pWindow->setConstants( Offset, pData, Size );
         return *this;
     }
 

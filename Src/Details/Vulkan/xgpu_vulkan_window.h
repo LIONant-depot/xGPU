@@ -64,10 +64,9 @@ namespace xgpu::vulkan
                                                                             , int h 
                                                                             ) noexcept override;
         virtual
-        void                                    setConstants                ( xgpu::shader::type    Type
-                                                                            , int                   Offset
+        void                                    setConstants                ( int                   Offset
                                                                             , const void*           pData
-                                                                            , int                   Size 
+                                                                            , std::size_t           Size 
                                                                             ) noexcept override;
         virtual
         void                                    setClearColor               ( float R

@@ -321,13 +321,35 @@ namespace xgpu::vulkan
         {
             int                                  nPushConstantsRanges=0;
             std::array<VkPushConstantRange, 128> pushConstantRange;
+
+            if(Setup.m_PushConstantsSize)
+            {
+                pushConstantRange[0].offset     = 0;
+                pushConstantRange[0].size       = static_cast<std::uint32_t>(Setup.m_PushConstantsSize);
+                pushConstantRange[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT;
+                nPushConstantsRanges++;
+            }
+
+            /*
+            std::uint32_t                        TotalSize = 0;             // Total Size used by the pushconstants
             for (auto& S : std::span{ m_ShaderStages.data(), (std::size_t)m_nShaderStages })
             {
+                int total = 0;
                 for( int i=0; i< S->m_nPushConstantRanges; ++i )
                 {
-                    pushConstantRange[nPushConstantsRanges++] = S->m_VKPushConstantRanges[i];
+                    pushConstantRange[nPushConstantsRanges] = S->m_VKPushConstantRanges[i];
+                    pushConstantRange[nPushConstantsRanges].offset += TotalSize;
+                    //pushConstantRange[nPushConstantsRanges].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT
+                    total += pushConstantRange[nPushConstantsRanges].size;
+
+                    nPushConstantsRanges++;
                 }
+
+                // Update to the new size
+                TotalSize += total;
             }
+            */
+
 
             //
             // Set the pipeline descriptor 
@@ -338,7 +360,7 @@ namespace xgpu::vulkan
             ,   .pNext                  = nullptr
 
                 // Set the descriptors for the textures
-            ,   .setLayoutCount         = static_cast<uint32_t>(m_nSamplers)
+            ,   .setLayoutCount         = m_nSamplers ? 1u : 0u
             ,   .pSetLayouts            = m_VKDescriptorSetLayout.data()
 
                 // Push constant ranges are part of the pipeline layout

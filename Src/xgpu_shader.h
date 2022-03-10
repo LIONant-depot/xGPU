@@ -28,7 +28,6 @@ namespace xgpu
             type                                m_Type                  { type::UNDEFINED };
             const char*                         m_EntryPoint            { "main" };
             std::variant<file_name, raw_data >  m_Sharer                { file_name{nullptr} };
-            std::span<int>                      m_InOrderUniformSizes   {};
         };
 
         std::shared_ptr<details::shader_handle> m_Private;

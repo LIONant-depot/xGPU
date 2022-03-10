@@ -20,6 +20,11 @@ struct draw_vert
     std::uint32_t   m_Color;
 };
 
+struct push_constants
+{
+    xcore::matrix4 m_L2C;
+};
+
 //------------------------------------------------------------------------------------------------
 
 int E02_Example()
@@ -77,7 +82,7 @@ int E02_Example()
             auto RawData = xgpu::shader::setup::raw_data
             { std::array
                 {
-                    #include "draw_frag.h"
+                    #include "x64/draw_frag.h"
                 }
             };
 
@@ -87,20 +92,16 @@ int E02_Example()
 
         xgpu::shader MyVertexShader;
         {
-            auto UniformConstans = std::array
-            { static_cast<int>(sizeof(float) * 4 * 4)   // LocalToClip
-            };
             auto RawData = xgpu::shader::setup::raw_data
             { std::array
                 {
-                    #include "draw_vert.h"
+                    #include "x64/draw_vert.h"
                 }
             };
             xgpu::shader::setup Setup
             {
                 .m_Type = xgpu::shader::type::VERTEX
             ,   .m_Sharer = RawData
-            ,   .m_InOrderUniformSizes = UniformConstans
             };
 
             if (auto Err = Device.Create(MyVertexShader, Setup); Err)
@@ -111,9 +112,10 @@ int E02_Example()
         auto Samplers = std::array{ xgpu::pipeline::sampler{} };
         auto Setup    = xgpu::pipeline::setup
         {
-            .m_VertexDescriptor = VertexDescriptor
-        ,   .m_Shaders          = Shaders
-        ,   .m_Samplers         = Samplers
+            .m_VertexDescriptor  = VertexDescriptor
+        ,   .m_Shaders           = Shaders
+        ,   .m_PushConstantsSize = sizeof(push_constants)
+        ,   .m_Samplers          = Samplers
         };
 
         if (auto Err = Device.Create(PipeLine, Setup); Err)
@@ -281,13 +283,13 @@ int E02_Example()
                     L2W.setIdentity();
                     L2W.RotateY(R);
 
-                    xcore::matrix4 L2C;
-                    L2C = W2C * L2W;
+                    push_constants PushConstants;
+                    PushConstants.m_L2C = W2C * L2W;
 
                     CmdBuffer.setPipelineInstance(PipeLineInstance[0]);
                     CmdBuffer.setBuffer(VertexBuffer);
                     CmdBuffer.setBuffer(IndexBuffer);
-                    CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0, &L2C, static_cast<std::uint32_t>(sizeof(xcore::matrix4)));
+                    CmdBuffer.setConstants( 0, &PushConstants, sizeof(push_constants) );
                     CmdBuffer.Draw(IndexBuffer.getEntryCount());
                 }
 
@@ -297,11 +299,11 @@ int E02_Example()
                     L2W.setIdentity();
                     L2W.Translate({0,-0.5f, -1.1f });
 
-                    xcore::matrix4 L2C;
-                    L2C = W2C * L2W;
+                    push_constants PushConstants;
+                    PushConstants.m_L2C = W2C * L2W;
 
                     CmdBuffer.setPipelineInstance(PipeLineInstance[1]);
-                    CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0, &L2C, static_cast<std::uint32_t>(sizeof(xcore::matrix4)));
+                    CmdBuffer.setConstants(0, &PushConstants, sizeof(push_constants));
                     CmdBuffer.Draw(IndexBuffer.getEntryCount());
                 }
             }

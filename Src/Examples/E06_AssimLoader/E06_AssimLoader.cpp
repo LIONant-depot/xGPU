@@ -13,6 +13,11 @@ void DebugMessage(std::string_view View)
     printf("%s\n", View.data());
 }
 
+struct push_constants
+{
+    xcore::matrix4 m_L2C;
+};
+
 //------------------------------------------------------------------------------------------------
 
 int E06_Example()
@@ -79,9 +84,6 @@ int E06_Example()
 
         xgpu::shader MyVertexShader;
         {
-            auto UniformConstans = std::array
-            { static_cast<int>(sizeof(float) * 4 * 4)   // LocalToClip
-            };
             auto RawData = xgpu::shader::setup::raw_data
             { std::array
                 {
@@ -92,7 +94,6 @@ int E06_Example()
             {
                 .m_Type   = xgpu::shader::type::VERTEX
             ,   .m_Sharer = RawData
-            ,   .m_InOrderUniformSizes = UniformConstans
             };
 
             if (auto Err = Device.Create(MyVertexShader, Setup ); Err)
@@ -103,9 +104,10 @@ int E06_Example()
         auto Samplers   = std::array{ xgpu::pipeline::sampler{} };
         auto Setup      = xgpu::pipeline::setup
         {
-            .m_VertexDescriptor = VertexDescriptor
-        ,   .m_Shaders          = Shaders
-        ,   .m_Samplers         = Samplers
+            .m_VertexDescriptor  = VertexDescriptor
+        ,   .m_Shaders           = Shaders
+        ,   .m_PushConstantsSize = sizeof(push_constants)
+        ,   .m_Samplers          = Samplers
         };
 
         if (auto Err = Device.Create(PipeLine, Setup ); Err)
@@ -188,7 +190,11 @@ int E06_Example()
         {
             auto CmdBuffer = MainWindow.getCmdBuffer();
             CmdBuffer.setPipelineInstance(PipeLineInstance[0]);
-            CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0, &View.getW2C(), static_cast<std::uint32_t>(sizeof(decltype(View.getW2C()))));
+
+            push_constants PushConstants;
+            PushConstants.m_L2C = View.getW2C();
+            CmdBuffer.setConstants( 0, &PushConstants, sizeof(push_constants) );
+
             ModelLoader.Draw(CmdBuffer);
         }
 

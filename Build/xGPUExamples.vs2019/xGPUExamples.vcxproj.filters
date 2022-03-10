@@ -271,6 +271,9 @@
     <ClCompile Include="..\..\Src\Examples\E11_NormalMaps\E11_NormalMaps.cpp">
       <Filter>Examples\Example 11 Normal Maps</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Src\Examples\E12_Lighting\E12_Ligting.cpp">
+      <Filter>Examples\Example 12 Lighting</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Src\xGPU.h">
@@ -709,12 +712,18 @@
   <ItemGroup>
     <CustomBuild Include="draw_vert.glsl" />
     <CustomBuild Include="imgui_vert.glsl" />
-    <CustomBuild Include="..\..\src\Examples\E11_NormalMaps\draw_vert_btn.glsl">
+    <CustomBuild Include="..\..\src\Examples\E11_NormalMaps\E11_vert_btn.glsl">
       <Filter>Examples\Example 11 Normal Maps</Filter>
     </CustomBuild>
     <CustomBuild Include="draw_frag.glsl" />
-    <CustomBuild Include="..\..\src\Examples\E11_NormalMaps\draw_frag_btn.glsl">
+    <CustomBuild Include="..\..\src\Examples\E11_NormalMaps\E11_frag_btn.glsl">
       <Filter>Examples\Example 11 Normal Maps</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E12_Lighting\E12_frag_lighting.glsl">
+      <Filter>Examples\Example 12 Lighting</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E12_Lighting\E12_vert_lighting.glsl">
+      <Filter>Examples\Example 12 Lighting</Filter>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>

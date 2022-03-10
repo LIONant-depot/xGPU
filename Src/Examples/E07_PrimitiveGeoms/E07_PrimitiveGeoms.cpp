@@ -21,6 +21,11 @@ struct draw_vert
     std::uint32_t   m_Color;
 };
 
+struct push_constants
+{
+    xcore::matrix4 m_L2C;
+};
+
 //------------------------------------------------------------------------------------------------
 
 int E07_Example()
@@ -88,9 +93,6 @@ int E07_Example()
 
         xgpu::shader MyVertexShader;
         {
-            auto UniformConstans = std::array
-            { static_cast<int>(sizeof(float) * 4 * 4)   // LocalToClip
-            };
             auto RawData = xgpu::shader::setup::raw_data
             { std::array
                 {
@@ -99,9 +101,8 @@ int E07_Example()
             };
             xgpu::shader::setup Setup
             {
-                .m_Type = xgpu::shader::type::VERTEX
+                .m_Type   = xgpu::shader::type::VERTEX
             ,   .m_Sharer = RawData
-            ,   .m_InOrderUniformSizes = UniformConstans
             };
 
             if (auto Err = Device.Create(MyVertexShader, Setup); Err)
@@ -116,9 +117,10 @@ int E07_Example()
         //
         {
             auto Setup    = xgpu::pipeline::setup
-            {   .m_VertexDescriptor = VertexDescriptor
-            ,   .m_Shaders          = Shaders
-            ,   .m_Samplers         = Samplers
+            {   .m_VertexDescriptor  = VertexDescriptor
+            ,   .m_Shaders           = Shaders
+            ,   .m_PushConstantsSize = sizeof(push_constants)
+            ,   .m_Samplers          = Samplers
             };
 
             if (auto Err = Device.Create(PipeLine[0], Setup); Err)
@@ -131,9 +133,10 @@ int E07_Example()
         //
         {
             auto Setup    = xgpu::pipeline::setup
-            {   .m_VertexDescriptor = VertexDescriptor
-            ,   .m_Shaders          = Shaders
-            ,   .m_Samplers         = Samplers
+            {   .m_VertexDescriptor  = VertexDescriptor
+            ,   .m_Shaders           = Shaders
+            ,   .m_PushConstantsSize = sizeof(push_constants)
+            ,   .m_Samplers          = Samplers
             ,   .m_Primitive
                 {   .m_LineWidth = 5.0f
                 ,   .m_Raster   = xgpu::pipeline::primitive::raster::WIRELINE
@@ -283,22 +286,15 @@ int E07_Example()
 
                 // Render first object (animated mesh)
                 {
+                    push_constants PushConstants;
                     xcore::matrix4 L2W;
                     L2W.setIdentity();
-                    L2W = (W2C * L2W);
-
-                    /*
-                    CmdBuffer.setPipelineInstance(PipeLineInstance[0]);
-                    CmdBuffer.setBuffer(VertexBuffer);
-                    CmdBuffer.setBuffer(IndexBuffer);
-                    CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0, &L2W, static_cast<std::uint32_t>(sizeof(xcore::matrix4)));
-                    CmdBuffer.Draw(IndexBuffer.getEntryCount());
-                    */
+                    PushConstants.m_L2C = (W2C * L2W);
 
                     CmdBuffer.setPipelineInstance(PipeLineInstance[1]);
                     CmdBuffer.setBuffer(VertexBuffer);
                     CmdBuffer.setBuffer(IndexBuffer);
-                    CmdBuffer.setConstants(xgpu::shader::type::VERTEX, 0, &L2W, static_cast<std::uint32_t>(sizeof(xcore::matrix4)));
+                    CmdBuffer.setConstants( 0, &PushConstants.m_L2C, sizeof(push_constants) );
                     CmdBuffer.Draw(IndexBuffer.getEntryCount());
                 }
             }

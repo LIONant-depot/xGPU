@@ -329,6 +329,12 @@ constexpr auto g_FragShaderSPV = std::array
 #endif
 };
 
+struct push_constants
+{
+    std::array<float, 2> m_Scale;
+    std::array<float, 2> m_Translate;
+};
+
 //------------------------------------------------------------------------------------------------------------
 
 #define GETINSTANCE                                                                             \
@@ -506,25 +512,21 @@ struct window_info
         //
         // Get ready to render
         //
-
         auto UpdateRenderState = [&]
         {
             CmdBuffer.setPipelineInstance(PipelineInstance);
             CmdBuffer.setBuffer(Prim.m_VertexBuffer);
             CmdBuffer.setBuffer(Prim.m_IndexBuffer);
+            
+            push_constants PushConstants;
 
-            // Set the push contants
-            auto Scale = std::array
-            { 2.0f / draw_data->DisplaySize.x
-            , 2.0f / draw_data->DisplaySize.y
-            };
-            auto Translate = std::array
-            { -1.0f - draw_data->DisplayPos.x * Scale[0]
-            , -1.0f - draw_data->DisplayPos.y * Scale[1]
-            };
+            PushConstants.m_Scale[0] = 2.0f / draw_data->DisplaySize.x;
+            PushConstants.m_Scale[1] = 2.0f / draw_data->DisplaySize.y;
 
-            CmdBuffer.setConstants( xgpu::shader::type::VERTEX, 0,   Scale.data(),     static_cast<std::uint32_t>(sizeof(Scale)));
-            CmdBuffer.setConstants( xgpu::shader::type::VERTEX, 2*4, Translate.data(), static_cast<std::uint32_t>(sizeof(Translate)));
+            PushConstants.m_Translate[0] = -1.0f - draw_data->DisplayPos.x * PushConstants.m_Scale[0];
+            PushConstants.m_Translate[1] = -1.0f - draw_data->DisplayPos.y * PushConstants.m_Scale[1];
+
+            CmdBuffer.setConstants( 0, &PushConstants, sizeof(push_constants) );
         };
 
         // Set it!
@@ -678,7 +680,6 @@ struct breach_instance : window_info
                 {
                     .m_Type                 = xgpu::shader::type::VERTEX
                 ,   .m_Sharer               = xgpu::shader::setup::raw_data{g_VertShaderSPV}
-                ,   .m_InOrderUniformSizes  = UniformConstans
                 };
                 if (auto Err = m_Device.Create(ImGuiVertexShader, Setup); Err) return Err;
             }
@@ -687,12 +688,13 @@ struct breach_instance : window_info
             auto Samplers = std::array{ xgpu::pipeline::sampler{} };
             auto Setup    = xgpu::pipeline::setup
             {
-                .m_VertexDescriptor = m_VertexDescritor
-            ,   .m_Shaders          = Shaders
-            ,   .m_Samplers         = Samplers
-            ,   .m_Primitive        = { .m_Cull = xgpu::pipeline::primitive::cull::NONE }
-            ,   .m_DepthStencil     = { .m_bDepthTestEnable = false }
-            ,   .m_Blend            = xgpu::pipeline::blend::getAlphaOriginal()
+                .m_VertexDescriptor  = m_VertexDescritor
+            ,   .m_Shaders           = Shaders
+            ,   .m_PushConstantsSize = sizeof(push_constants)
+            ,   .m_Samplers          = Samplers
+            ,   .m_Primitive         = { .m_Cull = xgpu::pipeline::primitive::cull::NONE }
+            ,   .m_DepthStencil      = { .m_bDepthTestEnable = false }
+            ,   .m_Blend             = xgpu::pipeline::blend::getAlphaOriginal()
             };
 
             if ( auto Err = m_Device.Create(PipeLine, Setup); Err ) return Err;

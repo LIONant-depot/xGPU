@@ -1287,15 +1287,15 @@ namespace xgpu::vulkan
 
     //------------------------------------------------------------------------------------------------------------------------
 
-    void window::setConstants( xgpu::shader::type Type, int Offset, const void* pData, int Size ) noexcept
+    void window::setConstants( int Offset, const void* pData, std::size_t Size ) noexcept
     {
         auto& Frame = m_Frames[m_FrameIndex];
         vkCmdPushConstants
         ( Frame.m_VKCommandBuffer
         , g_PipelineLayout
-        , Type == xgpu::shader::type::VERTEX ? VK_SHADER_STAGE_VERTEX_BIT : VK_SHADER_STAGE_FRAGMENT_BIT
+        , VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT 
         , Offset
-        , Size
+        , static_cast<std::uint32_t>(Size)
         , pData
         );
     }
