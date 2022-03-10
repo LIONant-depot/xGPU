@@ -69,7 +69,7 @@ int E06_Example()
             auto RawData = xgpu::shader::setup::raw_data
             { std::array
                 {
-                    #include "draw_frag.h"
+                    #include "x64\draw_frag.h"
                 }
             };
 
@@ -85,7 +85,7 @@ int E06_Example()
             auto RawData = xgpu::shader::setup::raw_data
             { std::array
                 {
-                    #include "draw_vert.h"
+                    #include "x64\draw_vert.h"
                 }
             };
             xgpu::shader::setup Setup

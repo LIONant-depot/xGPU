@@ -13,11 +13,11 @@
 
 constexpr auto g_VertShaderSPV = std::array
 {
-    #include "imgui_vert.h"
+    #include "x64\imgui_vert.h"
 };
 constexpr auto g_FragShaderSPV = std::array
 {
-    #include "draw_frag.h"
+    #include "x64\draw_frag.h"
 };
 
 //------------------------------------------------------------------------------------------------

@@ -707,11 +707,15 @@
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
-    <CustomBuild Include="draw_frag.glsl" />
     <CustomBuild Include="draw_vert.glsl" />
     <CustomBuild Include="imgui_vert.glsl" />
-    <CustomBuild Include="draw_vert_btn.glsl" />
-    <CustomBuild Include="draw_frag_btn.glsl" />
+    <CustomBuild Include="..\..\src\Examples\E11_NormalMaps\draw_vert_btn.glsl">
+      <Filter>Examples\Example 11 Normal Maps</Filter>
+    </CustomBuild>
+    <CustomBuild Include="draw_frag.glsl" />
+    <CustomBuild Include="..\..\src\Examples\E11_NormalMaps\draw_frag_btn.glsl">
+      <Filter>Examples\Example 11 Normal Maps</Filter>
+    </CustomBuild>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\LICENSE" />

@@ -98,7 +98,7 @@ int E11_Example()
             auto RawData = xgpu::shader::setup::raw_data
             { std::array
                 {
-                    #include "draw_frag_btn.h"
+                    #include "x64\draw_frag_btn.h"
                 }
             };
 
@@ -115,7 +115,7 @@ int E11_Example()
             auto RawData = xgpu::shader::setup::raw_data
             { std::array
                 {
-                    #include "draw_vert_btn.h"
+                    #include "x64\draw_vert_btn.h"
                 }
             };
             xgpu::shader::setup Setup
