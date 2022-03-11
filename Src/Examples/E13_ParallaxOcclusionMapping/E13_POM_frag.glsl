@@ -103,7 +103,7 @@ const float parallaxScale = 0.1f;
 vec2 parallaxMapping(in vec3 V, in vec2 T, out float parallaxHeight)
 {
 // determine optimal number of layers
-   const float minLayers = 8;
+   const float minLayers = 10;
    const float maxLayers = 15;
    float numLayers = mix(maxLayers, minLayers, abs(dot(vec3(0, 0, 1), V)));
 
@@ -244,7 +244,7 @@ void main()
 	// get the normal from a compress texture (either DXT5 or 3Dc/BC5)
 	//
 	vec3 Normal;
-	if( false )
+	if( true )
 	{
 		// For BC5 it used (rg)
 		Normal.xy	= (texture(SamplerNormalMap, texCoords).rg * 2.0) - 1.0;
@@ -279,8 +279,8 @@ void main()
 
 	// Convert to gamma
 	const float Gamma = pushConsts.LocalSpaceEyePos.w;
-	outFragColor.a   = DiffuseColor.a;
-	outFragColor.rgb = pow( outFragColor.rgb, vec3(1.0f/Gamma) );
+	outFragColor.a    = DiffuseColor.a;
+	outFragColor.rgb  = pow( outFragColor.rgb, vec3(1.0f/Gamma) );
 }
 
 
