@@ -13,7 +13,7 @@ layout (binding = 4)    uniform     sampler2D   SamplerDepthMap;		// [INPUT_TEXT
 
 layout(location = 0) in struct 
 { 
-    vec3 TangentPosition;
+    vec3 TangentTexelPosition;
     vec3 TangentView;
     vec3 TangentLight;
 
@@ -217,10 +217,10 @@ float parallaxSoftShadowMultiplier(in vec3 L, in vec2 initialTexCoord,
 void main() 
 {
 	// Note This is the true Eye to Texel direction 
-	const vec3 EyeDirection = normalize( In.TangentPosition - In.TangentView.xyz );
+	const vec3 EyeDirection = normalize( In.TangentTexelPosition - In.TangentView.xyz );
 
 	// Note that the real light direction is the negative of this, but the negative is removed to speed up the equations
-	vec3 LightDirection = normalize( In.TangentLight.xyz - In.TangentPosition );
+	vec3 LightDirection = normalize( In.TangentLight.xyz - In.TangentTexelPosition );
 
 	//
 	// get the parallax coordinates
