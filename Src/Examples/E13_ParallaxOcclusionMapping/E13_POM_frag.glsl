@@ -4,20 +4,18 @@
 
 layout (binding = 0)    uniform     sampler2D   SamplerNormalMap;		// [INPUT_TEXTURE_NORMAL]
 layout (binding = 1)    uniform     sampler2D   SamplerDiffuseMap;		// [INPUT_TEXTURE_DIFFUSE]
-layout (binding = 1)    uniform     sampler2D   SamplerAOMap;			// [INPUT_TEXTURE_AO]
-layout (binding = 1)    uniform     sampler2D   SamplerGlossivessMap;	// [INPUT_TEXTURE_GLOSSINESS]
-layout (binding = 1)    uniform     sampler2D   SamplerDepthMap;		// [INPUT_TEXTURE_DEPTH]
+layout (binding = 2)    uniform     sampler2D   SamplerAOMap;			// [INPUT_TEXTURE_AO]
+layout (binding = 3)    uniform     sampler2D   SamplerGlossivessMap;	// [INPUT_TEXTURE_GLOSSINESS]
+layout (binding = 4)    uniform     sampler2D   SamplerDepthMap;		// [INPUT_TEXTURE_DEPTH]
 
 layout(location = 0) in struct 
 { 
-    mat3  BTN;
-    vec4  VertColor;
-	vec3  LocalSpacePosition;
-    vec2  UV; 
-
     vec3 TangentPosition;
     vec3 TangentView;
+    vec3 TangentLight;
 
+    vec4  VertColor;
+    vec2  UV; 
 } In;
 
 layout (push_constant) uniform PushConsts 
@@ -74,10 +72,13 @@ vec2 ParallaxMapping(vec2 texCoords, vec3 viewDir)
 
 void main() 
 {
+	// Note This is the true Eye to Texel direction 
+	const vec3 EyeDirection = normalize( In.TangentPosition - In.TangentView.xyz );
+
 	//
 	// get the parallax coordinates
 	//
-	vec2 texCoords	= ParallaxMapping( In.UV, normalize( In.TangentPosition.xyz - In.TangentView.xyz ) );
+	vec2 texCoords	= ParallaxMapping( In.UV, EyeDirection );
 
 	//
 	// get the normal from a compress texture (either DXT5 or 3Dc/BC5)
@@ -88,20 +89,16 @@ void main()
 	//			For DXT5 it uses (ag)
 	Normal.xy	= (texture(SamplerNormalMap, texCoords).rg * 2.0) - 1.0;
 	Normal.z	=  sqrt(1.0 - dot(Normal.xy, Normal.xy));
-	Normal      = In.BTN * Normal;
 
 	//
 	// Different techniques to do Lighting
 	//
 
 	// Note that the real light direction is the negative of this, but the negative is removed to speed up the equations
-	vec3 LightDirection = normalize( pushConsts.LocalSpaceLightPos.xyz - In.LocalSpacePosition );
+	vec3 LightDirection = normalize( In.TangentLight.xyz - In.TangentPosition );
 
 	// Compute the diffuse intensity
 	float DiffuseI  = max( 0, dot( Normal, LightDirection ));
-
-	// Note This is the true Eye to Texel direction 
-	vec3 EyeDirection = normalize( In.LocalSpacePosition - pushConsts.LocalSpaceEyePos.xyz );
 
 	// Another way to compute specular "BLINN-PHONG" (https://learnopengl.com/Advanced-Lighting/Advanced-Lighting)
 	float SpecularI  = pow( max( 0, dot(Normal, normalize( LightDirection - EyeDirection ))), Shininess);

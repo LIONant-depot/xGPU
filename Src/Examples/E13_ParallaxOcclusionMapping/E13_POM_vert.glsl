@@ -21,28 +21,25 @@ layout (push_constant) uniform PushConsts
 
 layout(location = 0) out struct 
 { 
-    mat3  BTN;
-    vec4  VertColor;
-	vec3  LocalSpacePosition;
-    vec2  UV; 
-
     vec3 TangentPosition;
     vec3 TangentView;
+    vec3 TangentLight;
+
+    vec4  VertColor;
+    vec2  UV; 
 
 } Out;
 
 void main() 
 {
-	const float Gamma = pushConsts.LocalSpaceEyePos.w;
+    mat3 BTN                    = mat3(inTangent, inBinormal, inNormal);
+    Out.TangentPosition         = transpose(BTN) * inPos.xyz;
+    Out.TangentView             = transpose(BTN) * pushConsts.LocalSpaceEyePos.xyz;
+    Out.TangentLight            = transpose(BTN) * pushConsts.LocalSpaceLightPos.xyz;
 
-    // Compute lighting information
-    Out.BTN                     = mat3(inTangent, inBinormal, inNormal);
-    Out.LocalSpacePosition      = inPos;
+	const float Gamma           = pushConsts.LocalSpaceEyePos.w;
     Out.VertColor               = pow( inColor, Gamma.rrrr );    // SRGB to RGB
     Out.UV                      = inUV;
-
-    Out.TangentPosition         = transpose(Out.BTN) * inPos.xyz;
-    Out.TangentView             = transpose(Out.BTN) * pushConsts.LocalSpaceEyePos.xyz;
 
     gl_Position                 = pushConsts.L2C * vec4(inPos.xyz, 1.0);
 }
