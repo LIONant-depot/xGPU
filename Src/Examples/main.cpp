@@ -18,7 +18,8 @@ int main()
     if constexpr (false) if (auto err = E09_Example(); err) return err;
     if constexpr (false) if (auto err = E10_Example(); err) return err;
     if constexpr (false) if (auto err = E11_Example(); err) return err;
-    if constexpr (!false) if (auto err = E12_Example(); err) return err;
+    if constexpr (false) if (auto err = E12_Example(); err) return err;
+    if constexpr (!false) if (auto err = E13_Example(); err) return err;
 
     xcore::Kill();
 

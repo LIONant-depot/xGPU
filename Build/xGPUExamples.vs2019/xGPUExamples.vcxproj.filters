@@ -91,6 +91,9 @@
     <Filter Include="Examples\Example 12 Lighting">
       <UniqueIdentifier>{07ce7c66-49d7-491e-9fe8-2484f270635b}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Examples\Example 13 Parallax Occlusion Mapping">
+      <UniqueIdentifier>{21e5201d-64bf-4526-8b9b-43ecfa633f07}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Src\Examples\main.cpp" />
@@ -273,6 +276,9 @@
     </ClCompile>
     <ClCompile Include="..\..\Src\Examples\E12_Lighting\E12_Ligting.cpp">
       <Filter>Examples\Example 12 Lighting</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Examples\E13_ParallaxOcclusionMapping\E13_POM.cpp">
+      <Filter>Examples\Example 13 Parallax Occlusion Mapping</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -724,6 +730,12 @@
     </CustomBuild>
     <CustomBuild Include="..\..\Src\Examples\E12_Lighting\E12_vert_lighting.glsl">
       <Filter>Examples\Example 12 Lighting</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E13_ParallaxOcclusionMapping\E13_POM_frag.glsl">
+      <Filter>Examples\Example 13 Parallax Occlusion Mapping</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E13_ParallaxOcclusionMapping\E13_POM_vert.glsl">
+      <Filter>Examples\Example 13 Parallax Occlusion Mapping</Filter>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
