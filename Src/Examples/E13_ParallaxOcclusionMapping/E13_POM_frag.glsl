@@ -38,8 +38,16 @@ vec2 ParallaxMapping(vec2 texCoords, vec3 viewDir)
 { 
 	const float height_scale = 0.1f;
 
-    // number of depth layers
-    const float numLayers = 30;
+	//
+	// Try to minizice the iterations
+	//
+	const float minLayers = 8.0;
+	const float maxLayers = 32.0;
+	float numLayers = mix(maxLayers, minLayers, max(dot(vec3(0.0, 0.0, 1.0), viewDir), 0.0));
+
+	//
+	// Steep parallax mapping 
+	//
 
     // calculate the size of each layer
     float layerDepth = 1.0 / numLayers;
@@ -63,6 +71,23 @@ vec2 ParallaxMapping(vec2 texCoords, vec3 viewDir)
 		currentDepthMapValue = texture(SamplerDepthMap, currentTexCoords).r;  
 		// get depth of next layer
 		currentLayerDepth += layerDepth;  
+	}
+
+	//
+	// Parallax Occlusion Mapping
+	//
+	if( true ) 	// This can be disable for extra performance
+	{
+		// get texture coordinates before collision (reverse operations)
+		vec2 prevTexCoords = currentTexCoords + deltaTexCoords;
+
+		// get depth after and before collision for linear interpolation
+		float afterDepth  = currentDepthMapValue - currentLayerDepth;
+		float beforeDepth = texture(SamplerDepthMap, prevTexCoords).r - currentLayerDepth + layerDepth;
+ 
+		// interpolation of texture coordinates
+		float weight = afterDepth / (afterDepth - beforeDepth);
+		vec2 finalTexCoords = prevTexCoords * weight + currentTexCoords * (1.0 - weight);
 	}
 
 	return currentTexCoords;
