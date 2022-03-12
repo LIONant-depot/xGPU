@@ -201,7 +201,7 @@ void main()
 	const float DiffuseI  = max( 0, dot( Normal, LightDirection ));
 
 	// Determine the power for the specular based on how rough something is
-	const float Shininess = mix( 0.95f, 100, 1 - texture( SamplerRoughnessMap, In.UV).r );
+	const float Shininess = mix( 1, 100, 1 - texture( SamplerRoughnessMap, In.UV).r );
 
 	// Another way to compute specular "BLINN-PHONG"
 	const float SpecularI  = pow( max( 0, dot(Normal, normalize( LightDirection - EyeDirection ))), Shininess);

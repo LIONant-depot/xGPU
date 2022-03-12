@@ -56,7 +56,7 @@ void main()
 	vec3 EyeDirection = normalize( In.LocalSpacePosition - pushConsts.LocalSpaceEyePos.xyz );
 
 	// Determine the power for the specular based on how rough something is
-	const float Shininess = mix( 0.95f, 100, 1 - texture( SamplerRoughnessMap, In.UV).r );
+	const float Shininess = mix( 1, 100, 1 - texture( SamplerRoughnessMap, In.UV).r );
 
 	// The old way to Compute Specular "PHONG"
 	// Reflection == I - 2.0 * dot(N, I) * N // Where N = Normal, I = LightDirectioh
