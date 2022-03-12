@@ -9,7 +9,8 @@ layout (binding = 0)    uniform     sampler2D   SamplerNormalMap;		// [INPUT_TEX
 layout (binding = 1)    uniform     sampler2D   SamplerDiffuseMap;		// [INPUT_TEXTURE_DIFFUSE]
 layout (binding = 2)    uniform     sampler2D   SamplerAOMap;			// [INPUT_TEXTURE_AO]
 layout (binding = 3)    uniform     sampler2D   SamplerGlossivessMap;	// [INPUT_TEXTURE_GLOSSINESS]
-layout (binding = 4)    uniform     sampler2D   SamplerDepthMap;		// [INPUT_TEXTURE_DEPTH]
+layout (binding = 4)    uniform     sampler2D   SamplerRoughnessMap;	// [INPUT_TEXTURE_ROUGHNESS]
+layout (binding = 5)    uniform     sampler2D   SamplerDepthMap;		// [INPUT_TEXTURE_DEPTH]
 
 layout(location = 0) in struct 
 { 
@@ -31,8 +32,6 @@ layout (push_constant) uniform PushConsts
 } pushConsts;
 
 layout (location = 0)   out         vec4        outFragColor;
-
-float Shininess = 20.9f;
 
 //-------------------------------------------------------------------------------------------
 
@@ -199,6 +198,9 @@ void main()
 
 	// Compute the diffuse intensity
 	const float DiffuseI  = max( 0, dot( Normal, LightDirection ));
+
+	// Determine the power for the specular based on how rough something is
+	const float Shininess = mix( 0.95f, 100, 1 - texture( SamplerRoughnessMap, In.UV).r );
 
 	// Another way to compute specular "BLINN-PHONG"
 	const float SpecularI  = pow( max( 0, dot(Normal, normalize( LightDirection - EyeDirection ))), Shininess);

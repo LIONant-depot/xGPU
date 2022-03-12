@@ -146,6 +146,7 @@ int E13_Example()
         , xgpu::pipeline::sampler{}
         , xgpu::pipeline::sampler{}
         , xgpu::pipeline::sampler{}
+        , xgpu::pipeline::sampler{}
         };
         auto Setup    = xgpu::pipeline::setup
         {
@@ -168,6 +169,7 @@ int E13_Example()
         xgpu::texture DiffuseTexture;
         xgpu::texture AOTexture;
         xgpu::texture GlossinessTexture;
+        xgpu::texture RoughnessTexture;
         xgpu::texture DepthTexture;
         
         //
@@ -236,7 +238,7 @@ int E13_Example()
                 DebugMessage(xbmp::tools::getErrorMsg(Err));
                 std::exit(xbmp::tools::getErrorInt(Err));
             }
-            Bitmap.setColorSpace(xcore::bitmap::color_space::SRGB);
+            Bitmap.setColorSpace(xcore::bitmap::color_space::LINEAR);
 
             //
             // Create Texture
@@ -262,12 +264,38 @@ int E13_Example()
                 DebugMessage(xbmp::tools::getErrorMsg(Err));
                 std::exit(xbmp::tools::getErrorInt(Err));
             }
-            Bitmap.setColorSpace(xcore::bitmap::color_space::SRGB);
+            Bitmap.setColorSpace(xcore::bitmap::color_space::LINEAR);
 
             //
             // Create Texture
             //
             if (auto Err = xgpu::tools::bitmap::Create(GlossinessTexture, Device, Bitmap); Err)
+            {
+                DebugMessage(xgpu::getErrorMsg(Err));
+                std::exit(xgpu::getErrorInt(Err));
+            }
+        }
+
+        //
+        // Load Roughness Texture
+        //
+        {
+            xcore::bitmap Bitmap;
+
+            //
+            // Load file
+            //
+            if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Roughness.dds"); Err)
+            {
+                DebugMessage(xbmp::tools::getErrorMsg(Err));
+                std::exit(xbmp::tools::getErrorInt(Err));
+            }
+            Bitmap.setColorSpace(xcore::bitmap::color_space::LINEAR);
+
+            //
+            // Create Texture
+            //
+            if (auto Err = xgpu::tools::bitmap::Create(RoughnessTexture, Device, Bitmap); Err)
             {
                 DebugMessage(xgpu::getErrorMsg(Err));
                 std::exit(xgpu::getErrorInt(Err));
@@ -305,6 +333,7 @@ int E13_Example()
         , xgpu::pipeline_instance::sampler_binding{DiffuseTexture} 
         , xgpu::pipeline_instance::sampler_binding{AOTexture}
         , xgpu::pipeline_instance::sampler_binding{GlossinessTexture}
+        , xgpu::pipeline_instance::sampler_binding{RoughnessTexture}
         , xgpu::pipeline_instance::sampler_binding{DepthTexture}
         };
         auto Setup    = xgpu::pipeline_instance::setup

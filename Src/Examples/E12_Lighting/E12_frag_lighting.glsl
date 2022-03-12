@@ -6,6 +6,7 @@ layout (binding = 0)    uniform     sampler2D   SamplerNormalMap;		// [INPUT_TEX
 layout (binding = 1)    uniform     sampler2D   SamplerDiffuseMap;		// [INPUT_TEXTURE_DIFFUSE]
 layout (binding = 2)    uniform     sampler2D   SamplerAOMap;			// [INPUT_TEXTURE_AO]
 layout (binding = 3)    uniform     sampler2D   SamplerGlossivessMap;	// [INPUT_TEXTURE_GLOSSINESS]
+layout (binding = 4)    uniform     sampler2D   SamplerRoughnessMap;	// [INPUT_TEXTURE_ROUGHNESS]
 
 layout(location = 0) in struct 
 { 
@@ -25,8 +26,6 @@ layout (push_constant) uniform PushConsts
 } pushConsts;
 
 layout (location = 0)   out         vec4        outFragColor;
-
-float Shininess = 20.9f;
 
 void main() 
 {
@@ -56,12 +55,15 @@ void main()
 	// Note This is the true Eye to Texel direction 
 	vec3 EyeDirection = normalize( In.LocalSpacePosition - pushConsts.LocalSpaceEyePos.xyz );
 
+	// Determine the power for the specular based on how rough something is
+	const float Shininess = mix( 0.95f, 100, 1 - texture( SamplerRoughnessMap, In.UV).r );
+
 	// The old way to Compute Specular "PHONG"
 	// Reflection == I - 2.0 * dot(N, I) * N // Where N = Normal, I = LightDirectioh
 	float SpecularI1  = pow( max(0, dot( reflect(LightDirection, Normal), EyeDirection )), Shininess );
 
 	// Another way to compute specular "BLINN-PHONG" (https://learnopengl.com/Advanced-Lighting/Advanced-Lighting)
-	float SpecularI2  = pow( max( 0, dot(Normal, normalize( LightDirection - EyeDirection ))), Shininess);
+	float SpecularI2  = pow( max( 0, dot(Normal, normalize( LightDirection - EyeDirection ))), Shininess );
 
 	// Read the diffuse color
 	vec4 DiffuseColor	= texture(SamplerDiffuseMap, In.UV) * In.VertColor;
@@ -70,7 +72,7 @@ void main()
 	outFragColor.rgb  = pushConsts.AmbientLightColor.rgb * DiffuseColor.rgb * texture(SamplerAOMap, In.UV).rgb;
 
 	// Add the contribution of this light
-	outFragColor.rgb += pushConsts.LightColor.rgb * ( SpecularI2.rrr *  texture(SamplerGlossivessMap, In.UV).rgb + DiffuseI.rrr * DiffuseColor.rgb );
+	outFragColor.rgb += pushConsts.LightColor.rgb * ( SpecularI2.rrr * texture(SamplerGlossivessMap, In.UV).rgb + DiffuseI.rrr * DiffuseColor.rgb );
 
 	// Convert to gamma
 	const float Gamma = pushConsts.LocalSpaceEyePos.w;

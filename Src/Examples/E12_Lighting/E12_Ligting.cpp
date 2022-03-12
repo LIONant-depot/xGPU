@@ -145,6 +145,7 @@ int E12_Example()
         , xgpu::pipeline::sampler{}
         , xgpu::pipeline::sampler{}
         , xgpu::pipeline::sampler{}
+        , xgpu::pipeline::sampler{}
         };
         auto Setup    = xgpu::pipeline::setup
         {
@@ -167,6 +168,7 @@ int E12_Example()
         xgpu::texture DiffuseTexture;
         xgpu::texture AOTexture;
         xgpu::texture GlossinessTexture;
+        xgpu::texture RoughnessTexture;
         
         //
         // Load Normal Texture
@@ -234,7 +236,7 @@ int E12_Example()
                 DebugMessage(xbmp::tools::getErrorMsg(Err));
                 std::exit(xbmp::tools::getErrorInt(Err));
             }
-            Bitmap.setColorSpace(xcore::bitmap::color_space::SRGB);
+            Bitmap.setColorSpace(xcore::bitmap::color_space::LINEAR);
 
             //
             // Create Texture
@@ -260,7 +262,7 @@ int E12_Example()
                 DebugMessage(xbmp::tools::getErrorMsg(Err));
                 std::exit(xbmp::tools::getErrorInt(Err));
             }
-            Bitmap.setColorSpace(xcore::bitmap::color_space::SRGB);
+            Bitmap.setColorSpace(xcore::bitmap::color_space::LINEAR);
 
             //
             // Create Texture
@@ -272,11 +274,38 @@ int E12_Example()
             }
         }
 
+        //
+        // Load Roughness Texture
+        //
+        {
+            xcore::bitmap Bitmap;
+
+            //
+            // Load file
+            //
+            if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Roughness.dds"); Err)
+            {
+                DebugMessage(xbmp::tools::getErrorMsg(Err));
+                std::exit(xbmp::tools::getErrorInt(Err));
+            }
+            Bitmap.setColorSpace(xcore::bitmap::color_space::LINEAR);
+
+            //
+            // Create Texture
+            //
+            if (auto Err = xgpu::tools::bitmap::Create(RoughnessTexture, Device, Bitmap); Err)
+            {
+                DebugMessage(xgpu::getErrorMsg(Err));
+                std::exit(xgpu::getErrorInt(Err));
+            }
+        }
+
         auto Bindings = std::array
         { xgpu::pipeline_instance::sampler_binding{ NormalTexture }
         , xgpu::pipeline_instance::sampler_binding{DiffuseTexture} 
         , xgpu::pipeline_instance::sampler_binding{AOTexture}
         , xgpu::pipeline_instance::sampler_binding{GlossinessTexture}
+        , xgpu::pipeline_instance::sampler_binding{RoughnessTexture}
         };
         auto Setup    = xgpu::pipeline_instance::setup
         { .m_PipeLine           = PipeLine
@@ -290,9 +319,9 @@ int E12_Example()
     //
     // Create mesh
     //
-    auto Mesh = //xprim_geom::uvsphere::Generate( 30, 30, 2, 1 );
-                //xprim_geom::capsule::Generate( 30,30,1,4);
-                xprim_geom::cube::Generate( 4, 4, 4, 4, xprim_geom::float3{1,1,1} );
+    auto Mesh = //xprim_geom::uvsphere::Generate( 30, 30, 2, 1 ); xcore::vector2 UVScale{ 4,4 };
+                //xprim_geom::capsule::Generate( 30,30,1,4); xcore::vector2 UVScale{3,3};
+                xprim_geom::cube::Generate( 4, 4, 4, 4, xprim_geom::float3{1,1,1} ); xcore::vector2 UVScale{1,1};
 
     xgpu::buffer VertexBuffer;
     {
@@ -310,7 +339,7 @@ int E12_Example()
                     V.m_Normal.setup( v.m_Normal.m_X, v.m_Normal.m_Y, v.m_Normal.m_Z );
                     V.m_Tangent.setup(v.m_Tangent.m_X, v.m_Tangent.m_Y, v.m_Tangent.m_Z);
                     V.m_Binormal = (xcore::vector3{ V.m_Tangent }.Cross(xcore::vector3{ V.m_Normal } )).NormalizeSafe();
-                    V.m_TexCoord.setup( v.m_Texcoord.m_X, v.m_Texcoord.m_Y );
+                    V.m_TexCoord.setup(v.m_Texcoord.m_X* UVScale.m_X, v.m_Texcoord.m_Y* UVScale.m_Y);
                     V.m_Color = xcore::icolor{0xffffffffu};
                 }
             });
