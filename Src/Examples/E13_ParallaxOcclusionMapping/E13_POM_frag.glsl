@@ -241,19 +241,11 @@ void main()
 	}
 
 	//
-	// get the normal from a compress texture (either DXT5 or 3Dc/BC5)
+	// get the normal from a compress texture BC5
 	//
 	vec3 Normal;
-	if( true )
-	{
-		// For BC5 it used (rg)
-		Normal.xy	= (texture(SamplerNormalMap, texCoords).rg * 2.0) - 1.0;
-	}
-	else
-	{
-		// For DXT5 it uses (ag)
-		Normal.xy	= (texture(SamplerNormalMap, texCoords).ag * 2.0) - 1.0;
-	}
+	// For BC5 it used (rg)
+	Normal.xy	= (texture(SamplerNormalMap, texCoords).rg * 2.0) - 1.0;
 	
 	// Derive the final element
 	Normal.z =  sqrt(1.0 - dot(Normal.xy, Normal.xy));

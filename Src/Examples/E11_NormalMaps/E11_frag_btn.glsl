@@ -2,7 +2,7 @@
 #extension GL_ARB_separate_shader_objects  : enable
 #extension GL_ARB_shading_language_420pack : enable
 
-layout (binding = 0)    uniform     sampler2D   uSamplerColor; // [INPUT_TEXTURE]
+layout (binding = 0)    uniform     sampler2D   uSamplerNormal; // [INPUT_TEXTURE_NORMAL]
 
 layout(location = 0) in struct 
 { 
@@ -19,10 +19,51 @@ layout (location = 0)   out         vec4        outFragColor;
 
 void main() 
 {
-	vec3 normal = texture(uSamplerColor, In.UV).rgb;
+	//
+	// Read the Normal map texture
+	//
+	vec3 Normal;
+	if( false )
+	{
+		// Normal map texture that are compress
+		if( false )
+		{
+			// For Normal map textures compress with BC5, it uses (rg)
+			Normal.rg	= texture(uSamplerNormal, In.UV).rg;
+		}
+		else
+		{
+			// For Normal map textures compress with DXT5, it uses (ag)
+			Normal.rg	= texture(uSamplerNormal, In.UV).ag;
+		}
 
-	normal.y    = 1 - normal.y;	// Convert D3D normal map to Vulkan/OpenGL format
-    normal      = normalize(normal * 2.0 - 1.0);   
+		// Decode to -1 to 1 for each read element
+		Normal.xy =  Normal.rg * 2.0 - 1.0;
+
+		// Derive the final element since we only have (x,y)
+		// This also forces the Normal map to be normalize
+		Normal.z =  sqrt(1.0 - dot(Normal.xy, Normal.xy));
+	}
+	else
+	{
+		// Uncompress Normal Map textures (FULL 8888) RGB, A is not used
+		Normal = texture(uSamplerNormal, In.UV).rgb;
+
+		// Decode to -1 to 1 for each read element
+		Normal.xyz =  Normal.rgb * 2.0 - 1.0;
+
+		// We make sure that the Normal has a length of 1
+	    Normal = normalize(Normal);
+	}
+
+	// Some Normal maps are left handed (D3D for example) Ideally we would not need to do this
+	// If is better to precompute this in the texture compiler worse case
+	if( true )
+	{
+		// Convert D3D Normal map to Vulkan/OpenGL format
+		// This is the equivalent of doing Normal.g = 1 - Normal.g; before the Normal got comverted to [-1,1]
+		Normal.y =  -Normal.y;	
+	}
 
 	//
 	// Different techniques to do Lighting
@@ -32,13 +73,13 @@ void main()
 	float I1 = In.VertexLighting;
 
 	// The standard method
-	float I2 = max( 0, dot( In.BTN*normal, normalize(In.LocalSpaceLightDir) ));
+	float I2 = max( 0, dot( In.BTN*Normal, normalize(In.LocalSpaceLightDir) ));
 
 	// Fast method, minimal instructions
-	float I3 = max( 0, dot( normal,        normalize(In.TangentLightDir) ));
+	float I3 = max( 0, dot( Normal,        normalize(In.TangentLightDir) ));
 
 	// Useful for large polygons and higher acuracy 
-	float I4 = max( 0, dot( In.BTN*normal, normalize(In.LocalSpaceLightPosition - In.LocalSpacePosition) ));
+	float I4 = max( 0, dot( In.BTN*Normal, normalize(In.LocalSpaceLightPosition - In.LocalSpacePosition) ));
 
 	// Convert to gamma
 	const float gamma = 2.2f;

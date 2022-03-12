@@ -30,7 +30,18 @@ float Shininess = 20.9f;
 
 void main() 
 {
-	vec3 Normal = In.BTN * normalize( texture(SamplerNormalMap, In.UV).rgb * 2.0 - 1.0);
+	//
+	// get the normal from a compress texture BC5
+	//
+	vec3 Normal;
+	// For BC5 it used (rg)
+	Normal.xy	= (texture(SamplerNormalMap, In.UV).rg * 2.0) - 1.0;
+	
+	// Derive the final element
+	Normal.z =  sqrt(1.0 - dot(Normal.xy, Normal.xy));
+
+	// Transform the normal to from tangent space to local space
+	Normal = In.BTN * Normal;
 
 	//
 	// Different techniques to do Lighting
