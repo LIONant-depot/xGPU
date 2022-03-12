@@ -36,128 +36,72 @@ float Shininess = 20.9f;
 
 //-------------------------------------------------------------------------------------------
 
-vec2 ParallaxMapping(vec2 texCoords, vec3 viewDir)
-{ 
-	const float height_scale = 0.1f;
+const float parallaxScale = 0.1f;
 
+vec2 parallaxMapping(in const vec3 V, in const vec2 T, out float parallaxHeight)
+{
 	//
-	// Try to minizice the iterations
+	// Try to minimize the iterations
 	//
-	const float minLayers = 8.0;
-	const float maxLayers = 15.0;
-	float numLayers = mix(maxLayers, minLayers, max(dot(vec3(0.0, 0.0, 1.0), viewDir), 0.0));
+	const float minLayers = 10;
+	const float maxLayers = 15;
+	float numLayers = mix(maxLayers, minLayers, abs(dot(vec3(0, 0, 1), V)));
 
 	//
 	// Steep parallax mapping 
-	//
+    //
 
-    // calculate the size of each layer
-    float layerDepth = 1.0 / numLayers;
+	// height of each layer
+	float layerHeight = 1.0 / numLayers;
+	// current depth of the layer
+	float curLayerHeight = 0;
+	// shift of texture coordinates for each layer
+	vec2 dtex = parallaxScale * V.xy / numLayers;
 
-    // depth of current layer
-    float currentLayerDepth = 0.0;
+	// current texture coordinates
+	vec2 currentTextureCoords = T;
 
-    // the amount to shift the texture coordinates per layer (from vector P)
-    vec2 P = viewDir.xy * height_scale; 
-    vec2 deltaTexCoords = P / numLayers;
-  
-	// get initial values
-	vec2  currentTexCoords     = texCoords;
-	float currentDepthMapValue = texture(SamplerDepthMap, currentTexCoords).r;
-  
-	while(currentLayerDepth < currentDepthMapValue)
+	// depth from heightmap
+	float heightFromTexture = texture(SamplerDepthMap, currentTextureCoords).r;
+
+	// while point is above the surface
+	while(heightFromTexture > curLayerHeight)
 	{
-		// shift texture coordinates along direction of P
-		currentTexCoords -= deltaTexCoords;
-		// get depthmap value at current texture coordinates
-		currentDepthMapValue = texture(SamplerDepthMap, currentTexCoords).r;  
-		// get depth of next layer
-		currentLayerDepth += layerDepth;  
+		// to the next layer
+		curLayerHeight += layerHeight;
+		// shift of texture coordinates
+		currentTextureCoords -= dtex;
+		// new depth from heightmap
+		heightFromTexture = texture(SamplerDepthMap, currentTextureCoords).r;
 	}
 
 	//
 	// Parallax Occlusion Mapping
 	//
-	if( true ) 	// This can be disable for extra performance
-	{
-		// get texture coordinates before collision (reverse operations)
-		vec2 prevTexCoords = currentTexCoords + deltaTexCoords;
 
-		// get depth after and before collision for linear interpolation
-		float afterDepth  = currentDepthMapValue - currentLayerDepth;
-		float beforeDepth = texture(SamplerDepthMap, prevTexCoords).r - currentLayerDepth + layerDepth;
- 
-		// interpolation of texture coordinates
-		float weight = afterDepth / (afterDepth - beforeDepth);
-		vec2 finalTexCoords = prevTexCoords * weight + currentTexCoords * (1.0 - weight);
-	}
+	// previous texture coordinates
+	vec2 prevTCoords = currentTextureCoords + dtex;
 
-	return currentTexCoords;
-}
+	// heights for linear interpolation
+	float nextH = heightFromTexture - curLayerHeight;
+	float prevH = texture(SamplerDepthMap, prevTCoords).r - curLayerHeight + layerHeight;
 
+	// proportions for linear interpolation
+	float weight = nextH / (nextH - prevH);
 
-//-------------------------------------------------------------------------------------------
+	// interpolation of texture coordinates
+	vec2 finalTexCoords = prevTCoords * weight + currentTextureCoords * (1.0-weight);
 
-const float parallaxScale = 0.1f;
+	// interpolation of depth values
+	parallaxHeight = curLayerHeight + prevH * weight + nextH * (1.0 - weight);
 
-vec2 parallaxMapping(in vec3 V, in vec2 T, out float parallaxHeight)
-{
-// determine optimal number of layers
-   const float minLayers = 10;
-   const float maxLayers = 15;
-   float numLayers = mix(maxLayers, minLayers, abs(dot(vec3(0, 0, 1), V)));
-
-   // height of each layer
-   float layerHeight = 1.0 / numLayers;
-   // current depth of the layer
-   float curLayerHeight = 0;
-   // shift of texture coordinates for each layer
-   vec2 dtex = parallaxScale * V.xy / numLayers;
-
-   // current texture coordinates
-   vec2 currentTextureCoords = T;
-
-   // depth from heightmap
-   float heightFromTexture = texture(SamplerDepthMap, currentTextureCoords).r;
-
-   // while point is above the surface
-   while(heightFromTexture > curLayerHeight)
-   {
-      // to the next layer
-      curLayerHeight += layerHeight;
-      // shift of texture coordinates
-      currentTextureCoords -= dtex;
-      // new depth from heightmap
-      heightFromTexture = texture(SamplerDepthMap, currentTextureCoords).r;
-   }
-
-   ///////////////////////////////////////////////////////////
-
-   // previous texture coordinates
-   vec2 prevTCoords = currentTextureCoords + dtex;
-
-   // heights for linear interpolation
-   float nextH = heightFromTexture - curLayerHeight;
-   float prevH = texture(SamplerDepthMap, prevTCoords).r
-                           - curLayerHeight + layerHeight;
-
-   // proportions for linear interpolation
-   float weight = nextH / (nextH - prevH);
-
-   // interpolation of texture coordinates
-   vec2 finalTexCoords = prevTCoords * weight + currentTextureCoords * (1.0-weight);
-
-   // interpolation of depth values
-   parallaxHeight = curLayerHeight + prevH * weight + nextH * (1.0 - weight);
-
-   // return result
-   return finalTexCoords;
+	// return result
+	return finalTexCoords;
 }
 
 //-------------------------------------------------------------------------------------------
 
-float parallaxSoftShadowMultiplier(in vec3 L, in vec2 initialTexCoord,
-                                       in float initialHeight)
+float parallaxSoftShadowMultiplier( in vec3 L, in vec2 initialTexCoord, in float initialHeight )
 {
    float shadowMultiplier = 1;
    const float minLayers = 15;
@@ -187,8 +131,7 @@ float parallaxSoftShadowMultiplier(in vec3 L, in vec2 initialTexCoord,
          {
             // calculate partial shadowing factor
             numSamplesUnderSurface += 1;
-            float newShadowMultiplier = (currentLayerHeight - heightFromTexture) *
-                                             (1.0 - stepIndex / numLayers);
+            float newShadowMultiplier = (currentLayerHeight - heightFromTexture) * (1.0 - stepIndex / numLayers);
             shadowMultiplier = max(shadowMultiplier, newShadowMultiplier);
          }
 
@@ -220,24 +163,24 @@ void main()
 	const vec3 EyeDirection = normalize( In.TangentTexelPosition - In.TangentView.xyz );
 
 	// Note that the real light direction is the negative of this, but the negative is removed to speed up the equations
-	vec3 LightDirection = normalize( In.TangentLight.xyz - In.TangentTexelPosition );
+	const vec3 LightDirection = normalize( In.TangentLight.xyz - In.TangentTexelPosition );
 
 	//
 	// get the parallax coordinates
 	//
 	vec2 texCoords;
 	float Shadow;
-
-	if( true )
-	{
-		texCoords	= ParallaxMapping( In.UV, EyeDirection );
-		Shadow		= parallaxSoftShadowMultiplier( LightDirection, texCoords, texture(SamplerDepthMap, texCoords).r );
-	}
-	else
 	{
 		float parallaxHeight;
 		texCoords	= parallaxMapping( EyeDirection, In.UV, parallaxHeight );
-		Shadow		= parallaxSoftShadowMultiplier( LightDirection, texCoords, parallaxHeight );
+		if( false )
+		{
+			Shadow = parallaxSoftShadowMultiplier( LightDirection, texCoords, parallaxHeight );
+		}
+		else
+		{	// One means no shadow
+			Shadow = 1;
+		}
 	}
 
 	//
@@ -247,32 +190,32 @@ void main()
 	// For BC5 it used (rg)
 	Normal.xy	= (texture(SamplerNormalMap, texCoords).rg * 2.0) - 1.0;
 	
-	// Derive the final element
+	// Derive the final element and normalize 
 	Normal.z =  sqrt(1.0 - dot(Normal.xy, Normal.xy));
 
 	//
-	// Different techniques to do Lighting
+	// Lighting
 	//
 
 	// Compute the diffuse intensity
-	float DiffuseI  = max( 0, dot( Normal, LightDirection ));
+	const float DiffuseI  = max( 0, dot( Normal, LightDirection ));
 
-	// Another way to compute specular "BLINN-PHONG" (https://learnopengl.com/Advanced-Lighting/Advanced-Lighting)
-	float SpecularI  = pow( max( 0, dot(Normal, normalize( LightDirection - EyeDirection ))), Shininess);
+	// Another way to compute specular "BLINN-PHONG"
+	const float SpecularI  = pow( max( 0, dot(Normal, normalize( LightDirection - EyeDirection ))), Shininess);
 
 	// Read the diffuse color
-	vec4 DiffuseColor	= texture(SamplerDiffuseMap, texCoords) * In.VertColor;
+	const vec4 DiffuseColor	= texture(SamplerDiffuseMap, texCoords) * In.VertColor;
 
 	// Set the global constribution
 	outFragColor.rgb  = pushConsts.AmbientLightColor.rgb * DiffuseColor.rgb * texture(SamplerAOMap, texCoords).rgb;
 
 	// Add the contribution of this light
-	outFragColor.rgb += pow( Shadow, 4.0f)  * pushConsts.LightColor.rgb * ( SpecularI.rrr *  texture(SamplerGlossivessMap, texCoords).rgb + DiffuseI.rrr * DiffuseColor.rgb );
+	outFragColor.rgb += pow( Shadow, 4.0f) * pushConsts.LightColor.rgb * ( SpecularI.rrr *  texture(SamplerGlossivessMap, texCoords).rgb + DiffuseI.rrr * DiffuseColor.rgb );
 
+	//
 	// Convert to gamma
+	//
 	const float Gamma = pushConsts.LocalSpaceEyePos.w;
 	outFragColor.a    = DiffuseColor.a;
 	outFragColor.rgb  = pow( outFragColor.rgb, vec3(1.0f/Gamma) );
 }
-
-

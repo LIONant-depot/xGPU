@@ -319,9 +319,9 @@ int E13_Example()
     //
     // Create mesh
     //
-    auto Mesh = //xprim_geom::uvsphere::Generate( 30, 30, 2, 1 );
-                //xprim_geom::capsule::Generate( 30,30,1,4);
-                xprim_geom::cube::Generate( 4, 4, 4, 4, xprim_geom::float3{1,1,1} );
+    auto Mesh = //xprim_geom::uvsphere::Generate( 30, 30, 2, 1 ); xcore::vector2 UVScale{4,4};
+                //xprim_geom::capsule::Generate( 30,30,1,4); xcore::vector2 UVScale{3,3};
+                 xprim_geom::cube::Generate( 4, 4, 4, 4, xprim_geom::float3{1,1,1} ); xcore::vector2 UVScale{1,1};
 
     xgpu::buffer VertexBuffer;
     {
@@ -339,7 +339,7 @@ int E13_Example()
                     V.m_Normal.setup( v.m_Normal.m_X, v.m_Normal.m_Y, v.m_Normal.m_Z );
                     V.m_Tangent.setup(v.m_Tangent.m_X, v.m_Tangent.m_Y, v.m_Tangent.m_Z);
                     V.m_Binormal = (xcore::vector3{ V.m_Tangent }.Cross(xcore::vector3{ V.m_Normal } )).NormalizeSafe();
-                    V.m_TexCoord.setup( v.m_Texcoord.m_X, v.m_Texcoord.m_Y );
+                    V.m_TexCoord.setup( v.m_Texcoord.m_X * UVScale.m_X, v.m_Texcoord.m_Y * UVScale.m_Y );
                     V.m_Color = xcore::icolor{0xffffffffu};
                 }
             });
