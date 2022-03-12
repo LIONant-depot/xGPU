@@ -168,17 +168,18 @@ void main()
 	// get the parallax coordinates
 	//
 	vec2 texCoords;
-	float Shadow;
+	float ShadowI;
 	{
 		float parallaxHeight;
 		texCoords	= parallaxMapping( EyeDirection, In.UV, parallaxHeight );
 		if( false )
 		{
-			Shadow = parallaxSoftShadowMultiplier( LightDirection, texCoords, parallaxHeight );
+			ShadowI = parallaxSoftShadowMultiplier( LightDirection, texCoords, parallaxHeight );
+			ShadowI = pow( ShadowI, 4.0f);
 		}
 		else
 		{	// One means no shadow
-			Shadow = 1;
+			ShadowI = 1;
 		}
 	}
 
@@ -212,7 +213,7 @@ void main()
 	outFragColor.rgb  = pushConsts.AmbientLightColor.rgb * DiffuseColor.rgb * texture(SamplerAOMap, texCoords).rgb;
 
 	// Add the contribution of this light
-	outFragColor.rgb += pow( Shadow, 4.0f) * pushConsts.LightColor.rgb * ( SpecularI.rrr *  texture(SamplerGlossivessMap, texCoords).rgb + DiffuseI.rrr * DiffuseColor.rgb );
+	outFragColor.rgb += ShadowI * pushConsts.LightColor.rgb * ( SpecularI.rrr *  texture(SamplerGlossivessMap, texCoords).rgb + DiffuseI.rrr * DiffuseColor.rgb );
 
 	//
 	// Convert to gamma
