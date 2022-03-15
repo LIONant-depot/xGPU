@@ -19,6 +19,8 @@ layout (push_constant) uniform PushConsts
 layout(location = 0) out struct 
 { 
     float VertexLighting; 
+
+
     vec2  UV; 
     vec3  LocalSpaceLightPosition;
 	vec3  LocalSpaceLightDir;
@@ -31,8 +33,12 @@ void main()
 {
     // Compute lighting information
     Out.LocalSpaceLightPosition = pushConsts.LocalSpaceLightPos;
+
+    //-------------------------------------------------------------------------------
     Out.LocalSpaceLightDir      = normalize( pushConsts.LocalSpaceLightPos - inPos );
     Out.VertexLighting          = max( 0, dot( inNormal, Out.LocalSpaceLightDir ));
+    //-------------------------------------------------------------------------------
+
     Out.UV                      = inUV;
 
     Out.BTN                     = mat3(inTangent, inBinormal, inNormal);

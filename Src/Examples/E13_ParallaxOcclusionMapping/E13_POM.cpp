@@ -20,10 +20,9 @@ void DebugMessage(std::string_view View)
 struct draw_vert_btn
 {
     xcore::vector3d m_Position;
-    xcore::vector3d m_Binormal;
-    xcore::vector3d m_Tangent;
-    xcore::vector3d m_Normal;
     xcore::vector2  m_TexCoord;
+    xcore::icolor   m_Tangent;
+    xcore::icolor   m_Normal;
     xcore::icolor   m_Color;
 };
 
@@ -63,23 +62,18 @@ int E13_Example()
             }
         ,   xgpu::vertex_descriptor::attribute
             {
-                .m_Offset = offsetof(draw_vert_btn, m_Binormal)
-            ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
+                .m_Offset = offsetof(draw_vert_btn, m_TexCoord)
+            ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
             }
         ,   xgpu::vertex_descriptor::attribute
             {
                 .m_Offset = offsetof(draw_vert_btn, m_Tangent)
-            ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
+            ,   .m_Format = xgpu::vertex_descriptor::format::SINT8_4D_NORMALIZED
             }
         ,   xgpu::vertex_descriptor::attribute
             {
                 .m_Offset = offsetof(draw_vert_btn, m_Normal)
-            ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
-            }
-        ,   xgpu::vertex_descriptor::attribute
-            {
-                .m_Offset = offsetof(draw_vert_btn, m_TexCoord)
-            ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
+            ,   .m_Format = xgpu::vertex_descriptor::format::SINT8_4D_NORMALIZED
             }
         ,   xgpu::vertex_descriptor::attribute
             {
@@ -365,9 +359,15 @@ int E13_Example()
                     auto&       V  = pVertex[i];
                     const auto& v  = Mesh.m_Vertices[i];
                     V.m_Position.setup( v.m_Position.m_X, v.m_Position.m_Y, v.m_Position.m_Z );
-                    V.m_Normal.setup( v.m_Normal.m_X, v.m_Normal.m_Y, v.m_Normal.m_Z );
-                    V.m_Tangent.setup(v.m_Tangent.m_X, v.m_Tangent.m_Y, v.m_Tangent.m_Z);
-                    V.m_Binormal = (xcore::vector3{ V.m_Tangent }.Cross(xcore::vector3{ V.m_Normal } )).NormalizeSafe();
+
+                    V.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-127.0f, std::min(127.0f, v.m_Normal.m_X * 127))));
+                    V.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-127.0f, std::min(127.0f, v.m_Normal.m_Y * 127))));
+                    V.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-127.0f, std::min(127.0f, v.m_Normal.m_Z * 127))));
+
+                    V.m_Tangent.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-127.0f, std::min(127.0f, v.m_Tangent.m_X * 127))));
+                    V.m_Tangent.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-127.0f, std::min(127.0f, v.m_Tangent.m_Y * 127))));
+                    V.m_Tangent.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-127.0f, std::min(127.0f, v.m_Tangent.m_Z * 127))));
+
                     V.m_TexCoord.setup( v.m_Texcoord.m_X * UVScale.m_X, v.m_Texcoord.m_Y * UVScale.m_Y );
                     V.m_Color = xcore::icolor{0xffffffffu};
                 }

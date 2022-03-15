@@ -45,6 +45,7 @@ namespace xgpu::vulkan
                 case xgpu::vertex_descriptor::format::UINT16_1D:              return std::pair{ VK_FORMAT_R16_UINT,             2 };
                 case xgpu::vertex_descriptor::format::UINT32_1D:              return std::pair{ VK_FORMAT_R32_UINT,             4 };
                 case xgpu::vertex_descriptor::format::SINT8_3D_NORMALIZED:    return std::pair{ VK_FORMAT_R8G8B8_SNORM,         3 };
+                case xgpu::vertex_descriptor::format::SINT8_4D_NORMALIZED:    return std::pair{ VK_FORMAT_R8G8B8A8_SNORM,       4 };
                 }
 
                 assert(false);

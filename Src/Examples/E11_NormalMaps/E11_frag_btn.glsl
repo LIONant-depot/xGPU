@@ -83,7 +83,7 @@ void main()
 
 	// Convert to gamma
 	const float gamma = 2.2f;
-	outFragColor.rgb = I4.rrr;		// Current technique in used
+	outFragColor.rgb = I2.rrr;		// Current technique in used
 	outFragColor.a   = 1;
 	outFragColor.rgb = pow( outFragColor.rgb, vec3(1.0f/gamma) );
 }

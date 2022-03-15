@@ -4,11 +4,10 @@
 #extension GL_ARB_shading_language_420pack : enable
 
 layout (location = 0) in vec3 inPos;        //[INPUT_POSITION]
-layout (location = 1) in vec3 inBinormal;   //[INPUT_BINORMAL]
+layout (location = 1) in vec2 inUV;         //[INPUT_UVS]
 layout (location = 2) in vec3 inTangent;    //[INPUT_TANGENT]
 layout (location = 3) in vec3 inNormal;     //[INPUT_NORMAL]
-layout (location = 4) in vec2 inUV;         //[INPUT_UVS]
-layout (location = 5) in vec4 inColor;      //[INPUT_COLOR]
+layout (location = 4) in vec4 inColor;      //[INPUT_COLOR]
 
 layout (push_constant) uniform PushConsts 
 {
@@ -31,8 +30,11 @@ void main()
 {
 	const float Gamma = pushConsts.LocalSpaceEyePos.w;
 
+    // Decompress the binormal
+    vec3 Binormal               = normalize(cross(inTangent,inNormal));
+
     // Compute lighting information
-    Out.BTN                     = mat3(inTangent, inBinormal, inNormal);
+    Out.BTN                     = mat3(inTangent, Binormal, inNormal);
     Out.LocalSpacePosition      = inPos;
     Out.VertColor               = pow( inColor, Gamma.rrrr );    // SRGB to RGB
     Out.UV                      = inUV;
