@@ -331,13 +331,13 @@ int E12_Example()
                     const auto& v  = Mesh.m_Vertices[i];
                     V.m_Position.setup( v.m_Position.m_X, v.m_Position.m_Y, v.m_Position.m_Z );
 
-                    V.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-128.0f, std::min(127.0f, v.m_Normal.m_X * 127))));
-                    V.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-128.0f, std::min(127.0f, v.m_Normal.m_Y * 127))));
-                    V.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-128.0f, std::min(127.0f, v.m_Normal.m_Z * 127))));
+                    V.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(v.m_Normal.m_X < 0 ? std::max(-128, static_cast<int>(v.m_Normal.m_X * 128)) : std::min(127, static_cast<int>(v.m_Normal.m_X * 127))));
+                    V.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(v.m_Normal.m_Y < 0 ? std::max(-128, static_cast<int>(v.m_Normal.m_Y * 128)) : std::min(127, static_cast<int>(v.m_Normal.m_Y * 127))));
+                    V.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(v.m_Normal.m_Z < 0 ? std::max(-128, static_cast<int>(v.m_Normal.m_Z * 128)) : std::min(127, static_cast<int>(v.m_Normal.m_Z * 127))));
 
-                    V.m_Tangent.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-128.0f, std::min(127.0f, v.m_Tangent.m_X * 127))));
-                    V.m_Tangent.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-128.0f, std::min(127.0f, v.m_Tangent.m_Y * 127))));
-                    V.m_Tangent.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-128.0f, std::min(127.0f, v.m_Tangent.m_Z * 127))));
+                    V.m_Tangent.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(v.m_Tangent.m_X < 0 ? std::max(-128, static_cast<int>(v.m_Tangent.m_X * 128)) : std::min(127, static_cast<int>(v.m_Tangent.m_X * 127))));
+                    V.m_Tangent.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(v.m_Tangent.m_Y < 0 ? std::max(-128, static_cast<int>(v.m_Tangent.m_Y * 128)) : std::min(127, static_cast<int>(v.m_Tangent.m_Y * 127))));
+                    V.m_Tangent.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(v.m_Tangent.m_Z < 0 ? std::max(-128, static_cast<int>(v.m_Tangent.m_Z * 128)) : std::min(127, static_cast<int>(v.m_Tangent.m_Z * 127))));
 
                     V.m_TexCoord.setup(v.m_Texcoord.m_X* UVScale.m_X, v.m_Texcoord.m_Y* UVScale.m_Y);
                     V.m_Color = xcore::icolor{0xffffffffu};
