@@ -342,9 +342,9 @@ int E13_Example()
     //
     // Create mesh
     //
-    auto Mesh = //xprim_geom::uvsphere::Generate( 30, 30, 2, 1 ); xcore::vector2 UVScale{4,4};
+    auto Mesh = xprim_geom::uvsphere::Generate( 30, 30, 2, 1 ); xcore::vector2 UVScale{4,4};
                 //xprim_geom::capsule::Generate( 30,30,1,4); xcore::vector2 UVScale{3,3};
-                 xprim_geom::cube::Generate( 4, 4, 4, 4, xprim_geom::float3{1,1,1} ); xcore::vector2 UVScale{1,1};
+                // xprim_geom::cube::Generate( 4, 4, 4, 4, xprim_geom::float3{1,1,1} ); xcore::vector2 UVScale{1,1};
 
     xgpu::buffer VertexBuffer;
     {
@@ -360,13 +360,13 @@ int E13_Example()
                     const auto& v  = Mesh.m_Vertices[i];
                     V.m_Position.setup( v.m_Position.m_X, v.m_Position.m_Y, v.m_Position.m_Z );
 
-                    V.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-127.0f, std::min(127.0f, v.m_Normal.m_X * 127))));
-                    V.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-127.0f, std::min(127.0f, v.m_Normal.m_Y * 127))));
-                    V.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-127.0f, std::min(127.0f, v.m_Normal.m_Z * 127))));
+                    V.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-128.0f, std::min(127.0f, v.m_Normal.m_X * 127))));
+                    V.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-128.0f, std::min(127.0f, v.m_Normal.m_Y * 127))));
+                    V.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-128.0f, std::min(127.0f, v.m_Normal.m_Z * 127))));
 
-                    V.m_Tangent.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-127.0f, std::min(127.0f, v.m_Tangent.m_X * 127))));
-                    V.m_Tangent.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-127.0f, std::min(127.0f, v.m_Tangent.m_Y * 127))));
-                    V.m_Tangent.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-127.0f, std::min(127.0f, v.m_Tangent.m_Z * 127))));
+                    V.m_Tangent.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-128.0f, std::min(127.0f, v.m_Tangent.m_X * 127))));
+                    V.m_Tangent.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-128.0f, std::min(127.0f, v.m_Tangent.m_Y * 127))));
+                    V.m_Tangent.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(std::max(-128.0f, std::min(127.0f, v.m_Tangent.m_Z * 127))));
 
                     V.m_TexCoord.setup( v.m_Texcoord.m_X * UVScale.m_X, v.m_Texcoord.m_Y * UVScale.m_Y );
                     V.m_Color = xcore::icolor{0xffffffffu};
