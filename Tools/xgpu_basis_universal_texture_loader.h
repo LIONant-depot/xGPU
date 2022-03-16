@@ -3,7 +3,7 @@
 
 namespace xgpu::tools::basis_universal
 {
-    inline static basist::etc1_global_selector_codebook g_BasisGlobalSelectorCodebook(basist::g_global_selector_cb_size, basist::g_global_selector_cb);
+  //  inline static basist::etc1_global_selector_codebook g_BasisGlobalSelectorCodebook(basist::g_global_selector_cb_size, basist::g_global_selector_cb);
     inline static bool init = false;
 
     //------------------------------------------------------------------------------------------------
@@ -35,8 +35,8 @@ namespace xgpu::tools::basis_universal
         //
         // Decode
         //
-        basist::ktx2_transcoder Decoder(&g_BasisGlobalSelectorCodebook);
-        if(!Decoder.init(FileMemory.get(), static_cast<uint32_t>(FileSize))) return {};
+        basist::ktx2_transcoder Decoder;//&g_BasisGlobalSelectorCodebook);
+        if(!Decoder.init( FileMemory.get(), static_cast<uint32_t>(FileSize))) return {};
 
         std::array< xgpu::texture::setup::mip, 32 > Mips;   // Decoder.get_levels();
         xgpu::texture::setup                        Setup;
@@ -149,7 +149,7 @@ namespace xgpu::tools::basis_universal
         //
         // Decode 
         //
-        basist::basisu_transcoder Decoder(&g_BasisGlobalSelectorCodebook);
+        basist::basisu_transcoder Decoder;//(&g_BasisGlobalSelectorCodebook);
         if ( !Decoder.validate_header(FileMemory.get(), static_cast<uint32_t>(FileSize) )) return {};
 
         basist::basisu_file_info FileInfo;
