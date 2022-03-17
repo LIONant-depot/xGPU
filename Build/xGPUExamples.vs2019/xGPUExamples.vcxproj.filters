@@ -94,6 +94,9 @@
     <Filter Include="Examples\Example 13 Parallax Occlusion Mapping">
       <UniqueIdentifier>{21e5201d-64bf-4526-8b9b-43ecfa633f07}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Examples\Example 14 Physical Based Rendering">
+      <UniqueIdentifier>{a6e821ec-1ece-4df4-961d-9bd9b387f5ad}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Src\Examples\main.cpp" />
@@ -279,6 +282,9 @@
     </ClCompile>
     <ClCompile Include="..\..\Src\Examples\E13_ParallaxOcclusionMapping\E13_POM.cpp">
       <Filter>Examples\Example 13 Parallax Occlusion Mapping</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Examples\E14_PhysicalBasedRendering\E14_PBR.cpp">
+      <Filter>Examples\Example 14 Physical Based Rendering</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -736,6 +742,12 @@
     </CustomBuild>
     <CustomBuild Include="..\..\Src\Examples\E13_ParallaxOcclusionMapping\E13_POM_vert.glsl">
       <Filter>Examples\Example 13 Parallax Occlusion Mapping</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E14_PhysicalBasedRendering\E14_PBR_frag.glsl">
+      <Filter>Examples\Example 14 Physical Based Rendering</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E14_PhysicalBasedRendering\E14_PBR_vert.glsl">
+      <Filter>Examples\Example 14 Physical Based Rendering</Filter>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
