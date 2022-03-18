@@ -58,7 +58,7 @@ void main()
 
 	// Some Normal maps are left handed (D3D for example) Ideally we would not need to do this
 	// If is better to precompute this in the texture compiler worse case
-	if( false )
+	if( true )
 	{
 		// Convert D3D Normal map to Vulkan/OpenGL format
 		// This is the equivalent of doing Normal.g = 1 - Normal.g; before the Normal got comverted to [-1,1]

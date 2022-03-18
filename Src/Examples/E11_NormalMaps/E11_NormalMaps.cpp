@@ -161,10 +161,10 @@ int E11_Example()
             // Load file
             //
             if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, //"../../Assets/normal_maps-test-fullcolor.dds"
-                                                                // "../../Assets/normal_maps-test-BC5.dds" 
+                                                                 "../../Assets/normal_maps-test-BC5.dds" 
                                                                 // "../../Assets/normal_mapping_normal_map.dds"
                                                                 //    "../../Assets/normal_map_raisen.dds"
-                                                                 "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Normal - Compress BC5.dds"
+                                                                // "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Normal - Compress BC5.dds"
                                                                 // "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Normal - Compress DXT5.dds"
             ); Err)
             {
