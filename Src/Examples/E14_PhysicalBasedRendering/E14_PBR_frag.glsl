@@ -148,12 +148,11 @@ vec3 loadNormal( in const vec2 texCoords )
 {
 	vec3 Normal;
 	// For BC5 it used (rg)
-	Normal.xy	= (texture(SamplerNormalMap, texCoords).rg * 2.0) - 1.0;
+	Normal.xy	= (texture(SamplerNormalMap, texCoords).gr * 2.0) - 1.0;
 	
 	// Derive the final element and normalize 
 	Normal.z =  sqrt(1.0 - dot(Normal.xy, Normal.xy));
 
-	Normal.y = -Normal.y;
 	return Normal;
 }
 

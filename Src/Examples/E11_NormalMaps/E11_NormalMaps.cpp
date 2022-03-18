@@ -160,9 +160,11 @@ int E11_Example()
             //
             // Load file
             //
-            if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap,     "../../Assets/normal_mapping_normal_map.dds"
+            if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, //"../../Assets/normal_maps-test-fullcolor.dds"
+                                                                // "../../Assets/normal_maps-test-BC5.dds" 
+                                                                // "../../Assets/normal_mapping_normal_map.dds"
                                                                 //    "../../Assets/normal_map_raisen.dds"
-                                                                // "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Normal - Compress BC5.dds"
+                                                                 "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Normal - Compress BC5.dds"
                                                                 // "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Normal - Compress DXT5.dds"
             ); Err)
             {
@@ -194,9 +196,67 @@ int E11_Example()
     //
     // Create mesh
     //
-    auto Mesh = xprim_geom::uvsphere::Generate( 30, 30, 2, 1 );
-                //xprim_geom::capsule::Generate( 30,30,1,4);
-                //xprim_geom::cube::Generate( 4, 4, 4, 4, xprim_geom::float3{1,1,1} );
+    auto Mesh = //xprim_geom::uvsphere::Generate( 30, 30, 2, 1 );  xcore::vector2 UVScale{ 4,4 };
+                //xprim_geom::capsule::Generate( 30,30,1,4); xcore::vector2 UVScale{3,3};
+                xprim_geom::cube::Generate( 4, 4, 4, 4, xprim_geom::float3{1,1,1} ); xcore::vector2 UVScale{1,1};
+
+
+
+    //
+    // Recompute the tangent vectors
+    //
+    if( false ) for( int index=0, n = (int)Mesh.m_Indices.size(); index<n; index += 3 )
+    {
+        std::array<xcore::vector3,3> pos;
+        std::array<xcore::vector2,3> uv;
+
+        // copy data for the 3 vertices
+        for( int i=0; i<3; ++i)
+        {
+            const auto& Vert = Mesh.m_Vertices[Mesh.m_Indices[index + i]];
+            pos[i].setup(Vert.m_Position.m_X, Vert.m_Position.m_Y, Vert.m_Position.m_Z );
+            uv[i].setup(Vert.m_Texcoord.m_X, Vert.m_Texcoord.m_Y );
+        }
+
+        //
+        // Compute the Tangent and Binormal Vectors for the first vertex
+        //
+        const auto edge1    = pos[1] - pos[0];
+        const auto edge2    = pos[2] - pos[0];
+        const auto deltaUV1 = uv[1] - uv[0];
+        const auto deltaUV2 = uv[2] - uv[0];
+
+        const float f = 1.0f / (deltaUV1.m_X * deltaUV2.m_Y - deltaUV2.m_X * deltaUV1.m_Y);
+
+        const xcore::vector3 Tangent = xcore::vector3
+        { f* (deltaUV2.m_Y* edge1.m_X - deltaUV1.m_Y * edge2.m_X)
+        , f* (deltaUV2.m_Y* edge1.m_Y - deltaUV1.m_Y * edge2.m_Y)
+        , f* (deltaUV2.m_Y* edge1.m_Z - deltaUV1.m_Y * edge2.m_Z)
+        }.NormalizeSafe();
+
+        const xcore::vector3 Binormal = xcore::vector3
+        { f * (-deltaUV2.m_X * edge1.m_X + deltaUV1.m_X * edge2.m_X)
+        , f * (-deltaUV2.m_X * edge1.m_Y + deltaUV1.m_X * edge2.m_Y)
+        , f * (-deltaUV2.m_X * edge1.m_Z + deltaUV1.m_X * edge2.m_Z)
+        }.NormalizeSafe();
+
+        //
+        // Make sure everything is correct
+        //
+        for (int i = 0; i < 3; ++i)
+        {
+            auto& Vert = Mesh.m_Vertices[Mesh.m_Indices[index+i]];
+
+            Vert.m_Tangent.m_X = Tangent.m_X;
+            Vert.m_Tangent.m_Y = Tangent.m_Y;
+            Vert.m_Tangent.m_Z = Tangent.m_Z;
+
+            const xcore::vector3 ONormal { Vert.m_Normal.m_X,   Vert.m_Normal.m_Y, Vert.m_Normal.m_Z  };
+            const xcore::vector3 OTangent{ Vert.m_Tangent.m_X, Vert.m_Tangent.m_Y, Vert.m_Tangent.m_Z };
+            const xcore::vector3 OBinormal = (xcore::vector3{ OTangent }.Cross(xcore::vector3{ ONormal })).NormalizeSafe();
+        }
+    }
+
 
     xgpu::buffer VertexBuffer;
     {
@@ -212,9 +272,11 @@ int E11_Example()
                     const auto& v  = Mesh.m_Vertices[i];
                     V.m_Position.setup( v.m_Position.m_X, v.m_Position.m_Y, v.m_Position.m_Z );
                     V.m_Normal.setup( v.m_Normal.m_X, v.m_Normal.m_Y, v.m_Normal.m_Z );
+
                     V.m_Tangent.setup(v.m_Tangent.m_X, v.m_Tangent.m_Y, v.m_Tangent.m_Z);
                     V.m_Binormal = (xcore::vector3{ V.m_Tangent }.Cross(xcore::vector3{ V.m_Normal } )).NormalizeSafe();
-                    V.m_TexCoord.setup( v.m_Texcoord.m_X, v.m_Texcoord.m_Y );
+
+                    V.m_TexCoord.setup(v.m_Texcoord.m_X* UVScale.m_X, v.m_Texcoord.m_Y* UVScale.m_Y);
                     V.m_Color = xcore::icolor{0xffffffffu};
                 }
             });

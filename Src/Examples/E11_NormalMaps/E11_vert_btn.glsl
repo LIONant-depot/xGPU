@@ -41,7 +41,7 @@ void main()
 
     Out.UV                      = inUV;
 
-    Out.BTN                     = mat3(inTangent, inBinormal, inNormal);
+    Out.BTN                     = mat3( inTangent, inBinormal, inNormal);
     Out.TangentLightDir         = transpose(Out.BTN) * Out.LocalSpaceLightDir;
 
     Out.LocalSpacePosition      = inPos;

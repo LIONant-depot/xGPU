@@ -31,7 +31,7 @@ void main()
 	const float Gamma = pushConsts.LocalSpaceEyePos.w;
 
     // Decompress the binormal
-    vec3 Binormal               = normalize(cross(inTangent,inNormal));
+    vec3 Binormal               = normalize(cross(inTangent, inNormal));
 
     // Compute lighting information
     Out.BTN                     = mat3(inTangent, Binormal, inNormal);

@@ -173,7 +173,7 @@ int E12_Example()
             //
             // Load file
             //
-            if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Normal - Compress BC5.dds" ); Err)
+            if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Normal - Compress BC5.dds" ); Err) // "../../Assets/normal_maps-test-BC5.dds");Err ) // 
             {
                 DebugMessage(xbmp::tools::getErrorMsg(Err));
                 std::exit(xbmp::tools::getErrorInt(Err));

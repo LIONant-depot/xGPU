@@ -23,13 +23,13 @@ void main()
 	// Read the Normal map texture
 	//
 	vec3 Normal;
-	if( false )
+	if( true )
 	{
 		// Normal map texture that are compress
-		if( false )
+		if( true )
 		{
 			// For Normal map textures compress with BC5, it uses (rg)
-			Normal.rg	= texture(uSamplerNormal, In.UV).rg;
+			Normal.rg	= texture(uSamplerNormal, In.UV).gr;
 		}
 		else
 		{
@@ -58,7 +58,7 @@ void main()
 
 	// Some Normal maps are left handed (D3D for example) Ideally we would not need to do this
 	// If is better to precompute this in the texture compiler worse case
-	if( true )
+	if( false )
 	{
 		// Convert D3D Normal map to Vulkan/OpenGL format
 		// This is the equivalent of doing Normal.g = 1 - Normal.g; before the Normal got comverted to [-1,1]
