@@ -70,7 +70,7 @@ layout(location = 0) in struct
 layout (push_constant) uniform PushConsts 
 {
     mat4  L2C;
-    vec4  LocalSpaceLightPos;
+    vec4  LocalSpaceLightPos;			// LightSpaceLightPos.xyz, w = starting fall off distance in local space units
     vec4  LocalSpaceEyePos;
 	vec4  AmbientLightColor;
 	vec4  LightColor;
@@ -144,7 +144,7 @@ vec2 parallaxMapping( in const vec3 V, in const vec2 T )
 
 //-------------------------------------------------------------------------------------------
 
-vec3 loadNormal( in const vec2 texCoords )
+vec3 loadNormal( in const vec2 texCoords, in const vec3 viewDirection )
 {
 	vec3 Normal;
 	// For BC5 it used (rg)
@@ -153,20 +153,11 @@ vec3 loadNormal( in const vec2 texCoords )
 	// Derive the final element and normalize 
 	Normal.z =  sqrt(1.0 - dot(Normal.xy, Normal.xy));
 
+	// Check if the normal is looking at the eye make it smaller so it wont saturate too much
+	float shiftAmount = dot(Normal, viewDirection );
+	Normal = shiftAmount < 0.0f ? Normal + viewDirection * (-shiftAmount + 0.0001 /*1e-5f*/) : Normal;
 	return Normal;
 }
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-#ifndef ASDSA
-
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //-------------------------------------------------------------------------------------------
 // helper functions
@@ -294,40 +285,40 @@ void main()
 	// Texture calculations
 	//
 	const vec2  texCoords				= parallaxMapping( EyeDirection, In.UV );
-	const float Roughness               = 0.66;//texture( SamplerRoughnessMap, texCoords).r;
+	const float Roughness               = 0.6;//texture( SamplerRoughnessMap, texCoords).r;
 	const float Metallic                = texture( SamplerMetalicMap, texCoords).r;
 	const vec3  Albedo                  = texture( SamplerAlbedoMap, texCoords).rgb;
 	const vec3  SpecularColor           = vec3(1);//texture( SamplerSpecularMap, texCoords).rgb;
 
 	// get the basics
-	const vec3  normalDirection  		= loadNormal(texCoords);
 	const vec3  lightDirection			= normalize( In.TangentLight.xyz - In.TangentTexelPosition );
 	const vec3  viewDirection			= normalize( In.TangentView.xyz  - In.TangentTexelPosition );
+	const vec3  normalDirection  		= loadNormal(texCoords, viewDirection);
 
 	// vector calculations
 	const vec3  lightReflectDirection	= reflect( -lightDirection, normalDirection );
 	const vec3  viewReflectDirection    = normalize(reflect( -viewDirection, normalDirection ));
-	const float NdotL					= max(0.0, dot( normalDirection, lightDirection ));
+	const float NdotL					= max(0.0,dot( normalDirection, lightDirection ));
 	const vec3  halfDirection			= normalize(viewDirection+lightDirection); 
 	const float NdotH					= max(0.0,dot( normalDirection, halfDirection));
 	const float NdotV					= max(0.0,dot( normalDirection, viewDirection));
 	const float VdotH					= max(0.0,dot( viewDirection, halfDirection));
 	const float LdotH					= max(0.0,dot(lightDirection, halfDirection)); 
 	const float LdotV					= max(0.0,dot(lightDirection, viewDirection)); 
-	const float RdotV					= max(0.0, dot( lightReflectDirection, viewDirection ));
+	const float RdotV					= max(0.0,dot( lightReflectDirection, viewDirection ));
 
 	// Light calculations
-	const float attenuation				= 1;//1/sqr(In.TangentLight.xyz - In.TangentTexelPosition.rgb);
-	const vec3  attenColor				= attenuation * pushConsts.LightColor.rgb;
+	const float attenuation				= min( 1, pushConsts.LocalSpaceLightPos.w / sqr(In.TangentLight.xyz - In.TangentTexelPosition.rgb));
+	const vec3  attenColor				= attenuation * pushConsts.LightColor.rgb;// * 4.3;
 
 	// diffuse color calculations
-	const float roughness				= sqr(Roughness * Roughness);
+	const float roughness				= sqr( Roughness * Roughness );
 	const float f0						= F0(NdotL, NdotV, LdotH, roughness);
     const vec3  diffuseColor			= Albedo.rgb * (1.0 - Metallic) * f0;
 
 	// Specular calculations
 	const vec3	specColor				= mix( SpecularColor.rgb, Albedo.rgb, Metallic * 0.5 );
-	const float Ior						= 1.7; // Range(1,4))
+	const float Ior						= 3.2; // Range(1,4))
 
 	// Specular BRDF
 	vec3  FresnelFunction				= specColor;
@@ -335,32 +326,39 @@ void main()
 	float GeometricShadow				= 1;
 
 	// Specular distribution
-	if(false)	SpecularDistribution *= BlinnPhongNormalDistribution( NdotH, 1 - Roughness,  max(1,(1 - Roughness) * 40) );
-	else		SpecularDistribution *= GGXNormalDistribution(roughness, NdotH);
+	if(false)	SpecularDistribution   *= BlinnPhongNormalDistribution( NdotH, 1 - Roughness,  max(1,(1 - Roughness) * 40) );
+	else		SpecularDistribution   *= GGXNormalDistribution(roughness, NdotH);
 
-	if(false)	GeometricShadow		 *= ImplicitGeometricShadowingFunction		(NdotL, NdotV);
-	else		GeometricShadow		 *= SchlickBeckmanGeometricShadowingFunction(NdotL, NdotV, roughness);
+	if(false)	GeometricShadow		   *= ImplicitGeometricShadowingFunction		(NdotL, NdotV);
+	else		GeometricShadow		   *= SchlickBeckmanGeometricShadowingFunction(NdotL, NdotV, roughness);
 
-	if(false)	FresnelFunction		 *= SphericalGaussianFresnelFunction(LdotH, specColor);
-	else        FresnelFunction		 *= SchlickIORFresnelFunction(Ior, LdotH);
+	if(false)	FresnelFunction		   *= SphericalGaussianFresnelFunction(LdotH, specColor);
+	else        FresnelFunction		   *= SchlickIORFresnelFunction(Ior, LdotH);
+
+	// For indirect specularity
+	/*
+	const vec3 indirectSpecular     = vec3(1);
+	const float grazingTerm         = clamp( roughness + Metallic, 0, 1 );
+	const vec3  IndirectSpecularity =  indirectSpecular * FresnelLerp( specColor.rgb, grazingTerm.rrr, NdotV) * max(0.15,Metallic) * (1-roughness*roughness* roughness);
+	*/
 
 	// PBR
-	const vec3  specularity		= min( diffuseColor*2, (SpecularDistribution * FresnelFunction * GeometricShadow) / (4 * NdotL * NdotV) );
-	const vec3  lightingModel	= NdotL * ( diffuseColor.xyz + specularity.xyz );
-	const vec3  finalModel     	= lightingModel * attenColor;
+	const vec3  specularity			  = min( vec3(31), (SpecularDistribution * FresnelFunction * GeometricShadow) / (4 * NdotL * NdotV) );
+	const vec3  lightingModel		  = NdotL * ( diffuseColor.xyz + specularity.xyz /*+ IndirectSpecularity.xyz*/ );
+	const vec3  finalModel     		  = pow( lightingModel * attenColor, vec3(1.2));
 
 	//
 	// Set the global constribution
 	//
-	vec3 Ambient = pushConsts.AmbientLightColor.rgb * Albedo.rgb * texture(SamplerAOMap, texCoords).rgb;
+	const vec3  Ambient			      = pushConsts.AmbientLightColor.rgb * Albedo.rgb * texture(SamplerAOMap, texCoords).rgb;
 
-	// Add the contribution of this light
-	outFragColor.rgb = Ambient + finalModel.rgb;
-
+	outFragColor.rgb = Ambient + finalModel;
+	
 	//
 	// Tone map from (HDR) to (LDR) before gamma correction
+	// Has a blue tint 
 	//
-	outFragColor.rgb = outFragColor.rgb / ( outFragColor.rgb + vec3(1, 1, 0.9) );
+	outFragColor.rgb = outFragColor.rgb / ( outFragColor.rgb + vec3(1.0, 1.0, 0.9) );
 
 	//
 	// Convert to gamma
@@ -369,135 +367,3 @@ void main()
 	outFragColor.a    = 1;//DiffuseColor.a;
 	outFragColor.rgb  = pow( outFragColor.rgb, vec3(1.0f/Gamma) );
 }
-
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-#else
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-//-------------------------------------------------------------------------------------------
-
-vec3 fresnelSchlick( in const float cosTheta, in const vec3 F0, in const float F90 )
-{
-	const float f = pow( clamp(1.0 - cosTheta, 0.0, 1.0), 5.0 );
-    return F0 + (F90 - F0) * f;
-}  
-
-//-------------------------------------------------------------------------------------------
-
-float NormalDistributionGGX( in const vec3 Normal, in const vec3 HalfV, in const float Roughness )
-{
-    const float a      = Roughness*Roughness;
-    const float a2     = a*a;
-    const float NdotH  = max(dot(Normal, HalfV), 0.0);
-    const float NdotH2 = NdotH*NdotH;
-	
-    const float num   = a2;
-    float		denom = (NdotH2 * (a2 - 1.0) + 1.0);
-    denom = PI * denom * denom;
-	
-    return num / denom;
-}
-
-//-------------------------------------------------------------------------------------------
-
-float GeometryShadowingSchlickBeckmanGGX( in const float NdotV, in const float Roughness )
-{
-	return (2 * NdotV)/ (NdotV + sqrt((Roughness*Roughness) + ( 1-Roughness) * (NdotV*NdotV)));
-
-    const float r = (Roughness + 1.0);
-    const float k = (r*r) / 8.0;
-
-    const float num   = NdotV;
-    const float denom = NdotV * (1.0 - k) + k;
-	
-    return num / denom;
-}
-
-//-------------------------------------------------------------------------------------------
-
-float GeometryShadowingSmith( in const vec3 Normal, in const vec3 ViewDir, in const vec3 LightDir, in const float Roughness )
-{
-    const float NdotV = max(dot(Normal, ViewDir), 0.0);
-    const float NdotL = max(dot(Normal, LightDir), 0.0);
-    const float ggx2  = GeometryShadowingSchlickBeckmanGGX(NdotV, Roughness);
-    const float ggx1  = GeometryShadowingSchlickBeckmanGGX(NdotL, Roughness);
-	
-    return ggx1 * ggx2;
-}
-
-//-------------------------------------------------------------------------------------------
-
-void main() 
-{
-	// Note This is the true Eye to Texel direction 
-	const vec3 EyeDirection = normalize( In.TangentTexelPosition - In.TangentView.xyz );
-
-	//
-	// get the parallax coordinates
-	//
-	const vec2 texCoords     = parallaxMapping( EyeDirection, In.UV );
-	const vec3 Normal        = loadNormal(texCoords);
-	const vec3 ViewDirection = -EyeDirection;
-
-
-	const float Roughness                = 0.5;//max( 0.01, texture( SamplerRoughnessMap, texCoords).r );//*max( 0.01, texture( SamplerRoughnessMap, texCoords).r );
-	const float Metalic                  = texture( SamplerMetalicMap, texCoords).r;
-	const vec3  Albedo                   = texture( SamplerAlbedoMap, texCoords).rgb;
-
-	//
-	// Compute all the light information
-	//
-	const vec3  LightVector              = In.TangentLight.xyz - In.TangentTexelPosition;
-	const float LightDistanceAttenuation = inversesqrt(dot(LightVector,LightVector));
-	const vec3  LightDirection           = LightVector * LightDistanceAttenuation;
-	const vec3  LightRadiance            = pushConsts.LightColor.rgb * 1;//LightDistanceAttenuation;
-	const vec3  HalfV                    = normalize( LightDirection + ViewDirection );
-
-	// The Fresnel-Schlick approximation expects a F0 parameter which is known as the surface reflection at zero incidence or 
-	// how much the surface reflects if looking directly at the surface. The F0 varies per material and is tinted on metals 
-	// as we find in large material databases. In the PBR metallic workflow we make the simplifying assumption that most dielectric 
-	// surfaces look visually correct with a constant F0 of 0.04, while we do specify F0 for metallic surfaces as then given by the albedo value. 
-
-	// To see possible reflectance values check: https://google.github.io/filament/Filament.html#table_commonmatreflectance
-	const float Reflectance = 0.2;
-	const vec3  F0			= mix( pushConsts.LightColor.rgb * vec3(0.16 * Reflectance*Reflectance), Albedo, Metalic );
-	const vec3  Freshnel	= fresnelSchlick( max(dot(HalfV, ViewDirection), 0.0), F0, 1 ); 
-
-	//
-	// cook-torrance brdf
-	//
-	const float NDF			= NormalDistributionGGX( Normal, HalfV, Roughness ); 
-	const float GSF			= GeometryShadowingSmith( Normal, ViewDirection, LightDirection, Roughness );
-	const vec3  numerator   = NDF * GSF * Freshnel;
-	const float denominator = 4.0 * max(dot(Normal, ViewDirection), 0.0) * max(dot(Normal, LightDirection), 0.0) + 0.0001;
-	const vec3  specular    = numerator / denominator;
-
-	// add to outgoing radiance Lo
-	const float	NdotL    	= max(dot(Normal, LightDirection), 0.0);
-	const vec3  Fd          = Albedo / PI;
-	const vec3	kD			= (vec3(1.0) - Freshnel) * (1.0 - Metalic);
-	const vec3	Lo			= (kD * Fd + specular) * LightRadiance * NdotL;
-
-	// Set the global constribution
-	vec3 Ambient = pushConsts.AmbientLightColor.rgb * Albedo.rgb * texture(SamplerAOMap, texCoords).rgb;
-
-	// Add the contribution of this light
-	outFragColor.rgb = Ambient + Lo;
-
-	//
-	// Tone map from (HDR) to (LDR) before gamma correction
-	//
-	outFragColor.rgb = outFragColor.rgb / ( outFragColor.rgb + vec3(1.0) );
-
-	//
-	// Convert to gamma
-	//
-	const float Gamma = pushConsts.LocalSpaceEyePos.w;
-	outFragColor.a    = 1;//DiffuseColor.a;
-	outFragColor.rgb  = pow( outFragColor.rgb, vec3(1.0f/Gamma) );
-}
-#endif

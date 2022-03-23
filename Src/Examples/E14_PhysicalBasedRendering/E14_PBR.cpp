@@ -494,6 +494,7 @@ int E14_Example()
                 PushConstants.m_L2C                 = W2C * L2W;
                 PushConstants.m_LocalSpaceEyePos    = W2L * View.getPosition();
                 PushConstants.m_LocalSpaceLightPos  = W2L * LightPosition;
+                PushConstants.m_LocalSpaceLightPos.m_W = 5;                 // local space light distance start attenuation
                 PushConstants.m_AmbientLightColor.setup( 0.03f, 0.03f, 0.03f, 1.0f );
                 PushConstants.m_LightColor.setup( 1.0f, 1.0f, 1.0f, 1.0f );
                 PushConstants.m_LocalSpaceEyePos.m_W = 2.2f;  // We store gamma in the w component of the eye
