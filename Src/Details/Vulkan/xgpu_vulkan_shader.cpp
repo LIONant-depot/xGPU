@@ -56,7 +56,7 @@ namespace xgpu::vulkan
 
         switch (Setup.m_Type)
         {
-            case xgpu::shader::type::VERTEX:
+            case xgpu::shader::type::bit::VERTEX:
                 m_ShaderStageCreateInfo = VkPipelineShaderStageCreateInfo
                 {
                   .sType    = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
@@ -65,7 +65,7 @@ namespace xgpu::vulkan
                 , .pName    = Setup.m_EntryPoint
                 };
             break;
-            case xgpu::shader::type::FRAGMENT:
+            case xgpu::shader::type::bit::FRAGMENT:
                 m_ShaderStageCreateInfo = VkPipelineShaderStageCreateInfo
                 {
                   .sType    = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO

@@ -490,9 +490,9 @@ struct window_info
             //
             // Copy over the vertices
             //
-            Prim.m_VertexBuffer.MemoryMap( 0, Prim.m_VertexBuffer.getEntryCount(), [&](void* pV)
+            (void)Prim.m_VertexBuffer.MemoryMap( 0, Prim.m_VertexBuffer.getEntryCount(), [&](void* pV)
             {
-                Prim.m_IndexBuffer.MemoryMap(0, Prim.m_IndexBuffer.getEntryCount(), [&](void* pI)
+                (void)Prim.m_IndexBuffer.MemoryMap(0, Prim.m_IndexBuffer.getEntryCount(), [&](void* pI)
                 {
                     auto pVertex = reinterpret_cast<ImDrawVert*>(pV);
                     auto pIndex  = reinterpret_cast<ImDrawIdx*>(pI);
@@ -665,7 +665,7 @@ struct breach_instance : window_info
             xgpu::shader ImGuiFragmentShader;
             {
                 xgpu::shader::setup Setup
-                { .m_Type   = xgpu::shader::type::FRAGMENT
+                { .m_Type   = xgpu::shader::type::bit::FRAGMENT
                 , .m_Sharer = xgpu::shader::setup::raw_data{ g_FragShaderSPV }
                 };
                 if (auto Err = m_Device.Create(ImGuiFragmentShader, Setup ); Err) return Err;
@@ -678,7 +678,7 @@ struct breach_instance : window_info
                 };
                 xgpu::shader::setup Setup
                 {
-                    .m_Type                 = xgpu::shader::type::VERTEX
+                    .m_Type                 = xgpu::shader::type::bit::VERTEX
                 ,   .m_Sharer               = xgpu::shader::setup::raw_data{g_VertShaderSPV}
                 };
                 if (auto Err = m_Device.Create(ImGuiVertexShader, Setup); Err) return Err;

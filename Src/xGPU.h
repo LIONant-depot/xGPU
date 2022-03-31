@@ -13,6 +13,7 @@
 #include<variant>
 #include<cassert>
 #include<mutex>
+#include<optional>
 
 //
 // Utility macros
@@ -42,6 +43,7 @@ namespace xgpu::details
     struct texture_handle;
     struct texture_instance_handle;
     struct buffer_handle;
+    struct renderpass_handle;
 }
 
 namespace xgpu
@@ -124,11 +126,12 @@ namespace xgpu
 #include "xgpu_keyboard.h"
 #include "xgpu_vertex_descriptor.h"
 #include "xgpu_texture.h"
-#include "xgpu_shader.h"
 #include "xgpu_buffer.h"
+#include "xgpu_shader.h"
 #include "xgpu_pipeline.h"
 #include "xgpu_pipeline_instance.h"
 #include "xgpu_cmd_buffer.h"
+#include "xgpu_renderpass.h"
 #include "xgpu_window.h"
 #include "xgpu_device.h"
 #include "xgpu_instance.h"
@@ -148,6 +151,6 @@ namespace xgpu
 #include "details/xgpu_device_inline.h"
 #include "details/xgpu_shader_inline.h"
 #include "details/xgpu_texture_inline.h"
-#include "details/xgpu_texture_instance_inline.h"
+#include "details/xgpu_renderpass_inline.h"
 
 #endif

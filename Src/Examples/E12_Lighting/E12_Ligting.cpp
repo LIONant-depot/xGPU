@@ -107,7 +107,7 @@ int E12_Example()
 
             xgpu::shader::setup Setup
             {
-                .m_Type                 = xgpu::shader::type::FRAGMENT
+                .m_Type                 = xgpu::shader::type::bit::FRAGMENT
             ,   .m_Sharer               = RawData
             };
 
@@ -125,7 +125,7 @@ int E12_Example()
             };
             xgpu::shader::setup Setup
             {
-                .m_Type                 = xgpu::shader::type::VERTEX
+                .m_Type                 = xgpu::shader::type::bit::VERTEX
             ,   .m_Sharer               = RawData
             };
 
@@ -322,7 +322,7 @@ int E12_Example()
         if (auto Err = Device.Create(VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(draw_vert_btn), .m_EntryCount = static_cast<int>(Mesh.m_Vertices.size()) }); Err)
             return xgpu::getErrorInt(Err);
 
-        VertexBuffer.MemoryMap(0, static_cast<int>(Mesh.m_Vertices.size()), [&](void* pData)
+        (void)VertexBuffer.MemoryMap(0, static_cast<int>(Mesh.m_Vertices.size()), [&](void* pData)
             {
                 auto pVertex = static_cast<draw_vert_btn*>(pData);
                 for( int i=0; i< static_cast<int>(Mesh.m_Vertices.size()); ++i )
@@ -350,7 +350,7 @@ int E12_Example()
         if (auto Err = Device.Create(IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = static_cast<int>(Mesh.m_Indices.size()) }); Err)
             return xgpu::getErrorInt(Err);
 
-        IndexBuffer.MemoryMap(0, static_cast<int>(Mesh.m_Indices.size()), [&](void* pData)
+        (void)IndexBuffer.MemoryMap(0, static_cast<int>(Mesh.m_Indices.size()), [&](void* pData)
             {
                 auto            pIndex      = static_cast<std::uint32_t*>(pData);
                 for( int i=0; i< static_cast<int>(Mesh.m_Indices.size()); ++i )

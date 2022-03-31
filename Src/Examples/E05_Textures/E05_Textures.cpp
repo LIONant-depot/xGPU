@@ -248,7 +248,7 @@ int E05_Example()
         xgpu::shader MyFragmentShader;
         {
             xgpu::shader::setup Setup
-            { .m_Type = xgpu::shader::type::FRAGMENT
+            { .m_Type = xgpu::shader::type::bit::FRAGMENT
             , .m_Sharer = xgpu::shader::setup::raw_data{ g_FragShaderSPV }
             };
             if (auto Err = Device.Create(MyFragmentShader, Setup ); Err)
@@ -259,7 +259,7 @@ int E05_Example()
         {
             xgpu::shader::setup Setup
             {
-                .m_Type                 = xgpu::shader::type::VERTEX
+                .m_Type                 = xgpu::shader::type::bit::VERTEX
             ,   .m_Sharer               = xgpu::shader::setup::raw_data{g_VertShaderSPV}
             };
 
@@ -287,7 +287,7 @@ int E05_Example()
         if (auto Err = Device.Create(VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(vert_2d), .m_EntryCount = 4 }); Err)
             return xgpu::getErrorInt(Err);
 
-        VertexBuffer.MemoryMap( 0, 4, [&](void* pData)
+        (void)VertexBuffer.MemoryMap( 0, 4, [&](void* pData)
         {
             auto pVertex   = static_cast<vert_2d*>(pData);
             pVertex[0]  = { -100.0f, -100.0f,  0.0f, 0.0f, 0xffffffff };
@@ -302,7 +302,7 @@ int E05_Example()
         if (auto Err = Device.Create(IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = 6 }); Err)
             return xgpu::getErrorInt(Err);
 
-        IndexBuffer.MemoryMap( 0, 6, [&](void* pData)
+        (void)IndexBuffer.MemoryMap( 0, 6, [&](void* pData)
         {
             auto            pIndex      = static_cast<std::uint32_t*>(pData);
             constexpr auto  StaticIndex = std::array

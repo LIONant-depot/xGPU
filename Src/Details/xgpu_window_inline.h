@@ -10,6 +10,7 @@ namespace xgpu
             virtual     int                             getHeight               ( void ) const                                              noexcept = 0;
             virtual     void                            PageFlip                ( void )                                                    noexcept = 0;
             virtual     void                            CmdRenderBegin          ( void )                                                    noexcept = 0;
+            virtual     void                            CmdRenderBegin          ( const xgpu::renderpass& Renderpass )                      noexcept = 0;
             virtual     void                            CmdRenderEnd            ( void )                                                    noexcept = 0;
             virtual     bool                            BegingRendering         ( void )                                                    noexcept = 0;
             virtual     void                            setPipelineInstance     ( xgpu::pipeline_instance& Instance )                       noexcept = 0;
@@ -78,6 +79,15 @@ namespace xgpu
     {
         m_Private->CmdRenderBegin();
         return {m_Private.get()};
+    }
+
+    //--------------------------------------------------------------------------
+
+    XGPU_INLINE
+    cmd_buffer window::StartRenderPass( const renderpass& Renderpass ) noexcept
+    {
+        m_Private->CmdRenderBegin(Renderpass);
+        return { m_Private.get() };
     }
 
     //--------------------------------------------------------------------------

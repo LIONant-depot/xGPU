@@ -53,6 +53,48 @@ namespace xgpu::vulkan
         m_VertexDesciptor = std::reinterpret_pointer_cast<vulkan::vertex_descriptor>(Setup.m_VertexDescriptor.m_Private);
 
         //
+        // Collect some basic information from the uniform buffers
+        //
+        m_nUniformBuffers = (int)Setup.m_UniformBufferUsage.size();
+        for( auto& E : m_UniformBufferFastRemap ) E = 0xff;
+        for( int i = 0; i<m_nUniformBuffers; ++i)
+        {
+            // copy over the bits
+            m_UniformBufferBits[i] = Setup.m_UniformBufferUsage[i];
+
+            const std::uint8_t Value = static_cast<std::uint8_t>(Setup.m_UniformBufferUsage[i].m_Value);
+
+            if( Value == 0 )
+            {
+                m_Device->m_Instance->ReportError("Fail to create a pipeline due to having a uniform buffer without any shader usage");
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a pipeline due to having a uniform buffer without any shader usage");
+            }
+
+            for( int j=0; j<xgpu::shader::type::count_v; ++j)
+            {
+                const int bit  = (Value>>i)&1;
+
+                if(bit)
+                {
+                    if( m_UniformBufferFastRemap[bit] != 0xff )
+                    {
+                        m_Device->m_Instance->ReportError("Fail to create a pipeline due to having multiple uniform buffer trying to use the same shader bit");
+                        return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a pipeline due to having multiple uniform buffer trying to use the same shader bit");
+                    }
+
+                    // Set the actual remap
+                    m_UniformBufferFastRemap[bit] = i;
+
+                    // do we have any other bit to set? if not then just break
+                    if( const std::uint8_t Mask = ~((1 << (j + 1)) - 1); (Value & Mask ) == 0 ) 
+                    {
+                        break;
+                    }
+                }
+            }
+        }
+
+        //
         // Rasterization state
         //
         static constexpr auto PolygonModeTable = []() consteval
@@ -146,14 +188,19 @@ namespace xgpu::vulkan
             return BlendFactorTable;
         }();
 
-        m_lVkBlendAttachmentState[0].colorWriteMask         = Setup.m_Blend.m_ColorWriteMask;
-        m_lVkBlendAttachmentState[0].blendEnable            = Setup.m_Blend.m_bEnable;
-        m_lVkBlendAttachmentState[0].srcColorBlendFactor    = BlendFactorTable[(int)Setup.m_Blend.m_ColorSrcFactor];
-        m_lVkBlendAttachmentState[0].dstColorBlendFactor    = BlendFactorTable[(int)Setup.m_Blend.m_ColorDstFactor];
-        m_lVkBlendAttachmentState[0].colorBlendOp           = BlendOperationTable[(int)Setup.m_Blend.m_ColorOperation];
-        m_lVkBlendAttachmentState[0].srcAlphaBlendFactor    = BlendFactorTable[(int)Setup.m_Blend.m_AlphaSrcFactor];
-        m_lVkBlendAttachmentState[0].dstAlphaBlendFactor    = BlendFactorTable[(int)Setup.m_Blend.m_AlphaDstFactor];
-        m_lVkBlendAttachmentState[0].alphaBlendOp           = BlendOperationTable[(int)Setup.m_Blend.m_AlphaOperation];
+        // When doing mutipass rendering you may have more than just one destination buffer and we should know how 
+        // that to do with each one of them
+        for( auto& BA : m_lVkBlendAttachmentState )
+        {
+            BA.colorWriteMask         = Setup.m_Blend.m_ColorWriteMask;
+            BA.blendEnable            = Setup.m_Blend.m_bEnable;
+            BA.srcColorBlendFactor    = BlendFactorTable[(int)Setup.m_Blend.m_ColorSrcFactor];
+            BA.dstColorBlendFactor    = BlendFactorTable[(int)Setup.m_Blend.m_ColorDstFactor];
+            BA.colorBlendOp           = BlendOperationTable[(int)Setup.m_Blend.m_ColorOperation];
+            BA.srcAlphaBlendFactor    = BlendFactorTable[(int)Setup.m_Blend.m_AlphaSrcFactor];
+            BA.dstAlphaBlendFactor    = BlendFactorTable[(int)Setup.m_Blend.m_AlphaDstFactor];
+            BA.alphaBlendOp           = BlendOperationTable[(int)Setup.m_Blend.m_AlphaOperation];
+        }
 
         m_VkColorBlendState.sType                           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
         m_VkColorBlendState.attachmentCount                 = static_cast<std::uint32_t>(m_lVkBlendAttachmentState.size());
@@ -293,19 +340,43 @@ namespace xgpu::vulkan
         {
             std::array<VkDescriptorSetLayoutBinding, 16> layoutBinding  = {};
 
-            for( int i = 0; i < m_nSamplers; ++i)
+            auto ConvertFlagsToVulkan = [&](int Index) noexcept
+            {
+                VkShaderStageFlags  V       = 0;
+                const auto&         UBBit   = m_UniformBufferBits[Index];
+                if (UBBit.m_bVertex)                   V |= VK_SHADER_STAGE_VERTEX_BIT;
+                if (UBBit.m_bCompute)                  V |= VK_SHADER_STAGE_COMPUTE_BIT;
+                if (UBBit.m_bFragment)                 V |= VK_SHADER_STAGE_FRAGMENT_BIT;
+                if (UBBit.m_bGeometry)                 V |= VK_SHADER_STAGE_GEOMETRY_BIT;
+                if (UBBit.m_bTessellationControl)      V |= VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
+                if (UBBit.m_bTessellationEvaluator)    V |= VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+                return V;
+            };
+
+            for (int i = 0; i < m_nUniformBuffers; ++i)
             {
                 layoutBinding[i].binding            = i;
-                layoutBinding[i].descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                layoutBinding[i].descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
                 layoutBinding[i].descriptorCount    = 1;
-                layoutBinding[i].stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
-                layoutBinding[i].pImmutableSamplers = &m_VKSamplers[i];
+                layoutBinding[i].stageFlags         = ConvertFlagsToVulkan(i);
+                layoutBinding[i].pImmutableSamplers = nullptr;
+            }
+
+            for( int i = 0; i < m_nSamplers; ++i)
+            {
+                int Index = m_nUniformBuffers + i;
+
+                layoutBinding[Index].binding            = Index;
+                layoutBinding[Index].descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                layoutBinding[Index].descriptorCount    = 1;
+                layoutBinding[Index].stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+                layoutBinding[Index].pImmutableSamplers = &m_VKSamplers[i];
             }
 
             VkDescriptorSetLayoutCreateInfo descriptorLayout = {};
             descriptorLayout.sType          = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
             descriptorLayout.pNext          = nullptr;
-            descriptorLayout.bindingCount   = static_cast<uint32_t>(m_nSamplers);
+            descriptorLayout.bindingCount   = static_cast<uint32_t>(m_nUniformBuffers + m_nSamplers);
             descriptorLayout.pBindings      = layoutBinding.data();
 
             if( auto VKErr = vkCreateDescriptorSetLayout(m_Device->m_VKDevice, &descriptorLayout, m_Device->m_Instance->m_pVKAllocator, m_VKDescriptorSetLayout.data()); VKErr )
@@ -319,37 +390,14 @@ namespace xgpu::vulkan
         // Set the push constants for this pipeline
         //
         {
-            int                                  nPushConstantsRanges=0;
-            std::array<VkPushConstantRange, 128> pushConstantRange;
+            std::array<VkPushConstantRange, 1> pushConstantRange;
 
             if(Setup.m_PushConstantsSize)
             {
                 pushConstantRange[0].offset     = 0;
                 pushConstantRange[0].size       = static_cast<std::uint32_t>(Setup.m_PushConstantsSize);
                 pushConstantRange[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT;
-                nPushConstantsRanges++;
             }
-
-            /*
-            std::uint32_t                        TotalSize = 0;             // Total Size used by the pushconstants
-            for (auto& S : std::span{ m_ShaderStages.data(), (std::size_t)m_nShaderStages })
-            {
-                int total = 0;
-                for( int i=0; i< S->m_nPushConstantRanges; ++i )
-                {
-                    pushConstantRange[nPushConstantsRanges] = S->m_VKPushConstantRanges[i];
-                    pushConstantRange[nPushConstantsRanges].offset += TotalSize;
-                    //pushConstantRange[nPushConstantsRanges].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT
-                    total += pushConstantRange[nPushConstantsRanges].size;
-
-                    nPushConstantsRanges++;
-                }
-
-                // Update to the new size
-                TotalSize += total;
-            }
-            */
-
 
             //
             // Set the pipeline descriptor 
@@ -360,11 +408,11 @@ namespace xgpu::vulkan
             ,   .pNext                  = nullptr
 
                 // Set the descriptors for the textures
-            ,   .setLayoutCount         = m_nSamplers ? 1u : 0u
+            ,   .setLayoutCount         = (m_nUniformBuffers + m_nSamplers) ? 1u : 0u
             ,   .pSetLayouts            = m_VKDescriptorSetLayout.data()
 
                 // Push constant ranges are part of the pipeline layout
-            ,   .pushConstantRangeCount = static_cast<uint32_t>(nPushConstantsRanges)
+            ,   .pushConstantRangeCount = Setup.m_PushConstantsSize ? 1u : 0u
             ,   .pPushConstantRanges    = pushConstantRange.data()
             };
 

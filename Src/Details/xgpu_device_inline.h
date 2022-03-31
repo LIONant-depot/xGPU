@@ -12,6 +12,10 @@ namespace xgpu
                                                                     , const xgpu::window::setup&            Setup
                                                                     , std::shared_ptr<device_handle>&       SharedDevice
                                                                     ) noexcept = 0;
+            virtual device::error*          Create                  ( xgpu::renderpass&                     Renderpass
+                                                                    , const xgpu::renderpass::setup&        Setup
+                                                                    , std::shared_ptr<device_handle>&       SharedDevice
+                                                                    ) noexcept = 0;
             virtual device::error*          Create                  ( pipeline&                             Pipeline
                                                                     , const xgpu::pipeline::setup&          Setup
                                                                     , std::shared_ptr<device_handle>&       SharedDevice
@@ -63,12 +67,23 @@ namespace xgpu
 
     //------------------------------------------------------------------------------------------------
 
+    XGPU_INLINE 
+    [[nodiscard]] device::error* 
+    device::Create
+    ( renderpass&               Renderpass
+    , const renderpass::setup&  Setup
+    ) noexcept
+    {
+        return m_Private->Create(Renderpass, Setup, m_Private);
+    }
+
+    //------------------------------------------------------------------------------------------------
+
     XGPU_INLINE
     [[nodiscard]] device::error* 
     device::Create
-    (
-        pipeline&                   Pipeline
-    ,   const pipeline::setup&      Setup
+    ( pipeline&                   Pipeline
+    , const pipeline::setup&      Setup
     ) noexcept
     {
         return m_Private->Create( Pipeline, Setup, m_Private);

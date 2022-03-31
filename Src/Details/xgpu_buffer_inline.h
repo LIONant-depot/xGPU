@@ -26,6 +26,17 @@ namespace xgpu
 
     //--------------------------------------------------------------------------------------------------------
 
+    template< typename T >
+    xgpu::buffer::error* buffer::getMappedVirtualMemory( T*& Pointer ) noexcept
+    {
+        void* pMemory = nullptr;
+        if (auto pErr = m_Private->MapLock(pMemory, 0, 1); pErr) return reinterpret_cast<xgpu::buffer::error*>(pErr);
+        Pointer = reinterpret_cast<T*>(pMemory);
+        return nullptr;
+    }
+
+    //--------------------------------------------------------------------------------------------------------
+
     int buffer::getEntryCount(void) const noexcept
     {
         return m_Private->getEntryCount();

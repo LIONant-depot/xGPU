@@ -10,10 +10,9 @@
 #include "Details/Vulkan/xgpu_vulkan_window.cpp"
 #include "Details/Vulkan/xgpu_vulkan_pipeline.cpp"
 #include "Details/Vulkan/xgpu_vulkan_pipeline_instance.cpp"
-//#include "Details/Vulkan/xgpu_vulkan_renderpass.cpp"
+#include "Details/Vulkan/xgpu_vulkan_renderpass.cpp"
 #include "Details/Vulkan/xgpu_vulkan_shader.cpp"
 #include "Details/Vulkan/xgpu_vulkan_vertex_descriptor.cpp"
 #include "Details/Vulkan/xgpu_vulkan_texture.cpp"
 #include "Details/Vulkan/xgpu_vulkan_buffer.cpp"
-//#include "Details/Vulkan/xgpu_vulkan_sampler.cpp"
 

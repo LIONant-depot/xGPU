@@ -35,6 +35,10 @@ namespace xgpu
                                                                 , const window::setup&               Setup 
                                                                 ) noexcept;
 
+        XGPU_INLINE [[nodiscard]] device::error* Create         ( renderpass&                        Renderpass
+                                                                , const renderpass::setup&           Setup 
+                                                                ) noexcept;
+
         XGPU_INLINE [[nodiscard]] device::error* Create         ( pipeline&                          Pipeline
                                                                 , const pipeline::setup&             Setup 
                                                                 ) noexcept;

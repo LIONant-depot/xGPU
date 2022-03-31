@@ -67,6 +67,13 @@ namespace xgpu::vulkan
             FormatTable[(int)xgpu::texture::format::ETC2_4RGBA1         ] = texture_format  { VK_FORMAT_ETC2_R8G8B8A1_UNORM_BLOCK , VK_FORMAT_UNDEFINED                  , VK_FORMAT_ETC2_R8G8B8A1_SRGB_BLOCK   };
             FormatTable[(int)xgpu::texture::format::ETC2_8RGBA          ] = texture_format  { VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK , VK_FORMAT_UNDEFINED                  , VK_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK   };
 
+            FormatTable[(int)xgpu::texture::format::R32G32B32A32_FLOAT  ] = texture_format  { VK_FORMAT_R32G32B32A32_SFLOAT       , VK_FORMAT_R32G32B32A32_SFLOAT        , VK_FORMAT_R32G32B32A32_SFLOAT        };
+
+            FormatTable[(int)xgpu::texture::format::DEPTH_U16           ] = texture_format  { VK_FORMAT_D16_UNORM                 , VK_FORMAT_UNDEFINED                  , VK_FORMAT_UNDEFINED                  };
+            FormatTable[(int)xgpu::texture::format::DEPTH_U24_STENCIL_U8] = texture_format  { VK_FORMAT_D24_UNORM_S8_UINT         , VK_FORMAT_UNDEFINED                  , VK_FORMAT_UNDEFINED                  };
+            FormatTable[(int)xgpu::texture::format::DEPTH_F32           ] = texture_format  { VK_FORMAT_D32_SFLOAT                , VK_FORMAT_UNDEFINED                  , VK_FORMAT_UNDEFINED                  };
+            FormatTable[(int)xgpu::texture::format::DEPTH_F32_STENCIL_U8] = texture_format  { VK_FORMAT_D32_SFLOAT_S8_UINT        , VK_FORMAT_UNDEFINED                  , VK_FORMAT_UNDEFINED                  };
+
             return FormatTable;
         }();  
 
@@ -96,15 +103,14 @@ namespace xgpu::vulkan
     {
         // Create an image barrier object
         VkImageMemoryBarrier ImageMemoryBarrier
-        {
-            .sType                  = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER
-        ,   .pNext                  = nullptr
-        ,   .oldLayout              = OldImageLayout
-        ,   .newLayout              = NewImageLayout
-        ,   .srcQueueFamilyIndex    = VK_QUEUE_FAMILY_IGNORED
-        ,   .dstQueueFamilyIndex    = VK_QUEUE_FAMILY_IGNORED
-        ,   .image                  = Image
-        ,   .subresourceRange       = SubresourceRange
+        { .sType                  = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER
+        , .pNext                  = nullptr
+        , .oldLayout              = OldImageLayout
+        , .newLayout              = NewImageLayout
+        , .srcQueueFamilyIndex    = VK_QUEUE_FAMILY_IGNORED
+        , .dstQueueFamilyIndex    = VK_QUEUE_FAMILY_IGNORED
+        , .image                  = Image
+        , .subresourceRange       = SubresourceRange
         };
 
         // Put barrier on top of pipeline
@@ -180,24 +186,26 @@ namespace xgpu::vulkan
     {
         m_Device = Device;
 
-
-
-
-        const VkFormat      VKFormat = getVKTextureFormat( Setup.m_Format
-                                                         ,     Setup.m_Type == xgpu::texture::type::LINEAR
-                                                            || Setup.m_Type == xgpu::texture::type::NORMAL
-                                                         , Setup.m_hasSignedChannels
-                                                         );
+        m_VKFormat = getVKTextureFormat ( Setup.m_Format
+                                        , Setup.m_Type == xgpu::texture::type::LINEAR
+                                          || Setup.m_Type == xgpu::texture::type::NORMAL
+                                        , Setup.m_hasSignedChannels
+                                        );
+        if(m_VKFormat == VK_FORMAT_UNDEFINED )
+        {
+            m_Device->m_Instance->ReportError( "Unsorported texture format with the specific LINEAR, and SIGNED Flags");
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "Unsorported texture format with the specific LINEAR, and SIGNED Flags");
+        }
 
         m_nMips      = static_cast<std::uint8_t>(Setup.m_MipChain.size());
         m_Width      = static_cast<std::uint16_t>(Setup.m_Width);
         m_Height     = static_cast<std::uint16_t>(Setup.m_Height);
         m_ArrayCount = static_cast<std::uint16_t>(Setup.m_ArrayCount);
         m_Format     = Setup.m_Format;
-
+        
         // Get device properites for the requested texture format
         VkFormatProperties  VKFormatProps{};
-        vkGetPhysicalDeviceFormatProperties(m_Device->m_VKPhysicalDevice, VKFormat, &VKFormatProps );
+        vkGetPhysicalDeviceFormatProperties(m_Device->m_VKPhysicalDevice, m_VKFormat, &VKFormatProps );
 
         // Only use linear tiling if requested (and supported by the device)
         // Support for linear tiling is mostly limited, so prefer to use
@@ -227,7 +235,78 @@ namespace xgpu::vulkan
         VkMemoryRequirements MemoryRequirements = {};
         VkImageLayout        OutImageLayout{ VK_IMAGE_LAYOUT_UNDEFINED };
 
-        if( bUseStaging )
+        //
+        // If we do not have anything to copy then we assume the user wants to simply create the texture
+        //
+        const bool isDepth = Setup.m_Format >= xgpu::texture::format::DEPTH_U16 && Setup.m_Format <= xgpu::texture::format::DEPTH_F32_STENCIL_U8;
+        if( m_nMips == 0 )
+        {
+            m_nMips = 1;
+            VkImageCreateInfo ImageCreateInfo
+            {
+                .sType          = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO
+            ,   .pNext          = nullptr
+            ,   .imageType      = VK_IMAGE_TYPE_2D
+            ,   .format         = m_VKFormat
+            ,   .extent
+                {
+                    .width      = static_cast<std::uint32_t>(Setup.m_Width)
+                ,   .height     = static_cast<std::uint32_t>(Setup.m_Height)
+                ,   .depth      = 1
+                }
+            ,   .mipLevels      = m_nMips
+            ,   .arrayLayers    = 1
+            ,   .samples        = VK_SAMPLE_COUNT_1_BIT
+            ,   .tiling         = VK_IMAGE_TILING_OPTIMAL
+            ,   .usage          = std::uint32_t(isDepth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) | VK_IMAGE_USAGE_SAMPLED_BIT
+            ,   .sharingMode    = VK_SHARING_MODE_EXCLUSIVE
+            ,   .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED
+            };
+
+            if( auto VKErr = vkCreateImage( m_Device->m_VKDevice
+                                          , &ImageCreateInfo
+                                          , m_Device->m_Instance->m_pVKAllocator
+                                          , &m_VKImage ); VKErr )
+            {
+                m_Device->m_Instance->ReportError(VKErr, "Fail to create the vulkan Image for a texture with zero mips");
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create the vulkan Image for a texture with zero mips");
+            }
+
+            //
+            // Let allocate space for the image in vram
+            //
+            vkGetImageMemoryRequirements( m_Device->m_VKDevice, m_VKImage, &MemoryRequirements );
+
+            MemoryAllocInfo.allocationSize = MemoryRequirements.size;
+
+            m_Device->getMemoryType( MemoryRequirements.memoryTypeBits
+                                , VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+                                , MemoryAllocInfo.memoryTypeIndex );
+
+            // TODO: THIS SHOULD BE THREAD SAFE??
+            if( auto VKErr = vkAllocateMemory( m_Device->m_VKDevice
+                                             , &MemoryAllocInfo
+                                             , m_Device->m_Instance->m_pVKAllocator
+                                             , &m_VKDeviceMemory ); VKErr )
+            {
+                m_Device->m_Instance->ReportError(VKErr, "Fail to allocate the necesary memory for the texture in vram with zero mips");
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to allocate the necesary memory for the texture in vram with zero mips");
+            }
+
+            if( auto VKErr = vkBindImageMemory  ( m_Device->m_VKDevice
+                                                , m_VKImage
+                                                , m_VKDeviceMemory
+                                                , 0 ); VKErr )
+            {
+                m_Device->m_Instance->ReportError(VKErr, "Fail to bind with the vram memory from the texture with zero mips");
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to bind with the vram memory from the texture with zero mips" );
+            }
+
+        }
+        //
+        // If we have a normal texture with data
+        //
+        else if( bUseStaging )
         {
             // Create a host-visible staging buffer that contains the raw image data
             // This buffer is used as a transfer source for the buffer copy
@@ -342,7 +421,7 @@ namespace xgpu::vulkan
                 .sType          = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO
             ,   .pNext          = nullptr
             ,   .imageType      = VK_IMAGE_TYPE_2D
-            ,   .format         = VKFormat
+            ,   .format         = m_VKFormat
             ,   .extent
                 {
                     .width      = static_cast<std::uint32_t>(Setup.m_Width)
@@ -457,7 +536,7 @@ namespace xgpu::vulkan
                 .sType              = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO
             ,   .pNext              = nullptr
             ,   .imageType          = VK_IMAGE_TYPE_2D
-            ,   .format             = VKFormat
+            ,   .format             = m_VKFormat
             ,   .extent
                 {
                     .width  = static_cast<uint32_t>(Setup.m_Width)
@@ -599,7 +678,7 @@ namespace xgpu::vulkan
         ,   .pNext              = nullptr
         ,   .image              = m_VKImage
         ,   .viewType           = VK_IMAGE_VIEW_TYPE_2D
-        ,   .format             = VKFormat
+        ,   .format             = m_VKFormat
         ,   .components         = 
             {
                 .r              = VK_COMPONENT_SWIZZLE_R
@@ -609,7 +688,7 @@ namespace xgpu::vulkan
             }
         ,   .subresourceRange
             {
-                .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT
+                .aspectMask     = isDepth ? std::uint32_t(VK_IMAGE_ASPECT_DEPTH_BIT) | (xgpu::texture::isStencil(m_Format)?VK_IMAGE_ASPECT_STENCIL_BIT:0) : VK_IMAGE_ASPECT_COLOR_BIT
             ,   .baseMipLevel   = 0
                 // Linear tiling usually won't support mip maps
                 // Only set mip map count if optimal tiling is used

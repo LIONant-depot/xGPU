@@ -30,15 +30,21 @@ namespace xgpu
         };
 
         template< typename T_CALLBACK >
-        error*              MemoryMap           ( int StartIndex, int Count, T_CALLBACK&& Callback ) noexcept;
-
-        XGPU_INLINE
-        [[nodiscard]] int   getEntryCount       ( void ) const noexcept;
+        [[nodiscard]]
+        error*              MemoryMap               ( int StartIndex, int Count, T_CALLBACK&& Callback ) noexcept;
 
         XGPU_INLINE
         [[nodiscard]] 
-        error*              Resize              ( int NewEntryCount ) noexcept;
+        int                 getEntryCount           ( void ) const noexcept;
 
-        std::unique_ptr<details::buffer_handle> m_Private{};
+        XGPU_INLINE
+        [[nodiscard]] 
+        error*              Resize                  ( int NewEntryCount ) noexcept;
+
+        template< typename T >
+        [[nodiscard]]
+        error*              getMappedVirtualMemory  ( T*& Pointer ) noexcept;
+
+        std::shared_ptr<details::buffer_handle> m_Private{};
     };
 }

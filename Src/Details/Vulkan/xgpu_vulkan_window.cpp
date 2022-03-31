@@ -823,7 +823,109 @@ namespace xgpu::vulkan
     void window::CmdRenderBegin(void) noexcept
     {
         assert(m_BeginState>0);
+        assert(m_VKActiveRenderPass == 0);
+
+        if( m_BeginState == 1 )
+        {
+            auto& Frame = m_Frames[m_FrameIndex];
+
+            //
+            // Setup the renderpass
+            //
+            VkRenderPassBeginInfo RenderPassBeginInfo =
+            { .sType            = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO
+            , .renderPass       = m_VKRenderPass
+            , .framebuffer      = Frame.m_VKFramebuffer
+            , .renderArea       = {.extent = { .width = static_cast<std::uint32_t>(getWidth())        // TODO: This should be the swapChainExtent size
+                                             , .height = static_cast<std::uint32_t>(getHeight())
+                                             }
+                                  }
+            , .clearValueCount  = m_bClearOnRender ? static_cast<std::uint32_t>(m_VKClearValue.size()) : 0u
+            , .pClearValues     = m_bClearOnRender ? m_VKClearValue.data() : nullptr
+            };
+            vkCmdBeginRenderPass(Frame.m_VKCommandBuffer, &RenderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+            //
+            // Set the default viewport
+            //
+            m_DefaultScissor.offset.x      = 0;
+            m_DefaultScissor.offset.y      = 0;
+            m_DefaultScissor.extent.width  = getWidth();
+            m_DefaultScissor.extent.height = getHeight();
+
+            m_DefaultViewport = VkViewport
+            { .x        = 0
+            , .y        = 0
+            , .width    = (float)m_DefaultScissor.extent.width
+            , .height   = (float)m_DefaultScissor.extent.height
+            , .minDepth = 0.0f
+            , .maxDepth = 1.0f
+            };
+
+            // set the active render pass
+            m_VKActiveRenderPass = m_VKRenderPass;
+        }
+
         m_BeginState++;
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+
+    void window::CmdRenderBegin(const xgpu::renderpass& XGPURenderpass) noexcept
+    {
+        assert(m_BeginState == 1);
+
+        auto& RenderPass = *std::reinterpret_pointer_cast<xgpu::vulkan::renderpass>(XGPURenderpass.m_Private).get();
+        auto& Frame      = m_Frames[m_FrameIndex];
+
+        vkCmdBeginRenderPass(Frame.m_VKCommandBuffer, &RenderPass.m_VKRenderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+
+        const auto width    = (float)RenderPass.m_TextureAttachments[0]->m_Width;
+        const auto height   = (float)RenderPass.m_TextureAttachments[0]->m_Height;
+
+        auto Viewport = std::array
+        {
+            VkViewport
+            { .x        = 0
+            , .y        = 0
+            , .width    = width
+            , .height   = height
+            , .minDepth = 0.0f
+            , .maxDepth = 1.0f
+            }
+        };
+
+        vkCmdSetViewport
+        ( Frame.m_VKCommandBuffer
+        , 0
+        , static_cast<std::uint32_t>(Viewport.size())
+        , Viewport.data()
+        );
+
+        auto Scissor = std::array
+        { VkRect2D{
+            .offset = VkOffset2D
+            { .x = 0
+            , .y = 0
+            }
+        ,   .extent = VkExtent2D
+            { .width  = static_cast<std::uint32_t>(Viewport[0].width)
+            , .height = static_cast<std::uint32_t>(Viewport[0].height)
+            }
+        }};
+
+        vkCmdSetScissor
+        ( Frame.m_VKCommandBuffer
+        , 0
+        , static_cast<std::uint32_t>(Scissor.size())
+        , Scissor.data()
+        );
+
+
+        // Ready
+        m_BeginState++;
+        m_pActiveRenderPass  = &RenderPass;
+        m_VKActiveRenderPass = RenderPass.m_VKRenderPass;
     }
 
     //------------------------------------------------------------------------------------------------------------------------
@@ -881,12 +983,12 @@ namespace xgpu::vulkan
             }
         }
 
-        auto& Frame = m_Frames[m_FrameIndex];
-
         //
         // Reset the command buffer
         //
         {
+            auto& Frame = m_Frames[m_FrameIndex];
+
             if( auto VKErr = vkResetCommandPool(m_Device->m_VKDevice, Frame.m_VKCommandPool, 0); VKErr )
             {
                 // TODO: Report Error???
@@ -905,40 +1007,7 @@ namespace xgpu::vulkan
                 assert(false);
             }
         }
-
-        //
-        // Setup the renderpass
-        //
-        VkRenderPassBeginInfo RenderPassBeginInfo = 
-        { .sType                        = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO
-        , .renderPass                   = m_VKRenderPass
-        , .framebuffer                  = Frame.m_VKFramebuffer
-        , .renderArea                   = { .extent = { .width  = static_cast<std::uint32_t>(getWidth())        // TODO: This should be the swapChainExtent size
-                                                      , .height = static_cast<std::uint32_t>(getHeight())
-                                                      }
-                                          }
-        , .clearValueCount              = m_bClearOnRender ? static_cast<std::uint32_t>(m_VKClearValue.size()) : 0u
-        , .pClearValues                 = m_bClearOnRender ? m_VKClearValue.data() : nullptr
-        };
-        vkCmdBeginRenderPass( Frame.m_VKCommandBuffer, &RenderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE );
-
-        //
-        // Set the default viewport
-        //
-        m_DefaultScissor.offset.x       = 0;
-        m_DefaultScissor.offset.y       = 0;
-        m_DefaultScissor.extent.width   = getWidth();
-        m_DefaultScissor.extent.height  = getHeight();
-
-        m_DefaultViewport = VkViewport
-        {  .x           = 0
-         , .y           = 0
-         , .width       = (float)m_DefaultScissor.extent.width
-         , .height      = (float)m_DefaultScissor.extent.height
-         , .minDepth    = 0.0f
-         , .maxDepth    = 1.0f
-        };
-
+        
         return false;
     }
 
@@ -947,6 +1016,17 @@ namespace xgpu::vulkan
     void window::CmdRenderEnd(void) noexcept
     {
         m_BeginState--;
+        if( m_BeginState == 1 )
+        {
+            auto& Frame = m_Frames[m_FrameIndex];
+
+            // Officially end the pass
+            vkCmdEndRenderPass(Frame.m_VKCommandBuffer);
+
+            // No more active render passes
+            m_VKActiveRenderPass = 0;
+            m_pActiveRenderPass = nullptr;
+        }
         assert(m_BeginState>0);
     }
 
@@ -956,10 +1036,7 @@ namespace xgpu::vulkan
     {
         auto& Frame     = m_Frames[m_FrameIndex];
         auto& Semaphore = m_FrameSemaphores[m_SemaphoreIndex];
-
-        // Officially end the pass
-        vkCmdEndRenderPass( Frame.m_VKCommandBuffer );
-
+        
         // Officially end the Commands
         if( auto VKErr = vkEndCommandBuffer( Frame.m_VKCommandBuffer ); VKErr )
         {
@@ -1004,7 +1081,7 @@ namespace xgpu::vulkan
     void window::setPipelineInstance( xgpu::pipeline_instance& Instance ) noexcept
     {
         auto& PipelineInstance = static_cast<xgpu::vulkan::pipeline_instance&>( *Instance.m_Private );
-        pipeline_instance::per_renderpass PerRenderPass;
+        pipeline_instance::per_renderpass PerRenderPass{};
 
         //
         // Create the render pipeline if we have not done so yet
@@ -1016,63 +1093,96 @@ namespace xgpu::vulkan
 
             PerRenderPass.m_pPipelineInstance = &PipelineInstance;
 
-            //
-            // Create Descriptor Set:
-            //
             if(Pipeline.m_nSamplers)
             {
-                std::lock_guard Lk( m_Device->m_LockedVKDescriptorPool );
-
-                VkDescriptorSetAllocateInfo AllocInfo 
-                {   .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO
-                ,   .descriptorPool     = m_Device->m_LockedVKDescriptorPool.get()
-                ,   .descriptorSetCount = static_cast<std::uint32_t>(Pipeline.m_VKDescriptorSetLayout.size())
-                ,   .pSetLayouts        = Pipeline.m_VKDescriptorSetLayout.data()
-                };
-
-                if( auto VKErr = vkAllocateDescriptorSets( m_Device->m_VKDevice, &AllocInfo, &PerRenderPass.m_VKDescriptorSet); VKErr )
+                //
+                // Create Descriptor Set:
+                //
                 {
-                    m_Device->m_Instance->ReportError(VKErr, "vkAllocateDescriptorSets");
-                    assert(false);
+                    std::lock_guard Lk( m_Device->m_LockedVKDescriptorPool );
+
+                    VkDescriptorSetAllocateInfo AllocInfo 
+                    {   .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO
+                    ,   .descriptorPool     = m_Device->m_LockedVKDescriptorPool.get()
+                    ,   .descriptorSetCount = static_cast<std::uint32_t>(Pipeline.m_VKDescriptorSetLayout.size())
+                    ,   .pSetLayouts        = Pipeline.m_VKDescriptorSetLayout.data()
+                    };
+
+                    if( auto VKErr = vkAllocateDescriptorSets( m_Device->m_VKDevice, &AllocInfo, &PerRenderPass.m_VKDescriptorSet); VKErr )
+                    {
+                        m_Device->m_Instance->ReportError(VKErr, "vkAllocateDescriptorSets");
+                        assert(false);
+                    }
                 }
+
+                //
+                // Setup the textures
+                //
+                std::array< VkWriteDescriptorSet,  16> WriteDes {};
+
+                //
+                // Setup the UniformBuffers
+                //
+                std::array< VkDescriptorBufferInfo, 5> DescUniformBuffer;
+                for (int i = 0; i < PerRenderPass.m_pPipelineInstance->m_Pipeline->m_nUniformBuffers; ++i)
+                {
+                    DescUniformBuffer[i].offset = 0;
+                    DescUniformBuffer[i].buffer = PerRenderPass.m_pPipelineInstance->m_UniformBuffer[i]->m_VKBuffer;
+                    DescUniformBuffer[i].range  = PerRenderPass.m_pPipelineInstance->m_UniformBuffer[i]->m_ByteSize;
+
+                    WriteDes[i].sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    WriteDes[i].pNext            = nullptr;
+                    WriteDes[i].dstSet           = PerRenderPass.m_VKDescriptorSet;
+                    WriteDes[i].descriptorCount  = 1;
+                    WriteDes[i].descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                    WriteDes[i].dstArrayElement  = 0;
+                    WriteDes[i].pImageInfo       = nullptr;
+                    WriteDes[i].dstBinding       = i;
+                    WriteDes[i].pBufferInfo      = &DescUniformBuffer[i];
+                    WriteDes[i].pTexelBufferView = nullptr;
+                }
+
+                //
+                // Setup the textures
+                //
+                std::array< VkDescriptorImageInfo, 16> DescImage;
+
+                for( int i=0; i< PerRenderPass.m_pPipelineInstance->m_Pipeline->m_nSamplers; ++i )
+                {
+                    DescImage[i].sampler     = PerRenderPass.m_pPipelineInstance->m_Pipeline->m_VKSamplers[i];
+                    DescImage[i].imageView   = PerRenderPass.m_pPipelineInstance->m_TexturesBinds[i]->m_VKView;
+                    DescImage[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+
+                    const int Index = PerRenderPass.m_pPipelineInstance->m_Pipeline->m_nUniformBuffers + i;
+
+                    WriteDes[Index].sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    WriteDes[Index].pNext            = nullptr;
+                    WriteDes[Index].dstSet           = PerRenderPass.m_VKDescriptorSet;
+                    WriteDes[Index].descriptorCount  = 1;
+                    WriteDes[Index].descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                    WriteDes[Index].dstArrayElement  = 0;
+                    WriteDes[Index].pImageInfo       = &DescImage[i];
+                    WriteDes[Index].dstBinding       = Index;
+                    WriteDes[Index].pBufferInfo      = nullptr;
+                    WriteDes[Index].pTexelBufferView = nullptr;
+                }
+
+                vkUpdateDescriptorSets( m_Device->m_VKDevice, PerRenderPass.m_pPipelineInstance->m_Pipeline->m_nSamplers, WriteDes.data(), 0, nullptr );
             }
-
-            //
-            // Setup the textures
-            //
-            std::array< VkDescriptorImageInfo, 16> DescImage;
-            std::array< VkWriteDescriptorSet,  16> WriteDes;
-
-            for( int i=0; i< PerRenderPass.m_pPipelineInstance->m_Pipeline->m_nSamplers; ++i )
-            {
-                DescImage[i].sampler     = PerRenderPass.m_pPipelineInstance->m_Pipeline->m_VKSamplers[i];
-                DescImage[i].imageView   = PerRenderPass.m_pPipelineInstance->m_TexturesBinds[i]->m_VKView;
-                DescImage[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                WriteDes[i].sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                WriteDes[i].pNext           = nullptr;
-                WriteDes[i].dstSet          = PerRenderPass.m_VKDescriptorSet;
-                WriteDes[i].descriptorCount = 1;
-                WriteDes[i].descriptorType  = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                WriteDes[i].dstArrayElement = 0;
-                WriteDes[i].pImageInfo      = &DescImage[i];
-                WriteDes[i].dstBinding      = i;
-                WriteDes[i].pBufferInfo     = nullptr;
-                WriteDes[i].pTexelBufferView = nullptr;
-            }
-            vkUpdateDescriptorSets( m_Device->m_VKDevice, PerRenderPass.m_pPipelineInstance->m_Pipeline->m_nSamplers, WriteDes.data(), 0, nullptr );
-
 
             //
             // See if we have already created this material
             //
-            if (auto ItPipeline = m_PipeLineMap.find(reinterpret_cast<std::uint64_t>(PipelineInstance.m_Pipeline.get())); ItPipeline == m_PipeLineMap.end())
+            if (auto ItPipeline = m_PipeLineMap.find(reinterpret_cast<std::uint64_t>(m_VKActiveRenderPass) ^ reinterpret_cast<std::uint64_t>(PipelineInstance.m_Pipeline.get())); ItPipeline == m_PipeLineMap.end())
             {
                 //
                 // Create the pipeline info
                 //
                 auto VKPipelineCreateInfo = Pipeline.m_VkPipelineCreateInfo;
-                VKPipelineCreateInfo.renderPass = m_VKRenderPass;
+                VKPipelineCreateInfo.renderPass = m_VKActiveRenderPass;
+
+                const_cast<VkPipelineColorBlendStateCreateInfo*>(VKPipelineCreateInfo.pColorBlendState)->attachmentCount = m_pActiveRenderPass ? m_pActiveRenderPass->m_nColorAttachments : 1u;
+
 
                 // Create rendering pipeline
                 if (auto VKErr = vkCreateGraphicsPipelines
@@ -1123,17 +1233,20 @@ namespace xgpu::vulkan
         {
             vkCmdBindPipeline( Frame.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, PerRenderPass.m_VKPipeline );
 
-            auto DescriptorSet = std::array{ PerRenderPass.m_VKDescriptorSet };
-            vkCmdBindDescriptorSets
-            ( Frame.m_VKCommandBuffer
-            , VK_PIPELINE_BIND_POINT_GRAPHICS
-            , PerRenderPass.m_pPipelineInstance->m_Pipeline->m_VKPipelineLayout
-            , 0
-            , static_cast<std::uint32_t>(DescriptorSet.size())
-            , DescriptorSet.data()
-            , 0
-            , nullptr
-            );
+            if(PerRenderPass.m_VKDescriptorSet)
+            {
+                auto DescriptorSet = std::array{ PerRenderPass.m_VKDescriptorSet };
+                vkCmdBindDescriptorSets
+                ( Frame.m_VKCommandBuffer
+                , VK_PIPELINE_BIND_POINT_GRAPHICS
+                , PerRenderPass.m_pPipelineInstance->m_Pipeline->m_VKPipelineLayout
+                , 0
+                , static_cast<std::uint32_t>(DescriptorSet.size())
+                , DescriptorSet.data()
+                , 0
+                , nullptr
+                );
+            }
         }
 
         g_PipelineLayout = PerRenderPass.m_pPipelineInstance->m_Pipeline->m_VKPipelineLayout;

@@ -22,5 +22,6 @@ namespace xgpu::vulkan
         std::uint16_t                   m_ArrayCount            {};
         std::uint8_t                    m_nMips                 {};
         xgpu::texture::format           m_Format                {};
+        VkFormat                        m_VKFormat              {};
     };
 }

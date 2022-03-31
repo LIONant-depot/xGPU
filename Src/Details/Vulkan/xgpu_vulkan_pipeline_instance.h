@@ -7,6 +7,10 @@ namespace xgpu::vulkan
         xgpu::device::error*    Initialize                  ( std::shared_ptr<vulkan::device>&&     Device
                                                             , const xgpu::pipeline_instance::setup& Setup 
                                                             ) noexcept;
+        virtual 
+        void*                   getUniformBufferVMem        ( xgpu::shader::type::bit   ShaderType
+                                                            , std::size_t               Size
+                                                            ) noexcept;
 
         struct per_renderpass
         {
@@ -15,8 +19,10 @@ namespace xgpu::vulkan
             VkPipeline          m_VKPipeline;               // Cache this here for performace but this is just a view
         };
 
-        std::shared_ptr<vulkan::device>                     m_Device        {};
-        std::shared_ptr<vulkan::pipeline>                   m_Pipeline      {};
-        std::array< std::shared_ptr<vulkan::texture>, 16>   m_TexturesBinds {};
+        std::shared_ptr<vulkan::pipeline>                   m_Pipeline          {};
+        std::array< void*, 5>                               m_UniformBufferPtr  {};
+        std::array< std::shared_ptr<vulkan::buffer>, 5>     m_UniformBuffer     {};
+        std::array< std::shared_ptr<vulkan::texture>, 16>   m_TexturesBinds     {};
+        std::shared_ptr<vulkan::device>                     m_Device            {};
     };
 }

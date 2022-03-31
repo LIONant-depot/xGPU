@@ -28,6 +28,9 @@ namespace xgpu::vulkan
         virtual
         void                                    CmdRenderBegin              ( void 
                                                                             ) noexcept override;
+        virtual     
+        void                                    CmdRenderBegin              ( const xgpu::renderpass& Renderpass
+                                                                            ) noexcept override;
         virtual
         void                                    CmdRenderEnd                ( void 
                                                                             ) noexcept override;
@@ -96,6 +99,8 @@ namespace xgpu::vulkan
         VkImageView                             m_VKDepthbufferView     {};
         VkDeviceMemory                          m_VKDepthbufferMemory   {};
         VkRenderPass                            m_VKRenderPass          {};
+        VkRenderPass                            m_VKActiveRenderPass    {};
+        vulkan::renderpass*                     m_pActiveRenderPass     {};
         VkPipeline                              m_VKPipeline            {};
         VkSurfaceFormatKHR                      m_VKSurfaceFormat       {};
         VkFormat                                m_VKDepthFormat         {};

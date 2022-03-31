@@ -12,7 +12,7 @@ namespace xgpu::vulkan
 
     xgpu::device::error* buffer::Create(const xgpu::buffer::setup& Setup) noexcept
     {
-        assert(Setup.m_EntryCount >= 3 );
+        assert(Setup.m_EntryCount >= 1 );
         assert(Setup.m_EntryByteSize > 0);
 
         m_Type   = Setup.m_Type;

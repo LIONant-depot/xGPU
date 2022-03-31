@@ -16,10 +16,31 @@ namespace xgpu::vulkan
         m_Device   = Device;
         m_Pipeline = std::reinterpret_pointer_cast<vulkan::pipeline>(Setup.m_PipeLine.m_Private);
 
-        if( Setup.m_SamplersBindings.size() != m_Pipeline->m_nSamplers )
+        if constexpr( true )
         {
-            m_Device->m_Instance->ReportError( "You did not give the expected number of textures bindings as required by the pipeline");
-            return VGPU_ERROR(xgpu::device::error::FAILURE, "You did not give the expected number of textures bindings as required by the pipeline");
+            if( Setup.m_SamplersBindings.size() != m_Pipeline->m_nSamplers )
+            {
+                m_Device->m_Instance->ReportError( "You did not give the expected number of textures bindings as required by the pipeline");
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "You did not give the expected number of textures bindings as required by the pipeline");
+            }
+
+            if (Setup.m_UniformBuffersBindings.size() != m_Pipeline->m_nUniformBuffers)
+            {
+                m_Device->m_Instance->ReportError("You did not give the expected number of uniform buffers as required by the pipeline");
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "You did not give the expected number of uniform buffers as required by the pipeline");
+            }
+
+            for (int i = 0; i < m_Pipeline->m_nUniformBuffers; ++i)
+            {
+                Setup.m_UniformBuffersBindings[i].m_Value.getEntryCount();
+
+                std::shared_ptr<vulkan::buffer> Pointer = std::reinterpret_pointer_cast<vulkan::buffer>(Setup.m_UniformBuffersBindings[i].m_Value.m_Private);
+                if( Pointer->m_Type != xgpu::buffer::type::UNIFORM ) 
+                {
+                    m_Device->m_Instance->ReportError("Trying to create a pipeline instance with a non-uniform-buffer");
+                    return VGPU_ERROR(xgpu::device::error::FAILURE, "Trying to create a pipeline instance with a non-uniform-buffer");
+                }
+            }
         }
 
         //
@@ -28,7 +49,23 @@ namespace xgpu::vulkan
         for(int i=0; i< m_Pipeline->m_nSamplers; ++i )
         {
             auto& TextureBinds = m_TexturesBinds[i];
-            TextureBinds = std::reinterpret_pointer_cast<vulkan::texture>( Setup.m_SamplersBindings[i].m_Texture.m_Private );
+            TextureBinds = std::reinterpret_pointer_cast<vulkan::texture>( Setup.m_SamplersBindings[i].m_Value.m_Private );
+        }
+
+        //
+        // Back up all the Uniform Buffers
+        //
+        for(int i=0; i<m_Pipeline->m_nUniformBuffers; ++i )
+        {
+            auto& UniformBuffer = m_UniformBuffer[i];
+            UniformBuffer = std::reinterpret_pointer_cast<vulkan::buffer>(Setup.m_UniformBuffersBindings[i].m_Value.m_Private);
+
+            // Should we map this buffer?
+            if( UniformBuffer->m_Usage == xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ )
+            {
+                if( auto Err = UniformBuffer->MapLock( m_UniformBufferPtr[i], 0, 1); Err )
+                    return Err;
+            }
         }
 
         return nullptr;
@@ -36,4 +73,16 @@ namespace xgpu::vulkan
 
     //-------------------------------------------------------------------------------
 
+    void* pipeline_instance::getUniformBufferVMem( xgpu::shader::type::bit ShaderType, std::size_t Size ) noexcept
+    {
+        const auto Index = m_Pipeline->m_UniformBufferFastRemap[(int)ShaderType];
+
+        // if this is true then the user did not defined a uniform for this type of shader in the pipeline definition
+        assert(Index != 0xff );
+
+        // The user must have specified the wrong type to cast 
+        assert( m_UniformBuffer[Index]->m_EntrySizeBytes*m_UniformBuffer[Index]->m_nEntries == Size );
+
+        return m_UniformBufferPtr[Index];
+    }
 }

@@ -78,7 +78,7 @@ int E06_Example()
                 }
             };
 
-            if (auto Err = Device.Create(MyFragmentShader, { .m_Type = xgpu::shader::type::FRAGMENT, .m_Sharer = RawData }); Err)
+            if (auto Err = Device.Create(MyFragmentShader, { .m_Type = xgpu::shader::type::bit::FRAGMENT, .m_Sharer = RawData }); Err)
                 return xgpu::getErrorInt(Err);
         }
 
@@ -92,7 +92,7 @@ int E06_Example()
             };
             xgpu::shader::setup Setup
             {
-                .m_Type   = xgpu::shader::type::VERTEX
+                .m_Type   = xgpu::shader::type::bit::VERTEX
             ,   .m_Sharer = RawData
             };
 

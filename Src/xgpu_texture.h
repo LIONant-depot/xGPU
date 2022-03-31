@@ -27,9 +27,17 @@ namespace xgpu
         ,   ETC2_4RGB
         ,   ETC2_4RGBA1
         ,   ETC2_8RGBA
+        ,   R32G32B32A32_FLOAT
+        ,   DEPTH_U16
+        ,   DEPTH_U24_STENCIL_U8
+        ,   DEPTH_F32
+        ,   DEPTH_F32_STENCIL_U8
         ,   ENUM_COUNT
         ,   DEFAULT = R8G8B8A8
         };
+
+        inline static bool isDepth  ( const format Fmt ) noexcept { return Fmt >= format::DEPTH_U16 && Fmt <= format::DEPTH_F32_STENCIL_U8; }
+        inline static bool isStencil( const format Fmt ) noexcept { return Fmt == format::DEPTH_U24_STENCIL_U8 || Fmt == format::DEPTH_F32_STENCIL_U8; }
 
         enum class type : std::uint8_t
         {

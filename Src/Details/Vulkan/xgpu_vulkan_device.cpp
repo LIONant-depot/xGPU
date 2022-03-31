@@ -258,7 +258,27 @@ namespace xgpu::vulkan
         ( std::reinterpret_pointer_cast<xgpu::vulkan::device>(SharedDevice)
         , Setup 
         ); Err ) return Err;
+
         Window.m_Private = std::move(NewWindow);
+
+        return nullptr;
+    }
+
+    //----------------------------------------------------------------------------------------------------------
+
+    xgpu::device::error* device::Create              
+    ( xgpu::renderpass&                         Renderpass
+    , const xgpu::renderpass::setup&            Setup
+    , std::shared_ptr<device_handle>&           SharedDevice
+    ) noexcept
+    {
+        auto NewRenderpass = std::make_unique< xgpu::vulkan::renderpass >();
+        if (auto Err = NewRenderpass->Initialize
+        ( std::reinterpret_pointer_cast<xgpu::vulkan::device>(SharedDevice)
+        , Setup
+        ); Err) return Err;
+
+        Renderpass.m_Private = std::move(NewRenderpass);
 
         return nullptr;
     }

@@ -27,6 +27,11 @@ namespace xgpu::vulkan
                                                             , std::shared_ptr<device_handle>&           SharedDevice
                                                             ) noexcept override;
 
+        virtual xgpu::device::error*    Create              ( xgpu::renderpass&                         Renderpass
+                                                            , const xgpu::renderpass::setup&            Setup
+                                                            , std::shared_ptr<device_handle>&           SharedDevice
+                                                            ) noexcept override;
+
         virtual xgpu::device::error*    Create              ( xgpu::pipeline&                           Pipeline
                                                             , const xgpu::pipeline::setup&              Setup
                                                             , std::shared_ptr<device_handle>&           SharedDevice
