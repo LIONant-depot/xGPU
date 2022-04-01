@@ -301,7 +301,6 @@ namespace xgpu::vulkan
                 m_Device->m_Instance->ReportError(VKErr, "Fail to bind with the vram memory from the texture with zero mips");
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to bind with the vram memory from the texture with zero mips" );
             }
-
         }
         //
         // If we have a normal texture with data
@@ -706,6 +705,13 @@ namespace xgpu::vulkan
             m_Device->m_Instance->ReportError( VKErr, "Fail to create an Image view of the texture" );
             return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create an Image view of the texture");
         }
+
+
+        //
+        // The Descriptor Image Info the sampler will be set later
+        //
+        m_VKDescriptorImageInfo.imageView   = m_VKView;
+        m_VKDescriptorImageInfo.imageLayout = isDepth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
         return nullptr;
     }

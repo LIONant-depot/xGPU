@@ -17,6 +17,7 @@ namespace xgpu::vulkan
         VkImage                         m_VKImage               {};
         VkImageView                     m_VKView                {};
         VkDeviceMemory                  m_VKDeviceMemory        {};
+        VkDescriptorImageInfo           m_VKDescriptorImageInfo {};
         std::uint16_t                   m_Width                 {};
         std::uint16_t                   m_Height                {};
         std::uint16_t                   m_ArrayCount            {};

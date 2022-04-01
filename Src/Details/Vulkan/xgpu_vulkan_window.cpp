@@ -1093,22 +1093,22 @@ namespace xgpu::vulkan
 
             PerRenderPass.m_pPipelineInstance = &PipelineInstance;
 
-            if(Pipeline.m_nSamplers)
+            if(Pipeline.m_nSamplers || Pipeline.m_nUniformBuffers)
             {
                 //
                 // Create Descriptor Set:
                 //
                 {
-                    std::lock_guard Lk( m_Device->m_LockedVKDescriptorPool );
+                    std::lock_guard Lk(m_Device->m_LockedVKDescriptorPool);
 
-                    VkDescriptorSetAllocateInfo AllocInfo 
-                    {   .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO
-                    ,   .descriptorPool     = m_Device->m_LockedVKDescriptorPool.get()
+                    VkDescriptorSetAllocateInfo AllocInfo
+                    { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO
+                    ,   .descriptorPool = m_Device->m_LockedVKDescriptorPool.get()
                     ,   .descriptorSetCount = static_cast<std::uint32_t>(Pipeline.m_VKDescriptorSetLayout.size())
-                    ,   .pSetLayouts        = Pipeline.m_VKDescriptorSetLayout.data()
+                    ,   .pSetLayouts = Pipeline.m_VKDescriptorSetLayout.data()
                     };
 
-                    if( auto VKErr = vkAllocateDescriptorSets( m_Device->m_VKDevice, &AllocInfo, &PerRenderPass.m_VKDescriptorSet); VKErr )
+                    if (auto VKErr = vkAllocateDescriptorSets(m_Device->m_VKDevice, &AllocInfo, &PerRenderPass.m_VKDescriptorSet); VKErr)
                     {
                         m_Device->m_Instance->ReportError(VKErr, "vkAllocateDescriptorSets");
                         assert(false);
@@ -1124,22 +1124,24 @@ namespace xgpu::vulkan
                 // Setup the UniformBuffers
                 //
                 std::array< VkDescriptorBufferInfo, 5> DescUniformBuffer;
+                int Index = 0;
                 for (int i = 0; i < PerRenderPass.m_pPipelineInstance->m_Pipeline->m_nUniformBuffers; ++i)
                 {
                     DescUniformBuffer[i].offset = 0;
                     DescUniformBuffer[i].buffer = PerRenderPass.m_pPipelineInstance->m_UniformBuffer[i]->m_VKBuffer;
                     DescUniformBuffer[i].range  = PerRenderPass.m_pPipelineInstance->m_UniformBuffer[i]->m_ByteSize;
 
-                    WriteDes[i].sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                    WriteDes[i].pNext            = nullptr;
-                    WriteDes[i].dstSet           = PerRenderPass.m_VKDescriptorSet;
-                    WriteDes[i].descriptorCount  = 1;
-                    WriteDes[i].descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                    WriteDes[i].dstArrayElement  = 0;
-                    WriteDes[i].pImageInfo       = nullptr;
-                    WriteDes[i].dstBinding       = i;
-                    WriteDes[i].pBufferInfo      = &DescUniformBuffer[i];
-                    WriteDes[i].pTexelBufferView = nullptr;
+                    WriteDes[Index].sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    WriteDes[Index].pNext            = nullptr;
+                    WriteDes[Index].dstSet           = PerRenderPass.m_VKDescriptorSet;
+                    WriteDes[Index].descriptorCount  = 1;
+                    WriteDes[Index].descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+                    WriteDes[Index].dstArrayElement  = 0;
+                    WriteDes[Index].pImageInfo       = nullptr;
+                    WriteDes[Index].dstBinding       = i;
+                    WriteDes[Index].pBufferInfo      = &DescUniformBuffer[i];
+                    WriteDes[Index].pTexelBufferView = nullptr;
+                    Index++;
                 }
 
                 //
@@ -1149,11 +1151,8 @@ namespace xgpu::vulkan
 
                 for( int i=0; i< PerRenderPass.m_pPipelineInstance->m_Pipeline->m_nSamplers; ++i )
                 {
+                    DescImage[i]             = PerRenderPass.m_pPipelineInstance->m_TexturesBinds[i]->m_VKDescriptorImageInfo;
                     DescImage[i].sampler     = PerRenderPass.m_pPipelineInstance->m_Pipeline->m_VKSamplers[i];
-                    DescImage[i].imageView   = PerRenderPass.m_pPipelineInstance->m_TexturesBinds[i]->m_VKView;
-                    DescImage[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                    const int Index = PerRenderPass.m_pPipelineInstance->m_Pipeline->m_nUniformBuffers + i;
 
                     WriteDes[Index].sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
                     WriteDes[Index].pNext            = nullptr;
@@ -1165,9 +1164,15 @@ namespace xgpu::vulkan
                     WriteDes[Index].dstBinding       = Index;
                     WriteDes[Index].pBufferInfo      = nullptr;
                     WriteDes[Index].pTexelBufferView = nullptr;
+                    Index++;
                 }
 
-                vkUpdateDescriptorSets( m_Device->m_VKDevice, PerRenderPass.m_pPipelineInstance->m_Pipeline->m_nSamplers, WriteDes.data(), 0, nullptr );
+                vkUpdateDescriptorSets  ( m_Device->m_VKDevice
+                                        , Index
+                                        , WriteDes.data()
+                                        , 0
+                                        , nullptr 
+                                        );
             }
 
             //

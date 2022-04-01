@@ -202,8 +202,8 @@ int E15_Example()
         auto Setup = xgpu::pipeline::setup
         { .m_VertexDescriptor   = VertexDescriptor
         , .m_Shaders            = Shaders
-        , .m_Samplers           = Samplers
         , .m_UniformBufferUsage = UBuffersUsage
+        , .m_Samplers           = Samplers
         };
 
         if (auto Err = Device.Create(PipeLine, Setup); Err)
@@ -263,8 +263,8 @@ int E15_Example()
         };
         auto Setup    = xgpu::pipeline_instance::setup
         { .m_PipeLine               = PipeLine
-        , .m_SamplersBindings       = Textures
         , .m_UniformBuffersBindings = UniformBuffers
+        , .m_SamplersBindings       = Textures
         };
 
         if (auto Err = Device.Create(PipeLineInstance, Setup); Err)
@@ -387,17 +387,35 @@ int E15_Example()
 
             // Render first object (animated mesh)
             {
-                xcore::matrix4 L2W;
-                L2W.setIdentity();
+                {
+                    xcore::matrix4 L2W;
+                    L2W.setIdentity();
 
-                shadow_generation_push_constants PushConstants;
-                PushConstants.m_L2C = W2C * L2W;
+                    shadow_generation_push_constants PushConstants;
+                    PushConstants.m_L2C = W2C * L2W;
 
-                CmdBuffer.setPipelineInstance(ShadowGenerationPipeLineInstance);
-                CmdBuffer.setBuffer(VertexBuffer);
-                CmdBuffer.setBuffer(IndexBuffer);
-                CmdBuffer.setConstants(0, &PushConstants, sizeof(PushConstants));
-                CmdBuffer.Draw(IndexBuffer.getEntryCount());
+                    CmdBuffer.setPipelineInstance(ShadowGenerationPipeLineInstance);
+                    CmdBuffer.setBuffer(VertexBuffer);
+                    CmdBuffer.setBuffer(IndexBuffer);
+                    CmdBuffer.setConstants(0, &PushConstants, sizeof(PushConstants));
+                    CmdBuffer.Draw(IndexBuffer.getEntryCount());
+                }
+
+                // Floor
+                {
+                    xcore::matrix4 L2W;
+                    L2W.setIdentity();
+                    L2W.setScale({ 100, 1.0f, 100 });
+                    L2W.setTranslation({ 0, -1, 0 });
+
+                    shadow_generation_push_constants PushConstants;
+                    PushConstants.m_L2C = W2C * L2W;
+
+                    CmdBuffer.setBuffer(VertexBuffer);
+                    CmdBuffer.setBuffer(IndexBuffer);
+                    CmdBuffer.setConstants(0, &PushConstants, sizeof(PushConstants));
+                    CmdBuffer.Draw(IndexBuffer.getEntryCount());
+                }
             }
         }
 
@@ -408,29 +426,60 @@ int E15_Example()
 
             // Render first object (animated mesh)
             {
-                xcore::matrix4 L2W;
-                L2W.setIdentity();
-                
-                // Take the light to local space of the object
-                auto W2L = L2W;
-                W2L.InvertSRT();
-             
-                // Shadow Matrix
-                xcore::matrix4 LightMatrixPlus;
-                LightMatrixPlus.setIdentity();
-                LightMatrixPlus.setScale( {0.5f, 0.5f, 1.0f});
-                LightMatrixPlus.setTranslation( {0.5f, 0.5f, 0.0f} );
-                LightMatrixPlus = LightMatrixPlus * LightingView.getW2C() * L2W;
 
-                auto& LightUniforms = PipeLineInstance.getUniformBufferVMem<lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
-                LightUniforms.m_ShadowL2CPlus       = LightMatrixPlus;
-                LightUniforms.m_L2C                 = W2C * L2W;
-                LightUniforms.m_LocalSpaceLightPos  = W2L * LightPosition;
+                {
+                    xcore::matrix4 L2W;
+                    L2W.setIdentity();
 
-                CmdBuffer.setPipelineInstance(PipeLineInstance);
-                CmdBuffer.setBuffer(VertexBuffer);
-                CmdBuffer.setBuffer(IndexBuffer);
-                CmdBuffer.Draw(IndexBuffer.getEntryCount());
+                    xcore::matrix4 W2L = L2W;
+                    W2L.InvertSRT();
+
+                    // Shadow Matrix
+                    xcore::matrix4 LightMatrixPlus;
+                    LightMatrixPlus.setIdentity();
+                    LightMatrixPlus.setScale({ 0.5f, 0.5f, 1.0f });
+                    LightMatrixPlus.setTranslation({ 0.5f, 0.5f, 0.0f });
+                    LightMatrixPlus = LightMatrixPlus * LightingView.getW2C() * L2W;
+
+                    auto& LightUniforms = PipeLineInstance.getUniformBufferVMem<lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
+                    LightUniforms.m_ShadowL2CPlus       = LightMatrixPlus;
+                    LightUniforms.m_L2C                 = W2C * L2W;
+                    LightUniforms.m_LocalSpaceLightPos  = W2L * LightPosition;
+
+                    CmdBuffer.setPipelineInstance(PipeLineInstance);
+                    CmdBuffer.setBuffer(VertexBuffer);
+                    CmdBuffer.setBuffer(IndexBuffer);
+                    CmdBuffer.Draw(IndexBuffer.getEntryCount());
+                }
+
+                // Render floor
+                {
+                    xcore::matrix4 L2W;
+                    L2W.setIdentity();
+                    L2W.setScale({ 100, 0.5f, 100 });
+                    L2W.setTranslation({ 0, -1, 0 });
+
+                    xcore::matrix4 W2L = L2W;
+                    W2L.InvertSRT();
+
+                    // Shadow Matrix
+                    xcore::matrix4 LightMatrixPlus;
+                    LightMatrixPlus.setIdentity();
+                    LightMatrixPlus.setScale({ 0.5f, 0.5f, 1.0f });
+                    LightMatrixPlus.setTranslation({ 0.5f, 0.5f, 0.0f });
+                    LightMatrixPlus = LightMatrixPlus * LightingView.getW2C() * L2W;
+
+                    auto& LightUniforms = PipeLineInstance.getUniformBufferVMem<lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
+                    LightUniforms.m_ShadowL2CPlus       = LightMatrixPlus;
+                    LightUniforms.m_L2C                 = W2C * L2W;
+                    LightUniforms.m_LocalSpaceLightPos  = W2L * LightPosition;
+
+                    CmdBuffer.setPipelineInstance(PipeLineInstance);
+                    CmdBuffer.setBuffer(VertexBuffer);
+                    CmdBuffer.setBuffer(IndexBuffer);
+                    CmdBuffer.Draw(IndexBuffer.getEntryCount());
+                }    
+
             }
         }
 

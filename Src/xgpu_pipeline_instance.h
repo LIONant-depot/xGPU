@@ -15,8 +15,8 @@ namespace xgpu
         struct setup
         {
             xgpu::pipeline&             m_PipeLine;
-            std::span<sampler_binding>  m_SamplersBindings  {};
             std::span<uniform_buffer>   m_UniformBuffersBindings    {};
+            std::span<sampler_binding>  m_SamplersBindings          {};
         };
 
         template<typename T>

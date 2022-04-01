@@ -5,8 +5,7 @@
 
 layout (location = 0) in vec3 inPos;        //[INPUT_POSITION]
 layout (location = 1) in vec2 inUV;         //[INPUT_UVS]
-layout (location = 3) in vec3 inNormal;     //[INPUT_NORMAL]
-layout (location = 4) in vec4 inColor;      //[INPUT_COLOR]
+layout (location = 2) in vec3 inNormal;     //[INPUT_NORMAL]
 
 layout (binding = 0) uniform _u
 {

@@ -192,8 +192,8 @@ namespace xgpu
             xgpu::vertex_descriptor&            m_VertexDescriptor;
             std::span<const shader*>            m_Shaders           {};
             std::size_t                         m_PushConstantsSize {};
-            std::span<const pipeline::sampler>  m_Samplers          {};
             std::span<xgpu::shader::type>       m_UniformBufferUsage{};
+            std::span<const pipeline::sampler>  m_Samplers          {};
             pipeline::primitive                 m_Primitive         {};
             pipeline::depth_stencil             m_DepthStencil      {};
             pipeline::blend                     m_Blend             {};
