@@ -262,10 +262,53 @@ namespace xgpu::vulkan
         Destroy();
     }
 
+    //-------------------------------------------------------------------------------
+
+    void* buffer::getUniformBufferVMem(std::uint32_t& DynamicOffset) noexcept
+    {
+        // get the next value in our circular queue
+        auto V = m_CurrentOffset.load();
+        while (true)
+        {
+            auto N = V + 1;
+            if (N == m_nEntries) N = 0;
+            if (m_CurrentOffset.compare_exchange_weak(V, N))
+            {
+                V = N;
+                break;
+            }
+        }
+
+        DynamicOffset = V * m_EntrySizeBytes;
+
+        //
+        // Make sure the memory is mapped
+        //
+        if(m_pVMapMemory==nullptr)
+        {
+            assert(m_Usage == xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ);
+
+            void* pData;
+            if (auto Err = MapLock(pData, 0, m_nEntries); Err)
+                return Err;
+            
+            m_pVMapMemory = reinterpret_cast<std::byte*>(pData);
+        }
+
+        return &m_pVMapMemory[DynamicOffset];
+    }
+
+
     //----------------------------------------------------------------------------------
 
     void buffer::Destroy(void) noexcept
     {
+        if(m_pVMapMemory)
+        {
+            vkUnmapMemory(m_Device->m_VKDevice, m_VKBufferMemory);
+            m_pVMapMemory = nullptr;
+        }
+
         if(m_VKBuffer)
         {
             vkDestroyBuffer( m_Device->m_VKDevice, m_VKBuffer, m_Device->m_Instance->m_pVKAllocator );

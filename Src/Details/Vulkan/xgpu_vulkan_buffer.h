@@ -12,9 +12,12 @@ namespace xgpu::vulkan
                 xgpu::device::error*    TransferToDestination   ( void )                                                                noexcept;
                 xgpu::device::error*    Create                  ( const xgpu::buffer::setup& Setup )                                    noexcept;
                 void                    Destroy                 ( void )                                                                noexcept;
+                void*                   getUniformBufferVMem    ( std::uint32_t& DynamicOffset )                                        noexcept;
 
 
         std::shared_ptr<device>     m_Device            {};
+        std::atomic<int>            m_CurrentOffset     {};     // For uniform buffers
+        std::byte*                  m_pVMapMemory       {};
         VkBuffer                    m_VKBuffer          {};
         VkDeviceMemory              m_VKBufferMemory    {};
         int                         m_ByteSize          {};

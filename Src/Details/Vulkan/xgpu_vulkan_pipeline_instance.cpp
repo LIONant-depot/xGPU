@@ -58,17 +58,7 @@ namespace xgpu::vulkan
         for(int i=0; i<m_Pipeline->m_nUniformBuffers; ++i )
         {
             auto& Uniform = m_UniformBinds[i];
-            Uniform.m_Buffer = std::reinterpret_pointer_cast<vulkan::buffer>(Setup.m_UniformBuffersBindings[i].m_Value.m_Private);
-            
-            // Should we map this buffer?
-            if( Uniform.m_Buffer->m_Usage == xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ )
-            {
-                void* pData;
-                if( auto Err = Uniform.m_Buffer->MapLock( pData, 0, Uniform.m_Buffer->m_nEntries); Err )
-                    return Err;
-
-                Uniform.m_pVMapMemory = reinterpret_cast<std::byte*>(pData);
-            }
+            Uniform = std::reinterpret_pointer_cast<vulkan::buffer>(Setup.m_UniformBuffersBindings[i].m_Value.m_Private);
         }
 
         return nullptr;
@@ -76,34 +66,21 @@ namespace xgpu::vulkan
 
     //-------------------------------------------------------------------------------
 
-    void* pipeline_instance::getUniformBufferVMem( std::uint32_t& DynamicOffset, xgpu::shader::type::bit ShaderType, std::size_t Size ) noexcept
+    void* pipeline_instance::getUniformBufferVMem(std::uint32_t& DynamicOffset, xgpu::shader::type::bit ShaderType, std::size_t Size) noexcept
     {
         const auto Index = m_Pipeline->m_UniformBufferFastRemap[(int)ShaderType];
 
         // if this is true then the user did not defined a uniform for this type of shader in the pipeline definition
-        assert(Index != 0xff );
+        assert(Index != 0xff);
 
         // get the reference to the right uniform buffer entry
-        auto& Uniform = m_UniformBinds[Index];
+        auto& Uniform = *m_UniformBinds[Index];
 
         // The user must have specified the wrong type to cast 
-        assert(Uniform.m_Buffer->m_EntrySizeBytes == Size );
+        assert(Uniform.m_EntrySizeBytes == Size);
 
-        // get the next value in our circular queue
-        auto V = Uniform.m_CurrentOffset.load();
-        while(true)
-        {
-            auto N = V+1;
-            if( N == Uniform.m_Buffer->m_nEntries ) N = 0;
-            if(Uniform.m_CurrentOffset.compare_exchange_weak( V, N ) )
-            {
-                V = N;
-                break;
-            }
-        }
-
-        DynamicOffset = V * Uniform.m_Buffer->m_EntrySizeBytes;
-
-        return &Uniform.m_pVMapMemory[DynamicOffset];
+        return Uniform.getUniformBufferVMem(DynamicOffset);
     }
+
+
 }

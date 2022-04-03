@@ -13,6 +13,7 @@ namespace xgpu::vulkan
                                                             , std::size_t               Size
                                                             ) noexcept;
 
+        
         struct per_renderpass
         {
             pipeline_instance*              m_pPipelineInstance {};
@@ -20,15 +21,8 @@ namespace xgpu::vulkan
             VkPipeline                      m_VKPipeline        {}; // Cache this here for performace but this is just a view
         };
 
-        struct uniform_buffer
-        {
-            std::atomic<int>                m_CurrentOffset;
-            std::byte*                      m_pVMapMemory;
-            std::shared_ptr<vulkan::buffer> m_Buffer;
-        };
-
         std::shared_ptr<vulkan::pipeline>                   m_Pipeline              {};
-        std::array< uniform_buffer, 5>                      m_UniformBinds          {};
+        std::array< std::shared_ptr<vulkan::buffer>, 5>     m_UniformBinds          {};
         std::array< std::shared_ptr<vulkan::texture>, 16>   m_TexturesBinds         {};
         std::shared_ptr<vulkan::device>                     m_Device                {};
     };

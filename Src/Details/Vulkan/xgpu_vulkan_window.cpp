@@ -1163,8 +1163,8 @@ namespace xgpu::vulkan
                 for (int i = 0; i < PerRenderPass.m_pPipelineInstance->m_Pipeline->m_nUniformBuffers; ++i)
                 {
                     DescUniformBuffer[i].offset = 0;
-                    DescUniformBuffer[i].buffer = PerRenderPass.m_pPipelineInstance->m_UniformBinds[i].m_Buffer->m_VKBuffer;
-                    DescUniformBuffer[i].range  = PerRenderPass.m_pPipelineInstance->m_UniformBinds[i].m_Buffer->m_EntrySizeBytes;
+                    DescUniformBuffer[i].buffer = PerRenderPass.m_pPipelineInstance->m_UniformBinds[i]->m_VKBuffer;
+                    DescUniformBuffer[i].range  = PerRenderPass.m_pPipelineInstance->m_UniformBinds[i]->m_EntrySizeBytes;
 
                     WriteDes[Index].sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
                     WriteDes[Index].pNext            = nullptr;
