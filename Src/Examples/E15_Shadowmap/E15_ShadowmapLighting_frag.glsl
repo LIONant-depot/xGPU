@@ -1,7 +1,7 @@
 #version 450
 
-layout (binding = 1) uniform sampler2D SamplerShadowMap;        // [INPUT_TEXTURE_SHADOW]
-layout (binding = 2) uniform sampler2D SamplerAlbedoMap;        // [INPUT_TEXTURE_ALBEDO]
+layout (set = 0, binding = 0) uniform sampler2D SamplerShadowMap;        // [INPUT_TEXTURE_SHADOW]
+layout (set = 0, binding = 1) uniform sampler2D SamplerAlbedoMap;        // [INPUT_TEXTURE_ALBEDO]
 
 layout(location = 0) in struct 
 { 
@@ -69,7 +69,7 @@ void main()
 {
     const vec3	AmbientLight = vec3(0.2);
     const float Shadow		 = (true) ? ShadowPCF(i.ShadowmapPos / i.ShadowmapPos.w) : ShadowNoPCF(i.ShadowmapPos / i.ShadowmapPos.w);
-	const vec3  FinalColor   = (AmbientLight + (1-Shadow) * i.VertColor.rgb) * texture( SamplerAlbedoMap, i.UV.xy ).rgb;
+	const vec3  FinalColor   = (AmbientLight + Shadow * i.VertColor.rgb) * texture( SamplerAlbedoMap, i.UV.xy ).rgb;
 
 	//
 	// Convert to gamma

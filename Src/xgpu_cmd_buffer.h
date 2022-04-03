@@ -2,8 +2,8 @@ namespace xgpu
 {
     struct cmd_buffer
     {
-        XGPU_INLINE                     cmd_buffer                  ( details::window_handle* )             noexcept;
-        XGPU_INLINE                     cmd_buffer                  ( cmd_buffer&& )                        noexcept;
+                                        cmd_buffer                  ( void )                                noexcept = default;
+        XGPU_INLINE                     cmd_buffer                  ( cmd_buffer&& CmdBuffer )              noexcept;
         XGPU_INLINE                    ~cmd_buffer                  ( void )                                noexcept;
         XGPU_INLINE     cmd_buffer&     setPipelineInstance         ( xgpu::pipeline_instance& Instance )   noexcept;
         XGPU_INLINE     cmd_buffer&     setStreamingBuffers         ( std::span<xgpu::buffer> Buffers, int StartingElementIndex=0) noexcept;
@@ -14,8 +14,12 @@ namespace xgpu
         XGPU_INLINE     cmd_buffer&     Draw                        ( int IndexCount, int FirstIndex = 0, int VertexOffset=0 ) noexcept;
         XGPU_INLINE     cmd_buffer&     DrawInstance                ( int InstanceCount, int IndexCount, int FirstInstance=0, int FirstIndex=0, int VertexOffset=0 ) noexcept;
 
+        template<typename T>
+        XGPU_INLINE     T&              getUniformBufferVMem        ( xgpu::shader::type::bit ShaderType ) noexcept;
+
         XGPU_INLINE     void            Release                     ( void )                                noexcept;
 
-        details::window_handle* m_pWindow { nullptr };
+        details::window_handle*         m_pWindow { nullptr };
+        std::array<std::size_t, 8>      m_Memory;
     };
 }

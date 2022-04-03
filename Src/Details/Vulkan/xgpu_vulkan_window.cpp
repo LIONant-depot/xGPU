@@ -820,10 +820,9 @@ namespace xgpu::vulkan
 
     //------------------------------------------------------------------------------------------------------------------------
 
-    void window::CmdRenderBegin(void) noexcept
+    void window::CmdRenderBegin(xgpu::cmd_buffer& xGPUCmdBuffer) noexcept
     {
         assert(m_BeginState>0);
-        assert(m_VKActiveRenderPass == 0);
 
         if( m_BeginState == 1 )
         {
@@ -861,17 +860,26 @@ namespace xgpu::vulkan
             , .minDepth = 0.0f
             , .maxDepth = 1.0f
             };
-
-            // set the active render pass
-            m_VKActiveRenderPass = m_VKRenderPass;
         }
 
+        // Ready
         m_BeginState++;
+
+        //
+        // Return the command buffer
+        //
+        xGPUCmdBuffer.m_pWindow = static_cast<xgpu::details::window_handle*>(this);
+        auto&            CB     = reinterpret_cast<cmdbuffer&>(xGPUCmdBuffer.m_Memory);
+        
+        CB.m_pActiveRenderPass  = nullptr;
+        CB.m_VKActiveRenderPass = m_VKRenderPass;
+        CB.m_VKCommandBuffer    = m_Frames[m_FrameIndex].m_VKCommandBuffer;
+        CB.m_VKPipelineLayout   = nullptr;
     }
 
     //------------------------------------------------------------------------------------------------------------------------
 
-    void window::CmdRenderBegin(const xgpu::renderpass& XGPURenderpass) noexcept
+    void window::CmdRenderBegin( xgpu::cmd_buffer& xGPUCmdBuffer, const xgpu::renderpass& XGPURenderpass) noexcept
     {
         assert(m_BeginState == 1);
 
@@ -921,11 +929,19 @@ namespace xgpu::vulkan
         , Scissor.data()
         );
 
-
         // Ready
         m_BeginState++;
-        m_pActiveRenderPass  = &RenderPass;
-        m_VKActiveRenderPass = RenderPass.m_VKRenderPass;
+
+        //
+        // Return the command buffer
+        //
+        xGPUCmdBuffer.m_pWindow = static_cast<xgpu::details::window_handle*>(this);
+        auto&            CB     = reinterpret_cast<cmdbuffer&>(xGPUCmdBuffer.m_Memory);
+        
+        CB.m_pActiveRenderPass  = &RenderPass;
+        CB.m_VKActiveRenderPass = RenderPass.m_VKRenderPass;
+        CB.m_VKCommandBuffer    = Frame.m_VKCommandBuffer;
+        CB.m_VKPipelineLayout   = nullptr;
     }
 
     //------------------------------------------------------------------------------------------------------------------------
@@ -1013,19 +1029,15 @@ namespace xgpu::vulkan
 
     //------------------------------------------------------------------------------------------------------------------------
 
-    void window::CmdRenderEnd(void) noexcept
+    void window::CmdRenderEnd( xgpu::cmd_buffer& CmdBuffer ) noexcept
     {
         m_BeginState--;
         if( m_BeginState == 1 )
         {
-            auto& Frame = m_Frames[m_FrameIndex];
+            auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
 
             // Officially end the pass
-            vkCmdEndRenderPass(Frame.m_VKCommandBuffer);
-
-            // No more active render passes
-            m_VKActiveRenderPass = 0;
-            m_pActiveRenderPass = nullptr;
+            vkCmdEndRenderPass(CB.m_VKCommandBuffer);
         }
         assert(m_BeginState>0);
     }
@@ -1077,10 +1089,11 @@ namespace xgpu::vulkan
     }
 
     //------------------------------------------------------------------------------------------------------------------------
-    VkPipelineLayout g_PipelineLayout;
-    void window::setPipelineInstance( xgpu::pipeline_instance& Instance ) noexcept
+
+    void window::setPipelineInstance( xgpu::cmd_buffer& CmdBuffer, xgpu::pipeline_instance& Instance ) noexcept
     {
-        auto& PipelineInstance = static_cast<xgpu::vulkan::pipeline_instance&>( *Instance.m_Private );
+        auto& CB                = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
+        auto& PipelineInstance  = static_cast<xgpu::vulkan::pipeline_instance&>( *Instance.m_Private );
         pipeline_instance::per_renderpass PerRenderPass{};
 
         //
@@ -1093,7 +1106,7 @@ namespace xgpu::vulkan
 
             PerRenderPass.m_pPipelineInstance = &PipelineInstance;
 
-            if(Pipeline.m_nSamplers || Pipeline.m_nUniformBuffers)
+            if(Pipeline.m_nVKDescriptorSetLayout)
             {
                 //
                 // Create Descriptor Set:
@@ -1102,13 +1115,13 @@ namespace xgpu::vulkan
                     std::lock_guard Lk(m_Device->m_LockedVKDescriptorPool);
 
                     VkDescriptorSetAllocateInfo AllocInfo
-                    { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO
-                    ,   .descriptorPool = m_Device->m_LockedVKDescriptorPool.get()
-                    ,   .descriptorSetCount = static_cast<std::uint32_t>(Pipeline.m_VKDescriptorSetLayout.size())
-                    ,   .pSetLayouts = Pipeline.m_VKDescriptorSetLayout.data()
+                    { .sType                = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO
+                    , .descriptorPool       = m_Device->m_LockedVKDescriptorPool.get()
+                    , .descriptorSetCount   = static_cast<std::uint32_t>(Pipeline.m_nVKDescriptorSetLayout)
+                    , .pSetLayouts          = Pipeline.m_VKDescriptorSetLayout.data()
                     };
 
-                    if (auto VKErr = vkAllocateDescriptorSets(m_Device->m_VKDevice, &AllocInfo, &PerRenderPass.m_VKDescriptorSet); VKErr)
+                    if( auto VKErr = vkAllocateDescriptorSets(m_Device->m_VKDevice, &AllocInfo, PerRenderPass.m_VKDescriptorSet.data() ); VKErr)
                     {
                         m_Device->m_Instance->ReportError(VKErr, "vkAllocateDescriptorSets");
                         assert(false);
@@ -1121,34 +1134,10 @@ namespace xgpu::vulkan
                 std::array< VkWriteDescriptorSet,  16> WriteDes {};
 
                 //
-                // Setup the UniformBuffers
-                //
-                std::array< VkDescriptorBufferInfo, 5> DescUniformBuffer;
-                int Index = 0;
-                for (int i = 0; i < PerRenderPass.m_pPipelineInstance->m_Pipeline->m_nUniformBuffers; ++i)
-                {
-                    DescUniformBuffer[i].offset = 0;
-                    DescUniformBuffer[i].buffer = PerRenderPass.m_pPipelineInstance->m_UniformBuffer[i]->m_VKBuffer;
-                    DescUniformBuffer[i].range  = PerRenderPass.m_pPipelineInstance->m_UniformBuffer[i]->m_ByteSize;
-
-                    WriteDes[Index].sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                    WriteDes[Index].pNext            = nullptr;
-                    WriteDes[Index].dstSet           = PerRenderPass.m_VKDescriptorSet;
-                    WriteDes[Index].descriptorCount  = 1;
-                    WriteDes[Index].descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                    WriteDes[Index].dstArrayElement  = 0;
-                    WriteDes[Index].pImageInfo       = nullptr;
-                    WriteDes[Index].dstBinding       = i;
-                    WriteDes[Index].pBufferInfo      = &DescUniformBuffer[i];
-                    WriteDes[Index].pTexelBufferView = nullptr;
-                    Index++;
-                }
-
-                //
                 // Setup the textures
                 //
                 std::array< VkDescriptorImageInfo, 16> DescImage;
-
+                int Index = 0;
                 for( int i=0; i< PerRenderPass.m_pPipelineInstance->m_Pipeline->m_nSamplers; ++i )
                 {
                     DescImage[i]             = PerRenderPass.m_pPipelineInstance->m_TexturesBinds[i]->m_VKDescriptorImageInfo;
@@ -1156,13 +1145,36 @@ namespace xgpu::vulkan
 
                     WriteDes[Index].sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
                     WriteDes[Index].pNext            = nullptr;
-                    WriteDes[Index].dstSet           = PerRenderPass.m_VKDescriptorSet;
+                    WriteDes[Index].dstSet           = PerRenderPass.m_VKDescriptorSet[0];      // Not matter how many sets we have textures always is in set 0
                     WriteDes[Index].descriptorCount  = 1;
                     WriteDes[Index].descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
                     WriteDes[Index].dstArrayElement  = 0;
                     WriteDes[Index].pImageInfo       = &DescImage[i];
-                    WriteDes[Index].dstBinding       = Index;
+                    WriteDes[Index].dstBinding       = i;
                     WriteDes[Index].pBufferInfo      = nullptr;
+                    WriteDes[Index].pTexelBufferView = nullptr;
+                    Index++;
+                }
+
+                //
+                // Setup the UniformBuffers
+                //
+                std::array< VkDescriptorBufferInfo, 5> DescUniformBuffer;
+                for (int i = 0; i < PerRenderPass.m_pPipelineInstance->m_Pipeline->m_nUniformBuffers; ++i)
+                {
+                    DescUniformBuffer[i].offset = 0;
+                    DescUniformBuffer[i].buffer = PerRenderPass.m_pPipelineInstance->m_UniformBinds[i].m_Buffer->m_VKBuffer;
+                    DescUniformBuffer[i].range  = PerRenderPass.m_pPipelineInstance->m_UniformBinds[i].m_Buffer->m_EntrySizeBytes;
+
+                    WriteDes[Index].sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+                    WriteDes[Index].pNext            = nullptr;
+                    WriteDes[Index].dstSet           = PerRenderPass.m_VKDescriptorSet[Pipeline.m_nVKDescriptorSetLayout-1];    // Not matter how many sets we have Uniforms always are the last set
+                    WriteDes[Index].descriptorCount  = 1;
+                    WriteDes[Index].descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+                    WriteDes[Index].dstArrayElement  = 0;
+                    WriteDes[Index].pImageInfo       = nullptr;
+                    WriteDes[Index].dstBinding       = i;
+                    WriteDes[Index].pBufferInfo      = &DescUniformBuffer[i];
                     WriteDes[Index].pTexelBufferView = nullptr;
                     Index++;
                 }
@@ -1178,15 +1190,15 @@ namespace xgpu::vulkan
             //
             // See if we have already created this material
             //
-            if (auto ItPipeline = m_PipeLineMap.find(reinterpret_cast<std::uint64_t>(m_VKActiveRenderPass) ^ reinterpret_cast<std::uint64_t>(PipelineInstance.m_Pipeline.get())); ItPipeline == m_PipeLineMap.end())
+            if (auto ItPipeline = m_PipeLineMap.find(reinterpret_cast<std::uint64_t>(CB.m_VKActiveRenderPass) ^ reinterpret_cast<std::uint64_t>(PipelineInstance.m_Pipeline.get())); ItPipeline == m_PipeLineMap.end())
             {
                 //
                 // Create the pipeline info
                 //
                 auto VKPipelineCreateInfo = Pipeline.m_VkPipelineCreateInfo;
-                VKPipelineCreateInfo.renderPass = m_VKActiveRenderPass;
+                VKPipelineCreateInfo.renderPass = CB.m_VKActiveRenderPass;
 
-                const_cast<VkPipelineColorBlendStateCreateInfo*>(VKPipelineCreateInfo.pColorBlendState)->attachmentCount = m_pActiveRenderPass ? m_pActiveRenderPass->m_nColorAttachments : 1u;
+                const_cast<VkPipelineColorBlendStateCreateInfo*>(VKPipelineCreateInfo.pColorBlendState)->attachmentCount = CB.m_pActiveRenderPass ? CB.m_pActiveRenderPass->m_nColorAttachments : 1u;
 
 
                 // Create rendering pipeline
@@ -1230,19 +1242,20 @@ namespace xgpu::vulkan
             PerRenderPass = It->second;
         }
 
-        auto& Frame = m_Frames[m_FrameIndex];
-
         //
         // Bind pipeline and descriptor set
         //
         {
-            vkCmdBindPipeline( Frame.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, PerRenderPass.m_VKPipeline );
+            vkCmdBindPipeline( CB.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, PerRenderPass.m_VKPipeline );
 
-            if(PerRenderPass.m_VKDescriptorSet)
+            // if we have textures then we must have set zero define for them
+            if( PerRenderPass.m_pPipelineInstance->m_TexturesBinds[0].get() )
             {
-                auto DescriptorSet = std::array{ PerRenderPass.m_VKDescriptorSet };
+                // Textures are always in the descriptor set zero
+                auto DescriptorSet = std::array{ PerRenderPass.m_VKDescriptorSet[0] };
+
                 vkCmdBindDescriptorSets
-                ( Frame.m_VKCommandBuffer
+                ( CB.m_VKCommandBuffer
                 , VK_PIPELINE_BIND_POINT_GRAPHICS
                 , PerRenderPass.m_pPipelineInstance->m_Pipeline->m_VKPipelineLayout
                 , 0
@@ -1254,15 +1267,16 @@ namespace xgpu::vulkan
             }
         }
 
-        g_PipelineLayout = PerRenderPass.m_pPipelineInstance->m_Pipeline->m_VKPipelineLayout;
+        CB.m_ActivePipelineInstance = PerRenderPass;
+        CB.m_VKPipelineLayout       = PerRenderPass.m_pPipelineInstance->m_Pipeline->m_VKPipelineLayout;
     }
 
     //------------------------------------------------------------------------------------------------------------------------
 
-    void window::setBuffer( xgpu::buffer& Buffer, int StartingElementIndex ) noexcept
+    void window::setBuffer( xgpu::cmd_buffer& CmdBuffer, xgpu::buffer& Buffer, int StartingElementIndex ) noexcept
     {
-        auto& Frame   = m_Frames[m_FrameIndex];
-        auto& VBuffer = *static_cast<xgpu::vulkan::buffer*>(Buffer.m_Private.get());
+        auto& VBuffer   = *static_cast<xgpu::vulkan::buffer*>(Buffer.m_Private.get());
+        auto& CB        = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
 
         switch( VBuffer.m_Type )
         {
@@ -1273,7 +1287,7 @@ namespace xgpu::vulkan
                 static_assert( VertexBuffers.size() == VertexOffset.size() );
 
                 vkCmdBindVertexBuffers
-                ( Frame.m_VKCommandBuffer
+                ( CB.m_VKCommandBuffer
                 , 0 // TODO: Binding!!!!!!!!!!!!!!!!!!!!!!!
                 , static_cast<std::uint32_t>(VertexBuffers.size())
                 , VertexBuffers.data()
@@ -1285,7 +1299,7 @@ namespace xgpu::vulkan
             case xgpu::buffer::type::INDEX:
             {
                 vkCmdBindIndexBuffer
-                ( Frame.m_VKCommandBuffer
+                ( CB.m_VKCommandBuffer
                 , VBuffer.m_VKBuffer
                 , static_cast<VkDeviceSize>(StartingElementIndex * VBuffer.m_EntrySizeBytes)
                 , VBuffer.m_EntrySizeBytes == 2 ? VK_INDEX_TYPE_UINT16 : VK_INDEX_TYPE_UINT32
@@ -1301,14 +1315,14 @@ namespace xgpu::vulkan
 
     //------------------------------------------------------------------------------------------------------------------------
 
-    void window::setStreamingBuffers(std::span<xgpu::buffer> Buffers, int StartingElementIndex ) noexcept
+    void window::setStreamingBuffers(xgpu::cmd_buffer& CmdBuffer, std::span<xgpu::buffer> Buffers, int StartingElementIndex ) noexcept
     {
         auto iStartBuffer = 0u;
         {
             auto& VBuffer = *static_cast<xgpu::vulkan::buffer*>(Buffers[iStartBuffer].m_Private.get());
             if (VBuffer.m_Type == xgpu::buffer::type::INDEX)
             {
-                setBuffer(Buffers[iStartBuffer], StartingElementIndex);
+                setBuffer(CmdBuffer, Buffers[iStartBuffer], StartingElementIndex);
                 iStartBuffer++;
             }
         }
@@ -1321,10 +1335,10 @@ namespace xgpu::vulkan
             VKBuffers[i-1] = VBuffer.m_VKBuffer;
         }
 
-        auto& Frame = m_Frames[m_FrameIndex];
+        auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
 
         vkCmdBindVertexBuffers
-        (Frame.m_VKCommandBuffer
+        ( CB.m_VKCommandBuffer
         , 0 // Starting binding
         , static_cast<std::uint32_t>(Buffers.size() - iStartBuffer)
         , VKBuffers.data()
@@ -1334,7 +1348,7 @@ namespace xgpu::vulkan
 
     //------------------------------------------------------------------------------------------------------------------------
 
-    void window::setViewport(float x, float y, float w, float h, float minDepth, float maxDepth) noexcept
+    void window::setViewport(xgpu::cmd_buffer& CmdBuffer, float x, float y, float w, float h, float minDepth, float maxDepth) noexcept
     {
         m_DefaultViewport = VkViewport
         {  .x           = x
@@ -1348,7 +1362,7 @@ namespace xgpu::vulkan
 
     //------------------------------------------------------------------------------------------------------------------------
 
-    void window::setScissor( int x, int y, int w, int h )  noexcept
+    void window::setScissor(xgpu::cmd_buffer& CmdBuffer, int x, int y, int w, int h )  noexcept
     {
         // Negative offsets are illegal for vkCmdSetScissor
         if (x < 0) x = 0;
@@ -1365,9 +1379,9 @@ namespace xgpu::vulkan
 
     //------------------------------------------------------------------------------------------------------------------------
 
-    void window::DrawInstance(int InstanceCount, int IndexCount, int FirstInstance, int FirstIndex, int VertexOffset) noexcept
+    void window::DrawInstance(xgpu::cmd_buffer& CmdBuffer, int InstanceCount, int IndexCount, int FirstInstance, int FirstIndex, int VertexOffset) noexcept
     {
-        auto& Frame = m_Frames[m_FrameIndex];
+        auto& CB    = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
 
         //
         // Setup the viewport and clipping region
@@ -1375,7 +1389,7 @@ namespace xgpu::vulkan
         {
             auto Viewport  = std::array{ m_DefaultViewport };
             vkCmdSetViewport
-            ( Frame.m_VKCommandBuffer
+            ( CB.m_VKCommandBuffer
             , 0
             , static_cast<std::uint32_t>(Viewport.size())
             , Viewport.data() 
@@ -1383,7 +1397,7 @@ namespace xgpu::vulkan
 
             auto Scissor = std::array{ m_DefaultScissor };
             vkCmdSetScissor
-            ( Frame.m_VKCommandBuffer
+            ( CB.m_VKCommandBuffer
             , 0
             , static_cast<std::uint32_t>(Scissor.size())
             , Scissor.data()
@@ -1394,7 +1408,7 @@ namespace xgpu::vulkan
         // Issue the draw call
         //
         vkCmdDrawIndexed
-        ( Frame.m_VKCommandBuffer
+        ( CB.m_VKCommandBuffer
         , IndexCount
         , InstanceCount
         , FirstIndex
@@ -1405,17 +1419,45 @@ namespace xgpu::vulkan
 
     //------------------------------------------------------------------------------------------------------------------------
 
-    void window::setConstants( int Offset, const void* pData, std::size_t Size ) noexcept
+    void window::setConstants(xgpu::cmd_buffer& CmdBuffer, int Offset, const void* pData, std::size_t Size ) noexcept
     {
-        auto& Frame = m_Frames[m_FrameIndex];
+        auto& CB    = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
+
         vkCmdPushConstants
-        ( Frame.m_VKCommandBuffer
-        , g_PipelineLayout
+        ( CB.m_VKCommandBuffer
+        , CB.m_VKPipelineLayout
         , VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT 
         , Offset
         , static_cast<std::uint32_t>(Size)
         , pData
         );
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+
+    void* window::getUniformBufferVMem(xgpu::cmd_buffer& CmdBuffer, xgpu::shader::type::bit ShaderType, std::size_t Size ) noexcept
+    {
+        auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
+        
+        std::uint32_t DynamicOffset;
+        void* pData = CB.m_ActivePipelineInstance.m_pPipelineInstance->getUniformBufferVMem(DynamicOffset, ShaderType, Size);
+
+        // Uniform Buffers are always in the last descriptor set
+        auto DescriptorSet      = std::array{ CB.m_ActivePipelineInstance.m_VKDescriptorSet[1] ? CB.m_ActivePipelineInstance.m_VKDescriptorSet[1] : CB.m_ActivePipelineInstance.m_VKDescriptorSet[0] };
+        auto DynamicOffsetList  = std::array<std::uint32_t,1>{DynamicOffset};
+
+        vkCmdBindDescriptorSets
+        ( CB.m_VKCommandBuffer
+        , VK_PIPELINE_BIND_POINT_GRAPHICS
+        , CB.m_VKPipelineLayout
+        , 1
+        , static_cast<std::uint32_t>(DescriptorSet.size())
+        , DescriptorSet.data()
+        , static_cast<std::uint32_t>(DynamicOffsetList.size())
+        , DynamicOffsetList.data()
+        );
+
+        return pData;
     }
 
     //------------------------------------------------------------------------------------------------------------------------

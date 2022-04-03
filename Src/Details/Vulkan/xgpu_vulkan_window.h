@@ -1,5 +1,17 @@
 namespace xgpu::vulkan
 {
+    struct cmdbuffer
+    {
+        VkCommandBuffer                     m_VKCommandBuffer;
+        VkRenderPass                        m_VKActiveRenderPass;
+        vulkan::renderpass*                 m_pActiveRenderPass;
+        pipeline_instance::per_renderpass   m_ActivePipelineInstance;
+        VkPipelineLayout                    m_VKPipelineLayout;
+
+    };
+
+    static_assert( sizeof(xgpu::cmd_buffer) == (sizeof(cmdbuffer) + sizeof(std::size_t)) );
+
     struct window final : xgpu::system::window
     {
         [[nodiscard]]   xgpu::device::error*    Initialize                  ( std::shared_ptr<vulkan::device>&& Device
@@ -26,34 +38,40 @@ namespace xgpu::vulkan
         bool                                    BegingRendering             ( void
                                                                             ) noexcept override;
         virtual
-        void                                    CmdRenderBegin              ( void 
+        void                                    CmdRenderBegin              ( xgpu::cmd_buffer& CmdBuffer
                                                                             ) noexcept override;
         virtual     
-        void                                    CmdRenderBegin              ( const xgpu::renderpass& Renderpass
+        void                                    CmdRenderBegin              ( xgpu::cmd_buffer& CmdBuffer
+                                                                            , const xgpu::renderpass& Renderpass
                                                                             ) noexcept override;
         virtual
-        void                                    CmdRenderEnd                ( void 
+        void                                    CmdRenderEnd                ( xgpu::cmd_buffer& CmdBuffer
                                                                             ) noexcept override;
         virtual
-        void                                    setPipelineInstance         ( xgpu::pipeline_instance& Instance 
+        void                                    setPipelineInstance         ( xgpu::cmd_buffer&        CmdBuffer
+                                                                            , xgpu::pipeline_instance& Instance 
                                                                             ) noexcept override;
         virtual
-        void                                    setBuffer                   ( xgpu::buffer& Buffer
-                                                                            , int           StartingElementIndex
+        void                                    setBuffer                   ( xgpu::cmd_buffer& CmdBuffer
+                                                                            , xgpu::buffer&     Buffer
+                                                                            , int               StartingElementIndex
                                                                             ) noexcept override;
         virtual     
-        void                                    setStreamingBuffers         ( std::span<xgpu::buffer>   Buffers
+        void                                    setStreamingBuffers         ( xgpu::cmd_buffer&         CmdBuffer
+                                                                            , std::span<xgpu::buffer>   Buffers
                                                                             , int                       StartingElementIndex
                                                                             ) noexcept;
         virtual
-        void                                    DrawInstance                ( int InstanceCount
-                                                                            , int IndexCount
-                                                                            , int FirstInstance
-                                                                            , int FirstIndex
-                                                                            , int VertexOffset 
+        void                                    DrawInstance                ( xgpu::cmd_buffer& CmdBuffer
+                                                                            , int               InstanceCount
+                                                                            , int               IndexCount
+                                                                            , int               FirstInstance
+                                                                            , int               FirstIndex
+                                                                            , int               VertexOffset 
                                                                             ) noexcept override;
         virtual
-        void                                    setViewport                 ( float x
+        void                                    setViewport                 ( xgpu::cmd_buffer& CmdBuffer
+                                                                            , float x
                                                                             , float y
                                                                             , float w
                                                                             , float h
@@ -61,21 +79,28 @@ namespace xgpu::vulkan
                                                                             , float maxDepth 
                                                                             ) noexcept override;
         virtual
-        void                                    setScissor                  ( int x
+        void                                    setScissor                  ( xgpu::cmd_buffer& CmdBuffer
+                                                                            , int x
                                                                             , int y
                                                                             , int w
                                                                             , int h 
                                                                             ) noexcept override;
         virtual
-        void                                    setConstants                ( int                   Offset
-                                                                            , const void*           pData
-                                                                            , std::size_t           Size 
+        void                                    setConstants                ( xgpu::cmd_buffer& CmdBuffer
+                                                                            , int               Offset
+                                                                            , const void*       pData
+                                                                            , std::size_t       Size 
+                                                                            ) noexcept override;
+        virtual     
+        void*                                   getUniformBufferVMem        ( xgpu::cmd_buffer&         CmdBuffer
+                                                                            , xgpu::shader::type::bit   ShaderType
+                                                                            , std::size_t               Size
                                                                             ) noexcept override;
         virtual
-        void                                    setClearColor               ( float R
-                                                                            , float G
-                                                                            , float B
-                                                                            , float A 
+        void                                    setClearColor               ( float             R
+                                                                            , float             G
+                                                                            , float             B
+                                                                            , float             A 
                                                                             ) noexcept override;
         virtual
         void                                    PageFlip                    ( void 
@@ -99,8 +124,6 @@ namespace xgpu::vulkan
         VkImageView                             m_VKDepthbufferView     {};
         VkDeviceMemory                          m_VKDepthbufferMemory   {};
         VkRenderPass                            m_VKRenderPass          {};
-        VkRenderPass                            m_VKActiveRenderPass    {};
-        vulkan::renderpass*                     m_pActiveRenderPass     {};
         VkPipeline                              m_VKPipeline            {};
         VkSurfaceFormatKHR                      m_VKSurfaceFormat       {};
         VkFormat                                m_VKDepthFormat         {};

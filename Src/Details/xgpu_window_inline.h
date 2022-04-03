@@ -9,17 +9,18 @@ namespace xgpu
             virtual     int                             getWidth                ( void ) const                                              noexcept = 0;
             virtual     int                             getHeight               ( void ) const                                              noexcept = 0;
             virtual     void                            PageFlip                ( void )                                                    noexcept = 0;
-            virtual     void                            CmdRenderBegin          ( void )                                                    noexcept = 0;
-            virtual     void                            CmdRenderBegin          ( const xgpu::renderpass& Renderpass )                      noexcept = 0;
-            virtual     void                            CmdRenderEnd            ( void )                                                    noexcept = 0;
+            virtual     void                            CmdRenderBegin          ( xgpu::cmd_buffer& CmdBuffer )                             noexcept = 0;
+            virtual     void                            CmdRenderBegin          ( xgpu::cmd_buffer& CmdBuffer, const xgpu::renderpass& Renderpass )                      noexcept = 0;
+            virtual     void                            CmdRenderEnd            ( xgpu::cmd_buffer& CmdBuffer )                             noexcept = 0;
             virtual     bool                            BegingRendering         ( void )                                                    noexcept = 0;
-            virtual     void                            setPipelineInstance     ( xgpu::pipeline_instance& Instance )                       noexcept = 0;
-            virtual     void                            setBuffer               ( xgpu::buffer& Buffer, int StartingElementIndex )          noexcept = 0;
-            virtual     void                            setStreamingBuffers     ( std::span<xgpu::buffer> Buffers, int StartingElementIndex)noexcept = 0;
-            virtual     void                            DrawInstance            ( int InstanceCount, int IndexCount, int FirstInstance, int FirstIndex, int VertexOffset ) noexcept = 0;
-            virtual     void                            setViewport             ( float x, float y, float w, float h, float minDepth, float maxDepth ) noexcept = 0;
-            virtual     void                            setScissor              ( int x, int y, int w, int h )                              noexcept = 0;
-            virtual     void                            setConstants            ( int Offset, const void* pData, std::size_t Size )         noexcept = 0;
+            virtual     void                            setPipelineInstance     ( xgpu::cmd_buffer& CmdBuffer, xgpu::pipeline_instance& Instance )                       noexcept = 0;
+            virtual     void                            setBuffer               ( xgpu::cmd_buffer& CmdBuffer, xgpu::buffer& Buffer, int StartingElementIndex )          noexcept = 0;
+            virtual     void                            setStreamingBuffers     ( xgpu::cmd_buffer& CmdBuffer, std::span<xgpu::buffer> Buffers, int StartingElementIndex)noexcept = 0;
+            virtual     void                            DrawInstance            ( xgpu::cmd_buffer& CmdBuffer, int InstanceCount, int IndexCount, int FirstInstance, int FirstIndex, int VertexOffset ) noexcept = 0;
+            virtual     void                            setViewport             ( xgpu::cmd_buffer& CmdBuffer, float x, float y, float w, float h, float minDepth, float maxDepth ) noexcept = 0;
+            virtual     void                            setScissor              ( xgpu::cmd_buffer& CmdBuffer, int x, int y, int w, int h )                              noexcept = 0;
+            virtual     void                            setConstants            ( xgpu::cmd_buffer& CmdBuffer, int Offset, const void* pData, std::size_t Size )         noexcept = 0;
+            virtual     void*                           getUniformBufferVMem    ( xgpu::cmd_buffer& CmdBuffer, xgpu::shader::type::bit ShaderType, std::size_t Size )    noexcept = 0;
             virtual     void                            setClearColor           ( float R, float G, float B, float A )                      noexcept = 0;
             virtual     std::size_t                     getSystemWindowHandle   ( void ) const                                              noexcept = 0;
             virtual     bool                            isFocused               ( void ) const                                              noexcept = 0;
@@ -77,8 +78,9 @@ namespace xgpu
     XGPU_INLINE
     cmd_buffer window::getCmdBuffer( void ) noexcept
     {
-        m_Private->CmdRenderBegin();
-        return {m_Private.get()};
+        cmd_buffer CmdBuffer{};
+        m_Private->CmdRenderBegin(CmdBuffer);
+        return CmdBuffer;
     }
 
     //--------------------------------------------------------------------------
@@ -86,8 +88,9 @@ namespace xgpu
     XGPU_INLINE
     cmd_buffer window::StartRenderPass( const renderpass& Renderpass ) noexcept
     {
-        m_Private->CmdRenderBegin(Renderpass);
-        return { m_Private.get() };
+        cmd_buffer CmdBuffer{};
+        m_Private->CmdRenderBegin(CmdBuffer, Renderpass);
+        return CmdBuffer;
     }
 
     //--------------------------------------------------------------------------

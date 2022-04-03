@@ -247,7 +247,7 @@ int E15_Example()
         // Create the Lighting Uniform Buffer
         //
         xgpu::buffer LightingUBO;
-        if (auto Err = Device.Create(LightingUBO, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(lighting_uniform_buffer), .m_EntryCount = 1 }); Err)
+        if (auto Err = Device.Create(LightingUBO, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(lighting_uniform_buffer), .m_EntryCount = 16 }); Err)
             return xgpu::getErrorInt(Err);
 
         //
@@ -405,7 +405,7 @@ int E15_Example()
                 {
                     xcore::matrix4 L2W;
                     L2W.setIdentity();
-                    L2W.setScale({ 100, 1.0f, 100 });
+                    L2W.setScale({ 1000, 0.5f, 1000 });
                     L2W.setTranslation({ 0, -1, 0 });
 
                     shadow_generation_push_constants PushConstants;
@@ -441,12 +441,14 @@ int E15_Example()
                     LightMatrixPlus.setTranslation({ 0.5f, 0.5f, 0.0f });
                     LightMatrixPlus = LightMatrixPlus * LightingView.getW2C() * L2W;
 
-                    auto& LightUniforms = PipeLineInstance.getUniformBufferVMem<lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
+                    CmdBuffer.setPipelineInstance(PipeLineInstance);
+
+                    auto& LightUniforms = CmdBuffer.getUniformBufferVMem<lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
                     LightUniforms.m_ShadowL2CPlus       = LightMatrixPlus;
                     LightUniforms.m_L2C                 = W2C * L2W;
                     LightUniforms.m_LocalSpaceLightPos  = W2L * LightPosition;
 
-                    CmdBuffer.setPipelineInstance(PipeLineInstance);
+
                     CmdBuffer.setBuffer(VertexBuffer);
                     CmdBuffer.setBuffer(IndexBuffer);
                     CmdBuffer.Draw(IndexBuffer.getEntryCount());
@@ -456,7 +458,7 @@ int E15_Example()
                 {
                     xcore::matrix4 L2W;
                     L2W.setIdentity();
-                    L2W.setScale({ 100, 0.5f, 100 });
+                    L2W.setScale({ 1000, 0.5f, 1000 });
                     L2W.setTranslation({ 0, -1, 0 });
 
                     xcore::matrix4 W2L = L2W;
@@ -469,12 +471,13 @@ int E15_Example()
                     LightMatrixPlus.setTranslation({ 0.5f, 0.5f, 0.0f });
                     LightMatrixPlus = LightMatrixPlus * LightingView.getW2C() * L2W;
 
-                    auto& LightUniforms = PipeLineInstance.getUniformBufferVMem<lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
+                    CmdBuffer.setPipelineInstance(PipeLineInstance);
+
+                    auto& LightUniforms = CmdBuffer.getUniformBufferVMem<lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
                     LightUniforms.m_ShadowL2CPlus       = LightMatrixPlus;
                     LightUniforms.m_L2C                 = W2C * L2W;
                     LightUniforms.m_LocalSpaceLightPos  = W2L * LightPosition;
 
-                    CmdBuffer.setPipelineInstance(PipeLineInstance);
                     CmdBuffer.setBuffer(VertexBuffer);
                     CmdBuffer.setBuffer(IndexBuffer);
                     CmdBuffer.Draw(IndexBuffer.getEntryCount());

@@ -335,54 +335,72 @@ namespace xgpu::vulkan
         }
 
         //
-        // Set the texture descriptor
+        // Set the descriptors
         //
         {
-            std::array<VkDescriptorSetLayoutBinding, 16> layoutBinding  = {};
-
-            auto ConvertFlagsToVulkan = [&](int Index) noexcept
+            // Add all the set zero bindings 
+            if(m_nSamplers)
             {
-                VkShaderStageFlags  V       = 0;
-                const auto&         UBBit   = m_UniformBufferBits[Index];
-                if (UBBit.m_bVertex)                   V |= VK_SHADER_STAGE_VERTEX_BIT;
-                if (UBBit.m_bCompute)                  V |= VK_SHADER_STAGE_COMPUTE_BIT;
-                if (UBBit.m_bFragment)                 V |= VK_SHADER_STAGE_FRAGMENT_BIT;
-                if (UBBit.m_bGeometry)                 V |= VK_SHADER_STAGE_GEOMETRY_BIT;
-                if (UBBit.m_bTessellationControl)      V |= VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
-                if (UBBit.m_bTessellationEvaluator)    V |= VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
-                return V;
-            };
+                std::array<VkDescriptorSetLayoutBinding, 16>    layoutBinding = {};
+                for( int i = 0; i < m_nSamplers; ++i)
+                {
+                    layoutBinding[i].binding            = i;
+                    layoutBinding[i].descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                    layoutBinding[i].descriptorCount    = 1;
+                    layoutBinding[i].stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
+                    layoutBinding[i].pImmutableSamplers = &m_VKSamplers[i];
+                }
 
-            for (int i = 0; i < m_nUniformBuffers; ++i)
-            {
-                layoutBinding[i].binding            = i;
-                layoutBinding[i].descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-                layoutBinding[i].descriptorCount    = 1;
-                layoutBinding[i].stageFlags         = ConvertFlagsToVulkan(i);
-                layoutBinding[i].pImmutableSamplers = nullptr;
+                VkDescriptorSetLayoutCreateInfo DescriptorLayout = {};
+                DescriptorLayout.sType          = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+                DescriptorLayout.pNext          = nullptr;
+                DescriptorLayout.bindingCount   = static_cast<uint32_t>(m_nSamplers);
+                DescriptorLayout.pBindings      = layoutBinding.data();
+
+                if (auto VKErr = vkCreateDescriptorSetLayout(m_Device->m_VKDevice, &DescriptorLayout, m_Device->m_Instance->m_pVKAllocator, &m_VKDescriptorSetLayout[m_nVKDescriptorSetLayout++]); VKErr)
+                {
+                    m_Device->m_Instance->ReportError(VKErr, "Fail to create the samplers Descriptor Set Layout in the pipeline");
+                    return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create the samplers Descriptor Set Layout in the pipeline");
+                }
             }
 
-            for( int i = 0; i < m_nSamplers; ++i)
+            // Add all the set one bindings
+            if(m_nUniformBuffers)
             {
-                int Index = m_nUniformBuffers + i;
+                auto ConvertFlagsToVulkan = [&](int Index) noexcept
+                {
+                    VkShaderStageFlags  V       = 0;
+                    const auto&         UBBit   = m_UniformBufferBits[Index];
+                    if (UBBit.m_bVertex)                   V |= VK_SHADER_STAGE_VERTEX_BIT;
+                    if (UBBit.m_bCompute)                  V |= VK_SHADER_STAGE_COMPUTE_BIT;
+                    if (UBBit.m_bFragment)                 V |= VK_SHADER_STAGE_FRAGMENT_BIT;
+                    if (UBBit.m_bGeometry)                 V |= VK_SHADER_STAGE_GEOMETRY_BIT;
+                    if (UBBit.m_bTessellationControl)      V |= VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
+                    if (UBBit.m_bTessellationEvaluator)    V |= VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+                    return V;
+                };
 
-                layoutBinding[Index].binding            = Index;
-                layoutBinding[Index].descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                layoutBinding[Index].descriptorCount    = 1;
-                layoutBinding[Index].stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
-                layoutBinding[Index].pImmutableSamplers = &m_VKSamplers[i];
-            }
+                std::array<VkDescriptorSetLayoutBinding, 4>    layoutBinding = {};
+                for (int i = 0; i < m_nUniformBuffers; ++i)
+                {
+                    layoutBinding[i].binding            = i;
+                    layoutBinding[i].descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+                    layoutBinding[i].descriptorCount    = 1;
+                    layoutBinding[i].stageFlags         = ConvertFlagsToVulkan(i);
+                    layoutBinding[i].pImmutableSamplers = nullptr;
+                }
 
-            VkDescriptorSetLayoutCreateInfo descriptorLayout = {};
-            descriptorLayout.sType          = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-            descriptorLayout.pNext          = nullptr;
-            descriptorLayout.bindingCount   = static_cast<uint32_t>(m_nUniformBuffers + m_nSamplers);
-            descriptorLayout.pBindings      = layoutBinding.data();
+                VkDescriptorSetLayoutCreateInfo DescriptorLayout = {};
+                DescriptorLayout.sType          = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+                DescriptorLayout.pNext          = nullptr;
+                DescriptorLayout.bindingCount   = static_cast<uint32_t>(m_nUniformBuffers);
+                DescriptorLayout.pBindings      = layoutBinding.data();
 
-            if( auto VKErr = vkCreateDescriptorSetLayout(m_Device->m_VKDevice, &descriptorLayout, m_Device->m_Instance->m_pVKAllocator, m_VKDescriptorSetLayout.data()); VKErr )
-            {
-                m_Device->m_Instance->ReportError(VKErr, "Fail to create a Descriptor Set Layout in the pipeline");
-                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a Descriptor Set Layout in the pipeline");
+                if (auto VKErr = vkCreateDescriptorSetLayout(m_Device->m_VKDevice, &DescriptorLayout, m_Device->m_Instance->m_pVKAllocator, &m_VKDescriptorSetLayout[m_nVKDescriptorSetLayout++]); VKErr)
+                {
+                    m_Device->m_Instance->ReportError(VKErr, "Fail to create a Descriptor Set Layout in the pipeline");
+                    return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a Descriptor Set Layout in the pipeline");
+                }
             }
         }
 
@@ -407,8 +425,8 @@ namespace xgpu::vulkan
                 .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO
             ,   .pNext                  = nullptr
 
-                // Set the descriptors for the textures
-            ,   .setLayoutCount         = (m_nUniformBuffers + m_nSamplers) ? 1u : 0u
+                // Set the descriptors
+            ,   .setLayoutCount         = static_cast<uint32_t>(m_nVKDescriptorSetLayout)
             ,   .pSetLayouts            = m_VKDescriptorSetLayout.data()
 
                 // Push constant ranges are part of the pipeline layout
