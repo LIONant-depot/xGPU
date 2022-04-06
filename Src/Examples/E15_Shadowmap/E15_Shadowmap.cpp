@@ -251,7 +251,7 @@ int E15_Example()
         // Create the Lighting Uniform Buffer
         //
         xgpu::buffer LightingUBO;
-        if (auto Err = Device.Create(LightingUBO, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(lighting_uniform_buffer), .m_EntryCount = 16 }); Err)
+        if (auto Err = Device.Create(LightingUBO, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(lighting_uniform_buffer), .m_EntryCount = 100 }); Err)
             return xgpu::getErrorInt(Err);
 
         //
@@ -326,7 +326,7 @@ int E15_Example()
 
     View.setFov( 60_xdeg );
 
-    LightingView.setFov(60_xdeg);
+    LightingView.setFov(76_xdeg);
     LightingView.setViewport( {0,0,ShadowMapTexture.getTextureDimensions()[0], ShadowMapTexture.getTextureDimensions()[1] });
     LightingView.setNearZ( 0.01f );
     
@@ -381,118 +381,122 @@ int E15_Example()
         // Update the view with latest window size
         View.setViewport({ 0, 0, Window.getWidth(), Window.getHeight() });
 
-        // Do some random rendering
+        // Make the shadow follow the camera
+        if (FollowCamera)
+        {
+            LightingView.LookAt(Distance, Angles, { 0,0,0 });
+        }
+
+        //
+        // Render the shadow scene
+        //
         {
             auto        CmdBuffer   = Window.StartRenderPass( RenderPass );
-
-            if(FollowCamera)
-            {
-                LightingView.LookAt(Distance, Angles, { 0,0,0 });
-            }
             const auto  W2C         = LightingView.getW2C();
 
-            // Render first object (animated mesh)
+            // Render the cubes
+            for( int i=0; i<8; ++i )
             {
-                {
-                    xcore::matrix4 L2W;
-                    L2W.setIdentity();
+                xcore::matrix4 L2W;
+                L2W.setIdentity();
+                L2W.setScale({1,1*(1+i*0.6f),1});
+                L2W.setTranslation( {0, 0, i * 2.0f - 8 } );
 
-                    shadow_generation_push_constants PushConstants;
-                    PushConstants.m_L2C = W2C * L2W;
+                shadow_generation_push_constants PushConstants;
+                PushConstants.m_L2C = W2C * L2W;
 
-                    CmdBuffer.setPipelineInstance(ShadowGenerationPipeLineInstance);
-                    CmdBuffer.setBuffer(VertexBuffer);
-                    CmdBuffer.setBuffer(IndexBuffer);
-                    CmdBuffer.setConstants(0, &PushConstants, sizeof(PushConstants));
-                    CmdBuffer.Draw(IndexBuffer.getEntryCount());
-                }
+                CmdBuffer.setPipelineInstance(ShadowGenerationPipeLineInstance);
+                CmdBuffer.setBuffer(VertexBuffer);
+                CmdBuffer.setBuffer(IndexBuffer);
+                CmdBuffer.setConstants(0, &PushConstants, sizeof(PushConstants));
+                CmdBuffer.Draw(IndexBuffer.getEntryCount());
+            }
 
-                // Floor
-                {
-                    xcore::matrix4 L2W;
-                    L2W.setIdentity();
-                    L2W.setScale({ 100, 0.5f, 100 });
-                    L2W.setTranslation({ 0, -1, 0 });
+            // Floor
+            {
+                xcore::matrix4 L2W;
+                L2W.setIdentity();
+                L2W.setScale({ 100, 0.5f, 100 });
+                L2W.setTranslation({ 0, -1, 0 });
 
-                    shadow_generation_push_constants PushConstants;
-                    PushConstants.m_L2C = W2C * L2W;
+                shadow_generation_push_constants PushConstants;
+                PushConstants.m_L2C = W2C * L2W;
 
-                    CmdBuffer.setBuffer(VertexBuffer);
-                    CmdBuffer.setBuffer(IndexBuffer);
-                    CmdBuffer.setConstants(0, &PushConstants, sizeof(PushConstants));
-                    CmdBuffer.Draw(IndexBuffer.getEntryCount());
-                }
+                CmdBuffer.setBuffer(VertexBuffer);
+                CmdBuffer.setBuffer(IndexBuffer);
+                CmdBuffer.setConstants(0, &PushConstants, sizeof(PushConstants));
+                CmdBuffer.Draw(IndexBuffer.getEntryCount());
             }
         }
 
-        // Get the command buffer ready to render
+        //
+        // Render the scene using the previously computed shadow
+        //
         {
             auto        CmdBuffer = Window.getCmdBuffer();
             const auto  W2C       = View.getW2C();
 
             static const xcore::matrix4 LightBiasMatrix = []
             {
-                xcore::matrix4 LightBiasMatrix;
-                LightBiasMatrix.setIdentity();
-                LightBiasMatrix.setScale({ 0.5f, 0.5f, 1.0f });
-                LightBiasMatrix.setTranslation({ 0.5f, 0.5f, 0.0f });
-                return LightBiasMatrix;
+                xcore::matrix4 BiasMatrix;
+                BiasMatrix.setIdentity();
+                BiasMatrix.setScale({ 0.5f, 0.5f, 1.0f });
+                BiasMatrix.setTranslation({ 0.5f, 0.5f, 0.0f });
+                return BiasMatrix;
             }();
 
-            // Render first object (animated mesh)
+            // Render the basic cubes
+            for( int i=0; i<8; ++i )
             {
+                xcore::matrix4 L2W;
+                L2W.setIdentity();
+                L2W.setScale({1,1*(1+i*0.6f),1});
+                L2W.setTranslation( {0, 0, i * 2.0f - 8} );
 
-                {
-                    xcore::matrix4 L2W;
-                    L2W.setIdentity();
+                xcore::matrix4 W2L = L2W;
+                W2L.InvertSRT();
 
-                    xcore::matrix4 W2L = L2W;
-                    W2L.InvertSRT();
+                // Shadow Matrix
+                xcore::matrix4 LightMatrixPlus;
+                LightMatrixPlus = LightBiasMatrix * LightingView.getW2C() * L2W;
 
-                    // Shadow Matrix
-                    xcore::matrix4 LightMatrixPlus;
-                    LightMatrixPlus = LightBiasMatrix * LightingView.getW2C() * L2W;
+                CmdBuffer.setPipelineInstance(PipeLineInstance);
 
-                    CmdBuffer.setPipelineInstance(PipeLineInstance);
+                auto& LightUniforms = CmdBuffer.getUniformBufferVMem<lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
+                LightUniforms.m_ShadowL2CPlus       = LightMatrixPlus;
+                LightUniforms.m_L2C                 = W2C * L2W;
+                LightUniforms.m_LocalSpaceLightPos  = W2L * LightPosition;
 
-                    auto& LightUniforms = CmdBuffer.getUniformBufferVMem<lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
-                    LightUniforms.m_ShadowL2CPlus       = LightMatrixPlus;
-                    LightUniforms.m_L2C                 = W2C * L2W;
-                    LightUniforms.m_LocalSpaceLightPos  = W2L * LightPosition;
-
-
-                    CmdBuffer.setBuffer(VertexBuffer);
-                    CmdBuffer.setBuffer(IndexBuffer);
-                    CmdBuffer.Draw(IndexBuffer.getEntryCount());
-                }
-
-                // Render floor
-                {
-                    xcore::matrix4 L2W;
-                    L2W.setIdentity();
-                    L2W.setScale({ 100, 0.5f, 100 });
-                    L2W.setTranslation({ 0, -1, 0 });
-
-                    xcore::matrix4 W2L = L2W;
-                    W2L.InvertSRT();
-
-                    // Shadow Matrix
-                    xcore::matrix4 LightMatrixPlus;
-                    LightMatrixPlus = LightBiasMatrix * LightingView.getW2C() * L2W;
-
-                    CmdBuffer.setPipelineInstance(PipeLineInstance);
-
-                    auto& LightUniforms = CmdBuffer.getUniformBufferVMem<lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
-                    LightUniforms.m_ShadowL2CPlus       = LightMatrixPlus;
-                    LightUniforms.m_L2C                 = W2C * L2W;
-                    LightUniforms.m_LocalSpaceLightPos  = W2L * LightPosition;
-
-                    CmdBuffer.setBuffer(VertexBuffer);
-                    CmdBuffer.setBuffer(IndexBuffer);
-                    CmdBuffer.Draw(IndexBuffer.getEntryCount());
-                }    
-
+                CmdBuffer.setBuffer(VertexBuffer);
+                CmdBuffer.setBuffer(IndexBuffer);
+                CmdBuffer.Draw(IndexBuffer.getEntryCount());
             }
+
+            // Render floor
+            {
+                xcore::matrix4 L2W;
+                L2W.setIdentity();
+                L2W.setScale({ 100, 0.5f, 100 });
+                L2W.setTranslation({ 0, -1, 0 });
+
+                xcore::matrix4 W2L = L2W;
+                W2L.InvertSRT();
+
+                // Shadow Matrix
+                xcore::matrix4 LightMatrixPlus;
+                LightMatrixPlus = LightBiasMatrix * LightingView.getW2C() * L2W;
+
+                CmdBuffer.setPipelineInstance(PipeLineInstance);
+
+                auto& LightUniforms = CmdBuffer.getUniformBufferVMem<lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
+                LightUniforms.m_ShadowL2CPlus       = LightMatrixPlus;
+                LightUniforms.m_L2C                 = W2C * L2W;
+                LightUniforms.m_LocalSpaceLightPos  = W2L * LightPosition;
+
+                CmdBuffer.setBuffer(VertexBuffer);
+                CmdBuffer.setBuffer(IndexBuffer);
+                CmdBuffer.Draw(IndexBuffer.getEntryCount());
+            }    
         }
 
         // Swap the buffers
