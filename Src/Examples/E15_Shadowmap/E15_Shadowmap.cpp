@@ -195,7 +195,7 @@ int E15_Example()
         auto Samplers       = std::array
         {   xgpu::pipeline::sampler
             { .m_MaxAnisotropy = 1
-            , .m_AddressMode   = {xgpu::pipeline::sampler::address_mode::CLAMP,xgpu::pipeline::sampler::address_mode::CLAMP,xgpu::pipeline::sampler::address_mode::CLAMP}
+            , .m_AddressMode   = {xgpu::pipeline::sampler::address_mode::CLAMP,xgpu::pipeline::sampler::address_mode::CLAMP_BORDER, xgpu::pipeline::sampler::address_mode::CLAMP_BORDER}
             , .m_MipmapMag     = xgpu::pipeline::sampler::mipmap_sampler::NEAREST
             , .m_MipmapMin     = xgpu::pipeline::sampler::mipmap_sampler::NEAREST
             , .m_MipmapMode    = xgpu::pipeline::sampler::mipmap_mode::LINEAR 
