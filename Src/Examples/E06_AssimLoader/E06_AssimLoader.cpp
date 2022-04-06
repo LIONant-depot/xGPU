@@ -192,7 +192,11 @@ int E06_Example()
             CmdBuffer.setPipelineInstance(PipeLineInstance[0]);
 
             push_constants PushConstants;
-            PushConstants.m_L2C = View.getW2C();
+            xcore::matrix4 L2W;
+            L2W.setIdentity();
+            L2W.setScale({0.005f});
+
+            PushConstants.m_L2C = View.getW2C() * L2W;
             CmdBuffer.setConstants( 0, &PushConstants, sizeof(push_constants) );
 
             ModelLoader.Draw(CmdBuffer);

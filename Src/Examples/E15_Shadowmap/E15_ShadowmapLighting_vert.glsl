@@ -26,7 +26,7 @@ void main()
     const vec3  LightColor            = vec3(1);
 
     o.UV                = inUV;
-    o.VertColor.rgb     = LightColor * max( 0, dot( inNormal.xyz, (u.LocalSpaceLightPos - inPos).xyz ));
+    o.VertColor.rgb     = LightColor * max( 0, dot( inNormal.xyz, normalize(u.LocalSpaceLightPos - inPos).xyz ));
     o.VertColor.a       = 1;
     o.ShadowmapPos      = u.ShadowmapL2C * vec4(inPos.xyz, 1.0);
     gl_Position         = u.L2C * vec4(inPos.xyz, 1.0);

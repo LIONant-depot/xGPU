@@ -96,6 +96,12 @@ namespace xgpu::vulkan
                                                                             , xgpu::shader::type::bit   ShaderType
                                                                             , std::size_t               Size
                                                                             ) noexcept override;
+        virtual     
+        void                                    setDepthBias                ( xgpu::cmd_buffer& CmdBuffer
+                                                                            , float             ConstantFactor
+                                                                            , float             DepthBiasClamp
+                                                                            , float             DepthBiasSlope
+                                                                            ) noexcept override;
         virtual
         void                                    setClearColor               ( float             R
                                                                             , float             G

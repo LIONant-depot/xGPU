@@ -122,6 +122,10 @@ int E15_Example()
         { .m_VertexDescriptor  = ShadowmapVertexDescriptor
         , .m_Shaders           = Shaders
         , .m_PushConstantsSize = sizeof(shadow_generation_push_constants)
+        , .m_DepthStencil      = { .m_DepthBiasConstantFactor = 1.25        // Depth bias (and slope) are used to avoid shadowing artifacts (always applied)
+                                 , .m_DepthBiasSlopeFactor    = 1.75f       // Slope depth bias factor, applied depending on polygon's slope
+                                 , .m_bDepthBiasEnable        = true        // Enable the depth bias
+                                 }
         };
 
         xgpu::pipeline ShadowGenerationPipeLine;
@@ -324,6 +328,8 @@ int E15_Example()
 
     LightingView.setFov(60_xdeg);
     LightingView.setViewport( {0,0,ShadowMapTexture.getTextureDimensions()[0], ShadowMapTexture.getTextureDimensions()[1] });
+    LightingView.setNearZ( 0.01f );
+    
 
     xgpu::mouse Mouse;
     xgpu::keyboard Keyboard;
@@ -379,7 +385,7 @@ int E15_Example()
         {
             auto        CmdBuffer   = Window.StartRenderPass( RenderPass );
 
-            if(FrozenLightPosition==false) 
+            if(FollowCamera)
             {
                 LightingView.LookAt(Distance, Angles, { 0,0,0 });
             }
@@ -405,7 +411,7 @@ int E15_Example()
                 {
                     xcore::matrix4 L2W;
                     L2W.setIdentity();
-                    L2W.setScale({ 1000, 0.5f, 1000 });
+                    L2W.setScale({ 100, 0.5f, 100 });
                     L2W.setTranslation({ 0, -1, 0 });
 
                     shadow_generation_push_constants PushConstants;
@@ -422,7 +428,16 @@ int E15_Example()
         // Get the command buffer ready to render
         {
             auto        CmdBuffer = Window.getCmdBuffer();
-            const auto  W2C = View.getW2C();
+            const auto  W2C       = View.getW2C();
+
+            static const xcore::matrix4 LightBiasMatrix = []
+            {
+                xcore::matrix4 LightBiasMatrix;
+                LightBiasMatrix.setIdentity();
+                LightBiasMatrix.setScale({ 0.5f, 0.5f, 1.0f });
+                LightBiasMatrix.setTranslation({ 0.5f, 0.5f, 0.0f });
+                return LightBiasMatrix;
+            }();
 
             // Render first object (animated mesh)
             {
@@ -436,10 +451,7 @@ int E15_Example()
 
                     // Shadow Matrix
                     xcore::matrix4 LightMatrixPlus;
-                    LightMatrixPlus.setIdentity();
-                    LightMatrixPlus.setScale({ 0.5f, 0.5f, 1.0f });
-                    LightMatrixPlus.setTranslation({ 0.5f, 0.5f, 0.0f });
-                    LightMatrixPlus = LightMatrixPlus * LightingView.getW2C() * L2W;
+                    LightMatrixPlus = LightBiasMatrix * LightingView.getW2C() * L2W;
 
                     CmdBuffer.setPipelineInstance(PipeLineInstance);
 
@@ -458,7 +470,7 @@ int E15_Example()
                 {
                     xcore::matrix4 L2W;
                     L2W.setIdentity();
-                    L2W.setScale({ 1000, 0.5f, 1000 });
+                    L2W.setScale({ 100, 0.5f, 100 });
                     L2W.setTranslation({ 0, -1, 0 });
 
                     xcore::matrix4 W2L = L2W;
@@ -466,10 +478,7 @@ int E15_Example()
 
                     // Shadow Matrix
                     xcore::matrix4 LightMatrixPlus;
-                    LightMatrixPlus.setIdentity();
-                    LightMatrixPlus.setScale({ 0.5f, 0.5f, 1.0f });
-                    LightMatrixPlus.setTranslation({ 0.5f, 0.5f, 0.0f });
-                    LightMatrixPlus = LightMatrixPlus * LightingView.getW2C() * L2W;
+                    LightMatrixPlus = LightBiasMatrix * LightingView.getW2C() * L2W;
 
                     CmdBuffer.setPipelineInstance(PipeLineInstance);
 

@@ -13,6 +13,7 @@ namespace xgpu
         XGPU_INLINE     cmd_buffer&     setConstants                ( int Offset, const void* pData, std::size_t Size ) noexcept;
         XGPU_INLINE     cmd_buffer&     Draw                        ( int IndexCount, int FirstIndex = 0, int VertexOffset=0 ) noexcept;
         XGPU_INLINE     cmd_buffer&     DrawInstance                ( int InstanceCount, int IndexCount, int FirstInstance=0, int FirstIndex=0, int VertexOffset=0 ) noexcept;
+        XGPU_INLINE     cmd_buffer&     setDepthBias                ( float ConstantFactor, float DepthBiasClamp, float DepthBiasSlope) noexcept;
 
         template<typename T>
         XGPU_INLINE     T&              getUniformBufferVMem        ( xgpu::shader::type::bit ShaderType ) noexcept;

@@ -67,7 +67,7 @@ float ShadowPCF( in const vec4 UVProjection )
 
 void main()
 {
-    const vec3	AmbientLight = vec3(0.2);
+    const vec3	AmbientLight = vec3(0.1);
     const float Shadow		 = (true) ? ShadowPCF(i.ShadowmapPos / i.ShadowmapPos.w) : ShadowNoPCF(i.ShadowmapPos / i.ShadowmapPos.w);
 	const vec3  FinalColor   = (AmbientLight + Shadow * i.VertColor.rgb) * texture( SamplerAlbedoMap, i.UV.xy ).rgb;
 

@@ -780,8 +780,6 @@ namespace xgpu::vulkan
 
     void window::PageFlip( void ) noexcept
     {
-        assert( 0 == --m_BeginState );
-        m_BeginState = 0;
         (void)EndFrame();
 
         auto& Frame       = m_Frames[m_FrameIndex];
@@ -847,19 +845,43 @@ namespace xgpu::vulkan
             //
             // Set the default viewport
             //
-            m_DefaultScissor.offset.x      = 0;
-            m_DefaultScissor.offset.y      = 0;
-            m_DefaultScissor.extent.width  = getWidth();
-            m_DefaultScissor.extent.height = getHeight();
-
             m_DefaultViewport = VkViewport
             { .x        = 0
             , .y        = 0
-            , .width    = (float)m_DefaultScissor.extent.width
-            , .height   = (float)m_DefaultScissor.extent.height
+            , .width    = (float)getWidth()
+            , .height   = (float)getHeight()
             , .minDepth = 0.0f
             , .maxDepth = 1.0f
             };
+
+            auto Viewport = std::array{ m_DefaultViewport };
+
+            vkCmdSetViewport
+            ( Frame.m_VKCommandBuffer
+            , 0
+            , static_cast<std::uint32_t>(Viewport.size())
+            , Viewport.data()
+            );
+
+            //
+            // Set the default Scissor
+            //
+            m_DefaultScissor.offset.x       = 0;
+            m_DefaultScissor.offset.y       = 0;
+            m_DefaultScissor.extent.width   = getWidth();
+            m_DefaultScissor.extent.height  = getHeight();
+
+            auto Scissor = std::array{ m_DefaultScissor };
+
+            vkCmdSetScissor
+            ( Frame.m_VKCommandBuffer
+            , 0
+            , static_cast<std::uint32_t>(Scissor.size())
+            , Scissor.data()
+            );
+
+            // We add an additional one here since we should not repeat this code again for this frame
+            m_BeginState++;
         }
 
         // Ready
@@ -1049,6 +1071,17 @@ namespace xgpu::vulkan
         auto& Frame     = m_Frames[m_FrameIndex];
         auto& Semaphore = m_FrameSemaphores[m_SemaphoreIndex];
         
+        // End the render pass 
+        if(m_BeginState == 2)
+        {
+            vkCmdEndRenderPass(Frame.m_VKCommandBuffer);
+        }
+        else
+        {
+            assert(m_BeginState == 1);
+        }
+        m_BeginState = 0;
+
         // Officially end the Commands
         if( auto VKErr = vkEndCommandBuffer( Frame.m_VKCommandBuffer ); VKErr )
         {
@@ -1350,7 +1383,9 @@ namespace xgpu::vulkan
 
     void window::setViewport(xgpu::cmd_buffer& CmdBuffer, float x, float y, float w, float h, float minDepth, float maxDepth) noexcept
     {
-        m_DefaultViewport = VkViewport
+        auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
+
+        auto Viewport = VkViewport
         {  .x           = x
          , .y           = y
          , .width       = w
@@ -1358,12 +1393,22 @@ namespace xgpu::vulkan
          , .minDepth    = minDepth
          , .maxDepth    = maxDepth
         };
+
+        auto ViewportArray = std::array{ Viewport };
+        vkCmdSetViewport
+        ( CB.m_VKCommandBuffer
+        , 0
+        , static_cast<std::uint32_t>(ViewportArray.size())
+        , ViewportArray.data()
+        );
     }
 
     //------------------------------------------------------------------------------------------------------------------------
 
     void window::setScissor(xgpu::cmd_buffer& CmdBuffer, int x, int y, int w, int h )  noexcept
     {
+        VkRect2D Scissor;
+
         // Negative offsets are illegal for vkCmdSetScissor
         if (x < 0) x = 0;
         if (y < 0) y = 0;
@@ -1371,10 +1416,20 @@ namespace xgpu::vulkan
         assert(w>=0);
         assert(h>=0);
 
-        m_DefaultScissor.offset.x       = x;
-        m_DefaultScissor.offset.y       = y;
-        m_DefaultScissor.extent.width   = w;
-        m_DefaultScissor.extent.height  = h;
+        Scissor.offset.x       = x;
+        Scissor.offset.y       = y;
+        Scissor.extent.width   = w;
+        Scissor.extent.height  = h;
+
+        auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
+
+        auto ScissorArray = std::array{ Scissor };
+        vkCmdSetScissor
+        ( CB.m_VKCommandBuffer
+        , 0
+        , static_cast<std::uint32_t>(ScissorArray.size())
+        , ScissorArray.data()
+        );
     }
 
     //------------------------------------------------------------------------------------------------------------------------
@@ -1382,27 +1437,6 @@ namespace xgpu::vulkan
     void window::DrawInstance(xgpu::cmd_buffer& CmdBuffer, int InstanceCount, int IndexCount, int FirstInstance, int FirstIndex, int VertexOffset) noexcept
     {
         auto& CB    = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
-
-        //
-        // Setup the viewport and clipping region
-        //
-        {
-            auto Viewport  = std::array{ m_DefaultViewport };
-            vkCmdSetViewport
-            ( CB.m_VKCommandBuffer
-            , 0
-            , static_cast<std::uint32_t>(Viewport.size())
-            , Viewport.data() 
-            );
-
-            auto Scissor = std::array{ m_DefaultScissor };
-            vkCmdSetScissor
-            ( CB.m_VKCommandBuffer
-            , 0
-            , static_cast<std::uint32_t>(Scissor.size())
-            , Scissor.data()
-            );
-        }
 
         //
         // Issue the draw call
@@ -1458,6 +1492,19 @@ namespace xgpu::vulkan
         );
 
         return pData;
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+
+    void window::setDepthBias(xgpu::cmd_buffer& CmdBuffer, float ConstantFactor, float DepthBiasClamp, float DepthBiasSlope) noexcept
+    {
+        auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
+        vkCmdSetDepthBias
+        ( CB.m_VKCommandBuffer
+        , ConstantFactor
+        , DepthBiasClamp
+        , DepthBiasSlope 
+        );
     }
 
     //------------------------------------------------------------------------------------------------------------------------

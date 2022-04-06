@@ -21,6 +21,7 @@ namespace xgpu::assimp {
             | aiProcess_JoinIdenticalVertices      // join identical vertices/ optimize indexing
             | aiProcess_RemoveRedundantMaterials   // remove redundant materials
             | aiProcess_FindInvalidData            // detect invalid model data, such as invalid normal vectors
+            | aiProcess_PreTransformVertices       // pre-transform all vertices
         );
 
         if (pScene == nullptr)

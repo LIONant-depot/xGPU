@@ -94,4 +94,10 @@ namespace xgpu
         return *reinterpret_cast<T*>(m_pWindow->getUniformBufferVMem( *this, ShaderType, sizeof(T) ));
     }
 
+    //--------------------------------------------------------------------------------------
+    cmd_buffer& cmd_buffer::setDepthBias(float ConstantFactor, float DepthBiasClamp, float DepthBiasSlope) noexcept
+    {
+        m_pWindow->setDepthBias(*this, ConstantFactor, DepthBiasClamp, DepthBiasSlope);
+        return *this;
+    }
 }
