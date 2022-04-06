@@ -22,6 +22,7 @@ namespace xgpu::assimp {
             | aiProcess_RemoveRedundantMaterials   // remove redundant materials
             | aiProcess_FindInvalidData            // detect invalid model data, such as invalid normal vectors
             | aiProcess_PreTransformVertices       // pre-transform all vertices
+            | aiProcess_FlipUVs                    // flip the V to match the Vulkans way of doing UVs
         );
 
         if (pScene == nullptr)
