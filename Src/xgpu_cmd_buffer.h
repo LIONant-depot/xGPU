@@ -11,7 +11,7 @@ namespace xgpu
         XGPU_INLINE     cmd_buffer&     setViewport                 ( float x, float y, float w, float h, float minDepth = 0.0f, float maxDepth = 1.0f) noexcept;
         XGPU_INLINE     cmd_buffer&     setScissor                  ( int x, int y, int w, int h )          noexcept;
         template<typename T>
-        XGPU_INLINE     cmd_buffer&     setPushConstants            ( T& PushConstants ) noexcept;
+        XGPU_INLINE     cmd_buffer&     setPushConstants            ( const T& PushConstants ) noexcept;
         XGPU_INLINE     cmd_buffer&     setPushConstants            ( const void* pData, std::size_t Size ) noexcept;
         XGPU_INLINE     cmd_buffer&     Draw                        ( int IndexCount, int FirstIndex = 0, int VertexOffset=0 ) noexcept;
         XGPU_INLINE     cmd_buffer&     DrawInstance                ( int InstanceCount, int IndexCount, int FirstInstance=0, int FirstIndex=0, int VertexOffset=0 ) noexcept;

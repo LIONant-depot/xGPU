@@ -283,13 +283,10 @@ int E02_Example()
                     L2W.setIdentity();
                     L2W.RotateY(R);
 
-                    push_constants PushConstants;
-                    PushConstants.m_L2C = W2C * L2W;
-
                     CmdBuffer.setPipelineInstance(PipeLineInstance[0]);
                     CmdBuffer.setBuffer(VertexBuffer);
                     CmdBuffer.setBuffer(IndexBuffer);
-                    CmdBuffer.setPushConstants( PushConstants );
+                    CmdBuffer.setPushConstants( push_constants{ .m_L2C = W2C * L2W } );
                     CmdBuffer.Draw(IndexBuffer.getEntryCount());
                 }
 

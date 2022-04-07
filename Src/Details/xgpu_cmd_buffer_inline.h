@@ -80,7 +80,7 @@ namespace xgpu
 
     //--------------------------------------------------------------------------------------
     template<typename T>
-    cmd_buffer& cmd_buffer::setPushConstants(T& PushConstants) noexcept
+    cmd_buffer& cmd_buffer::setPushConstants( const T& PushConstants ) noexcept
     {
         static_assert( std::is_reference_v<T> == false && std::is_pointer_v<T> == false );
         m_pWindow->setPushConstants(*this, &PushConstants, sizeof(T));
