@@ -146,8 +146,8 @@ namespace xgpu
 
             bool                        m_bDepthTestEnable          { true };
             bool                        m_bDepthWriteEnable         { true };
-            bool                        m_bDepthClampEnable         { false };                        // Clamp the fragments depth values instead of clipping by FarZ
             bool                        m_bDepthBiasEnable          { false };
+            bool                        m_bDepthClampEnable         { false };                        // Clamp the fragments depth values instead of clipping by FarZ
             bool                        m_bDepthBoundsTestEnable    { false };
 
             bool                        m_StencilTestEnable         { false };

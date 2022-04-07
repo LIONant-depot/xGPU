@@ -124,8 +124,9 @@ int E15_Example()
         , .m_Shaders           = Shaders
         , .m_PushConstantsSize = sizeof(shadow_generation_push_constants)
         , .m_DepthStencil      = { .m_DepthBiasConstantFactor = 1.25        // Depth bias (and slope) are used to avoid shadowing artifacts (always applied)
-                                 , .m_DepthBiasSlopeFactor    = 1.75f       // Slope depth bias factor, applied depending on polygon's slope
+                                 , .m_DepthBiasSlopeFactor    = 2           // Slope depth bias factor, applied depending on polygon's slope
                                  , .m_bDepthBiasEnable        = true        // Enable the depth bias
+                                 , .m_bDepthClampEnable       = true        // Depth clamp to avoid near plane clipping
                                  }
         };
 
@@ -329,7 +330,8 @@ int E15_Example()
 
     LightingView.setFov(76_xdeg);
     LightingView.setViewport( {0,0,ShadowMapTexture.getTextureDimensions()[0], ShadowMapTexture.getTextureDimensions()[1] });
-    LightingView.setNearZ( 0.01f );
+    LightingView.setNearZ( 0.5f );
+    LightingView.setFarZ( 100.0f);
     
 
     xgpu::mouse Mouse;
@@ -367,9 +369,6 @@ int E15_Example()
 
         // Update the camera
         View.LookAt(Distance, Angles, { 0,0,0 });
-
-        static xcore::radian R{ 0 };
-        R += xcore::radian{ 0.001f };
 
         auto LightPosition = FollowCamera ? View.getPosition() : FrozenLightPosition; 
 
