@@ -526,7 +526,7 @@ struct window_info
             PushConstants.m_Translate[0] = -1.0f - draw_data->DisplayPos.x * PushConstants.m_Scale[0];
             PushConstants.m_Translate[1] = -1.0f - draw_data->DisplayPos.y * PushConstants.m_Scale[1];
 
-            CmdBuffer.setConstants( 0, &PushConstants, sizeof(push_constants) );
+            CmdBuffer.setPushConstants( &PushConstants, sizeof(push_constants) );
         };
 
         // Set it!

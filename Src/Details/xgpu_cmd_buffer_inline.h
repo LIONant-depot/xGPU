@@ -72,9 +72,18 @@ namespace xgpu
 
     //--------------------------------------------------------------------------------------
 
-    cmd_buffer& cmd_buffer::setConstants( int Offset, const void* pData, std::size_t Size ) noexcept
+    cmd_buffer& cmd_buffer::setPushConstants( const void* pData, std::size_t Size ) noexcept
     {
-        m_pWindow->setConstants(*this, Offset, pData, Size );
+        m_pWindow->setPushConstants(*this, pData, Size );
+        return *this;
+    }
+
+    //--------------------------------------------------------------------------------------
+    template<typename T>
+    cmd_buffer& cmd_buffer::setPushConstants(T& PushConstants) noexcept
+    {
+        static_assert( std::is_reference_v<T> == false && std::is_pointer_v<T> == false );
+        m_pWindow->setPushConstants(*this, &PushConstants, sizeof(T));
         return *this;
     }
 

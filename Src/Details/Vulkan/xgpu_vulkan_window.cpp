@@ -1453,7 +1453,7 @@ namespace xgpu::vulkan
 
     //------------------------------------------------------------------------------------------------------------------------
 
-    void window::setConstants(xgpu::cmd_buffer& CmdBuffer, int Offset, const void* pData, std::size_t Size ) noexcept
+    void window::setPushConstants(xgpu::cmd_buffer& CmdBuffer, const void* pData, std::size_t Size ) noexcept
     {
         auto& CB    = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
 
@@ -1461,7 +1461,7 @@ namespace xgpu::vulkan
         ( CB.m_VKCommandBuffer
         , CB.m_VKPipelineLayout
         , VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT 
-        , Offset
+        , 0
         , static_cast<std::uint32_t>(Size)
         , pData
         );

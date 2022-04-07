@@ -462,7 +462,7 @@ int E10_Example()
                 PushContants.m_Translation.setZero();
                 PushContants.m_UVScale = { 100.0f,100.0f };
 
-                CmdBuffer.setConstants(0, &PushContants, sizeof(push_contants));
+                CmdBuffer.setPushConstants( PushContants );
 
                 CmdBuffer.Draw(6);
             }
@@ -485,7 +485,7 @@ int E10_Example()
                 PushContants.m_UVScale.setup(1.0f, 1.0f);
                 PushContants.m_Translation = MouseTranslate;
 
-                CmdBuffer.setConstants(0, &PushContants, sizeof(push_contants));
+                CmdBuffer.setPushConstants( PushContants );
 
                 CmdBuffer.Draw(6);
             }

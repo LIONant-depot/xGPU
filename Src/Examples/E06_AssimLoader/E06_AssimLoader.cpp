@@ -197,7 +197,7 @@ int E06_Example()
             L2W.setScale({0.005f});
 
             PushConstants.m_L2C = View.getW2C() * L2W;
-            CmdBuffer.setConstants( 0, &PushConstants, sizeof(push_constants) );
+            CmdBuffer.setPushConstants( PushConstants );
 
             ModelLoader.Draw(CmdBuffer);
         }

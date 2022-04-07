@@ -250,7 +250,7 @@ struct runtime_material_instance
 
         push_constants PushConstants;
         PushConstants.m_L2C = L2C;
-        CmdBuffer.setConstants( 0, &PushConstants,  sizeof(push_constants) );
+        CmdBuffer.setPushConstants( PushConstants );
     }
 };
 

@@ -32,6 +32,11 @@ struct alignas(64) lighting_uniform_buffer
     xcore::vector4 m_LocalSpaceLightPos;
 };
 
+struct alignas(16) lighting_push_constant
+{
+    int  m_DebugMode;
+};
+
 struct shadow_generation_push_constants
 {
     xcore::matrix4 m_L2C;                   // To light space
@@ -123,6 +128,7 @@ int E15_Example()
         { .m_VertexDescriptor  = ShadowmapVertexDescriptor
         , .m_Shaders           = Shaders
         , .m_PushConstantsSize = sizeof(shadow_generation_push_constants)
+        , .m_Primitive         = {} //{ .m_FrontFace = xgpu::pipeline::primitive::front_face::CLOCKWISE } // When rendering shadows we don't want the front faces we want the back faces (Light leaking can happen)
         , .m_DepthStencil      = { .m_DepthBiasConstantFactor = 1.25f       // Depth bias (and slope) are used to avoid shadowing artifacts (always applied)
                                  , .m_DepthBiasSlopeFactor    = 2.3f        // Slope depth bias factor, applied depending on polygon's slope
                                  , .m_bDepthBiasEnable        = true        // Enable the depth bias
@@ -208,6 +214,7 @@ int E15_Example()
         auto Setup = xgpu::pipeline::setup
         { .m_VertexDescriptor   = VertexDescriptor
         , .m_Shaders            = Shaders
+        , .m_PushConstantsSize  = sizeof(lighting_push_constant)
         , .m_UniformBufferUsage = UBuffersUsage
         , .m_Samplers           = Samplers
         };
@@ -342,6 +349,9 @@ int E15_Example()
     }
 
     xcore::vector3 FrozenLightPosition;
+    lighting_push_constant LightinPushConstants
+    { .m_DebugMode = 1 
+    };
 
     xcore::radian3 Angles;
     float          Distance = 2;
@@ -362,6 +372,12 @@ int E15_Example()
         {
             FrozenLightPosition = View.getPosition();
             FollowCamera = !FollowCamera;
+        }
+
+        // Pressing 'D' cycles throw the different debug modes
+        if (Keyboard.wasPressed(xgpu::keyboard::digital::KEY_D))
+        {
+            LightinPushConstants.m_DebugMode = (LightinPushConstants.m_DebugMode+1)%3;
         }
 
         Distance += Distance * -0.2f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
@@ -386,7 +402,7 @@ int E15_Example()
         {
             LightingView.LookAt(Distance, Angles, { 0,0,0 });
         }
-
+        
         //
         // Render the shadow scene
         //
@@ -394,21 +410,22 @@ int E15_Example()
             auto        CmdBuffer   = Window.StartRenderPass( RenderPass );
             const auto  W2C         = LightingView.getW2C();
 
+            CmdBuffer.setPipelineInstance(ShadowGenerationPipeLineInstance);
+
             // Render the cubes
             for( int i=0; i<8; ++i )
             {
                 xcore::matrix4 L2W;
                 L2W.setIdentity();
-                L2W.setScale({1,1*(1+i*0.6f),1});
+                L2W.setScale({ 0.1f * (1 + i),1*(1+i*0.6f),0.1f * (1 + i) });
                 L2W.setTranslation( {0, 0, i * 2.0f - 8 } );
 
                 shadow_generation_push_constants PushConstants;
                 PushConstants.m_L2C = W2C * L2W;
 
-                CmdBuffer.setPipelineInstance(ShadowGenerationPipeLineInstance);
                 CmdBuffer.setBuffer(VertexBuffer);
                 CmdBuffer.setBuffer(IndexBuffer);
-                CmdBuffer.setConstants(0, &PushConstants, sizeof(PushConstants));
+                CmdBuffer.setPushConstants(PushConstants);
                 CmdBuffer.Draw(IndexBuffer.getEntryCount());
             }
 
@@ -424,7 +441,7 @@ int E15_Example()
 
                 CmdBuffer.setBuffer(VertexBuffer);
                 CmdBuffer.setBuffer(IndexBuffer);
-                CmdBuffer.setConstants(0, &PushConstants, sizeof(PushConstants));
+                CmdBuffer.setPushConstants(PushConstants);
                 CmdBuffer.Draw(IndexBuffer.getEntryCount());
             }
         }
@@ -436,21 +453,24 @@ int E15_Example()
             auto        CmdBuffer = Window.getCmdBuffer();
             const auto  W2C       = View.getW2C();
 
-            static const xcore::matrix4 LightBiasMatrix = []
+            static const xcore::matrix4 C2T = []
             {
-                xcore::matrix4 BiasMatrix;
-                BiasMatrix.setIdentity();
-                BiasMatrix.setScale({ 0.5f, 0.5f, 1.0f });
-                BiasMatrix.setTranslation({ 0.5f, 0.5f, 0.0f });
-                return BiasMatrix;
+                xcore::matrix4 ClipSpaceToTextureSpaceMatrix;
+                ClipSpaceToTextureSpaceMatrix.setIdentity();
+                ClipSpaceToTextureSpaceMatrix.setScale({ 0.5f, 0.5f, 1.0f });
+                ClipSpaceToTextureSpaceMatrix.setTranslation({ 0.5f, 0.5f, 0.0f });
+                return ClipSpaceToTextureSpaceMatrix;
             }();
+
+            CmdBuffer.setPipelineInstance(PipeLineInstance);
+            CmdBuffer.setPushConstants( LightinPushConstants );
 
             // Render the basic cubes
             for( int i=0; i<8; ++i )
             {
                 xcore::matrix4 L2W;
                 L2W.setIdentity();
-                L2W.setScale({1,1*(1+i*0.6f),1});
+                L2W.setScale({0.1f * (1+i),1*(1+i*0.6f),0.1f * (1 + i) });
                 L2W.setTranslation( {0, 0, i * 2.0f - 8} );
 
                 xcore::matrix4 W2L = L2W;
@@ -458,9 +478,7 @@ int E15_Example()
 
                 // Shadow Matrix
                 xcore::matrix4 LightMatrixPlus;
-                LightMatrixPlus = LightBiasMatrix * LightingView.getW2C() * L2W;
-
-                CmdBuffer.setPipelineInstance(PipeLineInstance);
+                LightMatrixPlus = C2T * LightingView.getW2C() * L2W;
 
                 auto& LightUniforms = CmdBuffer.getUniformBufferVMem<lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
                 LightUniforms.m_ShadowL2CPlus       = LightMatrixPlus;
@@ -484,9 +502,7 @@ int E15_Example()
 
                 // Shadow Matrix
                 xcore::matrix4 LightMatrixPlus;
-                LightMatrixPlus = LightBiasMatrix * LightingView.getW2C() * L2W;
-
-                CmdBuffer.setPipelineInstance(PipeLineInstance);
+                LightMatrixPlus = C2T * LightingView.getW2C() * L2W;
 
                 auto& LightUniforms = CmdBuffer.getUniformBufferVMem<lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
                 LightUniforms.m_ShadowL2CPlus       = LightMatrixPlus;

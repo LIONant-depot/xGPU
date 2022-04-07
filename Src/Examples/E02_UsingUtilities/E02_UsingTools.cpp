@@ -289,7 +289,7 @@ int E02_Example()
                     CmdBuffer.setPipelineInstance(PipeLineInstance[0]);
                     CmdBuffer.setBuffer(VertexBuffer);
                     CmdBuffer.setBuffer(IndexBuffer);
-                    CmdBuffer.setConstants( 0, &PushConstants, sizeof(push_constants) );
+                    CmdBuffer.setPushConstants( PushConstants );
                     CmdBuffer.Draw(IndexBuffer.getEntryCount());
                 }
 
@@ -303,7 +303,7 @@ int E02_Example()
                     PushConstants.m_L2C = W2C * L2W;
 
                     CmdBuffer.setPipelineInstance(PipeLineInstance[1]);
-                    CmdBuffer.setConstants(0, &PushConstants, sizeof(push_constants));
+                    CmdBuffer.setPushConstants( PushConstants );
                     CmdBuffer.Draw(IndexBuffer.getEntryCount());
                 }
             }

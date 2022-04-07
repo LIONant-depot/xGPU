@@ -10,6 +10,11 @@ layout(location = 0) in struct
     vec2  UV; 
 } i;
 
+layout (push_constant) uniform _pc
+{
+	int  m_DebugMode;
+} pc;
+
 layout (location = 0) out vec4 outFragColor;
 
 //----------------------------------------------------------------------------------------
@@ -72,8 +77,41 @@ void main()
 	const vec3  FinalColor   = (AmbientLight + Shadow * i.VertColor.rgb) * texture( SamplerAlbedoMap, i.UV.xy ).rgb;
 
 	//
-	// Convert to gamma
+	// Convert to gamma + Debug rendering
 	//
-	outFragColor.rgb  = pow( FinalColor.rgb, vec3(1.0f/2.2f) );
+	vec2 uv = (i.ShadowmapPos.xy / i.ShadowmapPos.w);
+	if( pc.m_DebugMode == 0)
+	{
+		// Normal light rendering with shadows 
+		outFragColor.rgb  = pow( FinalColor.rgb, vec3(1.0f/2.2f) );
+	}
+	else if( pc.m_DebugMode == 1)
+	{
+		// If the texel is outside the shadow texture then just render normally
+		if (uv.x < 0 || uv.y < 0 || uv.x > 1 || uv.y > 1 || i.ShadowmapPos.w < 0)
+		{
+			// Normal light rendering with shadows 
+			outFragColor.rgb  = pow( FinalColor.rgb, vec3(1.0f/2.2f) );
+		}
+		else
+		{
+			// Debug Mode
+			outFragColor.rgb  = (texture( SamplerShadowMap, uv ).rrr + pow( FinalColor.rgb, vec3(1.0f/2.2f) ))*0.5f;
+		}
+	}
+	else
+	{
+		// Render the shadow texture only
+		if (uv.x < 0 || uv.y < 0 || uv.x > 1 || uv.y > 1 || i.ShadowmapPos.w < 0)
+		{
+			discard;
+		}
+		else
+		{
+			// Debug Mode
+			outFragColor.rgb  = texture( SamplerShadowMap, uv ).rrr;
+		}
+	}
+
 	outFragColor.a    = i.VertColor.a;
 }

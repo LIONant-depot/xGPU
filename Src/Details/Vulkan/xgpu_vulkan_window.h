@@ -86,8 +86,7 @@ namespace xgpu::vulkan
                                                                             , int h 
                                                                             ) noexcept override;
         virtual
-        void                                    setConstants                ( xgpu::cmd_buffer& CmdBuffer
-                                                                            , int               Offset
+        void                                    setPushConstants            ( xgpu::cmd_buffer& CmdBuffer
                                                                             , const void*       pData
                                                                             , std::size_t       Size 
                                                                             ) noexcept override;

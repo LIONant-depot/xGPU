@@ -375,7 +375,7 @@ int E11_Example()
                 CmdBuffer.setPipelineInstance(PipeLineInstance);
                 CmdBuffer.setBuffer(VertexBuffer);
                 CmdBuffer.setBuffer(IndexBuffer);
-                CmdBuffer.setConstants( 0, &PushConstans, sizeof(push_constans) );
+                CmdBuffer.setPushConstants( PushConstans );
                 CmdBuffer.Draw(IndexBuffer.getEntryCount());
             }
         }

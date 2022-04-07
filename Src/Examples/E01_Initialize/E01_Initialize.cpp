@@ -259,12 +259,12 @@ int E01_Example()
                 CmdBuffer.setPipelineInstance(PipeLineInstance[0]);
                 CmdBuffer.setBuffer(VertexBuffer);
                 CmdBuffer.setBuffer(IndexBuffer);
-                CmdBuffer.setConstants( 0, FinalMatrix.data(), sizeof(FinalMatrix) );
+                CmdBuffer.setPushConstants( FinalMatrix.data(), sizeof(FinalMatrix) );
                 CmdBuffer.Draw( IndexBuffer.getEntryCount() );
 
                 FinalMatrix[ 1 + 4*3 ] = 3.1f; 
                 CmdBuffer.setPipelineInstance(PipeLineInstance[1]);
-                CmdBuffer.setConstants( 0, FinalMatrix.data(), sizeof(FinalMatrix) );
+                CmdBuffer.setPushConstants( FinalMatrix.data(), sizeof(FinalMatrix) );
                 CmdBuffer.Draw( IndexBuffer.getEntryCount() );
             }
 
