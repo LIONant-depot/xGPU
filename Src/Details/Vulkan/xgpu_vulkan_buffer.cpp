@@ -15,6 +15,15 @@ namespace xgpu::vulkan
         assert(Setup.m_EntryCount >= 1 );
         assert(Setup.m_EntryByteSize > 0);
 
+        if( Setup.m_Type == xgpu::buffer::type::UNIFORM )
+        {
+            if( auto x = (Setup.m_EntryByteSize % m_Device->m_VKPhysicalDeviceProperties.limits.minUniformBufferOffsetAlignment); x != 0)
+            {
+                m_Device->m_Instance->ReportError(std::format("Uniform Buffer entry size does not meet the minimum Alignment requirements of {}", m_Device->m_VKPhysicalDeviceProperties.limits.minUniformBufferOffsetAlignment));
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Uniform Buffer entry size does not meet the minimum Alignment requirements");
+            }
+        }
+
         m_Type   = Setup.m_Type;
         m_Usage  = Setup.m_Usage;
 
