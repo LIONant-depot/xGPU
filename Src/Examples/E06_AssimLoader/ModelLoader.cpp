@@ -91,9 +91,8 @@ namespace xgpu::assimp {
         {
             const aiMaterial& Material = *Scene.mMaterials[ Mesh.mMaterialIndex ];
 
-            std::vector<texture> DiffuseMaps = LoadMaterialTextures(Material, aiTextureType_DIFFUSE, "texture_diffuse", Scene );
-
-            Textures.insert( Textures.end(), DiffuseMaps.begin(), DiffuseMaps.end() );
+            std::vector<texture> Maps = LoadMaterialTextures(Material, aiTextureType_DIFFUSE, "texture_diffuse", Scene);
+            Textures.insert(Textures.end(), Maps.begin(), Maps.end());
         }
 
         return mesh( m_Device, std::move(Vertices), std::move(Indices), std::move(Textures) );
@@ -105,6 +104,91 @@ namespace xgpu::assimp {
     {
         std::vector<texture> Textures;
 
+        //
+        // Find the textures for this material and classify them as much as possible
+        //
+        for (std::uint32_t i = 0; i < Material.mNumProperties; ++i)
+        {
+            const auto& Props = *Material.mProperties[i];
+
+            if (Props.mType == aiPTI_String)
+            {
+                aiString* pString = (aiString*)Props.mData;
+
+                if( Props.mSemantic != 0 )
+                {
+                    texture Texture;
+
+                    switch(Props.mSemantic)
+                    {
+                        case aiTextureType_DIFFUSE:             Texture.m_HintForType = "DIFFUSE"; break;
+                        case aiTextureType_SPECULAR:            Texture.m_HintForType = "SPECULAR"; break;
+                        case aiTextureType_AMBIENT:             Texture.m_HintForType = "AMBIENT"; break;
+                        case aiTextureType_EMISSIVE:            Texture.m_HintForType = "EMISSIVE"; break;
+                        case aiTextureType_HEIGHT:              Texture.m_HintForType = "HEIGHT"; break;
+                        case aiTextureType_NORMALS:             Texture.m_HintForType = "NORMALS"; break;
+                        case aiTextureType_SHININESS:           Texture.m_HintForType = "SHININESS"; break;
+                        case aiTextureType_OPACITY:             Texture.m_HintForType = "OPACITY"; break;
+                        case aiTextureType_DISPLACEMENT:        Texture.m_HintForType = "DISPLACEMENT"; break;
+                        case aiTextureType_LIGHTMAP:            Texture.m_HintForType = "LIGHTMAP"; break;
+                        case aiTextureType_REFLECTION:          Texture.m_HintForType = "REFLECTION"; break;
+
+                        case aiTextureType_BASE_COLOR:          Texture.m_HintForType = "PBR_ALBEDO"; break;
+                        case aiTextureType_NORMAL_CAMERA:       Texture.m_HintForType = "PBR_NORMAL"; break;
+                        case aiTextureType_EMISSION_COLOR:      Texture.m_HintForType = "PBR_EMISSION"; break;
+                        case aiTextureType_METALNESS:           Texture.m_HintForType = "PBR_METALNESS"; break;
+                        case aiTextureType_DIFFUSE_ROUGHNESS:   Texture.m_HintForType = "PBR_ROUGHNESS"; break;
+                        case aiTextureType_AMBIENT_OCCLUSION:   Texture.m_HintForType = "PBR_OCCLUSION"; break;
+
+                        case aiTextureType_SHEEN:               Texture.m_HintForType = "SHEEN"; break;
+                        case aiTextureType_CLEARCOAT:           Texture.m_HintForType = "CLEARCOAT"; break;
+                        case aiTextureType_TRANSMISSION:        Texture.m_HintForType = "TRANSMISSION"; break;
+                        case aiTextureType_UNKNOWN:             
+                        {
+                            if( xcore::string::FindStrI( pString->C_Str(), "_Base_Color" ) != -1 )
+                            {
+                                Texture.m_HintForType = "PBR_ALBEDO";
+                            }
+                            else if (xcore::string::FindStrI(pString->C_Str(), "_AO") != -1)
+                            {
+                                Texture.m_HintForType = "PBR_OCCLUSION";
+                            }
+                            else if (xcore::string::FindStrI(pString->C_Str(), "_Normal") != -1)
+                            {
+                                Texture.m_HintForType = "PBR_NORMAL";
+                            }
+                            else if (xcore::string::FindStrI(pString->C_Str(), "_Roughness") != -1)
+                            {
+                                Texture.m_HintForType = "PBR_ROUGHNESS";
+                            }
+                            else if (xcore::string::FindStrI(pString->C_Str(), "_METALNESS") != -1)
+                            {
+                                Texture.m_HintForType = "PBR_METALNESS";
+                            }
+                            else if (xcore::string::FindStrI(pString->C_Str(), "_EMISSION") != -1)
+                            {
+                                Texture.m_HintForType = "PBR_EMISSION";
+                            }
+                            else
+                            {
+                                Texture.m_HintForType = "UNKNOWN";
+                            }
+
+                            // Add more cases when we have them...
+                            break;
+                        }
+                    }
+
+                    Texture.m_Path = pString->C_Str();
+                    Textures.push_back(Texture);
+                }
+            }
+        }
+
+        //
+        // This is when things are well behave.... 
+        //
+        if constexpr ( false )
         for( auto i = 0u; i < Material.GetTextureCount(Type); ++i )
         {
             aiString str;
@@ -157,7 +241,7 @@ namespace xgpu::assimp {
                         */
                 }
 
-                Texture.m_Type = TypeName;
+                Texture.m_HintForType = TypeName;
                 Texture.m_Path = str.C_Str();
                 Textures.push_back(Texture);
 

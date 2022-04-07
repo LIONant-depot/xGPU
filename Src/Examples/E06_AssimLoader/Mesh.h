@@ -21,7 +21,7 @@ namespace xgpu::assimp
 
     struct texture 
     {
-        std::string     m_Type;
+        std::string     m_HintForType;
         std::string     m_Path;
         xgpu::texture   m_XGPUTexture;
     };

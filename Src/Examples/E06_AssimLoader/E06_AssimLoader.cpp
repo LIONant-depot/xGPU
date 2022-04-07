@@ -138,7 +138,7 @@ int E06_Example()
 
     xgpu::assimp::model_loader ModelLoader;
 
-    if( auto Err = ModelLoader.Load( Device, "../../dependencies/xgeom_compiler/dependencies/xraw3D/dependencies/assimp/test/models/FBX/spider.fbx"); Err ) //FBX/box.fbx //
+    if( auto Err = ModelLoader.Load( Device, "../../Assets/demon-skull-textured/source/Skull_textured.fbx"); Err )
     {
         assert(false);
         return -1;
@@ -194,7 +194,7 @@ int E06_Example()
             push_constants PushConstants;
             xcore::matrix4 L2W;
             L2W.setIdentity();
-            L2W.setScale({0.005f});
+            L2W.setScale({0.4f});
 
             PushConstants.m_L2C = View.getW2C() * L2W;
             CmdBuffer.setPushConstants( PushConstants );
