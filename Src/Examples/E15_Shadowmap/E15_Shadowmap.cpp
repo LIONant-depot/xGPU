@@ -123,8 +123,8 @@ int E15_Example()
         { .m_VertexDescriptor  = ShadowmapVertexDescriptor
         , .m_Shaders           = Shaders
         , .m_PushConstantsSize = sizeof(shadow_generation_push_constants)
-        , .m_DepthStencil      = { .m_DepthBiasConstantFactor = 1.25        // Depth bias (and slope) are used to avoid shadowing artifacts (always applied)
-                                 , .m_DepthBiasSlopeFactor    = 2           // Slope depth bias factor, applied depending on polygon's slope
+        , .m_DepthStencil      = { .m_DepthBiasConstantFactor = 1.25f       // Depth bias (and slope) are used to avoid shadowing artifacts (always applied)
+                                 , .m_DepthBiasSlopeFactor    = 2.3f        // Slope depth bias factor, applied depending on polygon's slope
                                  , .m_bDepthBiasEnable        = true        // Enable the depth bias
                                  , .m_bDepthClampEnable       = true        // Depth clamp to avoid near plane clipping
                                  }
