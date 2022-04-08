@@ -86,23 +86,38 @@ namespace xgpu::assimp {
                 Indices.push_back(Face.mIndices[j]);
         }
 
-        // Handle materials
+        // Add material if we have to
+        int iMaterial = -1;
         if( Mesh.mMaterialIndex >= 0 ) 
         {
             const aiMaterial& Material = *Scene.mMaterials[ Mesh.mMaterialIndex ];
 
-            std::vector<texture> Maps = LoadMaterialTextures(Material, aiTextureType_DIFFUSE, "texture_diffuse", Scene);
-            Textures.insert(Textures.end(), Maps.begin(), Maps.end());
+            bool bHaveMaterial = false;
+            for( auto& Mat : m_Materials )
+            {
+                if( Mat.m_GUID == reinterpret_cast<std::size_t>(&Material) )
+                {
+                    bHaveMaterial = true;
+                    break;
+                }
+            }
+
+            if( bHaveMaterial == false )
+            {
+                iMaterial = ImportMaterialAndTextures(Material, Scene);
+            }
         }
 
-        return mesh( m_Device, std::move(Vertices), std::move(Indices), std::move(Textures) );
+        return mesh( m_Device, *this, std::move(Vertices), std::move(Indices), iMaterial );
     }
 
     //----------------------------------------------------------------------------------------------------
 
-    std::vector<texture> model_loader::LoadMaterialTextures(const aiMaterial& Material, aiTextureType Type, std::string TypeName, const aiScene& Scene) noexcept
+    int model_loader::ImportMaterialAndTextures(const aiMaterial& Material, const aiScene& Scene) noexcept
     {
-        std::vector<texture> Textures;
+        material& Mat = m_Materials.emplace_back();
+
+        Mat.m_GUID = reinterpret_cast<std::size_t>(&Material);
 
         //
         // Find the textures for this material and classify them as much as possible
@@ -115,63 +130,67 @@ namespace xgpu::assimp {
             {
                 aiString* pString = (aiString*)Props.mData;
 
-                if( Props.mSemantic != 0 )
+                if( Props.mSemantic == aiTextureType_NONE )
+                {
+                    Mat.m_Name = pString->C_Str();
+                }
+                else
                 {
                     texture Texture;
-
+                    sampler Sampler;
                     switch(Props.mSemantic)
                     {
-                        case aiTextureType_DIFFUSE:             Texture.m_HintForType = "DIFFUSE"; break;
-                        case aiTextureType_SPECULAR:            Texture.m_HintForType = "SPECULAR"; break;
-                        case aiTextureType_AMBIENT:             Texture.m_HintForType = "AMBIENT"; break;
-                        case aiTextureType_EMISSIVE:            Texture.m_HintForType = "EMISSIVE"; break;
-                        case aiTextureType_HEIGHT:              Texture.m_HintForType = "HEIGHT"; break;
-                        case aiTextureType_NORMALS:             Texture.m_HintForType = "NORMALS"; break;
-                        case aiTextureType_SHININESS:           Texture.m_HintForType = "SHININESS"; break;
-                        case aiTextureType_OPACITY:             Texture.m_HintForType = "OPACITY"; break;
-                        case aiTextureType_DISPLACEMENT:        Texture.m_HintForType = "DISPLACEMENT"; break;
-                        case aiTextureType_LIGHTMAP:            Texture.m_HintForType = "LIGHTMAP"; break;
-                        case aiTextureType_REFLECTION:          Texture.m_HintForType = "REFLECTION"; break;
+                        case aiTextureType_DIFFUSE:             Sampler.m_HintForType = "DIFFUSE";      break;
+                        case aiTextureType_SPECULAR:            Sampler.m_HintForType = "SPECULAR";     break;
+                        case aiTextureType_AMBIENT:             Sampler.m_HintForType = "AMBIENT";      break;
+                        case aiTextureType_EMISSIVE:            Sampler.m_HintForType = "EMISSIVE";     break;
+                        case aiTextureType_HEIGHT:              Sampler.m_HintForType = "HEIGHT";       break;
+                        case aiTextureType_NORMALS:             Sampler.m_HintForType = "NORMALS";      break;
+                        case aiTextureType_SHININESS:           Sampler.m_HintForType = "SHININESS";    break;
+                        case aiTextureType_OPACITY:             Sampler.m_HintForType = "OPACITY";      break;
+                        case aiTextureType_DISPLACEMENT:        Sampler.m_HintForType = "DISPLACEMENT"; break;
+                        case aiTextureType_LIGHTMAP:            Sampler.m_HintForType = "LIGHTMAP";     break;
+                        case aiTextureType_REFLECTION:          Sampler.m_HintForType = "REFLECTION";   break;
 
-                        case aiTextureType_BASE_COLOR:          Texture.m_HintForType = "PBR_ALBEDO"; break;
-                        case aiTextureType_NORMAL_CAMERA:       Texture.m_HintForType = "PBR_NORMAL"; break;
-                        case aiTextureType_EMISSION_COLOR:      Texture.m_HintForType = "PBR_EMISSION"; break;
-                        case aiTextureType_METALNESS:           Texture.m_HintForType = "PBR_METALNESS"; break;
-                        case aiTextureType_DIFFUSE_ROUGHNESS:   Texture.m_HintForType = "PBR_ROUGHNESS"; break;
-                        case aiTextureType_AMBIENT_OCCLUSION:   Texture.m_HintForType = "PBR_OCCLUSION"; break;
+                        case aiTextureType_BASE_COLOR:          Sampler.m_HintForType = "PBR_ALBEDO";   break;
+                        case aiTextureType_NORMAL_CAMERA:       Sampler.m_HintForType = "PBR_NORMAL";   break;
+                        case aiTextureType_EMISSION_COLOR:      Sampler.m_HintForType = "PBR_EMISSION"; break;
+                        case aiTextureType_METALNESS:           Sampler.m_HintForType = "PBR_METALNESS"; break;
+                        case aiTextureType_DIFFUSE_ROUGHNESS:   Sampler.m_HintForType = "PBR_ROUGHNESS"; break;
+                        case aiTextureType_AMBIENT_OCCLUSION:   Sampler.m_HintForType = "PBR_OCCLUSION"; break;
 
-                        case aiTextureType_SHEEN:               Texture.m_HintForType = "SHEEN"; break;
-                        case aiTextureType_CLEARCOAT:           Texture.m_HintForType = "CLEARCOAT"; break;
-                        case aiTextureType_TRANSMISSION:        Texture.m_HintForType = "TRANSMISSION"; break;
+                        case aiTextureType_SHEEN:               Sampler.m_HintForType = "SHEEN";        break;
+                        case aiTextureType_CLEARCOAT:           Sampler.m_HintForType = "CLEARCOAT";    break;
+                        case aiTextureType_TRANSMISSION:        Sampler.m_HintForType = "TRANSMISSION"; break;
                         case aiTextureType_UNKNOWN:             
                         {
                             if( xcore::string::FindStrI( pString->C_Str(), "_Base_Color" ) != -1 )
                             {
-                                Texture.m_HintForType = "PBR_ALBEDO";
+                                Sampler.m_HintForType = "PBR_ALBEDO";
                             }
                             else if (xcore::string::FindStrI(pString->C_Str(), "_AO") != -1)
                             {
-                                Texture.m_HintForType = "PBR_OCCLUSION";
+                                Sampler.m_HintForType = "PBR_OCCLUSION";
                             }
                             else if (xcore::string::FindStrI(pString->C_Str(), "_Normal") != -1)
                             {
-                                Texture.m_HintForType = "PBR_NORMAL";
+                                Sampler.m_HintForType = "PBR_NORMAL";
                             }
                             else if (xcore::string::FindStrI(pString->C_Str(), "_Roughness") != -1)
                             {
-                                Texture.m_HintForType = "PBR_ROUGHNESS";
+                                Sampler.m_HintForType = "PBR_ROUGHNESS";
                             }
                             else if (xcore::string::FindStrI(pString->C_Str(), "_METALNESS") != -1)
                             {
-                                Texture.m_HintForType = "PBR_METALNESS";
+                                Sampler.m_HintForType = "PBR_METALNESS";
                             }
                             else if (xcore::string::FindStrI(pString->C_Str(), "_EMISSION") != -1)
                             {
-                                Texture.m_HintForType = "PBR_EMISSION";
+                                Sampler.m_HintForType = "PBR_EMISSION";
                             }
                             else
                             {
-                                Texture.m_HintForType = "UNKNOWN";
+                                Sampler.m_HintForType = "UNKNOWN";
                             }
 
                             // Add more cases when we have them...
@@ -180,7 +199,30 @@ namespace xgpu::assimp {
                     }
 
                     Texture.m_Path = pString->C_Str();
-                    Textures.push_back(Texture);
+
+                    int  iTexture = 0;
+                    bool bFound   = false;
+                    for( const auto& Tex : m_Textures )
+                    {
+                        if( Tex.m_Path == Texture.m_Path ) 
+                        {
+                            bFound = true;
+                            break;
+                        }
+                        iTexture++;
+                    }
+
+                    // set the Sampler
+                    Sampler.m_iBindingTexture = iTexture;
+
+                    // set the texture index
+                    Mat.m_Samplers.push_back(Sampler);
+
+                    // set the texture if we did not find it
+                    if( bFound == false )
+                    {
+                        m_Textures.push_back(Texture);
+                    }
                 }
             }
         }
@@ -188,6 +230,7 @@ namespace xgpu::assimp {
         //
         // This is when things are well behave.... 
         //
+        #if 0
         if constexpr ( false )
         for( auto i = 0u; i < Material.GetTextureCount(Type); ++i )
         {
@@ -249,7 +292,9 @@ namespace xgpu::assimp {
                 m_TexturesLoaded.push_back(Texture);  
             }
         }
-        return Textures;
+        #endif
+
+        return static_cast<int>(m_Materials.size()-1);
     }
 
     //----------------------------------------------------------------------------------------------------

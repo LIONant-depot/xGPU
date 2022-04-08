@@ -12,6 +12,8 @@
 
 namespace xgpu::assimp
 {
+    class model_loader;
+
     struct vertex
     {
         xcore::vector3 m_Position;
@@ -19,32 +21,47 @@ namespace xgpu::assimp
         xcore::icolor  m_Color;
     };
 
-    struct texture 
+    struct sampler
     {
         std::string     m_HintForType;
+        int             m_iBindingTexture;
+    };
+
+    struct texture 
+    {
         std::string     m_Path;
         xgpu::texture   m_XGPUTexture;
+    };
+
+    struct material
+    {
+        std::size_t             m_GUID;
+        std::string             m_Name;
+        std::vector<sampler>    m_Samplers;
     };
 
     class mesh 
     {
     public:
 
+        model_loader&                 m_Loader;
         std::vector<vertex>           m_Vertices;
         std::vector<std::uint32_t>    m_Indices;
-        std::vector<texture>          m_Textures;
         xgpu::device                  m_Device;
+        int                           m_iMaterial;
 
         mesh
         ( xgpu::device&                       Dev
+        , model_loader&                       Loader
         , const std::vector<vertex>&&         Vertices
         , const std::vector<std::uint32_t>&&  Indices
-        , const std::vector<texture>&&        Textures 
+        , const int                           iMaterial
         ) noexcept
-        : m_Vertices    ( std::move(Vertices) )
+        : m_Loader      ( Loader )
+        , m_Vertices    ( std::move(Vertices) )
         , m_Indices     ( std::move(Indices)  )
-        , m_Textures    ( std::move(Textures) )
         , m_Device      { Dev }
+        , m_iMaterial   { iMaterial }
         {
             setupMesh();
         }
@@ -62,6 +79,7 @@ namespace xgpu::assimp
         xgpu::buffer            m_VertexBuffer;
         xgpu::buffer            m_IndexBuffer;
         xgpu::vertex_descriptor m_VertexDescriptor;
+        int                     m_iMaterialIndex{-1};
 
 
         // Functions

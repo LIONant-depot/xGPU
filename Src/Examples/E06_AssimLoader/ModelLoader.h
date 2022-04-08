@@ -21,15 +21,16 @@ namespace xgpu::assimp
 
     private:
 
-        mesh					ProcessMesh			( const aiMesh& Mesh, const aiScene& Scene ) noexcept;
-        std::vector<texture>	LoadMaterialTextures( const aiMaterial& Material, aiTextureType Type, std::string TypeName, const aiScene& Scene ) noexcept;
-        void					ProcessNode			( const aiNode& Node, const aiScene& scene ) noexcept;
-        xgpu::texture			LoadEmbeddedTexture ( const aiTexture& embeddedTexture ) noexcept;
+        mesh					ProcessMesh                 ( const aiMesh& Mesh, const aiScene& Scene ) noexcept;
+        int                     ImportMaterialAndTextures   ( const aiMaterial& Material, const aiScene& Scene ) noexcept;
+        void					ProcessNode                 ( const aiNode& Node, const aiScene& scene ) noexcept;
+        xgpu::texture			LoadEmbeddedTexture         ( const aiTexture& embeddedTexture ) noexcept;
 
         xgpu::device			m_Device			{};
         std::string				m_Directory			{};
-        std::vector<texture>	m_TexturesLoaded	{};
         std::vector<mesh>		m_Meshes			{};
+        std::vector<material>   m_Materials         {};
+        std::vector<texture>    m_Textures          {};
     };
 }
 
