@@ -3,6 +3,7 @@
 #include "../../tools/xgpu_view.h"
 #include "../../tools/xgpu_view_inline.h"
 #include "../../tools/xgpu_xcore_bitmap_helpers.h"
+#include "../../dependencies/xbmp_tools/src/xbmp_tools.h"
 
 using draw_vert = xgpu::assimp::vertex;
 
@@ -121,8 +122,12 @@ int E06_Example()
     for( int i=0; i< PipeLineInstance.size(); ++i )
     {
         xgpu::texture Texture;
+        xcore::bitmap Bitmap;
         
-        if( auto Err = xgpu::tools::bitmap::Create(Texture, Device, xcore::bitmap::getDefaultBitmap()); Err )
+        if( auto Err = xbmp::tools::loader::LoadDSS(Bitmap, "../../Assets/demon-skull-textured/textures/TD_Checker_Base_Color.dds" ); Err )
+            return xgpu::getErrorInt(Err);
+
+        if( auto Err = xgpu::tools::bitmap::Create(Texture, Device, Bitmap); Err )
             return xgpu::getErrorInt(Err);
         
         auto  Bindings = std::array                     { xgpu::pipeline_instance::sampler_binding{ Texture } };
