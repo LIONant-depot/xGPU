@@ -7,24 +7,29 @@
 
 using draw_vert = xgpu::assimp::vertex;
 
-//------------------------------------------------------------------------------------------------
-static
-void DebugMessage(std::string_view View)
+namespace e06
 {
-    printf("%s\n", View.data());
-}
+    //------------------------------------------------------------------------------------------------
+    static
+    void DebugMessage(std::string_view View)
+    {
+        printf("%s\n", View.data());
+    }
 
-struct push_constants
-{
-    xcore::matrix4 m_L2C;
-};
+    //------------------------------------------------------------------------------------------------
+
+    struct push_contants
+    {
+        xcore::matrix4 m_L2C;
+    };
+}
 
 //------------------------------------------------------------------------------------------------
 
 int E06_Example()
 {
     xgpu::instance Instance;
-    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = DebugMessage, .m_pLogWarning = DebugMessage }); Err)
+    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = e06::DebugMessage, .m_pLogWarning = e06::DebugMessage }); Err)
         return xgpu::getErrorInt(Err);
 
     xgpu::device Device;
@@ -107,7 +112,7 @@ int E06_Example()
         {
             .m_VertexDescriptor  = VertexDescriptor
         ,   .m_Shaders           = Shaders
-        ,   .m_PushConstantsSize = sizeof(push_constants)
+        ,   .m_PushConstantsSize = sizeof(e06::push_contants)
         ,   .m_Samplers          = Samplers
         };
 
@@ -196,7 +201,7 @@ int E06_Example()
             auto CmdBuffer = MainWindow.getCmdBuffer();
             CmdBuffer.setPipelineInstance(PipeLineInstance[0]);
 
-            push_constants PushConstants;
+            e06::push_contants PushConstants;
             xcore::matrix4 L2W;
             L2W.setIdentity();
             L2W.setScale({0.4f});

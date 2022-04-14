@@ -12,18 +12,20 @@ void DebugMessage(std::string_view View)
 }
 
 //------------------------------------------------------------------------------------------------
-
-struct draw_vert
+namespace e02
 {
-    float           m_X, m_Y, m_Z;
-    float           m_U, m_V;
-    std::uint32_t   m_Color;
-};
+    struct draw_vert
+    {
+        float           m_X, m_Y, m_Z;
+        float           m_U, m_V;
+        std::uint32_t   m_Color;
+    };
 
-struct push_constants
-{
-    xcore::matrix4 m_L2C;
-};
+    struct push_constants
+    {
+        xcore::matrix4 m_L2C;
+    };
+}
 
 //------------------------------------------------------------------------------------------------
 
@@ -48,23 +50,23 @@ int E02_Example()
         {
             xgpu::vertex_descriptor::attribute
             {
-                .m_Offset = offsetof(draw_vert, m_X)
+                .m_Offset = offsetof(e02::draw_vert, m_X)
             ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
             }
         ,   xgpu::vertex_descriptor::attribute
             {
-                .m_Offset = offsetof(draw_vert, m_U)
+                .m_Offset = offsetof(e02::draw_vert, m_U)
             ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
             }
         ,   xgpu::vertex_descriptor::attribute
             {
-                .m_Offset = offsetof(draw_vert, m_Color)
+                .m_Offset = offsetof(e02::draw_vert, m_Color)
             ,   .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED
             }
         };
         auto Setup = xgpu::vertex_descriptor::setup
         {
-            .m_VertexSize = sizeof(draw_vert)
+            .m_VertexSize = sizeof(e02::draw_vert)
         ,   .m_Attributes = Attributes
         };
 
@@ -114,7 +116,7 @@ int E02_Example()
         {
             .m_VertexDescriptor  = VertexDescriptor
         ,   .m_Shaders           = Shaders
-        ,   .m_PushConstantsSize = sizeof(push_constants)
+        ,   .m_PushConstantsSize = sizeof(e02::push_constants)
         ,   .m_Samplers          = Samplers
         };
 
@@ -160,12 +162,12 @@ int E02_Example()
 
     xgpu::buffer VertexBuffer;
     {
-        if (auto Err = Device.Create(VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(draw_vert), .m_EntryCount = 24 }); Err)
+        if (auto Err = Device.Create(VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e02::draw_vert), .m_EntryCount = 24 }); Err)
             return xgpu::getErrorInt(Err);
 
         (void)VertexBuffer.MemoryMap(0, 24, [&](void* pData)
             {
-                auto pVertex = static_cast<draw_vert*>(pData);
+                auto pVertex = static_cast<e02::draw_vert*>(pData);
                 pVertex[0]  = { -0.5f, -0.5f,  0.5f, 0.0f, 1.0f, xcore::endian::Convert(0x0000ffffu) };
                 pVertex[1]  = {  0.5f, -0.5f,  0.5f, 1.0f, 1.0f, xcore::endian::Convert(0x0000ffffu) };
                 pVertex[2]  = {  0.5f,  0.5f,  0.5f, 1.0f, 0.0f, xcore::endian::Convert(0x0000ffffu) };
@@ -286,7 +288,7 @@ int E02_Example()
                     CmdBuffer.setPipelineInstance(PipeLineInstance[0]);
                     CmdBuffer.setBuffer(VertexBuffer);
                     CmdBuffer.setBuffer(IndexBuffer);
-                    CmdBuffer.setPushConstants( push_constants{ .m_L2C = W2C * L2W } );
+                    CmdBuffer.setPushConstants(e02::push_constants{ .m_L2C = W2C * L2W } );
                     CmdBuffer.Draw(IndexBuffer.getEntryCount());
                 }
 
@@ -296,7 +298,7 @@ int E02_Example()
                     L2W.setIdentity();
                     L2W.Translate({0,-0.5f, -1.1f });
 
-                    push_constants PushConstants;
+                    e02::push_constants PushConstants;
                     PushConstants.m_L2C = W2C * L2W;
 
                     CmdBuffer.setPipelineInstance(PipeLineInstance[1]);

@@ -8,31 +8,36 @@
 
 #include <iostream>
 
-//------------------------------------------------------------------------------------------------
-static
-void DebugMessage(std::string_view View)
+namespace e14
 {
-    printf("%s\n", View.data());
-}
+    //------------------------------------------------------------------------------------------------
+    static
+    void DebugMessage(std::string_view View)
+    {
+        printf("%s\n", View.data());
+    }
 
-//------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------
 
-struct draw_vert_btn
-{
-    xcore::vector3d m_Position;
-    xcore::vector2  m_TexCoord;
-    xcore::icolor   m_Tangent;
-    xcore::icolor   m_Normal;
-    xcore::icolor   m_Color;
-};
+    struct draw_vert_btn
+    {
+        xcore::vector3d m_Position;
+        xcore::vector2  m_TexCoord;
+        xcore::icolor   m_Tangent;
+        xcore::icolor   m_Normal;
+        xcore::icolor   m_Color;
+    };
 
-struct push_constants
-{
-    xcore::matrix4 m_L2C;
-    xcore::vector4 m_LocalSpaceLightPos;    // We store gamma in the w
-    xcore::vector3 m_LocalSpaceEyePos;
-    xcore::vector4 m_AmbientLightColor;     // Color and Intensity
-    xcore::vector4 m_LightColor;            // Color and Intensity
+    //------------------------------------------------------------------------------------------------
+
+    struct push_constants
+    {
+        xcore::matrix4 m_L2C;
+        xcore::vector4 m_LocalSpaceLightPos;    // We store gamma in the w
+        xcore::vector3 m_LocalSpaceEyePos;
+        xcore::vector4 m_AmbientLightColor;     // Color and Intensity
+        xcore::vector4 m_LightColor;            // Color and Intensity
+    };
 };
 
 //------------------------------------------------------------------------------------------------
@@ -40,7 +45,7 @@ struct push_constants
 int E14_Example()
 {
     xgpu::instance Instance;
-    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = DebugMessage, .m_pLogWarning = DebugMessage }); Err)
+    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = e14::DebugMessage, .m_pLogWarning = e14::DebugMessage }); Err)
         return xgpu::getErrorInt(Err);
 
     xgpu::device Device;
@@ -57,33 +62,33 @@ int E14_Example()
         {
             xgpu::vertex_descriptor::attribute
             {
-                .m_Offset = offsetof(draw_vert_btn, m_Position)
+                .m_Offset = offsetof(e14::draw_vert_btn, m_Position)
             ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
             }
         ,   xgpu::vertex_descriptor::attribute
             {
-                .m_Offset = offsetof(draw_vert_btn, m_TexCoord)
+                .m_Offset = offsetof(e14::draw_vert_btn, m_TexCoord)
             ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
             }
         ,   xgpu::vertex_descriptor::attribute
             {
-                .m_Offset = offsetof(draw_vert_btn, m_Tangent)
+                .m_Offset = offsetof(e14::draw_vert_btn, m_Tangent)
             ,   .m_Format = xgpu::vertex_descriptor::format::SINT8_4D_NORMALIZED
             }
         ,   xgpu::vertex_descriptor::attribute
             {
-                .m_Offset = offsetof(draw_vert_btn, m_Normal)
+                .m_Offset = offsetof(e14::draw_vert_btn, m_Normal)
             ,   .m_Format = xgpu::vertex_descriptor::format::SINT8_4D_NORMALIZED
             }
         ,   xgpu::vertex_descriptor::attribute
             {
-                .m_Offset = offsetof(draw_vert_btn, m_Color)
+                .m_Offset = offsetof(e14::draw_vert_btn, m_Color)
             ,   .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED
             }
         };
         auto Setup = xgpu::vertex_descriptor::setup
         {
-            .m_VertexSize = sizeof(draw_vert_btn)
+            .m_VertexSize = sizeof(e14::draw_vert_btn)
         ,   .m_Attributes = Attributes
         };
 
@@ -148,7 +153,7 @@ int E14_Example()
         {
             .m_VertexDescriptor  = VertexDescriptor
         ,   .m_Shaders           = Shaders
-        ,   .m_PushConstantsSize = sizeof(push_constants)
+        ,   .m_PushConstantsSize = sizeof(e14::push_constants)
         ,   .m_Samplers          = Samplers
         };
 
@@ -180,7 +185,7 @@ int E14_Example()
             //
             if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Normal - Compress BC5.dds"); Err)
             {
-                DebugMessage(xbmp::tools::getErrorMsg(Err));
+                e14::DebugMessage(xbmp::tools::getErrorMsg(Err));
                 std::exit(xbmp::tools::getErrorInt(Err));
             }
             Bitmap.setColorSpace( xcore::bitmap::color_space::LINEAR );
@@ -190,7 +195,7 @@ int E14_Example()
             //
             if (auto Err = xgpu::tools::bitmap::Create(NormalTexture, Device, Bitmap); Err)
             {
-                DebugMessage(xgpu::getErrorMsg(Err));
+                e14::DebugMessage(xgpu::getErrorMsg(Err));
                 std::exit(xgpu::getErrorInt(Err));
             }
         }
@@ -206,7 +211,7 @@ int E14_Example()
             //
             if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Diffuse.dds"); Err)
             {
-                DebugMessage(xbmp::tools::getErrorMsg(Err));
+                e14::DebugMessage(xbmp::tools::getErrorMsg(Err));
                 std::exit(xbmp::tools::getErrorInt(Err));
             }
             Bitmap.setColorSpace(xcore::bitmap::color_space::SRGB);
@@ -216,7 +221,7 @@ int E14_Example()
             //
             if (auto Err = xgpu::tools::bitmap::Create(DiffuseTexture, Device, Bitmap); Err)
             {
-                DebugMessage(xgpu::getErrorMsg(Err));
+                e14::DebugMessage(xgpu::getErrorMsg(Err));
                 std::exit(xgpu::getErrorInt(Err));
             }
         }
@@ -232,7 +237,7 @@ int E14_Example()
             //
             if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Ambient Occlusion.dds"); Err)
             {
-                DebugMessage(xbmp::tools::getErrorMsg(Err));
+                e14::DebugMessage(xbmp::tools::getErrorMsg(Err));
                 std::exit(xbmp::tools::getErrorInt(Err));
             }
             Bitmap.setColorSpace(xcore::bitmap::color_space::LINEAR);
@@ -242,7 +247,7 @@ int E14_Example()
             //
             if (auto Err = xgpu::tools::bitmap::Create(AOTexture, Device, Bitmap); Err)
             {
-                DebugMessage(xgpu::getErrorMsg(Err));
+                e14::DebugMessage(xgpu::getErrorMsg(Err));
                 std::exit(xgpu::getErrorInt(Err));
             }
         }
@@ -258,7 +263,7 @@ int E14_Example()
             //
             if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Specular.dds"); Err)
             {
-                DebugMessage(xbmp::tools::getErrorMsg(Err));
+                e14::DebugMessage(xbmp::tools::getErrorMsg(Err));
                 std::exit(xbmp::tools::getErrorInt(Err));
             }
             Bitmap.setColorSpace(xcore::bitmap::color_space::LINEAR);
@@ -268,7 +273,7 @@ int E14_Example()
             //
             if (auto Err = xgpu::tools::bitmap::Create(SpecularTexture, Device, Bitmap); Err)
             {
-                DebugMessage(xgpu::getErrorMsg(Err));
+                e14::DebugMessage(xgpu::getErrorMsg(Err));
                 std::exit(xgpu::getErrorInt(Err));
             }
         }
@@ -284,7 +289,7 @@ int E14_Example()
             //
             if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Roughness.dds"); Err)
             {
-                DebugMessage(xbmp::tools::getErrorMsg(Err));
+                e14::DebugMessage(xbmp::tools::getErrorMsg(Err));
                 std::exit(xbmp::tools::getErrorInt(Err));
             }
             Bitmap.setColorSpace(xcore::bitmap::color_space::LINEAR);
@@ -294,7 +299,7 @@ int E14_Example()
             //
             if (auto Err = xgpu::tools::bitmap::Create(RoughnessTexture, Device, Bitmap); Err)
             {
-                DebugMessage(xgpu::getErrorMsg(Err));
+                e14::DebugMessage(xgpu::getErrorMsg(Err));
                 std::exit(xgpu::getErrorInt(Err));
             }
         }
@@ -310,7 +315,7 @@ int E14_Example()
             //
             if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Height.dds"); Err)
             {
-                DebugMessage(xbmp::tools::getErrorMsg(Err));
+                e14::DebugMessage(xbmp::tools::getErrorMsg(Err));
                 std::exit(xbmp::tools::getErrorInt(Err));
             }
             Bitmap.setColorSpace(xcore::bitmap::color_space::LINEAR);
@@ -320,7 +325,7 @@ int E14_Example()
             //
             if (auto Err = xgpu::tools::bitmap::Create(DepthTexture, Device, Bitmap); Err)
             {
-                DebugMessage(xgpu::getErrorMsg(Err));
+                e14::DebugMessage(xgpu::getErrorMsg(Err));
                 std::exit(xgpu::getErrorInt(Err));
             }
         }
@@ -336,7 +341,7 @@ int E14_Example()
             //
             if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Metallic.dds"); Err)
             {
-                DebugMessage(xbmp::tools::getErrorMsg(Err));
+                e14::DebugMessage(xbmp::tools::getErrorMsg(Err));
                 std::exit(xbmp::tools::getErrorInt(Err));
             }
             Bitmap.setColorSpace(xcore::bitmap::color_space::LINEAR);
@@ -346,7 +351,7 @@ int E14_Example()
             //
             if (auto Err = xgpu::tools::bitmap::Create(MetalicTexture, Device, Bitmap); Err)
             {
-                DebugMessage(xgpu::getErrorMsg(Err));
+                e14::DebugMessage(xgpu::getErrorMsg(Err));
                 std::exit(xgpu::getErrorInt(Err));
             }
         }
@@ -378,12 +383,12 @@ int E14_Example()
 
     xgpu::buffer VertexBuffer;
     {
-        if (auto Err = Device.Create(VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(draw_vert_btn), .m_EntryCount = static_cast<int>(Mesh.m_Vertices.size()) }); Err)
+        if (auto Err = Device.Create(VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e14::draw_vert_btn), .m_EntryCount = static_cast<int>(Mesh.m_Vertices.size()) }); Err)
             return xgpu::getErrorInt(Err);
 
         (void)VertexBuffer.MemoryMap(0, static_cast<int>(Mesh.m_Vertices.size()), [&](void* pData)
             {
-                auto pVertex = static_cast<draw_vert_btn*>(pData);
+                auto pVertex = static_cast<e14::draw_vert_btn*>(pData);
                 for( int i=0; i< static_cast<int>(Mesh.m_Vertices.size()); ++i )
                 {
                     auto&       V  = pVertex[i];
@@ -490,7 +495,7 @@ int E14_Example()
                 auto W2L = L2W;
                 W2L.InvertSRT();
              
-                push_constants PushConstants;
+                e14::push_constants PushConstants;
                 PushConstants.m_L2C                 = W2C * L2W;
                 PushConstants.m_LocalSpaceEyePos    = W2L * View.getPosition();
                 PushConstants.m_LocalSpaceLightPos  = W2L * LightPosition;

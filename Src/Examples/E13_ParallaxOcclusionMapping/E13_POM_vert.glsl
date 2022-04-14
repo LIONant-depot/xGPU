@@ -13,9 +13,9 @@ layout (push_constant) uniform PushConsts
 {
     mat4  L2C;
     vec4  LocalSpaceLightPos;
-    vec4  LocalSpaceEyePos;
 	vec4  AmbientLightColor;
 	vec4  LightColor;
+    vec4  LocalSpaceEyePos;
 } pushConsts;
 
 layout(location = 0) out struct 

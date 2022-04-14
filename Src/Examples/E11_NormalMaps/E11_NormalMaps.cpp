@@ -8,37 +8,40 @@
 
 #include <iostream>
 
-//------------------------------------------------------------------------------------------------
-static
-void DebugMessage(std::string_view View)
+namespace e11
 {
-    printf("%s\n", View.data());
+    //------------------------------------------------------------------------------------------------
+    static
+    void DebugMessage(std::string_view View)
+    {
+        printf("%s\n", View.data());
+    }
+
+    //------------------------------------------------------------------------------------------------
+
+    struct draw_vert_btn
+    {
+        xcore::vector3d m_Position;
+        xcore::vector3d m_Binormal;
+        xcore::vector3d m_Tangent;
+        xcore::vector3d m_Normal;
+        xcore::vector2  m_TexCoord;
+        xcore::icolor   m_Color;
+    };
+
+    struct push_contants
+    {
+        xcore::matrix4 m_L2C;
+        xcore::vector3 m_LocalSpaceLightPosition;
+    };
 }
-
-//------------------------------------------------------------------------------------------------
-
-struct draw_vert_btn
-{
-    xcore::vector3d m_Position;
-    xcore::vector3d m_Binormal;
-    xcore::vector3d m_Tangent;
-    xcore::vector3d m_Normal;
-    xcore::vector2  m_TexCoord;
-    xcore::icolor   m_Color;
-};
-
-struct push_constans
-{
-    xcore::matrix4 m_L2C;
-    xcore::vector3 m_LocalSpaceLightPosition;
-};
 
 //------------------------------------------------------------------------------------------------
 
 int E11_Example()
 {
     xgpu::instance Instance;
-    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = DebugMessage, .m_pLogWarning = DebugMessage }); Err)
+    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = e11::DebugMessage, .m_pLogWarning = e11::DebugMessage }); Err)
         return xgpu::getErrorInt(Err);
 
     xgpu::device Device;
@@ -55,38 +58,38 @@ int E11_Example()
         {
             xgpu::vertex_descriptor::attribute
             {
-                .m_Offset = offsetof(draw_vert_btn, m_Position)
+                .m_Offset = offsetof(e11::draw_vert_btn, m_Position)
             ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
             }
         ,   xgpu::vertex_descriptor::attribute
             {
-                .m_Offset = offsetof(draw_vert_btn, m_Binormal)
+                .m_Offset = offsetof(e11::draw_vert_btn, m_Binormal)
             ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
             }
         ,   xgpu::vertex_descriptor::attribute
             {
-                .m_Offset = offsetof(draw_vert_btn, m_Tangent)
+                .m_Offset = offsetof(e11::draw_vert_btn, m_Tangent)
             ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
             }
         ,   xgpu::vertex_descriptor::attribute
             {
-                .m_Offset = offsetof(draw_vert_btn, m_Normal)
+                .m_Offset = offsetof(e11::draw_vert_btn, m_Normal)
             ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
             }
         ,   xgpu::vertex_descriptor::attribute
             {
-                .m_Offset = offsetof(draw_vert_btn, m_TexCoord)
+                .m_Offset = offsetof(e11::draw_vert_btn, m_TexCoord)
             ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
             }
         ,   xgpu::vertex_descriptor::attribute
             {
-                .m_Offset = offsetof(draw_vert_btn, m_Color)
+                .m_Offset = offsetof(e11::draw_vert_btn, m_Color)
             ,   .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED
             }
         };
         auto Setup = xgpu::vertex_descriptor::setup
         {
-            .m_VertexSize = sizeof(draw_vert_btn)
+            .m_VertexSize = sizeof(e11::draw_vert_btn)
         ,   .m_Attributes = Attributes
         };
 
@@ -136,7 +139,7 @@ int E11_Example()
         {
             .m_VertexDescriptor  = VertexDescriptor
         ,   .m_Shaders           = Shaders
-        ,   .m_PushConstantsSize = sizeof(push_constans)
+        ,   .m_PushConstantsSize = sizeof(e11::push_contants)
         ,   .m_Samplers          = Samplers
         };
 
@@ -168,7 +171,7 @@ int E11_Example()
                                                                 // "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Normal - Compress DXT5.dds"
             ); Err)
             {
-                DebugMessage(xbmp::tools::getErrorMsg(Err));
+                e11::DebugMessage(xbmp::tools::getErrorMsg(Err));
                 std::exit(xbmp::tools::getErrorInt(Err));
             }
             Bitmap.setColorSpace( xcore::bitmap::color_space::LINEAR );
@@ -178,7 +181,7 @@ int E11_Example()
             //
             if (auto Err = xgpu::tools::bitmap::Create(Texture, Device, Bitmap); Err)
             {
-                DebugMessage(xgpu::getErrorMsg(Err));
+                e11::DebugMessage(xgpu::getErrorMsg(Err));
                 std::exit(xgpu::getErrorInt(Err));
             }
         }
@@ -260,12 +263,12 @@ int E11_Example()
 
     xgpu::buffer VertexBuffer;
     {
-        if (auto Err = Device.Create(VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(draw_vert_btn), .m_EntryCount = static_cast<int>(Mesh.m_Vertices.size()) }); Err)
+        if (auto Err = Device.Create(VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e11::draw_vert_btn), .m_EntryCount = static_cast<int>(Mesh.m_Vertices.size()) }); Err)
             return xgpu::getErrorInt(Err);
 
         (void)VertexBuffer.MemoryMap(0, static_cast<int>(Mesh.m_Vertices.size()), [&](void* pData)
             {
-                auto pVertex = static_cast<draw_vert_btn*>(pData);
+                auto pVertex = static_cast<e11::draw_vert_btn*>(pData);
                 for( int i=0; i< static_cast<int>(Mesh.m_Vertices.size()); ++i )
                 {
                     auto&       V  = pVertex[i];
@@ -368,7 +371,7 @@ int E11_Example()
                 auto W2L = L2W;
                 W2L.InvertSRT();
 
-                push_constans PushConstans;
+                e11::push_contants PushConstans;
                 PushConstans.m_L2C                      = W2C * L2W;
                 PushConstans.m_LocalSpaceLightPosition  = W2L * LightPosition;
 

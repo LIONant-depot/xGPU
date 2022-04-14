@@ -3,8 +3,9 @@
 #include "xGPU.h"
 #include <windows.h>
 
-#define IMGUI_GAMMA_CORRECTION
 namespace xgpu::tools::imgui {
+
+#define IMGUI_GAMMA_CORRECTION
 constexpr auto g_VertShaderSPV = std::array
 {
 #ifdef IMGUI_GAMMA_CORRECTION
@@ -329,7 +330,7 @@ constexpr auto g_FragShaderSPV = std::array
 #endif
 };
 
-struct push_constants
+struct imgui_push_constants
 {
     std::array<float, 2> m_Scale;
     std::array<float, 2> m_Translate;
@@ -518,7 +519,7 @@ struct window_info
             CmdBuffer.setBuffer(Prim.m_VertexBuffer);
             CmdBuffer.setBuffer(Prim.m_IndexBuffer);
             
-            push_constants PushConstants;
+            imgui_push_constants PushConstants;
 
             PushConstants.m_Scale[0] = 2.0f / draw_data->DisplaySize.x;
             PushConstants.m_Scale[1] = 2.0f / draw_data->DisplaySize.y;
@@ -526,7 +527,7 @@ struct window_info
             PushConstants.m_Translate[0] = -1.0f - draw_data->DisplayPos.x * PushConstants.m_Scale[0];
             PushConstants.m_Translate[1] = -1.0f - draw_data->DisplayPos.y * PushConstants.m_Scale[1];
 
-            CmdBuffer.setPushConstants( &PushConstants, sizeof(push_constants) );
+            CmdBuffer.setPushConstants( &PushConstants, sizeof(imgui_push_constants) );
         };
 
         // Set it!
@@ -690,7 +691,7 @@ struct breach_instance : window_info
             {
                 .m_VertexDescriptor  = m_VertexDescritor
             ,   .m_Shaders           = Shaders
-            ,   .m_PushConstantsSize = sizeof(push_constants)
+            ,   .m_PushConstantsSize = sizeof(imgui_push_constants)
             ,   .m_Samplers          = Samplers
             ,   .m_Primitive         = { .m_Cull = xgpu::pipeline::primitive::cull::NONE }
             ,   .m_DepthStencil      = { .m_bDepthTestEnable = false }

@@ -4,11 +4,14 @@
 #include "../../dependencies/xgeom_compiler/dependencies/xraw3D/dependencies/xcore/dependencies/properties/src/Examples/ImGuiExample/ImGuiPropertyInspector.h"
 #include "../../dependencies/xgeom_compiler/dependencies/xraw3D/dependencies/xcore/dependencies/properties/src/Examples/ImGuiExample/ImGuiPropertyExample.h"
 
-//------------------------------------------------------------------------------------------------
-static
-void DebugMessage(std::string_view View)
+namespace e04
 {
-    printf("%s\n", View.data());
+    //------------------------------------------------------------------------------------------------
+    static
+    void DebugMessage(std::string_view View)
+    {
+        printf("%s\n", View.data());
+    }
 }
 
 //------------------------------------------------------------------------------------------------
@@ -16,7 +19,7 @@ void DebugMessage(std::string_view View)
 int E04_Example()
 {
     xgpu::instance Instance;
-    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = false, .m_bEnableRenderDoc = false, .m_pLogErrorFunc = DebugMessage, .m_pLogWarning = DebugMessage }); Err)
+    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = false, .m_bEnableRenderDoc = false, .m_pLogErrorFunc = e04::DebugMessage, .m_pLogWarning = e04::DebugMessage }); Err)
         return xgpu::getErrorInt(Err);
 
     xgpu::device Device;

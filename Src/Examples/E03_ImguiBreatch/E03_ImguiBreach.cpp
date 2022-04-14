@@ -2,11 +2,14 @@
 #include "xcore.h"
 #include "../../tools/xgpu_imgui_breach.h"
 
-//------------------------------------------------------------------------------------------------
-static
-void DebugMessage(std::string_view View)
+namespace e03
 {
-    printf("%s\n", View.data());
+    //------------------------------------------------------------------------------------------------
+    static
+    void DebugMessage(std::string_view View)
+    {
+        printf("%s\n", View.data());
+    }
 }
 
 //------------------------------------------------------------------------------------------------
@@ -14,7 +17,7 @@ void DebugMessage(std::string_view View)
 int E03_Example()
 {
     xgpu::instance Instance;
-    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = DebugMessage, .m_pLogWarning = DebugMessage }); Err)
+    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = e03::DebugMessage, .m_pLogWarning = e03::DebugMessage }); Err)
         return xgpu::getErrorInt(Err);
 
     xgpu::device Device;

@@ -12,18 +12,21 @@
 #include "../../dependencies/xgeom_compiler/dependencies/meshoptimizer/src/meshoptimizer.h"
 #include "../../dependencies/xgeom_compiler/src_runtime/xgeom.h"
 
-//------------------------------------------------------------------------------------------------
-
-struct push_constants
+namespace e09
 {
-    xcore::matrix4 m_L2C;
-};
+    //------------------------------------------------------------------------------------------------
 
-//------------------------------------------------------------------------------------------------
-static
-void DebugMessage(std::string_view View)
-{
-    printf("%s\n", View.data());
+    struct push_constants
+    {
+        xcore::matrix4 m_L2C;
+    };
+
+    //------------------------------------------------------------------------------------------------
+    static
+    void DebugMessage(std::string_view View)
+    {
+        printf("%s\n", View.data());
+    }
 }
 
 //------------------------------------------------------------------------------------------------
@@ -132,13 +135,13 @@ struct runtime_geom
 
         if (auto Err = Steam.Load(FileName, m_pGeom); Err)
         {
-            DebugMessage(Err.getCode().m_pString);
+            e09::DebugMessage(Err.getCode().m_pString);
             return true;
         }
 
         if( auto Err = InitializeRuntime(Device); Err )
         {
-            DebugMessage( xgpu::getErrorMsg(Err) );
+            e09::DebugMessage( xgpu::getErrorMsg(Err) );
             return true;
         }
 
@@ -195,7 +198,7 @@ struct runtime_material
         {
             .m_VertexDescriptor     = VertexDescriptor
         ,   .m_Shaders              = Shaders
-        ,   .m_PushConstantsSize    = sizeof(push_constants)
+        ,   .m_PushConstantsSize    = sizeof(e09::push_constants)
         ,   .m_Samplers             = Samplers
         };
 
@@ -248,7 +251,7 @@ struct runtime_material_instance
     {
         CmdBuffer.setPipelineInstance(m_PipelineInstance);
 
-        push_constants PushConstants;
+        e09::push_constants PushConstants;
         PushConstants.m_L2C = L2C;
         CmdBuffer.setPushConstants( PushConstants );
     }
@@ -297,7 +300,7 @@ struct runtime_geom_instance
 int E09_Example()
 {
     xgpu::instance Instance;
-    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = DebugMessage, .m_pLogWarning = DebugMessage }); Err)
+    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = e09::DebugMessage, .m_pLogWarning = e09::DebugMessage }); Err)
         return xgpu::getErrorInt(Err);
 
     xgpu::device Device;

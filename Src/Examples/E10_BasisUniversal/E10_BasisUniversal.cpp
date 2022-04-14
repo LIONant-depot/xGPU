@@ -10,42 +10,48 @@
 
 #include "imgui_internal.h"
 
+namespace e10
+{
+    constexpr auto g_VertShaderSPV = std::array
+    {
+        #include "x64\imgui_vert.h"
+    };
+    constexpr auto g_FragShaderSPV = std::array
+    {
+        #include "x64\draw_frag.h"
+    };
 
-constexpr auto g_VertShaderSPV = std::array
-{
-    #include "x64\imgui_vert.h"
-};
-constexpr auto g_FragShaderSPV = std::array
-{
-    #include "x64\draw_frag.h"
-};
+    struct push_contants
+    {
+        xcore::vector2 m_Scale;
+        xcore::vector2 m_Translation;
+        xcore::vector2 m_UVScale;
+    };
 
-struct push_contants
-{
-    xcore::vector2 m_Scale;
-    xcore::vector2 m_Translation;
-    xcore::vector2 m_UVScale;
-};
+    //------------------------------------------------------------------------------------------------
+    static
+    void DebugMessage(std::string_view View)
+    {
+        printf("%s\n", View.data());
+    }
 
-//------------------------------------------------------------------------------------------------
-static
-void DebugMessage(std::string_view View)
-{
-    printf("%s\n", View.data());
+    //------------------------------------------------------------------------------------------------
+
+    struct vert_2d
+    {
+        float           m_X, m_Y;
+        float           m_U, m_V;
+        std::uint32_t   m_Color;
+    };
+
+    //------------------------------------------------------------------------------------------------
+
+    struct bitmap_inspector2;
 }
 
 //------------------------------------------------------------------------------------------------
 
-struct vert_2d
-{
-    float           m_X, m_Y;
-    float           m_U, m_V;
-    std::uint32_t   m_Color;
-};
-
-//------------------------------------------------------------------------------------------------
-
-struct bitmap_inspector2
+struct e10::bitmap_inspector2
 {
     void Load(const char* pFileName, xgpu::device& Device, xgpu::pipeline& Pipeline) noexcept
     {
@@ -83,7 +89,7 @@ struct bitmap_inspector2
     xgpu::texture           m_Texture;
 };
 
-property_begin_name(bitmap_inspector2, "Bitmap Info")
+property_begin_name(e10::bitmap_inspector2, "Bitmap Info")
 {
     property_var(m_FileName)
         .Flags(property::flags::SHOW_READONLY)
@@ -212,7 +218,7 @@ property_begin_name(bitmap_inspector2, "Bitmap Info")
 int E10_Example()
 {
     xgpu::instance Instance;
-    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = DebugMessage, .m_pLogWarning = DebugMessage }); Err)
+    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = e10::DebugMessage, .m_pLogWarning = e10::DebugMessage }); Err)
         return xgpu::getErrorInt(Err);
 
     xgpu::device Device;
@@ -234,23 +240,23 @@ int E10_Example()
             {
                 xgpu::vertex_descriptor::attribute
                 {
-                    .m_Offset = offsetof(vert_2d, m_X)
+                    .m_Offset = offsetof(e10::vert_2d, m_X)
                 ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
                 }
             ,   xgpu::vertex_descriptor::attribute
                 {
-                    .m_Offset = offsetof(vert_2d, m_U)
+                    .m_Offset = offsetof(e10::vert_2d, m_U)
                 ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
                 }
             ,   xgpu::vertex_descriptor::attribute
                 {
-                    .m_Offset = offsetof(vert_2d, m_Color)
+                    .m_Offset = offsetof(e10::vert_2d, m_Color)
                 ,   .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED
                 }
             };
             auto Setup = xgpu::vertex_descriptor::setup
             {
-                .m_VertexSize = sizeof(vert_2d)
+                .m_VertexSize = sizeof(e10::vert_2d)
             ,   .m_Attributes = Attributes
             };
 
@@ -262,7 +268,7 @@ int E10_Example()
         {
             xgpu::shader::setup Setup
             { .m_Type = xgpu::shader::type::bit::FRAGMENT
-            , .m_Sharer = xgpu::shader::setup::raw_data{ g_FragShaderSPV }
+            , .m_Sharer = xgpu::shader::setup::raw_data{ e10::g_FragShaderSPV }
             };
             if (auto Err = Device.Create(MyFragmentShader, Setup); Err)
                 return xgpu::getErrorInt(Err);
@@ -273,7 +279,7 @@ int E10_Example()
             xgpu::shader::setup Setup
             {
                 .m_Type   = xgpu::shader::type::bit::VERTEX
-            ,   .m_Sharer = xgpu::shader::setup::raw_data{g_VertShaderSPV}
+            ,   .m_Sharer = xgpu::shader::setup::raw_data{ e10::g_VertShaderSPV }
             };
 
             if (auto Err = Device.Create(MyVertexShader, Setup); Err)
@@ -286,7 +292,7 @@ int E10_Example()
         {
             .m_VertexDescriptor  = VertexDescriptor
         ,   .m_Shaders           = Shaders
-        ,   .m_PushConstantsSize = sizeof(push_contants)
+        ,   .m_PushConstantsSize = sizeof(e10::push_contants)
         ,   .m_Samplers          = Samplers
         ,   .m_DepthStencil      = {.m_bDepthTestEnable = false }
         };
@@ -297,12 +303,12 @@ int E10_Example()
 
     xgpu::buffer VertexBuffer;
     {
-        if (auto Err = Device.Create(VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(vert_2d), .m_EntryCount = 4 }); Err)
+        if (auto Err = Device.Create(VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e10::vert_2d), .m_EntryCount = 4 }); Err)
             return xgpu::getErrorInt(Err);
 
         (void)VertexBuffer.MemoryMap(0, 4, [&](void* pData)
             {
-                auto pVertex = static_cast<vert_2d*>(pData);
+                auto pVertex = static_cast<e10::vert_2d*>(pData);
                 pVertex[0] = { -100.0f, -100.0f,  0.0f, 0.0f, 0xffffffff };
                 pVertex[1] = { 100.0f, -100.0f,  1.0f, 0.0f, 0xffffffff };
                 pVertex[2] = { 100.0f,  100.0f,  1.0f, 1.0f, 0xffffffff };
@@ -334,7 +340,7 @@ int E10_Example()
     //
     // Load bitmaps
     //
-    std::array<bitmap_inspector2, 1> BitmapInspector;
+    std::array<e10::bitmap_inspector2, 1> BitmapInspector;
     constexpr auto TextureList = std::array
     { "Run3.basis"
     };
@@ -358,7 +364,7 @@ int E10_Example()
         xgpu::texture Texture;
         if (auto Err = xgpu::tools::bitmap::Create(Texture, Device, xcore::bitmap::getDefaultBitmap()); Err)
         {
-            DebugMessage(xgpu::getErrorMsg(Err));
+            e10::DebugMessage(xgpu::getErrorMsg(Err));
             std::exit(xgpu::getErrorInt(Err));
         }
 
@@ -370,7 +376,7 @@ int E10_Example()
 
         if (auto Err = Device.Create(BackgroundMaterialInstance, Setup); Err)
         {
-            DebugMessage(xgpu::getErrorMsg(Err));
+            e10::DebugMessage(xgpu::getErrorMsg(Err));
             std::exit(xgpu::getErrorInt(Err));
         }
     }
@@ -453,7 +459,7 @@ int E10_Example()
                 CmdBuffer.setBuffer(VertexBuffer);
                 CmdBuffer.setBuffer(IndexBuffer);
 
-                push_contants PushContants;
+                e10::push_contants PushContants;
 
                 PushContants.m_Scale =
                 { (150 * 2.0f) / MainWindow.getWidth()
@@ -475,7 +481,7 @@ int E10_Example()
                 CmdBuffer.setBuffer(VertexBuffer);
                 CmdBuffer.setBuffer(IndexBuffer);
 
-                push_contants PushContants;
+                e10::push_contants PushContants;
 
                 PushContants.m_Scale =
                 { (MouseScale * 2.0f) / MainWindow.getWidth() * [&]{ auto R = BitmapInspector[iActiveImage].m_Texture.getTextureDimensions(); return static_cast<float>(R[0])/R[1]; }()

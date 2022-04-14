@@ -5,33 +5,37 @@
 #include "../../dependencies/xprim_geom/src/xprim_geom.h"
 #include "../../tools/xgpu_xcore_bitmap_helpers.h"
 
-//------------------------------------------------------------------------------------------------
-static
-void DebugMessage(std::string_view View)
+namespace e07
 {
-    printf("%s\n", View.data());
+    //------------------------------------------------------------------------------------------------
+    static
+    void DebugMessage(std::string_view View)
+    {
+        printf("%s\n", View.data());
+    }
+
+    //------------------------------------------------------------------------------------------------
+
+    struct draw_vert
+    {
+        float           m_X, m_Y, m_Z;
+        float           m_U, m_V;
+        std::uint32_t   m_Color;
+    };
+
+    //------------------------------------------------------------------------------------------------
+    struct push_contants
+    {
+        xcore::matrix4 m_L2C;
+    };
 }
-
-//------------------------------------------------------------------------------------------------
-
-struct draw_vert
-{
-    float           m_X, m_Y, m_Z;
-    float           m_U, m_V;
-    std::uint32_t   m_Color;
-};
-
-struct push_constants
-{
-    xcore::matrix4 m_L2C;
-};
 
 //------------------------------------------------------------------------------------------------
 
 int E07_Example()
 {
     xgpu::instance Instance;
-    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = DebugMessage, .m_pLogWarning = DebugMessage }); Err)
+    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = e07::DebugMessage, .m_pLogWarning = e07::DebugMessage }); Err)
         return xgpu::getErrorInt(Err);
 
     xgpu::device Device;
@@ -49,23 +53,23 @@ int E07_Example()
         {
             xgpu::vertex_descriptor::attribute
             {
-                .m_Offset = offsetof(draw_vert, m_X)
+                .m_Offset = offsetof(e07::draw_vert, m_X)
             ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
             }
         ,   xgpu::vertex_descriptor::attribute
             {
-                .m_Offset = offsetof(draw_vert, m_U)
+                .m_Offset = offsetof(e07::draw_vert, m_U)
             ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
             }
         ,   xgpu::vertex_descriptor::attribute
             {
-                .m_Offset = offsetof(draw_vert, m_Color)
+                .m_Offset = offsetof(e07::draw_vert, m_Color)
             ,   .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED
             }
         };
         auto Setup = xgpu::vertex_descriptor::setup
         {
-            .m_VertexSize = sizeof(draw_vert)
+            .m_VertexSize = sizeof(e07::draw_vert)
         ,   .m_Attributes = Attributes
         };
 
@@ -119,7 +123,7 @@ int E07_Example()
             auto Setup    = xgpu::pipeline::setup
             {   .m_VertexDescriptor  = VertexDescriptor
             ,   .m_Shaders           = Shaders
-            ,   .m_PushConstantsSize = sizeof(push_constants)
+            ,   .m_PushConstantsSize = sizeof(e07::push_contants)
             ,   .m_Samplers          = Samplers
             };
 
@@ -135,7 +139,7 @@ int E07_Example()
             auto Setup    = xgpu::pipeline::setup
             {   .m_VertexDescriptor  = VertexDescriptor
             ,   .m_Shaders           = Shaders
-            ,   .m_PushConstantsSize = sizeof(push_constants)
+            ,   .m_PushConstantsSize = sizeof(e07::push_contants)
             ,   .m_Samplers          = Samplers
             ,   .m_Primitive
                 {   .m_LineWidth = 5.0f
@@ -198,12 +202,12 @@ int E07_Example()
         //
         // Copy verts
         //
-        if (auto Err = Device.Create(VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(draw_vert), .m_EntryCount = static_cast<int>(Mesh.m_Vertices.size()) }); Err)
+        if (auto Err = Device.Create(VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e07::draw_vert), .m_EntryCount = static_cast<int>(Mesh.m_Vertices.size()) }); Err)
             return xgpu::getErrorInt(Err);
 
         (void)VertexBuffer.MemoryMap(0, static_cast<int>(Mesh.m_Vertices.size()), [&](void* pData)
         {
-            auto pVertex = static_cast<draw_vert*>(pData);
+            auto pVertex = static_cast<e07::draw_vert*>(pData);
             for( int i = 0; const auto& V : Mesh.m_Vertices )
             {
                 auto& DV = pVertex[i++];
@@ -286,7 +290,7 @@ int E07_Example()
 
                 // Render first object (animated mesh)
                 {
-                    push_constants PushConstants;
+                    e07::push_contants PushConstants;
                     xcore::matrix4 L2W;
                     L2W.setIdentity();
                     PushConstants.m_L2C = (W2C * L2W);

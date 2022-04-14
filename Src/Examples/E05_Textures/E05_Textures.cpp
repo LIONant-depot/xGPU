@@ -17,28 +17,34 @@ constexpr auto g_FragShaderSPV = std::array
     #include "x64/draw_frag.h"
 };
 
-struct push_contants
+namespace e05
 {
-    xcore::vector2 m_Scale;
-    xcore::vector2 m_Translation;
-    xcore::vector2 m_UVScale;
-};
+    //------------------------------------------------------------------------------------------------
 
-//------------------------------------------------------------------------------------------------
-static
-void DebugMessage(std::string_view View)
-{
-    printf("%s\n", View.data());
+    struct vert_2d
+    {
+        float           m_X, m_Y;
+        float           m_U, m_V;
+        std::uint32_t   m_Color;
+    };
+
+    //------------------------------------------------------------------------------------------------
+
+    struct push_contants
+    {
+        xcore::vector2 m_Scale;
+        xcore::vector2 m_Translation;
+        xcore::vector2 m_UVScale;
+    };
+
+    //------------------------------------------------------------------------------------------------
+
+    static
+    void DebugMessage(std::string_view View)
+    {
+        printf("%s\n", View.data());
+    }
 }
-
-//------------------------------------------------------------------------------------------------
-
-struct vert_2d
-{
-    float           m_X, m_Y;
-    float           m_U, m_V;
-    std::uint32_t   m_Color;
-};
 
 //------------------------------------------------------------------------------------------------
 
@@ -57,7 +63,7 @@ struct bitmap_inspector
         //
         if( auto Err = xbmp::tools::loader::LoadDSS( m_Bitmap, pFileName ); Err )
         {
-            DebugMessage( xbmp::tools::getErrorMsg(Err) );
+            e05::DebugMessage( xbmp::tools::getErrorMsg(Err) );
             std::exit(xbmp::tools::getErrorInt(Err) );
         }
 
@@ -67,7 +73,7 @@ struct bitmap_inspector
         xgpu::texture Texture;
         if( auto Err = xgpu::tools::bitmap::Create(Texture, Device, m_Bitmap ); Err )
         {
-            DebugMessage(xgpu::getErrorMsg(Err));
+            e05::DebugMessage(xgpu::getErrorMsg(Err));
             std::exit(xgpu::getErrorInt(Err));
         }
 
@@ -83,7 +89,7 @@ struct bitmap_inspector
 
             if (auto Err = Device.Create(m_Instance, Setup); Err)
             {
-                DebugMessage(xgpu::getErrorMsg(Err));
+                e05::DebugMessage(xgpu::getErrorMsg(Err));
                 std::exit(xgpu::getErrorInt(Err));
             }
         }
@@ -199,7 +205,7 @@ property_begin_name(bitmap_inspector, "Bitmap Info" )
 int E05_Example()
 {
     xgpu::instance Instance;
-    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = DebugMessage, .m_pLogWarning = DebugMessage }); Err)
+    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = e05::DebugMessage, .m_pLogWarning = e05::DebugMessage }); Err)
         return xgpu::getErrorInt(Err);
 
     xgpu::device Device;
@@ -221,23 +227,23 @@ int E05_Example()
             {
                 xgpu::vertex_descriptor::attribute
                 {
-                    .m_Offset = offsetof(vert_2d, m_X)
+                    .m_Offset = offsetof(e05::vert_2d, m_X)
                 ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
                 }
             ,   xgpu::vertex_descriptor::attribute
                 {
-                    .m_Offset = offsetof(vert_2d, m_U)
+                    .m_Offset = offsetof(e05::vert_2d, m_U)
                 ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
                 }
             ,   xgpu::vertex_descriptor::attribute
                 {
-                    .m_Offset = offsetof(vert_2d, m_Color)
+                    .m_Offset = offsetof(e05::vert_2d, m_Color)
                 ,   .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED
                 }
             };
             auto Setup = xgpu::vertex_descriptor::setup
             {
-                .m_VertexSize = sizeof(vert_2d)
+                .m_VertexSize = sizeof(e05::vert_2d)
             ,   .m_Attributes = Attributes
             };
 
@@ -273,7 +279,7 @@ int E05_Example()
         {
             .m_VertexDescriptor  = VertexDescriptor
         ,   .m_Shaders           = Shaders
-        ,   .m_PushConstantsSize = sizeof(push_contants)
+        ,   .m_PushConstantsSize = sizeof(e05::push_contants)
         ,   .m_Samplers          = Samplers
         ,   .m_DepthStencil      = { .m_bDepthTestEnable = false }
         };
@@ -284,12 +290,12 @@ int E05_Example()
 
     xgpu::buffer VertexBuffer;
     {
-        if (auto Err = Device.Create(VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(vert_2d), .m_EntryCount = 4 }); Err)
+        if (auto Err = Device.Create(VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e05::vert_2d), .m_EntryCount = 4 }); Err)
             return xgpu::getErrorInt(Err);
 
         (void)VertexBuffer.MemoryMap( 0, 4, [&](void* pData)
         {
-            auto pVertex   = static_cast<vert_2d*>(pData);
+            auto pVertex   = static_cast<e05::vert_2d*>(pData);
             pVertex[0]  = { -100.0f, -100.0f,  0.0f, 0.0f, 0xffffffff };
             pVertex[1]  = {  100.0f, -100.0f,  1.0f, 0.0f, 0xffffffff };
             pVertex[2]  = {  100.0f,  100.0f,  1.0f, 1.0f, 0xffffffff };
@@ -352,7 +358,7 @@ int E05_Example()
         xgpu::texture Texture;
         if (auto Err = xgpu::tools::bitmap::Create(Texture, Device, xcore::bitmap::getDefaultBitmap() ); Err)
         {
-            DebugMessage(xgpu::getErrorMsg(Err));
+            e05::DebugMessage(xgpu::getErrorMsg(Err));
             std::exit(xgpu::getErrorInt(Err));
         }
 
@@ -364,7 +370,7 @@ int E05_Example()
 
         if (auto Err = Device.Create(BackgroundMaterialInstance, Setup); Err)
         {
-            DebugMessage(xgpu::getErrorMsg(Err));
+            e05::DebugMessage(xgpu::getErrorMsg(Err));
             std::exit(xgpu::getErrorInt(Err));
         }
     }
@@ -444,7 +450,7 @@ int E05_Example()
                 CmdBuffer.setBuffer(VertexBuffer);
                 CmdBuffer.setBuffer(IndexBuffer);
 
-                push_contants PushContants;
+                e05::push_contants PushContants;
 
                 PushContants.m_Scale = 
                 { (150 * 2.0f) / MainWindow.getWidth()
@@ -466,7 +472,7 @@ int E05_Example()
                 CmdBuffer.setBuffer(VertexBuffer);
                 CmdBuffer.setBuffer(IndexBuffer);
 
-                push_contants PushContants;
+                e05::push_contants PushContants;
                 PushContants.m_Scale = { (MouseScale * 2.0f) / MainWindow.getWidth()    * BitmapInspector[iActiveImage].m_Bitmap.getAspectRatio()
                                        , (MouseScale * 2.0f) / MainWindow.getHeight()
                                        };

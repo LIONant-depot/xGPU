@@ -4,26 +4,29 @@
 #include "../../tools/xgpu_xcore_bitmap_helpers.h"
 #include "../../dependencies/xbmp_tools/src/xbmp_tools.h"
 
-//------------------------------------------------------------------------------------------------
-static
-void DebugMessage(std::string_view View)
+namespace e08
 {
-    printf("%s\n", View.data());
-}
+    //------------------------------------------------------------------------------------------------
+    static
+    void DebugMessage(std::string_view View)
+    {
+        printf("%s\n", View.data());
+    }
 
-//------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------
 
-struct stinfo
-{
-    float m_Time;
-    float m_Percentage;
-};
+    struct stinfo
+    {
+        float m_Time;
+        float m_Percentage;
+    };
 
-constexpr auto g_StatName = std::array
-{ "OpenGL + Disk Loading"
-, "OpenGL + Cache"
-, "MainQ + Disk Loading"
-, "MainQ + Cache"
+    constexpr auto g_StatName = std::array
+    { "OpenGL + Disk Loading"
+    , "OpenGL + Cache"
+    , "MainQ + Disk Loading"
+    , "MainQ + Cache"
+    };
 };
 
 //------------------------------------------------------------------------------------------------
@@ -31,7 +34,7 @@ constexpr auto g_StatName = std::array
 int E08_Example()
 {
     xgpu::instance Instance;
-    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = DebugMessage, .m_pLogWarning = DebugMessage }); Err)
+    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = e08::DebugMessage, .m_pLogWarning = e08::DebugMessage }); Err)
         return xgpu::getErrorInt(Err);
 
     xgpu::device Device;
@@ -54,7 +57,7 @@ int E08_Example()
     constexpr auto                          n_max_workers_v = 20;
 
     std::vector<xgpu::texture>              LoadedTextures  {}; 
-    std::array<stinfo, g_StatName.size()>   Stats           {};
+    std::array<e08::stinfo, e08::g_StatName.size()>   Stats           {};
     auto                                    T0              = std::chrono::high_resolution_clock::now();
     xcore::scheduler::channel               Channel         { xconst_universal_str("LoadingTextures") };
     std::atomic<int>                        nWorkerBusy     {0};
@@ -71,7 +74,7 @@ int E08_Example()
     //
     if (auto Err = xbmp::tools::loader::LoadDSS(CachedBitmap, "../../Src/Examples/E05_Textures/Alita-FullColor-Mipmaps.dds"); Err)
     {
-        DebugMessage(xbmp::tools::getErrorMsg(Err));
+        e08::DebugMessage(xbmp::tools::getErrorMsg(Err));
         std::exit(xbmp::tools::getErrorInt(Err));
     }
 
@@ -89,7 +92,7 @@ int E08_Example()
         //
         // Process the textures
         //
-        while(iActiveStat < (int)g_StatName.size() && StartProfiling && LoadedTextures.size() < n_textures_v )
+        while(iActiveStat < (int)e08::g_StatName.size() && StartProfiling && LoadedTextures.size() < n_textures_v )
         {
             // Start the clock
             if(LoadedTextures.size() ==0) T0 = std::chrono::high_resolution_clock::now();
@@ -114,7 +117,7 @@ int E08_Example()
                             //
                             if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, "../../Src/Examples/E05_Textures/Alita-FullColor-Mipmaps.dds"); Err)
                             {
-                                DebugMessage(xbmp::tools::getErrorMsg(Err));
+                                e08::DebugMessage(xbmp::tools::getErrorMsg(Err));
                                 std::exit(xbmp::tools::getErrorInt(Err));
                             }
 
@@ -123,7 +126,7 @@ int E08_Example()
                             //
                             if (auto Err = xgpu::tools::bitmap::Create(LoadedTextures[Index+i], Device, Bitmap); Err)
                             {
-                                DebugMessage(xgpu::getErrorMsg(Err));
+                                e08::DebugMessage(xgpu::getErrorMsg(Err));
                                 std::exit(xgpu::getErrorInt(Err));
                             }
 
@@ -137,7 +140,7 @@ int E08_Example()
                             //
                             if (auto Err = xgpu::tools::bitmap::Create(LoadedTextures[Index+i], Device, CachedBitmap); Err)
                             {
-                                DebugMessage(xgpu::getErrorMsg(Err));
+                                e08::DebugMessage(xgpu::getErrorMsg(Err));
                                 std::exit(xgpu::getErrorInt(Err));
                             }
 
@@ -160,7 +163,7 @@ int E08_Example()
                                 //
                                 if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, "../../Src/Examples/E05_Textures/Alita-FullColor-Mipmaps.dds"); Err)
                                 {
-                                    DebugMessage(xbmp::tools::getErrorMsg(Err));
+                                    e08::DebugMessage(xbmp::tools::getErrorMsg(Err));
                                     std::exit(xbmp::tools::getErrorInt(Err));
                                 }
 
@@ -169,7 +172,7 @@ int E08_Example()
                                 //
                                 if (auto Err = xgpu::tools::bitmap::Create(LoadedTextures[Index + i], Device, Bitmap); Err)
                                 {
-                                    DebugMessage(xgpu::getErrorMsg(Err));
+                                    e08::DebugMessage(xgpu::getErrorMsg(Err));
                                     std::exit(xgpu::getErrorInt(Err));
                                 }
                             }
@@ -192,7 +195,7 @@ int E08_Example()
                                 //
                                 if (auto Err = xgpu::tools::bitmap::Create(LoadedTextures[Index+i], Device, CachedBitmap); Err)
                                 {
-                                    DebugMessage(xgpu::getErrorMsg(Err));
+                                    e08::DebugMessage(xgpu::getErrorMsg(Err));
                                     std::exit(xgpu::getErrorInt(Err));
                                 }
                             }
@@ -210,7 +213,7 @@ int E08_Example()
         // 
         // Measure final time
         //
-        if( iActiveStat < (int)g_StatName.size() && LoadedTextures.size() && LoadedTextures.size() <= n_textures_v )
+        if( iActiveStat < (int)e08::g_StatName.size() && LoadedTextures.size() && LoadedTextures.size() <= n_textures_v )
         {
             if( LoadedTextures.size() == n_textures_v )
             {
@@ -244,11 +247,11 @@ int E08_Example()
         ImGui::SetNextWindowSize(ImVec2(650, 680));
         ImGui::Begin("Stats", nullptr, 0);
 
-        for (int i = 0; i < g_StatName.size(); ++i)
+        for (int i = 0; i < e08::g_StatName.size(); ++i)
         {
             ImGui::ProgressBar(Stats[i].m_Percentage, ImVec2(0.0f, 0.0f));
             ImGui::SameLine(0.0f, ImGui::GetStyle().ItemInnerSpacing.x);
-            ImGui::Text("(%2.2fsec) %s", Stats[i].m_Time, g_StatName[i] );
+            ImGui::Text("(%2.2fsec) %s", Stats[i].m_Time, e08::g_StatName[i] );
         }
 
         // End of window

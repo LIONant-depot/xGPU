@@ -8,38 +8,41 @@
 
 #include <iostream>
 
-//------------------------------------------------------------------------------------------------
-static
-void DebugMessage(std::string_view View)
+namespace e15
 {
-    printf("%s\n", View.data());
-}
+    //------------------------------------------------------------------------------------------------
+    static
+    void DebugMessage(std::string_view View)
+    {
+        printf("%s\n", View.data());
+    }
 
-//------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------
 
-struct draw_vert
-{
-    xcore::vector3d m_Position;
-    xcore::vector2  m_TexCoord;
-    xcore::icolor   m_Normal;
-};
+    struct draw_vert
+    {
+        xcore::vector3d m_Position;
+        xcore::vector2  m_TexCoord;
+        xcore::icolor   m_Normal;
+    };
 
-// Make sure that the uniform buffer is well align as many GPUs require this
-struct alignas(64) lighting_uniform_buffer
-{
-    xcore::matrix4 m_L2C;
-    xcore::matrix4 m_ShadowL2CPlus;
-    xcore::vector4 m_LocalSpaceLightPos;
-};
+    // Make sure that the uniform buffer is well align as many GPUs require this
+    struct alignas(64) lighting_uniform_buffer
+    {
+        xcore::matrix4 m_L2C;
+        xcore::matrix4 m_ShadowL2CPlus;
+        xcore::vector4 m_LocalSpaceLightPos;
+    };
 
-struct alignas(16) lighting_push_constant
-{
-    int  m_DebugMode;
-};
+    struct alignas(16) push_constants
+    {
+        int  m_DebugMode;
+    };
 
-struct shadow_generation_push_constants
-{
-    xcore::matrix4 m_L2C;                   // To light space
+    struct shadow_generation_push_constants
+    {
+        xcore::matrix4 m_L2C;                   // To light space
+    };
 };
 
 //------------------------------------------------------------------------------------------------
@@ -47,7 +50,7 @@ struct shadow_generation_push_constants
 int E15_Example()
 {
     xgpu::instance Instance;
-    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = DebugMessage, .m_pLogWarning = DebugMessage }); Err)
+    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = e15::DebugMessage, .m_pLogWarning = e15::DebugMessage }); Err)
         return xgpu::getErrorInt(Err);
 
     xgpu::device Device;
@@ -109,13 +112,13 @@ int E15_Example()
             {
                 xgpu::vertex_descriptor::attribute
                 {
-                    .m_Offset = offsetof(draw_vert, m_Position)
+                    .m_Offset = offsetof(e15::draw_vert, m_Position)
                 ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
                 }
             };
             auto Setup = xgpu::vertex_descriptor::setup
             {
-                .m_VertexSize = sizeof(draw_vert)
+                .m_VertexSize = sizeof(e15::draw_vert)
             ,   .m_Attributes = Attributes
             };
 
@@ -127,7 +130,7 @@ int E15_Example()
         auto Setup   = xgpu::pipeline::setup
         { .m_VertexDescriptor  = ShadowmapVertexDescriptor
         , .m_Shaders           = Shaders
-        , .m_PushConstantsSize = sizeof(shadow_generation_push_constants)
+        , .m_PushConstantsSize = sizeof(e15::shadow_generation_push_constants)
         , .m_Primitive         = {} //{ .m_FrontFace = xgpu::pipeline::primitive::front_face::CLOCKWISE } // When rendering shadows we don't want the front faces we want the back faces (Light leaking can happen)
         , .m_DepthStencil      = { .m_DepthBiasConstantFactor = 1.25f       // Depth bias (and slope) are used to avoid shadowing artifacts (always applied)
                                  , .m_DepthBiasSlopeFactor    = 2.3f        // Slope depth bias factor, applied depending on polygon's slope
@@ -179,22 +182,22 @@ int E15_Example()
             {
                 xgpu::vertex_descriptor::attribute
                 {
-                    .m_Offset = offsetof(draw_vert, m_Position)
+                    .m_Offset = offsetof(e15::draw_vert, m_Position)
                 ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
                 }
             ,   xgpu::vertex_descriptor::attribute
                 {
-                    .m_Offset = offsetof(draw_vert, m_TexCoord)
+                    .m_Offset = offsetof(e15::draw_vert, m_TexCoord)
                 ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
                 }
             ,   xgpu::vertex_descriptor::attribute
                 {
-                    .m_Offset = offsetof(draw_vert, m_Normal)
+                    .m_Offset = offsetof(e15::draw_vert, m_Normal)
                 ,   .m_Format = xgpu::vertex_descriptor::format::SINT8_4D_NORMALIZED
                 }
             };
 
-            if (auto Err = Device.Create(VertexDescriptor, { .m_VertexSize = sizeof(draw_vert), .m_Attributes = Attributes }); Err)
+            if (auto Err = Device.Create(VertexDescriptor, { .m_VertexSize = sizeof(e15::draw_vert), .m_Attributes = Attributes }); Err)
                 return xgpu::getErrorInt(Err);
         }
 
@@ -214,7 +217,7 @@ int E15_Example()
         auto Setup = xgpu::pipeline::setup
         { .m_VertexDescriptor   = VertexDescriptor
         , .m_Shaders            = Shaders
-        , .m_PushConstantsSize  = sizeof(lighting_push_constant)
+        , .m_PushConstantsSize  = sizeof(e15::push_constants)
         , .m_UniformBufferUsage = UBuffersUsage
         , .m_Samplers           = Samplers
         };
@@ -241,7 +244,7 @@ int E15_Example()
             //
             if (auto Err = xbmp::tools::loader::LoadDSS(Bitmap, "../../Assets/StoneWal01_1K/Stone Wall 01_1K_Diffuse.dds"); Err)
             {
-                DebugMessage(xbmp::tools::getErrorMsg(Err));
+                e15::DebugMessage(xbmp::tools::getErrorMsg(Err));
                 std::exit(xbmp::tools::getErrorInt(Err));
             }
             Bitmap.setColorSpace(xcore::bitmap::color_space::SRGB);
@@ -251,7 +254,7 @@ int E15_Example()
             //
             if (auto Err = xgpu::tools::bitmap::Create(DiffuseTexture, Device, Bitmap); Err)
             {
-                DebugMessage(xgpu::getErrorMsg(Err));
+                e15::DebugMessage(xgpu::getErrorMsg(Err));
                 std::exit(xgpu::getErrorInt(Err));
             }
         }
@@ -260,7 +263,7 @@ int E15_Example()
         // Create the Lighting Uniform Buffer
         //
         xgpu::buffer LightingUBO;
-        if (auto Err = Device.Create(LightingUBO, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(lighting_uniform_buffer), .m_EntryCount = 100 }); Err)
+        if (auto Err = Device.Create(LightingUBO, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(e15::lighting_uniform_buffer), .m_EntryCount = 100 }); Err)
             return xgpu::getErrorInt(Err);
 
         //
@@ -291,12 +294,12 @@ int E15_Example()
 
     xgpu::buffer VertexBuffer;
     {
-        if (auto Err = Device.Create(VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(draw_vert), .m_EntryCount = static_cast<int>(Mesh.m_Vertices.size()) }); Err)
+        if (auto Err = Device.Create(VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e15::draw_vert), .m_EntryCount = static_cast<int>(Mesh.m_Vertices.size()) }); Err)
             return xgpu::getErrorInt(Err);
 
         (void)VertexBuffer.MemoryMap(0, static_cast<int>(Mesh.m_Vertices.size()), [&](void* pData)
         {
-            auto pVertex = static_cast<draw_vert*>(pData);
+            auto pVertex = static_cast<e15::draw_vert*>(pData);
             for( int i=0; i< static_cast<int>(Mesh.m_Vertices.size()); ++i )
             {
                 auto&       V  = pVertex[i];
@@ -349,7 +352,7 @@ int E15_Example()
     }
 
     xcore::vector3 FrozenLightPosition;
-    lighting_push_constant LightinPushConstants
+    e15::push_constants LightinPushConstants
     { .m_DebugMode = 1 
     };
 
@@ -420,7 +423,7 @@ int E15_Example()
                 L2W.setScale({ 0.1f * (1 + i),1*(1+i*0.6f),0.1f * (1 + i) });
                 L2W.setTranslation( {0, 0, i * 2.0f - 8 } );
 
-                shadow_generation_push_constants PushConstants;
+                e15::shadow_generation_push_constants PushConstants;
                 PushConstants.m_L2C = W2C * L2W;
 
                 CmdBuffer.setBuffer(VertexBuffer);
@@ -436,7 +439,7 @@ int E15_Example()
                 L2W.setScale({ 100, 0.5f, 100 });
                 L2W.setTranslation({ 0, -1, 0 });
 
-                shadow_generation_push_constants PushConstants;
+                e15::shadow_generation_push_constants PushConstants;
                 PushConstants.m_L2C = W2C * L2W;
 
                 CmdBuffer.setBuffer(VertexBuffer);
@@ -480,7 +483,7 @@ int E15_Example()
                 xcore::matrix4 LightMatrixPlus;
                 LightMatrixPlus = C2T * LightingView.getW2C() * L2W;
 
-                auto& LightUniforms = CmdBuffer.getUniformBufferVMem<lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
+                auto& LightUniforms = CmdBuffer.getUniformBufferVMem<e15::lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
                 LightUniforms.m_ShadowL2CPlus       = LightMatrixPlus;
                 LightUniforms.m_L2C                 = W2C * L2W;
                 LightUniforms.m_LocalSpaceLightPos  = W2L * LightPosition;
@@ -504,7 +507,7 @@ int E15_Example()
                 xcore::matrix4 LightMatrixPlus;
                 LightMatrixPlus = C2T * LightingView.getW2C() * L2W;
 
-                auto& LightUniforms = CmdBuffer.getUniformBufferVMem<lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
+                auto& LightUniforms = CmdBuffer.getUniformBufferVMem<e15::lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
                 LightUniforms.m_ShadowL2CPlus       = LightMatrixPlus;
                 LightUniforms.m_L2C                 = W2C * L2W;
                 LightUniforms.m_LocalSpaceLightPos  = W2L * LightPosition;
