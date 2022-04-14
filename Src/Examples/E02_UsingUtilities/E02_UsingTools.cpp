@@ -5,21 +5,26 @@
 #include <iostream>
 
 //------------------------------------------------------------------------------------------------
-static
-void DebugMessage(std::string_view View)
-{
-    printf("%s\n", View.data());
-}
-
-//------------------------------------------------------------------------------------------------
 namespace e02
 {
+    //------------------------------------------------------------------------------------------------
+
+    static
+    void DebugMessage(std::string_view View)
+    {
+        printf("%s\n", View.data());
+    }
+
+    //------------------------------------------------------------------------------------------------
+
     struct draw_vert
     {
         float           m_X, m_Y, m_Z;
         float           m_U, m_V;
         std::uint32_t   m_Color;
     };
+
+    //------------------------------------------------------------------------------------------------
 
     struct push_constants
     {
@@ -32,7 +37,7 @@ namespace e02
 int E02_Example()
 {
     xgpu::instance Instance;
-    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = DebugMessage, .m_pLogWarning = DebugMessage }); Err)
+    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = e02::DebugMessage, .m_pLogWarning = e02::DebugMessage }); Err)
         return xgpu::getErrorInt(Err);
 
     xgpu::device Device;

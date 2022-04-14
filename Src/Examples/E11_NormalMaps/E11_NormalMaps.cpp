@@ -29,6 +29,8 @@ namespace e11
         xcore::icolor   m_Color;
     };
 
+    //------------------------------------------------------------------------------------------------
+
     struct push_contants
     {
         xcore::matrix4 m_L2C;

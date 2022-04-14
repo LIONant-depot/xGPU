@@ -44,11 +44,15 @@ namespace e05
     {
         printf("%s\n", View.data());
     }
+
+    //------------------------------------------------------------------------------------------------
+
+    struct bitmap_inspector;
 }
 
 //------------------------------------------------------------------------------------------------
 
-struct bitmap_inspector
+struct e05::bitmap_inspector
 {
     void Load( const char* pFileName, xgpu::device& Device, xgpu::pipeline& Pipeline ) noexcept
     {
@@ -100,7 +104,7 @@ struct bitmap_inspector
     xcore::bitmap           m_Bitmap;
 };
 
-property_begin_name(bitmap_inspector, "Bitmap Info" )
+property_begin_name(e05::bitmap_inspector, "Bitmap Info" )
 {
     property_var(m_FileName)
         .Flags(property::flags::SHOW_READONLY)
@@ -333,7 +337,7 @@ int E05_Example()
     //
     // Load bitmaps
     //
-    std::array<bitmap_inspector, 7> BitmapInspector;
+    std::array<e05::bitmap_inspector, 7> BitmapInspector;
     constexpr auto TextureList = std::array
     { "../../Src/Examples/E05_Textures/Alita-FullColor.dds"
     , "../../Src/Examples/E05_Textures/Alita-FullColor-Mipmaps.dds"

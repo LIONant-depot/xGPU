@@ -21,6 +21,8 @@ namespace e08
         float m_Percentage;
     };
 
+    //------------------------------------------------------------------------------------------------
+
     constexpr auto g_StatName = std::array
     { "OpenGL + Disk Loading"
     , "OpenGL + Cache"
