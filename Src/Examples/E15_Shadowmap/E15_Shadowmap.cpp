@@ -67,7 +67,7 @@ int E15_Example()
     xgpu::renderpass RenderPass;
     xgpu::texture    ShadowMapTexture;
     {
-        if (auto Err = Device.Create(ShadowMapTexture, { .m_Format = xgpu::texture::format::DEPTH_U16, .m_Type = xgpu::texture::type::LINEAR, .m_Width = 1024, .m_Height = 1024 }); Err)
+        if (auto Err = Device.Create(ShadowMapTexture, { .m_Format = xgpu::texture::format::DEPTH_U16, .m_Type = xgpu::texture::type::LINEAR, .m_isAttachment = true, .m_Width = 1024, .m_Height = 1024 }); Err)
             return xgpu::getErrorInt(Err);
 
         std::array<xgpu::renderpass::attachment, 1> Attachments
