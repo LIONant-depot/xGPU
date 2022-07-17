@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <fstream>
+#include <format>
 
 #include "xgpu_vulkan.h"
 #pragma comment(lib, "/Lib/vulkan-1.lib")
