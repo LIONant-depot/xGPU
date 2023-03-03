@@ -8,6 +8,7 @@ Examples are not needed to run use xGPU in your code. However they provide usefu
 + [Visual Studio 2019](https://visualstudio.microsoft.com/downloads/)
 + [cmake](https://cmake.org/download/)
 + [vulkan](https://vulkan.lunarg.com/)
++ [RenderDoc](https://renderdoc.org/)
 
 ### Dependencies
 To see the examples you will need to run a batch located: **Build/updateExamplesDependencies.bat**
