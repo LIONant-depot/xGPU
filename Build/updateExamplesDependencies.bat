@@ -2,7 +2,6 @@ echo OFF
 setlocal enabledelayedexpansion
 set XGPU_PATH="%cd%"
 
-goto :UNPACKING
 rem --------------------------------------------------------------------------------------------------------
 rem Set the color of the terminal to blue with yellow text
 rem --------------------------------------------------------------------------------------------------------
