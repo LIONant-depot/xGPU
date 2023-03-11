@@ -44,6 +44,7 @@ namespace e16
             ImportSkeleton();
             ImportAnimations();
             ImportGeometry();
+            ImportMaterials();
 
             return false;
         }
@@ -116,6 +117,238 @@ namespace e16
             }
 
             return {};
+        }
+
+        //------------------------------------------------------------------------------------------------------
+
+        void ImportMaterials() noexcept
+        {
+            std::unordered_map<int,int>             AssimMaterialToGeomMaterial;
+            std::unordered_map<std::string, int>    TextureToIndex;
+
+            // Handle the samplers and textures
+            auto HandleSampler = [&](skin_geom::material_instance::sampler& Sampler, aiString& TexPath, aiTextureMapMode UMap, aiTextureMapMode VMap)
+            {
+                if(std::string FilePath = TexPath.C_Str();  FilePath.empty() )
+                {
+                    Sampler.m_iTexture = -1;
+                }
+                else
+                {
+                    if (auto I = TextureToIndex.find(FilePath); I == TextureToIndex.end())
+                    {
+                        Sampler.m_iTexture = static_cast<int>(m_pAnimCharacter->m_SkinGeom.m_TexturePaths.size());
+                        TextureToIndex[FilePath] = Sampler.m_iTexture;
+                        m_pAnimCharacter->m_SkinGeom.m_TexturePaths.emplace_back( std::move(FilePath) );
+                    }
+                    else
+                    {
+                        Sampler.m_iTexture = I->second;
+                    }
+                }
+
+                static constexpr auto Address = [](aiTextureMapMode A) constexpr
+                {
+                    switch (A)
+                    {
+                    case aiTextureMapMode_Mirror: return skin_geom::material_instance::address_mode::MIRROR;
+                    case aiTextureMapMode_Clamp: return skin_geom::material_instance::address_mode::CLAMP;
+                    }
+
+                    return skin_geom::material_instance::address_mode::TILE;
+                };
+
+                Sampler.m_UMode = Address(UMap);
+                Sampler.m_VMode = Address(VMap);
+            };
+
+            // Go through all the submeshes
+            for( auto& Mesh    : m_pAnimCharacter->m_SkinGeom.m_Mesh )
+            for (auto& Submesh : Mesh.m_Submeshes )
+            {
+                if (auto I = AssimMaterialToGeomMaterial.find(Submesh.m_iMaterial); I != AssimMaterialToGeomMaterial.end())
+                {
+                    Submesh.m_iMaterial = I->second;
+                    continue;
+                }
+
+                AssimMaterialToGeomMaterial[Submesh.m_iMaterial] = static_cast<int>(m_pAnimCharacter->m_SkinGeom.m_MaterialInstance.size());
+
+                auto  pcMat = m_pScene->mMaterials[Submesh.m_iMaterial];
+                auto& MatI  = m_pAnimCharacter->m_SkinGeom.m_MaterialInstance.emplace_back();
+
+                // Shading model
+                {
+                    int ShadingModel = -1;
+                    aiGetMaterialInteger(pcMat, AI_MATKEY_SHADING_MODEL, (int*)&ShadingModel);
+                    switch (ShadingModel)
+                    {
+                        case aiShadingMode_Gouraud: MatI.m_ShadingModel = skin_geom::material_instance::shading_model::GOURAUD; break;
+                        default:                    MatI.m_ShadingModel = skin_geom::material_instance::shading_model::UNKOWN;  break;
+                    }
+                }
+
+                // Diffuse Color
+                {
+                    aiColor4D C(1, 1, 1, 1);
+                    aiGetMaterialColor(pcMat, AI_MATKEY_COLOR_DIFFUSE, (aiColor4D*)&C);
+                    MatI.m_DiffuseColor.setupFromRGBA(C.r, C.g, C.b, C.a);
+                }
+
+                // Specular Color
+                {
+                    aiColor4D C(0, 0, 0, 1);
+                    aiGetMaterialColor(pcMat, AI_MATKEY_COLOR_SPECULAR, (aiColor4D*)&C);
+                    MatI.m_SpecularColor.setupFromRGBA(C.r, C.g, C.b, C.a);
+                }
+
+                // Ambient Color
+                {
+                    aiColor4D C(0, 0, 0, 1);
+                    aiGetMaterialColor(pcMat, AI_MATKEY_COLOR_AMBIENT, (aiColor4D*)&C);
+                    MatI.m_AmbientColor.setupFromRGBA(C.r, C.g, C.b, C.a);
+                }
+
+                // Emissive Color
+                {
+                    aiColor4D C(0, 0, 0, 1);
+                    aiGetMaterialColor(pcMat, AI_MATKEY_COLOR_EMISSIVE, (aiColor4D*)&C);
+                    MatI.m_EmmisiveColor.setupFromRGBA(C.r, C.g, C.b, C.a);
+                }
+
+                // Opacity float
+                {
+                    MatI.m_OpacityFactor = 1;
+                    aiGetMaterialFloat(pcMat, AI_MATKEY_OPACITY, &MatI.m_OpacityFactor);
+                }
+
+                // Shininess float
+                {
+                    MatI.m_ShininessFactor = 0;
+                    aiGetMaterialFloat(pcMat, AI_MATKEY_SHININESS, &MatI.m_ShininessFactor);
+                }
+
+                // Shininess strength float
+                {
+                    MatI.m_ShininessStreanthFactor = 0;
+                    aiGetMaterialFloat(pcMat, AI_MATKEY_SHININESS_STRENGTH, &MatI.m_ShininessStreanthFactor);
+                }
+
+                // Diffuse Texture
+                {
+                    aiString         szPath;
+                    aiTextureMapMode mapU(aiTextureMapMode_Wrap), mapV(aiTextureMapMode_Wrap);
+                    aiGetMaterialString(pcMat, AI_MATKEY_TEXTURE_DIFFUSE(0), &szPath);
+                    aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_U_DIFFUSE(0), (int*)&mapU);
+                    aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_V_DIFFUSE(0), (int*)&mapV);
+                    HandleSampler(MatI.m_DiffuseSampler, szPath, mapU, mapV);
+                }
+
+                // Specular Texture
+                {
+                    aiString         szPath;
+                    aiTextureMapMode mapU(aiTextureMapMode_Wrap), mapV(aiTextureMapMode_Wrap);
+                    aiGetMaterialString(pcMat, AI_MATKEY_TEXTURE_SPECULAR(0), &szPath);
+                    aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_U_SPECULAR(0), (int*)&mapU);
+                    aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_V_SPECULAR(0), (int*)&mapV);
+                    HandleSampler(MatI.m_SpecularSampler, szPath, mapU, mapV);
+                }
+
+                // Opacity Texture
+                {
+                    aiString         szPath;
+                    aiTextureMapMode mapU(aiTextureMapMode_Wrap), mapV(aiTextureMapMode_Wrap);
+                    if (AI_SUCCESS == aiGetMaterialString(pcMat, AI_MATKEY_TEXTURE_OPACITY(0), &szPath))
+                    {
+                        aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_U_OPACITY(0), (int*)&mapU);
+                        aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_V_OPACITY(0), (int*)&mapV);
+                        HandleSampler(MatI.m_OpacitySampler, szPath, mapU, mapV);
+                    }
+                    else
+                    {
+                        int flags = 0;
+                        aiGetMaterialInteger(pcMat, AI_MATKEY_TEXFLAGS_DIFFUSE(0), &flags);
+
+                        if( MatI.m_DiffuseSampler.m_iTexture != -1 
+                           && !(flags & aiTextureFlags_IgnoreAlpha)
+                           && true // HasAlphaPixels(pcMesh->piDiffuseTexture)
+                          )
+                          {
+                              MatI.m_OpacitySampler = MatI.m_DiffuseSampler;
+                          }
+                    }
+                }
+
+                // Ambient Texture
+                {
+                    aiString         szPath;
+                    aiTextureMapMode mapU(aiTextureMapMode_Wrap), mapV(aiTextureMapMode_Wrap);
+                    aiGetMaterialString(pcMat, AI_MATKEY_TEXTURE_AMBIENT(0), &szPath);
+                    aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_U_AMBIENT(0), (int*)&mapU);
+                    aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_V_AMBIENT(0), (int*)&mapV);
+                    HandleSampler(MatI.m_AmbientSampler, szPath, mapU, mapV);
+                }
+
+                // Emmisive Texture
+                {
+                    aiString         szPath;
+                    aiTextureMapMode mapU(aiTextureMapMode_Wrap), mapV(aiTextureMapMode_Wrap);
+                    aiGetMaterialString(pcMat, AI_MATKEY_TEXTURE_EMISSIVE(0), &szPath);
+                    aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_U_EMISSIVE(0), (int*)&mapU);
+                    aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_V_EMISSIVE(0), (int*)&mapV);
+                    HandleSampler(MatI.m_EmissiveSampler, szPath, mapU, mapV);
+                }
+
+                // Shininess Texture
+                {
+                    aiString         szPath;
+                    aiTextureMapMode mapU(aiTextureMapMode_Wrap), mapV(aiTextureMapMode_Wrap);
+                    aiGetMaterialString(pcMat, AI_MATKEY_TEXTURE_SHININESS(0), &szPath);
+                    aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_U_SHININESS(0), (int*)&mapU);
+                    aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_V_SHININESS(0), (int*)&mapV);
+                    HandleSampler(MatI.m_ShininessSampler, szPath, mapU, mapV);
+                }
+
+                // Lightmap Texture
+                {
+                    aiString         szPath;
+                    aiTextureMapMode mapU(aiTextureMapMode_Wrap), mapV(aiTextureMapMode_Wrap);
+                    aiGetMaterialString(pcMat, AI_MATKEY_TEXTURE_LIGHTMAP(0), &szPath);
+                    aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_U_LIGHTMAP(0), (int*)&mapU);
+                    aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_V_LIGHTMAP(0), (int*)&mapV);
+                    HandleSampler(MatI.m_LightmapSampler, szPath, mapU, mapV);
+                }
+
+                // Normal Texture
+                {
+                    aiString         szPath;
+                    aiTextureMapMode mapU(aiTextureMapMode_Wrap), mapV(aiTextureMapMode_Wrap);
+                    aiGetMaterialString(pcMat, AI_MATKEY_TEXTURE_NORMALS(0), &szPath);
+                    aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_U_NORMALS(0), (int*)&mapU);
+                    aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_V_NORMALS(0), (int*)&mapV);
+                    HandleSampler(MatI.m_NormalSampler, szPath, mapU, mapV);
+                }
+
+                // Hight Texture
+                {
+                    aiString         szPath;
+                    aiTextureMapMode mapU(aiTextureMapMode_Wrap), mapV(aiTextureMapMode_Wrap);
+                    aiGetMaterialString(pcMat, AI_MATKEY_TEXTURE_HEIGHT(0), &szPath);
+                    aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_U_HEIGHT(0), (int*)&mapU);
+                    aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_V_HEIGHT(0), (int*)&mapV);
+                    HandleSampler(MatI.m_HightSampler, szPath, mapU, mapV);
+                }
+
+                // Hight Texture
+                {
+                    aiString         szPath;
+                    aiTextureMapMode mapU(aiTextureMapMode_Wrap), mapV(aiTextureMapMode_Wrap);
+                    aiGetMaterialString(pcMat, AI_MATKEY_TEXTURE_HEIGHT(0), &szPath);
+                    aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_U_HEIGHT(0), (int*)&mapU);
+                    aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_V_HEIGHT(0), (int*)&mapV);
+                    HandleSampler(MatI.m_HightSampler, szPath, mapU, mapV);
+                }
+            }
         }
 
         //------------------------------------------------------------------------------------------------------

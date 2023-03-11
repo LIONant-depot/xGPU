@@ -27,13 +27,46 @@ namespace e16
 
         struct material_instance
         {
-            std::string             m_Albedo;
-            std::string             m_Normal;
-            std::string             m_AmbientOcclusion;
-            std::string             m_Roughness;
+            enum class shading_model : std::uint8_t
+            {   UNKOWN
+            ,   GOURAUD
+            ,   OTHER
+            };
+
+            enum class address_mode : std::uint8_t
+            { TILE
+            , MIRROR
+            , CLAMP
+            };
+
+            struct sampler
+            {
+                int                 m_iTexture=-1;
+                address_mode        m_UMode;
+                address_mode        m_VMode;
+            };
+
+            shading_model           m_ShadingModel;
+            xcore::icolor           m_DiffuseColor;
+            xcore::icolor           m_SpecularColor;
+            xcore::icolor           m_AmbientColor;
+            xcore::icolor           m_EmmisiveColor;
+            float                   m_ShininessFactor;
+            float                   m_ShininessStreanthFactor;
+            float                   m_OpacityFactor;
+            sampler                 m_DiffuseSampler;
+            sampler                 m_SpecularSampler;
+            sampler                 m_OpacitySampler;
+            sampler                 m_AmbientSampler;
+            sampler                 m_EmissiveSampler;
+            sampler                 m_ShininessSampler;
+            sampler                 m_LightmapSampler;
+            sampler                 m_NormalSampler;
+            sampler                 m_HightSampler;
         };
 
         std::vector<mesh>               m_Mesh;
         std::vector<material_instance>  m_MaterialInstance;
+        std::vector<std::string>        m_TexturePaths;
     };
 }
