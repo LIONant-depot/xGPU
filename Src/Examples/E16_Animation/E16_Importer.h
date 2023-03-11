@@ -1,0 +1,843 @@
+
+#include "assimp\Importer.hpp"
+#include "assimp\scene.h"
+#include "assimp\postprocess.h"
+
+#include "E16_AnimCharacter.h"
+
+namespace e16
+{
+    struct importer
+    {
+        struct refs
+        {
+            std::vector<const aiNode*> m_Nodes;
+        };
+
+        const aiScene*          m_pScene;
+        e16::anim_character*    m_pAnimCharacter;
+        std::vector<refs>       m_MeshReferences;
+
+
+        bool Import( e16::anim_character& AnimCharacter, std::string FileName )
+        {
+            auto Importer = std::make_unique<Assimp::Importer>();
+            m_pAnimCharacter = &AnimCharacter;
+
+            m_pScene = Importer->ReadFile(FileName
+                , aiProcess_Triangulate                // Make sure we get triangles rather than nvert polygons
+                | aiProcess_LimitBoneWeights           // 4 weights for skin model max
+                | aiProcess_GenUVCoords                // Convert any type of mapping to uv mapping
+                | aiProcess_TransformUVCoords          // preprocess UV transformations (scaling, translation ...)
+                | aiProcess_FindInstances              // search for instanced meshes and remove them by references to one master
+                | aiProcess_GenNormals                 // if it does not have normals generate them... (this may not be a good option as it may hide issues from artist)
+                | aiProcess_CalcTangentSpace           // calculate tangents and bitangents if possible (definetly you will meed UVs)
+//                | aiProcess_JoinIdenticalVertices      // join identical vertices/ optimize indexing (It seems to be creating cracks in the mesh... some bug?)
+                | aiProcess_RemoveRedundantMaterials   // remove redundant materials
+                | aiProcess_FindInvalidData            // detect invalid model data, such as invalid normal vectors
+                | aiProcess_FlipUVs                    // flip the V to match the Vulkans way of doing UVs
+            );
+            if( m_pScene == nullptr ) return true;
+
+            if( SanityCheck() ) return true;
+
+            ImportSkeleton();
+            ImportAnimations();
+            ImportGeometry();
+
+            return false;
+        }
+
+        //------------------------------------------------------------------------------------------------------
+
+        bool SanityCheck() noexcept
+        {
+            m_MeshReferences.resize(m_pScene->mNumMeshes);
+
+            std::function<void(const aiNode& Node)> ProcessNode = [&](const aiNode& Node) noexcept
+            {
+                for (auto i = 0u, end = Node.mNumMeshes; i < end; ++i)
+                {
+                    aiMesh* pMesh = m_pScene->mMeshes[Node.mMeshes[i]];
+
+                    m_MeshReferences[Node.mMeshes[i]].m_Nodes.push_back(&Node);
+                }
+
+                for (auto i = 0u; i < Node.mNumChildren; ++i)
+                {
+                    ProcessNode(*Node.mChildren[i]);
+                }
+            };
+
+            ProcessNode( *m_pScene->mRootNode );
+
+            for (auto iMesh = 0u; iMesh < m_pScene->mNumMeshes; ++iMesh)
+            {
+                const aiMesh& AssimpMesh = *m_pScene->mMeshes[iMesh];
+                const auto&   Refs       = m_MeshReferences[iMesh].m_Nodes;
+
+                if (Refs.size() == 0u)
+                {
+                    printf("ERROR: I had a mesh but no reference to it in the scene... very strange\n");
+                    return true;
+                }
+
+                if(AssimpMesh.HasBones())
+                {
+                    if (Refs.size() > 1 )
+                    {
+                        printf("ERROR: I had a skin mesh (%s) that is reference in the scene %zd times. We don't support this feature.\n", AssimpMesh.mName.C_Str(), Refs.size() );
+                        return true;
+                    }
+                }
+                else
+                {
+                    if (Refs.size() > 1)
+                    {
+                        printf("INFO: I will be duplicating mesh %s, %zd times\n", AssimpMesh.mName.C_Str(), Refs.size());
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        //------------------------------------------------------------------------------------------------------
+
+        std::string GetMeshNameFromNode(const aiNode& Node)
+        {
+            for( auto pNode = &Node; pNode; pNode = pNode->mParent )
+            {
+                // Using the naming convention to group meshes...
+                if (xcore::string::FindStrI(pNode->mName.C_Str(), "MESH_") != -1)
+                {
+                    return pNode->mName.C_Str();
+                }
+            }
+
+            return {};
+        }
+
+        //------------------------------------------------------------------------------------------------------
+
+        void ImportGeometry() noexcept
+        {
+            struct myMeshPart
+            {
+                std::string         m_MeshName;
+                std::string         m_Name;
+                std::vector<vertex> m_Vertices;
+                std::vector<int>    m_Indices;
+                int                 m_iMaterialInstance;
+            };
+
+            std::vector<myMeshPart>               MyNodes;
+
+            //
+            // Add bones base on bone associated by meshes
+            // 
+            MyNodes.resize(m_pScene->mNumMeshes);
+            for (auto iMesh = 0u; iMesh < m_pScene->mNumMeshes; ++iMesh)
+            {
+                const aiMesh& AssimpMesh = *m_pScene->mMeshes[iMesh];
+                if (AssimpMesh.HasPositions() == false)
+                {
+                    printf("WARNING: Found a mesh (%s) without position! mesh will be removed\n", AssimpMesh.mName.C_Str() );
+                    continue;
+                }
+
+                if (AssimpMesh.HasFaces() == false)
+                {
+                    printf("WARNING: Found a mesh (%s) without position! mesh will be removed\n", AssimpMesh.mName.C_Str());
+                    continue;
+                }
+
+                if (AssimpMesh.HasNormals() == false)
+                {
+                    printf("WARNING: Found a mesh (%s) without normals! mesh will be removed\n", AssimpMesh.mName.C_Str());
+                    continue;
+                }
+
+                if (AssimpMesh.HasTangentsAndBitangents() == false)
+                {
+                    printf("WARNING: Found a mesh (%s) without Tangets! We will create fake tangets.. but it will look bad!\n", AssimpMesh.mName.C_Str() );
+                }
+
+                if( AssimpMesh.GetNumUVChannels() != 1 )
+                {
+                    if(AssimpMesh.GetNumUVChannels() == 0 )
+                    {
+                        printf("WARNING: Found a mesh (%s) without UVs we will assign 0,0 to all uvs\n", AssimpMesh.mName.C_Str());
+                    }
+                    else
+                    {
+                        printf("WARNING: Found a mesh (%s) without too many UV chanels we will use only one...\n", AssimpMesh.mName.C_Str());
+                    }
+                }
+
+                const int iTexCordinates = [&]()->int
+                {
+                    for( auto i = 0u; i < AssimpMesh.GetNumUVChannels(); ++i )
+                        if( AssimpMesh.HasTextureCoords(i) ) return i;
+                    return -1;
+                }();
+
+                /*
+                if (AssimpMesh.GetNumColorChannels() > 1)
+                {
+                    printf("WARNING: Found a mesh with too many color channels we will use only one...");
+                }
+
+                const int iColors = [&]
+                {
+                    for (int i = 0; i < AssimpMesh.GetNumColorChannels(); ++i)
+                        if (AssimpMesh.HasVertexColors(i)) return i;
+                    return -1;
+                }();
+                */
+
+                //
+                // Copy mesh name and Material Index
+                //
+                MyNodes[iMesh].m_Name               = AssimpMesh.mName.C_Str();
+                MyNodes[iMesh].m_iMaterialInstance  = AssimpMesh.mMaterialIndex;
+
+                //
+                // Copy Vertices
+                //
+                MyNodes[iMesh].m_Vertices.resize(AssimpMesh.mNumVertices);
+                for (auto i = 0u; i < AssimpMesh.mNumVertices; ++i)
+                {
+                    e16::vertex& Vertex = MyNodes[iMesh].m_Vertices[i];
+
+                    Vertex.m_Position = xcore::vector3d
+                    ( static_cast<float>(AssimpMesh.mVertices[i].x)
+                    , static_cast<float>(AssimpMesh.mVertices[i].y)
+                    , static_cast<float>(AssimpMesh.mVertices[i].z)
+                    );
+
+                    if(iTexCordinates == -1)
+                    {
+                        Vertex.m_UV.setup(0,0);
+                    }
+                    else
+                    {
+                        Vertex.m_UV.setup(static_cast<float>(AssimpMesh.mTextureCoords[iTexCordinates][i].x)
+                                         ,static_cast<float>(AssimpMesh.mTextureCoords[iTexCordinates][i].y) );
+                    }
+
+                    /*
+                    if (iColors == -1)
+                    {
+                        Vertex.m_Color.setup(255,255,255,255);
+                    }
+                    else
+                    {
+                        xcore::vector4 RGBA(static_cast<float>(AssimpMesh.mColors[iColors][i].r)
+                                          , static_cast<float>(AssimpMesh.mColors[iColors][i].g)
+                                          , static_cast<float>(AssimpMesh.mColors[iColors][i].b)
+                                          , static_cast<float>(AssimpMesh.mColors[iColors][i].a)
+                        );
+
+                        Vertex.m_Color.setupFromRGBA(RGBA);
+                    }
+                    */
+
+                    if (AssimpMesh.HasTangentsAndBitangents())
+                    {
+                        Vertex.m_Tangent.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(AssimpMesh.mTangents[i].x < 0 ? std::max(-128, static_cast<int>(AssimpMesh.mTangents[i].x * 128)) : std::min(127, static_cast<int>(AssimpMesh.mTangents[i].x * 127))));
+                        Vertex.m_Tangent.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(AssimpMesh.mTangents[i].y < 0 ? std::max(-128, static_cast<int>(AssimpMesh.mTangents[i].y * 128)) : std::min(127, static_cast<int>(AssimpMesh.mTangents[i].y * 127))));
+                        Vertex.m_Tangent.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(AssimpMesh.mTangents[i].z < 0 ? std::max(-128, static_cast<int>(AssimpMesh.mTangents[i].z * 128)) : std::min(127, static_cast<int>(AssimpMesh.mTangents[i].z * 127))));
+                        Vertex.m_Tangent.m_A = 0;
+
+                        assert(AssimpMesh.HasNormals());
+                        Vertex.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(AssimpMesh.mNormals[i].x < 0 ? std::max(-128, static_cast<int>(AssimpMesh.mNormals[i].x * 128)) : std::min(127, static_cast<int>(AssimpMesh.mNormals[i].x * 127))));
+                        Vertex.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(AssimpMesh.mNormals[i].y < 0 ? std::max(-128, static_cast<int>(AssimpMesh.mNormals[i].y * 128)) : std::min(127, static_cast<int>(AssimpMesh.mNormals[i].y * 127))));
+                        Vertex.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(AssimpMesh.mNormals[i].z < 0 ? std::max(-128, static_cast<int>(AssimpMesh.mNormals[i].z * 128)) : std::min(127, static_cast<int>(AssimpMesh.mNormals[i].z * 127))));
+                        Vertex.m_Normal.m_A = static_cast<std::uint8_t>(static_cast<std::int8_t>( xcore::vector3(AssimpMesh.mTangents[i].x, AssimpMesh.mTangents[i].y, AssimpMesh.mTangents[i].z).Cross({ AssimpMesh.mNormals[i].x, AssimpMesh.mNormals[i].y, AssimpMesh.mNormals[i].z } )
+                                                                                                  .Dot(xcore::vector3(AssimpMesh.mBitangents[i].x, AssimpMesh.mBitangents[i].y, AssimpMesh.mBitangents[i].z) ) > 0 ? 127 : -128));
+                    }
+                    else
+                    {
+                        Vertex.m_Tangent.m_R = 0xff;
+                        Vertex.m_Tangent.m_G = 0;
+                        Vertex.m_Tangent.m_B = 0;
+                        Vertex.m_Tangent.m_A = 0;
+
+                        Vertex.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(AssimpMesh.mNormals[i].x < 0 ? std::max(-128, static_cast<int>(AssimpMesh.mNormals[i].x * 128)) : std::min(127, static_cast<int>(AssimpMesh.mNormals[i].x * 127))));
+                        Vertex.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(AssimpMesh.mNormals[i].y < 0 ? std::max(-128, static_cast<int>(AssimpMesh.mNormals[i].y * 128)) : std::min(127, static_cast<int>(AssimpMesh.mNormals[i].y * 127))));
+                        Vertex.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(AssimpMesh.mNormals[i].z < 0 ? std::max(-128, static_cast<int>(AssimpMesh.mNormals[i].z * 128)) : std::min(127, static_cast<int>(AssimpMesh.mNormals[i].z * 127))));
+                        Vertex.m_Normal.m_A = 127;
+                    }
+
+
+                    // Mark the weights as uninitialized we will be setting them later
+                    Vertex.m_BoneIndex.m_R   = Vertex.m_BoneIndex.m_G   = Vertex.m_BoneIndex.m_B   = Vertex.m_BoneIndex.m_A   = 0;
+                    Vertex.m_BoneWeights.m_R = Vertex.m_BoneWeights.m_G = Vertex.m_BoneWeights.m_B = Vertex.m_BoneWeights.m_A = 0;
+                }
+
+                //
+                // Copy the indices
+                //
+                for (auto i = 0u; i < AssimpMesh.mNumFaces; ++i)
+                {
+                    const auto& Face = AssimpMesh.mFaces[i];
+                    for (auto j = 0u; j < Face.mNumIndices; ++j)
+                        MyNodes[iMesh].m_Indices.push_back(Face.mIndices[j]);
+                }
+
+                //
+                // Add the bone weights
+                //
+                if (AssimpMesh.mNumBones > 0)
+                {
+                    struct weight
+                    {
+                        std::uint8_t m_iBone;
+                        float        m_Weight{0};
+                    };
+
+                    struct my_weights
+                    {
+                        int                  m_Count {0};
+                        std::array<weight,4> m_Weights;
+                    };
+
+                    std::vector<my_weights> MyWeights;
+                    MyWeights.resize(AssimpMesh.mNumVertices);
+
+                    //
+                    // Collect bones indices and weights
+                    // 
+                    assert(m_MeshReferences[iMesh].m_Nodes.size() == 1);
+
+                    MyNodes[iMesh].m_MeshName = GetMeshNameFromNode( *m_MeshReferences[iMesh].m_Nodes[0] );
+                    for( auto iBone = 0u; iBone< AssimpMesh.mNumBones; iBone++ )
+                    {
+                        const auto&          AssimpBone    = *AssimpMesh.mBones[iBone];
+                        const std::uint8_t   iSkeletonBone = m_pAnimCharacter->m_Skeleton.findBone(AssimpBone.mName.C_Str());
+
+                        for( auto iWeight = 0u; iWeight < AssimpBone.mNumWeights; ++iWeight )
+                        {
+                            auto  AssimpWeight = AssimpBone.mWeights[iWeight];
+                            auto& MyWeight     = MyWeights[AssimpWeight.mVertexId];
+
+                            MyWeight.m_Weights[MyWeight.m_Count].m_iBone  = iSkeletonBone;
+                            MyWeight.m_Weights[MyWeight.m_Count].m_Weight = AssimpWeight.mWeight;
+
+                            // get ready for the next one
+                            MyWeight.m_Count++;
+                        }
+                    }
+
+                    //
+                    // Sort weights, normalize and set to the final vert
+                    //
+                    for( int iVertex=0u; iVertex< MyWeights.size(); ++iVertex )
+                    {
+                        auto& E = MyWeights[iVertex];
+
+                        // Short from bigger to smaller
+                        std::qsort( E.m_Weights.data(), E.m_Weights.size(), sizeof(weight), []( const void* pA, const void* pB ) ->int
+                        {
+                            const weight& A = *reinterpret_cast<const weight*>(pA);
+                            const weight& B = *reinterpret_cast<const weight*>(pB);
+                            if( B.m_Weight < A.m_Weight ) return -1;
+                            return B.m_Weight > A.m_Weight;
+                        });
+
+                        assert(E.m_Weights[0].m_Weight >= E.m_Weights[1].m_Weight);
+
+                        // Normalize the weights
+                        float Total=0;
+                        for (int i = 0; i < E.m_Count; ++i)
+                        {
+                            Total += E.m_Weights[i].m_Weight;
+                        }
+
+                        for (int i = 0; i < E.m_Count; ++i)
+                        {
+                            E.m_Weights[i].m_Weight /= Total;
+                        }
+
+                        // Copy Weight To the Vert
+                        auto& V = MyNodes[iMesh].m_Vertices[iVertex];
+                        for (int i = 0; i < E.m_Count; ++i)
+                        {
+                            switch (i)
+                            {
+                            case 0: V.m_BoneIndex.m_R   = static_cast<std::uint8_t>(E.m_Weights[i].m_iBone);
+                                    V.m_BoneWeights.m_R = static_cast<std::uint8_t>(E.m_Weights[i].m_Weight * 0xff);
+                                    break;
+                            case 1: V.m_BoneIndex.m_G   = static_cast<std::uint8_t>(E.m_Weights[i].m_iBone);
+                                    V.m_BoneWeights.m_G = static_cast<std::uint8_t>(E.m_Weights[i].m_Weight * 0xff);
+                                    break;
+                            case 2: V.m_BoneIndex.m_B   = static_cast<std::uint8_t>(E.m_Weights[i].m_iBone);
+                                    V.m_BoneWeights.m_B = static_cast<std::uint8_t>(E.m_Weights[i].m_Weight * 0xff);
+                                    break;
+                            case 3: V.m_BoneIndex.m_A   = static_cast<std::uint8_t>(E.m_Weights[i].m_iBone);
+                                    V.m_BoneWeights.m_A = static_cast<std::uint8_t>(E.m_Weights[i].m_Weight * 0xff);
+                                    break;
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    //
+                    // Set the weights and duplicate mesh if needed
+                    //
+
+                    // Remember where was the base
+                    int iBase = static_cast<int>(m_MeshReferences[iMesh].m_Nodes.size());
+
+                    // Grow the total number of meshes if we have to...
+                    if(iBase > 1 ) MyNodes.resize(MyNodes.size() + m_MeshReferences[iMesh].m_Nodes.size() - 1 );
+
+                    auto pMyNode = &MyNodes[iMesh];                    
+                    for (const auto pN : m_MeshReferences[iMesh].m_Nodes)
+                    {
+                        pMyNode->m_MeshName = GetMeshNameFromNode(*pN);
+                        const std::uint8_t   iSkeletonBone = m_pAnimCharacter->m_Skeleton.findBone(pN->mName.C_Str());
+                        for (auto iVertex = 0u; iVertex < AssimpMesh.mNumVertices; ++iVertex)
+                        {
+                            auto& V = pMyNode->m_Vertices[iVertex];
+                            V.m_BoneIndex.m_R   = iSkeletonBone;
+                            V.m_BoneWeights.m_R = 0xff;
+                        }
+
+                        if (iBase < MyNodes.size())
+                        {
+                            pMyNode = &MyNodes[iBase++];
+
+                            // Deep copy the mesh...
+                            *pMyNode = MyNodes[iMesh];
+                        }
+                    }
+                }
+            }
+
+            //
+            // Remove Mesh parts with zero vertices
+            //
+            for (auto i = 0u; i < MyNodes.size(); ++i)
+            {
+                if (MyNodes[i].m_Vertices.size() == 0 || MyNodes[i].m_Indices.size() == 0)
+                {
+                    MyNodes.erase(MyNodes.begin() + i);
+                    --i;
+                }
+            }
+
+            //
+            // Merge any mesh part based on Mesh and iMaterial...
+            //
+            for (auto i = 0u; i < MyNodes.size(); ++i)
+            {
+                for (auto j = i + 1; j < MyNodes.size(); ++j)
+                {
+                    // Lets find a candidate to merge...
+                    if (MyNodes[i].m_iMaterialInstance == MyNodes[j].m_iMaterialInstance 
+                     && MyNodes[i].m_MeshName == MyNodes[j].m_MeshName )
+                    {
+                        const int  iBaseVertex = static_cast<int>(MyNodes[i].m_Vertices.size());
+                        const auto iBaseIndex  = MyNodes[i].m_Indices.size();
+                        MyNodes[i].m_Vertices.insert(MyNodes[i].m_Vertices.end(), MyNodes[j].m_Vertices.begin(), MyNodes[j].m_Vertices.end() );
+                        MyNodes[i].m_Indices.insert (MyNodes[i].m_Indices.end(),  MyNodes[j].m_Indices.begin(),  MyNodes[j].m_Indices.end()  );
+
+                        // Fix the indices
+                        for(auto I = iBaseIndex; I < MyNodes[i].m_Indices.size(); ++I)
+                        {
+                            MyNodes[i].m_Indices[I] += iBaseVertex;
+                        }
+
+                        MyNodes.erase(MyNodes.begin() + j);
+                        --j;
+                    }
+                }
+            }
+
+            //
+            // Create final structure
+            //
+            for (auto& E : MyNodes)
+            {
+                int iFinalMesh = -1;
+                for (auto i = 0u; i < m_pAnimCharacter->m_SkinGeom.m_Mesh.size(); ++i)
+                {
+                    if (m_pAnimCharacter->m_SkinGeom.m_Mesh[i].m_Name == E.m_MeshName)
+                    {
+                        iFinalMesh = i;
+                        break;
+                    }
+                }
+
+                if (iFinalMesh)
+                {
+                    iFinalMesh = static_cast<int>(m_pAnimCharacter->m_SkinGeom.m_Mesh.size());
+                    m_pAnimCharacter->m_SkinGeom.m_Mesh.emplace_back();
+                    m_pAnimCharacter->m_SkinGeom.m_Mesh.back().m_Name = E.m_MeshName;
+                }
+
+                auto& FinalMesh = m_pAnimCharacter->m_SkinGeom.m_Mesh[iFinalMesh];
+                auto& SubMesh   = FinalMesh.m_Submeshes.emplace_back();
+
+                SubMesh.m_Vertices      = std::move(E.m_Vertices);
+                SubMesh.m_Indices       = std::move(E.m_Indices);
+                SubMesh.m_iMaterial     = E.m_iMaterialInstance;
+            }
+
+        }
+
+        //------------------------------------------------------------------------------------------------------
+
+        void ImportAnimations( int SamplingFPS = 60 ) noexcept
+        {
+            struct indices
+            {
+                std::uint32_t m_iPositions{ 0 };
+                std::uint32_t m_iRotations{ 0 };
+                std::uint32_t m_iScales   { 0 };
+            };
+            
+            m_pAnimCharacter->m_AnimPackage.m_Animations.resize(m_pScene->mNumAnimations);
+            for( auto i = 0ul; i < m_pScene->mNumAnimations; ++i )
+            {
+                const aiAnimation&      AssimpAnim        = *m_pScene->mAnimations[i];
+                const double            AnimationDuration = AssimpAnim.mDuration / AssimpAnim.mTicksPerSecond;
+                const double            DeltaTime         = (AssimpAnim.mTicksPerSecond / SamplingFPS);
+                const int               FrameCount        = (int)std::ceil( AssimpAnim.mDuration / DeltaTime);
+                assert(FrameCount>0);
+                std::vector<indices>    LastPositions;
+
+                // Allocate all the bones for this animation
+              //  assert( AssimpAnim.mNumChannels <= m_pAnimCharacter->m_Skeleton.m_Bones.size() );
+                auto& MyAnim = m_pAnimCharacter->m_AnimPackage.m_Animations[i];
+                MyAnim.m_BoneKeyFrames.resize(m_pAnimCharacter->m_Skeleton.m_Bones.size());
+                MyAnim.m_FPS        = SamplingFPS;
+                MyAnim.m_Name       = AssimpAnim.mName.C_Str();
+                MyAnim.m_TimeLength = static_cast<float>(AnimationDuration);
+
+                // To cache the last positions for a given frame for each bone
+                LastPositions.resize( AssimpAnim.mNumChannels );
+
+                // Create/Sample all the frames            
+                for( int iFrame = 0; iFrame < FrameCount; iFrame++ )
+                {
+                    const auto t = iFrame * DeltaTime;
+                    for( auto b = 0ul; b < AssimpAnim.mNumChannels; ++b )
+                    {
+                        const aiNodeAnim& Channel = *AssimpAnim.mChannels[b];
+                        auto&             LastPos = LastPositions[b];
+
+                        // Sample the position key
+                        aiVector3D presentPosition(0, 0, 0);
+                        if( Channel.mNumPositionKeys > 0 ) 
+                        {
+                            // Update the Position Index for the given bone
+                            while( LastPos.m_iPositions < Channel.mNumPositionKeys - 1 ) 
+                            {
+                                if( t < Channel.mPositionKeys[LastPos.m_iPositions + 1].mTime ) break;
+                                ++LastPos.m_iPositions;
+                            }
+
+                            // interpolate between this frame's value and next frame's value
+                            unsigned int        NextFrame   = (LastPos.m_iPositions + 1) % Channel.mNumPositionKeys;
+                            const aiVectorKey&  Key         = Channel.mPositionKeys[ LastPos.m_iPositions ];
+                            const aiVectorKey&  NextKey     = Channel.mPositionKeys[ NextFrame ];
+                            double              diffTime    = NextKey.mTime - Key.mTime;
+
+                            if ( diffTime < 0.0 ) diffTime += AssimpAnim.mDuration;
+                            if ( diffTime > 0   ) 
+                            {
+                                float factor = float((t - Key.mTime) / diffTime);
+                                presentPosition = Key.mValue + (NextKey.mValue - Key.mValue) * factor;
+                            }
+                            else 
+                            {
+                                presentPosition = Key.mValue;
+                            }
+                        }
+
+                        // Sample the Rotation key
+                        aiQuaternion presentRotation(1, 0, 0, 0);
+                        if( Channel.mNumRotationKeys > 0 ) 
+                        {
+                            // Update the Rotation Index for the given bone
+                            while (LastPos.m_iRotations < Channel.mNumRotationKeys - 1)
+                            {
+                                if (t < Channel.mRotationKeys[LastPos.m_iRotations + 1].mTime) break;
+                                ++LastPos.m_iRotations;
+                            }
+
+                            // interpolate between this frame's value and next frame's value
+                            unsigned int        NextFrame   = (LastPos.m_iRotations + 1) % Channel.mNumRotationKeys;
+                            const aiQuatKey&    Key         = Channel.mRotationKeys[LastPos.m_iRotations];
+                            const aiQuatKey&    NextKey     = Channel.mRotationKeys[NextFrame];
+                            double              diffTime    = NextKey.mTime - Key.mTime;
+
+                            if( diffTime < 0.0 ) diffTime += AssimpAnim.mDuration;
+                            if( diffTime > 0   ) 
+                            {
+                                float factor = float((t - Key.mTime) / diffTime);
+                                aiQuaternion::Interpolate(presentRotation, Key.mValue, NextKey.mValue, factor);
+                            }
+                            else 
+                            {
+                                presentRotation = Key.mValue;
+                            }
+                        }
+
+                        // Sample the Scale key
+                        aiVector3D presentScaling( 1, 1, 1 );
+                        if( Channel.mNumScalingKeys > 0 ) 
+                        {
+                            // Update the Rotation Index for the given bone
+                            while( LastPos.m_iScales < Channel.mNumScalingKeys - 1)
+                            {
+                                if (t < Channel.mScalingKeys[LastPos.m_iScales + 1].mTime) break;
+                                ++LastPos.m_iScales;
+                            }
+
+                            // TODO: interpolation maybe? This time maybe even logarithmic, not linear!
+                            // interpolate between this frame's value and next frame's value
+                            unsigned int        NextFrame   = (LastPos.m_iScales + 1) % Channel.mNumScalingKeys;
+                            const aiVectorKey&  Key         = Channel.mScalingKeys[ LastPos.m_iScales];
+                            const aiVectorKey&  NextKey     = Channel.mScalingKeys[ NextFrame ];
+                            double              diffTime    = NextKey.mTime - Key.mTime;
+
+                            if ( diffTime < 0.0 ) diffTime += AssimpAnim.mDuration;
+                            if ( diffTime > 0   ) 
+                            {
+                                float factor = float((t - Key.mTime) / diffTime);
+                                presentScaling = Key.mValue + (NextKey.mValue - Key.mValue) * factor;
+                            }
+                            else 
+                            {
+                                presentScaling = Key.mValue;
+                            }
+                        }
+
+                        //
+                        // Set all the computer components into our frame
+                        //
+
+                        // make sure that we can find the bone                         
+                        const int iBone = m_pAnimCharacter->m_Skeleton.findBone(Channel.mNodeName.C_Str());
+                        if (-1 == iBone)
+                        {
+                            continue;
+                        }
+                            
+                        if (MyAnim.m_BoneKeyFrames[iBone].m_Transfoms.size() == 0) MyAnim.m_BoneKeyFrames[iBone].m_Transfoms.resize(FrameCount);
+
+                        auto& MyBoneKeyFrame = MyAnim.m_BoneKeyFrames[iBone].m_Transfoms[iFrame];
+
+                        MyBoneKeyFrame.m_Translate.setup( presentPosition.x, presentPosition.y, presentPosition.z );
+                        MyBoneKeyFrame.m_Rotate.setup   ( presentRotation.x, presentRotation.y, presentRotation.z, presentRotation.w );
+                        MyBoneKeyFrame.m_Scale.setup    ( presentScaling.x,  presentScaling.y,  presentScaling.z );
+                    }
+                }
+
+                //
+                // Add transforms without animations
+                //
+                for (int i = 0; i < m_pAnimCharacter->m_Skeleton.m_Bones.size(); ++i)
+                {
+                    if (MyAnim.m_BoneKeyFrames[i].m_Transfoms.size() == 0)
+                    {
+                        MyAnim.m_BoneKeyFrames[i].m_Transfoms.resize(FrameCount);
+                        auto pNode = m_pScene->mRootNode->FindNode(m_pAnimCharacter->m_Skeleton.m_Bones[i].m_Name.c_str());
+                        
+                        C_STRUCT aiQuaternion Q;
+                        C_STRUCT aiVector3D   S;
+                        C_STRUCT aiVector3D   T;
+                        pNode->mTransformation.Decompose(S, Q, T);
+
+                        for (int f = 0; f < FrameCount; ++f)
+                        {
+                            auto& MyBoneKeyFrame = MyAnim.m_BoneKeyFrames[i].m_Transfoms[f];
+
+                            MyBoneKeyFrame.m_Translate.setup(T.x, T.y, T.z);
+                            MyBoneKeyFrame.m_Rotate.setup(Q.x, Q.y, Q.z, Q.w);
+                            MyBoneKeyFrame.m_Scale.setup(S.x, S.y, S.z);
+                        }
+                    }
+                }
+            }
+        }
+
+
+        //------------------------------------------------------------------------------------------------------
+
+        void ImportSkeleton( void ) noexcept
+        {
+            std::unordered_map<std::string, const aiNode*> NameToNode;
+            std::unordered_map<std::string, const aiBone*> NameToBone;
+
+            //
+            // Add bones base on bone associated by meshes
+            // 
+            for (auto iMesh = 0u; iMesh < m_pScene->mNumMeshes; ++iMesh)
+            {
+                const aiMesh& Mesh = *m_pScene->mMeshes[iMesh];
+                for (auto iBone = 0u; iBone < Mesh.mNumBones; ++iBone)
+                {
+                    const aiBone& Bone = *Mesh.mBones[iBone];
+                    if (auto E = NameToBone.find(Bone.mName.data); E == NameToBone.end())
+                    {
+                        auto pNode = m_pScene->mRootNode->FindNode(Bone.mName);
+                        NameToBone[Bone.mName.data] = &Bone;
+                        NameToNode[Bone.mName.data] = pNode;
+                    }
+                }
+            }
+
+            //
+            // Add bones base on the animation streams
+            // This should be an option really...
+            // We can throw away any node that is animated but not used by any mesh and it is not a parent to a nodes containing meshes
+            if (false)
+            {
+                for (auto iAnim = 0u; iAnim < m_pScene->mNumAnimations; ++iAnim)
+                {
+                    const aiAnimation& CurrentAnim = *m_pScene->mAnimations[iAnim];
+                    for (auto iStream = 0u; iStream < CurrentAnim.mNumChannels; iStream++)
+                    {
+                        auto& Channel = *CurrentAnim.mChannels[iStream];
+
+                        if (auto E = NameToNode.find(Channel.mNodeName.data); E == NameToNode.end())
+                        {
+                            NameToNode.insert({ Channel.mNodeName.data, m_pScene->mRootNode->FindNode(Channel.mNodeName) });
+                        }
+                    }
+                }
+            }
+
+            //
+            // Make sure all the parent nodes are inserted in the hash table
+            // This algotithum is a bit overkill but is ok... 
+            //
+            for (auto itr1 : NameToNode)
+            {
+                for (auto pParentNode = NameToNode.find(itr1.first)->second->mParent; pParentNode != nullptr; pParentNode = pParentNode->mParent)
+                {
+                    if (auto e = NameToNode.find(pParentNode->mName.C_Str()); e == NameToNode.end())
+                    {
+                        NameToNode[pParentNode->mName.C_Str()] = pParentNode;
+                    }
+                }
+            }
+
+            //
+            // Check to see if we readed too many bones!
+            //
+            if (NameToNode.size() > 0xff)
+            {
+                printf("ERROR: This mesh has %zd Bones we can only handle up to 256\n", NameToNode.size());
+            }
+
+            //
+            // Organize build the skeleton 
+            // We want the parents to be first then the children
+            // Ideally we also want to have the bones that have more children higher
+            //
+            struct proto
+            {
+                const aiNode*   m_pAssimpNode   { nullptr };
+                int             m_Depth         { 0 };
+                int             m_nTotalChildren{ 0 };
+                int             m_nChildren     { 0 };
+            };
+            std::vector<proto> Proto;
+
+            // Set the Assimp Node
+            Proto.resize(NameToNode.size());
+            {
+                int i = 0;
+                for (auto itr = NameToNode.begin(); itr != NameToNode.end(); ++itr)
+                {
+                    auto& P = Proto[i++];
+                    P.m_pAssimpNode = itr->second;
+                }
+            }
+
+            // Set the Depth, m_nTotalChildren and nChildren
+            for (auto i = 0u; i < Proto.size(); ++i)
+            {
+                auto& P = Proto[i];
+                bool  bFoundParent = false;
+
+                for (aiNode* pNode = P.m_pAssimpNode->mParent; pNode; pNode = pNode->mParent)
+                {
+                    P.m_Depth++;
+
+                    // If we can find the parent lets keep a count of how many total children it has
+                    for (auto j = 0; j < Proto.size(); ++j)
+                    {
+                        auto& ParentProto = Proto[j];
+                        if (pNode == ParentProto.m_pAssimpNode)
+                        {
+                            ParentProto.m_nTotalChildren++;
+                            if (bFoundParent == false) ParentProto.m_nChildren++;
+                            bFoundParent = true;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Put all the Proto bones in the right order
+            std::qsort(Proto.data(), Proto.size(), sizeof(proto), [](const void* pA, const void* pB) -> int
+            {
+                const auto& A = *reinterpret_cast<const proto*>(pA);
+                const auto& B = *reinterpret_cast<const proto*>(pB);
+
+                if (A.m_Depth < B.m_Depth) return -1;
+                if (A.m_Depth > B.m_Depth) return  1;
+                if (A.m_nTotalChildren < B.m_nTotalChildren) return  -1;
+                return (A.m_nTotalChildren > B.m_nTotalChildren);
+            });
+
+            //
+            // Create all the real bones
+            //
+            m_pAnimCharacter->m_Skeleton.m_Bones.resize(Proto.size());
+            {
+                int i = 0;
+                for( auto& ACBone : m_pAnimCharacter->m_Skeleton.m_Bones )
+                {
+                    auto& ProtoBone     = Proto[i++];
+                    ACBone.m_Name       = ProtoBone.m_pAssimpNode->mName.data;
+                    ACBone.m_iParent    = -1;
+
+                    // Potentially we may not have all parent nodes in our skeleton
+                    // so we must search by each of the potential assimp nodes
+                    for( aiNode* pNode = ProtoBone.m_pAssimpNode->mParent; ACBone.m_iParent == -1 && pNode; pNode = pNode->mParent)
+                    {
+                        for (auto j = 0; j < i; ++j)
+                        {
+                            if (Proto[j].m_pAssimpNode == ProtoBone.m_pAssimpNode->mParent)
+                            {
+                                ACBone.m_iParent = j;
+                                break;
+                            }
+                        }
+                    }
+
+                    // Check if we have a binding matrix
+                    if( auto B = NameToBone.find(ProtoBone.m_pAssimpNode->mName.data); B != NameToBone.end() )
+                    {
+                        auto OffsetMatrix = B->second->mOffsetMatrix;
+                        std::memcpy( &ACBone.m_InvBind, &OffsetMatrix, sizeof(xcore::matrix4) );
+                        ACBone.m_InvBind.Transpose();
+                    }
+                    else
+                    {
+                        ACBone.m_InvBind = xcore::matrix4::identity();
+                    }
+                }
+            }
+        }
+    };
+}

@@ -2,6 +2,7 @@ echo OFF
 setlocal enabledelayedexpansion
 set XGPU_PATH="%cd%"
 
+goto :UNPACKING
 rem --------------------------------------------------------------------------------------------------------
 rem Set the color of the terminal to blue with yellow text
 rem --------------------------------------------------------------------------------------------------------
@@ -93,6 +94,26 @@ rem ------------------------------------------------------------
 :ASSIMP
 rem copy the dlls just in case the user runs the examples 
 copy "..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\assimp\BINARIES\Win32\bin\Release\assimp-vc142-mt.dll" "xGPUExamples.vs2019\assimp-vc142-mt.dll" /Y
+if %ERRORLEVEL% GEQ 1 goto :ERROR
+
+
+rem ------------------------------------------------------------
+rem Decompress the asset folder
+rem ------------------------------------------------------------
+:UNPACKING
+cd /d %XGPU_PATH%\..\Assets\Animated
+rmdir "../../dependencies/Assets" /S /Q
+powershell -nologo -noprofile -command "& { Add-Type -A 'System.IO.Compression.FileSystem'; [IO.Compression.ZipFile]::ExtractToDirectory('catwalk.zip', '../../dependencies/Assets/Animated'); }"
+if %ERRORLEVEL% GEQ 1 goto :ERROR
+powershell -nologo -noprofile -command "& { Add-Type -A 'System.IO.Compression.FileSystem'; [IO.Compression.ZipFile]::ExtractToDirectory('ImperialWalker.zip', '../../dependencies/Assets/Animated'); }"
+if %ERRORLEVEL% GEQ 1 goto :ERROR
+powershell -nologo -noprofile -command "& { Add-Type -A 'System.IO.Compression.FileSystem'; [IO.Compression.ZipFile]::ExtractToDirectory('Sonic.zip', '../../dependencies/Assets/Animated'); }"
+if %ERRORLEVEL% GEQ 1 goto :ERROR
+powershell -nologo -noprofile -command "& { Add-Type -A 'System.IO.Compression.FileSystem'; [IO.Compression.ZipFile]::ExtractToDirectory('Starwars.zip', '../../dependencies/Assets/Animated'); }"
+if %ERRORLEVEL% GEQ 1 goto :ERROR
+powershell -nologo -noprofile -command "& { Add-Type -A 'System.IO.Compression.FileSystem'; [IO.Compression.ZipFile]::ExtractToDirectory('supersoldier.zip', '../../dependencies/Assets/Animated'); }"
+if %ERRORLEVEL% GEQ 1 goto :ERROR
+powershell -nologo -noprofile -command "& { Add-Type -A 'System.IO.Compression.FileSystem'; [IO.Compression.ZipFile]::ExtractToDirectory('walking-while-listening.zip', '../../dependencies/Assets/Animated'); }"
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
 

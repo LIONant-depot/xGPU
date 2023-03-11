@@ -14,6 +14,7 @@ namespace xgpu
         ,   UINT32_1D
         ,   SINT8_3D_NORMALIZED
         ,   SINT8_4D_NORMALIZED
+        ,   UINT8_4D_UINT
         ,   ENUM_COUNT
         };
 

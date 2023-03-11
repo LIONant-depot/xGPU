@@ -100,6 +100,9 @@
     <Filter Include="Examples\Example 15 Shadowmap">
       <UniqueIdentifier>{44f8078d-7521-4cd3-8ad5-7ac1a619c28c}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Examples\Example 16 Animation">
+      <UniqueIdentifier>{25fcd6f9-ce32-4377-a075-e96d4df82e49}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Src\Examples\main.cpp" />
@@ -294,6 +297,9 @@
     </ClCompile>
     <ClCompile Include="..\..\Src\Details\Vulkan\xgpu_vulkan_renderpass.cpp">
       <Filter>xGPU\Details\Vulkan\Source %28Not compiling%29</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Examples\E16_Animation\E16_AnimationExample.cpp">
+      <Filter>Examples\Example 16 Animation</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -732,6 +738,21 @@
     <ClInclude Include="..\..\Src\Details\Vulkan\xgpu_vulkan_renderpass.h">
       <Filter>xGPU\Details\Vulkan</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_AnimationPackage.h">
+      <Filter>Examples\Example 16 Animation</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_Importer.h">
+      <Filter>Examples\Example 16 Animation</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_Skeleton.h">
+      <Filter>Examples\Example 16 Animation</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_SkinGeom.h">
+      <Filter>Examples\Example 16 Animation</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_AnimCharacter.h">
+      <Filter>Examples\Example 16 Animation</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="draw_vert.glsl" />
@@ -772,6 +793,9 @@
     </CustomBuild>
     <CustomBuild Include="..\..\Src\Examples\E15_Shadowmap\E15_ShadowmapLighting_frag.glsl">
       <Filter>Examples\Example 15 Shadowmap</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E16_Animation\e16_skingeom_vert.glsl">
+      <Filter>Examples\Example 16 Animation</Filter>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>

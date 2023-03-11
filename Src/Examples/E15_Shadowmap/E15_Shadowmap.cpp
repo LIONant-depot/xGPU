@@ -27,7 +27,7 @@ namespace e15
     };
 
     // Make sure that the uniform buffer is well align as many GPUs require this
-    struct alignas(64) lighting_uniform_buffer
+    struct alignas(256) lighting_uniform_buffer
     {
         xcore::matrix4 m_L2C;
         xcore::matrix4 m_ShadowL2CPlus;
