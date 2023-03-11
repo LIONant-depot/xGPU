@@ -18,6 +18,6 @@ namespace e16
             return -1;
         }
 
-        std::vector<bone> m_Bones;              // Bones are shorted (Parents go first)
+        std::vector<bone>   m_Bones;              // Bones are shorted (Parents go first)
     };
 }

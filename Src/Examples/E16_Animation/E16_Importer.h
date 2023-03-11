@@ -24,6 +24,8 @@ namespace e16
             auto Importer = std::make_unique<Assimp::Importer>();
             m_pAnimCharacter = &AnimCharacter;
 
+            AnimCharacter.m_SkinGeom.m_FileName = FileName;
+
             m_pScene = Importer->ReadFile(FileName
                 , aiProcess_Triangulate                // Make sure we get triangles rather than nvert polygons
                 | aiProcess_LimitBoneWeights           // 4 weights for skin model max
@@ -151,8 +153,9 @@ namespace e16
                 {
                     switch (A)
                     {
-                    case aiTextureMapMode_Mirror: return skin_geom::material_instance::address_mode::MIRROR;
+                    case aiTextureMapMode_Decal: 
                     case aiTextureMapMode_Clamp: return skin_geom::material_instance::address_mode::CLAMP;
+                    case aiTextureMapMode_Mirror: return skin_geom::material_instance::address_mode::MIRROR;
                     }
 
                     return skin_geom::material_instance::address_mode::TILE;
@@ -177,14 +180,26 @@ namespace e16
                 auto  pcMat = m_pScene->mMaterials[Submesh.m_iMaterial];
                 auto& MatI  = m_pAnimCharacter->m_SkinGeom.m_MaterialInstance.emplace_back();
 
+                MatI.m_Name = pcMat->GetName().C_Str();
+
                 // Shading model
                 {
                     int ShadingModel = -1;
                     aiGetMaterialInteger(pcMat, AI_MATKEY_SHADING_MODEL, (int*)&ShadingModel);
                     switch (ShadingModel)
                     {
-                        case aiShadingMode_Gouraud: MatI.m_ShadingModel = skin_geom::material_instance::shading_model::GOURAUD; break;
-                        default:                    MatI.m_ShadingModel = skin_geom::material_instance::shading_model::UNKOWN;  break;
+                        case aiShadingMode_Gouraud: 
+                        case aiShadingMode_Flat:
+                        case aiShadingMode_Phong:
+                        case aiShadingMode_Blinn:       MatI.m_ShadingModel = skin_geom::material_instance::shading_model::GOURAUD; break;
+                        case aiShadingMode_Toon:        MatI.m_ShadingModel = skin_geom::material_instance::shading_model::TOON; break;
+                        case aiShadingMode_NoShading:   MatI.m_ShadingModel = skin_geom::material_instance::shading_model::UNLIGHT; break;
+                        case aiShadingMode_OrenNayar:
+                        case aiShadingMode_Minnaert:
+                        case aiShadingMode_Fresnel:
+                        case aiShadingMode_CookTorrance:
+                        case aiShadingMode_PBR_BRDF:    MatI.m_ShadingModel = skin_geom::material_instance::shading_model::PBR; break;
+                        default:                        MatI.m_ShadingModel = skin_geom::material_instance::shading_model::UNKOWN; break;
                     }
                 }
 
@@ -238,7 +253,32 @@ namespace e16
                 {
                     aiString         szPath;
                     aiTextureMapMode mapU(aiTextureMapMode_Wrap), mapV(aiTextureMapMode_Wrap);
-                    aiGetMaterialString(pcMat, AI_MATKEY_TEXTURE_DIFFUSE(0), &szPath);
+                    if (AI_SUCCESS != aiGetMaterialString(pcMat, AI_MATKEY_TEXTURE_DIFFUSE(0), &szPath))
+                    {
+                        for (std::uint32_t i = 0; i < pcMat->mNumProperties; ++i)
+                        {
+                            const auto& Props = *pcMat->mProperties[i];
+                            if (Props.mType == aiPTI_String)
+                            {
+                                if (Props.mSemantic != aiTextureType_NONE)
+                                {
+                                    if(Props.mSemantic == aiTextureType_BASE_COLOR)
+                                    {
+                                        szPath = *(aiString*)Props.mData;
+                                        break;
+                                    }
+                                    else if (Props.mSemantic == aiTextureType_UNKNOWN)
+                                    {
+                                        if (xcore::string::FindStrI(((aiString*)Props.mData)->C_Str(), "_Base_Color") != -1)
+                                        {
+                                            szPath = *(aiString*)Props.mData;
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                     aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_U_DIFFUSE(0), (int*)&mapU);
                     aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_V_DIFFUSE(0), (int*)&mapV);
                     HandleSampler(MatI.m_DiffuseSampler, szPath, mapU, mapV);
@@ -329,24 +369,14 @@ namespace e16
                     HandleSampler(MatI.m_NormalSampler, szPath, mapU, mapV);
                 }
 
-                // Hight Texture
+                // Height Texture
                 {
                     aiString         szPath;
                     aiTextureMapMode mapU(aiTextureMapMode_Wrap), mapV(aiTextureMapMode_Wrap);
                     aiGetMaterialString(pcMat, AI_MATKEY_TEXTURE_HEIGHT(0), &szPath);
                     aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_U_HEIGHT(0), (int*)&mapU);
                     aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_V_HEIGHT(0), (int*)&mapV);
-                    HandleSampler(MatI.m_HightSampler, szPath, mapU, mapV);
-                }
-
-                // Hight Texture
-                {
-                    aiString         szPath;
-                    aiTextureMapMode mapU(aiTextureMapMode_Wrap), mapV(aiTextureMapMode_Wrap);
-                    aiGetMaterialString(pcMat, AI_MATKEY_TEXTURE_HEIGHT(0), &szPath);
-                    aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_U_HEIGHT(0), (int*)&mapU);
-                    aiGetMaterialInteger(pcMat, AI_MATKEY_MAPPINGMODE_V_HEIGHT(0), (int*)&mapV);
-                    HandleSampler(MatI.m_HightSampler, szPath, mapU, mapV);
+                    HandleSampler(MatI.m_HeightSampler, szPath, mapU, mapV);
                 }
             }
         }

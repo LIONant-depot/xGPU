@@ -466,10 +466,10 @@ int E16_Example()
         e16::importer Importer;
         if( Importer.Import(AnimCharacter
         // , "./../../dependencies/Assets/Animated/ImperialWalker/source/AT-AT.fbx"
-         , "./../../dependencies/Assets/Animated/catwalk/scene.gltf"
+        // , "./../../dependencies/Assets/Animated/catwalk/scene.gltf"
         // , "./../../dependencies/Assets/Animated/supersoldier/source/Idle.fbx"
         // , "./../../dependencies/Assets/Animated/Sonic/source/chr_classicsonic.fbx"
-        // , "./../../dependencies/Assets/Animated/Starwars/source/Catwalk Walk Forward.fbx" 
+         , "./../../dependencies/Assets/Animated/Starwars/source/Catwalk Walk Forward.fbx" 
         // , "./../../dependencies/Assets/Animated/walking-while-listening/source/Walking.fbx"
         // , "./../../dependencies/xgeom_compiler/dependencies/xraw3D/dependencies/assimp/test/models/FBX/huesitos.fbx"
         ) ) exit(1);

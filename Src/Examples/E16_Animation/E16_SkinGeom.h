@@ -28,9 +28,11 @@ namespace e16
         struct material_instance
         {
             enum class shading_model : std::uint8_t
-            {   UNKOWN
-            ,   GOURAUD
-            ,   OTHER
+            { UNKOWN
+            , GOURAUD
+            , PBR
+            , TOON
+            , UNLIGHT
             };
 
             enum class address_mode : std::uint8_t
@@ -46,6 +48,7 @@ namespace e16
                 address_mode        m_VMode;
             };
 
+            std::string             m_Name;
             shading_model           m_ShadingModel;
             xcore::icolor           m_DiffuseColor;
             xcore::icolor           m_SpecularColor;
@@ -62,9 +65,10 @@ namespace e16
             sampler                 m_ShininessSampler;
             sampler                 m_LightmapSampler;
             sampler                 m_NormalSampler;
-            sampler                 m_HightSampler;
+            sampler                 m_HeightSampler;
         };
 
+        std::string                     m_FileName;
         std::vector<mesh>               m_Mesh;
         std::vector<material_instance>  m_MaterialInstance;
         std::vector<std::string>        m_TexturePaths;
