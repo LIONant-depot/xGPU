@@ -62,23 +62,53 @@ namespace xgpu::tools::bitmap
     inline
     xgpu::device::error* Create( xgpu::texture& Texture, xgpu::device& Device, const xcore::bitmap& Bitmap ) noexcept
     {
-        xgpu::texture::setup                    Setup;
-        std::vector<xgpu::texture::setup::mip>  Mips;
-
-        for( int i=0, end = Bitmap.getMipCount(); i<end; ++i )
+        static constexpr auto Do = [](xgpu::texture& Texture, xgpu::device& Device, const xcore::bitmap& Bitmap) -> xgpu::device::error*
         {
-            Mips.push_back( { Bitmap.getMipSize(i)} );
+            xgpu::texture::setup                    Setup;
+            std::vector<xgpu::texture::setup::mip>  Mips;
+
+            for (int i = 0, end = Bitmap.getMipCount(); i < end; ++i)
+            {
+                Mips.push_back({ Bitmap.getMipSize(i) });
+            }
+
+            Setup.m_Format      = getFormat(Bitmap.getFormat());
+            Setup.m_Height      = Bitmap.getHeight();
+            Setup.m_Width       = Bitmap.getWidth();
+            Setup.m_MipChain    = Mips;
+            Setup.m_Data        = std::span{ Bitmap.getMip<std::byte>(0).data(), Bitmap.getFrameSize() };
+            Setup.m_Type        = Bitmap.isLinearSpace() ? xgpu::texture::type::LINEAR : xgpu::texture::type::GAMMA;
+
+            if (auto Err = Device.Create(Texture, Setup); Err)
+                return Err;
+
+            return nullptr;
+        };
+
+        if( Bitmap.getFormat() == xcore::bitmap::format::R8G8B8 )
+        {
+            xcore::bitmap Temp;
+            Temp.CreateBitmap(Bitmap.getWidth(), Bitmap.getHeight());
+
+            int iC=0;
+            auto Src       = std::span{ Bitmap.getMip<std::uint8_t>(0).data(), Bitmap.getFrameSize() };
+            auto NewPixels = std::span{ Temp.getMip<xcore::icolor>(0).data(), static_cast<std::size_t>(Bitmap.getWidth()* Bitmap.getHeight()) };
+            for ( auto y=0u; y < Bitmap.getHeight(); ++y)
+            for ( auto x=0u; x < Bitmap.getWidth();  ++x)
+            {
+                auto& C = NewPixels[ x + y * Bitmap.getWidth()];
+                C.m_R = Src[iC++];
+                C.m_G = Src[iC++];
+                C.m_B = Src[iC++];
+                C.m_A = 0xff;
+            }
+
+            return Do(Texture, Device, Temp);
         }
-
-        Setup.m_Format      = getFormat(Bitmap.getFormat());
-        Setup.m_Height      = Bitmap.getHeight();
-        Setup.m_Width       = Bitmap.getWidth();
-        Setup.m_MipChain    = Mips;
-        Setup.m_Data        = std::span{ Bitmap.getMip<std::byte>(0).data(), Bitmap.getFrameSize() };
-        Setup.m_Type        = Bitmap.isLinearSpace()? xgpu::texture::type::LINEAR : xgpu::texture::type::GAMMA;
-
-        if (auto Err = Device.Create(Texture, Setup); Err)
-            return Err;
+        else
+        {
+            return Do(Texture, Device, Bitmap);
+        }
 
         return nullptr;
     }

@@ -7,7 +7,7 @@
 
 #include "../../tools/xgpu_xcore_bitmap_helpers.h"
 #include "../../dependencies/xprim_geom/src/xprim_geom.h"
-
+#include "../../dependencies/xbmp_tools/src/xbmp_tools.h"
 
 //------------------------------------------------------------------------------------------------
 static
@@ -372,6 +372,68 @@ struct skin_render
             }
         }
 
+
+        //
+        // Load the textures
+        //
+        m_Textures.resize(SkinGeom.m_TexturePaths.size());
+        xcore::cstring TexturePath;
+        {
+            auto S = xcore::string::FindStrI(SkinGeom.m_FileName.c_str(), "Source");
+            if (S == -1)
+            {
+                auto I = xcore::string::findLastInstance(SkinGeom.m_FileName.c_str(), '/');
+                assert(I != -1);
+                I++;
+                xcore::string::CopyN(TexturePath, SkinGeom.m_FileName.c_str(), xcore::cstring::units{ static_cast<std::uint32_t>(I) });
+            }
+            else
+            {
+                xcore::string::CopyN(TexturePath, SkinGeom.m_FileName.c_str(), xcore::cstring::units{ static_cast<std::uint32_t>(S) });
+            }
+            TexturePath = xcore::string::Fmt("%sTextures/", TexturePath.data() );
+        }
+
+
+        xgpu::texture DefaultTexture;
+        if (auto Err = xgpu::tools::bitmap::Create(DefaultTexture, Device, xcore::bitmap::getDefaultBitmap()); Err)
+            return xgpu::getErrorInt(Err);
+
+        m_Textures.resize(SkinGeom.m_TexturePaths.size());
+        if(false)
+        {
+            int i=0;
+            for( auto& S : SkinGeom.m_TexturePaths )
+            {
+                int I = xcore::string::findLastInstance(S.c_str(), '/');
+
+                if (I == -1) I = 0;
+                else         I++;
+
+                auto FinalTexturePath = xcore::string::Fmt( "%s%s", TexturePath.data(), &S.c_str()[I] );
+                xcore::bitmap Bitmap;
+                if (auto Err = xbmp::tools::loader::LoadSTDImage(Bitmap, FinalTexturePath); Err)
+                {
+                    printf ("ERROR: Failed to load the texture [%s], assinging the default texture\n", FinalTexturePath.data() );
+                    m_Textures[i] = DefaultTexture;
+                }
+                else
+                {
+                    if (auto Err = xgpu::tools::bitmap::Create(m_Textures[i], Device, Bitmap); Err)
+                    {
+                        printf("ERROR: I was able to load this textuure [%s], however vulkan had an error so I will set the default texture\n", FinalTexturePath.data());
+                        m_Textures[i] = DefaultTexture;
+                    }
+                }
+
+                i++;
+            }
+        }        
+        else
+        {
+            for( auto& T : m_Textures ) T = DefaultTexture;
+        }
+
         //
         // Setup the material instance
         //
@@ -379,14 +441,11 @@ struct skin_render
         if (auto Err = Device.Create(UBO, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(shader_uniform_buffer), .m_EntryCount = 2 }); Err)
             return xgpu::getErrorInt(Err);
 
-        m_PipeLineInstance.resize( 1 );//SkinGeom.m_MaterialInstance.size() );
+        m_PipeLineInstance.resize( SkinGeom.m_MaterialInstance.size() );
         for (auto i = 0u; i < m_PipeLineInstance.size(); ++i)
         {
-            xgpu::texture Texture;
-            if (auto Err = xgpu::tools::bitmap::Create(Texture, Device, xcore::bitmap::getDefaultBitmap()); Err)
-                return xgpu::getErrorInt(Err);
-
-            auto Bindings       = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
+            auto iTexture       = SkinGeom.m_MaterialInstance[i].m_DiffuseSampler.m_iTexture;
+            auto Bindings       = std::array{ xgpu::pipeline_instance::sampler_binding{ iTexture == -1 ? DefaultTexture : m_Textures[iTexture] } };
             auto UniformBuffers = std::array{ xgpu::pipeline_instance::uniform_buffer{ UBO } };
 
             auto  Setup    = xgpu::pipeline_instance::setup
@@ -405,12 +464,12 @@ struct skin_render
     template< typename T_CALLBACK>
     void Render( xgpu::cmd_buffer& CmdBuffer, T_CALLBACK&& Callback, std::uint64_t MeshMask = ~0ull )
     {
+        if(!MeshMask) return;
+
         CmdBuffer.setBuffer(m_VertexBuffer);
         CmdBuffer.setBuffer(m_IndexBuffer);
-        CmdBuffer.setPipelineInstance(m_PipeLineInstance[0]);
-        auto& UBO = CmdBuffer.getUniformBufferVMem<shader_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
-        Callback(UBO);
 
+        bool bComputedMatrices = false;
         for (int i = 0; i < m_Meshes.size(); ++i, MeshMask >>= 1 )
         {
             if((1 & MeshMask) == 0) continue;
@@ -418,6 +477,13 @@ struct skin_render
             for (auto j = 0u; j < Mesh.m_nSubmeshes; ++j)
             {
                 auto& Submesh = m_Submeshes[Mesh.m_iSubmesh + j];
+                CmdBuffer.setPipelineInstance(m_PipeLineInstance[Submesh.m_iMaterialInstance]);
+                if (bComputedMatrices == false)
+                {
+                    bComputedMatrices = true;
+                    auto& UBO = CmdBuffer.getUniformBufferVMem<shader_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
+                    Callback(UBO);
+                }
                 CmdBuffer.Draw( Submesh.m_nIndices, Submesh.m_iIndex, Submesh.m_iVertex );
             }
         }
@@ -428,6 +494,7 @@ struct skin_render
     std::vector<xgpu::pipeline_instance> m_PipeLineInstance;
     std::vector<submesh>                 m_Submeshes;
     std::vector<mesh>                    m_Meshes;
+    std::vector<xgpu::texture>           m_Textures;
 };
 
 //------------------------------------------------------------------------------------------------
@@ -466,10 +533,10 @@ int E16_Example()
         e16::importer Importer;
         if( Importer.Import(AnimCharacter
         // , "./../../dependencies/Assets/Animated/ImperialWalker/source/AT-AT.fbx"
-        // , "./../../dependencies/Assets/Animated/catwalk/scene.gltf"
+         , "./../../dependencies/Assets/Animated/catwalk/scene.gltf"
         // , "./../../dependencies/Assets/Animated/supersoldier/source/Idle.fbx"
         // , "./../../dependencies/Assets/Animated/Sonic/source/chr_classicsonic.fbx"
-         , "./../../dependencies/Assets/Animated/Starwars/source/Catwalk Walk Forward.fbx" 
+        // , "./../../dependencies/Assets/Animated/Starwars/source/Catwalk Walk Forward.fbx" 
         // , "./../../dependencies/Assets/Animated/walking-while-listening/source/Walking.fbx"
         // , "./../../dependencies/xgeom_compiler/dependencies/xraw3D/dependencies/assimp/test/models/FBX/huesitos.fbx"
         ) ) exit(1);

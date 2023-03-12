@@ -142,6 +142,7 @@ namespace e16
                         Sampler.m_iTexture = static_cast<int>(m_pAnimCharacter->m_SkinGeom.m_TexturePaths.size());
                         TextureToIndex[FilePath] = Sampler.m_iTexture;
                         m_pAnimCharacter->m_SkinGeom.m_TexturePaths.emplace_back( std::move(FilePath) );
+                        xcore::string::CleanPath(m_pAnimCharacter->m_SkinGeom.m_TexturePaths.back());
                     }
                     else
                     {
