@@ -474,10 +474,14 @@ namespace e16
                 {
                     e16::vertex& Vertex = MyNodes[iMesh].m_Vertices[i];
 
+                    //auto L = m_MeshReferences[iMesh].m_Nodes[0]->mTransformation * AssimpMesh.mVertices[i];
+                    auto L = AssimpMesh.mVertices[i];
+
+
                     Vertex.m_Position = xcore::vector3d
-                    ( static_cast<float>(AssimpMesh.mVertices[i].x)
-                    , static_cast<float>(AssimpMesh.mVertices[i].y)
-                    , static_cast<float>(AssimpMesh.mVertices[i].z)
+                    ( static_cast<float>(L.x)
+                    , static_cast<float>(L.y)
+                    , static_cast<float>(L.z)
                     );
 
                     if(iTexCordinates == -1)
@@ -555,7 +559,7 @@ namespace e16
                 //
                 if (AssimpMesh.mNumBones > 0)
                 {
-                    struct weight
+                    struct tmp_weight
                     {
                         std::uint8_t m_iBone;
                         float        m_Weight{0};
@@ -563,8 +567,8 @@ namespace e16
 
                     struct my_weights
                     {
-                        int                  m_Count {0};
-                        std::array<weight,4> m_Weights;
+                        int                         m_Count {0};
+                        std::array<tmp_weight,4>    m_Weights;
                     };
 
                     std::vector<my_weights> MyWeights;
@@ -580,11 +584,12 @@ namespace e16
                     {
                         const auto&          AssimpBone    = *AssimpMesh.mBones[iBone];
                         const std::uint8_t   iSkeletonBone = m_pAnimCharacter->m_Skeleton.findBone(AssimpBone.mName.C_Str());
+                        assert( m_pAnimCharacter->m_Skeleton.findBone(AssimpBone.mName.C_Str()) != -1 );
 
                         for( auto iWeight = 0u; iWeight < AssimpBone.mNumWeights; ++iWeight )
                         {
-                            auto  AssimpWeight = AssimpBone.mWeights[iWeight];
-                            auto& MyWeight     = MyWeights[AssimpWeight.mVertexId];
+                            const auto& AssimpWeight = AssimpBone.mWeights[iWeight];
+                            auto&       MyWeight     = MyWeights[AssimpWeight.mVertexId];
 
                             MyWeight.m_Weights[MyWeight.m_Count].m_iBone  = iSkeletonBone;
                             MyWeight.m_Weights[MyWeight.m_Count].m_Weight = AssimpWeight.mWeight;
@@ -602,10 +607,10 @@ namespace e16
                         auto& E = MyWeights[iVertex];
 
                         // Short from bigger to smaller
-                        std::qsort( E.m_Weights.data(), E.m_Weights.size(), sizeof(weight), []( const void* pA, const void* pB ) ->int
+                        std::qsort( E.m_Weights.data(), E.m_Weights.size(), sizeof(tmp_weight), []( const void* pA, const void* pB ) ->int
                         {
-                            const weight& A = *reinterpret_cast<const weight*>(pA);
-                            const weight& B = *reinterpret_cast<const weight*>(pB);
+                            auto& A = *reinterpret_cast<const tmp_weight*>(pA);
+                            auto& B = *reinterpret_cast<const tmp_weight*>(pB);
                             if( B.m_Weight < A.m_Weight ) return -1;
                             return B.m_Weight > A.m_Weight;
                         });
@@ -628,19 +633,21 @@ namespace e16
                         auto& V = MyNodes[iMesh].m_Vertices[iVertex];
                         for (int i = 0; i < E.m_Count; ++i)
                         {
+                            const auto& BW = E.m_Weights[i];
+
                             switch (i)
                             {
-                            case 0: V.m_BoneIndex.m_R   = static_cast<std::uint8_t>(E.m_Weights[i].m_iBone);
-                                    V.m_BoneWeights.m_R = static_cast<std::uint8_t>(E.m_Weights[i].m_Weight * 0xff);
+                            case 0: V.m_BoneIndex.m_R   = static_cast<std::uint8_t>(BW.m_iBone);
+                                    V.m_BoneWeights.m_R = static_cast<std::uint8_t>(BW.m_Weight * 0xff);
                                     break;
-                            case 1: V.m_BoneIndex.m_G   = static_cast<std::uint8_t>(E.m_Weights[i].m_iBone);
-                                    V.m_BoneWeights.m_G = static_cast<std::uint8_t>(E.m_Weights[i].m_Weight * 0xff);
+                            case 1: V.m_BoneIndex.m_G   = static_cast<std::uint8_t>(BW.m_iBone);
+                                    V.m_BoneWeights.m_G = static_cast<std::uint8_t>(BW.m_Weight * 0xff);
                                     break;
-                            case 2: V.m_BoneIndex.m_B   = static_cast<std::uint8_t>(E.m_Weights[i].m_iBone);
-                                    V.m_BoneWeights.m_B = static_cast<std::uint8_t>(E.m_Weights[i].m_Weight * 0xff);
+                            case 2: V.m_BoneIndex.m_B   = static_cast<std::uint8_t>(BW.m_iBone);
+                                    V.m_BoneWeights.m_B = static_cast<std::uint8_t>(BW.m_Weight * 0xff);
                                     break;
-                            case 3: V.m_BoneIndex.m_A   = static_cast<std::uint8_t>(E.m_Weights[i].m_iBone);
-                                    V.m_BoneWeights.m_A = static_cast<std::uint8_t>(E.m_Weights[i].m_Weight * 0xff);
+                            case 3: V.m_BoneIndex.m_A   = static_cast<std::uint8_t>(BW.m_iBone);
+                                    V.m_BoneWeights.m_A = static_cast<std::uint8_t>(BW.m_Weight * 0xff);
                                     break;
                             }
                         }
@@ -736,7 +743,7 @@ namespace e16
                     }
                 }
 
-                if (iFinalMesh)
+                if (iFinalMesh == -1)
                 {
                     iFinalMesh = static_cast<int>(m_pAnimCharacter->m_SkinGeom.m_Mesh.size());
                     m_pAnimCharacter->m_SkinGeom.m_Mesh.emplace_back();
@@ -913,9 +920,9 @@ namespace e16
                         MyAnim.m_BoneKeyFrames[i].m_Transfoms.resize(FrameCount);
                         auto pNode = m_pScene->mRootNode->FindNode(m_pAnimCharacter->m_Skeleton.m_Bones[i].m_Name.c_str());
                         
-                        C_STRUCT aiQuaternion Q;
-                        C_STRUCT aiVector3D   S;
-                        C_STRUCT aiVector3D   T;
+                        C_STRUCT aiQuaternion Q(0,0,0,1);
+                        C_STRUCT aiVector3D   S(1,1,1);
+                        C_STRUCT aiVector3D   T(0,0,0);
                         pNode->mTransformation.Decompose(S, Q, T);
 
                         for (int f = 0; f < FrameCount; ++f)
@@ -1093,12 +1100,56 @@ namespace e16
                     if( auto B = NameToBone.find(ProtoBone.m_pAssimpNode->mName.data); B != NameToBone.end() )
                     {
                         auto OffsetMatrix = B->second->mOffsetMatrix;
+                        std::memcpy(&ACBone.m_InvBind, &OffsetMatrix, sizeof(xcore::matrix4));
+                        ACBone.m_InvBind.Transpose();
+
+                        /*
+                        auto C = NameToNode.find(ProtoBone.m_pAssimpNode->mName.data);
+                        auto NodeMatrix = C->second->mTransformation;
+                        for (auto p = C->second->mParent; p; p = p->mParent) NodeMatrix = p->mTransformation * NodeMatrix;
+                        auto OffsetMatrix = NodeMatrix.Inverse();
+                        std::memcpy(&ACBone.m_InvBind, &OffsetMatrix, sizeof(xcore::matrix4));
+                        ACBone.m_InvBind.Transpose();
+                        */
+
+                        /*
+                        auto OffsetMatrix  = B->second->mOffsetMatrix;
+                        auto A             = NameToNode.find(Proto[0].m_pAssimpNode->mName.data);
+                        auto GlobalInverse = A->second->mTransformation;
+                        for (auto p = A->second->mParent; p; p = p->mParent) GlobalInverse = p->mTransformation * GlobalInverse;
+                        
+                        GlobalInverse.Inverse();
+                        OffsetMatrix = OffsetMatrix * GlobalInverse;
+
                         std::memcpy( &ACBone.m_InvBind, &OffsetMatrix, sizeof(xcore::matrix4) );
                         ACBone.m_InvBind.Transpose();
+                        ACBone.m_InvBind.PreTranslate({ 0, -142, 0 });
+                        */
+                        
                     }
                     else
                     {
+                        /*
+                        auto C = NameToNode.find(ProtoBone.m_pAssimpNode->mName.data);
+                        auto OffsetMatrix = C->second->mTransformation;
+                        for( auto p = C->second->mParent; p ; p = p->mParent ) OffsetMatrix = p->mTransformation * OffsetMatrix;
+                        std::memcpy(&ACBone.m_InvBind, &OffsetMatrix, sizeof(xcore::matrix4));
+                        ACBone.m_InvBind.Transpose();
+                        ACBone.m_InvBind.FullInvert();
+                        */
+
+                        
                         ACBone.m_InvBind = xcore::matrix4::identity();
+                        
+                        
+                        /*
+                        auto C = NameToNode.find(ProtoBone.m_pAssimpNode->mName.data);
+                        auto NodeMatrix = C->second->mTransformation;
+                        for (auto p = C->second->mParent; p; p = p->mParent) NodeMatrix = p->mTransformation * NodeMatrix;
+                        NodeMatrix.Inverse();
+                        std::memcpy(&ACBone.m_InvBind, &NodeMatrix, sizeof(xcore::matrix4));
+                        ACBone.m_InvBind.Transpose();
+                        */
                     }
                 }
             }

@@ -400,7 +400,7 @@ struct skin_render
             return xgpu::getErrorInt(Err);
 
         m_Textures.resize(SkinGeom.m_TexturePaths.size());
-        if(false)
+        if(true)
         {
             int i=0;
             for( auto& S : SkinGeom.m_TexturePaths )
@@ -476,6 +476,9 @@ struct skin_render
             auto& Mesh = m_Meshes[i];
             for (auto j = 0u; j < Mesh.m_nSubmeshes; ++j)
             {
+
+//if( j < 2 ) continue;
+
                 auto& Submesh = m_Submeshes[Mesh.m_iSubmesh + j];
                 CmdBuffer.setPipelineInstance(m_PipeLineInstance[Submesh.m_iMaterialInstance]);
                 if (bComputedMatrices == false)
@@ -533,10 +536,10 @@ int E16_Example()
         e16::importer Importer;
         if( Importer.Import(AnimCharacter
         // , "./../../dependencies/Assets/Animated/ImperialWalker/source/AT-AT.fbx"
-         , "./../../dependencies/Assets/Animated/catwalk/scene.gltf"
+        // , "./../../dependencies/Assets/Animated/catwalk/scene.gltf"
         // , "./../../dependencies/Assets/Animated/supersoldier/source/Idle.fbx"
         // , "./../../dependencies/Assets/Animated/Sonic/source/chr_classicsonic.fbx"
-        // , "./../../dependencies/Assets/Animated/Starwars/source/Catwalk Walk Forward.fbx" 
+         , "./../../dependencies/Assets/Animated/Starwars/source/Catwalk Walk Forward.fbx" 
         // , "./../../dependencies/Assets/Animated/walking-while-listening/source/Walking.fbx"
         // , "./../../dependencies/xgeom_compiler/dependencies/xraw3D/dependencies/assimp/test/models/FBX/huesitos.fbx"
         ) ) exit(1);

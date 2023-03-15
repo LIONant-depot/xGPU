@@ -332,11 +332,12 @@ namespace xgpu::vulkan
             // Get memory requirements for the staging buffer (alignment, memory type bits)
             vkGetBufferMemoryRequirements( m_Device->m_VKDevice, StagingBuffer, &MemoryRequirements );
             MemoryAllocInfo.allocationSize = MemoryRequirements.size;
+            assert(MemoryAllocInfo.allocationSize >= MemoryRequirements.size);
 
             // Get memory type index for a host visible buffer
             m_Device->getMemoryType( MemoryRequirements.memoryTypeBits
-                                , VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-                                , MemoryAllocInfo.memoryTypeIndex );
+                                   , VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+                                   , MemoryAllocInfo.memoryTypeIndex );
 
             VkDeviceMemory  StagingMemory{};
             if( auto VKErr = vkAllocateMemory( m_Device->m_VKDevice
@@ -373,7 +374,8 @@ namespace xgpu::vulkan
                 m_Device->m_Instance->ReportError(VKErr, "Fail to map with the allocated memory for the texture");
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to map with the allocated memory for the texture");
             }
-
+            
+            assert(MemoryRequirements.size >= Setup.m_Data.size() );
             memcpy(pData, Setup.m_Data.data(), Setup.m_Data.size());
             vkUnmapMemory( m_Device->m_VKDevice, StagingMemory );
 
