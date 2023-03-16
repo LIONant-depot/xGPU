@@ -222,12 +222,12 @@ struct skin_render
             }
         }
 
-        if (auto Err = Device.Create(m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e16::vertex), .m_EntryCount = static_cast<int>(nVertices) }); Err)
+        if (auto Err = Device.Create(m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e16::skin_vertex), .m_EntryCount = static_cast<int>(nVertices) }); Err)
             return xgpu::getErrorInt(Err);
 
         (void)m_VertexBuffer.MemoryMap(0, static_cast<int>(nVertices), [&](void* pData)
         {
-            auto pVertex = static_cast<e16::vertex*>(pData);
+            auto pVertex = static_cast<e16::skin_vertex*>(pData);
             for (auto& Mesh : SkinGeom.m_Mesh)
             for (auto& Submesh : Mesh.m_Submeshes)
             for (auto& Vert : Submesh.m_Vertices)
@@ -264,32 +264,32 @@ struct skin_render
             {
                 auto Attributes = std::array
                 { xgpu::vertex_descriptor::attribute
-                  { .m_Offset = offsetof(e16::vertex, m_Position)
+                  { .m_Offset = offsetof(e16::skin_vertex, m_Position)
                   , .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
                   }
                 , xgpu::vertex_descriptor::attribute
-                  { .m_Offset = offsetof(e16::vertex, m_UV)
+                  { .m_Offset = offsetof(e16::skin_vertex, m_UV)
                   , .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
                   }
                 , xgpu::vertex_descriptor::attribute
-                  { .m_Offset = offsetof(e16::vertex, m_Normal)
+                  { .m_Offset = offsetof(e16::skin_vertex, m_Normal)
                   , .m_Format = xgpu::vertex_descriptor::format::SINT8_4D_NORMALIZED
                   }
                 , xgpu::vertex_descriptor::attribute
-                  { .m_Offset = offsetof(e16::vertex, m_Tangent)
+                  { .m_Offset = offsetof(e16::skin_vertex, m_Tangent)
                   , .m_Format = xgpu::vertex_descriptor::format::SINT8_4D_NORMALIZED
                   }
                 , xgpu::vertex_descriptor::attribute
-                  { .m_Offset = offsetof(e16::vertex, m_BoneWeights)
+                  { .m_Offset = offsetof(e16::skin_vertex, m_BoneWeights)
                   , .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED
                   }
                 , xgpu::vertex_descriptor::attribute
-                  { .m_Offset = offsetof(e16::vertex, m_BoneIndex)
+                  { .m_Offset = offsetof(e16::skin_vertex, m_BoneIndex)
                   , .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_UINT
                   }
                 };
                 auto Setup = xgpu::vertex_descriptor::setup
-                { .m_VertexSize = sizeof(e16::vertex)
+                { .m_VertexSize = sizeof(e16::skin_vertex)
                 , .m_Attributes = Attributes
                 };
 
@@ -363,7 +363,7 @@ struct skin_render
                     m_Submeshes[iSubmesh].m_iIndex   = nIndices;
                     m_Submeshes[iSubmesh].m_nIndices = static_cast<std::uint32_t>(Submesh.m_Indices.size());
                     m_Submeshes[iSubmesh].m_iVertex  = nVerts;
-                    m_Submeshes[iSubmesh].m_iMaterialInstance = 0;//Submesh.m_iMaterial;
+                    m_Submeshes[iSubmesh].m_iMaterialInstance = Submesh.m_iMaterial;
 
                     iSubmesh ++;
                     nIndices += static_cast<std::uint32_t>(Submesh.m_Indices.size());
@@ -476,9 +476,6 @@ struct skin_render
             auto& Mesh = m_Meshes[i];
             for (auto j = 0u; j < Mesh.m_nSubmeshes; ++j)
             {
-
-//if( j < 2 ) continue;
-
                 auto& Submesh = m_Submeshes[Mesh.m_iSubmesh + j];
                 CmdBuffer.setPipelineInstance(m_PipeLineInstance[Submesh.m_iMaterialInstance]);
                 if (bComputedMatrices == false)
@@ -539,8 +536,8 @@ int E16_Example()
         // , "./../../dependencies/Assets/Animated/catwalk/scene.gltf"
         // , "./../../dependencies/Assets/Animated/supersoldier/source/Idle.fbx"
         // , "./../../dependencies/Assets/Animated/Sonic/source/chr_classicsonic.fbx"
-         , "./../../dependencies/Assets/Animated/Starwars/source/Catwalk Walk Forward.fbx" 
-        // , "./../../dependencies/Assets/Animated/walking-while-listening/source/Walking.fbx"
+        // , "./../../dependencies/Assets/Animated/Starwars/source/Catwalk Walk Forward.fbx" 
+         , "./../../dependencies/Assets/Animated/walking-while-listening/source/Walking.fbx"
         // , "./../../dependencies/xgeom_compiler/dependencies/xraw3D/dependencies/assimp/test/models/FBX/huesitos.fbx"
         ) ) exit(1);
     }

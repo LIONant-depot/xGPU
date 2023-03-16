@@ -1,6 +1,6 @@
 namespace e16
 {
-    struct vertex
+    struct skin_vertex
     {
         xcore::vector3d m_Position;
         xcore::vector2  m_UV;
@@ -14,15 +14,15 @@ namespace e16
     {
         struct submesh
         {
-            std::vector<vertex>     m_Vertices;
-            std::vector<int>        m_Indices;
-            int                     m_iMaterial;
+            std::vector<skin_vertex>    m_Vertices;
+            std::vector<int>            m_Indices;
+            int                         m_iMaterial;
         };
 
         struct mesh
         {
-            std::string             m_Name;
-            std::vector<submesh>    m_Submeshes;
+            std::string                 m_Name;
+            std::vector<submesh>        m_Submeshes;
         };
 
         struct material_instance

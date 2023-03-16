@@ -388,11 +388,11 @@ namespace e16
         {
             struct myMeshPart
             {
-                std::string         m_MeshName;
-                std::string         m_Name;
-                std::vector<vertex> m_Vertices;
-                std::vector<int>    m_Indices;
-                int                 m_iMaterialInstance;
+                std::string                 m_MeshName;
+                std::string                 m_Name;
+                std::vector<skin_vertex>    m_Vertices;
+                std::vector<int>            m_Indices;
+                int                         m_iMaterialInstance;
             };
 
             std::vector<myMeshPart>               MyNodes;
@@ -472,7 +472,7 @@ namespace e16
                 MyNodes[iMesh].m_Vertices.resize(AssimpMesh.mNumVertices);
                 for (auto i = 0u; i < AssimpMesh.mNumVertices; ++i)
                 {
-                    e16::vertex& Vertex = MyNodes[iMesh].m_Vertices[i];
+                    e16::skin_vertex& Vertex = MyNodes[iMesh].m_Vertices[i];
 
                     //auto L = m_MeshReferences[iMesh].m_Nodes[0]->mTransformation * AssimpMesh.mVertices[i];
                     auto L = AssimpMesh.mVertices[i];
