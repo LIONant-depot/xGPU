@@ -629,6 +629,7 @@ int E16_Example()
     float          Distance = 2;
     bool           FollowCamera = true;
     auto           Clock = std::chrono::system_clock::now();
+    xcore::vector3 CameraTarget(0,0,0);
     while (Instance.ProcessInputEvents())
     {
         float DeltaTime;
@@ -655,11 +656,18 @@ int E16_Example()
             FollowCamera = !FollowCamera;
         }
 
+        if(Mouse.isPressed(xgpu::mouse::digital::BTN_MIDDLE))
+        {
+            auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
+            CameraTarget -= View.getWorldYVector() * (0.005f * MousePos[1]);
+            CameraTarget -= View.getWorldXVector() * (0.005f * MousePos[0]);
+        }
+
         Distance += Distance * -0.2f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
         if (Distance < 0.5f) Distance = 0.5f;
 
         // Update the camera
-        View.LookAt(Distance, Angles, { 0,0,0 });
+        View.LookAt(Distance, Angles, CameraTarget );
 
         static xcore::radian R{ 0 };
         R += xcore::radian{ 0.001f };

@@ -103,6 +103,9 @@
     <Filter Include="Examples\Example 16 Animation">
       <UniqueIdentifier>{25fcd6f9-ce32-4377-a075-e96d4df82e49}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Examples\Example 17 FullSkin">
+      <UniqueIdentifier>{471e6e2b-6f0a-45ad-ab68-733fae153dbc}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Src\Examples\main.cpp" />
