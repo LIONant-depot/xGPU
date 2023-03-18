@@ -267,6 +267,7 @@ struct e17::skin_render
                 }
                 else
                 {
+                    // The diffuse texture should be in gamma space... everything else should be linear space...
                     Bitmap.setColorSpace( xcore::bitmap::color_space::LINEAR );
                     if (auto Err = xgpu::tools::bitmap::Create(m_Textures[i], Device, Bitmap); Err)
                     {
@@ -292,7 +293,7 @@ struct e17::skin_render
             auto iDiffuse       = SkinGeom.m_MaterialInstance[i].m_DiffuseSampler.m_iTexture;
             auto iNormal        = SkinGeom.m_MaterialInstance[i].m_NormalSampler.m_iTexture;
             auto Bindings       = std::array
-                                { xgpu::pipeline_instance::sampler_binding{ iNormal  == -1 ? DefaultTexture : m_Textures[iNormal] } // [INPUT_TEXTURE_NORMAL]
+                                { xgpu::pipeline_instance::sampler_binding{ iNormal  == -1 ? DefaultTexture : m_Textures[iNormal]  } // [INPUT_TEXTURE_NORMAL]
                                 , xgpu::pipeline_instance::sampler_binding{ iDiffuse == -1 ? DefaultTexture : m_Textures[iDiffuse] } // [INPUT_TEXTURE_DIFFUSE]
                                 , xgpu::pipeline_instance::sampler_binding{ iDiffuse == -1 ? DefaultTexture : m_Textures[iDiffuse] } // [INPUT_TEXTURE_AO]
                                 , xgpu::pipeline_instance::sampler_binding{ iDiffuse == -1 ? DefaultTexture : m_Textures[iDiffuse] } // [INPUT_TEXTURE_GLOSSINESS]
@@ -402,31 +403,25 @@ int E17_Example()
     }
 
     //
-    // Get Average Bone Length
-    //
-    std::vector<xcore::matrix4> FinalL2W(AnimCharacter.m_Skeleton.m_Bones.size());
-
-    //
     // Basic loop
     //
-    xgpu::tools::view View;
-
-    View.setFov(60_xdeg);
-
-    xgpu::mouse Mouse;
+    xgpu::mouse    Mouse;
     xgpu::keyboard Keyboard;
     {
         Instance.Create(Mouse);
         Instance.Create(Keyboard);
     }
 
-    xcore::vector3 FrozenLightPosition;
+    xcore::vector3      FrozenLightPosition;
+    xcore::radian3      Angles;
+    float               Distance     = 2;
+    bool                FollowCamera = true;
+    auto                Clock        = std::chrono::system_clock::now();
+    xcore::vector3      CameraTarget(0,0,0);
+    xgpu::tools::view   View;
 
-    xcore::radian3 Angles;
-    float          Distance     = 2;
-    bool           FollowCamera = true;
-    auto           Clock        = std::chrono::system_clock::now();
-    xcore::vector3 CameraTarget(0,0,0);
+    View.setFov(60_xdeg);
+
     while (Instance.ProcessInputEvents())
     {
         const float DeltaTime = [&]
@@ -470,9 +465,7 @@ int E17_Example()
         // Update the camera
         View.LookAt(Distance, Angles, CameraTarget );
 
-        static xcore::radian R{ 0 };
-        R += xcore::radian{ 0.001f };
-
+        // Update light position
         auto LightPosition = FollowCamera ? View.getPosition() : FrozenLightPosition;
 
         //
@@ -491,7 +484,6 @@ int E17_Example()
             const float MeshScale     = 1.0f/MeshBBox.getRadius();
 
             AnimCharacter.m_AnimPlayer.Update(DeltaTime);
-            AnimCharacter.m_AnimPlayer.ComputeMatrices( xcore::matrix4::identity(), FinalL2W);
 
             SkinRender.m_PushConstants.m_AmbientLightColor.setup(0.1f, 0.1f, 0.1f, 1.0f);
             SkinRender.m_PushConstants.m_LightColor.setup(1.0f, 1.0f, 1.0f, 1.0f);
