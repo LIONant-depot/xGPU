@@ -89,7 +89,7 @@ namespace xgpu::tools::bitmap
         {
             xcore::bitmap Temp;
             Temp.CreateBitmap(Bitmap.getWidth(), Bitmap.getHeight());
-
+            Temp.setColorSpace(Bitmap.getColorSpace());
             int iC=0;
             auto Src       = std::span{ Bitmap.getMip<std::uint8_t>(0).data(), Bitmap.getFrameSize() };
             auto NewPixels = std::span{ Temp.getMip<xcore::icolor>(0).data(), static_cast<std::size_t>(Bitmap.getWidth()* Bitmap.getHeight()) };

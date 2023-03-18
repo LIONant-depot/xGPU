@@ -304,6 +304,9 @@
     <ClCompile Include="..\..\Src\Examples\E16_Animation\E16_AnimationExample.cpp">
       <Filter>Examples\Example 16 Animation</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Src\Examples\E17_FullSkin\E17_FullSkinExample.cpp">
+      <Filter>Examples\Example 17 FullSkin</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Src\Examples\Examples.h">
@@ -799,6 +802,12 @@
     </CustomBuild>
     <CustomBuild Include="..\..\Src\Examples\E16_Animation\e16_skingeom_vert.glsl">
       <Filter>Examples\Example 16 Animation</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E17_FullSkin\e17_skingeom_vert.glsl">
+      <Filter>Examples\Example 17 FullSkin</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E17_FullSkin\e17_skingeom_frag.glsl">
+      <Filter>Examples\Example 17 FullSkin</Filter>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>

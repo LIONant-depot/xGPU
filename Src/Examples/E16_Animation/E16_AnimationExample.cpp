@@ -27,7 +27,15 @@ struct draw_vert
 
 //------------------------------------------------------------------------------------------------
 
-struct debug_bone
+namespace e16
+{
+    struct skin_render;
+    struct debug_bone;
+}
+
+//------------------------------------------------------------------------------------------------
+
+struct e16::debug_bone
 {
     int Initialize( xgpu::device& Device )
     {
@@ -182,7 +190,7 @@ struct debug_bone
 
 //------------------------------------------------------------------------------------------------
 
-struct skin_render
+struct e16::skin_render
 {
     struct mesh
     {
@@ -521,7 +529,7 @@ int E16_Example()
     //
     // Initialize a bone
     // 
-    debug_bone DebugBone;
+    e16::debug_bone DebugBone;
     if( auto err = DebugBone.Initialize(Device); err )
         return err;
 
@@ -545,7 +553,7 @@ int E16_Example()
     //
     // Initialize the skin render
     //
-    skin_render SkinRender;
+    e16::skin_render SkinRender;
     SkinRender.Initialize( Device, AnimCharacter.m_SkinGeom );
 
     //
@@ -721,7 +729,7 @@ int E16_Example()
             }
 
             // Check the skin bind pose
-            SkinRender.Render( CmdBuffer, [&]( skin_render::shader_uniform_buffer& UBO )
+            SkinRender.Render( CmdBuffer, [&]( e16::skin_render::shader_uniform_buffer& UBO )
             {
                 UBO.m_W2C = W2C;
                 UBO.m_W2C.PreTranslate({-2,-1,0});
@@ -730,7 +738,7 @@ int E16_Example()
             });
 
             // animate the character
-            SkinRender.Render( CmdBuffer, [&]( skin_render::shader_uniform_buffer& UBO )
+            SkinRender.Render( CmdBuffer, [&]( e16::skin_render::shader_uniform_buffer& UBO )
             {
                 UBO.m_W2C = W2C;
                 UBO.m_W2C.PreTranslate({1,-1,0});
