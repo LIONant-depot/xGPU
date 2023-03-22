@@ -381,21 +381,225 @@ namespace e16
             }
         }
 
+
         //------------------------------------------------------------------------------------------------------
 
-        void ImportGeometry() noexcept
+        struct myMeshPart
         {
-            struct myMeshPart
+            std::string                 m_MeshName;
+            std::string                 m_Name;
+            std::vector<skin_vertex>    m_Vertices;
+            std::vector<int>            m_Indices;
+            int                         m_iMaterialInstance;
+        };
+
+        //------------------------------------------------------------------------------------------------------
+
+        bool ImportGeometryValidateMesh(const aiMesh& AssimpMesh, int& iTexture )
+        {
+            if (AssimpMesh.HasPositions() == false)
             {
-                std::string                 m_MeshName;
-                std::string                 m_Name;
-                std::vector<skin_vertex>    m_Vertices;
-                std::vector<int>            m_Indices;
-                int                         m_iMaterialInstance;
+                printf("WARNING: Found a mesh (%s) without position! mesh will be removed\n", AssimpMesh.mName.C_Str());
+                return true;
+            }
+
+            if (AssimpMesh.HasFaces() == false)
+            {
+                printf("WARNING: Found a mesh (%s) without position! mesh will be removed\n", AssimpMesh.mName.C_Str());
+                return true;
+            }
+
+            if (AssimpMesh.HasNormals() == false)
+            {
+                printf("WARNING: Found a mesh (%s) without normals! mesh will be removed\n", AssimpMesh.mName.C_Str());
+                return true;
+            }
+
+            if (AssimpMesh.HasTangentsAndBitangents() == false)
+            {
+                printf("WARNING: Found a mesh (%s) without Tangets! We will create fake tangets.. but it will look bad!\n", AssimpMesh.mName.C_Str());
+            }
+
+            if (AssimpMesh.GetNumUVChannels() != 1)
+            {
+                if (AssimpMesh.GetNumUVChannels() == 0)
+                {
+                    printf("WARNING: Found a mesh (%s) without UVs we will assign 0,0 to all uvs\n", AssimpMesh.mName.C_Str());
+                }
+                else
+                {
+                    printf("WARNING: Found a mesh (%s) without too many UV chanels we will use only one...\n", AssimpMesh.mName.C_Str());
+                }
+            }
+
+            iTexture = [&]()->int
+            {
+                for (auto i = 0u; i < AssimpMesh.GetNumUVChannels(); ++i)
+                    if (AssimpMesh.HasTextureCoords(i)) return i;
+                return -1;
+            }();
+
+            /*
+            if (AssimpMesh.GetNumColorChannels() > 1)
+            {
+                printf("WARNING: Found a mesh with too many color channels we will use only one...");
+            }
+
+            const int iColors = [&]
+            {
+                for (int i = 0; i < AssimpMesh.GetNumColorChannels(); ++i)
+                    if (AssimpMesh.HasVertexColors(i)) return i;
+                return -1;
+            }();
+            */
+
+            return false;
+        }
+
+        //------------------------------------------------------------------------------------------------------
+
+        void ImportGeometryStatic(std::vector<myMeshPart>& MyNodes)
+        {
+            auto ProcessMesh = [&]( const aiMesh& AssimpMesh, const aiMatrix4x4& Transform, myMeshPart& MeshPart, const int iTexCordinates )
+            {
+                // get the rotation for the normals
+                aiQuaternion presentRotation;
+                {
+                    aiVector3D p;
+                    Transform.DecomposeNoScaling(presentRotation, p);
+                }
+
+                MeshPart.m_Name              = AssimpMesh.mName.C_Str();
+                MeshPart.m_iMaterialInstance = AssimpMesh.mMaterialIndex;
+
+                MeshPart.m_Vertices.resize(AssimpMesh.mNumVertices);
+                for (auto i = 0u; i < AssimpMesh.mNumVertices; ++i)
+                {
+                    e16::skin_vertex& Vertex = MeshPart.m_Vertices[i];
+
+                    auto L = Transform * AssimpMesh.mVertices[i];
+
+                    Vertex.m_Position = xcore::vector3d
+                    ( static_cast<float>(L.x)
+                    , static_cast<float>(L.y)
+                    , static_cast<float>(L.z)
+                    );
+
+                    if (iTexCordinates == -1)
+                    {
+                        Vertex.m_UV.setup(0, 0);
+                    }
+                    else
+                    {
+                        Vertex.m_UV.setup(static_cast<float>(AssimpMesh.mTextureCoords[iTexCordinates][i].x)
+                                        , static_cast<float>(AssimpMesh.mTextureCoords[iTexCordinates][i].y));
+                    }
+
+                    /*
+                    if (iColors == -1)
+                    {
+                        Vertex.m_Color.setup(255,255,255,255);
+                    }
+                    else
+                    {
+                        xcore::vector4 RGBA(static_cast<float>(AssimpMesh.mColors[iColors][i].r)
+                                          , static_cast<float>(AssimpMesh.mColors[iColors][i].g)
+                                          , static_cast<float>(AssimpMesh.mColors[iColors][i].b)
+                                          , static_cast<float>(AssimpMesh.mColors[iColors][i].a)
+                        );
+
+                        Vertex.m_Color.setupFromRGBA(RGBA);
+                    }
+                    */
+
+                    if (AssimpMesh.HasTangentsAndBitangents())
+                    {
+                        const auto T = presentRotation.Rotate(AssimpMesh.mTangents[i]);
+                        const auto B = presentRotation.Rotate(AssimpMesh.mBitangents[i]);
+                        const auto N = presentRotation.Rotate(AssimpMesh.mNormals[i]);
+
+                        Vertex.m_Tangent.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(T.x < 0 ? std::max(-128, static_cast<int>(T.x * 128)) : std::min(127, static_cast<int>(T.x * 127))));
+                        Vertex.m_Tangent.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(T.y < 0 ? std::max(-128, static_cast<int>(T.y * 128)) : std::min(127, static_cast<int>(T.y * 127))));
+                        Vertex.m_Tangent.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(T.z < 0 ? std::max(-128, static_cast<int>(T.z * 128)) : std::min(127, static_cast<int>(T.z * 127))));
+                        Vertex.m_Tangent.m_A = 0;
+
+                        assert(AssimpMesh.HasNormals());
+                        Vertex.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.x < 0 ? std::max(-128, static_cast<int>(N.x * 128)) : std::min(127, static_cast<int>(N.x * 127))));
+                        Vertex.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.y < 0 ? std::max(-128, static_cast<int>(N.y * 128)) : std::min(127, static_cast<int>(N.y * 127))));
+                        Vertex.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.z < 0 ? std::max(-128, static_cast<int>(N.z * 128)) : std::min(127, static_cast<int>(N.z * 127))));
+                        Vertex.m_Normal.m_A = static_cast<std::uint8_t>(static_cast<std::int8_t>(xcore::vector3(T.x, T.y, T.z).Cross({ N.x, N.y, N.z })
+                            .Dot(xcore::vector3(B.x, B.y, B.z)) > 0 ? 127 : -128));
+                    }
+                    else
+                    {
+                        Vertex.m_Tangent.m_R = 0xff;
+                        Vertex.m_Tangent.m_G = 0;
+                        Vertex.m_Tangent.m_B = 0;
+                        Vertex.m_Tangent.m_A = 0;
+
+                        const auto N = presentRotation.Rotate(AssimpMesh.mNormals[i]);
+
+                        Vertex.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.x < 0 ? std::max(-128, static_cast<int>(N.x * 128)) : std::min(127, static_cast<int>(N.x * 127))));
+                        Vertex.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.y < 0 ? std::max(-128, static_cast<int>(N.y * 128)) : std::min(127, static_cast<int>(N.y * 127))));
+                        Vertex.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.z < 0 ? std::max(-128, static_cast<int>(N.z * 128)) : std::min(127, static_cast<int>(N.z * 127))));
+                        Vertex.m_Normal.m_A = 127;
+                    }
+
+                    // This is a static geometry so this is kind of meaning less
+                    Vertex.m_BoneIndex.m_R   = Vertex.m_BoneIndex.m_G = Vertex.m_BoneIndex.m_B = Vertex.m_BoneIndex.m_A = 0;
+                    Vertex.m_BoneWeights.m_R = Vertex.m_BoneWeights.m_G = Vertex.m_BoneWeights.m_B = Vertex.m_BoneWeights.m_A = 0;
+                    Vertex.m_BoneWeights.m_R = 0xff;
+                }
+
+                //
+                // Copy the indices
+                //
+                for (auto i = 0u; i < AssimpMesh.mNumFaces; ++i)
+                {
+                    const auto& Face = AssimpMesh.mFaces[i];
+                    for (auto j = 0u; j < Face.mNumIndices; ++j)
+                        MeshPart.m_Indices.push_back(Face.mIndices[j]);
+                }
             };
 
-            std::vector<myMeshPart>               MyNodes;
+            std::function<void(const aiNode&, const aiMatrix4x4&)> RecurseScene = [&]( const aiNode& Node, const aiMatrix4x4& ParentTransform)
+            {
+                const aiMatrix4x4 Transform = ParentTransform * Node.mTransformation;
+                auto        iBase     = MyNodes.size();
 
+                // Collect all the meshes
+                MyNodes.resize(iBase + m_pScene->mNumMeshes);
+                for (auto i = 0u, end = Node.mNumMeshes; i < end; ++i)
+                {
+                    aiMesh& AssimpMesh = *m_pScene->mMeshes[Node.mMeshes[i]];
+
+                    int iTexCordinates;
+                    if( ImportGeometryValidateMesh(AssimpMesh,iTexCordinates) ) continue;
+
+                    ProcessMesh(AssimpMesh, Transform, MyNodes[iBase++], iTexCordinates );
+                }
+
+                // Make sure the base matches what should be in the vector
+                if ( iBase != MyNodes.size() )
+                {
+                    MyNodes.erase(MyNodes.begin() + iBase, MyNodes.end());
+                }
+
+                // Do the children
+                for (auto i = 0u; i < Node.mNumChildren; ++i)
+                {
+                    RecurseScene(*Node.mChildren[i], Transform);
+                }
+            };
+
+            aiMatrix4x4 L2W;
+            RecurseScene( *m_pScene->mRootNode, L2W );
+        }
+
+        //------------------------------------------------------------------------------------------------------
+
+        void ImportGeometrySkin(std::vector<myMeshPart>& MyNodes) noexcept
+        {
             //
             // Add bones base on bone associated by meshes
             // 
@@ -403,68 +607,15 @@ namespace e16
             for (auto iMesh = 0u; iMesh < m_pScene->mNumMeshes; ++iMesh)
             {
                 const aiMesh& AssimpMesh = *m_pScene->mMeshes[iMesh];
-                if (AssimpMesh.HasPositions() == false)
-                {
-                    printf("WARNING: Found a mesh (%s) without position! mesh will be removed\n", AssimpMesh.mName.C_Str() );
-                    continue;
-                }
 
-                if (AssimpMesh.HasFaces() == false)
-                {
-                    printf("WARNING: Found a mesh (%s) without position! mesh will be removed\n", AssimpMesh.mName.C_Str());
-                    continue;
-                }
-
-                if (AssimpMesh.HasNormals() == false)
-                {
-                    printf("WARNING: Found a mesh (%s) without normals! mesh will be removed\n", AssimpMesh.mName.C_Str());
-                    continue;
-                }
-
-                if (AssimpMesh.HasTangentsAndBitangents() == false)
-                {
-                    printf("WARNING: Found a mesh (%s) without Tangets! We will create fake tangets.. but it will look bad!\n", AssimpMesh.mName.C_Str() );
-                }
-
-                if( AssimpMesh.GetNumUVChannels() != 1 )
-                {
-                    if(AssimpMesh.GetNumUVChannels() == 0 )
-                    {
-                        printf("WARNING: Found a mesh (%s) without UVs we will assign 0,0 to all uvs\n", AssimpMesh.mName.C_Str());
-                    }
-                    else
-                    {
-                        printf("WARNING: Found a mesh (%s) without too many UV chanels we will use only one...\n", AssimpMesh.mName.C_Str());
-                    }
-                }
-
-                const int iTexCordinates = [&]()->int
-                {
-                    for( auto i = 0u; i < AssimpMesh.GetNumUVChannels(); ++i )
-                        if( AssimpMesh.HasTextureCoords(i) ) return i;
-                    return -1;
-                }();
-
-                /*
-                if (AssimpMesh.GetNumColorChannels() > 1)
-                {
-                    printf("WARNING: Found a mesh with too many color channels we will use only one...");
-                }
-
-                const int iColors = [&]
-                {
-                    for (int i = 0; i < AssimpMesh.GetNumColorChannels(); ++i)
-                        if (AssimpMesh.HasVertexColors(i)) return i;
-                    return -1;
-                }();
-                */
+                int iTexCordinates;
+                if( ImportGeometryValidateMesh(AssimpMesh, iTexCordinates) ) continue;
 
                 //
                 // Copy mesh name and Material Index
                 //
                 MyNodes[iMesh].m_Name               = AssimpMesh.mName.C_Str();
                 MyNodes[iMesh].m_iMaterialInstance  = AssimpMesh.mMaterialIndex;
-
 
                 // get the rotation for the normals
                 aiQuaternion presentRotation;
@@ -483,7 +634,6 @@ namespace e16
 
                     auto L = AssimpMesh.mVertices[i];
                     L = m_MeshReferences[iMesh].m_Nodes[0]->mTransformation * L;
-
 
                     Vertex.m_Position = xcore::vector3d
                     ( static_cast<float>(L.x)
@@ -708,6 +858,25 @@ namespace e16
                     }
                 }
             }
+        }
+
+        //------------------------------------------------------------------------------------------------------
+
+        void ImportGeometry()
+        {
+            std::vector<myMeshPart> MyNodes;
+
+            //
+            // Import from scene
+            //
+            if( m_pAnimCharacter->m_Skeleton.m_Bones.size() )
+            {
+                ImportGeometrySkin(MyNodes);
+            }
+            else
+            {
+                ImportGeometryStatic(MyNodes);
+            }
 
             //
             // Remove Mesh parts with zero vertices
@@ -729,16 +898,16 @@ namespace e16
                 for (auto j = i + 1; j < MyNodes.size(); ++j)
                 {
                     // Lets find a candidate to merge...
-                    if (MyNodes[i].m_iMaterialInstance == MyNodes[j].m_iMaterialInstance 
-                     && MyNodes[i].m_MeshName == MyNodes[j].m_MeshName )
+                    if (MyNodes[i].m_iMaterialInstance == MyNodes[j].m_iMaterialInstance
+                        && MyNodes[i].m_MeshName == MyNodes[j].m_MeshName)
                     {
                         const int  iBaseVertex = static_cast<int>(MyNodes[i].m_Vertices.size());
-                        const auto iBaseIndex  = MyNodes[i].m_Indices.size();
-                        MyNodes[i].m_Vertices.insert(MyNodes[i].m_Vertices.end(), MyNodes[j].m_Vertices.begin(), MyNodes[j].m_Vertices.end() );
-                        MyNodes[i].m_Indices.insert (MyNodes[i].m_Indices.end(),  MyNodes[j].m_Indices.begin(),  MyNodes[j].m_Indices.end()  );
+                        const auto iBaseIndex = MyNodes[i].m_Indices.size();
+                        MyNodes[i].m_Vertices.insert(MyNodes[i].m_Vertices.end(), MyNodes[j].m_Vertices.begin(), MyNodes[j].m_Vertices.end());
+                        MyNodes[i].m_Indices.insert(MyNodes[i].m_Indices.end(), MyNodes[j].m_Indices.begin(), MyNodes[j].m_Indices.end());
 
                         // Fix the indices
-                        for(auto I = iBaseIndex; I < MyNodes[i].m_Indices.size(); ++I)
+                        for (auto I = iBaseIndex; I < MyNodes[i].m_Indices.size(); ++I)
                         {
                             MyNodes[i].m_Indices[I] += iBaseVertex;
                         }
@@ -778,7 +947,6 @@ namespace e16
                 SubMesh.m_Indices       = std::move(E.m_Indices);
                 SubMesh.m_iMaterial     = E.m_iMaterialInstance;
             }
-
         }
 
         //------------------------------------------------------------------------------------------------------
@@ -941,9 +1109,9 @@ namespace e16
                         MyAnim.m_BoneKeyFrames[i].m_Transfoms.resize(FrameCount);
                         auto pNode = m_pScene->mRootNode->FindNode(m_pAnimCharacter->m_Skeleton.m_Bones[i].m_Name.c_str());
                         
-                        C_STRUCT aiQuaternion Q(0,0,0,1);
-                        C_STRUCT aiVector3D   S(1,1,1);
-                        C_STRUCT aiVector3D   T(0,0,0);
+                        aiQuaternion Q(0,0,0,1);
+                        aiVector3D   S(1,1,1);
+                        aiVector3D   T(0,0,0);
                         pNode->mTransformation.Decompose(S, Q, T);
 
                         for (int f = 0; f < FrameCount; ++f)
@@ -958,7 +1126,6 @@ namespace e16
                 }
             }
         }
-
 
         //------------------------------------------------------------------------------------------------------
 
