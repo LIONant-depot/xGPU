@@ -18,7 +18,6 @@ namespace e16
         e16::anim_character*    m_pAnimCharacter;
         std::vector<refs>       m_MeshReferences;
 
-
         bool Import( e16::anim_character& AnimCharacter, std::string FileName )
         {
             auto Importer = std::make_unique<Assimp::Importer>();
@@ -466,6 +465,14 @@ namespace e16
                 MyNodes[iMesh].m_Name               = AssimpMesh.mName.C_Str();
                 MyNodes[iMesh].m_iMaterialInstance  = AssimpMesh.mMaterialIndex;
 
+
+                // get the rotation for the normals
+                aiQuaternion presentRotation;
+                {
+                    aiVector3D p;
+                    m_MeshReferences[iMesh].m_Nodes[0]->mTransformation.DecomposeNoScaling(presentRotation, p);
+                }
+
                 //
                 // Copy Vertices
                 //
@@ -474,8 +481,8 @@ namespace e16
                 {
                     e16::skin_vertex& Vertex = MyNodes[iMesh].m_Vertices[i];
 
-                    //auto L = m_MeshReferences[iMesh].m_Nodes[0]->mTransformation * AssimpMesh.mVertices[i];
                     auto L = AssimpMesh.mVertices[i];
+                    L = m_MeshReferences[iMesh].m_Nodes[0]->mTransformation * L;
 
 
                     Vertex.m_Position = xcore::vector3d
@@ -513,17 +520,21 @@ namespace e16
 
                     if (AssimpMesh.HasTangentsAndBitangents())
                     {
-                        Vertex.m_Tangent.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(AssimpMesh.mTangents[i].x < 0 ? std::max(-128, static_cast<int>(AssimpMesh.mTangents[i].x * 128)) : std::min(127, static_cast<int>(AssimpMesh.mTangents[i].x * 127))));
-                        Vertex.m_Tangent.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(AssimpMesh.mTangents[i].y < 0 ? std::max(-128, static_cast<int>(AssimpMesh.mTangents[i].y * 128)) : std::min(127, static_cast<int>(AssimpMesh.mTangents[i].y * 127))));
-                        Vertex.m_Tangent.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(AssimpMesh.mTangents[i].z < 0 ? std::max(-128, static_cast<int>(AssimpMesh.mTangents[i].z * 128)) : std::min(127, static_cast<int>(AssimpMesh.mTangents[i].z * 127))));
+                        const auto T = presentRotation.Rotate( AssimpMesh.mTangents[i]);
+                        const auto B = presentRotation.Rotate(AssimpMesh.mBitangents[i]);
+                        const auto N = presentRotation.Rotate(AssimpMesh.mNormals[i]);
+
+                        Vertex.m_Tangent.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(T.x < 0 ? std::max(-128, static_cast<int>(T.x * 128)) : std::min(127, static_cast<int>(T.x * 127))));
+                        Vertex.m_Tangent.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(T.y < 0 ? std::max(-128, static_cast<int>(T.y * 128)) : std::min(127, static_cast<int>(T.y * 127))));
+                        Vertex.m_Tangent.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(T.z < 0 ? std::max(-128, static_cast<int>(T.z * 128)) : std::min(127, static_cast<int>(T.z * 127))));
                         Vertex.m_Tangent.m_A = 0;
 
                         assert(AssimpMesh.HasNormals());
-                        Vertex.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(AssimpMesh.mNormals[i].x < 0 ? std::max(-128, static_cast<int>(AssimpMesh.mNormals[i].x * 128)) : std::min(127, static_cast<int>(AssimpMesh.mNormals[i].x * 127))));
-                        Vertex.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(AssimpMesh.mNormals[i].y < 0 ? std::max(-128, static_cast<int>(AssimpMesh.mNormals[i].y * 128)) : std::min(127, static_cast<int>(AssimpMesh.mNormals[i].y * 127))));
-                        Vertex.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(AssimpMesh.mNormals[i].z < 0 ? std::max(-128, static_cast<int>(AssimpMesh.mNormals[i].z * 128)) : std::min(127, static_cast<int>(AssimpMesh.mNormals[i].z * 127))));
-                        Vertex.m_Normal.m_A = static_cast<std::uint8_t>(static_cast<std::int8_t>( xcore::vector3(AssimpMesh.mTangents[i].x, AssimpMesh.mTangents[i].y, AssimpMesh.mTangents[i].z).Cross({ AssimpMesh.mNormals[i].x, AssimpMesh.mNormals[i].y, AssimpMesh.mNormals[i].z } )
-                                                                                                  .Dot(xcore::vector3(AssimpMesh.mBitangents[i].x, AssimpMesh.mBitangents[i].y, AssimpMesh.mBitangents[i].z) ) > 0 ? 127 : -128));
+                        Vertex.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.x < 0 ? std::max(-128, static_cast<int>(N.x * 128)) : std::min(127, static_cast<int>(N.x * 127))));
+                        Vertex.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.y < 0 ? std::max(-128, static_cast<int>(N.y * 128)) : std::min(127, static_cast<int>(N.y * 127))));
+                        Vertex.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.z < 0 ? std::max(-128, static_cast<int>(N.z * 128)) : std::min(127, static_cast<int>(N.z * 127))));
+                        Vertex.m_Normal.m_A = static_cast<std::uint8_t>(static_cast<std::int8_t>( xcore::vector3(T.x, T.y, T.z).Cross({ N.x, N.y, N.z } )
+                                                                                                  .Dot(xcore::vector3(B.x, B.y, B.z) ) > 0 ? 127 : -128));
                     }
                     else
                     {
@@ -532,9 +543,11 @@ namespace e16
                         Vertex.m_Tangent.m_B = 0;
                         Vertex.m_Tangent.m_A = 0;
 
-                        Vertex.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(AssimpMesh.mNormals[i].x < 0 ? std::max(-128, static_cast<int>(AssimpMesh.mNormals[i].x * 128)) : std::min(127, static_cast<int>(AssimpMesh.mNormals[i].x * 127))));
-                        Vertex.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(AssimpMesh.mNormals[i].y < 0 ? std::max(-128, static_cast<int>(AssimpMesh.mNormals[i].y * 128)) : std::min(127, static_cast<int>(AssimpMesh.mNormals[i].y * 127))));
-                        Vertex.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(AssimpMesh.mNormals[i].z < 0 ? std::max(-128, static_cast<int>(AssimpMesh.mNormals[i].z * 128)) : std::min(127, static_cast<int>(AssimpMesh.mNormals[i].z * 127))));
+                        const auto N = presentRotation.Rotate(AssimpMesh.mNormals[i]);
+
+                        Vertex.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.x < 0 ? std::max(-128, static_cast<int>(N.x * 128)) : std::min(127, static_cast<int>(N.x * 127))));
+                        Vertex.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.y < 0 ? std::max(-128, static_cast<int>(N.y * 128)) : std::min(127, static_cast<int>(N.y * 127))));
+                        Vertex.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.z < 0 ? std::max(-128, static_cast<int>(N.z * 128)) : std::min(127, static_cast<int>(N.z * 127))));
                         Vertex.m_Normal.m_A = 127;
                     }
 
@@ -651,6 +664,14 @@ namespace e16
                                     break;
                             }
                         }
+                    }
+
+                    //
+                    // Sanity check (make sure that all the vertices have bone and weights
+                    //
+                    for( auto& V : MyNodes[iMesh].m_Vertices )
+                    {
+                        assert( V.m_BoneWeights.m_R > 0 );
                     }
                 }
                 else
@@ -1099,58 +1120,30 @@ namespace e16
                     // Check if we have a binding matrix
                     if( auto B = NameToBone.find(ProtoBone.m_pAssimpNode->mName.data); B != NameToBone.end() )
                     {
+                        // Inverse bind matrix
                         auto OffsetMatrix = B->second->mOffsetMatrix;
-                        std::memcpy(&ACBone.m_InvBind, &OffsetMatrix, sizeof(xcore::matrix4));
-                        ACBone.m_InvBind.Transpose();
+                        auto NodeMatrix   = m_MeshReferences[0].m_Nodes[0]->mTransformation;
+                        NodeMatrix = OffsetMatrix * NodeMatrix.Inverse();
 
-                        /*
-                        auto C = NameToNode.find(ProtoBone.m_pAssimpNode->mName.data);
-                        auto NodeMatrix = C->second->mTransformation;
-                        for (auto p = C->second->mParent; p; p = p->mParent) NodeMatrix = p->mTransformation * NodeMatrix;
-                        auto OffsetMatrix = NodeMatrix.Inverse();
-                        std::memcpy(&ACBone.m_InvBind, &OffsetMatrix, sizeof(xcore::matrix4));
+                        std::memcpy(&ACBone.m_InvBind, &NodeMatrix, sizeof(xcore::matrix4));
                         ACBone.m_InvBind.Transpose();
-                        */
-
-                        /*
-                        auto OffsetMatrix  = B->second->mOffsetMatrix;
-                        auto A             = NameToNode.find(Proto[0].m_pAssimpNode->mName.data);
-                        auto GlobalInverse = A->second->mTransformation;
-                        for (auto p = A->second->mParent; p; p = p->mParent) GlobalInverse = p->mTransformation * GlobalInverse;
-                        
-                        GlobalInverse.Inverse();
-                        OffsetMatrix = OffsetMatrix * GlobalInverse;
-
-                        std::memcpy( &ACBone.m_InvBind, &OffsetMatrix, sizeof(xcore::matrix4) );
-                        ACBone.m_InvBind.Transpose();
-                        ACBone.m_InvBind.PreTranslate({ 0, -142, 0 });
-                        */
-                        
                     }
                     else
                     {
-                        /*
-                        auto C = NameToNode.find(ProtoBone.m_pAssimpNode->mName.data);
-                        auto OffsetMatrix = C->second->mTransformation;
-                        for( auto p = C->second->mParent; p ; p = p->mParent ) OffsetMatrix = p->mTransformation * OffsetMatrix;
-                        std::memcpy(&ACBone.m_InvBind, &OffsetMatrix, sizeof(xcore::matrix4));
-                        ACBone.m_InvBind.Transpose();
-                        ACBone.m_InvBind.FullInvert();
-                        */
-
-                        
                         ACBone.m_InvBind = xcore::matrix4::identity();
-                        
-                        
-                        /*
-                        auto C = NameToNode.find(ProtoBone.m_pAssimpNode->mName.data);
-                        auto NodeMatrix = C->second->mTransformation;
-                        for (auto p = C->second->mParent; p; p = p->mParent) NodeMatrix = p->mTransformation * NodeMatrix;
-                        NodeMatrix.Inverse();
-                        std::memcpy(&ACBone.m_InvBind, &NodeMatrix, sizeof(xcore::matrix4));
-                        ACBone.m_InvBind.Transpose();
-                        */
                     }
+
+                    // Neutral pose
+                    {
+                        const auto  C = NameToNode.find(ProtoBone.m_pAssimpNode->mName.data);
+                        auto        NodeMatrix = C->second->mTransformation;
+                        for (auto p = C->second->mParent; p; p = p->mParent) NodeMatrix = p->mTransformation * NodeMatrix;
+                        std::memcpy(&ACBone.m_NeutalPose, &NodeMatrix, sizeof(xcore::matrix4));
+                        ACBone.m_NeutalPose.Transpose();
+
+                        ACBone.m_NeutalPose *= ACBone.m_InvBind;
+                    }
+
                 }
             }
         }

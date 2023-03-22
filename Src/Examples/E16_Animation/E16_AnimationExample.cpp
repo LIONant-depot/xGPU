@@ -51,10 +51,10 @@ struct e16::debug_bone
             {
                 const auto& v     = Mesh.m_Vertices[i];
                 auto&       V     = pVertex[i];
-                const auto  ScaleXY = v.m_Position.m_Z < 0 ? 1.5f : v.m_Position.m_Z > 0 ? 0.2f : 1.0f;
-                const auto  ScaleZ  = v.m_Position.m_Z > 0 ? 3.5f : 1.0f;
+                const auto  ScaleXZ = v.m_Position.m_Y < 0 ? 1.5f : v.m_Position.m_Y > 0 ? 0.2f : 1.0f;
+                const auto  ScaleY  = v.m_Position.m_Y > 0 ? 3.5f : 1.0f;
 
-                V.m_Position.setup(v.m_Position.m_X* ScaleXY, v.m_Position.m_Y* ScaleXY, v.m_Position.m_Z * ScaleZ );
+                V.m_Position.setup(v.m_Position.m_X* ScaleXZ, v.m_Position.m_Y* ScaleY, v.m_Position.m_Z * ScaleXZ );
                 V.m_TexCoord.setup(v.m_Texcoord.m_X, v.m_Texcoord.m_Y);
                 V.m_Color = xcore::icolor{ 0xffffffffu };
             }
@@ -251,17 +251,14 @@ struct e16::skin_render
         (void)m_IndexBuffer.MemoryMap(0, static_cast<int>(nIndices), [&](void* pData)
         {
             auto pIndex = static_cast<std::uint32_t*>(pData);
-//            int  iBase  = 0;
             for (auto& Mesh : SkinGeom.m_Mesh)
             for (auto& Submesh : Mesh.m_Submeshes)
             {
                 for (auto Index : Submesh.m_Indices)
                 {
-                    *pIndex = Index;// + iBase;
+                    *pIndex = Index;
                     pIndex++;
                 }
-
-                //iBase += static_cast<int>(Submesh.m_Indices.size());
             }
         });
 
@@ -320,9 +317,6 @@ struct e16::skin_render
 
             xgpu::shader MyVertexShader;
             {
-                auto UniformConstans = std::array
-                { static_cast<int>(sizeof(float) * 4 * 4)   // LocalToClip
-                };
                 auto RawData = xgpu::shader::setup::raw_data
                 { std::array
                     {
@@ -446,7 +440,7 @@ struct e16::skin_render
         // Setup the material instance
         //
         xgpu::buffer UBO;
-        if (auto Err = Device.Create(UBO, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(shader_uniform_buffer), .m_EntryCount = 2 }); Err)
+        if (auto Err = Device.Create(UBO, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(shader_uniform_buffer), .m_EntryCount = 10 }); Err)
             return xgpu::getErrorInt(Err);
 
         m_PipeLineInstance.resize( SkinGeom.m_MaterialInstance.size() );
@@ -541,11 +535,11 @@ int E16_Example()
         e16::importer Importer;
         if( Importer.Import(AnimCharacter
         // , "./../../dependencies/Assets/Animated/ImperialWalker/source/AT-AT.fbx"
-        // , "./../../dependencies/Assets/Animated/catwalk/scene.gltf"
+         , "./../../dependencies/Assets/Animated/catwalk/scene.gltf"
         // , "./../../dependencies/Assets/Animated/supersoldier/source/Idle.fbx"
         // , "./../../dependencies/Assets/Animated/Sonic/source/chr_classicsonic.fbx"
         // , "./../../dependencies/Assets/Animated/Starwars/source/Catwalk Walk Forward.fbx" 
-         , "./../../dependencies/Assets/Animated/walking-while-listening/source/Walking.fbx"
+        // , "./../../dependencies/Assets/Animated/walking-while-listening/source/Walking.fbx"
         // , "./../../dependencies/xgeom_compiler/dependencies/xraw3D/dependencies/assimp/test/models/FBX/huesitos.fbx"
         ) ) exit(1);
     }
@@ -564,23 +558,14 @@ int E16_Example()
     for (auto& S : M.m_Submeshes)
     for (auto& V : S.m_Vertices)
     {
-        MeshBBox.AddVerts( &V.m_Position, 1 );
+        auto p = AnimCharacter.m_Skeleton.m_Bones[V.m_BoneIndex.m_A].m_NeutalPose * V.m_Position;
+        MeshBBox.AddVerts( &p, 1 );
     }
 
     //
-    // Compute the skeleton BBOK
+    // Mesh Scale
     //
-    float SkeletonScale = [&]
-    {
-        xcore::bbox SkeletonBBox;
-        for (auto& B : AnimCharacter.m_Skeleton.m_Bones)
-        {
-            auto M = B.m_InvBind;
-            auto P = M.FullInvert().getTranslation();
-            SkeletonBBox.AddVerts(&P, 1);
-        }
-        return 1 / (SkeletonBBox.getRadius());
-    }();
+    const float MeshScale = 1.0f / MeshBBox.getRadius();
 
     //
     // Get Average Bone Length
@@ -603,8 +588,8 @@ int E16_Example()
                 M1 = FinalL2W[i] * M1;
                 M2 = FinalL2W[AnimCharacter.m_Skeleton.m_Bones[i].m_iParent]* M2;
 
-                M1.Scale(SkeletonScale);
-                M2.Scale(SkeletonScale);
+                M1.Scale(MeshScale);
+                M2.Scale(MeshScale);
 
                 auto V = M1.getTranslation() - M2.getTranslation();
                 M1.FullInvert();
@@ -664,7 +649,7 @@ int E16_Example()
             FollowCamera = !FollowCamera;
         }
 
-        if(Mouse.isPressed(xgpu::mouse::digital::BTN_MIDDLE))
+        if (Mouse.isPressed(xgpu::mouse::digital::BTN_MIDDLE))
         {
             auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
             CameraTarget -= View.getWorldYVector() * (0.005f * MousePos[1]);
@@ -672,7 +657,14 @@ int E16_Example()
         }
 
         Distance += Distance * -0.2f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
-        if (Distance < 0.5f) Distance = 0.5f;
+        if (Distance < 0.5f)
+        {
+            CameraTarget += View.getWorldZVector() * (0.5f * (0.5f - Distance));
+            Distance = 0.5f;
+        }
+
+        // Update the camera
+        View.LookAt(Distance, Angles, CameraTarget);
 
         // Update the camera
         View.LookAt(Distance, Angles, CameraTarget );
@@ -695,38 +687,61 @@ int E16_Example()
         {
             auto        CmdBuffer     = Window.getCmdBuffer();
             const auto  W2C           = View.getW2C();
-            const float MeshScale     = 1.0f/MeshBBox.getRadius();
 
             AnimCharacter.m_AnimPlayer.Update(DeltaTime);
             AnimCharacter.m_AnimPlayer.ComputeMatrices( xcore::matrix4::identity(), FinalL2W);
+
+            // Render the skeleton binding pose 
             {
                 int i = 0;
                 for (const auto& m : FinalL2W)
                 {
                     auto M = AnimCharacter.m_Skeleton.m_Bones[i++].m_InvBind;
                     M.FullInvert();             // The debug bones are already in local space we need them to go to bone space so we need to have the inverse matrix
-                    M.PreRotate({ -90_xdeg, 0_xdeg, 0_xdeg });
                     M.PreScale(ScaleBones);
                     M = m * M;
-                    M.Scale(SkeletonScale);
+                    M.Scale(MeshScale);
                     M.Translate({ 0,-1.0f,0 });
 
                     DebugBone.Render(CmdBuffer, W2C * M);
                 }
             }
 
-            // Render the skeleton binding pose 
+            // Render animated skeleton
             for( const auto& B : AnimCharacter.m_Skeleton.m_Bones )
             {
                 auto M = B.m_InvBind;
                 M.FullInvert();             // The debug bones are already in local space we need them to go to bone space so we need to have the inverse matrix
-                M.PreRotate({ -90_xdeg, 0_xdeg, 0_xdeg });
                 M.PreScale(ScaleBones);
-                M.Scale(SkeletonScale);
+                M.Scale(MeshScale);
                 M.Translate( {-1,-1.0f,0} );
 
                 DebugBone.Render(CmdBuffer, W2C * M );
             }
+
+            // Render the skeleton neutral pose 
+            for (const auto& B : AnimCharacter.m_Skeleton.m_Bones)
+            {
+                auto BInv = B.m_InvBind;
+                auto M    = B.m_NeutalPose * BInv.FullInvert();
+                M.PreScale(ScaleBones);
+                M.Scale(MeshScale);
+                M.Translate({ 3,-1.0f,0 });
+
+                DebugBone.Render(CmdBuffer, W2C * M);
+            }
+
+            // Check the skin neutral pose
+            SkinRender.Render( CmdBuffer, [&]( e16::skin_render::shader_uniform_buffer& UBO )
+            {
+                UBO.m_W2C = W2C;
+                UBO.m_W2C.PreTranslate({2,-1,0});
+                UBO.m_W2C.PreScale(MeshScale);
+                for( auto i=0u;i< FinalL2W.size(); ++i )
+                {
+                    UBO.m_L2W[i] = AnimCharacter.m_Skeleton.m_Bones[i].m_NeutalPose;
+                }
+            });
 
             // Check the skin bind pose
             SkinRender.Render( CmdBuffer, [&]( e16::skin_render::shader_uniform_buffer& UBO )

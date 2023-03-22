@@ -8,6 +8,7 @@ namespace e16
         {
             std::string    m_Name;               // Bone name used for debugging
             xcore::matrix4 m_InvBind;            // Skin/Bind Pose to Local Space of the bone
+            xcore::matrix4 m_NeutalPose;         // The neutral pose given by the Nodes
             int            m_iParent;            // Parent used to to concadenate the matrices
         };
 
