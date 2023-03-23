@@ -565,7 +565,7 @@ int E16_Example()
     //
     // Mesh Scale
     //
-    const float MeshScale = 1.0f / MeshBBox.getRadius();
+    const float MeshScale = 1.5f / MeshBBox.getSize().m_Y;
 
     //
     // Get Average Bone Length
@@ -574,7 +574,7 @@ int E16_Example()
     const float ScaleBones = [&]
     {
         float TotalL=0;
-        AnimCharacter.m_AnimPlayer.ComputeMatrices(xcore::matrix4::identity(), FinalL2W);
+        AnimCharacter.m_AnimPlayer.ComputeMatrices(FinalL2W, xcore::matrix4::identity());
         for( auto i=0u; i<AnimCharacter.m_Skeleton.m_Bones.size(); ++i )
         {
             if (AnimCharacter.m_Skeleton.m_Bones[i].m_iParent != -1)
@@ -612,16 +612,13 @@ int E16_Example()
     xgpu::mouse Mouse;
     xgpu::keyboard Keyboard;
     {
-        Instance.Create(Mouse, {});
-        Instance.Create(Keyboard, {});
+        Instance.Create(Mouse);
+        Instance.Create(Keyboard);
     }
 
-    xcore::vector3 FrozenLightPosition;
-
     xcore::radian3 Angles;
-    float          Distance = 2;
-    bool           FollowCamera = true;
-    auto           Clock = std::chrono::system_clock::now();
+    float          Distance     = 2;
+    auto           Clock        = std::chrono::system_clock::now();
     xcore::vector3 CameraTarget(0,0,0);
     while (Instance.ProcessInputEvents())
     {
@@ -643,12 +640,6 @@ int E16_Example()
             Angles.m_Yaw.m_Value -= 0.01f * MousePos[0];
         }
 
-        if (Keyboard.wasPressed(xgpu::keyboard::digital::KEY_SPACE))
-        {
-            FrozenLightPosition = View.getPosition();
-            FollowCamera = !FollowCamera;
-        }
-
         if (Mouse.isPressed(xgpu::mouse::digital::BTN_MIDDLE))
         {
             auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
@@ -666,14 +657,6 @@ int E16_Example()
         // Update the camera
         View.LookAt(Distance, Angles, CameraTarget);
 
-        // Update the camera
-        View.LookAt(Distance, Angles, CameraTarget );
-
-        static xcore::radian R{ 0 };
-        R += xcore::radian{ 0.001f };
-
-        auto LightPosition = FollowCamera ? View.getPosition() : FrozenLightPosition;
-
         //
         // Rendering
         //
@@ -689,9 +672,9 @@ int E16_Example()
             const auto  W2C           = View.getW2C();
 
             AnimCharacter.m_AnimPlayer.Update(DeltaTime);
-            AnimCharacter.m_AnimPlayer.ComputeMatrices( xcore::matrix4::identity(), FinalL2W);
+            AnimCharacter.m_AnimPlayer.ComputeMatrices( FinalL2W, xcore::matrix4::identity() );
 
-            // Render the skeleton binding pose 
+            // Render the skeleton animated pose 
             {
                 int i = 0;
                 for (const auto& m : FinalL2W)
@@ -701,20 +684,20 @@ int E16_Example()
                     M.PreScale(ScaleBones);
                     M = m * M;
                     M.Scale(MeshScale);
-                    M.Translate({ 0,-1.0f,0 });
+                    M.Translate({ 0,-1.0f, -2 });
 
                     DebugBone.Render(CmdBuffer, W2C * M);
                 }
             }
 
-            // Render animated skeleton
+            // Render bind skeleton
             for( const auto& B : AnimCharacter.m_Skeleton.m_Bones )
             {
                 auto M = B.m_InvBind;
                 M.FullInvert();             // The debug bones are already in local space we need them to go to bone space so we need to have the inverse matrix
                 M.PreScale(ScaleBones);
                 M.Scale(MeshScale);
-                M.Translate( {-1,-1.0f,0} );
+                M.Translate( {-2,-1.0f,-2} );
 
                 DebugBone.Render(CmdBuffer, W2C * M );
             }
@@ -726,7 +709,7 @@ int E16_Example()
                 auto M    = B.m_NeutalPose * BInv.FullInvert();
                 M.PreScale(ScaleBones);
                 M.Scale(MeshScale);
-                M.Translate({ 3,-1.0f,0 });
+                M.Translate({ 2,-1.0f, -2 });
 
                 DebugBone.Render(CmdBuffer, W2C * M);
             }
@@ -756,7 +739,7 @@ int E16_Example()
             SkinRender.Render( CmdBuffer, [&]( e16::skin_render::shader_uniform_buffer& UBO )
             {
                 UBO.m_W2C = W2C;
-                UBO.m_W2C.PreTranslate({1,-1,0});
+                UBO.m_W2C.PreTranslate({0,-1,0});
                 UBO.m_W2C.PreScale(MeshScale);
                 for( auto i=0u;i< FinalL2W.size(); ++i ) UBO.m_L2W[i] = FinalL2W[i];
             });

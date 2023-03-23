@@ -503,7 +503,7 @@ int E17_Example()
                 L2W.setScale(MeshScale);
                 L2W.setTranslation({0,-1,0});
                 
-                AnimCharacter.m_AnimPlayer.ComputeMatrices(L2W, UBO.m_L2W );
+                AnimCharacter.m_AnimPlayer.ComputeMatrices(UBO.m_L2W, L2W);
             });
         }
 
