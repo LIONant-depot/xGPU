@@ -32,6 +32,12 @@ void main()
     o.VertColor         = vec4(1);
     gl_Position         = u.W2C * L2W * vec4(inPos.xyz, 1.0);
 
-    // Bone influence for each vertex
-    // if( inBones.x == 12 ) o.VertColor = vec4(1,1-inWeights.x,1-inWeights.x,1);
+    // (used for debugging) Bone influence for each vertex (change the zero to one)
+    #if 0
+    const int iBone = 12;
+         if( inBones.x == iBone ) o.VertColor = vec4(1,1-inWeights.x,1-inWeights.x,1);
+    else if( inBones.y == iBone ) o.VertColor = vec4(1,1-inWeights.y,1-inWeights.y,1);
+    else if( inBones.z == iBone ) o.VertColor = vec4(1,1-inWeights.z,1-inWeights.z,1);
+    else if( inBones.w == iBone ) o.VertColor = vec4(1,1-inWeights.w,1-inWeights.w,1);
+    #endif
 }
