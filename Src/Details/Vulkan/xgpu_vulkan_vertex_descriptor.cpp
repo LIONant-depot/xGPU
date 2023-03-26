@@ -35,19 +35,24 @@ namespace xgpu::vulkan
             {
                 switch (Format)
                 {
-                case xgpu::vertex_descriptor::format::FLOAT_1D:               return std::pair{ VK_FORMAT_R32_SFLOAT,           4 };
-                case xgpu::vertex_descriptor::format::FLOAT_2D:               return std::pair{ VK_FORMAT_R32G32_SFLOAT,        8 };
-                case xgpu::vertex_descriptor::format::FLOAT_3D:               return std::pair{ VK_FORMAT_R32G32B32_SFLOAT,     12};
-                case xgpu::vertex_descriptor::format::FLOAT_4D:               return std::pair{ VK_FORMAT_R32G32B32A32_SFLOAT,  16};
-                case xgpu::vertex_descriptor::format::UINT8_1D_NORMALIZED:    return std::pair{ VK_FORMAT_R8_UNORM,             1 };
-                case xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED:    return std::pair{ VK_FORMAT_R8G8B8A8_UNORM,       4 };
-                case xgpu::vertex_descriptor::format::UINT8_1D:               return std::pair{ VK_FORMAT_R8_UINT,              1 };
-                case xgpu::vertex_descriptor::format::UINT16_1D:              return std::pair{ VK_FORMAT_R16_UINT,             2 };
-                case xgpu::vertex_descriptor::format::UINT32_1D:              return std::pair{ VK_FORMAT_R32_UINT,             4 };
-                case xgpu::vertex_descriptor::format::SINT8_3D_NORMALIZED:    return std::pair{ VK_FORMAT_R8G8B8_SNORM,         3 };
-                case xgpu::vertex_descriptor::format::SINT8_4D_NORMALIZED:    return std::pair{ VK_FORMAT_R8G8B8A8_SNORM,       4 };
-                case xgpu::vertex_descriptor::format::UINT8_4D_UINT:          return std::pair{ VK_FORMAT_R8G8B8A8_UINT,        4 };
-        //        case xgpu::vertex_descriptor::format::UINT16_4D_UINT:         return std::pair{ VK_FORMAT_R16G16B16A16_UINT,        4 };
+                case xgpu::vertex_descriptor::format::FLOAT_1D:               return std::pair{ VK_FORMAT_R32_SFLOAT,           4 * 1 };
+                case xgpu::vertex_descriptor::format::FLOAT_2D:               return std::pair{ VK_FORMAT_R32G32_SFLOAT,        4 * 2 };
+                case xgpu::vertex_descriptor::format::FLOAT_3D:               return std::pair{ VK_FORMAT_R32G32B32_SFLOAT,     4 * 3 };
+                case xgpu::vertex_descriptor::format::FLOAT_4D:               return std::pair{ VK_FORMAT_R32G32B32A32_SFLOAT,  4 * 4 };
+                case xgpu::vertex_descriptor::format::UINT8_1D_NORMALIZED:    return std::pair{ VK_FORMAT_R8_UNORM,             1 * 1 };
+                case xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED:    return std::pair{ VK_FORMAT_R8G8B8A8_UNORM,       1 * 4 };
+                case xgpu::vertex_descriptor::format::UINT8_1D:               return std::pair{ VK_FORMAT_R8_UINT,              1 * 1 };
+                case xgpu::vertex_descriptor::format::UINT16_1D:              return std::pair{ VK_FORMAT_R16_UINT,             2 * 1 };
+                case xgpu::vertex_descriptor::format::UINT32_1D:              return std::pair{ VK_FORMAT_R32_UINT,             4 * 1 };
+                case xgpu::vertex_descriptor::format::SINT8_3D_NORMALIZED:    return std::pair{ VK_FORMAT_R8G8B8_SNORM,         1 * 3 };
+                case xgpu::vertex_descriptor::format::SINT8_4D_NORMALIZED:    return std::pair{ VK_FORMAT_R8G8B8A8_SNORM,       1 * 4 };
+                case xgpu::vertex_descriptor::format::UINT8_4D_UINT:          return std::pair{ VK_FORMAT_R8G8B8A8_UINT,        1 * 4 };
+                case xgpu::vertex_descriptor::format::UINT16_4D_NORMALIZED:   return std::pair{ VK_FORMAT_R16G16B16A16_UNORM,   2 * 4 };
+                case xgpu::vertex_descriptor::format::SINT16_4D_NORMALIZED:   return std::pair{ VK_FORMAT_R16G16B16A16_SNORM,   2 * 4 };
+                case xgpu::vertex_descriptor::format::UINT16_3D_NORMALIZED:   return std::pair{ VK_FORMAT_R16G16B16_UNORM,      2 * 3 };
+                case xgpu::vertex_descriptor::format::SINT16_3D_NORMALIZED:   return std::pair{ VK_FORMAT_R16G16B16_SNORM,      2 * 3 };
+                case xgpu::vertex_descriptor::format::UINT16_2D_NORMALIZED:   return std::pair{ VK_FORMAT_R16G16_UNORM,         2 * 2 };
+                case xgpu::vertex_descriptor::format::SINT16_2D_NORMALIZED:   return std::pair{ VK_FORMAT_R16G16_SNORM,         2 * 2 };
                 }
 
                 assert(false);
