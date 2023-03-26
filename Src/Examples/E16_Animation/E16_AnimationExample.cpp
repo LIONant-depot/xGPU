@@ -5,9 +5,7 @@
 #include "../../tools/xgpu_view.h"
 #include "../../tools/xgpu_view_inline.h"
 
-#include "../../tools/xgpu_xcore_bitmap_helpers.h"
 #include "../../dependencies/xprim_geom/src/xprim_geom.h"
-#include "../../dependencies/xbmp_tools/src/xbmp_tools.h"
 
 //------------------------------------------------------------------------------------------------
 static
@@ -374,67 +372,12 @@ struct e16::skin_render
             }
         }
 
-
         //
-        // Load the textures
+        // Load all the textures
         //
-        m_Textures.resize(SkinGeom.m_TexturePaths.size());
-        xcore::cstring TexturePath;
-        {
-            auto S = xcore::string::FindStrI(SkinGeom.m_FileName.c_str(), "Source");
-            if (S == -1)
-            {
-                auto I = xcore::string::findLastInstance(SkinGeom.m_FileName.c_str(), '/');
-                assert(I != -1);
-                I++;
-                xcore::string::CopyN(TexturePath, SkinGeom.m_FileName.c_str(), xcore::cstring::units{ static_cast<std::uint32_t>(I) });
-            }
-            else
-            {
-                xcore::string::CopyN(TexturePath, SkinGeom.m_FileName.c_str(), xcore::cstring::units{ static_cast<std::uint32_t>(S) });
-            }
-            TexturePath = xcore::string::Fmt("%sTextures/", TexturePath.data() );
-        }
+        if (auto Err = m_LoadedTextures.Initialize(Device, SkinGeom.m_FileName, SkinGeom.m_TexturePaths, SkinGeom.m_MaterialInstance ); Err)
+            return Err;
 
-
-        xgpu::texture DefaultTexture;
-        if (auto Err = xgpu::tools::bitmap::Create(DefaultTexture, Device, xcore::bitmap::getDefaultBitmap()); Err)
-            return xgpu::getErrorInt(Err);
-
-        m_Textures.resize(SkinGeom.m_TexturePaths.size());
-        if(true)
-        {
-            int i=0;
-            for( auto& S : SkinGeom.m_TexturePaths )
-            {
-                int I = xcore::string::findLastInstance(S.c_str(), '/');
-
-                if (I == -1) I = 0;
-                else         I++;
-
-                auto FinalTexturePath = xcore::string::Fmt( "%s%s", TexturePath.data(), &S.c_str()[I] );
-                xcore::bitmap Bitmap;
-                if (auto Err = xbmp::tools::loader::LoadSTDImage(Bitmap, FinalTexturePath); Err)
-                {
-                    printf ("ERROR: Failed to load the texture [%s], assinging the default texture\n", FinalTexturePath.data() );
-                    m_Textures[i] = DefaultTexture;
-                }
-                else
-                {
-                    if (auto Err = xgpu::tools::bitmap::Create(m_Textures[i], Device, Bitmap); Err)
-                    {
-                        printf("ERROR: I was able to load this textuure [%s], however vulkan had an error so I will set the default texture\n", FinalTexturePath.data());
-                        m_Textures[i] = DefaultTexture;
-                    }
-                }
-
-                i++;
-            }
-        }        
-        else
-        {
-            for( auto& T : m_Textures ) T = DefaultTexture;
-        }
 
         //
         // Setup the material instance
@@ -447,7 +390,7 @@ struct e16::skin_render
         for (auto i = 0u; i < m_PipeLineInstance.size(); ++i)
         {
             auto iTexture       = SkinGeom.m_MaterialInstance[i].m_DiffuseSampler.m_iTexture;
-            auto Bindings       = std::array{ xgpu::pipeline_instance::sampler_binding{ iTexture == -1 ? DefaultTexture : m_Textures[iTexture] } };
+            auto Bindings       = std::array{ xgpu::pipeline_instance::sampler_binding{ iTexture == -1 ? m_LoadedTextures.m_DefaultTexture : m_LoadedTextures.m_Textures[iTexture] } };
             auto UniformBuffers = std::array{ xgpu::pipeline_instance::uniform_buffer{ UBO } };
 
             auto  Setup    = xgpu::pipeline_instance::setup
@@ -496,7 +439,7 @@ struct e16::skin_render
     std::vector<xgpu::pipeline_instance> m_PipeLineInstance;
     std::vector<submesh>                 m_Submeshes;
     std::vector<mesh>                    m_Meshes;
-    std::vector<xgpu::texture>           m_Textures;
+    e16::load_textures                   m_LoadedTextures;
 };
 
 //------------------------------------------------------------------------------------------------
