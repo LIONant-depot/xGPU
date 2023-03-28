@@ -56,10 +56,10 @@ struct e18::quantized_skin_render
 
     struct alignas(std::uint32_t) vertex_extras
     {
-        std::uint32_t m_QTangentY : 10          // This contains two signs bits (For the Tangent.z, and the Bitangent direction)
-                    , m_QTangentX : 10          // All these guys go together, they are represented by
-                    , m_QNormalY  : 10          // SINT_A2RGB10_4D_NORMALIZED
-                    , m_QAlpha    :  2          //
+        std::uint32_t   m_QNormalY  : 10          // This contains two signs bits (For the Tangent.z, and the Bitangent direction)
+                    ,   m_QTangentX : 10          // All these guys go together, they are represented by
+                    ,   m_QTangentY : 10          // SINT_A2RGB10_4D_NORMALIZED
+                    ,   m_QAlpha    :  2          //
                     ;           
 
         std::int16_t    m_U                     // These two go together, they are represented by
@@ -382,7 +382,7 @@ struct e18::quantized_skin_render
                   }
                 , xgpu::vertex_descriptor::attribute
                   { .m_Offset  = 0 //offsetof(vertex_extras, m_QNormalY)
-                  , .m_Format  = xgpu::vertex_descriptor::format::SINT_A2RGB10_4D_NORMALIZED
+                  , .m_Format  = xgpu::vertex_descriptor::format::SINT_RGB10A2_4D_NORMALIZED
                   , .m_iStream = 1
                   }
                 , xgpu::vertex_descriptor::attribute

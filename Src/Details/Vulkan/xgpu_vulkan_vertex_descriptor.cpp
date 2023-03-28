@@ -53,7 +53,7 @@ namespace xgpu::vulkan
                 case xgpu::vertex_descriptor::format::SINT16_3D_NORMALIZED:         return std::pair{ VK_FORMAT_R16G16B16_SNORM,            2 * 3 };
                 case xgpu::vertex_descriptor::format::UINT16_2D_NORMALIZED:         return std::pair{ VK_FORMAT_R16G16_UNORM,               2 * 2 };
                 case xgpu::vertex_descriptor::format::SINT16_2D_NORMALIZED:         return std::pair{ VK_FORMAT_R16G16_SNORM,               2 * 2 };
-                case xgpu::vertex_descriptor::format::SINT_A2RGB10_4D_NORMALIZED:   return std::pair{ VK_FORMAT_A2R10G10B10_SNORM_PACK32,       4 };
+                case xgpu::vertex_descriptor::format::SINT_RGB10A2_4D_NORMALIZED:   return std::pair{ VK_FORMAT_A2B10G10R10_SNORM_PACK32,       4 };
                 }
 
                 assert(false);
