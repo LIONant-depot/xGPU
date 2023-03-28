@@ -667,7 +667,7 @@ int E18_Example()
             const auto  W2C           = View.getW2C();
             const float MeshScale     = 1.0f/MeshBBox.getRadius();
 
-            AnimCharacter.m_AnimPlayer.Update(0);//DeltaTime);
+            AnimCharacter.m_AnimPlayer.Update(DeltaTime);
 
             SkinRender.m_PushConstants.m_AmbientLightColor.setup(0.1f, 0.1f, 0.1f, 1.0f);
             SkinRender.m_PushConstants.m_LightColor.setup(1.0f, 1.0f, 1.0f, 1.0f);
