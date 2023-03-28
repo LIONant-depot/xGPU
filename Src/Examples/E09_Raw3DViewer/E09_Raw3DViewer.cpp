@@ -43,25 +43,26 @@ struct e09::runtime_geom
 {
     auto getVertexVectorFormat( xgeom::stream_info& StreamInfo ) const noexcept
     {
-        static_assert((int)xgpu::vertex_descriptor::format::FLOAT_1D             == (int)xgeom::stream_info::format::FLOAT_1D);
-        static_assert((int)xgpu::vertex_descriptor::format::FLOAT_2D             == (int)xgeom::stream_info::format::FLOAT_2D);
-        static_assert((int)xgpu::vertex_descriptor::format::FLOAT_3D             == (int)xgeom::stream_info::format::FLOAT_3D);
-        static_assert((int)xgpu::vertex_descriptor::format::FLOAT_4D             == (int)xgeom::stream_info::format::FLOAT_4D);
-        static_assert((int)xgpu::vertex_descriptor::format::UINT8_1D_NORMALIZED  == (int)xgeom::stream_info::format::UINT8_1D_NORMALIZED);
-        static_assert((int)xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED  == (int)xgeom::stream_info::format::UINT8_4D_NORMALIZED);
-        static_assert((int)xgpu::vertex_descriptor::format::UINT8_1D             == (int)xgeom::stream_info::format::UINT8_1D);
-        static_assert((int)xgpu::vertex_descriptor::format::UINT16_1D            == (int)xgeom::stream_info::format::UINT16_1D);
-        static_assert((int)xgpu::vertex_descriptor::format::UINT32_1D            == (int)xgeom::stream_info::format::UINT32_1D);
-        static_assert((int)xgpu::vertex_descriptor::format::SINT8_3D_NORMALIZED  == (int)xgeom::stream_info::format::SINT8_3D_NORMALIZED);
-        static_assert((int)xgpu::vertex_descriptor::format::SINT8_4D_NORMALIZED  == (int)xgeom::stream_info::format::SINT8_4D_NORMALIZED);
-        static_assert((int)xgpu::vertex_descriptor::format::UINT8_4D_UINT        == (int)xgeom::stream_info::format::UINT8_4D_UINT);
-        static_assert((int)xgpu::vertex_descriptor::format::UINT16_4D_NORMALIZED == (int)xgeom::stream_info::format::UINT16_4D_NORMALIZED);
-        static_assert((int)xgpu::vertex_descriptor::format::SINT16_4D_NORMALIZED == (int)xgeom::stream_info::format::SINT16_4D_NORMALIZED);
-        static_assert((int)xgpu::vertex_descriptor::format::UINT16_3D_NORMALIZED == (int)xgeom::stream_info::format::UINT16_3D_NORMALIZED);
-        static_assert((int)xgpu::vertex_descriptor::format::SINT16_3D_NORMALIZED == (int)xgeom::stream_info::format::SINT16_3D_NORMALIZED);
-        static_assert((int)xgpu::vertex_descriptor::format::UINT16_2D_NORMALIZED == (int)xgeom::stream_info::format::UINT16_2D_NORMALIZED);
-        static_assert((int)xgpu::vertex_descriptor::format::SINT16_2D_NORMALIZED == (int)xgeom::stream_info::format::SINT16_2D_NORMALIZED);
-        static_assert((int)xgpu::vertex_descriptor::format::ENUM_COUNT           == (int)xgeom::stream_info::format::ENUM_COUNT);
+        static_assert((int)xgpu::vertex_descriptor::format::FLOAT_1D                    == (int)xgeom::stream_info::format::FLOAT_1D);
+        static_assert((int)xgpu::vertex_descriptor::format::FLOAT_2D                    == (int)xgeom::stream_info::format::FLOAT_2D);
+        static_assert((int)xgpu::vertex_descriptor::format::FLOAT_3D                    == (int)xgeom::stream_info::format::FLOAT_3D);
+        static_assert((int)xgpu::vertex_descriptor::format::FLOAT_4D                    == (int)xgeom::stream_info::format::FLOAT_4D);
+        static_assert((int)xgpu::vertex_descriptor::format::UINT8_1D_NORMALIZED         == (int)xgeom::stream_info::format::UINT8_1D_NORMALIZED);
+        static_assert((int)xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED         == (int)xgeom::stream_info::format::UINT8_4D_NORMALIZED);
+        static_assert((int)xgpu::vertex_descriptor::format::UINT8_1D                    == (int)xgeom::stream_info::format::UINT8_1D);
+        static_assert((int)xgpu::vertex_descriptor::format::UINT16_1D                   == (int)xgeom::stream_info::format::UINT16_1D);
+        static_assert((int)xgpu::vertex_descriptor::format::UINT32_1D                   == (int)xgeom::stream_info::format::UINT32_1D);
+        static_assert((int)xgpu::vertex_descriptor::format::SINT8_3D_NORMALIZED         == (int)xgeom::stream_info::format::SINT8_3D_NORMALIZED);
+        static_assert((int)xgpu::vertex_descriptor::format::SINT8_4D_NORMALIZED         == (int)xgeom::stream_info::format::SINT8_4D_NORMALIZED);
+        static_assert((int)xgpu::vertex_descriptor::format::UINT8_4D_UINT               == (int)xgeom::stream_info::format::UINT8_4D_UINT);
+        static_assert((int)xgpu::vertex_descriptor::format::UINT16_4D_NORMALIZED        == (int)xgeom::stream_info::format::UINT16_4D_NORMALIZED);
+        static_assert((int)xgpu::vertex_descriptor::format::SINT16_4D_NORMALIZED        == (int)xgeom::stream_info::format::SINT16_4D_NORMALIZED);
+        static_assert((int)xgpu::vertex_descriptor::format::UINT16_3D_NORMALIZED        == (int)xgeom::stream_info::format::UINT16_3D_NORMALIZED);
+        static_assert((int)xgpu::vertex_descriptor::format::SINT16_3D_NORMALIZED        == (int)xgeom::stream_info::format::SINT16_3D_NORMALIZED);
+        static_assert((int)xgpu::vertex_descriptor::format::UINT16_2D_NORMALIZED        == (int)xgeom::stream_info::format::UINT16_2D_NORMALIZED);
+        static_assert((int)xgpu::vertex_descriptor::format::SINT16_2D_NORMALIZED        == (int)xgeom::stream_info::format::SINT16_2D_NORMALIZED);
+        static_assert((int)xgpu::vertex_descriptor::format::SINT_A2RGB10_4D_NORMALIZED  == (int)xgeom::stream_info::format::SINT_A2RGB10_4D_NORMALIZED);
+        static_assert((int)xgpu::vertex_descriptor::format::ENUM_COUNT                  == (int)xgeom::stream_info::format::ENUM_COUNT);
 
         return xgpu::vertex_descriptor::format(StreamInfo.m_Format);
     }

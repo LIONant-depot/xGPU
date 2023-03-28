@@ -124,6 +124,7 @@
     <ClCompile Include="..\..\Src\Examples\E15_Shadowmap\E15_Shadowmap.cpp" />
     <ClCompile Include="..\..\Src\Examples\E16_Animation\E16_AnimationExample.cpp" />
     <ClCompile Include="..\..\Src\Examples\E17_FullSkin\E17_FullSkinExample.cpp" />
+    <ClCompile Include="..\..\Src\Examples\E18_QuantizeSkinVertex\E18_QuantizeSkinVertex.cpp" />
     <ClCompile Include="..\..\Src\Examples\main.cpp" />
     <ClCompile Include="..\..\Src\Examples\E01_Initialize\E01_Initialize.cpp" />
     <ClCompile Include="..\..\Src\Examples\E02_UsingUtilities\E02_UsingTools.cpp" />
@@ -418,6 +419,11 @@
     <CustomBuild Include="..\..\Src\Examples\E17_FullSkin\e17_skingeom_frag.glsl">
       <FileType>Document</FileType>
       <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=frag "%(FullPath)" -mfmt=num -o  "$(ProjectDir)\x64\%(FileName).h"</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">x64\%(FileName).h</Outputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E18_QuantizeSkinVertex\e18_quantize_skingeom_vert.glsl">
+      <FileType>Document</FileType>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=vert "%(FullPath)" -mfmt=num -o  "$(ProjectDir)\x64\%(FileName).h"</Command>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">x64\%(FileName).h</Outputs>
     </CustomBuild>
   </ItemGroup>

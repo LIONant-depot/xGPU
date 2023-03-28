@@ -106,6 +106,9 @@
     <Filter Include="Examples\Example 17 FullSkin">
       <UniqueIdentifier>{471e6e2b-6f0a-45ad-ab68-733fae153dbc}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Examples\Example 18 QuantizeSkinVertex">
+      <UniqueIdentifier>{d42d7cb8-2905-4401-a6c6-43b66e8eba60}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Src\Examples\main.cpp" />
@@ -306,6 +309,9 @@
     </ClCompile>
     <ClCompile Include="..\..\Src\Examples\E17_FullSkin\E17_FullSkinExample.cpp">
       <Filter>Examples\Example 17 FullSkin</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Examples\E18_QuantizeSkinVertex\E18_QuantizeSkinVertex.cpp">
+      <Filter>Examples\Example 18 QuantizeSkinVertex</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -808,6 +814,9 @@
     </CustomBuild>
     <CustomBuild Include="..\..\Src\Examples\E17_FullSkin\e17_skingeom_frag.glsl">
       <Filter>Examples\Example 17 FullSkin</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E18_QuantizeSkinVertex\e18_quantize_skingeom_vert.glsl">
+      <Filter>Examples\Example 18 QuantizeSkinVertex</Filter>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
