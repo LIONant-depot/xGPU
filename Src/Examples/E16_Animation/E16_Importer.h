@@ -529,6 +529,10 @@ namespace e16
                         Vertex.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.z < 0 ? std::max(-128, static_cast<int>(N.z * 128)) : std::min(127, static_cast<int>(N.z * 127))));
                         Vertex.m_Normal.m_A = static_cast<std::uint8_t>(static_cast<std::int8_t>(xcore::vector3(T.x, T.y, T.z).Cross({ N.x, N.y, N.z })
                             .Dot(xcore::vector3(B.x, B.y, B.z)) > 0 ? 127 : -128));
+
+                        Vertex.m_fNormal.setup(N.x, N.y, N.z);
+                        Vertex.m_fTangent.setup(T.x, T.y, T.z);
+                        Vertex.m_fBitangent.setup(B.x, B.y, B.z);
                     }
                     else
                     {
@@ -543,6 +547,10 @@ namespace e16
                         Vertex.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.y < 0 ? std::max(-128, static_cast<int>(N.y * 128)) : std::min(127, static_cast<int>(N.y * 127))));
                         Vertex.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.z < 0 ? std::max(-128, static_cast<int>(N.z * 128)) : std::min(127, static_cast<int>(N.z * 127))));
                         Vertex.m_Normal.m_A = 127;
+
+                        Vertex.m_fNormal.setup(N.x, N.y, N.z);
+                        Vertex.m_fTangent.setup(1, 0, 0);
+                        Vertex.m_fBitangent.setup(1, 0, 0);
                     }
 
                     // This is a static geometry so this is kind of meaning less
@@ -685,6 +693,10 @@ namespace e16
                         Vertex.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.z < 0 ? std::max(-128, static_cast<int>(N.z * 128)) : std::min(127, static_cast<int>(N.z * 127))));
                         Vertex.m_Normal.m_A = static_cast<std::uint8_t>(static_cast<std::int8_t>( xcore::vector3(T.x, T.y, T.z).Cross({ N.x, N.y, N.z } )
                                                                                                   .Dot(xcore::vector3(B.x, B.y, B.z) ) > 0 ? 127 : -128));
+
+                        Vertex.m_fNormal.setup( N.x, N.y, N.z );
+                        Vertex.m_fTangent.setup(T.x, T.y, T.z);
+                        Vertex.m_fBitangent.setup(B.x, B.y, B.z);
                     }
                     else
                     {
@@ -699,6 +711,10 @@ namespace e16
                         Vertex.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.y < 0 ? std::max(-128, static_cast<int>(N.y * 128)) : std::min(127, static_cast<int>(N.y * 127))));
                         Vertex.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.z < 0 ? std::max(-128, static_cast<int>(N.z * 128)) : std::min(127, static_cast<int>(N.z * 127))));
                         Vertex.m_Normal.m_A = 127;
+
+                        Vertex.m_fNormal.setup(N.x, N.y, N.z);
+                        Vertex.m_fTangent.setup( 1, 0, 0);
+                        Vertex.m_fBitangent.setup(1, 0, 0);
                     }
 
 

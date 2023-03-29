@@ -4,6 +4,9 @@ namespace e16
     {
         xcore::vector3d m_Position;
         xcore::vector2  m_UV;
+        xcore::vector3  m_fNormal;
+        xcore::vector3  m_fTangent;
+        xcore::vector3  m_fBitangent;
         xcore::icolor   m_Normal;
         xcore::icolor   m_Tangent;
         xcore::icolor   m_BoneWeights;

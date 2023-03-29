@@ -62,6 +62,7 @@ struct e09::runtime_geom
         static_assert((int)xgpu::vertex_descriptor::format::UINT16_2D_NORMALIZED        == (int)xgeom::stream_info::format::UINT16_2D_NORMALIZED);
         static_assert((int)xgpu::vertex_descriptor::format::SINT16_2D_NORMALIZED        == (int)xgeom::stream_info::format::SINT16_2D_NORMALIZED);
         static_assert((int)xgpu::vertex_descriptor::format::SINT_RGB10A2_4D_NORMALIZED  == (int)xgeom::stream_info::format::SINT_RGB10A2_4D_NORMALIZED);
+        static_assert((int)xgpu::vertex_descriptor::format::UINT_RGB10A2_4D_NORMALIZED  == (int)xgeom::stream_info::format::UINT_RGB10A2_4D_NORMALIZED);
         static_assert((int)xgpu::vertex_descriptor::format::ENUM_COUNT                  == (int)xgeom::stream_info::format::ENUM_COUNT);
 
         return xgpu::vertex_descriptor::format(StreamInfo.m_Format);

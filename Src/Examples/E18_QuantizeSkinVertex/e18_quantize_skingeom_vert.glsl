@@ -22,6 +22,11 @@ layout(location = 0) out struct _o
     vec4  VertColor;
 	vec4  WorldSpacePosition;
     vec2  UV; 
+
+
+    vec3 Normal;
+    vec3 Tangent;
+    float NegativeBi;
 } Out;
 
 layout (push_constant) uniform _pc
@@ -44,22 +49,21 @@ void main()
              + Uniform.L2W[inBones.z] * inWeights.z + Uniform.L2W[inBones.w] * inWeights.w;
 
     // Decompress Normal
-    // 1 = sqrt( x*x + y*y + z*z )
-    // 1^2 = x^2 + y^2 + z^2
-    // 1 - x^2 - y^2 = z^2
-    // sqrt(1 - x^2 - y^2) = z
-    vec3 Normal = vec3( 2 * abs(inQPos.w) - 1, inQNormTangent.x, inQPos.w < 0 ? -1 : 1 );
-    Normal.z *= sqrt(1 - Normal.x*Normal.x - Normal.y*Normal.y );
+    // We must also decompress the Binormal sign bit and the Tangent.Z sign bit
+    const float AbsQNormalX  = abs(inQPos.w);
+    const float BinormalSign = AbsQNormalX > 0.5f ? -1.0f : 1.0f;
+    vec3 Normal = vec3( 4 * AbsQNormalX - (2 - BinormalSign), inQNormTangent.x, inQPos.w < 0 ? -1 : 1 );
+    Normal.z *= sqrt(1.01f - Normal.x*Normal.x - Normal.y*Normal.y );
 
     // Decompress Tangent
-    vec3 Tangent = vec3( inQNormTangent.y, inQNormTangent.z, (inQNormTangent.w > 0.5f) ? -1 : 1 );
-    Tangent.z *= sqrt(1 - Tangent.x*Tangent.x - Tangent.y*Tangent.y);
+    vec3 Tangent = vec3( inQNormTangent.y, inQNormTangent.z, inQNormTangent.w );
+    Tangent.z *= sqrt(1.01f - Tangent.x*Tangent.x - Tangent.y*Tangent.y );
 
     // Decompress the binormal & transform everything to world space
     mat3 Rot                    = mat3(L2W);
-    vec3 WNormal                 = normalize(Rot * Normal);
-    vec3 WTangent                = normalize(Rot * Tangent);
-    vec3 WBinormal               = normalize( cross(WTangent, WNormal) * ((abs(inQNormTangent.w-0.5) < 0.25) ? -1 : 1 ) );
+    vec3 WNormal                = normalize(Rot * Normal);
+    vec3 WTangent               = normalize(Rot * Tangent);
+    vec3 WBinormal              = normalize( cross(WTangent, WNormal) * BinormalSign );
 
     // Decompress Position
     vec4 Pos = vec4( PushC.PosDecompressionScale * inQPos.xyz + PushC.PosDecompressionOffset, 1.0f);

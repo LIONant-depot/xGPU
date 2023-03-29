@@ -160,6 +160,29 @@ struct e18::quantized_skin_render
 
                 for (auto& V : Submesh.m_Vertices)
                 {
+                    // Quantize the normal, tangent, bitangent (sign) and UVs
+                    {
+                        auto& SkinExtra = lSkinExtras[iVertex];
+                        float f;
+
+                        SkinExtra.m_QNormalY  = static_cast<std::int16_t>(V.m_fNormal.m_Y  * (V.m_fNormal.m_Y  >= 0 ? 0x1FF : 0x200));
+                        SkinExtra.m_QTangentX = static_cast<std::int16_t>(V.m_fTangent.m_X * (V.m_fTangent.m_X >= 0 ? 0x1FF : 0x200));
+                        SkinExtra.m_QTangentY = static_cast<std::int16_t>(V.m_fTangent.m_Y * (V.m_fTangent.m_Y >= 0 ? 0x1FF : 0x200));
+
+                        // Store the tangent z sign here so it will be [-1 || 1]
+                        SkinExtra.m_QAlpha = V.m_fTangent.m_Z >= 0 ? 0x1 : 0x3;
+
+                        // Compress the UVs
+
+                        // Convert to [-1, 1]
+                        f = (V.m_UV.m_X - RenderSubmesh.m_UVCompressionOffset.m_X) / m_UVCompressionScale.m_X;
+                        SkinExtra.m_U = static_cast<std::int16_t>(f >= 0 ? f * 0x7FFF : f * 0x8000);
+
+                        // Convert to [-1, 1]
+                        f = (V.m_UV.m_Y - RenderSubmesh.m_UVCompressionOffset.m_Y) / m_UVCompressionScale.m_Y;
+                        SkinExtra.m_V = static_cast<std::int16_t>(f >= 0 ? f * 0x7FFF : f * 0x8000);
+                    }
+
                     // Quantize the position (and store x dimension of the normal, wih the sign of the normal z)
                     {
                         auto& SkinPos = lSkinPos[iVertex];
@@ -178,16 +201,43 @@ struct e18::quantized_skin_render
                         assert( f>= -1 && f <= 1);
                         SkinPos.m_QPosition_Z = static_cast<std::int16_t>(f >= 0 ? f * 0x7FFF : f * 0x8000 );
 
-                        // Make the number go from 0 to 255 which will be the equivalent to [-1, 1]
-                        std::int16_t Nx       = static_cast<std::int8_t>(V.m_Normal.m_R);
-                        Nx                   += 128;
+                        //
+                        // Store the Normal.X and some bits in the W part... 
+                        //
 
-                        // Now we must convert the normal to 15 bits... (we reserve the last bit for something else...)
-                        Nx                   *= (1<<(16 - 8 - 1));
+                        // Now we must convert the normal to 14 bits... (we reserve the last 2 bit for something else...)
+                        std::int16_t Nx       = std::min( (short)0x3FFF, static_cast<std::int16_t>( ((V.m_fNormal.m_X+1)/2.0f) * 0x3FFF ) );
 
                         // Store the sign bit of Normal.Z in the last bit of the normal
-                        // If NX is close to zero we will steal a little bit of precision to insert the negative sign... 
-                        Nx                     = static_cast<std::int8_t>(V.m_Normal.m_B) >= 0 ? Nx : Nx == 0 ? -1 : -Nx;
+                        // If NX is zero we will steal a little bit of precision to insert the negative sign...
+                        if(V.m_fNormal.m_Z < 0 )
+                        {
+                            if( Nx == 0 )
+                            {
+                                Nx = -1;
+
+                                // If we steal it we must compensate for it in other dimensions
+                                // Other wise we are going to get infinities...
+                                // This is really only important if you really want to be aggressive towards precision...
+                                if constexpr (false)
+                                {
+                                    auto& SkinExtra = lSkinExtras[iVertex];
+                                    if( SkinExtra.m_QNormalY > 0 ) SkinExtra.m_QNormalY -= 1;
+                                    else                           SkinExtra.m_QNormalY += 1;
+                                }
+                            }
+                            else
+                            {
+                                Nx = -Nx;
+                            }
+                        }
+
+                        // We are also going to store the bitangent sign bit in bit 14
+                        if( V.m_Normal.m_A == 128 )
+                        {
+                            if (Nx < 0)  Nx  = -((1 << 14) | (-Nx));
+                            else         Nx |= (1 << 14);
+                        }
 
                         SkinPos.m_QPosition_QNormalX = Nx;
 
@@ -196,36 +246,8 @@ struct e18::quantized_skin_render
                         SkinPos.m_BoneIndex   = V.m_BoneIndex;
                     }
 
-                    // Quantize the normal, tangent, bitangent (sign) and UVs
-                    {
-                        auto& SkinExtra = lSkinExtras[iVertex];
-                        float f;
-
-                        SkinExtra.m_QNormalY  = static_cast<std::int16_t>(static_cast<std::int8_t>(V.m_Normal.m_G))  << (10 - 8);
-                        SkinExtra.m_QTangentX = static_cast<std::int16_t>(static_cast<std::int8_t>(V.m_Tangent.m_R)) << (10 - 8);
-                        SkinExtra.m_QTangentY = static_cast<std::int16_t>(static_cast<std::int8_t>(V.m_Tangent.m_G)) << (10 - 8);
-                        
-                        // Store the tangent and bi-tangent sign bits
-                        SkinExtra.m_QAlpha    = static_cast<std::int8_t>(V.m_Tangent.m_B) >= 0 ? 0 : 1;
-                        SkinExtra.m_QAlpha   |= static_cast<std::int8_t>(V.m_Normal.m_A)  >= 0 ? 0 : (1<<1);
-
-                        SkinExtra.m_QAlpha = 1;
-                        SkinExtra.m_QTangentX = 2;
-                        SkinExtra.m_QTangentY = 3;
-
-                        // Compress the UVs
-
-                        // Convert to [-1, 1]
-                        f = (V.m_UV.m_X - RenderSubmesh.m_UVCompressionOffset.m_X) / m_UVCompressionScale.m_X;
-                        SkinExtra.m_U         = static_cast<std::int16_t>(f >= 0 ? f * 0x7FFF : f * 0x8000);
-
-                        // Convert to [-1, 1]
-                        f = (V.m_UV.m_Y - RenderSubmesh.m_UVCompressionOffset.m_Y) / m_UVCompressionScale.m_Y;
-                        SkinExtra.m_V = static_cast<std::int16_t>(f >= 0 ? f * 0x7FFF : f * 0x8000);
-                    }
-
                     //
-                    // Sanity Check the normals
+                    // Sanity Check the data (decompress and check with original data)
                     //
                     if constexpr (false)
                     {
@@ -234,21 +256,29 @@ struct e18::quantized_skin_render
                         auto  Mask      = (std::uint32_t)(~((1 << 10) - 1));
 
                         int yy = (static_cast<std::uint32_t>(SkinExtra.m_QNormalY) & (1<<9))? static_cast<int>(SkinExtra.m_QNormalY | Mask) : static_cast<int>(SkinExtra.m_QNormalY);
-                        const float in_w = static_cast<float>(SkinPos.m_QPosition_QNormalX) / (((1 << 16) - 1) >> 1);
-                        const float in_y = yy / float(1<<9);
+                        const float in_w = static_cast<float>(SkinPos.m_QPosition_QNormalX) / (SkinPos.m_QPosition_QNormalX >= 0 ? 0x7FFF : 0x8000);
+                        const float in_y = yy / float(yy >= 0 ? 0x1FF : 0x200 );
 
-                        xcore::vector3 NormalA, NormalB;
+                        xcore::vector3 NormalA, NormalB, TangentA, TangentB;
 
-                        NormalA.setup(2 * std::abs(in_w) - 1, in_y, in_w < 0 ? -1.0f : 1.0f );
-                        NormalA.m_Z *= xcore::Sqrt(1 - NormalA.m_X * NormalA.m_X - NormalA.m_Y * NormalA.m_Y );
+                        const float BitangentSign = std::abs(in_w) > 0.5f ? -1.0f : 1.0f;
 
-                        NormalB.setup
-                        ( static_cast<float>(static_cast<std::int8_t>(V.m_Normal.m_R)) / 127
-                        , static_cast<float>(static_cast<std::int8_t>(V.m_Normal.m_G)) / 127
-                        , static_cast<float>(static_cast<std::int8_t>(V.m_Normal.m_B)) / 127
-                        );
+                        NormalA.setup(4 * std::abs(in_w) - (2- BitangentSign), in_y, in_w < 0 ? -1.0f : 1.0f );
+                        NormalA.m_Z *= xcore::Sqrt(1.01f - NormalA.m_X * NormalA.m_X - NormalA.m_Y * NormalA.m_Y );
 
-                        assert( NormalA.Dot(NormalB) >= 0.9f );
+                        {
+                            int   yy1 = (static_cast<std::uint32_t>(SkinExtra.m_QTangentX) & (1 << 9)) ? static_cast<int>(SkinExtra.m_QTangentX | Mask) : static_cast<int>(SkinExtra.m_QTangentX);
+                            int   yy2 = (static_cast<std::uint32_t>(SkinExtra.m_QTangentY) & (1 << 9)) ? static_cast<int>(SkinExtra.m_QTangentY | Mask) : static_cast<int>(SkinExtra.m_QTangentY);
+                            int   w   = (static_cast<std::uint32_t>(SkinExtra.m_QAlpha)    & (1 << 1)) ? static_cast<int>(SkinExtra.m_QAlpha    | (~1)) : static_cast<int>(SkinExtra.m_QAlpha);
+                            TangentA.setup(yy1 / float(0x200), yy2 / float(0x200), w / float(1 << 0));
+                            TangentA.m_Z *= xcore::Sqrt(1.01f - TangentA.m_X * TangentA.m_X - TangentA.m_Y * TangentA.m_Y);
+                        }
+
+                        float SignedBit = V.m_Normal.m_A == 128 ? -1.0f : 1.0f;
+
+                        assert( NormalA.Dot(V.m_fNormal)   >= 0.9f );
+                        assert( TangentA.Dot(V.m_fTangent) >= 0.9f);
+                        assert( SignedBit == BitangentSign );
                     }
 
                     // Move to the next vertex
