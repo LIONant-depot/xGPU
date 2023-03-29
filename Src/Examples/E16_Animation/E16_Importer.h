@@ -518,21 +518,24 @@ namespace e16
                         const auto B = presentRotation.Rotate(AssimpMesh.mBitangents[i]);
                         const auto N = presentRotation.Rotate(AssimpMesh.mNormals[i]);
 
-                        Vertex.m_Tangent.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(T.x < 0 ? std::max(-128, static_cast<int>(T.x * 128)) : std::min(127, static_cast<int>(T.x * 127))));
-                        Vertex.m_Tangent.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(T.y < 0 ? std::max(-128, static_cast<int>(T.y * 128)) : std::min(127, static_cast<int>(T.y * 127))));
-                        Vertex.m_Tangent.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(T.z < 0 ? std::max(-128, static_cast<int>(T.z * 128)) : std::min(127, static_cast<int>(T.z * 127))));
-                        Vertex.m_Tangent.m_A = 0;
-
-                        assert(AssimpMesh.HasNormals());
-                        Vertex.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.x < 0 ? std::max(-128, static_cast<int>(N.x * 128)) : std::min(127, static_cast<int>(N.x * 127))));
-                        Vertex.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.y < 0 ? std::max(-128, static_cast<int>(N.y * 128)) : std::min(127, static_cast<int>(N.y * 127))));
-                        Vertex.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.z < 0 ? std::max(-128, static_cast<int>(N.z * 128)) : std::min(127, static_cast<int>(N.z * 127))));
-                        Vertex.m_Normal.m_A = static_cast<std::uint8_t>(static_cast<std::int8_t>(xcore::vector3(T.x, T.y, T.z).Cross({ N.x, N.y, N.z })
-                            .Dot(xcore::vector3(B.x, B.y, B.z)) > 0 ? 127 : -128));
-
                         Vertex.m_fNormal.setup(N.x, N.y, N.z);
                         Vertex.m_fTangent.setup(T.x, T.y, T.z);
                         Vertex.m_fBitangent.setup(B.x, B.y, B.z);
+
+                        Vertex.m_fNormal.NormalizeSafe();
+                        Vertex.m_fTangent.NormalizeSafe();
+                        Vertex.m_fBitangent.NormalizeSafe();
+
+                        Vertex.m_Tangent.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vertex.m_fTangent.m_X < 0 ? std::max(-128, static_cast<int>(Vertex.m_fTangent.m_X * 128)) : std::min(127, static_cast<int>(Vertex.m_fTangent.m_X * 127))));
+                        Vertex.m_Tangent.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vertex.m_fTangent.m_Y < 0 ? std::max(-128, static_cast<int>(Vertex.m_fTangent.m_Y * 128)) : std::min(127, static_cast<int>(Vertex.m_fTangent.m_Y * 127))));
+                        Vertex.m_Tangent.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vertex.m_fTangent.m_Z < 0 ? std::max(-128, static_cast<int>(Vertex.m_fTangent.m_Z * 128)) : std::min(127, static_cast<int>(Vertex.m_fTangent.m_Z * 127))));
+                        Vertex.m_Tangent.m_A = 0;
+
+                        assert(AssimpMesh.HasNormals());
+                        Vertex.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vertex.m_fNormal.m_X < 0 ? std::max(-128, static_cast<int>(Vertex.m_fNormal.m_X * 128)) : std::min(127, static_cast<int>(Vertex.m_fNormal.m_X * 127))));
+                        Vertex.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vertex.m_fNormal.m_Y < 0 ? std::max(-128, static_cast<int>(Vertex.m_fNormal.m_Y * 128)) : std::min(127, static_cast<int>(Vertex.m_fNormal.m_Y * 127))));
+                        Vertex.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vertex.m_fNormal.m_Z < 0 ? std::max(-128, static_cast<int>(Vertex.m_fNormal.m_Z * 128)) : std::min(127, static_cast<int>(Vertex.m_fNormal.m_Z * 127))));
+                        Vertex.m_Normal.m_A = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vertex.m_fTangent.Cross(Vertex.m_fNormal).Dot(Vertex.m_fBitangent) > 0 ? 127 : -128));
                     }
                     else
                     {
@@ -543,14 +546,17 @@ namespace e16
 
                         const auto N = presentRotation.Rotate(AssimpMesh.mNormals[i]);
 
-                        Vertex.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.x < 0 ? std::max(-128, static_cast<int>(N.x * 128)) : std::min(127, static_cast<int>(N.x * 127))));
-                        Vertex.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.y < 0 ? std::max(-128, static_cast<int>(N.y * 128)) : std::min(127, static_cast<int>(N.y * 127))));
-                        Vertex.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.z < 0 ? std::max(-128, static_cast<int>(N.z * 128)) : std::min(127, static_cast<int>(N.z * 127))));
-                        Vertex.m_Normal.m_A = 127;
-
                         Vertex.m_fNormal.setup(N.x, N.y, N.z);
                         Vertex.m_fTangent.setup(1, 0, 0);
                         Vertex.m_fBitangent.setup(1, 0, 0);
+
+                        Vertex.m_fNormal.NormalizeSafe();
+
+                        Vertex.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vertex.m_fNormal.m_X < 0 ? std::max(-128, static_cast<int>(Vertex.m_fNormal.m_X * 128)) : std::min(127, static_cast<int>(Vertex.m_fNormal.m_X * 127))));
+                        Vertex.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vertex.m_fNormal.m_Y < 0 ? std::max(-128, static_cast<int>(Vertex.m_fNormal.m_Y * 128)) : std::min(127, static_cast<int>(Vertex.m_fNormal.m_Y * 127))));
+                        Vertex.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vertex.m_fNormal.m_Z < 0 ? std::max(-128, static_cast<int>(Vertex.m_fNormal.m_Z * 128)) : std::min(127, static_cast<int>(Vertex.m_fNormal.m_Z * 127))));
+                        Vertex.m_Normal.m_A = 127;
+
                     }
 
                     // This is a static geometry so this is kind of meaning less
@@ -682,21 +688,24 @@ namespace e16
                         const auto B = presentRotation.Rotate(AssimpMesh.mBitangents[i]);
                         const auto N = presentRotation.Rotate(AssimpMesh.mNormals[i]);
 
-                        Vertex.m_Tangent.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(T.x < 0 ? std::max(-128, static_cast<int>(T.x * 128)) : std::min(127, static_cast<int>(T.x * 127))));
-                        Vertex.m_Tangent.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(T.y < 0 ? std::max(-128, static_cast<int>(T.y * 128)) : std::min(127, static_cast<int>(T.y * 127))));
-                        Vertex.m_Tangent.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(T.z < 0 ? std::max(-128, static_cast<int>(T.z * 128)) : std::min(127, static_cast<int>(T.z * 127))));
+                        Vertex.m_fNormal.setup(N.x, N.y, N.z);
+                        Vertex.m_fTangent.setup(T.x, T.y, T.z);
+                        Vertex.m_fBitangent.setup(B.x, B.y, B.z);
+
+                        Vertex.m_fNormal.NormalizeSafe();
+                        Vertex.m_fTangent.NormalizeSafe();
+                        Vertex.m_fBitangent.NormalizeSafe();
+
+                        Vertex.m_Tangent.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vertex.m_fTangent.m_X < 0 ? std::max(-128, static_cast<int>(Vertex.m_fTangent.m_X * 128)) : std::min(127, static_cast<int>(Vertex.m_fTangent.m_X * 127))));
+                        Vertex.m_Tangent.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vertex.m_fTangent.m_Y < 0 ? std::max(-128, static_cast<int>(Vertex.m_fTangent.m_Y * 128)) : std::min(127, static_cast<int>(Vertex.m_fTangent.m_Y * 127))));
+                        Vertex.m_Tangent.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vertex.m_fTangent.m_Z < 0 ? std::max(-128, static_cast<int>(Vertex.m_fTangent.m_Z * 128)) : std::min(127, static_cast<int>(Vertex.m_fTangent.m_Z * 127))));
                         Vertex.m_Tangent.m_A = 0;
 
                         assert(AssimpMesh.HasNormals());
-                        Vertex.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.x < 0 ? std::max(-128, static_cast<int>(N.x * 128)) : std::min(127, static_cast<int>(N.x * 127))));
-                        Vertex.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.y < 0 ? std::max(-128, static_cast<int>(N.y * 128)) : std::min(127, static_cast<int>(N.y * 127))));
-                        Vertex.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.z < 0 ? std::max(-128, static_cast<int>(N.z * 128)) : std::min(127, static_cast<int>(N.z * 127))));
-                        Vertex.m_Normal.m_A = static_cast<std::uint8_t>(static_cast<std::int8_t>( xcore::vector3(T.x, T.y, T.z).Cross({ N.x, N.y, N.z } )
-                                                                                                  .Dot(xcore::vector3(B.x, B.y, B.z) ) > 0 ? 127 : -128));
-
-                        Vertex.m_fNormal.setup( N.x, N.y, N.z );
-                        Vertex.m_fTangent.setup(T.x, T.y, T.z);
-                        Vertex.m_fBitangent.setup(B.x, B.y, B.z);
+                        Vertex.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vertex.m_fNormal.m_X < 0 ? std::max(-128, static_cast<int>(Vertex.m_fNormal.m_X * 128)) : std::min(127, static_cast<int>(Vertex.m_fNormal.m_X * 127))));
+                        Vertex.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vertex.m_fNormal.m_Y < 0 ? std::max(-128, static_cast<int>(Vertex.m_fNormal.m_Y * 128)) : std::min(127, static_cast<int>(Vertex.m_fNormal.m_Y * 127))));
+                        Vertex.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vertex.m_fNormal.m_Z < 0 ? std::max(-128, static_cast<int>(Vertex.m_fNormal.m_Z * 128)) : std::min(127, static_cast<int>(Vertex.m_fNormal.m_Z * 127))));
+                        Vertex.m_Normal.m_A = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vertex.m_fTangent.Cross(Vertex.m_fNormal).Dot(Vertex.m_fBitangent) > 0 ? 127 : -128));
                     }
                     else
                     {
@@ -706,15 +715,16 @@ namespace e16
                         Vertex.m_Tangent.m_A = 0;
 
                         const auto N = presentRotation.Rotate(AssimpMesh.mNormals[i]);
-
-                        Vertex.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.x < 0 ? std::max(-128, static_cast<int>(N.x * 128)) : std::min(127, static_cast<int>(N.x * 127))));
-                        Vertex.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.y < 0 ? std::max(-128, static_cast<int>(N.y * 128)) : std::min(127, static_cast<int>(N.y * 127))));
-                        Vertex.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(N.z < 0 ? std::max(-128, static_cast<int>(N.z * 128)) : std::min(127, static_cast<int>(N.z * 127))));
-                        Vertex.m_Normal.m_A = 127;
-
                         Vertex.m_fNormal.setup(N.x, N.y, N.z);
-                        Vertex.m_fTangent.setup( 1, 0, 0);
+                        Vertex.m_fTangent.setup(1, 0, 0);
                         Vertex.m_fBitangent.setup(1, 0, 0);
+
+                        Vertex.m_fNormal.NormalizeSafe();
+
+                        Vertex.m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vertex.m_fNormal.m_X < 0 ? std::max(-128, static_cast<int>(Vertex.m_fNormal.m_X * 128)) : std::min(127, static_cast<int>(Vertex.m_fNormal.m_X * 127))));
+                        Vertex.m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vertex.m_fNormal.m_Y < 0 ? std::max(-128, static_cast<int>(Vertex.m_fNormal.m_Y * 128)) : std::min(127, static_cast<int>(Vertex.m_fNormal.m_Y * 127))));
+                        Vertex.m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vertex.m_fNormal.m_Z < 0 ? std::max(-128, static_cast<int>(Vertex.m_fNormal.m_Z * 128)) : std::min(127, static_cast<int>(Vertex.m_fNormal.m_Z * 127))));
+                        Vertex.m_Normal.m_A = 127;
                     }
 
 
