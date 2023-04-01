@@ -977,7 +977,7 @@ namespace e16
 
         //------------------------------------------------------------------------------------------------------
 
-        void ImportAnimations( int SamplingFPS = 60 ) noexcept
+        void ImportAnimations( int MaxSamplingFPS = 60 ) noexcept
         {
             struct indices
             {
@@ -985,11 +985,12 @@ namespace e16
                 std::uint32_t m_iRotations{ 0 };
                 std::uint32_t m_iScales   { 0 };
             };
-            
+
             m_pAnimCharacter->m_AnimPackage.m_Animations.resize(m_pScene->mNumAnimations);
             for( auto i = 0ul; i < m_pScene->mNumAnimations; ++i )
             {
                 const aiAnimation&      AssimpAnim        = *m_pScene->mAnimations[i];
+                const int               SamplingFPS       = static_cast<int>(MaxSamplingFPS > AssimpAnim.mTicksPerSecond ? AssimpAnim.mTicksPerSecond : MaxSamplingFPS);
                 const double            AnimationDuration = AssimpAnim.mDuration / AssimpAnim.mTicksPerSecond;
                 const double            DeltaTime         = (AssimpAnim.mTicksPerSecond / SamplingFPS);
                 const int               FrameCount        = (int)std::ceil( AssimpAnim.mDuration / DeltaTime);
