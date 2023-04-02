@@ -109,6 +109,9 @@
     <Filter Include="Examples\Example 18 QuantizeSkinVertex">
       <UniqueIdentifier>{d42d7cb8-2905-4401-a6c6-43b66e8eba60}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Tools\Import3D">
+      <UniqueIdentifier>{cf4c010d-7c6a-4383-abe0-8bc620a40205}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Src\Examples\main.cpp" />
@@ -182,9 +185,6 @@
       <Filter>Examples\Example 05 Textures</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Src\Examples\E06_AssimLoader\E06_AssimLoader.cpp">
-      <Filter>Examples\Example 06 Assim Loader</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\Src\Examples\E06_AssimLoader\ModelLoader.cpp">
       <Filter>Examples\Example 06 Assim Loader</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Src\Examples\E07_PrimitiveGeoms\E07_PrimitiveGeoms.cpp">
@@ -398,12 +398,6 @@
     </ClInclude>
     <ClInclude Include="..\..\Tools\xgpu_xcore_bitmap_helpers.h">
       <Filter>Tools</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Src\Examples\E06_AssimLoader\ModelLoader.h">
-      <Filter>Examples\Example 06 Assim Loader</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Src\Examples\E06_AssimLoader\Mesh.h">
-      <Filter>Examples\Example 06 Assim Loader</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom.h">
       <Filter>Dependencies\xprim_geom</Filter>
@@ -764,6 +758,21 @@
     </ClInclude>
     <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_AnimCharacter.h">
       <Filter>Examples\Example 16 Animation</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Tools\Import3D\import3d.h">
+      <Filter>Tools\Import3D</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Tools\Import3D\import3d_animation.h">
+      <Filter>Tools\Import3D</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Tools\Import3D\import3d_geom.h">
+      <Filter>Tools\Import3D</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Tools\Import3D\import3d_skeleton.h">
+      <Filter>Tools\Import3D</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\E06_AssimLoader\E06_LoadTextureHelper.h">
+      <Filter>Examples\Example 06 Assim Loader</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

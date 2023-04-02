@@ -1,11 +1,12 @@
+#include "xcore.h"
 #include "xGPU.h"
-#include <iostream>
 
-#include "../E16_Animation/E16_Importer.h"
 #include "../../tools/xgpu_view.h"
 #include "../../tools/xgpu_view_inline.h"
 
 #include "../../dependencies/xprim_geom/src/xprim_geom.h"
+
+#include "../../src/Examples/E16_Animation/E16_AnimCharacter.h"
 
 //------------------------------------------------------------------------------------------------
 static
@@ -25,6 +26,16 @@ namespace e17
 
 struct e17::skin_render
 {
+    struct vertex
+    {
+        xcore::vector3d m_Position;
+        xcore::vector2  m_UV;
+        xcore::icolor   m_Normal;
+        xcore::icolor   m_Tangent;
+        xcore::icolor   m_BoneWeights;
+        xcore::icolor   m_BoneIndex;
+    };
+
     struct mesh
     {
         std::string     m_Name;
@@ -54,7 +65,7 @@ struct e17::skin_render
         std::array<xcore::matrix4,256>  m_L2W;
     };
 
-    int Initialize(xgpu::device& Device, const e16::skin_geom& SkinGeom)
+    int Initialize(xgpu::device& Device, const import3d::geom& SkinGeom)
     {
         auto nVertices  = 0ull;
         auto nIndices   = 0ull;
@@ -70,17 +81,31 @@ struct e17::skin_render
             }
         }
 
-        if (auto Err = Device.Create(m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e16::skin_vertex), .m_EntryCount = static_cast<int>(nVertices) }); Err)
+        if (auto Err = Device.Create(m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(vertex), .m_EntryCount = static_cast<int>(nVertices) }); Err)
             return xgpu::getErrorInt(Err);
 
         (void)m_VertexBuffer.MemoryMap(0, static_cast<int>(nVertices), [&](void* pData)
         {
-            auto pVertex = static_cast<e16::skin_vertex*>(pData);
+            auto pVertex = static_cast<vertex*>(pData);
             for (auto& Mesh    : SkinGeom.m_Mesh)
             for (auto& Submesh : Mesh.m_Submeshes)
             for (auto& Vert    : Submesh.m_Vertices)
             {
-                *pVertex = Vert;
+                pVertex->m_Tangent.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vert.m_Tangent.m_X < 0 ? std::max(-128, static_cast<int>(Vert.m_Tangent.m_X * 128)) : std::min(127, static_cast<int>(Vert.m_Tangent.m_X * 127))));
+                pVertex->m_Tangent.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vert.m_Tangent.m_Y < 0 ? std::max(-128, static_cast<int>(Vert.m_Tangent.m_Y * 128)) : std::min(127, static_cast<int>(Vert.m_Tangent.m_Y * 127))));
+                pVertex->m_Tangent.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vert.m_Tangent.m_Z < 0 ? std::max(-128, static_cast<int>(Vert.m_Tangent.m_Z * 128)) : std::min(127, static_cast<int>(Vert.m_Tangent.m_Z * 127))));
+                pVertex->m_Tangent.m_A = 0;
+
+                pVertex->m_Normal.m_R = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vert.m_Normal.m_X < 0 ? std::max(-128, static_cast<int>(Vert.m_Normal.m_X * 128)) : std::min(127, static_cast<int>(Vert.m_Normal.m_X * 127))));
+                pVertex->m_Normal.m_G = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vert.m_Normal.m_Y < 0 ? std::max(-128, static_cast<int>(Vert.m_Normal.m_Y * 128)) : std::min(127, static_cast<int>(Vert.m_Normal.m_Y * 127))));
+                pVertex->m_Normal.m_B = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vert.m_Normal.m_Z < 0 ? std::max(-128, static_cast<int>(Vert.m_Normal.m_Z * 128)) : std::min(127, static_cast<int>(Vert.m_Normal.m_Z * 127))));
+                pVertex->m_Normal.m_A = static_cast<std::uint8_t>(static_cast<std::int8_t>(Vert.m_Tangent.Cross(Vert.m_Normal).Dot(Vert.m_Bitangent) > 0 ? 127 : -128));
+
+                pVertex->m_BoneIndex   = Vert.m_BoneIndex;
+                pVertex->m_BoneWeights = Vert.m_BoneWeights;
+                pVertex->m_Position    = Vert.m_Position;
+                pVertex->m_UV          = Vert.m_UV;
+
                 pVertex++;
             }
         });
@@ -109,32 +134,32 @@ struct e17::skin_render
             {
                 auto Attributes = std::array
                 { xgpu::vertex_descriptor::attribute
-                  { .m_Offset = offsetof(e16::skin_vertex, m_Position)
+                  { .m_Offset = offsetof(vertex, m_Position)
                   , .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
                   }
                 , xgpu::vertex_descriptor::attribute
-                  { .m_Offset = offsetof(e16::skin_vertex, m_UV)
+                  { .m_Offset = offsetof(vertex, m_UV)
                   , .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
                   }
                 , xgpu::vertex_descriptor::attribute
-                  { .m_Offset = offsetof(e16::skin_vertex, m_Normal)
+                  { .m_Offset = offsetof(vertex, m_Normal)
                   , .m_Format = xgpu::vertex_descriptor::format::SINT8_4D_NORMALIZED
                   }
                 , xgpu::vertex_descriptor::attribute
-                  { .m_Offset = offsetof(e16::skin_vertex, m_Tangent)
+                  { .m_Offset = offsetof(vertex, m_Tangent)
                   , .m_Format = xgpu::vertex_descriptor::format::SINT8_4D_NORMALIZED
                   }
                 , xgpu::vertex_descriptor::attribute
-                  { .m_Offset = offsetof(e16::skin_vertex, m_BoneWeights)
+                  { .m_Offset = offsetof(vertex, m_BoneWeights)
                   , .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED
                   }
                 , xgpu::vertex_descriptor::attribute
-                  { .m_Offset = offsetof(e16::skin_vertex, m_BoneIndex)
+                  { .m_Offset = offsetof(vertex, m_BoneIndex)
                   , .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_UINT
                   }
                 };
                 auto Setup = xgpu::vertex_descriptor::setup
-                { .m_VertexSize = sizeof(e16::skin_vertex)
+                { .m_VertexSize = sizeof(vertex)
                 , .m_Attributes = Attributes
                 };
 
@@ -289,7 +314,7 @@ struct e17::skin_render
     }
 
     push_constants                       m_PushConstants;
-    e16::load_textures                   m_LoadedTextures;
+    e06::load_textures                   m_LoadedTextures;
     xgpu::buffer                         m_VertexBuffer;
     xgpu::buffer                         m_IndexBuffer;
     std::vector<xgpu::pipeline_instance> m_PipeLineInstance;
@@ -323,10 +348,13 @@ int E17_Example()
     //
     e16::anim_character AnimCharacter;
     {
-        e16::importer Importer;
-        if( Importer.Import(AnimCharacter
+        import3d::importer Importer;
+        if( Importer.Import(
          //   , "./../../dependencies/Assets/Animated/ImperialWalker/source/AT-AT.fbx"
-            , "./../../dependencies/Assets/Animated/walking-while-listening/source/Walking.fbx"
+            "./../../dependencies/Assets/Animated/walking-while-listening/source/Walking.fbx"
+            , &AnimCharacter.m_SkinGeom
+            , &AnimCharacter.m_Skeleton
+            , &AnimCharacter.m_AnimPackage
         ) ) exit(1);
     }
 

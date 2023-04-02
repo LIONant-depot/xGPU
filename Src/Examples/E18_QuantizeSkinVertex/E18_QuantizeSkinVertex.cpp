@@ -1,12 +1,12 @@
+#include "xcore.h"
 #include "xGPU.h"
-#include <iostream>
-#include <bitset>
 
-#include "../E16_Animation/E16_Importer.h"
 #include "../../tools/xgpu_view.h"
 #include "../../tools/xgpu_view_inline.h"
 
 #include "../../dependencies/xprim_geom/src/xprim_geom.h"
+
+#include "../../Src/Examples/E16_Animation/E16_AnimCharacter.h"
 
 //------------------------------------------------------------------------------------------------
 static
@@ -88,7 +88,7 @@ struct e18::quantized_skin_render
 
     //------------------------------------------------------------------------------------------
 
-    int QuantizeAndCreateVertexBuffers(xgpu::device& Device, const e16::skin_geom& SkinGeom, const std::size_t nVertices )
+    int QuantizeAndCreateVertexBuffers(xgpu::device& Device, const import3d::geom& SkinGeom, const std::size_t nVertices )
     {
         //
         // Compute the following...
@@ -165,12 +165,12 @@ struct e18::quantized_skin_render
                         auto& SkinExtra = lSkinExtras[iVertex];
                         float f;
 
-                        SkinExtra.m_QNormalY  = static_cast<std::int16_t>(V.m_fNormal.m_Y  * (V.m_fNormal.m_Y  >= 0 ? 0x1FF : 0x200));
-                        SkinExtra.m_QTangentX = static_cast<std::int16_t>(V.m_fTangent.m_X * (V.m_fTangent.m_X >= 0 ? 0x1FF : 0x200));
-                        SkinExtra.m_QTangentY = static_cast<std::int16_t>(V.m_fTangent.m_Y * (V.m_fTangent.m_Y >= 0 ? 0x1FF : 0x200));
+                        SkinExtra.m_QNormalY  = static_cast<std::int16_t>(V.m_Normal.m_Y  * (V.m_Normal.m_Y  >= 0 ? 0x1FF : 0x200));
+                        SkinExtra.m_QTangentX = static_cast<std::int16_t>(V.m_Tangent.m_X * (V.m_Tangent.m_X >= 0 ? 0x1FF : 0x200));
+                        SkinExtra.m_QTangentY = static_cast<std::int16_t>(V.m_Tangent.m_Y * (V.m_Tangent.m_Y >= 0 ? 0x1FF : 0x200));
 
                         // Store the tangent z sign here so it will be [-1 || 1]
-                        SkinExtra.m_QAlpha = V.m_fTangent.m_Z >= 0 ? 0x1 : 0x3;
+                        SkinExtra.m_QAlpha = V.m_Tangent.m_Z >= 0 ? 0x1 : 0x3;
 
                         // Compress the UVs
 
@@ -206,11 +206,11 @@ struct e18::quantized_skin_render
                         //
 
                         // Now we must convert the normal to 14 bits... (we reserve the last 2 bit for something else...)
-                        std::int16_t Nx       = std::min( (short)0x3FFF, static_cast<std::int16_t>( ((V.m_fNormal.m_X+1)/2.0f) * 0x3FFF ) );
+                        std::int16_t Nx       = std::min( (short)0x3FFF, static_cast<std::int16_t>( ((V.m_Normal.m_X+1)/2.0f) * 0x3FFF ) );
 
                         // Store the sign bit of Normal.Z in the last bit of the normal
                         // If NX is zero we will steal a little bit of precision to insert the negative sign...
-                        if(V.m_fNormal.m_Z < 0 )
+                        if(V.m_Normal.m_Z < 0 )
                         {
                             if( Nx == 0 )
                             {
@@ -233,7 +233,7 @@ struct e18::quantized_skin_render
                         }
 
                         // We are also going to store the bitangent sign bit in bit 14
-                        if( V.m_Normal.m_A == 128 )
+                        if( V.m_Tangent.Cross(V.m_Normal).Dot(V.m_Bitangent) < 0 )
                         {
                             if (Nx < 0)  Nx  = -((1 << 14) | (-Nx));
                             else         Nx |= (1 << 14);
@@ -249,7 +249,7 @@ struct e18::quantized_skin_render
                     //
                     // Sanity Check the data (decompress and check with original data)
                     //
-                    if constexpr (false)
+                    if constexpr (true)
                     {
                         auto& SkinPos   = lSkinPos[iVertex];
                         auto& SkinExtra = lSkinExtras[iVertex];
@@ -274,10 +274,10 @@ struct e18::quantized_skin_render
                             TangentA.m_Z *= xcore::Sqrt(1.01f - TangentA.m_X * TangentA.m_X - TangentA.m_Y * TangentA.m_Y);
                         }
 
-                        float SignedBit = V.m_Normal.m_A == 128 ? -1.0f : 1.0f;
+                        float SignedBit = V.m_Tangent.Cross(V.m_Normal).Dot(V.m_Bitangent) < 0 ? -1.0f : 1.0f;
 
-                        assert( NormalA.Dot(V.m_fNormal)   >= 0.9f );
-                        assert( TangentA.Dot(V.m_fTangent) >= 0.9f);
+                        assert( NormalA.Dot(V.m_Normal)   >= 0.9f );
+                        assert( TangentA.Dot(V.m_Tangent) >= 0.9f);
                         assert( SignedBit == BitangentSign );
                     }
 
@@ -313,7 +313,7 @@ struct e18::quantized_skin_render
 
     //-----------------------------------------------------------------------------------
 
-    int Initialize(xgpu::device& Device, const e16::skin_geom& SkinGeom)
+    int Initialize(xgpu::device& Device, const import3d::geom& SkinGeom)
     {
         auto nVertices  = 0ull;
         auto nIndices   = 0ull;
@@ -559,7 +559,7 @@ struct e18::quantized_skin_render
     xcore::vector3d                      m_PosCompressionScale;
     xcore::vector2                       m_UVCompressionScale;
     push_constants                       m_PushConstants;
-    e16::load_textures                   m_LoadedTextures;
+    e06::load_textures                   m_LoadedTextures;
     std::array<xgpu::buffer,3>           m_Buffer;                  // 0 - Indices, 1 - Pos, 2 - Extra
     std::vector<xgpu::pipeline_instance> m_PipeLineInstance;
     std::vector<submesh>                 m_Submeshes;
@@ -592,10 +592,13 @@ int E18_Example()
     //
     e16::anim_character AnimCharacter;
     {
-        e16::importer Importer;
-        if( Importer.Import(AnimCharacter
-         //   , "./../../dependencies/Assets/Animated/ImperialWalker/source/AT-AT.fbx"
-            , "./../../dependencies/Assets/Animated/walking-while-listening/source/Walking.fbx"
+        import3d::importer Importer;
+        if( Importer.Import(
+         // "./../../dependencies/Assets/Animated/ImperialWalker/source/AT-AT.fbx"
+            "./../../dependencies/Assets/Animated/walking-while-listening/source/Walking.fbx"
+            , &AnimCharacter.m_SkinGeom
+            , &AnimCharacter.m_Skeleton
+            , &AnimCharacter.m_AnimPackage
         ) ) exit(1);
     }
 

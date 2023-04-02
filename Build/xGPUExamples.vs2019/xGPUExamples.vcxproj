@@ -112,7 +112,6 @@
     <ClCompile Include="..\..\Src\Examples\E04_Properties\E04_Properties.cpp" />
     <ClCompile Include="..\..\Src\Examples\E05_Textures\E05_Textures.cpp" />
     <ClCompile Include="..\..\Src\Examples\E06_AssimLoader\E06_AssimLoader.cpp" />
-    <ClCompile Include="..\..\Src\Examples\E06_AssimLoader\ModelLoader.cpp" />
     <ClCompile Include="..\..\Src\Examples\E07_PrimitiveGeoms\E07_PrimitiveGeoms.cpp" />
     <ClCompile Include="..\..\Src\Examples\E08_AsyncTextureLoading\E08_AsyncTextureLoading.cpp" />
     <ClCompile Include="..\..\Src\Examples\E09_Raw3DViewer\E09_Raw3DViewer.cpp" />
@@ -251,8 +250,7 @@
     <ClInclude Include="..\..\Src\Details\xgpu_texture_inline.h" />
     <ClInclude Include="..\..\Src\Details\xgpu_vertex_descriptor_inline.h" />
     <ClInclude Include="..\..\Src\Details\xgpu_window_inline.h" />
-    <ClInclude Include="..\..\Src\Examples\E06_AssimLoader\Mesh.h" />
-    <ClInclude Include="..\..\Src\Examples\E06_AssimLoader\ModelLoader.h" />
+    <ClInclude Include="..\..\Src\Examples\E06_AssimLoader\E06_LoadTextureHelper.h" />
     <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_AnimationPackage.h" />
     <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_AnimCharacter.h" />
     <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_Importer.h" />
@@ -277,6 +275,10 @@
     <ClInclude Include="..\..\Src\xgpu_texture.h" />
     <ClInclude Include="..\..\Src\xgpu_vertex_descriptor.h" />
     <ClInclude Include="..\..\Src\xgpu_window.h" />
+    <ClInclude Include="..\..\Tools\Import3D\import3d.h" />
+    <ClInclude Include="..\..\Tools\Import3D\import3d_animation.h" />
+    <ClInclude Include="..\..\Tools\Import3D\import3d_geom.h" />
+    <ClInclude Include="..\..\Tools\Import3D\import3d_skeleton.h" />
     <ClInclude Include="..\..\Tools\WindowsFileDialog\FileBrowser.h" />
     <ClInclude Include="..\..\Tools\WindowsFileDialog\FolderBrowser.h" />
     <ClInclude Include="..\..\Tools\xgpu_imgui_breach.h" />
