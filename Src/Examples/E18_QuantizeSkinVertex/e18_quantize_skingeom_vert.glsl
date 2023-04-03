@@ -22,11 +22,6 @@ layout(location = 0) out struct _o
     vec4  VertColor;
 	vec4  WorldSpacePosition;
     vec2  UV; 
-
-
-    vec3 Normal;
-    vec3 Tangent;
-    float NegativeBi;
 } Out;
 
 layout (push_constant) uniform _pc
