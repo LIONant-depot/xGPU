@@ -71,7 +71,10 @@ if %ERRORLEVEL% GEQ 1 goto :ERROR
 
 rem Download the shaderc binaries if we don't have it downloaded already
 if NOT exist "./Shaderc.zip" (
-   bitsadmin /transfer DownloadShaderc /download /priority high https://storage.googleapis.com/shaderc/artifacts/prod/graphics_shader_compiler/shaderc/windows/continuous_release_2017/371/20210722-133829/install.zip "%cd%\Shaderc.zip"
+   rem bitsadmin /transfer DownloadShaderc /download /priority high https://storage.googleapis.com/shaderc/artifacts/prod/graphics_shader_compiler/shaderc/windows/continuous_release_2017/371/20210722-133829/install.zip "%cd%\Shaderc.zip"
+
+   powershell -Command "Invoke-WebRequest" -Uri "https://storage.googleapis.com/shaderc/artifacts/prod/graphics_shader_compiler/shaderc/windows/continuous_release_2017/371/20210722-133829/install.zip" -OutFile "%cd%\Shaderc.zip"
+
    if %ERRORLEVEL% GEQ 1 goto :ERROR
 )
 
@@ -92,7 +95,7 @@ rem Copy ASSIMP DLL
 rem ------------------------------------------------------------
 :ASSIMP
 rem copy the dlls just in case the user runs the examples 
-copy "..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\assimp\BINARIES\Win32\bin\Release\assimp-vc142-mt.dll" "xGPUExamples.vs2019\assimp-vc142-mt.dll" /Y
+copy "..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\assimp\BINARIES\Win32\bin\Release\assimp-vc143-mt.dll" "xGPUExamples.vs2022\assimp-vc143-mt.dll" /Y
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
 

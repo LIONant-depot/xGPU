@@ -37,7 +37,7 @@ namespace e02
 int E02_Example()
 {
     xgpu::instance Instance;
-    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = e02::DebugMessage, .m_pLogWarning = e02::DebugMessage }); Err)
+    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = false, .m_pLogErrorFunc = e02::DebugMessage, .m_pLogWarning = e02::DebugMessage }); Err)
         return xgpu::getErrorInt(Err);
 
     xgpu::device Device;

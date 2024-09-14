@@ -24,7 +24,7 @@ int E01_Example()
     xgpu::instance Instance;
     if( auto Err = xgpu::CreateInstance( Instance
                                        , { .m_bDebugMode       = true
-                                         , .m_bEnableRenderDoc = true
+                                         , .m_bEnableRenderDoc = false
                                          , .m_pLogErrorFunc    = DebugMessage
                                          , .m_pLogWarning      = DebugMessage 
                                          }

@@ -7,7 +7,7 @@
 #include "import3d_animation.h"
 #include "import3d_skeleton.h"
 
-#pragma comment( lib, "../../Dependencies/assimp/BINARIES/Win32/lib/Release/assimp-vc142-mt.lib")
+#pragma comment( lib, "../../Dependencies/assimp/BINARIES/Win32/lib/Release/assimp-vc143-mt.lib")
 
 namespace import3d
 {

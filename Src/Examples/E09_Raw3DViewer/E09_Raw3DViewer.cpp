@@ -334,7 +334,7 @@ int E09_Example()
     e09::runtime_material_instance   DefaultMaterialInstance;
     e09::runtime_geom_instance       GeomInstance;
 
-    if( auto Err = RuntimeGeom.Load( Device, xcore::string::view{ L"spider.xgeom"} ); Err )
+    if( auto Err = RuntimeGeom.Load( Device, xcore::string::view{ L"../../bin/spider.xgeom"} ); Err )
         return -1;
 
     if (auto Err = DefaultTexture.Initialize(Device); Err)
