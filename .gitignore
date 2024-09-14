@@ -1,6 +1,7 @@
 ﻿/.vs
 /Dependencies
-/Build/xGPUExamples.vs2019/x64
-/Build/xGPUExamples.vs2019/.vs/
-/Build/xGPUExamples.vs2019/imgui.ini
-/Build/xGPUExamples.vs2019/assimp-vc142-mt.dll
+/Build/xGPUExamples.vs2022/imgui.ini
+/Build/xGPUExamples.vs2022/assimp-vc142-mt.dll
+/Build/xGPUExamples.vs2022/.vs
+/Build/xGPUExamples.vs2022/x64
+/Build/xGPUExamples.vs2022/xGPUExamples/x64/Debug
