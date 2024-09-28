@@ -112,6 +112,12 @@
     <Filter Include="Tools\Import3D">
       <UniqueIdentifier>{cf4c010d-7c6a-4383-abe0-8bc620a40205}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Examples\Example 04 Properties\Dependencies">
+      <UniqueIdentifier>{8d5fffea-f1ea-43eb-a8ee-e2eaf55781e5}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Examples\Example 04 Properties\OldExample">
+      <UniqueIdentifier>{efad32ce-eea0-4c26-b11c-29162bde782a}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Src\Examples\main.cpp" />
@@ -253,9 +259,6 @@
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore.cpp">
       <Filter>Dependencies\xCore</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.cpp">
-      <Filter>Examples\Example 04 Properties</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui.cpp">
       <Filter>Dependencies\ImGui</Filter>
     </ClCompile>
@@ -306,6 +309,12 @@
     </ClCompile>
     <ClCompile Include="..\..\Src\Examples\E18_QuantizeSkinVertex\E18_QuantizeSkinVertex.cpp">
       <Filter>Examples\Example 18 QuantizeSkinVertex</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Examples\E04_Properties\xPropertyImGuiInspector.cpp">
+      <Filter>Examples\Example 04 Properties\Dependencies</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.cpp">
+      <Filter>Examples\Example 04 Properties\OldExample</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -600,12 +609,6 @@
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_vector.h">
       <Filter>Dependencies\xCore</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyExample.h">
-      <Filter>Examples\Example 04 Properties</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.h">
-      <Filter>Examples\Example 04 Properties</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imconfig.h">
       <Filter>Dependencies\ImGui</Filter>
     </ClInclude>
@@ -767,6 +770,21 @@
     </ClInclude>
     <ClInclude Include="..\..\Src\Examples\E06_AssimLoader\E06_LoadTextureHelper.h">
       <Filter>Examples\Example 06 Assim Loader</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\E04_Properties\my_properties.h">
+      <Filter>Examples\Example 04 Properties\Dependencies</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\E04_Properties\xPropertyImGuiInspector.h">
+      <Filter>Examples\Example 04 Properties\Dependencies</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\E04_Properties\xPropertyImGuiExample.h">
+      <Filter>Examples\Example 04 Properties\Dependencies</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyExample.h">
+      <Filter>Examples\Example 04 Properties\OldExample</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.h">
+      <Filter>Examples\Example 04 Properties\OldExample</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

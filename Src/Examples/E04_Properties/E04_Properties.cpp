@@ -1,8 +1,7 @@
 #include "xGPU.h"
 #include "xcore.h"
 #include "../../tools/xgpu_imgui_breach.h"
-#include "../../dependencies/xgeom_compiler/dependencies/xraw3D/dependencies/xcore/dependencies/properties/src/Examples/ImGuiExample/ImGuiPropertyInspector.h"
-#include "../../dependencies/xgeom_compiler/dependencies/xraw3D/dependencies/xcore/dependencies/properties/src/Examples/ImGuiExample/ImGuiPropertyExample.h"
+#include "xPropertyImGuiExample.h"
 
 namespace e04
 {
