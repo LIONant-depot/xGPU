@@ -579,32 +579,31 @@ void xproperty::inspector::RefreshAllProperties( void ) noexcept
             C->m_List.clear();
             xproperty::sprop::collector( C->m_Base.second, *C->m_Base.first, m_Context, [&](const char* pPropertyName, xproperty::any&& Value, const xproperty::type::members& Member, bool isConst)
             {
-                auto* pHelp = Member.getUserData<xproperty::settings::member_help_t>();
                 xproperty::flags::type Flags;
-
                 Flags.m_isShowReadOnly = isConst;
                 Flags.m_isDontSave     = false;
                 Flags.m_isDontShow     = false;
                 Flags.m_isScope        =    std::holds_alternative<xproperty::type::members::scope>(Member.m_Variant)
-                                         || std::holds_alternative<xproperty::type::members::props>(Member.m_Variant) 
-                                         || std::holds_alternative<xproperty::type::members::list_props>(Member.m_Variant)
-                                         || std::holds_alternative<xproperty::type::members::list_var>(Member.m_Variant);
+                                         || std::holds_alternative<xproperty::type::members::props>(Member.m_Variant);
 
-                if (Flags.m_isScope && Value.m_pType && std::holds_alternative<xproperty::type::members::list_var>(Member.m_Variant) == false )
+                // Check if we are dealing with atomic types and the size field...
+                if ( Flags.m_isScope == false
+                    && ( std::holds_alternative<xproperty::type::members::list_props>(Member.m_Variant)
+                         || std::holds_alternative<xproperty::type::members::list_var>(Member.m_Variant))
+                    && Value.m_pType->m_GUID == xproperty::settings::var_type<std::size_t>::guid_v )
                 {
-                    // Let us make sure that it is trying to give up a size... such the size of
-                    if( Value.m_pType->m_GUID == xproperty::settings::var_type<std::size_t>::guid_v )
+                    auto i = std::strlen(pPropertyName);
+                    if( (pPropertyName[i-1] == ']') && (pPropertyName[i - 2] == '[') )
                     {
-                        if (m_UndoSystem.m_lCmds.size() != 0)
-                        {
-                            int a=0;
-                        }
+                        Flags.m_isScope = true;
 
-                        // if we get an array of size zero we will skip it...
-                        if( 0 == Value.get<std::size_t>() )
+                        // We don't deal with zero size arrays...
+                        if (0 == Value.get<std::size_t>())
                             return;
                     }
                 }
+
+                auto* pHelp = Member.getUserData<xproperty::settings::member_help_t>();
 
                 C->m_List.push_back
                 ( std::make_unique<entry>
@@ -872,7 +871,7 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
         {
             if ( m_Settings.m_bRenderRightBackground ) DrawBackground( iDepth-1, GlobalIndex );
 
-            if (E.m_Property.m_Path.back() == ']')
+            if (E.m_Property.m_Path.back() == ']' )
             {
                 ImGui::Text(" Size: %llu  ", E.m_Property.m_Value.get<std::size_t>());
                 if(Tree[iDepth].m_isOpen) ImGui::SameLine();

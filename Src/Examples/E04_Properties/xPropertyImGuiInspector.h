@@ -108,53 +108,6 @@ namespace xproperty
         };
         XPROPERTY_REG(system)
     }
-
-    //-----------------------------------------------------------------------------------
-    // Draw prototypes
-    //-----------------------------------------------------------------------------------
-    namespace ui::details 
-    {
-        /*
-        template<> struct draw<std::int32_t,  style::scroll_bar>      { static void Render( xproperty::ui::undo::cmd& Cmd, const std::int32_t&          Value, const xproperty::ui::styles<std::int32_t>&    I, xproperty::flags::type Flags) noexcept; };
-        template<> struct draw<std::int32_t,  style::drag_bar>        { static void Render( xproperty::ui::undo::cmd& Cmd, const std::int32_t&          Value, const xproperty::ui::styles<std::int32_t>&    I, xproperty::flags::type Flags) noexcept; };
-        template<> struct draw<float,         style::scroll_bar>      { static void Render( xproperty::ui::undo::cmd& Cmd, const float&                 Value, const xproperty::ui::styles<float>&           I, xproperty::flags::type Flags) noexcept; };
-        template<> struct draw<float,         style::drag_bar>        { static void Render( xproperty::ui::undo::cmd& Cmd, const float&                 Value, const xproperty::ui::styles<float>&           I, xproperty::flags::type Flags) noexcept; };
-        template<> draw<string_t,      style::defaulted>       { inline static void Render( xproperty::ui::undo::cmd& Cmd, const std::string&           Value, const xproperty::editor::style_info<string_t>&        I, property::flags::type Flags) noexcept;
-        template<> draw<string_t,      style::enumeration>     { inline static void Render( xproperty::ui::undo::cmd& Cmd, const std::string&           Value, const xproperty::editor::style_info<string_t>&        I, property::flags::type Flags) noexcept;
-        template<> draw<string_t,      style::button>          { inline static void Render( xproperty::ui::undo::cmd& Cmd, const std::string&           Value, const xproperty::editor::style_info<string_t>&        I, property::flags::type Flags) noexcept;
-        */
-    };
-
-    //-----------------------------------------------------------------------------------
-    // Provides all the setting functions
-    //-----------------------------------------------------------------------------------
-    /*
-    template< typename T >
-    __inline editor::style_info<T>             edstyle<T>::Default     (void)                                              noexcept
-    { return editor::style_info<T>{ editor::details::draw<T, editor::details::style::defaulted> }; }
-
-    __inline editor::style_info<int>           edstyle<int>::          ScrollBar   (int Min, int Max, const char* pFormat)             noexcept
-    { return editor::style_info<int>{ editor::details::draw<int, editor::details::style::scroll_bar >, Min, Max, pFormat, 1     }; }
-
-    __inline editor::style_info<int>           edstyle<int>::          Drag        (float Speed, int Min, int Max, const char* pFormat)  noexcept
-    { return editor::style_info<int>{ editor::details::draw<int, editor::details::style::drag       >, Min, Max, pFormat, Speed }; }
-
-    __inline editor::style_info<float>         edstyle<float>::        ScrollBar   (float Min, float Max, const char* pFormat, float Power) noexcept
-    { return editor::style_info<float>{ editor::details::draw<float, editor::details::style::scroll_bar >, Min, Max, pFormat, 1.0f, Power   }; }
-
-    __inline editor::style_info<float>         edstyle<float>::        Drag        (float Speed, float Min, float Max, const char* pFormat, float Power)  noexcept
-    { return editor::style_info<float>{ editor::details::draw<float, editor::details::style::drag       >, Min, Max, pFormat, Speed, Power   }; }
-    
-    template< std::size_t N >
-    __inline editor::style_info<string_t>   edstyle<string_t>::     Enumeration (const std::array<std::pair<const char*, int>, N>& Array)  noexcept
-    { return editor::style_info<string_t>{ editor::details::draw<string_t, editor::details::style::enumeration >, Array.data(), Array.size() }; }
-
-    __inline editor::style_info<string_t>   edstyle<string_t>::     Button (void)  noexcept
-    { return editor::style_info<string_t>{ editor::details::draw<string_t, editor::details::style::button >, nullptr, 0 }; }
-
-    __inline editor::style_info<string_t>   edstyle<string_t>::     Default     (void)                                              noexcept
-    { return editor::style_info<string_t>{ editor::details::draw<string_t, editor::details::style::defaulted>, nullptr, 0 }; }
-    */
 }
 
 //-----------------------------------------------------------------------------------

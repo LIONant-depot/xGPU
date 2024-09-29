@@ -47,9 +47,9 @@ examples Examples
     , CreateInstance<pointer_and_reference_c_style_values>()
     , CreateInstance<pointer_and_reference_c_style_props>()
     , CreateInstance<pointers_and_references_cpp_style>()
-//    , CreateInstance<list_c_arrays>()                     // Must add support for multi-dimensional arrays
-//    , CreateInstance<lists_cpp>()                     // Must add support for multi-dimensional arrays
-//    , CreateInstance<lists_advance>()                   // ??
+    , CreateInstance<list_c_arrays>()                     // Must add support for multi-dimensional arrays
+    , CreateInstance<lists_cpp>()                     // Must add support for multi-dimensional arrays
+    , CreateInstance<lists_advance>()                   
     , CreateInstance<virtual_properties>()        
     , CreateInstance<user_data_object>()
 };
