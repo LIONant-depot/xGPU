@@ -1,10 +1,10 @@
 
 #include "xPropertyImGuiInspector.h"
+#include "../../dependencies/xproperty/source/examples/example_properties.h"
 
-/*
 //-----------------------------------------------------------------------------------
 
-using example_entry = std::pair<const property::table&, void*>;
+using example_entry = std::pair<const xproperty::type::object&, void*>;
 
 //-----------------------------------------------------------------------------------
 
@@ -12,8 +12,8 @@ template< typename T >
 std::pair<const char*, example_entry> CreateInstance()
 {
     static T Instance;
-    Instance.DefaultValues();
-    return { property::getTable(Instance).m_pName, { property::getTable(Instance), &Instance } };
+    Instance.setValues();
+    return { xproperty::getObject(Instance)->m_pName, { *xproperty::getObject(Instance), &Instance } };
 }
 
 //-----------------------------------------------------------------------------------
@@ -31,68 +31,73 @@ struct examples
 };
 
 //-----------------------------------------------------------------------------------
-
-std::array<property::inspector, 2>   Inspector{ "Examples", "Settings" };
-examples                            Examples
+// EXAMPLES: https://github.com/LIONant-depot/xproperty/blob/master/documentation/Documentation.md 
+// This are the examples that come from the xproperty library
+examples Examples
 {
-      CreateInstance<example0>()
-    , CreateInstance<example1>()
-    , CreateInstance<example2>()
-    , CreateInstance<example3>()
-    , CreateInstance<example4>()
-    , CreateInstance<example5>()
-    , CreateInstance<example6>()
-    , CreateInstance<example7>()
-    , CreateInstance<example8>()
-    , CreateInstance<example9>()
-    , CreateInstance<example10>()
-    , CreateInstance<example0_custom_lists>()
-    , CreateInstance<example1_custom_lists>()
-    , CreateInstance<example2_custom_lists>()
-    , CreateInstance<example3_custom_lists>()
-    , CreateInstance<example4_custom_lists>()
+      CreateInstance<my_object1>()
+    , CreateInstance<my_object2>()
+    , CreateInstance<my_object3>()
+    , CreateInstance<derived1>()
+    , CreateInstance<base1>()
+    , CreateInstance<derived2>()
+    , CreateInstance<common_types>()
+    , CreateInstance<enums_unregistered>()
+    , CreateInstance<enums_registered>()
+    , CreateInstance<pointer_and_reference_c_style_values>()
+    , CreateInstance<pointer_and_reference_c_style_props>()
+    , CreateInstance<pointers_and_references_cpp_style>()
+//    , CreateInstance<list_c_arrays>()                     // Must add support for multi-dimensional arrays
+//    , CreateInstance<lists_cpp>()                     // Must add support for multi-dimensional arrays
+//    , CreateInstance<lists_advance>()                   // ??
+    , CreateInstance<virtual_properties>()        
+    , CreateInstance<user_data_object>()
 };
-*/
 
-std::array<xproperty::inspector, 1>   Inspector{ "Settings" }; //"Examples", 
+
+std::array<xproperty::inspector, 2>   Inspector{ "Settings", "Examples" };
 
 //-----------------------------------------------------------------------------------
 
 void DrawPropertyWindow()
 {
-    static int iSelection = -1;
-
-    /*
-    // Show properties
-    Inspector[0].Show([&]
-        {
-            if (ImGui::Combo("Select Example", &iSelection, Examples.m_Names.data(), static_cast<int>(Examples.m_Names.size())))
-            {
-                Inspector[0].clear();
-                Inspector[0].AppendEntity();
-                Inspector[0].AppendEntityComponent(Examples.m_Tables[iSelection].first, Examples.m_Tables[iSelection].second);
-            }
-
-            if (ImGui::Button("  Undo  ")) Inspector[0].Undo();
-            ImGui::SameLine(80);
-            if (ImGui::Button("  Redo  ")) Inspector[0].Redo();
-        });
-*/
     // Settings
+    if constexpr ( true )
     {
-        static bool Init = false;
+        auto&       I       = Inspector[0];
+        static bool Init    = false;
         if (Init == false)
         {
             Init = true;
-            Inspector[0].clear();
-            Inspector[0].AppendEntity();
-            Inspector[0].AppendEntityComponent( *xproperty::getObject(Inspector[0]), &Inspector[0] );
+            I.clear();
+            I.AppendEntity();
+            I.AppendEntityComponent(*xproperty::getObject(I), &I);
         }
-        Inspector[0].Show([]
+        I.Show([&]
             {
-                if (ImGui::Button("  Undo  ")) Inspector[0].Undo();
+                if (ImGui::Button("  Undo  ")) I.Undo();
                 ImGui::SameLine(80);
-                if (ImGui::Button("  Redo  ")) Inspector[0].Redo();
+                if (ImGui::Button("  Redo  ")) I.Redo();
+            });
+    }
+
+    // Show properties
+    if constexpr (true)
+    {
+        auto&       I           = Inspector[1];
+        static int  iSelection  = -1;
+        I.Show([&]
+            {
+                if (ImGui::Combo("Select Example", &iSelection, Examples.m_Names.data(), static_cast<int>(Examples.m_Names.size())))
+                {
+                    I.clear();
+                    I.AppendEntity();
+                    I.AppendEntityComponent(Examples.m_Tables[iSelection].first, Examples.m_Tables[iSelection].second);
+                }
+
+                if (ImGui::Button("  Undo  ")) I.Undo();
+                ImGui::SameLine(80);
+                if (ImGui::Button("  Redo  ")) I.Redo();
             });
     }
 }

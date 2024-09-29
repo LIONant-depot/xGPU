@@ -240,6 +240,8 @@ protected:
     {
         xproperty::sprop::container::prop               m_Property;
         const char*                                     m_pHelp;
+        const char*                                     m_pName;
+        std::uint32_t                                   m_GUID;
         const xproperty::type::members*                 m_pUserData;
         xproperty::flags::type                          m_Flags;
     };
@@ -258,7 +260,6 @@ protected:
 protected:
 
     void        RefreshAllProperties                ( void )                                        noexcept;
-    void        RefactorComponents                  ( void )                                        noexcept;
     void        Render                              ( component& C, int& GlobalIndex )              noexcept;
     void        Show                                ( void )                                        noexcept;
     void        DrawBackground                      ( int Depth, int GlobalIndex )          const   noexcept;

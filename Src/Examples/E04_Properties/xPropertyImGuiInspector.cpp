@@ -263,35 +263,92 @@ namespace xproperty::ui::details
     }
 
     //-----------------------------------------------------------------------------------
-    /*
-    template<>
-    void draw<string_t, style::enumeration>(undo::cmd<string_t>& Cmd, const string_t& Value, const xproperty::ui::style_info<string_t>& Info, xproperty::flags::type Flags) noexcept
+
+    void draw_enums( undo::cmd& Cmd, const xproperty::any& AnyValue, xproperty::flags::type Flags) noexcept
     {
-        if (Flags.m_isShowReadOnly) ImGui::InputText("##value", (char*)Value.c_str(), Value.length(), ImGuiInputTextFlags_ReadOnly);
-        else
+     //   assert(AnyValue.isEnum);
+        assert(AnyValue.m_pType);
+        assert(AnyValue.m_pType->m_RegisteredEnumSpan.size() > 0 );
+
+        //
+        // get the current selected item index
+        //
+        std::size_t current_item = [&]
         {
-            std::size_t current_item = 0;
-            for (; current_item < Info.m_EnumCount; ++current_item)
+            // first extract the value of the enum for any type...
+            std::uint64_t Value = [&]()->std::uint64_t
             {
-                if (Value == Info.m_pEnumList[current_item].first )
+                switch (AnyValue.m_pType->m_Size)
+                {
+                    case 1: return *reinterpret_cast<const std::uint8_t*>(&AnyValue.m_Data);
+                    case 2: return *reinterpret_cast<const std::uint16_t*>(&AnyValue.m_Data);
+                    case 4: return *reinterpret_cast<const std::uint32_t*>(&AnyValue.m_Data);
+                    case 8: return *reinterpret_cast<const std::uint64_t*>(&AnyValue.m_Data);
+                }
+
+                assert(false);
+                return 0;
+            }();
+
+            // then search to find which is the index
+            std::size_t current_item=0;
+            for (; current_item < AnyValue.m_pType->m_RegisteredEnumSpan.size(); ++current_item)
+            {
+                if (Value == AnyValue.m_pType->m_RegisteredEnumSpan[current_item].m_Value)
                 {
                     break;
                 }
             }
 
-            Cmd.m_isChange = false;
-            if (ImGui::BeginCombo("##combo", Info.m_pEnumList[current_item].first )) // The second parameter is the label previewed before opening the combo.
+            // if we don't find the index... then we have a problem...
+            if (current_item == AnyValue.m_pType->m_RegisteredEnumSpan.size())
             {
-                for (std::size_t n = 0; n < Info.m_EnumCount; n++)
+                // We should have had a value in the list...
+                assert(false);
+            }
+
+            return current_item;
+        }();
+
+        //
+        // Handle the UI part...
+        //
+        if (Flags.m_isShowReadOnly) 
+        {
+            ImGui::InputText("##value", (char*)AnyValue.m_pType->m_RegisteredEnumSpan[current_item].m_pName, std::strlen(AnyValue.m_pType->m_RegisteredEnumSpan[current_item].m_pName), ImGuiInputTextFlags_ReadOnly);
+        }
+        else
+        {
+
+            Cmd.m_isChange = false;
+            if (ImGui::BeginCombo("##combo", AnyValue.m_pType->m_RegisteredEnumSpan[current_item].m_pName)) // The second parameter is the label previewed before opening the combo.
+            {
+                for (std::size_t n = 0; n < AnyValue.m_pType->m_RegisteredEnumSpan.size(); n++)
                 {
                     bool is_selected = (current_item == n); // You can store your selection however you want, outside or inside your objects
-                   
-                    if (ImGui::Selectable(Info.m_pEnumList[n].first, is_selected))
+
+                    if (ImGui::Selectable(AnyValue.m_pType->m_RegisteredEnumSpan[n].m_pName, is_selected))
                     {
-                        if (Cmd.m_isEditing == false) Cmd.m_Original.assign(Value);
-                        Cmd.m_NewValue.assign(Info.m_pEnumList[n].first);
+                        if (Cmd.m_isEditing == false) Cmd.m_Original = AnyValue;
+
+                        //
+                        // Set the new value
+                        //
+
+                        // First iniailize all the type information...
+                        Cmd.m_NewValue = AnyValue;
+
+                        // Now overrite the value in a generic way...
+                        switch (AnyValue.m_pType->m_Size)
+                        {
+                        case 1: *reinterpret_cast<std::uint8_t*>(&Cmd.m_NewValue.m_Data)  = AnyValue.m_pType->m_RegisteredEnumSpan[n].m_Value; break;
+                        case 2: *reinterpret_cast<std::uint16_t*>(&Cmd.m_NewValue.m_Data) = AnyValue.m_pType->m_RegisteredEnumSpan[n].m_Value; break;
+                        case 4: *reinterpret_cast<std::uint32_t*>(&Cmd.m_NewValue.m_Data) = AnyValue.m_pType->m_RegisteredEnumSpan[n].m_Value; break;
+                        case 8: *reinterpret_cast<std::uint64_t*>(&Cmd.m_NewValue.m_Data) = AnyValue.m_pType->m_RegisteredEnumSpan[n].m_Value; break;
+                        }
                         Cmd.m_isChange = true;
                     }
+
                     if (is_selected)
                         ImGui::SetItemDefaultFocus();   // You may set the initial focus when opening the combo (scrolling + for keyboard navigation support)
                 }
@@ -299,7 +356,6 @@ namespace xproperty::ui::details
             }
         }
     }
-    */
 
     //-----------------------------------------------------------------------------------
     /*
@@ -352,6 +408,18 @@ namespace xproperty::ui::details
     {
         using                       generic    = void(xproperty::ui::undo::cmd&, const std::uint64_t& Value, const std::uint64_t& I, xproperty::flags::type Flags) noexcept;
 
+        //
+        // Enums are handle expecial... 
+        //
+        if (Value.m_pType->m_IsEnum)
+        {
+            draw_enums( Cmd, Value, Flags);
+            return;
+        }
+
+        //
+        // Handle the rest of UI elements
+        //
         const xproperty::ui::style_base& StyleBase = [&]() -> const xproperty::ui::style_base&
         {
             const xproperty::settings::member_ui_t* pMemberUI = Entry.getUserData<xproperty::settings::member_ui_t>();
@@ -542,7 +610,9 @@ void xproperty::inspector::RefreshAllProperties( void ) noexcept
                 ( std::make_unique<entry>
                     ( xproperty::sprop::container::prop{ pPropertyName, std::move(Value) }
                     , pHelp ? pHelp->m_pHelp : "<<No help>>"
-                    , &Member
+                    , Member.m_pName
+                    , Member.m_GUID
+                    , Flags.m_isScope ? nullptr : &Member
                     , Flags
                     ) 
                 );
@@ -551,34 +621,6 @@ void xproperty::inspector::RefreshAllProperties( void ) noexcept
     }
 
     int a = 33;
-}
-
-//-------------------------------------------------------------------------------------------------
-// This generates the intersection of all the components
-//-------------------------------------------------------------------------------------------------
-void xproperty::inspector::RefactorComponents( void ) noexcept
-{
-    /*
-    auto& ReferenceEntity = *m_lEntities[0];
-    for( int iC = 0; ReferenceEntity.m_lComponents.size(); iC++ )
-    {
-        auto RefCompCRC = ReferenceEntity.m_lComponents[iC]->m_Base.first->m_GUID;
-        for ( int iE = 1; iE < m_lEntities.size(); iE++ )
-        {
-            auto& Entity = *m_lEntities[iE];
-            int iFound = -1;
-            for ( int i=0 ; i<Entity.m_lComponents.size(); ++i )
-            {
-                auto& Component = *Entity.m_lComponents[i];
-                if( RefCompCRC == Component.m_Base.first->m_GUID )
-                {
-                    iFound = i;
-                    break;
-                }
-            }
-        }
-    }
-    */
 }
 
 //-------------------------------------------------------------------------------------------------
@@ -746,8 +788,8 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
         ImGui::NextColumn();
         ImGui::AlignTextToFramePadding();
         ImVec2 lpos = ImGui::GetCursorScreenPos();
-        if( Tree[iDepth].m_iArray >= 0 ) ImGui::PushID( E.m_pUserData->m_GUID + Tree[iDepth].m_iArray + iDepth * 1000 );
-        else                             ImGui::PushID( E.m_pUserData->m_GUID + iDepth * 1000 );
+        if( Tree[iDepth].m_iArray >= 0 ) ImGui::PushID( E.m_GUID + Tree[iDepth].m_iArray + iDepth * 1000 );
+        else                             ImGui::PushID( E.m_GUID + iDepth * 1000 );
         if ( m_Settings.m_bRenderLeftBackground ) DrawBackground( iDepth, GlobalIndex );
 
         bool bRenderBlankRight = false;
@@ -759,14 +801,14 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
             if( E.m_Property.m_Path.back() == ']' )
             {
                 std::array<char, 128> Name;
-                snprintf(Name.data(), Name.size(), "%s[]", E.m_pUserData->m_pName );
-                PushTree( E.m_pUserData->m_GUID, Name.data(), iStart, iEnd, E.m_Flags.m_isShowReadOnly, true, C.m_List[iE+1]->m_Property.m_Path.back() == ']' );
+                snprintf(Name.data(), Name.size(), "%s[]", E.m_pName );
+                PushTree( E.m_GUID, Name.data(), iStart, iEnd, E.m_Flags.m_isShowReadOnly, true, C.m_List[iE+1]->m_Property.m_Path.back() == ']' );
                 iStart = iEnd + 1;
                 iEnd   = E.m_Property.m_Path.size() - 2;
             }
             else
             {
-                PushTree( E.m_pUserData->m_GUID, E.m_pUserData->m_pName, iStart, iEnd, E.m_Flags.m_isShowReadOnly );
+                PushTree( E.m_GUID, E.m_pName, iStart, iEnd, E.m_Flags.m_isShowReadOnly );
                 iStart = iEnd + 1;
                 iEnd   = E.m_Property.m_Path.size();
             }
@@ -782,7 +824,7 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
                 // Atomic array
                 if ( Tree[iDepth].m_isAtomicArray )
                 {
-                    ImGui::TreeNodeEx( reinterpret_cast<void*>(static_cast<std::size_t>(E.m_pUserData->m_GUID)), ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen, "%s", Name.data() );
+                    ImGui::TreeNodeEx( reinterpret_cast<void*>(static_cast<std::size_t>(E.m_GUID)), ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen, "%s", Name.data() );
                 }
                 else
                 {
@@ -802,7 +844,7 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
             }
             else
             {
-                ImGui::TreeNodeEx( reinterpret_cast<void*>(static_cast<std::size_t>(E.m_pUserData->m_GUID)), ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen, "%s", E.m_pUserData->m_pName );
+                ImGui::TreeNodeEx( reinterpret_cast<void*>(static_cast<std::size_t>(E.m_GUID)), ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen, "%s", E.m_pName );
             }
         }
 
@@ -1063,11 +1105,11 @@ void xproperty::inspector::Help( const entry& Entry ) const noexcept
 
     ImGui::TextDisabled( "Name:     " );
     ImGui::SameLine();
-    ImGui::Text( "%s", Entry.m_pUserData->m_pName );
+    ImGui::Text( "%s", Entry.m_pName );
        
     ImGui::TextDisabled( "Hash:     " );
     ImGui::SameLine();
-    ImGui::Text( "0x%x", Entry.m_pUserData->m_GUID );
+    ImGui::Text( "0x%x", Entry.m_GUID );
 
     if( Entry.m_pHelp )
     {
@@ -1084,88 +1126,3 @@ void xproperty::inspector::Help( const entry& Entry ) const noexcept
     ImGui::EndTooltip();
     ImGui::PopStyleVar();
 }
-
-//-----------------------------------------------------------------------------------
-/*
-property_begin( xproperty::inspector::settings )
-{
-      property_var  ( m_WindowPadding.x                             )
-          .EDStyle  ( edstyle<float>::ScrollBar( 0.0f, 20.0f )      )
-          .Help     ( "Blank Border for the property window in X"   )
-    , property_var  ( m_WindowPadding.y                             )
-          .EDStyle  ( edstyle<float>::ScrollBar(0.0f, 20.0f)        )
-          .Help     ( "Blank Border for the property window in Y"   )
-    , property_var  ( m_TableFramePadding.x                         )
-          .EDStyle  ( edstyle<float>::ScrollBar(0.0f, 20.0f)        )
-          .Help     ( "Main/Top Property Border size in X"          )
-    , property_var  ( m_TableFramePadding.y                         )
-          .EDStyle  ( edstyle<float>::ScrollBar(0.0f, 40.0f)        )
-          .Help     ( "Main/Top Property Border size in Y"          )
-    , property_var  ( m_FramePadding.x                              )
-          .EDStyle  ( edstyle<float>::ScrollBar(0.0f, 20.0f)        )
-    , property_var  ( m_FramePadding.y                              )
-          .EDStyle  ( edstyle<float>::ScrollBar(0.0f, 20.0f)        )
-    , property_var  ( m_ItemSpacing.x                               )
-          .EDStyle  ( edstyle<float>::ScrollBar(0.0f, 20.0f)        )
-    , property_var  ( m_ItemSpacing.y                               )
-          .EDStyle  ( edstyle<float>::ScrollBar(0.0f, 20.0f)        )
-    , property_var  ( m_IndentSpacing                               )
-          .EDStyle  ( edstyle<float>::ScrollBar(0.0f, 20.0f)        )
-    , property_scope_begin( "Background" )
-      {
-          property_var  ( m_bRenderLeftBackground                               )
-            .Name       ( "RenderLeft"                                          )
-            .Help       ( "Disable the rendering of the background on the left" )
-        , property_var  ( m_bRenderRightBackground                              )
-            .Name       ( "RenderRight"                                         )
-            .Help       ( "Disable the rendering of the background on the right")
-        , property_var  ( m_bRenderBackgroundDepth                              )
-            .Name		( "Depth"                                               )
-            .Help       ( "Disable the rendering of multiple color background"  )
-#if !defined(_MSC_VER) || (_MSC_VER >= 1920)                                    // This should work, only visual studio 2017 has issues with this
-            .DynamicFlags([](const std::byte & Bytes) noexcept->property::flags::type
-            {
-                auto& Self = reinterpret_cast<const t_self&>(Bytes);
-                // Disable Y property when m_X is equal to 5
-                if ( Self.m_bRenderLeftBackground == false && Self.m_bRenderRightBackground == false ) return xproperty::flags::DISABLE;
-                return {};
-            })
-#endif
-        , property_var  ( m_ColorVScalar1                                           )
-            .EDStyle    ( edstyle<float>::ScrollBar( 0.0f, 2.0f )                   )
-            .Help       ( "Changes the Luminosity of one of the alternate colors for the background" )
-        , property_var  ( m_ColorVScalar2                                           )
-            .EDStyle    ( edstyle<float>::ScrollBar( 0.0f, 2.0f )                   )
-            .Help       ( "Changes the Luminosity of one of the alternate colors for the background" )
-        , property_var  ( m_ColorSScalar                                            )
-            .EDStyle    ( edstyle<float>::ScrollBar( 0.0f, 2.0f )                   )
-            .Help       ( "Changes the Saturation for all the colors in the background" )
-
-      } property_scope_end() 
-    , property_scope_begin( "Help Popup" )
-      {
-          property_var  ( m_HelpWindowPadding.x                         )
-            .Name       ( "WindowPadding.X"                             )
-            .EDStyle    ( edstyle<float>::ScrollBar( 0.0f, 20.0f )      )
-            .Help       ( "Border size in X for the help popup"         )
-        , property_var  ( m_HelpWindowPadding.y                         )
-            .Name       ( "WindowPadding.Y"                             )
-            .EDStyle    ( edstyle<float>::ScrollBar( 0.0f, 20.0f )      )
-            .Help       ( "Border size in Y for the help popup"         )
-        , property_var  ( m_HelpWindowSizeInChars                       )
-            .Name       ( "MaxSizeInChars"                              )
-            .EDStyle    ( edstyle<int>::ScrollBar( 1, 200 )             )
-            .Help       ( "Max Size of the help window popup when it opens" )
-      } property_scope_end()
-}
-property_end()
-
-//-----------------------------------------------------------------------------------
-
-property_begin_name(property::inspector, "Inspector")
-{
-      property_var  (m_Settings)
-    , property_var  (m_UndoSystem)
-}
-property_vend_cpp(property::inspector)
-*/
