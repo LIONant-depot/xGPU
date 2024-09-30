@@ -59,6 +59,15 @@ rem ------------------------------------------------------------
 :BASIS_UNIVERSAL
 rmdir "../dependencies/basis_universal" /S /Q
 git clone --recurse-submodules -j8 https://github.com/BinomialLLC/basis_universal.git "../dependencies/basis_universal"
+if %ERRORLEVEL% GEQ 1 goto :ERROR
+
+rem ------------------------------------------------------------
+rem xproperty
+rem ------------------------------------------------------------
+:XPROPERTY
+rmdir "../dependencies/xproperty" /S /Q
+git clone https://github.com/LIONant-depot/xproperty.git "../dependencies/xproperty"
+if %ERRORLEVEL% GEQ 1 goto :ERROR
 
 rem ------------------------------------------------------------
 rem Download and install ShaderC
