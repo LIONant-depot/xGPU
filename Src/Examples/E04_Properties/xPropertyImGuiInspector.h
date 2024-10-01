@@ -120,9 +120,8 @@ public:
 
     struct v2 : ImVec2
     {
-        using ImVec2::ImVec2;
         XPROPERTY_DEF
-        ( "V2", v2
+        ( "ImVec2", ImVec2
         , obj_member<"X", &ImVec2::x, member_ui< ui::styles<float>::ScrollBar(0.0f, 20.0f) >, member_help<"X element of a vector"> >
         , obj_member<"Y", &ImVec2::y, member_ui< ui::styles<float>::ScrollBar(0.0f, 20.0f) >, member_help<"Y element of a vector"> >
         )
@@ -130,11 +129,11 @@ public:
 
     struct settings
     {
-        v2          m_WindowPadding             { 0, 3 };
-        v2          m_FramePadding              { 0, 2 };
-        v2          m_ItemSpacing               { 2, 1 };
+        ImVec2      m_WindowPadding             { 0, 3 };
+        ImVec2      m_FramePadding              { 0, 2 };
+        ImVec2      m_ItemSpacing               { 2, 1 };
         float       m_IndentSpacing             { 3 };
-        v2          m_TableFramePadding         { 2, 6 };
+        ImVec2      m_TableFramePadding         { 2, 6 };
 
         bool        m_bRenderLeftBackground     { true };
         bool        m_bRenderRightBackground    { true };
@@ -143,7 +142,7 @@ public:
         float       m_ColorVScalar2             { 0.4f };
         float       m_ColorSScalar              { 0.4f };
 
-        v2          m_HelpWindowPadding         { 10, 10 };
+        ImVec2      m_HelpWindowPadding         { 10, 10 };
         int         m_HelpWindowSizeInChars     { 50 };
 
         XPROPERTY_DEF
@@ -196,6 +195,8 @@ protected:
         const char*                                     m_pName;
         std::uint32_t                                   m_GUID;
         const xproperty::type::members*                 m_pUserData;
+        int                                             m_Dimensions;
+        int                                             m_MyDimension;
         xproperty::flags::type                          m_Flags;
     };
 

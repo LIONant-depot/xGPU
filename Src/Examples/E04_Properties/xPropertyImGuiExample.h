@@ -62,7 +62,7 @@ std::array<xproperty::inspector, 2>   Inspector{ "Settings", "Examples" };
 void DrawPropertyWindow()
 {
     // Settings
-    if constexpr ( true )
+    if constexpr ( !true )
     {
         auto&       I       = Inspector[0];
         static bool Init    = false;

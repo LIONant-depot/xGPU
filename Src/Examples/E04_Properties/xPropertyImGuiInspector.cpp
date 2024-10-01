@@ -409,7 +409,7 @@ namespace xproperty::ui::details
         using                       generic    = void(xproperty::ui::undo::cmd&, const std::uint64_t& Value, const std::uint64_t& I, xproperty::flags::type Flags) noexcept;
 
         //
-        // Enums are handle expecial... 
+        // Enums are handle special... 
         //
         if (Value.m_pType->m_IsEnum)
         {
@@ -439,7 +439,7 @@ namespace xproperty::ui::details
                 static constexpr auto s_DefaultStyleFloat   = xproperty::ui::styles<float>        ::Default();
                 static constexpr auto s_DefaultStyleDouble  = xproperty::ui::styles<double>       ::Default();
                 static constexpr auto s_DefaultStyleString  = xproperty::ui::styles<std::string>  ::Default();
-                static constexpr auto s_DefaultStyleBool    = xproperty::ui::styles<bool>         ::Default();
+                static constexpr auto s_DefaultStyleBool    = xproperty::ui::styles<bool>          ::Default();
 
                 switch (Value.m_pType->m_GUID)
                 {
@@ -577,8 +577,11 @@ void xproperty::inspector::RefreshAllProperties( void ) noexcept
         for ( auto& C : E->m_lComponents )
         {
             C->m_List.clear();
+            int                    iDimensions = -1;
+            int                    myDimension = -1;
             xproperty::sprop::collector( C->m_Base.second, *C->m_Base.first, m_Context, [&](const char* pPropertyName, xproperty::any&& Value, const xproperty::type::members& Member, bool isConst)
             {
+                std::uint32_t          GUID        = Member.m_GUID;
                 xproperty::flags::type Flags;
                 Flags.m_isShowReadOnly = isConst;
                 Flags.m_isDontSave     = false;
@@ -586,20 +589,56 @@ void xproperty::inspector::RefreshAllProperties( void ) noexcept
                 Flags.m_isScope        =    std::holds_alternative<xproperty::type::members::scope>(Member.m_Variant)
                                          || std::holds_alternative<xproperty::type::members::props>(Member.m_Variant);
 
+                if(Flags.m_isScope || std::holds_alternative<xproperty::type::members::var>(Member.m_Variant) )
+                {
+                    iDimensions = -1;
+                    myDimension = -1;
+                }
+
                 // Check if we are dealing with atomic types and the size field...
+                /*
                 if ( Flags.m_isScope == false
                     && ( std::holds_alternative<xproperty::type::members::list_props>(Member.m_Variant)
                          || std::holds_alternative<xproperty::type::members::list_var>(Member.m_Variant))
                     && Value.m_pType->m_GUID == xproperty::settings::var_type<std::size_t>::guid_v )
+                    */
+                if ( std::holds_alternative<xproperty::type::members::list_props>(Member.m_Variant)
+                     || std::holds_alternative<xproperty::type::members::list_var>(Member.m_Variant) )
                 {
                     auto i = std::strlen(pPropertyName);
                     if( (pPropertyName[i-1] == ']') && (pPropertyName[i - 2] == '[') )
                     {
                         Flags.m_isScope = true;
 
+                        std::visit([&](auto& List )
+                        {
+                            if constexpr (std::is_same_v<decltype(List), const xproperty::type::members::list_props&> ||
+                                          std::is_same_v<decltype(List), const xproperty::type::members::list_var&>  )
+                            {
+                                myDimension = 0;
+                                iDimensions = static_cast<int>(List.m_Table.size());
+                                for (i -= 3; pPropertyName[i] == ']'; --i)
+                                {
+                                    myDimension++;
+
+                                    // Find the matching closing bracket...
+                                    while (pPropertyName[--i] != '[');
+                                }
+                            }
+                            else
+                            {
+                                assert(false);
+                            }
+
+                        }, Member.m_Variant );
+
                         // We don't deal with zero size arrays...
                         if (0 == Value.get<std::size_t>())
                             return;
+                    }
+                    else
+                    {
+                        
                     }
                 }
 
@@ -612,6 +651,8 @@ void xproperty::inspector::RefreshAllProperties( void ) noexcept
                     , Member.m_pName
                     , Member.m_GUID
                     , Flags.m_isScope ? nullptr : &Member
+                    , iDimensions
+                    , myDimension
                     , Flags
                     ) 
                 );
@@ -678,6 +719,7 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
         std::size_t     m_iStart;
         std::size_t     m_iEnd;
         int             m_OpenAll;
+        int             m_MyDimension;
         bool            m_isOpen        : 1
                         , m_isAtomicArray : 1
                         , m_isReadOnly    : 1;
@@ -685,7 +727,7 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
 
     int                         iDepth   = -1;
     std::array<element,32>      Tree;
-    auto                        PushTree = [&]( std::uint32_t UID, const char* pName, std::size_t iStart, std::size_t iEnd, bool isReadOnly, bool bArray = false, bool bAtomic = false )
+    auto                        PushTree = [&]( std::uint32_t UID, const char* pName, std::size_t iStart, std::size_t iEnd, int myDimension, bool isReadOnly, bool bArray = false, bool bAtomic = false )
     {
         bool Open = iDepth<0? true : Tree[ iDepth ].m_isOpen;
         if( Open )
@@ -703,12 +745,17 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
         L.m_isOpen          = Open;
         L.m_isAtomicArray   = bAtomic;
         L.m_isReadOnly      = isReadOnly || ((iDepth>0)?Tree[ iDepth -1 ].m_isReadOnly : false);
+        L.m_MyDimension     = myDimension;
 
         return Open;
     };
     auto PopTree = [ & ]( std::size_t& iStart, std::size_t& iEnd )
     {
+        // Handle muti-dimensional array increment of entries
+        if (Tree[iDepth].m_MyDimension >= 0 && iDepth > 1 ) Tree[iDepth - 1].m_iArray++;
+
         const auto& E = Tree[ iDepth-- ];
+
         if( E.m_isOpen )
         {
             ImGui::TreePop();
@@ -729,7 +776,7 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
         ImGui::AlignTextToFramePadding();
 
         // If the main tree is Close then forget about it
-        PushTree( C.m_Base.first->m_GUID, C.m_Base.first->m_pName, iStart, iEnd, false );
+        PushTree( C.m_Base.first->m_GUID, C.m_Base.first->m_pName, iStart, iEnd, -1, false );
 
         ImGui::NextColumn();
         ImGui::AlignTextToFramePadding();
@@ -755,11 +802,21 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
         //
         // If we have a close tree skip same level entries
         //
-        bool bSameLevel = [&]
+        auto CheckSameLevel = [&]
         {
-            if ( E.m_Property.m_Path.size() < iStart || E.m_Property.m_Path.size() < iEnd ) return false;
-            return xproperty::settings::strguid( { &E.m_Property.m_Path.c_str()[ iStart ], static_cast<std::uint32_t>( iEnd - iStart + 1 ) } ) == Tree[ iDepth ].m_CRC;
-        }();
+            if (E.m_Property.m_Path.size() < iStart || E.m_Property.m_Path.size() < iEnd) return false;
+
+            // Handle multidimensional arrays...
+            if (E.m_Flags.m_isScope 
+             && E.m_Dimensions > 1 
+             && Tree[iDepth].m_iArray >= 0 
+             && Tree[iDepth].m_MyDimension >= E.m_MyDimension
+             ) return false;
+
+            return xproperty::settings::strguid({ &E.m_Property.m_Path.c_str()[iStart], static_cast<std::uint32_t>(iEnd - iStart + 1) }) == Tree[iDepth].m_CRC;
+        };
+
+        bool bSameLevel = CheckSameLevel();
 
         if( Tree[iDepth].m_isOpen == false && bSameLevel )
             continue;
@@ -770,11 +827,7 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
         while( bSameLevel == false )
         {
             PopTree( iStart, iEnd );
-            bSameLevel = [&]
-            {
-                if ( E.m_Property.m_Path.size() < iStart || E.m_Property.m_Path.size() < iEnd ) return false;
-                return xproperty::settings::strguid( { &E.m_Property.m_Path.c_str()[ iStart ], static_cast<std::uint32_t>( iEnd - iStart + 1 ) } ) == Tree[ iDepth ].m_CRC;
-            }();
+            bSameLevel = CheckSameLevel();
         }
 
         // Make sure at this point everything is open
@@ -787,27 +840,45 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
         ImGui::NextColumn();
         ImGui::AlignTextToFramePadding();
         ImVec2 lpos = ImGui::GetCursorScreenPos();
-        if( Tree[iDepth].m_iArray >= 0 ) ImGui::PushID( E.m_GUID + Tree[iDepth].m_iArray + iDepth * 1000 );
+        if( Tree[iDepth].m_iArray >= 0 ) ImGui::PushID( E.m_GUID + Tree[iDepth].m_iArray + iDepth * 1000 + Tree[iDepth].m_MyDimension * 1000000 );
         else                             ImGui::PushID( E.m_GUID + iDepth * 1000 );
         if ( m_Settings.m_bRenderLeftBackground ) DrawBackground( iDepth, GlobalIndex );
 
         bool bRenderBlankRight = false;
 
         // Create a new tree
-        if( E.m_Flags.m_isScope && Tree[iDepth].m_iArray < 0 )
+        if( E.m_Flags.m_isScope ) 
         {
             // Is an array?
             if( E.m_Property.m_Path.back() == ']' )
             {
-                std::array<char, 128> Name;
-                snprintf(Name.data(), Name.size(), "%s[]", E.m_pName );
-                PushTree( E.m_GUID, Name.data(), iStart, iEnd, E.m_Flags.m_isShowReadOnly, true, C.m_List[iE+1]->m_Property.m_Path.back() == ']' );
-                iStart = iEnd + 1;
-                iEnd   = E.m_Property.m_Path.size() - 2;
+                if( Tree[iDepth].m_iArray < 0 )
+                {
+                    std::array<char, 128> Name;
+                    snprintf(Name.data(), Name.size(), "%s[]", E.m_pName );
+                    PushTree( E.m_GUID, Name.data(), iStart, iEnd, E.m_MyDimension, E.m_Flags.m_isShowReadOnly, true, C.m_List[iE+1]->m_Property.m_Path.back() == ']' );
+                    iStart = iEnd + 1;
+                    iEnd   = E.m_Property.m_Path.size() - 2;
+                }
+                else
+                {
+                    // multi dimensional arrays
+                    std::array<char, 128> Name;
+                    int stroffset = 0;
+                    stroffset += snprintf(&Name[stroffset], Name.size() - stroffset, "%s", E.m_pName);
+                    for( int i= E.m_MyDimension-1; i >= 0; --i )
+                    {
+                        auto Index = Tree[iDepth - i].m_iArray;
+                        stroffset += snprintf( &Name[stroffset], Name.size()- stroffset, "[%d]", Index );
+                    }
+
+                    stroffset += snprintf(&Name.data()[stroffset], Name.size() - stroffset, "[]");
+                    PushTree(E.m_GUID, Name.data(), iStart, iEnd, E.m_MyDimension, E.m_Flags.m_isShowReadOnly, true, C.m_List[iE + 1]->m_Property.m_Path.back() == ']');
+                }
             }
             else
             {
-                PushTree( E.m_GUID, E.m_pName, iStart, iEnd, E.m_Flags.m_isShowReadOnly );
+                PushTree( E.m_GUID, E.m_pName, iStart, iEnd, E.m_MyDimension, E.m_Flags.m_isShowReadOnly );
                 iStart = iEnd + 1;
                 iEnd   = E.m_Property.m_Path.size();
             }
@@ -818,7 +889,7 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
             if( Tree[iDepth].m_iArray >= 0 )
             {
                 std::array<char, 128> Name;
-                snprintf( Name.data(), Name.size(), "[%d]", Tree[ iDepth ].m_iArray++ );
+                snprintf( Name.data(), Name.size(), "[%d]", Tree[iDepth].m_iArray++ );
 
                 // Atomic array
                 if ( Tree[iDepth].m_isAtomicArray )
@@ -832,7 +903,7 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
 
                     auto CRC = xproperty::settings::strguid( { &E.m_Property.m_Path.c_str()[ iStart ], static_cast<std::uint32_t>( NewEnd - iStart + 1 ) } );
 
-                    PushTree(CRC, Name.data(), iStart, iEnd, E.m_Flags.m_isShowReadOnly );
+                    PushTree(CRC, Name.data(), iStart, iEnd, E.m_MyDimension, E.m_Flags.m_isShowReadOnly );
                     iEnd = NewEnd;
 
                     bRenderBlankRight = true;
