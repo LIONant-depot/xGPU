@@ -586,29 +586,35 @@ namespace xproperty::flags
     };
 }
 
-namespace xproperty::ui
+namespace xproperty::ui::details
 {
-    // Specifies custom renders for each type
-    struct style_base
+    struct member_ui_base;
+}
+
+namespace xproperty::settings
+{
+    struct member_ui_t : xproperty::member_user_data<"UI">
     {
-        void*           m_pDrawFn;
-        std::uint32_t   m_TypeGUID;
+        const xproperty::ui::details::member_ui_base* m_pUIBase;
     };
+}
 
-    template< typename T >
-    struct styles;
+namespace xproperty
+{
+    template< typename T>
+    struct member_ui;
 
-    namespace undo
+    namespace ui::undo
     {
         struct cmd;
     }
 
-    namespace details
+    namespace ui::details
     {
-        template< typename T_TYPE, typename T_STYLE>
-        struct draw
+        struct member_ui_base
         {
-            static void Render(undo::cmd& Cmd, const T_TYPE& Value, const xproperty::ui::styles<T_TYPE>& I, xproperty::flags::type Flags) noexcept;
+            void*           m_pDrawFn;
+            std::uint32_t   m_TypeGUID;
         };
 
         struct style
@@ -620,108 +626,123 @@ namespace xproperty::ui
             struct button;
         };
 
-        template< typename T, xproperty::details::fixed_string T_STRING_V >
-        struct numbers : style_base
+        template< typename T_TYPE, typename T_STYLE>
+        struct draw
+        {
+            static void Render(ui::undo::cmd& Cmd, const T_TYPE& Value, const member_ui_base& I, xproperty::flags::type Flags) noexcept;
+        };
+
+        template<typename T, xproperty::details::fixed_string T_FORMAT_MAIN>
+        struct member_ui_numbers : ui::details::member_ui_base
         {
             inline static constexpr auto type_guid_v = xproperty::settings::var_type<T>::guid_v;
 
-            T               m_Min;
-            T               m_Max;
-            const char* m_pFormat;
-            float           m_Speed;
+            member_ui_numbers() = delete;
 
-            consteval static auto ScrollBar(T Min, T Max, const char* pFormat = T_STRING_V) noexcept
+            struct data : member_ui_base
             {
-                return numbers
-                { { draw<T, style::scroll_bar>::Render, type_guid_v }
-                  , Min
-                  , Max
-                  , pFormat
-                  , 0.5f
-                };
-            }
+                T               m_Min;
+                T               m_Max;
+                const char*     m_pFormat;
+                float           m_Speed;
+            };
 
-            consteval static auto Drag(float Speed = 1.0f, T Min = std::numeric_limits<T>::lowest(), T Max = std::numeric_limits<T>::max(), const char* pFormat = T_STRING_V)
+            template< T                                 T_MIN       = std::numeric_limits<T>::lowest()
+                    , T                                 T_MAX       = std::numeric_limits<T>::max()
+                    , xproperty::details::fixed_string  T_FORMAT    = T_FORMAT_MAIN
+                    >
+            struct scroll_bar : settings::member_ui_t
             {
-                return numbers < T, T_STRING_V>
-                { { draw<T, style::drag_bar>::Render, type_guid_v }
-                , Min
-                , Max
-                , pFormat
-                , 0.5f
+                inline static constexpr data data_v
+                { {.m_pDrawFn = &ui::details::draw<T, ui::details::style::scroll_bar>::Render, .m_TypeGUID = type_guid_v }
+                , T_MIN
+                , T_MAX
+                , T_FORMAT
+                , 0
                 };
-            }
-            consteval static auto Default(void) noexcept { return Drag(); }
+                constexpr scroll_bar() : settings::member_ui_t{ .m_pUIBase = &data_v }{}
+            };
+
+            template< float                             T_SPEED     = 0.5f
+                    , T                                 T_MIN       = std::numeric_limits<T>::lowest()
+                    , T                                 T_MAX       = std::numeric_limits<T>::max()
+                    , xproperty::details::fixed_string  T_FORMAT    = T_FORMAT_MAIN
+                    >
+            struct drag_bar : settings::member_ui_t
+            {
+                inline static constexpr data data_v
+                { { .m_pDrawFn = &ui::details::draw< T, ui::details::style::drag_bar>::Render, .m_TypeGUID = type_guid_v }
+                , T_MIN
+                , T_MAX
+                , T_FORMAT
+                , T_SPEED
+                };
+                constexpr drag_bar() : settings::member_ui_t{ .m_pUIBase  = &data_v }{}
+            };
+
+            using defaults = drag_bar<>;
         };
+
     }
 
-    template<> struct styles<std::int64_t> : details::numbers<std::int64_t, "%d"> {};
-    template<> struct styles<std::uint64_t> : details::numbers<std::uint64_t, "%d"> {};
-    template<> struct styles<std::int32_t> : details::numbers<std::int32_t, "%d"> {};
-    template<> struct styles<std::uint32_t> : details::numbers<std::uint32_t, "%d"> {};
-    template<> struct styles<std::int16_t> : details::numbers<std::int16_t, "%d"> {};
-    template<> struct styles<std::uint16_t> : details::numbers<std::uint16_t, "%d"> {};
-    template<> struct styles<std::int8_t> : details::numbers<std::int8_t, "%d"> {};
-    template<> struct styles<std::uint8_t> : details::numbers<std::uint8_t, "%d"> {};
-    template<> struct styles<char> : details::numbers<int8_t, "%d"> {};
-    template<> struct styles<float> : details::numbers<float, "%.3f"> {};
-    template<> struct styles<double> : details::numbers<double, "%.3f"> {};
-    template<> struct styles<std::string> : style_base
+    template<> struct member_ui<std::int64_t>   : ui::details::member_ui_numbers<std::int64_t,  "%d">   {};
+    template<> struct member_ui<std::uint64_t>  : ui::details::member_ui_numbers<std::uint64_t, "%d">   {};
+    template<> struct member_ui<std::int32_t>   : ui::details::member_ui_numbers<std::int32_t,  "%d">   {};
+    template<> struct member_ui<std::uint32_t>  : ui::details::member_ui_numbers<std::uint32_t, "%d">   {};
+    template<> struct member_ui<std::int16_t>   : ui::details::member_ui_numbers<std::int16_t,  "%d">   {};
+    template<> struct member_ui<std::uint16_t>  : ui::details::member_ui_numbers<std::uint16_t, "%d">   {};
+    template<> struct member_ui<std::int8_t>    : ui::details::member_ui_numbers<std::int8_t,   "%d">   {};
+    template<> struct member_ui<std::uint8_t>   : ui::details::member_ui_numbers<std::uint8_t,  "%d">   {};
+    template<> struct member_ui<char>           : ui::details::member_ui_numbers<int8_t,        "%d">   {};
+    template<> struct member_ui<float>          : ui::details::member_ui_numbers<float,         "%.3f"> {};
+    template<> struct member_ui<double>         : ui::details::member_ui_numbers<double,        "%.3f"> {};
+
+    template<> struct member_ui<std::string>
     {
+        member_ui() = delete;
+
+        using data = ui::details::member_ui_base;
+
         inline static constexpr auto type_guid_v = xproperty::settings::var_type<std::string>::guid_v;
 
-        consteval static auto Button(void) noexcept
+        template< typename T = ui::details::style::defaulted >
+        struct button : settings::member_ui_t
         {
-            return styles<std::string>
-            { { xproperty::ui::details::draw<std::string, details::style::button >::Render, type_guid_v }
-            };
-        }
-        consteval static auto Default(void) noexcept
+            inline static constexpr data data_v
+            { .m_pDrawFn = &ui::details::draw<std::string, ui::details::style::button>::Render, .m_TypeGUID = type_guid_v };
+
+            constexpr button() : settings::member_ui_t{ .m_pUIBase = &data_v } {}
+        };
+
+        struct defaults : settings::member_ui_t
         {
-            return styles<std::string>
-            { { xproperty::ui::details::draw<std::string, details::style::defaulted >::Render, type_guid_v }
-            };
-        }
+            inline static constexpr data data_v
+            { .m_pDrawFn = &ui::details::draw<std::string, ui::details::style::defaulted>::Render, .m_TypeGUID = type_guid_v };
+
+            constexpr defaults() : settings::member_ui_t{.m_pUIBase  = &data_v} {}
+        };
     };
-    template<> struct styles<bool> : style_base
+
+    template<> struct member_ui<bool>
     {
+        member_ui() = delete;
+
+        using data = ui::details::member_ui_base;
         inline static constexpr auto type_guid_v = xproperty::settings::var_type<bool>::guid_v;
 
-        consteval static auto Default(void) noexcept
+        struct defaults : settings::member_ui_t
         {
-            return styles<bool>
-            { { xproperty::ui::details::draw<bool, details::style::defaulted >::Render, type_guid_v }
-            };
-        }
-    };
+            inline static constexpr data data_v
+            { .m_pDrawFn = &ui::details::draw<bool, ui::details::style::defaulted>::Render, .m_TypeGUID = type_guid_v };
 
-}
+            constexpr defaults() : settings::member_ui_t{ .m_pUIBase = &data_v }
+            {
+                static_assert(type_guid_v == data_v.m_TypeGUID, "What the hells..." );
 
-// We store our user data in this structure
-namespace xproperty::settings
-{
-    struct member_ui_t : xproperty::member_user_data<"UI">
-    {
-        const xproperty::ui::style_base* m_pStyleBase;
+            }
+        };
     };
 }
-
-//
-// We put what the user interface in a different namespace
-// to make it less verbose for the user.
-//
-namespace xproperty
-{
-    template< auto T_STYLE_V >
-    struct member_ui : settings::member_ui_t
-    {
-        inline static constexpr auto value = T_STYLE_V;
-        constexpr  member_ui() noexcept
-            : settings::member_ui_t{ .m_pStyleBase = &value }
-        {}
-    };
-}
-
 
 /////////////////////////////////////////////////////////////////
 // DONE

@@ -101,8 +101,8 @@ namespace xproperty
 
             XPROPERTY_DEF
             ( "System", system
-            , obj_member_ro<"Index",    &system::m_Index,    member_ui< ui::styles<int>::Drag(0.6f) > >
-            , obj_member   <"MaxSteps", &system::m_MaxSteps, member_ui< ui::styles<int>::Drag(0.6f) > >
+            , obj_member_ro<"Index",    &system::m_Index,    member_ui<int>::drag_bar<0.6f> >
+            , obj_member   <"MaxSteps", &system::m_MaxSteps, member_ui<int>::drag_bar<0.6f> >
             , obj_member_ro<"Commands", &system::m_lCmds >
             )
         };
@@ -122,8 +122,8 @@ public:
     {
         XPROPERTY_DEF
         ( "ImVec2", ImVec2
-        , obj_member<"X", &ImVec2::x, member_ui< ui::styles<float>::ScrollBar(0.0f, 20.0f) >, member_help<"X element of a vector"> >
-        , obj_member<"Y", &ImVec2::y, member_ui< ui::styles<float>::ScrollBar(0.0f, 20.0f) >, member_help<"Y element of a vector"> >
+        , obj_member<"X", &ImVec2::x, member_ui<float>::scroll_bar<0.0f, 20.0f>, member_help<"X element of a vector"> >
+        , obj_member<"Y", &ImVec2::y, member_ui<float>::scroll_bar<0.0f, 20.0f>, member_help<"Y element of a vector"> >
         )
     };
 
@@ -156,14 +156,14 @@ public:
             , obj_member<"RenderLeft",      &settings::m_bRenderLeftBackground, member_help<"Disable the rendering of the background on the left"> >
             , obj_member<"RenderRight",     &settings::m_bRenderRightBackground, member_help<"Disable the rendering of the background on the right"> >
             , obj_member<"Depth",           &settings::m_bRenderBackgroundDepth, member_help<"Disable the rendering of multiple color background"> >
-            , obj_member<"ColorVScalar1",   &settings::m_ColorVScalar1, member_ui< ui::styles<float>::ScrollBar(0.0f, 20.0f) >, member_help<"Changes the Luminosity of one of the alternate colors for the background"> >
-            , obj_member<"ColorVScalar2",   &settings::m_ColorVScalar2, member_ui< ui::styles<float>::ScrollBar(0.0f, 20.0f) >, member_help<"Changes the Luminosity of one of the alternate colors for the background"> >
-            , obj_member<"ColorSScalar",    &settings::m_ColorSScalar,  member_ui< ui::styles<float>::ScrollBar(0.0f, 20.0f) >, member_help<"Changes the Saturation for all the colors in the background"> >
+            , obj_member<"ColorVScalar1",   &settings::m_ColorVScalar1, member_ui<float>::scroll_bar<0.0f, 20.0f>, member_help<"Changes the Luminosity of one of the alternate colors for the background"> >
+            , obj_member<"ColorVScalar2",   &settings::m_ColorVScalar2, member_ui<float>::scroll_bar<0.0f, 20.0f>, member_help<"Changes the Luminosity of one of the alternate colors for the background"> >
+            , obj_member<"ColorSScalar",    &settings::m_ColorSScalar,  member_ui<float>::scroll_bar<0.0f, 20.0f>, member_help<"Changes the Saturation for all the colors in the background"> >
             >
         , obj_scope
             < "Help Popup"
             , obj_member<"HelpWindowPadding",       &settings::m_HelpWindowPadding,     member_help<"Border size"> >
-            , obj_member<"HelpWindowSizeInChars",   &settings::m_HelpWindowSizeInChars, member_ui< ui::styles<int>::ScrollBar(1, 200) >, member_help<"Max Size of the help window popup when it opens"> >
+            , obj_member<"HelpWindowSizeInChars",   &settings::m_HelpWindowSizeInChars, member_ui<int>::scroll_bar<1, 200>, member_help<"Max Size of the help window popup when it opens"> >
             >
         )
     };

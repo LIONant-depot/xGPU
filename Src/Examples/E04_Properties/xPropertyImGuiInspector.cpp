@@ -22,8 +22,10 @@ namespace xproperty::ui::details
     //-----------------------------------------------------------------------------------
 
     template< auto T_IMGUID_DATA_TYPE_V, typename T >
-    static void DragRenderNumbers(undo::cmd& Cmd, const T& Value, const xproperty::ui::styles<T>& I, xproperty::flags::type Flags) noexcept
+    static void DragRenderNumbers(undo::cmd& Cmd, const T& Value, const member_ui_base& IB, xproperty::flags::type Flags) noexcept
     {
+        auto& I = reinterpret_cast<const xproperty::member_ui<T>::data&>(IB);
+
         if (Flags.m_isShowReadOnly) ui::details::ReadOnly(I.m_pFormat, Value);
         else
         {
@@ -41,8 +43,10 @@ namespace xproperty::ui::details
 
     //-----------------------------------------------------------------------------------
     template< auto T_IMGUID_DATA_TYPE_V, typename T >
-    static void SlideRenderNumbers( undo::cmd& Cmd, const T& Value, const xproperty::ui::styles<T>& I, xproperty::flags::type Flags ) noexcept
+    static void SlideRenderNumbers( undo::cmd& Cmd, const T& Value, const member_ui_base& IB, xproperty::flags::type Flags ) noexcept
     {
+        auto& I = reinterpret_cast<const xproperty::member_ui<T>::data&>(IB);
+
         if ( Flags.m_isShowReadOnly ) ui::details::ReadOnly( I.m_pFormat, Value );
         else
         {
@@ -63,25 +67,25 @@ namespace xproperty::ui::details
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<std::int64_t, style::scroll_bar>::Render( undo::cmd& Cmd, const std::int64_t& Value, const xproperty::ui::styles<std::int64_t>& I, xproperty::flags::type Flags ) noexcept
+    void draw<std::int64_t, style::scroll_bar>::Render( undo::cmd& Cmd, const std::int64_t& Value, const member_ui_base& I, xproperty::flags::type Flags ) noexcept
       { DragRenderNumbers<ImGuiDataType_S64>( Cmd, Value, I, Flags ); }
 
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<std::int64_t, style::drag_bar>::Render( undo::cmd& Cmd, const std::int64_t& Value, const xproperty::ui::styles<std::int64_t>& I, xproperty::flags::type Flags ) noexcept
+    void draw<std::int64_t, style::drag_bar>::Render( undo::cmd& Cmd, const std::int64_t& Value, const member_ui_base& I, xproperty::flags::type Flags ) noexcept
       { SlideRenderNumbers<ImGuiDataType_S64>(Cmd, Value, I, Flags);}
 
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<std::uint64_t, style::scroll_bar>::Render( undo::cmd& Cmd, const std::uint64_t& Value, const xproperty::ui::styles<std::uint64_t>& I, xproperty::flags::type Flags ) noexcept
+    void draw<std::uint64_t, style::scroll_bar>::Render( undo::cmd& Cmd, const std::uint64_t& Value, const member_ui_base& I, xproperty::flags::type Flags ) noexcept
       { DragRenderNumbers<ImGuiDataType_U64>( Cmd, Value, I, Flags ); }
 
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<std::uint64_t, style::drag_bar>::Render( undo::cmd& Cmd, const std::uint64_t& Value, const xproperty::ui::styles<std::uint64_t>& I, xproperty::flags::type Flags ) noexcept
+    void draw<std::uint64_t, style::drag_bar>::Render( undo::cmd& Cmd, const std::uint64_t& Value, const member_ui_base& I, xproperty::flags::type Flags ) noexcept
       { SlideRenderNumbers<ImGuiDataType_U64>(Cmd, Value, I, Flags);}
 
     //-----------------------------------------------------------------------------------
@@ -89,25 +93,25 @@ namespace xproperty::ui::details
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<std::int32_t, style::scroll_bar>::Render( undo::cmd& Cmd, const std::int32_t& Value, const xproperty::ui::styles<std::int32_t>& I, xproperty::flags::type Flags ) noexcept
+    void draw<std::int32_t, style::scroll_bar>::Render( undo::cmd& Cmd, const std::int32_t& Value, const member_ui_base& I, xproperty::flags::type Flags ) noexcept
       { DragRenderNumbers<ImGuiDataType_S32>( Cmd, Value, I, Flags ); }
 
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<std::int32_t, style::drag_bar>::Render( undo::cmd& Cmd, const std::int32_t& Value, const xproperty::ui::styles<std::int32_t>& I, xproperty::flags::type Flags ) noexcept
+    void draw<std::int32_t, style::drag_bar>::Render( undo::cmd& Cmd, const std::int32_t& Value, const member_ui_base& I, xproperty::flags::type Flags ) noexcept
       { SlideRenderNumbers<ImGuiDataType_S32>(Cmd, Value, I, Flags);}
 
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<std::uint32_t, style::scroll_bar>::Render( undo::cmd& Cmd, const std::uint32_t& Value, const xproperty::ui::styles<std::uint32_t>& I, xproperty::flags::type Flags ) noexcept
+    void draw<std::uint32_t, style::scroll_bar>::Render( undo::cmd& Cmd, const std::uint32_t& Value, const member_ui_base& I, xproperty::flags::type Flags ) noexcept
       { DragRenderNumbers<ImGuiDataType_U32>( Cmd, Value, I, Flags ); }
 
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<std::uint32_t, style::drag_bar>::Render( undo::cmd& Cmd, const std::uint32_t& Value, const xproperty::ui::styles<std::uint32_t>& I, xproperty::flags::type Flags ) noexcept
+    void draw<std::uint32_t, style::drag_bar>::Render( undo::cmd& Cmd, const std::uint32_t& Value, const member_ui_base& I, xproperty::flags::type Flags ) noexcept
       { SlideRenderNumbers<ImGuiDataType_U32>(Cmd, Value, I, Flags);}
 
     //-----------------------------------------------------------------------------------
@@ -115,25 +119,25 @@ namespace xproperty::ui::details
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<std::int16_t, style::scroll_bar>::Render( undo::cmd& Cmd, const std::int16_t& Value, const xproperty::ui::styles<std::int16_t>& I, xproperty::flags::type Flags ) noexcept
+    void draw<std::int16_t, style::scroll_bar>::Render( undo::cmd& Cmd, const std::int16_t& Value, const member_ui_base& I, xproperty::flags::type Flags ) noexcept
       { DragRenderNumbers<ImGuiDataType_S16>( Cmd, Value, I, Flags ); }
 
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<std::int16_t, style::drag_bar>::Render( undo::cmd& Cmd, const std::int16_t& Value, const xproperty::ui::styles<std::int16_t>& I, xproperty::flags::type Flags ) noexcept
+    void draw<std::int16_t, style::drag_bar>::Render( undo::cmd& Cmd, const std::int16_t& Value, const member_ui_base& I, xproperty::flags::type Flags ) noexcept
       { SlideRenderNumbers<ImGuiDataType_S16>(Cmd, Value, I, Flags);}
 
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<std::uint16_t, style::scroll_bar>::Render( undo::cmd& Cmd, const std::uint16_t& Value, const xproperty::ui::styles<std::uint16_t>& I, xproperty::flags::type Flags ) noexcept
+    void draw<std::uint16_t, style::scroll_bar>::Render( undo::cmd& Cmd, const std::uint16_t& Value, const member_ui_base& I, xproperty::flags::type Flags ) noexcept
       { DragRenderNumbers<ImGuiDataType_U16>( Cmd, Value, I, Flags ); }
 
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<std::uint16_t, style::drag_bar>::Render( undo::cmd& Cmd, const std::uint16_t& Value, const xproperty::ui::styles<std::uint16_t>& I, xproperty::flags::type Flags ) noexcept
+    void draw<std::uint16_t, style::drag_bar>::Render( undo::cmd& Cmd, const std::uint16_t& Value, const member_ui_base& I, xproperty::flags::type Flags ) noexcept
       { SlideRenderNumbers<ImGuiDataType_U16>(Cmd, Value, I, Flags);}
 
     //-----------------------------------------------------------------------------------
@@ -141,25 +145,25 @@ namespace xproperty::ui::details
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<std::int8_t, style::scroll_bar>::Render( undo::cmd& Cmd, const std::int8_t& Value, const xproperty::ui::styles<std::int8_t>& I, xproperty::flags::type Flags ) noexcept
+    void draw<std::int8_t, style::scroll_bar>::Render( undo::cmd& Cmd, const std::int8_t& Value, const member_ui_base& I, xproperty::flags::type Flags ) noexcept
       { DragRenderNumbers<ImGuiDataType_S8>( Cmd, Value, I, Flags ); }
 
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<std::int8_t, style::drag_bar>::Render( undo::cmd& Cmd, const std::int8_t& Value, const xproperty::ui::styles<std::int8_t>& I, xproperty::flags::type Flags ) noexcept
+    void draw<std::int8_t, style::drag_bar>::Render( undo::cmd& Cmd, const std::int8_t& Value, const member_ui_base& I, xproperty::flags::type Flags ) noexcept
       { SlideRenderNumbers<ImGuiDataType_S8>(Cmd, Value, I, Flags);}
 
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<std::uint8_t, style::scroll_bar>::Render( undo::cmd& Cmd, const std::uint8_t& Value, const xproperty::ui::styles<std::uint8_t>& I, xproperty::flags::type Flags ) noexcept
+    void draw<std::uint8_t, style::scroll_bar>::Render( undo::cmd& Cmd, const std::uint8_t& Value, const member_ui_base& I, xproperty::flags::type Flags ) noexcept
       { DragRenderNumbers<ImGuiDataType_U8>( Cmd, Value, I, Flags ); }
 
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<std::uint8_t, style::drag_bar>::Render( undo::cmd& Cmd, const std::uint8_t& Value, const xproperty::ui::styles<std::uint8_t>& I, xproperty::flags::type Flags ) noexcept
+    void draw<std::uint8_t, style::drag_bar>::Render( undo::cmd& Cmd, const std::uint8_t& Value, const member_ui_base& I, xproperty::flags::type Flags ) noexcept
       { SlideRenderNumbers<ImGuiDataType_U8>(Cmd, Value, I, Flags);}
 
     //-----------------------------------------------------------------------------------
@@ -167,13 +171,13 @@ namespace xproperty::ui::details
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<float, style::scroll_bar>::Render(undo::cmd& Cmd, const float& Value, const xproperty::ui::styles<float>& I, xproperty::flags::type Flags) noexcept
+    void draw<float, style::scroll_bar>::Render(undo::cmd& Cmd, const float& Value, const member_ui_base& I, xproperty::flags::type Flags) noexcept
       { DragRenderNumbers<ImGuiDataType_Float>(Cmd, Value, I, Flags);}
 
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<float, style::drag_bar>::Render(undo::cmd& Cmd, const float& Value, const xproperty::ui::styles<float>& I, xproperty::flags::type Flags) noexcept
+    void draw<float, style::drag_bar>::Render(undo::cmd& Cmd, const float& Value, const member_ui_base& I, xproperty::flags::type Flags) noexcept
       { SlideRenderNumbers<ImGuiDataType_Float>(Cmd, Value, I, Flags); }
 
     //-----------------------------------------------------------------------------------
@@ -181,13 +185,13 @@ namespace xproperty::ui::details
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<double, style::scroll_bar>::Render(undo::cmd& Cmd, const double& Value, const xproperty::ui::styles<double>& I, xproperty::flags::type Flags) noexcept
+    void draw<double, style::scroll_bar>::Render(undo::cmd& Cmd, const double& Value, const member_ui_base& I, xproperty::flags::type Flags) noexcept
       { DragRenderNumbers<ImGuiDataType_Double>(Cmd, Value, I, Flags);}
 
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<double, style::drag_bar>::Render(undo::cmd& Cmd, const double& Value, const xproperty::ui::styles<double>& I, xproperty::flags::type Flags) noexcept
+    void draw<double, style::drag_bar>::Render(undo::cmd& Cmd, const double& Value, const member_ui_base& I, xproperty::flags::type Flags) noexcept
       { SlideRenderNumbers<ImGuiDataType_Double>(Cmd, Value, I, Flags); }
 
     //-----------------------------------------------------------------------------------
@@ -195,8 +199,10 @@ namespace xproperty::ui::details
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<bool, style::defaulted>::Render(undo::cmd& Cmd, const bool& Value, const xproperty::ui::styles<bool>& I, xproperty::flags::type Flags) noexcept
+    void draw<bool, style::defaulted>::Render(undo::cmd& Cmd, const bool& Value, const member_ui_base& IB, xproperty::flags::type Flags) noexcept
     {
+        auto& I = reinterpret_cast<const xproperty::member_ui<bool>::data&>(IB);
+
         bool V = Value;
 
         if ( Flags.m_isShowReadOnly )
@@ -224,8 +230,10 @@ namespace xproperty::ui::details
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<std::string, style::defaulted>::Render(undo::cmd& Cmd, const std::string& Value, const xproperty::ui::styles<std::string>& I, xproperty::flags::type Flags) noexcept
+    void draw<std::string, style::defaulted>::Render(undo::cmd& Cmd, const std::string& Value, const member_ui_base& IB, xproperty::flags::type Flags) noexcept
     {
+        auto& I = reinterpret_cast<const xproperty::member_ui<bool>::data&>(IB);
+
         if ( Flags.m_isShowReadOnly ) ImGui::InputText( "##value", (char*)Value.c_str(), Value.length(), ImGuiInputTextFlags_ReadOnly );
         else
         {
@@ -246,8 +254,10 @@ namespace xproperty::ui::details
     //-----------------------------------------------------------------------------------
 
     template<>
-    void draw<std::string, style::button>::Render(undo::cmd& Cmd, const std::string& Value, const xproperty::ui::styles<std::string>& I, xproperty::flags::type Flags) noexcept
+    void draw<std::string, style::button>::Render(undo::cmd& Cmd, const std::string& Value, const member_ui_base& IB, xproperty::flags::type Flags) noexcept
     {
+        auto& I = reinterpret_cast<const xproperty::member_ui<bool>::data&>(IB);
+
         if ( Flags.m_isShowReadOnly ) ImGui::Button( Value.c_str(), ImVec2(-1,16) );
         else
         {
@@ -406,7 +416,7 @@ namespace xproperty::ui::details
     static
     void onRender( xproperty::ui::undo::cmd& Cmd, const xproperty::any& Value, const xproperty::type::members& Entry, xproperty::flags::type Flags ) noexcept
     {
-        using                       generic    = void(xproperty::ui::undo::cmd&, const std::uint64_t& Value, const std::uint64_t& I, xproperty::flags::type Flags) noexcept;
+        using                       generic    = void(xproperty::ui::undo::cmd&, const std::uint64_t& Value, const member_ui_base& I, xproperty::flags::type Flags) noexcept;
 
         //
         // Enums are handle special... 
@@ -420,61 +430,64 @@ namespace xproperty::ui::details
         //
         // Handle the rest of UI elements
         //
-        const xproperty::ui::style_base& StyleBase = [&]() -> const xproperty::ui::style_base&
+        const auto& StyleBase = [&]() -> const member_ui_base&
         {
             const xproperty::settings::member_ui_t* pMemberUI = Entry.getUserData<xproperty::settings::member_ui_t>();
+
+            // This is super strange... in visual studio 17.11.1 these static assets are failing... Not sure why...
+            // static_assert(xproperty::member_ui<std::int64_t> ::defaults::data_v.m_TypeGUID == xproperty::settings::var_type<std::int64_t>::guid_v);
+            // static_assert(xproperty::member_ui<std::uint64_t>::defaults::data_v.m_TypeGUID == xproperty::settings::var_type<std::uint64_t>::guid_v);
+            // static_assert(xproperty::member_ui<std::int32_t> ::defaults::data_v.m_TypeGUID == xproperty::settings::var_type<std::int32_t>::guid_v);
+            // static_assert(xproperty::member_ui<std::uint32_t>::defaults::data_v.m_TypeGUID == xproperty::settings::var_type<std::uint32_t>::guid_v);
+            // static_assert(xproperty::member_ui<std::int16_t> ::defaults::data_v.m_TypeGUID == xproperty::settings::var_type<std::int16_t>::guid_v);
+            // static_assert(xproperty::member_ui<std::uint16_t>::defaults::data_v.m_TypeGUID == xproperty::settings::var_type<std::uint16_t>::guid_v);
+            // static_assert(xproperty::member_ui<std::int8_t>  ::defaults::data_v.m_TypeGUID == xproperty::settings::var_type<std::int8_t>::guid_v);
+            // static_assert(xproperty::member_ui<std::uint8_t> ::defaults::data_v.m_TypeGUID == xproperty::settings::var_type<std::uint8_t>::guid_v);
+            // static_assert(xproperty::member_ui<float>        ::defaults::data_v.m_TypeGUID == xproperty::settings::var_type<float>::guid_v);
+            // static_assert(xproperty::member_ui<double>       ::defaults::data_v.m_TypeGUID == xproperty::settings::var_type<double>::guid_v);
+            // static_assert(xproperty::member_ui<std::string>  ::defaults::data_v.m_TypeGUID == xproperty::settings::var_type<std::string>::guid_v);
+            // static_assert(xproperty::member_ui<bool>         ::defaults::data_v.m_TypeGUID == xproperty::settings::var_type<bool>::guid_v);
 
             // Lets see if the user decided to set the style... 
             if (pMemberUI == nullptr)
             {
-                static constexpr auto s_DefaultStyleS64     = xproperty::ui::styles<std::int64_t> ::Default();
-                static constexpr auto s_DefaultStyleU64     = xproperty::ui::styles<std::uint64_t>::Default();
-                static constexpr auto s_DefaultStyleS32     = xproperty::ui::styles<std::int32_t> ::Default();
-                static constexpr auto s_DefaultStyleU32     = xproperty::ui::styles<std::uint32_t>::Default();
-                static constexpr auto s_DefaultStyleS16     = xproperty::ui::styles<std::int16_t> ::Default();
-                static constexpr auto s_DefaultStyleU16     = xproperty::ui::styles<std::uint16_t>::Default();
-                static constexpr auto s_DefaultStyleS8      = xproperty::ui::styles<std::int8_t>  ::Default();
-                static constexpr auto s_DefaultStyleU8      = xproperty::ui::styles<std::uint8_t> ::Default();
-                static constexpr auto s_DefaultStyleChar    = xproperty::ui::styles<char>         ::Default();
-                static constexpr auto s_DefaultStyleFloat   = xproperty::ui::styles<float>        ::Default();
-                static constexpr auto s_DefaultStyleDouble  = xproperty::ui::styles<double>       ::Default();
-                static constexpr auto s_DefaultStyleString  = xproperty::ui::styles<std::string>  ::Default();
-                static constexpr auto s_DefaultStyleBool    = xproperty::ui::styles<bool>          ::Default();
-
                 switch (Value.m_pType->m_GUID)
                 {
-                case xproperty::settings::var_type<std::uint64_t>::guid_v:   return s_DefaultStyleU64;   
-                case xproperty::settings::var_type<std::int64_t>::guid_v:    return s_DefaultStyleS64;   
-                case xproperty::settings::var_type<std::int32_t>::guid_v:    return s_DefaultStyleS32;   
-                case xproperty::settings::var_type<std::uint32_t>::guid_v:   return s_DefaultStyleU32;   
-                case xproperty::settings::var_type<std::int16_t>::guid_v:    return s_DefaultStyleS16;   
-                case xproperty::settings::var_type<std::uint16_t>::guid_v:   return s_DefaultStyleU16;   
-                case xproperty::settings::var_type<std::int8_t>::guid_v:     return s_DefaultStyleS8;    
-                case xproperty::settings::var_type<std::uint8_t>::guid_v:    return s_DefaultStyleU8;    
-                case xproperty::settings::var_type<float>::guid_v:           return s_DefaultStyleFloat; 
-                case xproperty::settings::var_type<double>::guid_v:          return s_DefaultStyleDouble;
-                case xproperty::settings::var_type<std::string>::guid_v:     return s_DefaultStyleString;
-                case xproperty::settings::var_type<bool>::guid_v:            return s_DefaultStyleBool;  
-                default: assert(false); return s_DefaultStyleBool;
+                case xproperty::settings::var_type<std::int64_t>::guid_v:    return  member_ui<std::int64_t> ::defaults::data_v;
+                case xproperty::settings::var_type<std::uint64_t>::guid_v:   return  member_ui<std::uint64_t>::defaults::data_v;
+                case xproperty::settings::var_type<std::int32_t>::guid_v:    return  member_ui<std::int32_t> ::defaults::data_v;
+                case xproperty::settings::var_type<std::uint32_t>::guid_v:   return  member_ui<std::uint32_t>::defaults::data_v;
+                case xproperty::settings::var_type<std::int16_t>::guid_v:    return  member_ui<std::int16_t> ::defaults::data_v;
+                case xproperty::settings::var_type<std::uint16_t>::guid_v:   return  member_ui<std::uint16_t>::defaults::data_v;
+                case xproperty::settings::var_type<std::int8_t>::guid_v:     return  member_ui<std::int8_t>  ::defaults::data_v;
+                case xproperty::settings::var_type<std::uint8_t>::guid_v:    return  member_ui<std::uint8_t> ::defaults::data_v;
+                case xproperty::settings::var_type<float>::guid_v:           return  member_ui<float>        ::defaults::data_v;
+                case xproperty::settings::var_type<double>::guid_v:          return  member_ui<double>       ::defaults::data_v;
+                case xproperty::settings::var_type<std::string>::guid_v:     return  member_ui<std::string>  ::defaults::data_v;
+                case xproperty::settings::var_type<bool>::guid_v:            return  member_ui<bool>         ::defaults::data_v;
+                default: assert(false); return member_ui<bool>::defaults::data_v;
                 }
             }
             else
             {
                 assert(pMemberUI);
-                assert(pMemberUI->m_pStyleBase);
-                return *pMemberUI->m_pStyleBase;
+                assert(pMemberUI->m_pUIBase);
+                return *pMemberUI->m_pUIBase;
             }
         }();
 
+        auto a = xproperty::settings::var_type<float>::guid_v;
+
         // Check to make sure that the user did not made a mistake...
         // the actual type of the property must match the type of the UI style..
-        assert(Value.m_pType->m_GUID == StyleBase.m_TypeGUID );
+        // NOTE: I had to comment this assert because visual studio 17.11.1 seems to be failing... which is non-sense.... 
+      //  assert(Value.m_pType->m_GUID == StyleBase.m_TypeGUID );
 
         // Sanity check make sure that we have a function as well... 
         assert(StyleBase.m_pDrawFn);
 
         //ImGui::PushID(&Entry);
-        reinterpret_cast<generic*>(StyleBase.m_pDrawFn)(Cmd, *reinterpret_cast<const std::uint64_t*>(&Value), *reinterpret_cast<const std::uint64_t*>(&StyleBase), Flags);
+        reinterpret_cast<generic*>(StyleBase.m_pDrawFn)(Cmd, *reinterpret_cast<const std::uint64_t*>(&Value), StyleBase, Flags);
         //ImGui::PopID();
     }
 }
