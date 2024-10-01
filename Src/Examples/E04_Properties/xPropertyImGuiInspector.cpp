@@ -855,7 +855,7 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
                 if( Tree[iDepth].m_iArray < 0 )
                 {
                     std::array<char, 128> Name;
-                    snprintf(Name.data(), Name.size(), "%s[]", E.m_pName );
+                    snprintf(Name.data(), Name.size(), "%s[%dd] ", E.m_pName, E.m_Dimensions );
                     PushTree( E.m_GUID, Name.data(), iStart, iEnd, E.m_MyDimension, E.m_Flags.m_isShowReadOnly, true, C.m_List[iE+1]->m_Property.m_Path.back() == ']' );
                     iStart = iEnd + 1;
                     iEnd   = E.m_Property.m_Path.size() - 2;
@@ -872,7 +872,7 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
                         stroffset += snprintf( &Name[stroffset], Name.size()- stroffset, "[%d]", Index );
                     }
 
-                    stroffset += snprintf(&Name.data()[stroffset], Name.size() - stroffset, "[]");
+                    stroffset += snprintf(&Name.data()[stroffset], Name.size() - stroffset, "[%dd]", E.m_Dimensions - E.m_MyDimension);
                     PushTree(E.m_GUID, Name.data(), iStart, iEnd, E.m_MyDimension, E.m_Flags.m_isShowReadOnly, true, C.m_List[iE + 1]->m_Property.m_Path.back() == ']');
                 }
             }
@@ -945,11 +945,11 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
             if (E.m_Property.m_Path.back() == ']' )
             {
                 ImGui::Text(" Size: %llu  ", E.m_Property.m_Value.get<std::size_t>());
-                if(Tree[iDepth].m_isOpen) ImGui::SameLine();
             }
 
-            if( iDepth>0 && Tree[iDepth].m_isAtomicArray == false && Tree[iDepth].m_isOpen )
+            if( iDepth>0 && ((E.m_Dimensions - E.m_MyDimension) > 1 || Tree[iDepth].m_isAtomicArray == false) && Tree[iDepth].m_isOpen )
             {
+                if (E.m_Property.m_Path.back() == ']') ImGui::SameLine();
                 if ( ImGui::Button( " O " ) ) Tree[iDepth-1].m_OpenAll = 1;
                 HelpMarker( "Open/Expands all entries in the list" );
                 ImGui::SameLine();
