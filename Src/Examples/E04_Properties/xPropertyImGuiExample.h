@@ -55,7 +55,7 @@ examples Examples
 };
 
 
-std::array<xproperty::inspector, 2>   Inspector{ "Settings", "Examples" };
+std::array<xproperty::inspector, 2>   Inspector{ "Settings", "xProperty Examples" };
 
 //-----------------------------------------------------------------------------------
 
@@ -81,14 +81,14 @@ void DrawPropertyWindow()
             });
     }
 
-    // Show properties
+    // Show xproperty examples
     if constexpr (true)
     {
         auto&       I           = Inspector[1];
         static int  iSelection  = -1;
         I.Show([&]
             {
-                if (ImGui::Combo("Select Example", &iSelection, Examples.m_Names.data(), static_cast<int>(Examples.m_Names.size())))
+                if (ImGui::Combo("Select example", &iSelection, Examples.m_Names.data(), static_cast<int>(Examples.m_Names.size())))
                 {
                     I.clear();
                     I.AppendEntity();
