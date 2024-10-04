@@ -2,7 +2,7 @@
 #include "xcore.h"
 #include "../../tools/xgpu_imgui_breach.h"
 #include "../../tools/xgpu_xcore_bitmap_helpers.h"
-#include "../../dependencies/xgeom_compiler/dependencies/xraw3D/dependencies/xcore/dependencies/properties/src/Examples/ImGuiExample/ImGuiPropertyInspector.h"
+#include "../E04_Properties/xPropertyImGuiInspector.h"
 #include "../../dependencies/xbmp_tools/src/xbmp_tools.h"
 #include <format>
 
@@ -97,112 +97,96 @@ struct e05::bitmap_inspector
                 std::exit(xgpu::getErrorInt(Err));
             }
         }
+
+        //
+        // Set the mipmap sizes
+        //
+        m_MipMapSizes.resize(m_Bitmap.getMipCount());
+        for (int i = 0; i < m_Bitmap.getMipCount(); ++i)
+        {
+            m_MipMapSizes[i].x = static_cast<float>(std::max(1u, m_Bitmap.getWidth() >> i));
+            m_MipMapSizes[i].y = static_cast<float>(std::max(1u, m_Bitmap.getHeight() >> i));
+        }
     }
 
     xgpu::pipeline_instance m_Instance;
     std::string             m_FileName;
     xcore::bitmap           m_Bitmap;
+    std::vector<ImVec2>     m_MipMapSizes;
+
+    XPROPERTY_DEF
+    ( "Bitmap Info", bitmap_inspector
+    , obj_member_ro< "FileName", &bitmap_inspector::m_FileName, member_help<"The file name of the image"> >
+    , obj_member_ro< "Size", +[](bitmap_inspector& I) ->ImVec2&
+    {
+        static ImVec2 Out;
+        Out.x = static_cast<float>(I.m_Bitmap.getWidth());
+        Out.y = static_cast<float>(I.m_Bitmap.getHeight());
+        return Out;
+    }, member_help<"Image Size in pixels" > >
+    , obj_member_ro< "Format",  +[](bitmap_inspector& I, bool bRead, std::string& Out )
+    {
+        assert(bRead);
+        switch (I.m_Bitmap.getFormat())
+        {
+            case xcore::bitmap::format::R4G4B4A4:   Out = "R4G4B4A4"; break;
+            case xcore::bitmap::format::R5G6B5:     Out = "R5G6B5"; break;
+            case xcore::bitmap::format::B5G5R5A1:   Out = "B5G5R5A1"; break;
+            case xcore::bitmap::format::R8G8B8:     Out = "R8G8B8"; break;
+            case xcore::bitmap::format::R8G8B8U8:   Out = "R8G8B8U8"; break;
+            case xcore::bitmap::format::R8G8B8A8:   Out = "R8G8B8A8"; break;
+            case xcore::bitmap::format::B8G8R8A8:   Out = "B8G8R8A8"; break;
+            case xcore::bitmap::format::B8G8R8U8:   Out = "B8G8R8U8"; break;
+            case xcore::bitmap::format::U8R8G8B8:   Out = "U8R8G8B8"; break;
+
+            case xcore::bitmap::format::BC1_4RGB:   Out = "BC1_4RGB / DXT1"; break;
+            case xcore::bitmap::format::BC1_4RGBA1: Out = "BC1_4RGBA1 / DXT1"; break;
+            case xcore::bitmap::format::BC2_8RGBA:  Out = "BC2_8RGBA / DXT3"; break;
+            case xcore::bitmap::format::BC3_8RGBA:  Out = "BC3_8RGBA / DXT5"; break;
+
+            default: Out = "Unexpected format"; break;
+        }
+    }, member_help<"Format from xcore bitmap of the image" > >
+    , obj_member_ro< "DataSize", +[](bitmap_inspector& I, bool bRead, std::uint64_t& Out)
+    {
+        Out = I.m_Bitmap.getDataSize();
+    }, member_help<"Size in bytes of the image/file" > >
+    , obj_member_ro< "HasAlphaChannel", +[](bitmap_inspector& I, bool bRead, bool& Out)
+    {
+        Out = I.m_Bitmap.hasAlphaChannel();
+    }, member_help<"Checks if the data has an alpha channel" > >
+    , obj_member_ro< "HasAlphaInfo", +[](bitmap_inspector& I, bool bRead, bool& Out)
+    {
+        Out = I.m_Bitmap.hasAlphaInfo();
+    }, member_help<"Checks if the alpha channel has any useful data" > >
+    , obj_member_ro< "SRGB", +[](bitmap_inspector& I, bool bRead, bool& Out)
+    {
+        Out = !I.m_Bitmap.isLinearSpace();
+    }, member_help<"Check if the data is in Gamma space (if true) or Linear Space (if false)" > >
+    , obj_member_ro< "FrameCount", +[](bitmap_inspector& I, bool bRead, int& Out)
+    {
+        Out = static_cast<int>(I.m_Bitmap.getFrameCount());
+    }, member_help<"Tells how many frames there is in this file" > >
+    , obj_member_ro< "FrameSizeBytes", +[](bitmap_inspector& I, bool bRead, int& Out)
+    {
+        Out = static_cast<int>(I.m_Bitmap.getFrameSize());
+    }, member_help<"How big a frame in the file is" > >
+    , obj_member_ro< "isCubeMap", +[](bitmap_inspector& I, bool bRead, bool& Out)
+    {
+        Out = I.m_Bitmap.isCubemap();
+    }, member_help<"Check if the image is a cube map" > >
+    , obj_member_ro< "NumFacesCubeMap", +[](bitmap_inspector& I, bool bRead, int& Out)
+    {
+        Out = static_cast<int>(I.m_Bitmap.getFaceCount());
+    }, member_help<"If we have loaded a cubemap how many faces the file contains" > >
+    , obj_member_ro< "NumFacesFaceSizeBytes", +[](bitmap_inspector& I, bool bRead, int& Out)
+    {
+        Out = static_cast<int>(I.m_Bitmap.getFaceSize());
+    }, member_help<"How many bytes does a face of the cubemap is in this file" > >
+    , obj_member_ro< "Mips", &bitmap_inspector::m_MipMapSizes, member_help<"Tells how many mip map the image has" > >
+    );
 };
-
-property_begin_name(e05::bitmap_inspector, "Bitmap Info" )
-{
-    property_var(m_FileName)
-        .Flags(property::flags::SHOW_READONLY)
-,   property_var_fnbegin("Format", std::string )
-    {
-        if (isRead)
-        {
-            switch( Self.m_Bitmap.getFormat() )
-            {
-                case xcore::bitmap::format::R4G4B4A4:   InOut = "R4G4B4A4"; break;
-                case xcore::bitmap::format::R5G6B5:     InOut = "R5G6B5"; break;
-                case xcore::bitmap::format::B5G5R5A1:   InOut = "B5G5R5A1"; break;
-                case xcore::bitmap::format::R8G8B8:     InOut = "R8G8B8"; break;
-                case xcore::bitmap::format::R8G8B8U8:   InOut = "R8G8B8U8"; break;
-                case xcore::bitmap::format::R8G8B8A8:   InOut = "R8G8B8A8"; break;
-                case xcore::bitmap::format::B8G8R8A8:   InOut = "B8G8R8A8"; break;
-                case xcore::bitmap::format::B8G8R8U8:   InOut = "B8G8R8U8"; break;
-                case xcore::bitmap::format::U8R8G8B8:   InOut = "U8R8G8B8"; break;
-
-                case xcore::bitmap::format::BC1_4RGB:   InOut = "BC1_4RGB / DXT1"; break;
-                case xcore::bitmap::format::BC1_4RGBA1: InOut = "BC1_4RGBA1 / DXT1"; break;
-                case xcore::bitmap::format::BC2_8RGBA:  InOut = "BC2_8RGBA / DXT3"; break;
-                case xcore::bitmap::format::BC3_8RGBA:  InOut = "BC3_8RGBA / DXT5"; break;
-
-                default: InOut = "Unexpected format"; break;
-            }
-        }
-    } property_var_fnend().Flags(property::flags::SHOW_READONLY)
-,   property_var_fnbegin("HasAlphaChannel", bool )
-    {
-        if (isRead) InOut = Self.m_Bitmap.hasAlphaChannel();
-    } property_var_fnend().Flags(property::flags::SHOW_READONLY)
-,   property_var_fnbegin("HasAlphaInfo", bool )
-    {
-        if (isRead) InOut = Self.m_Bitmap.hasAlphaInfo();
-    } property_var_fnend().Flags(property::flags::SHOW_READONLY)
-,   property_var_fnbegin("Width", int )
-    {
-        if (isRead) InOut = Self.m_Bitmap.getWidth();
-    } property_var_fnend().Flags(property::flags::SHOW_READONLY)
-,   property_var_fnbegin("Height", int)
-    {
-        if (isRead) InOut = Self.m_Bitmap.getHeight();
-    } property_var_fnend().Flags(property::flags::SHOW_READONLY)
-,   property_var_fnbegin("SRGB", bool)
-    {
-        if (isRead) InOut = !Self.m_Bitmap.isLinearSpace();
-    } property_var_fnend().Flags(property::flags::SHOW_READONLY)
-,   property_var_fnbegin("nFrames", int)
-    {
-        if (isRead) InOut = Self.m_Bitmap.getFrameCount();
-    } property_var_fnend().Flags(property::flags::SHOW_READONLY)
-,   property_var_fnbegin("FrameSizeBytes", int)
-    {
-        if (isRead) InOut = static_cast<int>(Self.m_Bitmap.getFrameSize());
-    } property_var_fnend().Flags(property::flags::SHOW_READONLY)
-,   property_var_fnbegin("isCubemap", bool )
-    {
-        if (isRead) InOut = Self.m_Bitmap.isCubemap();
-    } property_var_fnend().Flags(property::flags::SHOW_READONLY)
-,   property_var_fnbegin("nFaces", int)
-    {
-        if (isRead) InOut = Self.m_Bitmap.getFaceCount();
-    } property_var_fnend().Flags(property::flags::SHOW_READONLY)
-,   property_var_fnbegin("FaceSizeBytes", int)
-    {
-        if (isRead) InOut = static_cast<int>(Self.m_Bitmap.getFaceSize());
-    } property_var_fnend().Flags(property::flags::SHOW_READONLY)
-,   property_var_fnbegin("nMips", int)
-    {
-        if (isRead) InOut = Self.m_Bitmap.getMipCount();
-    } property_var_fnend().Flags(property::flags::SHOW_READONLY)
-,   property_list_fnbegin( "Mip", std::string )
-    {   // Self     - is our class
-        // isRead   - Will give ask us what to do
-        // InOut    - is the argument
-        // Index    - is the index used to access the entry, is 64 bits so we may want to cast down a bit to avoid warnings
-        if( isRead ) InOut = std::format( "{}x{}", std::max( 1u, Self.m_Bitmap.getWidth()>>Index), std::max(1u, Self.m_Bitmap.getHeight() >> Index) );
-    } property_list_fnenum()
-    {   // Self         - is our class
-        // Cmd          - Will give ask us what to do
-        // InOut        - is the argument
-        // MemoryBlock  - block of memory that can be use to store iterators
-        switch ( Cmd )
-        {
-            case property::lists_cmd::READ_COUNT:   InOut = Self.m_Bitmap.getMipCount(); break;
-            case property::lists_cmd::WRITE_COUNT:  break;
-            case property::lists_cmd::READ_FIRST:   InOut = 0; break;
-            case property::lists_cmd::READ_NEXT:    if ( ++InOut == Self.m_Bitmap.getMipCount() ) InOut = property::lists_iterator_ends_v; break;
-            default: assert( false );
-        }
-    } property_list_fnend().Flags(property::flags::SHOW_READONLY)
-,   property_var_fnbegin("TotalSize", int )
-    {
-        if (isRead) InOut = static_cast<int>(Self.m_Bitmap.getDataSize());
-    } property_var_fnend().Flags(property::flags::SHOW_READONLY)
-
-} property_end()
+XPROPERTY_REG2(bitmap_inspector_props, e05::bitmap_inspector)
 
 //------------------------------------------------------------------------------------------------
 
@@ -389,9 +373,9 @@ int E05_Example()
     //
     // Create the inspector window
     //
-    property::inspector Inspector("Property");
+    xproperty::inspector Inspector("Property");
     Inspector.AppendEntity();
-    Inspector.AppendEntityComponent(property::getTable(BitmapInspector[iActiveImage]), &BitmapInspector[iActiveImage]);
+    Inspector.AppendEntityComponent( *xproperty::getObject(BitmapInspector[iActiveImage]), &BitmapInspector[iActiveImage]);
 
     //
     // Main loop
@@ -507,7 +491,7 @@ int E05_Example()
             {
                 Inspector.clear();
                 Inspector.AppendEntity();
-                Inspector.AppendEntityComponent(property::getTable(BitmapInspector[iActiveImage]), &BitmapInspector[iActiveImage]);
+                Inspector.AppendEntityComponent(*xproperty::getObject(BitmapInspector[iActiveImage]), &BitmapInspector[iActiveImage]);
             }
         });
 

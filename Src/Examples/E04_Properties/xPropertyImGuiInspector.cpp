@@ -532,11 +532,10 @@ namespace xproperty::ui::details
                 }
 
                 ImGui::PushID(Entry.m_GUID);
-                if (Flags.m_isShowReadOnly) ui::details::ReadOnly(I.m_pFormat, Value, Width);
+                float V = Value.get<float>();
+                if (Flags.m_isShowReadOnly) ui::details::ReadOnly(I.m_pFormat, V, Width);
                 else
                 {
-                    float V = Value.get<float>();
-
                     Cmd.m_isChange = ImGui::DragScalar("##value", ImGuiDataType_Float, &V, I.m_Speed, &I.m_Min, &I.m_Max, I.m_pFormat);
                     if (Cmd.m_isChange)
                     {
