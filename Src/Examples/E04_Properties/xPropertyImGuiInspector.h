@@ -108,6 +108,11 @@ namespace xproperty
         };
         XPROPERTY_REG(system)
     }
+
+    namespace ui::details
+    {
+        struct group_render;
+    }
 }
 
 //-----------------------------------------------------------------------------------
@@ -121,7 +126,7 @@ public:
     struct v2 : ImVec2
     {
         XPROPERTY_DEF
-        ( "ImVec2", ImVec2
+        ( "ImVec2", ImVec2, xproperty::settings::vector2_group
         , obj_member<"X", &ImVec2::x, member_ui<float>::scroll_bar<0.0f, 20.0f>, member_help<"X element of a vector"> >
         , obj_member<"Y", &ImVec2::y, member_ui<float>::scroll_bar<0.0f, 20.0f>, member_help<"Y element of a vector"> >
         )
@@ -194,6 +199,7 @@ protected:
         const char*                                     m_pHelp;
         const char*                                     m_pName;
         std::uint32_t                                   m_GUID;
+        std::uint32_t                                   m_GroupGUID;
         const xproperty::type::members*                 m_pUserData;
         int                                             m_Dimensions;
         int                                             m_MyDimension;
@@ -229,6 +235,8 @@ protected:
     bool                                        m_bWindowOpen   { true };
     xproperty::ui::undo::system                 m_UndoSystem    {};
     xproperty::settings::context                m_Context       {};
+
+    friend struct ui::details::group_render;
 
     XPROPERTY_VDEF
     ( "Inspector", inspector

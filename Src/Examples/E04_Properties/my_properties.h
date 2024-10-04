@@ -198,7 +198,15 @@ namespace xproperty::settings
         constexpr static inline char ctype_v = 's';
     };
 #endif
+
 }
+
+namespace xproperty::settings
+{
+    using vector3_group = obj_group<"Vector3">;
+    using vector2_group = obj_group<"Vector2">;
+}
+
 /* cpp
 
 ## SUPPORTING C-POINTERS TYPES
@@ -495,7 +503,7 @@ namespace xproperty::settings
         case xproperty::settings::var_type<std::uint8_t>::guid_v:    return sprintf_s( String.data(), String.size(), "%u",   Value.get<std::uint8_t>());  
         case xproperty::settings::var_type<float>::guid_v:           return sprintf_s( String.data(), String.size(), "%f",   Value.get<float>());         
         case xproperty::settings::var_type<double>::guid_v:          return sprintf_s( String.data(), String.size(), "%f",   Value.get<double>());        
-        case xproperty::settings::var_type<std::string>::guid_v:     return sprintf_s( String.data(), String.size(), "%s", Value.get<std::string>().c_str()); 
+        case xproperty::settings::var_type<std::string>::guid_v:     return sprintf_s( String.data(), String.size(), "%s",   Value.get<std::string>().c_str()); 
         case xproperty::settings::var_type<std::uint64_t>::guid_v:   return sprintf_s( String.data(), String.size(), "%llu", Value.get<std::uint64_t>());
         case xproperty::settings::var_type<std::int64_t>::guid_v:    return sprintf_s( String.data(), String.size(), "%lld", Value.get<std::int64_t>());
         case xproperty::settings::var_type<bool>::guid_v:            return sprintf_s( String.data(), String.size(), "%s",   Value.get<bool>() ? "true" : "false");

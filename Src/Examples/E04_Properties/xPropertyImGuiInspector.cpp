@@ -11,11 +11,11 @@ namespace xproperty::ui::details
 {
     //-----------------------------------------------------------------------------------
     template< typename T>
-    bool ReadOnly( const char* pFmt, T Value )
+    bool ReadOnly( const char* pFmt, T Value, float Width = -1 )
     {
         std::array<char, 128> Buff;
         snprintf( Buff.data(), Buff.size(), pFmt, Value );
-        ImGui::Button( Buff.data(), ImVec2( -1, 0 ) );
+        ImGui::Button( Buff.data(), ImVec2(Width, 0) );
         return false;
     }
 
@@ -490,6 +490,69 @@ namespace xproperty::ui::details
         reinterpret_cast<generic*>(StyleBase.m_pDrawFn)(Cmd, *reinterpret_cast<const std::uint64_t*>(&Value), StyleBase, Flags);
         //ImGui::PopID();
     }
+
+    //=================================================================================================
+
+    struct group_render
+    {
+        static void RenderElement( inspector::entry& GroupEntry, int iElement, xproperty::ui::undo::cmd& Cmd, const xproperty::any& Value, const xproperty::type::members& Entry, xproperty::flags::type Flags) noexcept
+        {
+            //
+            // Handle the case of vector2
+            // All vector 2 should have 2 elements in the following order...
+            // [0] = X, [1] = Y
+            //
+            if (GroupEntry.m_GroupGUID == xproperty::settings::vector2_group::guid_v)
+            {
+                auto& I = member_ui<float>::defaults::data_v;
+                ImGuiStyle* style = &ImGui::GetStyle();
+                const auto   Width = (ImGui::GetContentRegionAvail().x - style->ItemInnerSpacing.x - 10*3)  / 2;
+                const auto   Height = ImGui::GetFrameHeight();
+                ImVec2       pos;
+                ImU32        Color;
+
+                if (iElement == 0)
+                {
+                    ImGui::PushItemWidth(Width);
+                    Color = ImU32(0x440000ff); 
+                    ImGui::Text("X:");
+                    ImGui::SameLine();
+                    pos = ImGui::GetCursorScreenPos();
+                }
+
+                if (iElement == 1) 
+                {
+                    ImGui::SameLine(0, 2);
+
+                    Color = ImU32(0x4400ff00);
+
+                    ImGui::Text("Y:");
+                    ImGui::SameLine();
+                    pos = ImGui::GetCursorScreenPos();
+                }
+
+                ImGui::PushID(Entry.m_GUID);
+                if (Flags.m_isShowReadOnly) ui::details::ReadOnly(I.m_pFormat, Value, Width);
+                else
+                {
+                    float V = Value.get<float>();
+
+                    Cmd.m_isChange = ImGui::DragScalar("##value", ImGuiDataType_Float, &V, I.m_Speed, &I.m_Min, &I.m_Max, I.m_pFormat);
+                    if (Cmd.m_isChange)
+                    {
+                        if (Cmd.m_isEditing == false) Cmd.m_Original = Value;
+                        Cmd.m_isEditing = true;
+                        Cmd.m_NewValue.set<float>(V);
+                    }
+                    if (Cmd.m_isEditing && ImGui::IsItemDeactivatedAfterEdit()) Cmd.m_isEditing = false;
+                }
+
+                ImGui::PopID();
+                if(iElement == 1 ) ImGui::PopItemWidth();
+                ImGui::GetWindowDrawList()->AddRectFilled(pos, ImVec2(pos.x + Width, pos.y + Height), Color);
+            }
+        }
+    };
 }
 
 
@@ -595,6 +658,8 @@ void xproperty::inspector::RefreshAllProperties( void ) noexcept
             xproperty::sprop::collector( C->m_Base.second, *C->m_Base.first, m_Context, [&](const char* pPropertyName, xproperty::any&& Value, const xproperty::type::members& Member, bool isConst)
             {
                 std::uint32_t          GUID        = Member.m_GUID;
+                std::uint32_t          GroupGUID   = 0;
+
                 xproperty::flags::type Flags;
                 Flags.m_isShowReadOnly = isConst;
                 Flags.m_isDontSave     = false;
@@ -606,6 +671,16 @@ void xproperty::inspector::RefreshAllProperties( void ) noexcept
                 {
                     iDimensions = -1;
                     myDimension = -1;
+                }
+
+                if( std::holds_alternative<xproperty::type::members::props>(Member.m_Variant) 
+                 || std::holds_alternative<xproperty::type::members::list_props>(Member.m_Variant) )
+                {
+                    // GUIDs for groups are marked as u32... vs sizes are mark as u64
+                    if( Value.m_pType->m_GUID == xproperty::settings::var_type<std::uint32_t>::guid_v )
+                    {
+                        GroupGUID = Value.get<std::uint32_t>();
+                    }
                 }
 
                 // Check if we are dealing with atomic types and the size field...
@@ -663,6 +738,7 @@ void xproperty::inspector::RefreshAllProperties( void ) noexcept
                     , pHelp ? pHelp->m_pHelp : "<<No help>>"
                     , Member.m_pName
                     , Member.m_GUID
+                    , GroupGUID
                     , Flags.m_isScope ? nullptr : &Member
                     , iDimensions
                     , myDimension
@@ -859,6 +935,16 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
 
         bool bRenderBlankRight = false;
 
+        // Handle property groups
+        if (E.m_GroupGUID != 0)
+        {
+            if( E.m_GroupGUID == xproperty::settings::vector2_group::guid_v )
+            {
+                // This guy is not longer a scope...
+                E.m_Flags.m_isScope = false;
+            }
+        }
+
         // Create a new tree
         if( E.m_Flags.m_isScope ) 
         {
@@ -980,6 +1066,16 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
         {
             if ( m_Settings.m_bRenderRightBackground ) DrawBackground( iDepth, GlobalIndex );
 
+            int n = 1;
+            if (E.m_GroupGUID != 0)
+            {
+                ++iE;
+                if (E.m_GroupGUID == xproperty::settings::vector2_group::guid_v)
+                {
+                    n = 2;
+                }
+            }
+
             if ( E.m_Flags.m_isShowReadOnly || Tree[iDepth].m_isReadOnly )
             {
                 E.m_Flags.m_isShowReadOnly = true;
@@ -995,8 +1091,17 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
 
                 ImGui::PushStyleColor( ImGuiCol_Text, CC2f );
 
+                xproperty::ui::undo::cmd Cmd;
+                if (E.m_GroupGUID != 0)
                 {
-                    xproperty::ui::undo::cmd Cmd;
+                    for (int i = 0; i < n; ++i)
+                    {
+                        auto& Entry = *C.m_List[iE + i];
+                        xproperty::ui::details::group_render::RenderElement(E, i, Cmd, Entry.m_Property.m_Value, *Entry.m_pUserData, Entry.m_Flags);
+                    }
+                }
+                else
+                {
                     xproperty::ui::details::onRender(Cmd, E.m_Property.m_Value, *E.m_pUserData, E.m_Flags);
                     assert(Cmd.m_isChange == false);
                     assert(Cmd.m_isEditing == false);
@@ -1008,29 +1113,34 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
             }
             else
             {
-                // Determine if we are dealing with the same entry we are editing
-                [&]
+                for(int i=0; i<n; ++i) [&]( entry& Entry ) // Determine if we are dealing with the same entry we are editing
                 {
                     // Check if we are editing an entry already
-                    if( m_UndoSystem.m_lCmds.size() > 0 && m_UndoSystem.m_Index < static_cast<int>(m_UndoSystem.m_lCmds.size() ) )
+                    if( m_UndoSystem.m_lCmds.empty() == false && m_UndoSystem.m_Index < static_cast<int>(m_UndoSystem.m_lCmds.size()))
                     {
                         auto& CmdVariant = m_UndoSystem.m_lCmds[m_UndoSystem.m_Index];
 
                         // Same data type?
-                        if( (E.m_Property.m_Value.m_pType && CmdVariant.m_Original.m_pType ) && (E.m_Property.m_Value.m_pType->m_GUID == CmdVariant.m_Original.m_pType->m_GUID) )
+                        if( (Entry.m_Property.m_Value.m_pType && CmdVariant.m_Original.m_pType ) && (Entry.m_Property.m_Value.m_pType->m_GUID == CmdVariant.m_Original.m_pType->m_GUID) )
                         {
                             auto& UndoCmd = CmdVariant;
-                            if( ( UndoCmd.m_isEditing || UndoCmd.m_isChange ) && std::strcmp( UndoCmd.m_Name.c_str(), E.m_Property.m_Path.c_str() ) == 0 )
+                            if( ( UndoCmd.m_isEditing || UndoCmd.m_isChange ) && std::strcmp( UndoCmd.m_Name.c_str(), Entry.m_Property.m_Path.c_str() ) == 0 )
                             {
-                                xproperty::ui::details::onRender( UndoCmd, E.m_Property.m_Value, *E.m_pUserData, E.m_Flags );
+                                if ( E.m_GroupGUID ) 
+                                {
+                                    xproperty::ui::details::group_render::RenderElement(E, i, UndoCmd, Entry.m_Property.m_Value, *Entry.m_pUserData, Entry.m_Flags);
+                                }
+                                else
+                                {
+                                    xproperty::ui::details::onRender( UndoCmd, Entry.m_Property.m_Value, *Entry.m_pUserData, Entry.m_Flags );
+                                }
 
                                 if (UndoCmd.m_isChange)
                                 {
                                     std::string Error;
-                                    xproperty::sprop::setProperty( Error, C.m_Base.second, *C.m_Base.first, { E.m_Property.m_Path.c_str(), UndoCmd.m_NewValue }, m_Context );
+                                    xproperty::sprop::setProperty( Error, C.m_Base.second, *C.m_Base.first, { Entry.m_Property.m_Path, UndoCmd.m_NewValue }, m_Context );
                                     assert(Error.empty());
                                 }
-                                
 
                                 if( UndoCmd.m_isEditing == false )
                                 {
@@ -1048,7 +1158,16 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
                 
                     // Any other entry except the editing entry gets handle here
                     xproperty::ui::undo::cmd Cmd;
-                    xproperty::ui::details::onRender(Cmd, E.m_Property.m_Value, *E.m_pUserData, E.m_Flags);
+
+                    if (E.m_GroupGUID)
+                    {
+                        xproperty::ui::details::group_render::RenderElement(E, i, Cmd, Entry.m_Property.m_Value, *Entry.m_pUserData, Entry.m_Flags);
+                    }
+                    else
+                    {
+                        xproperty::ui::details::onRender(Cmd, Entry.m_Property.m_Value, *Entry.m_pUserData, Entry.m_Flags);
+                    }
+
                     if( Cmd.m_isEditing || Cmd.m_isChange )
                     {
                         assert( m_UndoSystem.m_Index <= static_cast<int>(m_UndoSystem.m_lCmds.size()) );
@@ -1057,7 +1176,7 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
                         if (Cmd.m_isChange)
                         {
                             std::string Error;
-                            xproperty::sprop::setProperty(Error, C.m_Base.second, *C.m_Base.first, { E.m_Property.m_Path.c_str(), Cmd.m_NewValue }, m_Context);
+                            xproperty::sprop::setProperty(Error, C.m_Base.second, *C.m_Base.first, { Entry.m_Property.m_Path, Cmd.m_NewValue }, m_Context);
                             assert(Error.empty());
                         }
                         
@@ -1074,14 +1193,17 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
                         }
 
                         // Insert the cmd into the list
-                        Cmd.m_Name.assign( E.m_Property.m_Path.c_str() );
+                        Cmd.m_Name.assign( Entry.m_Property.m_Path );
                         Cmd.m_pPropObject  = C.m_Base.first;
                         Cmd.m_pClassObject = C.m_Base.second;
 
                         m_UndoSystem.m_lCmds.push_back( std::move(Cmd) );
                     }
-                }();
+                }( *C.m_List[iE + i] );
             }
+
+            // Handle group entry increments
+            iE += n - 1;
         }
 
         ImGui::PopItemWidth();
@@ -1189,7 +1311,11 @@ void xproperty::inspector::Help( const entry& Entry ) const noexcept
     ImGui::TextDisabled( "Name:     " );
     ImGui::SameLine();
     ImGui::Text( "%s", Entry.m_pName );
-       
+
+    ImGui::TextDisabled("Type:     ");
+    ImGui::SameLine();
+    ImGui::Text("%s", Entry.m_Property.m_Value.m_pType ? Entry.m_Property.m_Value.m_pType->m_pName : "<<Unkown>>");
+
     ImGui::TextDisabled( "Hash:     " );
     ImGui::SameLine();
     ImGui::Text( "0x%x", Entry.m_GUID );
