@@ -808,7 +808,7 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
         std::size_t     m_iEnd;
         int             m_OpenAll;
         int             m_MyDimension;
-        bool            m_isOpen        : 1
+        bool            m_isOpen          : 1
                         , m_isAtomicArray : 1
                         , m_isReadOnly    : 1;
     };
