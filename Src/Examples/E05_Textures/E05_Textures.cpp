@@ -147,39 +147,39 @@ struct e05::bitmap_inspector
             default: Out = "Unexpected format"; break;
         }
     }, member_help<"Format from xcore bitmap of the image" > >
-    , obj_member_ro< "DataSize", +[](bitmap_inspector& I, bool bRead, std::uint64_t& Out)
+    , obj_member_ro< "DataSize", +[](bitmap_inspector& I, bool, std::uint64_t& Out)
     {
         Out = I.m_Bitmap.getDataSize();
     }, member_help<"Size in bytes of the image/file" > >
-    , obj_member_ro< "HasAlphaChannel", +[](bitmap_inspector& I, bool bRead, bool& Out)
+    , obj_member_ro< "HasAlphaChannel", +[](bitmap_inspector& I, bool, bool& Out)
     {
         Out = I.m_Bitmap.hasAlphaChannel();
     }, member_help<"Checks if the data has an alpha channel" > >
-    , obj_member_ro< "HasAlphaInfo", +[](bitmap_inspector& I, bool bRead, bool& Out)
+    , obj_member_ro< "HasAlphaInfo", +[](bitmap_inspector& I, bool, bool& Out)
     {
         Out = I.m_Bitmap.hasAlphaInfo();
     }, member_help<"Checks if the alpha channel has any useful data" > >
-    , obj_member_ro< "SRGB", +[](bitmap_inspector& I, bool bRead, bool& Out)
+    , obj_member_ro< "SRGB", +[](bitmap_inspector& I, bool, bool& Out)
     {
         Out = !I.m_Bitmap.isLinearSpace();
     }, member_help<"Check if the data is in Gamma space (if true) or Linear Space (if false)" > >
-    , obj_member_ro< "FrameCount", +[](bitmap_inspector& I, bool bRead, int& Out)
+    , obj_member_ro< "FrameCount", +[](bitmap_inspector& I, bool, int& Out)
     {
         Out = static_cast<int>(I.m_Bitmap.getFrameCount());
     }, member_help<"Tells how many frames there is in this file" > >
-    , obj_member_ro< "FrameSizeBytes", +[](bitmap_inspector& I, bool bRead, int& Out)
+    , obj_member_ro< "FrameSizeBytes", +[](bitmap_inspector& I, bool, int& Out)
     {
         Out = static_cast<int>(I.m_Bitmap.getFrameSize());
     }, member_help<"How big a frame in the file is" > >
-    , obj_member_ro< "isCubeMap", +[](bitmap_inspector& I, bool bRead, bool& Out)
+    , obj_member_ro< "isCubeMap", +[](bitmap_inspector& I, bool, bool& Out)
     {
         Out = I.m_Bitmap.isCubemap();
     }, member_help<"Check if the image is a cube map" > >
-    , obj_member_ro< "NumFacesCubeMap", +[](bitmap_inspector& I, bool bRead, int& Out)
+    , obj_member_ro< "NumFacesCubeMap", +[](bitmap_inspector& I, bool, int& Out)
     {
         Out = static_cast<int>(I.m_Bitmap.getFaceCount());
     }, member_help<"If we have loaded a cubemap how many faces the file contains" > >
-    , obj_member_ro< "NumFacesFaceSizeBytes", +[](bitmap_inspector& I, bool bRead, int& Out)
+    , obj_member_ro< "NumFacesFaceSizeBytes", +[](bitmap_inspector& I, bool, int& Out)
     {
         Out = static_cast<int>(I.m_Bitmap.getFaceSize());
     }, member_help<"How many bytes does a face of the cubemap is in this file" > >

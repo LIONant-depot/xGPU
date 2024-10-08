@@ -506,7 +506,7 @@ namespace xproperty::ui::details
             {
                 auto& I = member_ui<float>::defaults::data_v;
                 ImGuiStyle* style = &ImGui::GetStyle();
-                const auto   Width = (ImGui::GetContentRegionAvail().x - style->ItemInnerSpacing.x - 10*3)  / 2;
+                const auto   Width = (ImGui::GetContentRegionAvail().x - style->ItemInnerSpacing.x - 14*2)  / 2;
                 const auto   Height = ImGui::GetFrameHeight();
                 ImVec2       pos;
                 ImU32        Color;
@@ -765,6 +765,7 @@ void xproperty::inspector::Show( std::function<void(void)> Callback ) noexcept
     ImGui::PushStyleVar( ImGuiStyleVar_ItemSpacing,     m_Settings.m_ItemSpacing );
     ImGui::PushStyleVar( ImGuiStyleVar_IndentSpacing,   m_Settings.m_IndentSpacing );
     ImGui::PushStyleVar( ImGuiStyleVar_FrameRounding, 0 );
+    ImGui::PushStyleVar( ImGuiStyleVar_WindowBorderSize, 0 );
 
     //
     // Open the window
@@ -792,7 +793,7 @@ void xproperty::inspector::Show( std::function<void(void)> Callback ) noexcept
 
     ImGui::Columns( 1 );
     ImGui::Separator();
-    ImGui::PopStyleVar( 5 );
+    ImGui::PopStyleVar( 6 );
     ImGui::End();
 }
 
@@ -928,6 +929,7 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
         ImGui::NextColumn();
         ImGui::AlignTextToFramePadding();
         ImVec2 lpos = ImGui::GetCursorScreenPos();
+        auto CRA = ImGui::GetContentRegionAvail();
         if( Tree[iDepth].m_iArray >= 0 ) ImGui::PushID( E.m_GUID + Tree[iDepth].m_iArray + iDepth * 1000 + Tree[iDepth].m_MyDimension * 1000000 );
         else                             ImGui::PushID( E.m_GUID + iDepth * 1000 );
         if ( m_Settings.m_bRenderLeftBackground ) DrawBackground( iDepth, GlobalIndex );
@@ -1019,7 +1021,7 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
         if ( E.m_Flags.m_isShowReadOnly || Tree[iDepth].m_isReadOnly )
         {
             ImColor     CC = ImVec4(0.7f, 0.7f, 1.0f, 0.35f);
-            ImGui::GetWindowDrawList()->AddRectFilled(lpos, ImVec2(lpos.x + ImGui::GetContentRegionAvail().x, lpos.y + ImGui::GetFrameHeight()), CC);
+            ImGui::GetWindowDrawList()->AddRectFilled(lpos, ImVec2(lpos.x + CRA.x, lpos.y + ImGui::GetFrameHeight()), CC);
         }
 
         // Print the help
@@ -1034,7 +1036,9 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
         ImGui::NextColumn();
         ImGui::AlignTextToFramePadding();
         ImGui::PushItemWidth( -1 );
+
         ImVec2 rpos = ImGui::GetCursorScreenPos();
+        CRA = ImGui::GetContentRegionAvail();
 
         if( E.m_Flags.m_isScope || bRenderBlankRight )
         {
@@ -1042,7 +1046,7 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
 
             if (E.m_Property.m_Path.back() == ']' )
             {
-                ImGui::Text(" Size: %llu  ", E.m_Property.m_Value.get<std::size_t>());
+                ImGui::Text("Size: %llu  ", E.m_Property.m_Value.get<std::size_t>());
             }
 
             if( iDepth>0 && ((E.m_Dimensions - E.m_MyDimension) > 1 || Tree[iDepth].m_isAtomicArray == false) && Tree[iDepth].m_isOpen )
@@ -1058,7 +1062,7 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
             if (E.m_Flags.m_isShowReadOnly || Tree[iDepth].m_isReadOnly)
             {
                 ImColor     CC = ImVec4(0.7f, 0.7f, 1.0f, 0.35f);
-                ImGui::GetWindowDrawList()->AddRectFilled(rpos, ImVec2(rpos.x + ImGui::GetContentRegionAvail().x, rpos.y + ImGui::GetFrameHeight()), CC);
+                ImGui::GetWindowDrawList()->AddRectFilled(rpos, ImVec2(rpos.x + CRA.x, rpos.y + ImGui::GetFrameHeight()), CC);
             }
         }
         else
@@ -1080,7 +1084,6 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
                 E.m_Flags.m_isShowReadOnly = true;
 
                 ImGuiStyle* style = &ImGui::GetStyle();
-                ImVec2      pos   = ImGui::GetCursorScreenPos();
                 ImColor     CC    = ImVec4( 0.7f, 0.7f, 1.0f, 0.35f );
                 ImVec4      CC2f  = style->Colors[ ImGuiCol_Text ];
 
@@ -1108,7 +1111,7 @@ void xproperty::inspector::Render( component& C, int& GlobalIndex ) noexcept
 
                 ImGui::PopStyleColor();
 
-                ImGui::GetWindowDrawList()->AddRectFilled( pos, ImVec2( pos.x + ImGui::GetContentRegionAvail().x, pos.y + ImGui::GetFrameHeight() ), CC );
+                ImGui::GetWindowDrawList()->AddRectFilled(rpos, ImVec2(rpos.x + CRA.x, rpos.y + ImGui::GetFrameHeight() ), CC );
             }
             else
             {

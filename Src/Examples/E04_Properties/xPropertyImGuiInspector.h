@@ -136,7 +136,7 @@ public:
     {
         ImVec2      m_WindowPadding             { 0, 3 };
         ImVec2      m_FramePadding              { 1, 3.5 };
-        ImVec2      m_ItemSpacing               { 1.5, 1.5f };
+        ImVec2      m_ItemSpacing               { 0.5f, 1.5f };
         float       m_IndentSpacing             { 3.5 };
         ImVec2      m_TableFramePadding         { 2, 6 };
 
