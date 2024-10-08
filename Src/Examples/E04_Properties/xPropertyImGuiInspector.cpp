@@ -1303,30 +1303,31 @@ void xproperty::inspector::Help( const entry& Entry ) const noexcept
     ImGui::BeginTooltip();
     ImGui::PushTextWrapPos( ImGui::GetFontSize() * m_Settings.m_HelpWindowSizeInChars );
 
-    ImGui::TextDisabled( "FullName: ");
+    ImGui::TextDisabled("Name:     ");
     ImGui::SameLine();
-    ImGui::Text( "%s", Entry.m_Property.m_Path.c_str() );
-
-    ImGui::TextDisabled( "Name:     " );
-    ImGui::SameLine();
-    ImGui::Text( "%s", Entry.m_pName );
+    ImGui::Text("%s", Entry.m_pName);
 
     ImGui::TextDisabled("Type:     ");
     ImGui::SameLine();
     ImGui::Text("%s", Entry.m_Property.m_Value.m_pType ? Entry.m_Property.m_Value.m_pType->m_pName : "<<Unkown>>");
 
-    ImGui::TextDisabled( "Hash:     " );
+    ImGui::TextDisabled( "FullName: ");
+    ImGui::SameLine();
+    ImGui::Text( "%s", Entry.m_Property.m_Path.c_str() );
+
+    ImGui::TextDisabled( "GUID:     " );
     ImGui::SameLine();
     ImGui::Text( "0x%x", Entry.m_GUID );
 
+    ImGui::TextDisabled("Help");
+    ImGui::Separator();
+
     if( Entry.m_pHelp )
     {
-        ImGui::Separator();
         ImGui::TextUnformatted( Entry.m_pHelp );
     }
     else
     {
-        ImGui::TextDisabled( "Help:     " );
         ImGui::SameLine();
         ImGui::Text( "none provided" );
     }

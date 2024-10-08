@@ -135,9 +135,9 @@ public:
     struct settings
     {
         ImVec2      m_WindowPadding             { 0, 3 };
-        ImVec2      m_FramePadding              { 0, 2 };
-        ImVec2      m_ItemSpacing               { 2, 1 };
-        float       m_IndentSpacing             { 3 };
+        ImVec2      m_FramePadding              { 1, 3.5 };
+        ImVec2      m_ItemSpacing               { 1.5, 1.5f };
+        float       m_IndentSpacing             { 3.5 };
         ImVec2      m_TableFramePadding         { 2, 6 };
 
         bool        m_bRenderLeftBackground     { true };
@@ -161,9 +161,9 @@ public:
             , obj_member<"RenderLeft",      &settings::m_bRenderLeftBackground, member_help<"Disable the rendering of the background on the left"> >
             , obj_member<"RenderRight",     &settings::m_bRenderRightBackground, member_help<"Disable the rendering of the background on the right"> >
             , obj_member<"Depth",           &settings::m_bRenderBackgroundDepth, member_help<"Disable the rendering of multiple color background"> >
-            , obj_member<"ColorVScalar1",   &settings::m_ColorVScalar1, member_ui<float>::scroll_bar<0.0f, 20.0f>, member_help<"Changes the Luminosity of one of the alternate colors for the background"> >
-            , obj_member<"ColorVScalar2",   &settings::m_ColorVScalar2, member_ui<float>::scroll_bar<0.0f, 20.0f>, member_help<"Changes the Luminosity of one of the alternate colors for the background"> >
-            , obj_member<"ColorSScalar",    &settings::m_ColorSScalar,  member_ui<float>::scroll_bar<0.0f, 20.0f>, member_help<"Changes the Saturation for all the colors in the background"> >
+            , obj_member<"ColorVScalar1",   &settings::m_ColorVScalar1, member_ui<float>::scroll_bar<0.0f, 2.0f>, member_help<"Changes the Luminosity of one of the alternate colors for the background"> >
+            , obj_member<"ColorVScalar2",   &settings::m_ColorVScalar2, member_ui<float>::scroll_bar<0.0f, 2.0f>, member_help<"Changes the Luminosity of one of the alternate colors for the background"> >
+            , obj_member<"ColorSScalar",    &settings::m_ColorSScalar,  member_ui<float>::scroll_bar<0.0f, 10.0f>, member_help<"Changes the Saturation for all the colors in the background"> >
             >
         , obj_scope
             < "Help Popup"
