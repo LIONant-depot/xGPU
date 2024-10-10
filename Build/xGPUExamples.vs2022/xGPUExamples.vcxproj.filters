@@ -771,9 +771,6 @@
     <ClInclude Include="..\..\Src\Examples\E06_AssimLoader\E06_LoadTextureHelper.h">
       <Filter>Examples\Example 06 Assim Loader</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Src\Examples\E04_Properties\xPropertyImGuiExample.h">
-      <Filter>Examples\Example 04 Properties\Dependencies</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyExample.h">
       <Filter>Examples\Example 04 Properties\OldExample</Filter>
     </ClInclude>
@@ -784,6 +781,9 @@
       <Filter>Examples\Example 04 Properties\Dependencies</Filter>
     </ClInclude>
     <ClInclude Include="..\..\dependencies\xproperty\source\examples\imgui\xPropertyImGuiInspector.h">
+      <Filter>Examples\Example 04 Properties\Dependencies</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xproperty\source\examples\imgui\xPropertyImGuiExample.h">
       <Filter>Examples\Example 04 Properties\Dependencies</Filter>
     </ClInclude>
   </ItemGroup>
