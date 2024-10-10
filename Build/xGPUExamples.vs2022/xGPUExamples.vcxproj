@@ -38,6 +38,7 @@
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui_widgets.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\src\xraw3d.cpp" />
+    <ClCompile Include="..\..\dependencies\xproperty\source\examples\imgui\xPropertyImGuiInspector.cpp" />
     <ClCompile Include="..\..\Src\Details\System\Windows\xGPU_windows.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
@@ -108,7 +109,6 @@
     </ClCompile>
     <ClCompile Include="..\..\Src\Examples\E03_ImguiBreatch\E03_ImguiBreach.cpp" />
     <ClCompile Include="..\..\Src\Examples\E04_Properties\E04_Properties.cpp" />
-    <ClCompile Include="..\..\Src\Examples\E04_Properties\xPropertyImGuiInspector.cpp" />
     <ClCompile Include="..\..\Src\Examples\E05_Textures\E05_Textures.cpp" />
     <ClCompile Include="..\..\Src\Examples\E06_AssimLoader\E06_AssimLoader.cpp" />
     <ClCompile Include="..\..\Src\Examples\E07_PrimitiveGeoms\E07_PrimitiveGeoms.cpp" />
@@ -217,6 +217,8 @@
     <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_quad.h" />
     <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_rounded_cube.h" />
     <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_uvsphere.h" />
+    <ClInclude Include="..\..\dependencies\xproperty\source\examples\imgui\my_properties.h" />
+    <ClInclude Include="..\..\dependencies\xproperty\source\examples\imgui\xPropertyImGuiInspector.h" />
     <ClInclude Include="..\..\Src\Details\System\xGPU_system.h" />
     <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows.h" />
     <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows_instance.h" />
@@ -249,9 +251,7 @@
     <ClInclude Include="..\..\Src\Details\xgpu_texture_inline.h" />
     <ClInclude Include="..\..\Src\Details\xgpu_vertex_descriptor_inline.h" />
     <ClInclude Include="..\..\Src\Details\xgpu_window_inline.h" />
-    <ClInclude Include="..\..\Src\Examples\E04_Properties\my_properties.h" />
     <ClInclude Include="..\..\Src\Examples\E04_Properties\xPropertyImGuiExample.h" />
-    <ClInclude Include="..\..\Src\Examples\E04_Properties\xPropertyImGuiInspector.h" />
     <ClInclude Include="..\..\Src\Examples\E06_AssimLoader\E06_LoadTextureHelper.h" />
     <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_AnimationPackage.h" />
     <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_AnimCharacter.h" />

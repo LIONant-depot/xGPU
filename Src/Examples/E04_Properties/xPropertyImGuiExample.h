@@ -1,6 +1,6 @@
 
-#include "xPropertyImGuiInspector.h"
-#include "../../dependencies/xproperty/source/examples/example_properties.h"
+#include "../../dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
+#include "../../dependencies/xproperty/source/examples/create_documentation/example_properties.h"
 
 //-----------------------------------------------------------------------------------
 
