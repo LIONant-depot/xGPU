@@ -1,3 +1,6 @@
+#ifndef XGPU_TOOLS_BASIS_UNIVERSAL_TEXTURE_LOADER_H
+#define XGPU_TOOLS_BASIS_UNIVERSAL_TEXTURE_LOADER_H
+#pragma once
 #define BASISU_NO_ITERATOR_DEBUG_LEVEL
 #include "../../dependencies/basis_universal/transcoder/basisu_transcoder.h"
 
@@ -7,7 +10,7 @@ namespace xgpu::tools::basis_universal
     inline static bool init = false;
 
     //------------------------------------------------------------------------------------------------
-
+    inline
     xgpu::texture vtk2_Loader( xgpu::device& Device, const char* pFileName )
     {
         if(false == init ) 
@@ -121,7 +124,7 @@ namespace xgpu::tools::basis_universal
     }
 
     //------------------------------------------------------------------------------------------------
-
+    inline
     xgpu::texture basis_Loader(xgpu::device& Device, const char* pFileName)
     {
         if (false == init)
@@ -225,3 +228,4 @@ namespace xgpu::tools::basis_universal
         return Texture;
     }
 }
+#endif

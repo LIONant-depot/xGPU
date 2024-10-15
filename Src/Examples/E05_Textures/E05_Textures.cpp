@@ -2,8 +2,9 @@
 #include "xcore.h"
 #include "../../tools/xgpu_imgui_breach.h"
 #include "../../tools/xgpu_xcore_bitmap_helpers.h"
-#include "../E04_Properties/xPropertyImGuiInspector.h"
+#include "../../dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
 #include "../../dependencies/xbmp_tools/src/xbmp_tools.h"
+#include "../../tools/xgpu_basis_universal_texture_loader.h"
 #include <format>
 
 #include "imgui_internal.h"
@@ -48,6 +49,20 @@ namespace e05
     //------------------------------------------------------------------------------------------------
 
     struct bitmap_inspector;
+
+    //------------------------------------------------------------------------------------------------
+
+    struct ivec2
+    {
+        std::uint32_t x, y;
+        XPROPERTY_DEF
+        ("ivec2", ivec2, xproperty::settings::vector2_group
+        , obj_member_ro<"W", &ivec2::x >
+        , obj_member_ro<"H", &ivec2::y >
+        )
+    };
+    XPROPERTY_REG(ivec2)
+
 }
 
 //------------------------------------------------------------------------------------------------
@@ -56,6 +71,8 @@ struct e05::bitmap_inspector
 {
     void Load( const char* pFileName, xgpu::device& Device, xgpu::pipeline& Pipeline ) noexcept
     {
+        xgpu::texture Texture;
+
         //
         // Get the file name
         //
@@ -65,17 +82,29 @@ struct e05::bitmap_inspector
         //
         // Load file
         //
-        if( auto Err = xbmp::tools::loader::LoadDSS( m_Bitmap, pFileName ); Err )
+        if( auto x = m_FileName.find(".basis"); x != (~0ull) )
         {
-            e05::DebugMessage( xbmp::tools::getErrorMsg(Err) );
-            std::exit(xbmp::tools::getErrorInt(Err) );
-        }
+            Texture = xgpu::tools::basis_universal::basis_Loader(Device, pFileName);
 
-        //
-        // Create Texture
-        //
-        xgpu::texture Texture;
-        if( auto Err = xgpu::tools::bitmap::Create(Texture, Device, m_Bitmap ); Err )
+            auto Size = Texture.getTextureDimensions();
+            auto FrameSize = (Size[0] * Size[1]) / 4;
+            m_Bitmap.setup
+            ( Size[0]
+            , Size[1]
+            , xcore::bitmap::format::BC1_4RGB
+            , FrameSize
+            , std::span( new std::byte [FrameSize], FrameSize + (Texture.getMipCount()*sizeof(int)))
+            , true
+            , Texture.getMipCount()
+            , 1
+            );
+        }
+        else if (auto Err = xbmp::tools::loader::LoadDSS(m_Bitmap, pFileName); Err)
+        {
+            e05::DebugMessage(xbmp::tools::getErrorMsg(Err));
+            std::exit(xbmp::tools::getErrorInt(Err));
+        }
+        else if( auto Err = xgpu::tools::bitmap::Create(Texture, Device, m_Bitmap ); Err )
         {
             e05::DebugMessage(xgpu::getErrorMsg(Err));
             std::exit(xgpu::getErrorInt(Err));
@@ -104,24 +133,24 @@ struct e05::bitmap_inspector
         m_MipMapSizes.resize(m_Bitmap.getMipCount());
         for (int i = 0; i < m_Bitmap.getMipCount(); ++i)
         {
-            m_MipMapSizes[i].x = static_cast<float>(std::max(1u, m_Bitmap.getWidth() >> i));
-            m_MipMapSizes[i].y = static_cast<float>(std::max(1u, m_Bitmap.getHeight() >> i));
+            m_MipMapSizes[i].x = std::max(1u, m_Bitmap.getWidth() >> i);
+            m_MipMapSizes[i].y = std::max(1u, m_Bitmap.getHeight() >> i);
         }
     }
 
     xgpu::pipeline_instance m_Instance;
     std::string             m_FileName;
     xcore::bitmap           m_Bitmap;
-    std::vector<ImVec2>     m_MipMapSizes;
+    std::vector<ivec2>      m_MipMapSizes;
 
     XPROPERTY_DEF
     ( "Bitmap Info", bitmap_inspector
     , obj_member_ro< "FileName", &bitmap_inspector::m_FileName, member_help<"The file name of the image"> >
-    , obj_member_ro< "Size", +[](bitmap_inspector& I) ->ImVec2&
+    , obj_member_ro< "Size", +[](bitmap_inspector& I) ->ivec2&
     {
-        static ImVec2 Out;
-        Out.x = static_cast<float>(I.m_Bitmap.getWidth());
-        Out.y = static_cast<float>(I.m_Bitmap.getHeight());
+        static ivec2 Out;
+        Out.x = I.m_Bitmap.getWidth();
+        Out.y = I.m_Bitmap.getHeight();
         return Out;
     }, member_help<"Image Size in pixels" > >
     , obj_member_ro< "Format",  +[](bitmap_inspector& I, bool bRead, std::string& Out )
@@ -321,7 +350,6 @@ int E05_Example()
     //
     // Load bitmaps
     //
-    std::array<e05::bitmap_inspector, 7> BitmapInspector;
     constexpr auto TextureList = std::array
     { "../../Src/Examples/E05_Textures/Alita-FullColor.dds"
     , "../../Src/Examples/E05_Textures/Alita-FullColor-Mipmaps.dds"
@@ -330,8 +358,9 @@ int E05_Example()
     , "../../Src/Examples/E05_Textures/Alita-DXT1-NoAlpha-Mipmaps.dds"
     , "../../Src/Examples/E05_Textures/Alita-DXT3.dds"
     , "../../Src/Examples/E05_Textures/Alita-DXT5.dds"
+    , "../../bin/Run3.basis"
     };
-    static_assert( BitmapInspector.size() == TextureList.size() );
+    std::array<e05::bitmap_inspector, TextureList.size()> BitmapInspector;
 
     for( int i=0; i< TextureList.size(); ++i )
     {
