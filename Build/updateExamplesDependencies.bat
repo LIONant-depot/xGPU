@@ -32,41 +32,29 @@ cd /d %XGPU_PATH%
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
 rem ------------------------------------------------------------
-rem XPRIM_GEOM
+rem XTEXTURE PLUGIN
 rem ------------------------------------------------------------
-:XPRIM_GEOM
-rmdir "../dependencies/xprim_geom" /S /Q
-git clone https://github.com/LIONant-depot/xprim_geom.git "../dependencies/xprim_geom"
+:XGEOM_COMPILER
+rmdir "../dependencies/xtexture.plugin" /S /Q
+git clone https://github.com/LIONant-depot/xtexture.plugin "../dependencies/xtexture.plugin"
+if %ERRORLEVEL% GEQ 1 goto :ERROR
+cd ../dependencies/xtexture.plugin/build
+if %ERRORLEVEL% GEQ 1 goto :ERROR
+call updateDependencies.bat "return"
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
-rem ------------------------------------------------------------
-rem XBMP_TOOLS
-rem ------------------------------------------------------------
-:XBMP_TOOLS
-rmdir "../dependencies/xbmp_tools" /S /Q
-git clone https://github.com/LIONant-depot/xbmp_tools.git "../dependencies/xbmp_tools"
-if %ERRORLEVEL% GEQ 1 goto :ERROR
-cd ../dependencies/xbmp_tools/build
-if %ERRORLEVEL% GEQ 1 goto :ERROR
-call UpdateDependencies.bat "return"
+rem now let us build
+call build_versions.bat "return"
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 cd /d %XGPU_PATH%
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
 rem ------------------------------------------------------------
-rem Basis Universal
+rem XPRIM_GEOM
 rem ------------------------------------------------------------
-:BASIS_UNIVERSAL
-rmdir "../dependencies/basis_universal" /S /Q
-git clone --recurse-submodules -j8 https://github.com/BinomialLLC/basis_universal.git "../dependencies/basis_universal"
-if %ERRORLEVEL% GEQ 1 goto :ERROR
-
-rem ------------------------------------------------------------
-rem xproperty
-rem ------------------------------------------------------------
-:XPROPERTY
-rmdir "../dependencies/xproperty" /S /Q
-git clone https://github.com/LIONant-depot/xproperty.git "../dependencies/xproperty"
+:XPRIM_GEOM
+rmdir "../dependencies/xprim_geom" /S /Q
+git clone https://github.com/LIONant-depot/xprim_geom.git "../dependencies/xprim_geom"
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
 rem ------------------------------------------------------------
@@ -106,7 +94,6 @@ rem ------------------------------------------------------------
 rem copy the dlls just in case the user runs the examples 
 copy "..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\assimp\BINARIES\Win32\bin\Release\assimp-vc143-mt.dll" "xGPUExamples.vs2022\assimp-vc143-mt.dll" /Y
 if %ERRORLEVEL% GEQ 1 goto :ERROR
-
 
 rem ------------------------------------------------------------
 rem Decompress the asset folder

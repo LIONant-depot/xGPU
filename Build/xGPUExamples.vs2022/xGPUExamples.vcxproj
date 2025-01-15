@@ -11,10 +11,6 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder.cpp">
-      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">BASISU_NO_ITERATOR_DEBUG_LEVEL;_DEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-    </ClCompile>
-    <ClCompile Include="..\..\Dependencies\xbmp_tools\src\xbmp_tools.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\allocator.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\clusterizer.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\indexcodec.cpp" />
@@ -38,7 +34,9 @@
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui_widgets.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\src\xraw3d.cpp" />
-    <ClCompile Include="..\..\dependencies\xproperty\source\examples\imgui\xPropertyImGuiInspector.cpp" />
+    <ClCompile Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder.cpp" />
+    <ClCompile Include="..\..\dependencies\xtexture.plugin\dependencies\xbmp_tools\src\xbmp_tools.cpp" />
+    <ClCompile Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xproperty\source\examples\imgui\xPropertyImGuiInspector.cpp" />
     <ClCompile Include="..\..\Src\Details\System\Windows\xGPU_windows.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
@@ -114,7 +112,7 @@
     <ClCompile Include="..\..\Src\Examples\E07_PrimitiveGeoms\E07_PrimitiveGeoms.cpp" />
     <ClCompile Include="..\..\Src\Examples\E08_AsyncTextureLoading\E08_AsyncTextureLoading.cpp" />
     <ClCompile Include="..\..\Src\Examples\E09_Raw3DViewer\E09_Raw3DViewer.cpp" />
-    <ClCompile Include="..\..\Src\Examples\E10_BasisUniversal\E10_BasisUniversal.cpp" />
+    <ClCompile Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_TextureResourcePipeline.cpp" />
     <ClCompile Include="..\..\Src\Examples\E11_NormalMaps\E11_NormalMaps.cpp" />
     <ClCompile Include="..\..\Src\Examples\E12_Lighting\E12_Ligting.cpp" />
     <ClCompile Include="..\..\Src\Examples\E13_ParallaxOcclusionMapping\E13_POM.cpp" />
@@ -132,17 +130,6 @@
     <ClCompile Include="..\..\Tools\xgpu_imgui_breach.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu.h" />
-    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_containers.h" />
-    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_containers_impl.h" />
-    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_file_headers.h" />
-    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_global_selector_cb.h" />
-    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_global_selector_palette.h" />
-    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder.h" />
-    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_internal.h" />
-    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_uastc.h" />
-    <ClInclude Include="..\..\Dependencies\xbmp_tools\src\xbmp_tools.h" />
-    <ClInclude Include="..\..\Dependencies\xbmp_tools\src\xbmp_tools_loaders.h" />
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\meshoptimizer.h" />
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyExample.h" />
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.h" />
@@ -198,7 +185,6 @@
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_system_reg.h" />
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_target.h" />
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_textfile.h" />
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_textfile2.h" />
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_types.h" />
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_unique_span.h" />
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_units.h" />
@@ -217,9 +203,26 @@
     <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_quad.h" />
     <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_rounded_cube.h" />
     <ClInclude Include="..\..\Dependencies\xprim_geom\xprim_geom_uvsphere.h" />
-    <ClInclude Include="..\..\dependencies\xproperty\source\examples\imgui\my_properties.h" />
-    <ClInclude Include="..\..\dependencies\xproperty\source\examples\imgui\xPropertyImGuiExample.h" />
-    <ClInclude Include="..\..\dependencies\xproperty\source\examples\imgui\xPropertyImGuiInspector.h" />
+    <ClInclude Include="..\..\dependencies\xproperty\source\examples\create_documentation\example_properties.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_astc_hdr_core.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_astc_helpers.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_containers.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_containers_impl.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_file_headers.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_internal.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_uastc.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xbmp_tools\src\xbmp_tools.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xbmp_tools\src\xbmp_tools_atlas.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xbmp_tools\src\xbmp_tools_filters.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xbmp_tools\src\xbmp_tools_loaders.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xbmp_tools\src\xbmp_tools_writers.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xproperty\source\examples\imgui\my_properties.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xproperty\source\examples\imgui\my_property_ui.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xproperty\source\examples\imgui\xPropertyImGuiExample.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xproperty\source\examples\imgui\xPropertyImGuiInspector.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\source\xtexture_rsc_descriptor.h" />
     <ClInclude Include="..\..\Src\Details\System\xGPU_system.h" />
     <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows.h" />
     <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows_instance.h" />
@@ -253,7 +256,7 @@
     <ClInclude Include="..\..\Src\Details\xgpu_vertex_descriptor_inline.h" />
     <ClInclude Include="..\..\Src\Details\xgpu_window_inline.h" />
     <ClInclude Include="..\..\Src\Examples\E06_AssimLoader\E06_LoadTextureHelper.h" />
-    <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_AnimationPackage.h" />
+    <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_Compiler.h" />
     <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_AnimCharacter.h" />
     <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_Importer.h" />
     <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_Skeleton.h" />
@@ -310,16 +313,16 @@
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>
-    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_astc.inc" />
-    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_astc_0_255.inc" />
-    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_atc_55.inc" />
-    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_atc_56.inc" />
-    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_bc7_m5_alpha.inc" />
-    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_bc7_m5_color.inc" />
-    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_dxt1_5.inc" />
-    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_dxt1_6.inc" />
-    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_pvrtc2_45.inc" />
-    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_pvrtc2_alpha_33.inc" />
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_astc.inc" />
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_astc_0_255.inc" />
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_atc_55.inc" />
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_atc_56.inc" />
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_bc7_m5_alpha.inc" />
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_bc7_m5_color.inc" />
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_dxt1_5.inc" />
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_dxt1_6.inc" />
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_pvrtc2_45.inc" />
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_pvrtc2_alpha_33.inc" />
     <None Include="..\..\LICENSE" />
     <None Include="..\..\README.md" />
     <CustomBuild Include="../../Bin/imgui_vert.glsl">

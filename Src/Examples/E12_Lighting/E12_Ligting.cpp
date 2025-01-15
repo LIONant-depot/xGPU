@@ -3,7 +3,7 @@
 #include "../../tools/xgpu_view.h"
 #include "../../tools/xgpu_view_inline.h"
 #include "../../dependencies/xprim_geom/src/xprim_geom.h"
-#include "../../dependencies/xbmp_tools/src/xbmp_tools.h"
+#include "../../dependencies/xtexture.plugin/dependencies/xbmp_tools/src/xbmp_tools.h"
 #include "../../tools/xgpu_xcore_bitmap_helpers.h"
 
 #include <iostream>

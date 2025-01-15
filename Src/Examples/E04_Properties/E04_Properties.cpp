@@ -1,7 +1,7 @@
 #include "xGPU.h"
 #include "xcore.h"
 #include "../../tools/xgpu_imgui_breach.h"
-#include "../../dependencies/xproperty/source/examples/imgui/xPropertyImGuiExample.h"
+#include "../../dependencies/xtexture.plugin/dependencies/xresource_pipeline_v2/dependencies/xproperty/source/examples/imgui/xPropertyImGuiExample.h"
 
 namespace e04
 {

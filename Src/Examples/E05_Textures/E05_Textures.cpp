@@ -2,8 +2,8 @@
 #include "xcore.h"
 #include "../../tools/xgpu_imgui_breach.h"
 #include "../../tools/xgpu_xcore_bitmap_helpers.h"
-#include "../../dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
-#include "../../dependencies/xbmp_tools/src/xbmp_tools.h"
+#include "../../dependencies/xtexture.plugin/dependencies/xresource_pipeline_v2/dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
+#include "../../dependencies/xtexture.plugin/dependencies/xbmp_tools/src/xbmp_tools.h"
 #include "../../tools/xgpu_basis_universal_texture_loader.h"
 #include <format>
 
@@ -184,10 +184,6 @@ struct e05::bitmap_inspector
     {
         Out = I.m_Bitmap.hasAlphaChannel();
     }, member_help<"Checks if the data has an alpha channel" > >
-    , obj_member_ro< "HasAlphaInfo", +[](bitmap_inspector& I, bool, bool& Out)
-    {
-        Out = I.m_Bitmap.hasAlphaInfo();
-    }, member_help<"Checks if the alpha channel has any useful data" > >
     , obj_member_ro< "SRGB", +[](bitmap_inspector& I, bool, bool& Out)
     {
         Out = !I.m_Bitmap.isLinearSpace();
@@ -538,4 +534,3 @@ int E05_Example()
 
     return 0;
 }
-

@@ -79,12 +79,6 @@
     <Filter Include="Dependencies\meshoptimizer">
       <UniqueIdentifier>{7fd41868-1cc8-42c3-bcb7-398432841c3e}</UniqueIdentifier>
     </Filter>
-    <Filter Include="Examples\Example 10 Basis Universal">
-      <UniqueIdentifier>{0a217378-1808-4b55-b123-5ad090a866a1}</UniqueIdentifier>
-    </Filter>
-    <Filter Include="Examples\Example 10 Basis Universal\BaisUniversal">
-      <UniqueIdentifier>{227d0ae3-4650-466b-8b34-08c035cf0297}</UniqueIdentifier>
-    </Filter>
     <Filter Include="Examples\Example 11 Normal Maps">
       <UniqueIdentifier>{fd83237d-765a-4790-9d54-fc329a72d075}</UniqueIdentifier>
     </Filter>
@@ -117,6 +111,12 @@
     </Filter>
     <Filter Include="Examples\Example 04 Properties\OldExample">
       <UniqueIdentifier>{efad32ce-eea0-4c26-b11c-29162bde782a}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Examples\Example 05 Textures\BaisUniversal">
+      <UniqueIdentifier>{227d0ae3-4650-466b-8b34-08c035cf0297}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Examples\Example 10 Texture Resource Pipeline">
+      <UniqueIdentifier>{0a217378-1808-4b55-b123-5ad090a866a1}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>
@@ -183,9 +183,6 @@
     </ClCompile>
     <ClCompile Include="..\..\Src\Examples\E04_Properties\E04_Properties.cpp">
       <Filter>Examples\Example 04 Properties</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\Dependencies\xbmp_tools\src\xbmp_tools.cpp">
-      <Filter>Dependencies\xbmpTools</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Src\Examples\E05_Textures\E05_Textures.cpp">
       <Filter>Examples\Example 05 Textures</Filter>
@@ -274,12 +271,6 @@
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui_widgets.cpp">
       <Filter>Dependencies\ImGui</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\Src\Examples\E10_BasisUniversal\E10_BasisUniversal.cpp">
-      <Filter>Examples\Example 10 Basis Universal</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder.cpp">
-      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\Src\Examples\E11_NormalMaps\E11_NormalMaps.cpp">
       <Filter>Examples\Example 11 Normal Maps</Filter>
     </ClCompile>
@@ -313,8 +304,17 @@
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.cpp">
       <Filter>Examples\Example 04 Properties\OldExample</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\dependencies\xproperty\source\examples\imgui\xPropertyImGuiInspector.cpp">
+    <ClCompile Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xproperty\source\examples\imgui\xPropertyImGuiInspector.cpp">
       <Filter>Examples\Example 04 Properties\Dependencies</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_TextureResourcePipeline.cpp">
+      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xtexture.plugin\dependencies\xbmp_tools\src\xbmp_tools.cpp">
+      <Filter>Dependencies\xbmpTools</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder.cpp">
+      <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -392,12 +392,6 @@
     </ClInclude>
     <ClInclude Include="..\..\Tools\xgpu_imgui_breach.h">
       <Filter>Tools</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Dependencies\xbmp_tools\src\xbmp_tools.h">
-      <Filter>Dependencies\xbmpTools</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Dependencies\xbmp_tools\src\xbmp_tools_loaders.h">
-      <Filter>Dependencies\xbmpTools</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Tools\xgpu_xcore_bitmap_helpers.h">
       <Filter>Tools</Filter>
@@ -594,9 +588,6 @@
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_textfile.h">
       <Filter>Dependencies\xCore</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_textfile2.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_types.h">
       <Filter>Dependencies\xCore</Filter>
     </ClInclude>
@@ -626,36 +617,6 @@
     </ClInclude>
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imstb_truetype.h">
       <Filter>Dependencies\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu.h">
-      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_containers.h">
-      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_containers_impl.h">
-      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_file_headers.h">
-      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_global_selector_cb.h">
-      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_global_selector_palette.h">
-      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder.h">
-      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_internal.h">
-      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_uastc.h">
-      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\Tools\xgpu_basis_universal_texture_loader.h">
-      <Filter>Examples\Example 10 Basis Universal</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Src\xGPU.h">
       <Filter>xGPU</Filter>
@@ -741,9 +702,6 @@
     <ClInclude Include="..\..\Src\Details\Vulkan\xgpu_vulkan_renderpass.h">
       <Filter>xGPU\Details\Vulkan</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_AnimationPackage.h">
-      <Filter>Examples\Example 16 Animation</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_Importer.h">
       <Filter>Examples\Example 16 Animation</Filter>
     </ClInclude>
@@ -777,14 +735,71 @@
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.h">
       <Filter>Examples\Example 04 Properties\OldExample</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\dependencies\xproperty\source\examples\imgui\my_properties.h">
+    <ClInclude Include="..\..\Tools\xgpu_basis_universal_texture_loader.h">
+      <Filter>Examples\Example 05 Textures</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xproperty\source\examples\create_documentation\example_properties.h">
       <Filter>Examples\Example 04 Properties\Dependencies</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\dependencies\xproperty\source\examples\imgui\xPropertyImGuiInspector.h">
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xproperty\source\examples\imgui\my_properties.h">
       <Filter>Examples\Example 04 Properties\Dependencies</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\dependencies\xproperty\source\examples\imgui\xPropertyImGuiExample.h">
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xproperty\source\examples\imgui\my_property_ui.h">
       <Filter>Examples\Example 04 Properties\Dependencies</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xproperty\source\examples\imgui\xPropertyImGuiExample.h">
+      <Filter>Examples\Example 04 Properties\Dependencies</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xproperty\source\examples\imgui\xPropertyImGuiInspector.h">
+      <Filter>Examples\Example 04 Properties\Dependencies</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\source\xtexture_rsc_descriptor.h">
+      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_Compiler.h">
+      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xbmp_tools\src\xbmp_tools.h">
+      <Filter>Dependencies\xbmpTools</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xbmp_tools\src\xbmp_tools_atlas.h">
+      <Filter>Dependencies\xbmpTools</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xbmp_tools\src\xbmp_tools_filters.h">
+      <Filter>Dependencies\xbmpTools</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xbmp_tools\src\xbmp_tools_loaders.h">
+      <Filter>Dependencies\xbmpTools</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xbmp_tools\src\xbmp_tools_writers.h">
+      <Filter>Dependencies\xbmpTools</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu.h">
+      <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_astc_hdr_core.h">
+      <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_astc_helpers.h">
+      <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_containers.h">
+      <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_containers_impl.h">
+      <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_file_headers.h">
+      <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder.h">
+      <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_internal.h">
+      <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_uastc.h">
+      <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>
@@ -843,35 +858,35 @@
   <ItemGroup>
     <None Include="..\..\LICENSE" />
     <None Include="..\..\README.md" />
-    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_astc.inc">
-      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_astc.inc">
+      <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
     </None>
-    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_astc_0_255.inc">
-      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_astc_0_255.inc">
+      <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
     </None>
-    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_atc_55.inc">
-      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_atc_55.inc">
+      <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
     </None>
-    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_atc_56.inc">
-      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_atc_56.inc">
+      <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
     </None>
-    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_bc7_m5_alpha.inc">
-      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_bc7_m5_alpha.inc">
+      <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
     </None>
-    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_bc7_m5_color.inc">
-      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_bc7_m5_color.inc">
+      <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
     </None>
-    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_dxt1_5.inc">
-      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_dxt1_5.inc">
+      <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
     </None>
-    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_dxt1_6.inc">
-      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_dxt1_6.inc">
+      <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
     </None>
-    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_pvrtc2_45.inc">
-      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_pvrtc2_45.inc">
+      <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
     </None>
-    <None Include="..\..\dependencies\basis_universal\transcoder\basisu_transcoder_tables_pvrtc2_alpha_33.inc">
-      <Filter>Examples\Example 10 Basis Universal\BaisUniversal</Filter>
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_pvrtc2_alpha_33.inc">
+      <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>

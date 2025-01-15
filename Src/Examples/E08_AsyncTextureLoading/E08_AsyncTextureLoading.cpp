@@ -2,7 +2,7 @@
 #include "xcore.h"
 #include "../../tools/xgpu_imgui_breach.h"
 #include "../../tools/xgpu_xcore_bitmap_helpers.h"
-#include "../../dependencies/xbmp_tools/src/xbmp_tools.h"
+#include "../../dependencies/xtexture.plugin/dependencies/xbmp_tools/src/xbmp_tools.h"
 
 namespace e08
 {
