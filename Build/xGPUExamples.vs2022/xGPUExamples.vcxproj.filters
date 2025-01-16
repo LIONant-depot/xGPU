@@ -118,6 +118,15 @@
     <Filter Include="Examples\Example 10 Texture Resource Pipeline">
       <UniqueIdentifier>{0a217378-1808-4b55-b123-5ad090a866a1}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Examples\Example 10 Texture Resource Pipeline\ResourcePipeline">
+      <UniqueIdentifier>{7d1e49af-2681-4c14-9c83-14d0fe5ba573}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Examples\Example 10 Texture Resource Pipeline\ResourcePipeline\Headers">
+      <UniqueIdentifier>{95a4b82e-6722-4432-8f06-1723ca92cf0b}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Examples\Example 10 Texture Resource Pipeline\ResourcePipeline\Documentation">
+      <UniqueIdentifier>{10af73e4-d2e8-4cbf-a034-bc933375fac4}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Src\Examples\main.cpp" />
@@ -801,6 +810,33 @@
     <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_uastc.h">
       <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\source\xresource_pipeline.h">
+      <Filter>Examples\Example 10 Texture Resource Pipeline\ResourcePipeline\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\source\xresource_pipeline_compiler_base.h">
+      <Filter>Examples\Example 10 Texture Resource Pipeline\ResourcePipeline\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\source\xresource_pipeline_config.h">
+      <Filter>Examples\Example 10 Texture Resource Pipeline\ResourcePipeline\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\source\xresource_pipeline_dependencies.h">
+      <Filter>Examples\Example 10 Texture Resource Pipeline\ResourcePipeline\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\source\xresource_pipeline_descriptor_base.h">
+      <Filter>Examples\Example 10 Texture Resource Pipeline\ResourcePipeline\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\source\xresource_pipeline_factory.h">
+      <Filter>Examples\Example 10 Texture Resource Pipeline\ResourcePipeline\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\source\xresource_pipeline_info.h">
+      <Filter>Examples\Example 10 Texture Resource Pipeline\ResourcePipeline\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\source\xresource_pipeline_tag.h">
+      <Filter>Examples\Example 10 Texture Resource Pipeline\ResourcePipeline\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\source\xresource_pipeline_version.h">
+      <Filter>Examples\Example 10 Texture Resource Pipeline\ResourcePipeline\Headers</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="../../Bin/draw_vert.glsl" />
@@ -887,6 +923,15 @@
     </None>
     <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_pvrtc2_alpha_33.inc">
       <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
+    </None>
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\documentation\CommadLineParameters.md">
+      <Filter>Examples\Example 10 Texture Resource Pipeline\ResourcePipeline\Documentation</Filter>
+    </None>
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\documentation\FolderOrganization.md">
+      <Filter>Examples\Example 10 Texture Resource Pipeline\ResourcePipeline\Documentation</Filter>
+    </None>
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\documentation\Terminology.md">
+      <Filter>Examples\Example 10 Texture Resource Pipeline\ResourcePipeline\Documentation</Filter>
     </None>
   </ItemGroup>
   <ItemGroup>

@@ -222,6 +222,15 @@
     <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xproperty\source\examples\imgui\my_property_ui.h" />
     <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xproperty\source\examples\imgui\xPropertyImGuiExample.h" />
     <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xproperty\source\examples\imgui\xPropertyImGuiInspector.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\source\xresource_pipeline.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\source\xresource_pipeline_compiler_base.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\source\xresource_pipeline_config.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\source\xresource_pipeline_dependencies.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\source\xresource_pipeline_descriptor_base.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\source\xresource_pipeline_factory.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\source\xresource_pipeline_info.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\source\xresource_pipeline_tag.h" />
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\source\xresource_pipeline_version.h" />
     <ClInclude Include="..\..\dependencies\xtexture.plugin\source\xtexture_rsc_descriptor.h" />
     <ClInclude Include="..\..\Src\Details\System\xGPU_system.h" />
     <ClInclude Include="..\..\Src\Details\System\Windows\xGPU_windows.h" />
@@ -323,6 +332,9 @@
     <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_dxt1_6.inc" />
     <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_pvrtc2_45.inc" />
     <None Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder_tables_pvrtc2_alpha_33.inc" />
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\documentation\CommadLineParameters.md" />
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\documentation\FolderOrganization.md" />
+    <None Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\documentation\Terminology.md" />
     <None Include="..\..\LICENSE" />
     <None Include="..\..\README.md" />
     <CustomBuild Include="../../Bin/imgui_vert.glsl">

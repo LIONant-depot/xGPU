@@ -107,21 +107,45 @@ namespace e10
     }
 
     //------------------------------------------------------------------------------------------------
-    enum class compilation_state
-    { IDLE
-    , COMPILING
-    , DONE_ERROR
-    , DONE_SUCCESS
-    };
-
-    static compilation_state s_CompilationState = compilation_state::IDLE;
-
     //
     // This class deals with the compilation of resources
     //
     struct compiler
     {
-        inline static std::string                               s_CommandLine = {};
+        enum class compilation_state
+        { IDLE
+        , COMPILING
+        , DONE_ERROR
+        , DONE_SUCCESS
+        };
+
+        enum class optimization
+        { O0
+        , O1
+        , Oz
+        };
+
+        enum class debug
+        { D0
+        , D1
+        , Dz
+        };
+
+        inline static constexpr auto debug_v = std::array
+        { xproperty::settings::enum_item("D0 (Default)",   debug::D0, "Tell the compiler that we don't need any debug information")
+        , xproperty::settings::enum_item("D1",             debug::D1, "Tell the compiler that we would like to see some debug information")
+        , xproperty::settings::enum_item("Dz",             debug::Dz, "Tell the compiler that we would like as much debug information as possible")
+        };
+
+        inline static constexpr auto optimization_v = std::array
+        { xproperty::settings::enum_item("O0",              optimization::O0, "Tell the compiler that time is very important and should not spend a lot of time optimizing")
+        , xproperty::settings::enum_item("O1 (Default)",    optimization::O1, "Tell the compiler to work as expected and time reasonable time to get its results")
+        , xproperty::settings::enum_item("Oz",              optimization::Oz, "Tell the compiler that we would like this resource to be thought about it very carefully"
+                                                                              " and that the compiler should take all the time it needs to create the best result")
+        };
+
+        inline static compilation_state                         s_CompilationState  = compilation_state::IDLE;
+        inline static std::string                               s_CommandLine       = {};
         std::string                                             m_CompilerDebugPath;
         std::string                                             m_CompilerReleasePath;
         std::string                                             m_ProjectPath;
@@ -134,6 +158,8 @@ namespace e10
         std::unique_ptr<xresource_pipeline::info>               m_pInfo;
         std::uint64_t                                           m_InstanceGUID = 0;
         bool                                                    m_bUseDebugCompiler = true;
+        debug                                                   m_DebugLevel = debug::D0;
+        optimization                                            m_OptimizationLevel = optimization::O1;
 
         //------------------------------------------------------------------------------------------------
 
@@ -306,7 +332,10 @@ namespace e10
             {
                 if (bRead)
                 {
-                    Value = "Press To Compile";
+                    if (O.isCompilerWorking() == false)
+                        Value = "Press To Compile";
+                    else
+                        Value = "Compiling...";
                 }
                 else
                 {
@@ -333,13 +362,16 @@ namespace e10
                         //
                         // Now we can call the compiler
                         //
-                        s_CommandLine = std::format(R"("{}" -PROJECT "{}" -DESCRIPTOR "{}" -OUTPUT "{}")"
+                        s_CommandLine = std::format(R"("{}" -PROJECT "{}" -OPTIMIZATION {} -DEBUG {} -DESCRIPTOR "{}" -OUTPUT "{}")"
                             , O.m_bUseDebugCompiler ? O.m_CompilerDebugPath.c_str() : O.m_CompilerReleasePath.c_str()
                             , O.m_ProjectPath.c_str()
+                            , O.m_OptimizationLevel == optimization::O0 ? "O0" : O.m_OptimizationLevel == optimization::O1 ? "O1" : "Oz"
+                            , O.m_DebugLevel == debug::D0 ? "D0" : O.m_DebugLevel == debug::D1 ? "D1" : "Dz"
                             , O.m_DescriptorRelativePath.c_str()
                             , O.m_OutputPath.c_str()
                             );
 
+                        std::cout << "Command Line:\n" << s_CommandLine << "\n";
                         O.m_CompilerThread = std::make_unique<std::thread>(RunCompiler);
                         
                     }
@@ -350,9 +382,16 @@ namespace e10
             {   xproperty::flags::type Flags{ xproperty::flags::DONT_SAVE };
                 Flags.m_bShowReadOnly = O.isCompilerWorking() || O.hasValidationErrors();
                 return Flags;
-            }
+            }>
+            , member_help<"You can press the button you will save the descriptor to reflect the latest version. "
+                          "Then it will trigger a compilation base on the options seem below and it will generate a new dds file. "
+                          "Once it finish the compilation the editor will reload the texture and show the new version. "
             >>
-        , obj_member< "bUseDebugCompiler", &compiler::m_bUseDebugCompiler >
+        , obj_member< "bUseDebugCompiler", &compiler::m_bUseDebugCompiler, member_help<"We possibly have two versions of the compiler one in debug mode the other in release "
+                                                                                       "mode, you can specify which version you want to run depending of what you are trying to do"
+                                                                                       >>
+        , obj_member< "Debug Level",       &compiler::m_DebugLevel, member_enum_span<debug_v>, member_help<"Choose a debug level for the compiler, D0 means no debug information"> >
+        , obj_member< "Optimize Level",    &compiler::m_OptimizationLevel, member_enum_span<optimization_v>, member_help<"How much time should the compiler take to do a great job"> >
         )
     };
     XPROPERTY_REG(compiler)
