@@ -93,26 +93,48 @@ XPROPERTY_REG(errors)
 float s_AspectRation = 1;
 void LoadTexture(const std::string& ResourcePath, xgpu::texture& Texture, xgpu::device& Device, bool isSRGB)
 {
-    xcore::bitmap Bitmap;
+    xcore::bitmap* pBitmap;
+    xcore::bitmap  StorageBitmap;
     std::wcout << L"Loading Texture: " << ResourcePath.c_str() << L"\n";
 
-    if (auto pError = xbmp::tools::loader::LoadDSS(Bitmap, ResourcePath.c_str()); pError)
+    if ( ResourcePath.find(".dds" ) != std::string::npos )
     {
-        e10::DebugMessage("Failed to load the resource dds");
+        pBitmap = &StorageBitmap;
+        if (auto pError = xbmp::tools::loader::LoadDSS(*pBitmap, ResourcePath.c_str()); pError)
+        {
+            e10::DebugMessage("Failed to load the resource dds");
+            std::exit(-1);
+        }
+
+        //if (isSRGB) Bitmap.setColorSpace(xcore::bitmap::color_space::SRGB);
+        //else        Bitmap.setColorSpace(xcore::bitmap::color_space::LINEAR);
+    }
+    else if (ResourcePath.find(".xbmp") != std::string::npos)
+    {
+        if (auto Err = xcore::bitmap::SerializeLoad(pBitmap, xcore::string::To<wchar_t>(ResourcePath)); Err)
+        {
+            e10::DebugMessage("Failed to load the xbmp resource");
+            std::exit(-1);
+        }
+    }
+    else
+    {
+        e10::DebugMessage("Unknown file format");
         std::exit(-1);
     }
 
-    if (isSRGB) Bitmap.setColorSpace(xcore::bitmap::color_space::SRGB);
-    else        Bitmap.setColorSpace(xcore::bitmap::color_space::LINEAR);
-
-
-    if (auto Err = xgpu::tools::bitmap::Create(Texture, Device, Bitmap); Err)
+    if (auto Err = xgpu::tools::bitmap::Create(Texture, Device, *pBitmap); Err)
     {
         e10::DebugMessage(xgpu::getErrorMsg(Err));
         std::exit(xgpu::getErrorInt(Err));
     }
 
-    s_AspectRation = Bitmap.getAspectRatio();
+    s_AspectRation = pBitmap->getAspectRatio();
+
+    if (pBitmap != &StorageBitmap)
+    {
+        xcore::memory::AlignedFree(pBitmap);
+    }
 }
 
 //------------------------------------------------------------------------------------------------

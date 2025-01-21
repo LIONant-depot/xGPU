@@ -262,9 +262,6 @@
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\vfetchoptimizer.cpp">
       <Filter>Dependencies\meshoptimizer</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore.cpp">
-      <Filter>Dependencies\xCore</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui.cpp">
       <Filter>Dependencies\ImGui</Filter>
     </ClCompile>
@@ -324,6 +321,9 @@
     </ClCompile>
     <ClCompile Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder.cpp">
       <Filter>Examples\Example 05 Textures\BaisUniversal</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore.cpp">
+      <Filter>Dependencies\xCore</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -458,156 +458,6 @@
     </ClInclude>
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\meshoptimizer.h">
       <Filter>Dependencies\meshoptimizer</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_arglist.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_array.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_assert.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_bitmap.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_bits.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_cmdline.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_color.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_compression.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_context.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_crc.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_endian.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_error.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_event.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_file.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_function.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_global.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_guid.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_lock.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_lockless_pool.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_lockless_queues.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_log.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_math.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_math_matrix4.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_math_quaternion.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_math_radian3.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_math_shapes.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_math_transform.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_math_vector2.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_math_vector3.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_math_vector4.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_memory.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_profiler.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_ptr.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_random.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_rtti.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_scheduler_channel.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_scheduler_job.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_scheduler_system.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_scheduler_trigger.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_serializer.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_span.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_string.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_system_reg.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_target.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_textfile.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_types.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_unique_span.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_units.h">
-      <Filter>Dependencies\xCore</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\src\xcore_vector.h">
-      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imconfig.h">
       <Filter>Dependencies\ImGui</Filter>
@@ -836,6 +686,156 @@
     </ClInclude>
     <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\source\xresource_pipeline_version.h">
       <Filter>Examples\Example 10 Texture Resource Pipeline\ResourcePipeline\Headers</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_arglist.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_array.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_assert.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_bitmap.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_bits.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_cmdline.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_color.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_compression.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_context.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_crc.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_endian.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_error.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_event.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_file.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_function.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_global.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_guid.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_lock.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_lockless_pool.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_lockless_queues.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_log.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_math.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_math_matrix4.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_math_quaternion.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_math_radian3.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_math_shapes.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_math_transform.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_math_vector2.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_math_vector3.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_math_vector4.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_memory.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_profiler.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_ptr.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_random.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_rtti.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_scheduler_channel.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_scheduler_job.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_scheduler_system.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_scheduler_trigger.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_serializer.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_span.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_string.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_system_reg.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_target.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_textfile.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_types.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_unique_span.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_units.h">
+      <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_vector.h">
+      <Filter>Dependencies\xCore</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

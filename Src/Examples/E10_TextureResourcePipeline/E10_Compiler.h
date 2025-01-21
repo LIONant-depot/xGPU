@@ -157,7 +157,7 @@ namespace e10
         std::unique_ptr<xresource_pipeline::descriptor::base>   m_pDescriptor;
         std::unique_ptr<xresource_pipeline::info>               m_pInfo;
         std::uint64_t                                           m_InstanceGUID = 0;
-        bool                                                    m_bUseDebugCompiler = true;
+        bool                                                    m_bUseDebugCompiler = false;
         debug                                                   m_DebugLevel = debug::D0;
         optimization                                            m_OptimizationLevel = optimization::O1;
 
@@ -183,7 +183,7 @@ namespace e10
                 );
 
             // Set up the resource and descriptor paths
-            m_ResourcePath              = std::format("{}\\WINDOWS\\{}.dds",      m_OutputPath.c_str(),  RelativePath.c_str());
+            m_ResourcePath              = std::format("{}\\WINDOWS\\{}.xbmp",      m_OutputPath.c_str(),  RelativePath.c_str());
 
             m_DescriptorRelativePath    = std::format("Descriptors\\{}.desc", RelativePath.c_str());
             m_DescriptorPath            = std::format("{}\\{}", m_ProjectPath.c_str(), m_DescriptorRelativePath.c_str());
@@ -327,15 +327,14 @@ namespace e10
 
         XPROPERTY_DEF
         ( "Compiler", e10::compiler
-        , obj_member< "Compiler"
+        , obj_member
+            < "Compiler"
             , +[](e10::compiler& O, bool bRead, std::string& Value)
             {
                 if (bRead)
                 {
-                    if (O.isCompilerWorking() == false)
-                        Value = "Press To Compile";
-                    else
-                        Value = "Compiling...";
+                    if (O.isCompilerWorking() == false) Value = "Press To Compile";
+                    else                                Value = "Compiling...";
                 }
                 else
                 {
@@ -387,11 +386,24 @@ namespace e10
                           "Then it will trigger a compilation base on the options seem below and it will generate a new dds file. "
                           "Once it finish the compilation the editor will reload the texture and show the new version. "
             >>
-        , obj_member< "bUseDebugCompiler", &compiler::m_bUseDebugCompiler, member_help<"We possibly have two versions of the compiler one in debug mode the other in release "
-                                                                                       "mode, you can specify which version you want to run depending of what you are trying to do"
-                                                                                       >>
-        , obj_member< "Debug Level",       &compiler::m_DebugLevel, member_enum_span<debug_v>, member_help<"Choose a debug level for the compiler, D0 means no debug information"> >
-        , obj_member< "Optimize Level",    &compiler::m_OptimizationLevel, member_enum_span<optimization_v>, member_help<"How much time should the compiler take to do a great job"> >
+        , obj_member
+            < "bUseDebugCompiler"
+            , &compiler::m_bUseDebugCompiler
+            , member_help<"We possibly have two versions of the compiler one in debug mode the other in release "
+                          "mode, you can specify which version you want to run depending of what you are trying to do"
+            >>
+        , obj_member
+            < "Debug Level"
+            , &compiler::m_DebugLevel
+            , member_enum_span<debug_v>
+            , member_help<"Choose a debug level for the compiler, D0 means no debug information"
+            >>
+        , obj_member
+            < "Optimize Level"
+            , &compiler::m_OptimizationLevel
+            , member_enum_span<optimization_v>
+            , member_help<"How much time should the compiler take to do a great job"
+            >>
         )
     };
     XPROPERTY_REG(compiler)
