@@ -16,11 +16,11 @@
 
 constexpr auto g_VertShaderSPV = std::array
 {
-    #include "x64/imgui_vert.h"
+    #include "x64\e10_vert.h"
 };
 constexpr auto g_FragShaderSPV = std::array
 {
-    #include "x64/draw_frag.h"
+    #include "x64\e10_frag.h"
 };
 
 static_assert(xproperty::meta::meets_requirements_v< true, false, std::string> );
@@ -41,15 +41,20 @@ namespace e10
 
     struct push_contants
     {
+        float          m_MipLevel;
+        float          m_Padding;
         xcore::vector2 m_Scale;
         xcore::vector2 m_Translation;
         xcore::vector2 m_UVScale;
+        xcore::vector4 m_TintColor;
+        xcore::vector4 m_ColorMask;
+        xcore::vector4 m_Mode;
     };
 
     //------------------------------------------------------------------------------------------------
 
     static
-        void DebugMessage(std::string_view View)
+    void DebugMessage(std::string_view View)
     {
         printf("%s\n", View.data());
     }
@@ -85,13 +90,70 @@ struct errors
 };
 XPROPERTY_REG(errors)
 
+//------------------------------------------------------------------------------------------------
 
 #include "E10_Compiler.h"
 
+//------------------------------------------------------------------------------------------------
+// Give properties for xcore::vector2
+//------------------------------------------------------------------------------------------------
+struct vec2_friend : xcore::vector2
+{
+    XPROPERTY_DEF
+    ("vector2", xcore::vector2, xproperty::settings::vector2_group
+    , obj_member<"X", &xcore::vector2::m_X >
+    , obj_member<"Y", &xcore::vector2::m_Y >
+    )
+};
+XPROPERTY_REG(vec2_friend)
+
+//------------------------------------------------------------------------------------------------
+
+struct draw_options
+{
+    enum class mode
+    { NORMAL
+    , NO_ALPHA
+    , A_ONLY
+    , R_ONLY
+    , G_ONLY
+    , B_ONLY
+    };
+
+    static constexpr auto mode_v = std::array
+    { xproperty::settings::enum_item("NORMAL",      mode::NORMAL,   "Render the image normally using all the channels available")
+    , xproperty::settings::enum_item("NO_ALPHA",    mode::NO_ALPHA, "Render the image normally using all available channels except Alpha. Alpha will be set to opaque.")
+    , xproperty::settings::enum_item("A_ONLY",      mode::A_ONLY,   "Renders only the alpha channel as a single color without any alpha")
+    , xproperty::settings::enum_item("R_ONLY",      mode::R_ONLY,   "Renders only the red channel as a single color without any alpha")
+    , xproperty::settings::enum_item("G_ONLY",      mode::G_ONLY,   "Renders only the green channel as a single color without any alpha")
+    , xproperty::settings::enum_item("B_ONLY",      mode::B_ONLY,   "Renders only the blue channel as a single color without any alpha")
+    };
+
+    float   m_UVScale               = 1;
+    float   m_BackgroundIntensity   = 1;
+    mode    m_Mode                  = mode::NORMAL;
+    bool    m_bBilinearMode         = false;
+    int     m_ChooseMipLevel        = 0;
+    int     m_MaxMipLevels          = 0;
+
+    XPROPERTY_DEF
+    ("Draw Options", draw_options
+    , obj_member<"Bilinear", &draw_options::m_bBilinearMode, member_help<"Render the texture with bilinear filtering or nearest"> >
+    , obj_member<"UVScale", &draw_options::m_UVScale, member_ui<float>::scroll_bar<1, 10>, member_help<"Scales the UV of the image"> >
+    , obj_member<"Render Mode", &draw_options::m_Mode, member_enum_span<mode_v>, member_help<"Renders the image following one of the rules selected"> >
+    , obj_member<"Background Intensity", &draw_options::m_BackgroundIntensity, member_ui<float>::scroll_bar<0, 3>, member_help<"Changes the intensity of the background"> >
+    , obj_member<"ChooseMip", +[](draw_options& O, bool bRead, int& Value)
+        {
+            if (bRead) Value = O.m_ChooseMipLevel;
+            else       O.m_ChooseMipLevel = std::min( O.m_MaxMipLevels, Value);
+        }, member_ui<int>::scroll_bar<0, 20>, member_help<"Use which mip to render select 0 if you want the texture to work normally"> >
+    )
+};
+XPROPERTY_REG(draw_options)
 
 //------------------------------------------------------------------------------------------------
 float s_AspectRation = 1;
-void LoadTexture(const std::string& ResourcePath, xgpu::texture& Texture, xgpu::device& Device, bool isSRGB)
+void LoadTexture(const std::string& ResourcePath, xgpu::texture& Texture, xgpu::device& Device)
 {
     xcore::bitmap* pBitmap;
     xcore::bitmap  StorageBitmap;
@@ -105,9 +167,6 @@ void LoadTexture(const std::string& ResourcePath, xgpu::texture& Texture, xgpu::
             e10::DebugMessage("Failed to load the resource dds");
             std::exit(-1);
         }
-
-        //if (isSRGB) Bitmap.setColorSpace(xcore::bitmap::color_space::SRGB);
-        //else        Bitmap.setColorSpace(xcore::bitmap::color_space::LINEAR);
     }
     else if (ResourcePath.find(".xbmp") != std::string::npos)
     {
@@ -156,7 +215,8 @@ int E10_Example()
     //
     // Define a material
     //
-    xgpu::pipeline Pipeline;
+    xgpu::pipeline BilinearPipeline;
+    xgpu::pipeline NearestPipeline;
     {
         xgpu::vertex_descriptor VertexDescriptor;
         {
@@ -210,9 +270,9 @@ int E10_Example()
                 return xgpu::getErrorInt(Err);
         }
 
-        auto Shaders = std::array<const xgpu::shader*, 2>{ &MyFragmentShader, & MyVertexShader };
+        auto Shaders  = std::array<const xgpu::shader*, 2>{ &MyFragmentShader, & MyVertexShader };
         auto Samplers = std::array{ xgpu::pipeline::sampler{} };
-        auto Setup = xgpu::pipeline::setup
+        auto Setup    = xgpu::pipeline::setup
         {
             .m_VertexDescriptor  = VertexDescriptor
         ,   .m_Shaders           = Shaders
@@ -222,8 +282,14 @@ int E10_Example()
         ,   .m_Blend             = xgpu::pipeline::blend::getAlphaOriginal()
         };
 
-        if (auto Err = Device.Create(Pipeline, Setup); Err)
+        if (auto Err = Device.Create(BilinearPipeline, Setup); Err)
             return xgpu::getErrorInt(Err);
+
+        Samplers[0].m_MipmapMin = xgpu::pipeline::sampler::mipmap_sampler::NEAREST;
+        Samplers[0].m_MipmapMag = xgpu::pipeline::sampler::mipmap_sampler::NEAREST;
+        if (auto Err = Device.Create(NearestPipeline, Setup); Err)
+            return xgpu::getErrorInt(Err);
+
     }
 
     xgpu::buffer VertexBuffer;
@@ -282,7 +348,7 @@ int E10_Example()
 
         auto  Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
         auto  Setup = xgpu::pipeline_instance::setup
-        { .m_PipeLine = Pipeline
+        { .m_PipeLine = BilinearPipeline
         , .m_SamplersBindings = Bindings
         };
 
@@ -299,32 +365,65 @@ int E10_Example()
     auto Compiler = std::make_unique<e10::compiler>();
     Compiler->SetupDescriptor("Texture", 0x34DBB69E8762EFA9);
 
+    //
+    // Define the draw options
+    //
+    draw_options         DrawOptions;
+
 
     //
     // This will be the texture that we compiled
     //
-    xgpu::pipeline_instance MaterialTexture;
-    auto UpdateTextureMaterial = [&](bool isGamma)
+    xgpu::pipeline_instance BilinearMaterialTexture;
+    xgpu::pipeline_instance NearestMaterialTexture;
+    auto UpdateTextureMaterial = [&]()
     {
+        xgpu::texture Texture;
+        LoadTexture(Compiler->m_ResourcePath, Texture, Device);
+
+        // Set the max mip levels
+        // Make sure the current level is within the range
+        DrawOptions.m_MaxMipLevels = Texture.getMipCount();
+        if (DrawOptions.m_ChooseMipLevel >= DrawOptions.m_MaxMipLevels )
+        {
+            DrawOptions.m_ChooseMipLevel = std::max( 0,DrawOptions.m_MaxMipLevels - 1);
+        }
+
         //HACK: This is a huge hack to clear the MaterialTexture
         xgpu::pipeline_instance temp;
-        std::memcpy(&MaterialTexture, &temp, sizeof(temp));
-
-        xgpu::texture Texture;
-        LoadTexture(Compiler->m_ResourcePath, Texture, Device, isGamma);
+        std::memcpy(&BilinearMaterialTexture, &temp, sizeof(temp));
+        std::memcpy(&NearestMaterialTexture, &temp, sizeof(temp));
 
         auto  Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
-        auto  Setup = xgpu::pipeline_instance::setup
-        { .m_PipeLine = Pipeline
-        , .m_SamplersBindings = Bindings
-            
-        };
 
-        if (auto Err = Device.Create(MaterialTexture, Setup); Err)
+        // Bilinear mode
         {
-            e10::DebugMessage(xgpu::getErrorMsg(Err));
-            std::exit(xgpu::getErrorInt(Err));
+            auto  Setup = xgpu::pipeline_instance::setup
+            { .m_PipeLine = BilinearPipeline
+            , .m_SamplersBindings = Bindings
+            };
+
+            if (auto Err = Device.Create(BilinearMaterialTexture, Setup); Err)
+            {
+                e10::DebugMessage(xgpu::getErrorMsg(Err));
+                std::exit(xgpu::getErrorInt(Err));
+            }
         }
+
+        // Nearest mode
+        {
+            auto Setup = xgpu::pipeline_instance::setup
+            { .m_PipeLine = NearestPipeline
+            , .m_SamplersBindings = Bindings
+            };
+
+            if (auto Err = Device.Create(NearestMaterialTexture, Setup); Err)
+            {
+                e10::DebugMessage(xgpu::getErrorMsg(Err));
+                std::exit(xgpu::getErrorInt(Err));
+            }
+        }
+
     };
 
     //
@@ -338,16 +437,19 @@ int E10_Example()
     //
     // Setup the inspector windows
     //
-    xproperty::inspector InspectorViewer("Viewer");
-    xproperty::inspector Inspector("Descriptor");
-    Inspector.AppendEntity();
-    Inspector.AppendEntityComponent(*xproperty::getObject(*Compiler->m_pInfo), Compiler->m_pInfo.get());
-    Inspector.AppendEntityComponent(*Compiler->m_pDescriptor->getProperties(), Compiler->m_pDescriptor.get());
+    auto                 Inspectors = std::array
+    { xproperty::inspector("Descriptor")
+    , xproperty::inspector("Viewer")
+    };
 
+    Inspectors[0].AppendEntity();
+    Inspectors[0].AppendEntityComponent(*xproperty::getObject(*Compiler->m_pInfo), Compiler->m_pInfo.get());
+    Inspectors[0].AppendEntityComponent(*Compiler->m_pDescriptor->getProperties(), Compiler->m_pDescriptor.get());
 
-    InspectorViewer.AppendEntity();
-    InspectorViewer.AppendEntityComponent(*xproperty::getObject(*Compiler.get()), Compiler.get());
-    InspectorViewer.AppendEntityComponent(*xproperty::getObject(Errors), &Errors);
+    Inspectors[1].AppendEntity();
+    Inspectors[1].AppendEntityComponent(*xproperty::getObject(*Compiler.get()), Compiler.get());
+    Inspectors[1].AppendEntityComponent(*xproperty::getObject(Errors), &Errors);
+    Inspectors[1].AppendEntityComponent(*xproperty::getObject(DrawOptions), &DrawOptions);
 
     //
     // Main loop
@@ -421,6 +523,14 @@ int E10_Example()
                 PushContants.m_Translation.setZero();
                 PushContants.m_UVScale = { 100.0f,100.0f };
 
+                PushContants.m_ColorMask = xcore::vector4(1);
+                PushContants.m_Mode      = xcore::vector4(0,0,1,1);
+                PushContants.m_TintColor = xcore::vector4(DrawOptions.m_BackgroundIntensity
+                                                        , DrawOptions.m_BackgroundIntensity
+                                                        , DrawOptions.m_BackgroundIntensity
+                                                        , 1);
+
+                PushContants.m_MipLevel = 0;
                 CmdBuffer.setPushConstants(PushContants);
 
                 CmdBuffer.Draw(6);
@@ -429,9 +539,11 @@ int E10_Example()
             //
             // Render Image
             //
-            if( MaterialTexture.m_Private.get() )
+            if( BilinearMaterialTexture.m_Private.get() )
             {
-                CmdBuffer.setPipelineInstance(MaterialTexture);
+                if (DrawOptions.m_bBilinearMode ) CmdBuffer.setPipelineInstance(BilinearMaterialTexture);
+                else                              CmdBuffer.setPipelineInstance(NearestMaterialTexture);
+
                 CmdBuffer.setBuffer(VertexBuffer);
                 CmdBuffer.setBuffer(IndexBuffer);
 
@@ -439,8 +551,41 @@ int E10_Example()
                 PushContants.m_Scale = { (MouseScale * 2.0f) / MainWindow.getWidth() * s_AspectRation
                                           , (MouseScale * 2.0f) / MainWindow.getHeight()
                 };
-                PushContants.m_UVScale.setup(1.0f, 1.0f);
+                PushContants.m_UVScale = DrawOptions.m_UVScale; //.setup(1.0f, 1.0f);
                 PushContants.m_Translation = MouseTranslate;
+
+                const float MipMode = DrawOptions.m_ChooseMipLevel == 0 ? 1.0f : 0.0f;
+
+                PushContants.m_TintColor = xcore::vector4(1);
+                switch (DrawOptions.m_Mode)
+                {
+                case draw_options::mode::NORMAL: 
+                    PushContants.m_ColorMask = xcore::vector4(1);
+                    PushContants.m_Mode      = xcore::vector4(1, 0, 0, MipMode);
+                    break;
+                case draw_options::mode::NO_ALPHA:
+                    PushContants.m_ColorMask = xcore::vector4(1);
+                    PushContants.m_Mode      = xcore::vector4(0, 0, 1, MipMode);
+                    break;
+                case draw_options::mode::A_ONLY:
+                    PushContants.m_ColorMask = xcore::vector4(0, 0, 0, 1);
+                    PushContants.m_Mode      = xcore::vector4(0, 1, 0, MipMode);
+                    break;
+                case draw_options::mode::R_ONLY:
+                    PushContants.m_ColorMask = xcore::vector4(1, 0, 0, 0);
+                    PushContants.m_Mode      = xcore::vector4(0, 1, 0, MipMode);
+                    break;
+                case draw_options::mode::G_ONLY:
+                    PushContants.m_ColorMask = xcore::vector4(0, 1, 0, 0);
+                    PushContants.m_Mode      = xcore::vector4(0, 1, 0, MipMode);
+                    break;
+                case draw_options::mode::B_ONLY:
+                    PushContants.m_ColorMask = xcore::vector4(0, 0, 1, 0);
+                    PushContants.m_Mode      = xcore::vector4(0, 1, 0, MipMode);
+                    break;
+                }
+
+                PushContants.m_MipLevel = static_cast<float>(DrawOptions.m_ChooseMipLevel);
 
                 CmdBuffer.setPushConstants(PushContants);
 
@@ -454,18 +599,19 @@ int E10_Example()
         //
         if (Compiler->ReloadTexture())
         {
-            UpdateTextureMaterial(static_cast<xtexture_rsc::descriptor*>(Compiler->m_pDescriptor.get())->m_bSRGB);
+            UpdateTextureMaterial();
         }
 
         //
-        // Render the Inspector
+        // Render the Inspectors
         //
         Errors.m_Errors.clear();
         Compiler->m_pDescriptor->Validate(Errors.m_Errors);
 
-        Inspector.Show([]{});
-
-        InspectorViewer.Show([]{});
+        for (auto& E: Inspectors )
+        {
+            E.Show([] {});
+        }
 
         //
         // Render

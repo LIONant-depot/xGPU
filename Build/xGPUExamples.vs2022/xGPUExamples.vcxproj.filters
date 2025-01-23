@@ -890,6 +890,12 @@
     <CustomBuild Include="..\..\Src\Examples\E18_QuantizeSkinVertex\e18_quantize_skingeom_vert.glsl">
       <Filter>Examples\Example 18 QuantizeSkinVertex</Filter>
     </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_frag.glsl">
+      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_vert.glsl">
+      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+    </CustomBuild>
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\LICENSE" />
