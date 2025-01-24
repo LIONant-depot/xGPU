@@ -398,7 +398,7 @@ namespace e10
 
         //------------------------------------------------------------------------------------------------
         // Entry point for the compilation thread
-        static void RunCompiler( compiler& Instance, const std::string CommandLine ) noexcept
+        static void RunCompiler( compiler& Instance, const std::string CommandLine )
         {
             Instance.m_CompilationState = compilation_state::COMPILING;
             try
