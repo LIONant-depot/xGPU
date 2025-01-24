@@ -133,7 +133,7 @@ struct draw_options
     float   m_BackgroundIntensity   = 1;
     mode    m_Mode                  = mode::NORMAL;
     bool    m_bBilinearMode         = false;
-    int     m_ChooseMipLevel        = 0;
+    int     m_ChooseMipLevel        = -1;
     int     m_MaxMipLevels          = 0;
 
     XPROPERTY_DEF
@@ -146,7 +146,8 @@ struct draw_options
         {
             if (bRead) Value = O.m_ChooseMipLevel;
             else       O.m_ChooseMipLevel = std::min( O.m_MaxMipLevels, Value);
-        }, member_ui<int>::scroll_bar<0, 20>, member_help<"Use which mip to render select 0 if you want the texture to work normally"> >
+        }, member_ui<int>::scroll_bar<-1, 20>, member_help<"Selects a particular mip to render the texture. If you set the value to -1 "
+                                                           "then it will go back to using the texture with all the mips (trilinear when bilinear is enable)"> >
     )
 };
 XPROPERTY_REG(draw_options)
@@ -386,7 +387,7 @@ int E10_Example()
         DrawOptions.m_MaxMipLevels = Texture.getMipCount();
         if (DrawOptions.m_ChooseMipLevel >= DrawOptions.m_MaxMipLevels )
         {
-            DrawOptions.m_ChooseMipLevel = std::max( 0,DrawOptions.m_MaxMipLevels - 1);
+            DrawOptions.m_ChooseMipLevel = std::min(DrawOptions.m_MaxMipLevels, std::max( 0, DrawOptions.m_MaxMipLevels - 1) );
         }
 
         //HACK: This is a huge hack to clear the MaterialTexture
@@ -554,7 +555,7 @@ int E10_Example()
                 PushContants.m_UVScale = DrawOptions.m_UVScale; //.setup(1.0f, 1.0f);
                 PushContants.m_Translation = MouseTranslate;
 
-                const float MipMode = DrawOptions.m_ChooseMipLevel == 0 ? 1.0f : 0.0f;
+                const float MipMode = DrawOptions.m_ChooseMipLevel == -1 ? 1.0f : 0.0f;
 
                 PushContants.m_TintColor = xcore::vector4(1);
                 switch (DrawOptions.m_Mode)
@@ -585,7 +586,7 @@ int E10_Example()
                     break;
                 }
 
-                PushContants.m_MipLevel = static_cast<float>(DrawOptions.m_ChooseMipLevel);
+                PushContants.m_MipLevel = static_cast<float>(std::max(0,DrawOptions.m_ChooseMipLevel));
 
                 CmdBuffer.setPushConstants(PushContants);
 
