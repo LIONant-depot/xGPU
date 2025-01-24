@@ -41,14 +41,14 @@ namespace e10
 
     struct push_contants
     {
-        float          m_MipLevel;
-        float          m_Padding;
-        xcore::vector2 m_Scale;
-        xcore::vector2 m_Translation;
-        xcore::vector2 m_UVScale;
-        xcore::vector4 m_TintColor;
-        xcore::vector4 m_ColorMask;
-        xcore::vector4 m_Mode;
+        float          m_MipLevel       {0};
+        float          m_ToGamma        {1};
+        xcore::vector2 m_Scale          {1};
+        xcore::vector2 m_Translation    {0};
+        xcore::vector2 m_UVScale        {1};
+        xcore::vector4 m_TintColor      {1};
+        xcore::vector4 m_ColorMask      {0};
+        xcore::vector4 m_Mode           {0};
     };
 
     //------------------------------------------------------------------------------------------------
@@ -112,7 +112,7 @@ XPROPERTY_REG(vec2_friend)
 struct draw_options
 {
     enum class mode
-    { NORMAL
+    { COLOR_ALPHA
     , NO_ALPHA
     , A_ONLY
     , R_ONLY
@@ -121,20 +121,35 @@ struct draw_options
     };
 
     static constexpr auto mode_v = std::array
-    { xproperty::settings::enum_item("NORMAL",      mode::NORMAL,   "Render the image normally using all the channels available")
-    , xproperty::settings::enum_item("NO_ALPHA",    mode::NO_ALPHA, "Render the image normally using all available channels except Alpha. Alpha will be set to opaque.")
-    , xproperty::settings::enum_item("A_ONLY",      mode::A_ONLY,   "Renders only the alpha channel as a single color without any alpha")
-    , xproperty::settings::enum_item("R_ONLY",      mode::R_ONLY,   "Renders only the red channel as a single color without any alpha")
-    , xproperty::settings::enum_item("G_ONLY",      mode::G_ONLY,   "Renders only the green channel as a single color without any alpha")
-    , xproperty::settings::enum_item("B_ONLY",      mode::B_ONLY,   "Renders only the blue channel as a single color without any alpha")
+    { xproperty::settings::enum_item("COLOR + ALPHA",   mode::COLOR_ALPHA,  "Render the image normally using all the channels available")
+    , xproperty::settings::enum_item("NO_ALPHA",        mode::NO_ALPHA,     "Render the image normally using all available channels except Alpha. Alpha will be set to opaque.")
+    , xproperty::settings::enum_item("A_ONLY",          mode::A_ONLY,       "Renders only the alpha channel as a single color without any alpha")
+    , xproperty::settings::enum_item("R_ONLY",          mode::R_ONLY,       "Renders only the red channel as a single color without any alpha")
+    , xproperty::settings::enum_item("G_ONLY",          mode::G_ONLY,       "Renders only the green channel as a single color without any alpha")
+    , xproperty::settings::enum_item("B_ONLY",          mode::B_ONLY,       "Renders only the blue channel as a single color without any alpha")
     };
 
-    float   m_UVScale               = 1;
-    float   m_BackgroundIntensity   = 1;
-    mode    m_Mode                  = mode::NORMAL;
-    bool    m_bBilinearMode         = false;
-    int     m_ChooseMipLevel        = -1;
-    int     m_MaxMipLevels          = 0;
+    enum class force_gamma_mode
+    { MATCH_TEXTURE
+    , SHOW_RAW_DATA
+    , FLIP_RAW_DATA
+    };
+    static constexpr auto force_gamma_mode_v = std::array
+    { xproperty::settings::enum_item("MATCH_TEXTURE",       force_gamma_mode::MATCH_TEXTURE,    "For normal functioning of the texture, base on its information about gamma state")
+    , xproperty::settings::enum_item("SHOW_RAW_DATA",       force_gamma_mode::SHOW_RAW_DATA,    "Shows the actual raw data in the file... If the data is in linear it will show it in linear, "
+                                                                                                "but if it is in gamma it will reconvert it back to gamma in the shader")
+    , xproperty::settings::enum_item("FLIP_RAW_DATA",       force_gamma_mode::FLIP_RAW_DATA,    "Shows the actual raw data in the file... if you would have FLIP THE COLOR SPACE. ")
+    };
+
+
+    float               m_UVScale               = 1;
+    float               m_BackgroundIntensity   = 1;
+    mode                m_Mode                  = mode::COLOR_ALPHA;
+    bool                m_bBilinearMode         = false;
+    int                 m_ChooseMipLevel        = -1;
+    int                 m_MaxMipLevels          = 0;
+    bool                m_bCurrentImageIsGamma  = false;
+    force_gamma_mode    m_ForceGammaMode        = force_gamma_mode::MATCH_TEXTURE;
 
     XPROPERTY_DEF
     ("Draw Options", draw_options
@@ -148,13 +163,15 @@ struct draw_options
             else       O.m_ChooseMipLevel = std::min( O.m_MaxMipLevels, Value);
         }, member_ui<int>::scroll_bar<-1, 20>, member_help<"Selects a particular mip to render the texture. If you set the value to -1 "
                                                            "then it will go back to using the texture with all the mips (trilinear when bilinear is enable)"> >
+    , obj_member<"Flip Gamma Mode", &draw_options::m_ForceGammaMode, member_enum_span<force_gamma_mode_v>
+        ,  member_help<"This mode it to help you determine if an image should have been in gamma space or in linear space. You can look at the options to see more details.">>
     )
 };
 XPROPERTY_REG(draw_options)
 
 //------------------------------------------------------------------------------------------------
 float s_AspectRation = 1;
-void LoadTexture(const std::string& ResourcePath, xgpu::texture& Texture, xgpu::device& Device)
+bool LoadTexture(const std::string& ResourcePath, xgpu::texture& Texture, xgpu::device& Device)
 {
     xcore::bitmap* pBitmap;
     xcore::bitmap  StorageBitmap;
@@ -191,10 +208,14 @@ void LoadTexture(const std::string& ResourcePath, xgpu::texture& Texture, xgpu::
 
     s_AspectRation = pBitmap->getAspectRatio();
 
+    bool isGamma = pBitmap->getColorSpace() != xcore::bitmap::color_space::LINEAR;
+
     if (pBitmap != &StorageBitmap)
     {
         xcore::memory::AlignedFree(pBitmap);
     }
+
+    return isGamma;
 }
 
 //------------------------------------------------------------------------------------------------
@@ -214,7 +235,7 @@ int E10_Example()
         return xgpu::getErrorInt(Err);
 
     //
-    // Define a material
+    // Define materials
     //
     xgpu::pipeline BilinearPipeline;
     xgpu::pipeline NearestPipeline;
@@ -293,6 +314,9 @@ int E10_Example()
 
     }
 
+    //
+    // Setup the meshes
+    //
     xgpu::buffer VertexBuffer;
     {
         if (auto Err = Device.Create(VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e10::vert_2d), .m_EntryCount = 4 }); Err)
@@ -336,7 +360,7 @@ int E10_Example()
     xgpu::tools::imgui::CreateInstance(MainWindow);
 
     //
-    // Create the background material
+    // Create the background material instance
     //
     xgpu::pipeline_instance BackgroundMaterialInstance;
     {
@@ -380,7 +404,7 @@ int E10_Example()
     auto UpdateTextureMaterial = [&]()
     {
         xgpu::texture Texture;
-        LoadTexture(Compiler->m_ResourcePath, Texture, Device);
+        DrawOptions.m_bCurrentImageIsGamma = LoadTexture(Compiler->m_ResourcePath, Texture, Device);
 
         // Set the max mip levels
         // Make sure the current level is within the range
@@ -393,14 +417,14 @@ int E10_Example()
         //HACK: This is a huge hack to clear the MaterialTexture
         xgpu::pipeline_instance temp;
         std::memcpy(&BilinearMaterialTexture, &temp, sizeof(temp));
-        std::memcpy(&NearestMaterialTexture, &temp, sizeof(temp));
+        std::memcpy(&NearestMaterialTexture,  &temp, sizeof(temp));
 
         auto  Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
 
         // Bilinear mode
         {
             auto  Setup = xgpu::pipeline_instance::setup
-            { .m_PipeLine = BilinearPipeline
+            { .m_PipeLine         = BilinearPipeline
             , .m_SamplersBindings = Bindings
             };
 
@@ -414,7 +438,7 @@ int E10_Example()
         // Nearest mode
         {
             auto Setup = xgpu::pipeline_instance::setup
-            { .m_PipeLine = NearestPipeline
+            { .m_PipeLine         = NearestPipeline
             , .m_SamplersBindings = Bindings
             };
 
@@ -522,7 +546,9 @@ int E10_Example()
                 , (150 * 2.0f) / MainWindow.getHeight()
                 };
                 PushContants.m_Translation.setZero();
-                PushContants.m_UVScale = { 100.0f,100.0f };
+                PushContants.m_UVScale = { 120.0f,120.0f };
+
+                PushContants.m_ToGamma   = 1;
 
                 PushContants.m_ColorMask = xcore::vector4(1);
                 PushContants.m_Mode      = xcore::vector4(0,0,1,1);
@@ -557,10 +583,9 @@ int E10_Example()
 
                 const float MipMode = DrawOptions.m_ChooseMipLevel == -1 ? 1.0f : 0.0f;
 
-                PushContants.m_TintColor = xcore::vector4(1);
                 switch (DrawOptions.m_Mode)
                 {
-                case draw_options::mode::NORMAL: 
+                case draw_options::mode::COLOR_ALPHA: 
                     PushContants.m_ColorMask = xcore::vector4(1);
                     PushContants.m_Mode      = xcore::vector4(1, 0, 0, MipMode);
                     break;
@@ -587,6 +612,39 @@ int E10_Example()
                 }
 
                 PushContants.m_MipLevel = static_cast<float>(std::max(0,DrawOptions.m_ChooseMipLevel));
+
+                switch (DrawOptions.m_ForceGammaMode)
+                {
+                case draw_options::force_gamma_mode::MATCH_TEXTURE: 
+                    PushContants.m_ToGamma = 1;
+                    PushContants.m_TintColor = xcore::vector4(1);
+                    break;
+                case draw_options::force_gamma_mode::FLIP_RAW_DATA:
+                    if (DrawOptions.m_bCurrentImageIsGamma)
+                    {
+                        PushContants.m_ToGamma = 1.0f;
+                        PushContants.m_TintColor = xcore::vector4(1);//0.454545f, 0.454545f, 0.454545f, 1);
+                    }
+                    else
+                    {
+                        PushContants.m_ToGamma = 0.454545f;
+                        PushContants.m_TintColor = xcore::vector4(1);
+                    }
+                    break;
+                case draw_options::force_gamma_mode::SHOW_RAW_DATA:
+                    if (DrawOptions.m_bCurrentImageIsGamma)
+                    {
+                        PushContants.m_ToGamma   = 0.454545f;
+                        PushContants.m_TintColor = xcore::vector4(1);
+                    }
+                    else
+                    {
+                        PushContants.m_ToGamma   = 1.0f;
+                        PushContants.m_TintColor = xcore::vector4(1);
+                    }
+                    break;
+                }
+
 
                 CmdBuffer.setPushConstants(PushContants);
 

@@ -11,7 +11,7 @@ layout (location = 0)   out         vec4        outFragColor;
 layout(push_constant) uniform uPushConstant 
 { 
    float MipLevel;
-   float    m_Padding;
+   float ToGamma;
    vec2  uScale; 
    vec2  uTranslate; 
    vec2  uvScale; 
@@ -25,7 +25,7 @@ void main()
 {
     vec4 Color     = texture( uSamplerColor, In.UV )                 *    pc.Mode.z + 
                      textureLod( uSamplerColor, In.UV, pc.MipLevel ) * (1-pc.Mode.z);
-                     
+
     Color = Color * pc.TintColor;
 
     vec4 NewColor = vec4( dot( Color, pc.ColorMask ).rrr, 1);
@@ -36,8 +36,8 @@ void main()
                  + NewColor * pc.Mode.y 
                  + NoAlpha  * pc.Mode.z;
 
-    // Output color in linear space
-    outFragColor.rgb = pow(outFragColor.rgb, vec3(0.454545f));
+    // Output color in linear space 0.454545f
+    outFragColor.rgb = pow(outFragColor.rgb, vec3(pc.ToGamma)); 
 }
 
 
