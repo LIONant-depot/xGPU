@@ -109,6 +109,44 @@ XPROPERTY_REG(vec2_friend)
 
 //------------------------------------------------------------------------------------------------
 
+struct draw_controls
+{
+    float               m_MainWindowWidth;
+    float               m_MainWindowHeight;
+    float               m_MouseScale     = 1;
+    xcore::vector2      m_MouseTranslate = { 0.0f, 0.0f };
+    XPROPERTY_DEF
+    ( "Controls", draw_controls
+        , obj_member<"Image Location", &draw_controls::m_MouseTranslate, member_help<"Zooms in and out of the image"> >
+        , obj_member
+        < "Recenter"
+        , +[](draw_controls& O, bool bRead, std::string& Value)
+        {
+            if (bRead) Value = "Recenter";
+            else       O.m_MouseTranslate = { 0.0f, 0.0f };
+        }
+        , member_ui<std::string>::button<>
+        , member_help<"Reset the image at the center of the screen"
+        >>
+        , obj_member < "Zoom", +[](draw_controls& O, bool bRead, float& Value)
+        {
+            if (bRead) Value = O.m_MouseScale;
+            else
+            {
+                O.m_MouseTranslate.m_X += (O.m_MouseTranslate.m_X) * (Value - O.m_MouseScale) / O.m_MouseScale;
+                O.m_MouseTranslate.m_Y += (O.m_MouseTranslate.m_Y) * (Value - O.m_MouseScale) / O.m_MouseScale;
+                O.m_MouseScale = Value;
+            }
+        }
+        , member_ui<float>::scroll_bar<1, 150>
+        , member_help<"Zooms in and out of the image"
+        >>
+    )
+};
+XPROPERTY_REG(draw_controls)
+
+//------------------------------------------------------------------------------------------------
+
 struct draw_options
 {
     enum class mode
@@ -141,9 +179,8 @@ struct draw_options
     , xproperty::settings::enum_item("FLIP_RAW_DATA",       force_gamma_mode::FLIP_RAW_DATA,    "Shows the actual raw data in the file... if you would have FLIP THE COLOR SPACE. ")
     };
 
-
     float               m_UVScale               = 1;
-    float               m_BackgroundIntensity   = 1;
+    float               m_BackgroundIntensity   = 0.86f;
     mode                m_Mode                  = mode::COLOR_ALPHA;
     bool                m_bBilinearMode         = false;
     int                 m_ChooseMipLevel        = -1;
@@ -151,8 +188,9 @@ struct draw_options
     bool                m_bCurrentImageIsGamma  = false;
     force_gamma_mode    m_ForceGammaMode        = force_gamma_mode::MATCH_TEXTURE;
 
+
     XPROPERTY_DEF
-    ("Draw Options", draw_options
+    ("Render", draw_options
     , obj_member<"Bilinear", &draw_options::m_bBilinearMode, member_help<"Render the texture with bilinear filtering or nearest"> >
     , obj_member<"UVScale", &draw_options::m_UVScale, member_ui<float>::scroll_bar<1, 10>, member_help<"Scales the UV of the image"> >
     , obj_member<"Render Mode", &draw_options::m_Mode, member_enum_span<mode_v>, member_help<"Renders the image following one of the rules selected"> >
@@ -164,7 +202,8 @@ struct draw_options
         }, member_ui<int>::scroll_bar<-1, 20>, member_help<"Selects a particular mip to render the texture. If you set the value to -1 "
                                                            "then it will go back to using the texture with all the mips (trilinear when bilinear is enable)"> >
     , obj_member<"Flip Gamma Mode", &draw_options::m_ForceGammaMode, member_enum_span<force_gamma_mode_v>
-        ,  member_help<"This mode it to help you determine if an image should have been in gamma space or in linear space. You can look at the options to see more details.">>
+        ,  member_help<"This mode it to help you determine if an image should have been in gamma space or in linear space. You can look at the options to see more details."
+        >>
     )
 };
 XPROPERTY_REG(draw_options)
@@ -408,7 +447,7 @@ int E10_Example()
 
         // Set the max mip levels
         // Make sure the current level is within the range
-        DrawOptions.m_MaxMipLevels = Texture.getMipCount();
+        DrawOptions.m_MaxMipLevels = Texture.getMipCount()-1;
         if (DrawOptions.m_ChooseMipLevel >= DrawOptions.m_MaxMipLevels )
         {
             DrawOptions.m_ChooseMipLevel = std::min(DrawOptions.m_MaxMipLevels, std::max( 0, DrawOptions.m_MaxMipLevels - 1) );
@@ -454,14 +493,13 @@ int E10_Example()
     //
     // Storate some input context
     //
-    int             iActiveImage = 0;
-    float           MouseScale = 1;
-    xcore::vector2  MouseTranslate(0, 0);
+    int             iActiveImage  = 0;
     errors          Errors;
 
     //
     // Setup the inspector windows
     //
+    draw_controls        DrawControls;
     auto                 Inspectors = std::array
     { xproperty::inspector("Descriptor")
     , xproperty::inspector("Viewer")
@@ -474,6 +512,7 @@ int E10_Example()
     Inspectors[1].AppendEntity();
     Inspectors[1].AppendEntityComponent(*xproperty::getObject(*Compiler.get()), Compiler.get());
     Inspectors[1].AppendEntityComponent(*xproperty::getObject(Errors), &Errors);
+    Inspectors[1].AppendEntityComponent(*xproperty::getObject(DrawControls), &DrawControls);
     Inspectors[1].AppendEntityComponent(*xproperty::getObject(DrawOptions), &DrawOptions);
 
     //
@@ -484,45 +523,50 @@ int E10_Example()
         if (xgpu::tools::imgui::BeginRendering(true))
             continue;
 
+        const float MainWindowWidth  = static_cast<float>(MainWindow.getWidth());
+        const float MainWindowHeight = static_cast<float>(MainWindow.getHeight());
+
         //
         // Handle Input
         //
         if (auto ctx = ImGui::GetCurrentContext(); ctx->HoveredWindow == nullptr || ctx->HoveredWindow->ID == ImGui::GetID("MainDockSpace"))
         {
-            const float  OldScale = MouseScale;
+            const float  OldScale = DrawControls.m_MouseScale;
             auto& io = ImGui::GetIO();
 
             if (io.MouseDown[1] || io.MouseDown[2])
             {
                 if (io.MouseDown[0])
                 {
-                    MouseScale -= 8000.0f * io.DeltaTime * (io.MouseDelta.y * (2.0f / MainWindow.getHeight()));
+                    DrawControls.m_MouseScale -= 8000.0f * io.DeltaTime * (io.MouseDelta.y * (2.0f / MainWindowHeight));
                 }
                 else
                 {
-                    MouseTranslate.m_X += io.MouseDelta.x * (2.0f / MainWindow.getWidth());
-                    MouseTranslate.m_Y += io.MouseDelta.y * (2.0f / MainWindow.getHeight());
+                    DrawControls.m_MouseTranslate.m_X += io.MouseDelta.x * (2.0f / MainWindowWidth);
+                    DrawControls.m_MouseTranslate.m_Y += io.MouseDelta.y * (2.0f / MainWindowHeight);
                 }
             }
 
             // Wheel scale
-            MouseScale += 0.9f * io.MouseWheel;
-            if (MouseScale < 0.1f) MouseScale = 0.1f;
+            DrawControls.m_MouseScale += 1.9f * io.MouseWheel;
+            if (DrawControls.m_MouseScale < 0.1f) DrawControls.m_MouseScale = 0.1f;
 
             // Always zoom from the perspective of the mouse
-            const float mx = ((io.MousePos.x / (float)MainWindow.getWidth()) - 0.5f) * 2.0f;
-            const float my = ((io.MousePos.y / (float)MainWindow.getHeight()) - 0.5f) * 2.0f;
-            MouseTranslate.m_X += (MouseTranslate.m_X - mx) * (MouseScale - OldScale) / OldScale;
-            MouseTranslate.m_Y += (MouseTranslate.m_Y - my) * (MouseScale - OldScale) / OldScale;
+            const float mx = ((io.MousePos.x / (float)MainWindowWidth) - 0.5f) * 2.0f;
+            const float my = ((io.MousePos.y / (float)MainWindowHeight) - 0.5f) * 2.0f;
+            DrawControls.m_MouseTranslate.m_X += (DrawControls.m_MouseTranslate.m_X - mx) * (DrawControls.m_MouseScale - OldScale) / OldScale;
+            DrawControls.m_MouseTranslate.m_Y += (DrawControls.m_MouseTranslate.m_Y - my) * (DrawControls.m_MouseScale - OldScale) / OldScale;
 
             // Make sure that the picture does not leave the view
             // should be 0.5 but I left a little bit of the picture inside the view with 0.4f
-            const int W = static_cast<int>(MainWindow.getWidth()*0.49f), H = static_cast<int>(MainWindow.getHeight() * 0.65f);
+            /*
+            const int W = static_cast<int>(MainWindowWidth*0.49f), H = static_cast<int>(MainWindowHeight * 0.65f);
 
-            const float BorderX = ((W * 0.4f) / (float)MainWindow.getWidth())  * MouseScale;
-            const float BorderY = ((H * 0.4f) / (float)MainWindow.getHeight()) * MouseScale;
-            MouseTranslate.m_X = std::min(1.0f + BorderX, std::max(-1.0f - BorderX, MouseTranslate.m_X));
-            MouseTranslate.m_Y = std::min(1.0f + BorderY, std::max(-1.0f - BorderY, MouseTranslate.m_Y));
+            const float BorderX = ((W * 0.4f) / (float)DrawControls.m_MainWindowWidth)  * DrawControls.m_MouseScale;
+            const float BorderY = ((H * 0.4f) / (float)DrawControls.m_MainWindowHeight) * DrawControls.m_MouseScale;
+            DrawControls.m_MouseTranslate.m_X = std::min(1.0f + BorderX, std::max(-1.0f - BorderX, DrawControls.m_MouseTranslate.m_X));
+            DrawControls.m_MouseTranslate.m_Y = std::min(1.0f + BorderY, std::max(-1.0f - BorderY, DrawControls.m_MouseTranslate.m_Y));
+            */
         }
 
         //
@@ -542,8 +586,8 @@ int E10_Example()
                 e10::push_contants PushContants;
 
                 PushContants.m_Scale =
-                { (150 * 2.0f) / MainWindow.getWidth()
-                , (150 * 2.0f) / MainWindow.getHeight()
+                { (150 * 2.0f) / MainWindowWidth
+                , (150 * 2.0f) / MainWindowHeight
                 };
                 PushContants.m_Translation.setZero();
                 PushContants.m_UVScale = { 120.0f,120.0f };
@@ -575,11 +619,11 @@ int E10_Example()
                 CmdBuffer.setBuffer(IndexBuffer);
 
                 e10::push_contants PushContants;
-                PushContants.m_Scale = { (MouseScale * 2.0f) / MainWindow.getWidth() * s_AspectRation
-                                          , (MouseScale * 2.0f) / MainWindow.getHeight()
+                PushContants.m_Scale = { (DrawControls.m_MouseScale * 2.0f) / MainWindowWidth * s_AspectRation
+                                       , (DrawControls.m_MouseScale * 2.0f) / MainWindowHeight
                 };
                 PushContants.m_UVScale = DrawOptions.m_UVScale; //.setup(1.0f, 1.0f);
-                PushContants.m_Translation = MouseTranslate;
+                PushContants.m_Translation = DrawControls.m_MouseTranslate;
 
                 const float MipMode = DrawOptions.m_ChooseMipLevel == -1 ? 1.0f : 0.0f;
 
