@@ -167,27 +167,27 @@ struct draw_options
     , xproperty::settings::enum_item("B_ONLY",          mode::B_ONLY,       "Renders only the blue channel as a single color without any alpha")
     };
 
-    enum class force_gamma_mode
-    { MATCH_TEXTURE
-    , SHOW_RAW_DATA
-    , FLIP_RAW_DATA
+    enum class display_gamma_mode
+    { GAMMA
+    , LINEAR
+    , RAW_DATA_INFILE
     };
-    static constexpr auto force_gamma_mode_v = std::array
-    { xproperty::settings::enum_item("MATCH_TEXTURE",       force_gamma_mode::MATCH_TEXTURE,    "For normal functioning of the texture, base on its information about gamma state")
-    , xproperty::settings::enum_item("SHOW_RAW_DATA",       force_gamma_mode::SHOW_RAW_DATA,    "Shows the actual raw data in the file... If the data is in linear it will show it in linear, "
-                                                                                                "but if it is in gamma it will reconvert it back to gamma in the shader")
-    , xproperty::settings::enum_item("FLIP_RAW_DATA",       force_gamma_mode::FLIP_RAW_DATA,    "Shows the actual raw data in the file... if you would have FLIP THE COLOR SPACE. ")
+
+    static constexpr auto display_gamma_mode_v = std::array
+    { xproperty::settings::enum_item("GAMMA",           display_gamma_mode::GAMMA,              "Normal rendering. This is how games and other applications render their images.")
+    , xproperty::settings::enum_item("LINEAR",          display_gamma_mode::LINEAR,             "This is how the shader is receiving the image so that it can operate...")
+    , xproperty::settings::enum_item("RAW_DATA_INFILE", display_gamma_mode::RAW_DATA_INFILE,    "This is the raw data in the file. Useful to see the kind of precision of the data.")
     };
 
     float               m_UVScale               = 1;
-    float               m_BackgroundIntensity   = 0.86f;
+    float               m_BackgroundIntensity   = 0.76f;
     mode                m_Mode                  = mode::COLOR_ALPHA;
     bool                m_bBilinearMode         = false;
     int                 m_ChooseMipLevel        = -1;
     int                 m_MaxMipLevels          = 0;
+    display_gamma_mode  m_DisplayInGammaMode    = display_gamma_mode::GAMMA;
+    float               m_DisplayGamma          = 2.2f;
     bool                m_bCurrentImageIsGamma  = false;
-    force_gamma_mode    m_ForceGammaMode        = force_gamma_mode::MATCH_TEXTURE;
-
 
     XPROPERTY_DEF
     ("Render", draw_options
@@ -201,9 +201,22 @@ struct draw_options
             else       O.m_ChooseMipLevel = std::min( O.m_MaxMipLevels, Value);
         }, member_ui<int>::scroll_bar<-1, 20>, member_help<"Selects a particular mip to render the texture. If you set the value to -1 "
                                                            "then it will go back to using the texture with all the mips (trilinear when bilinear is enable)"> >
-    , obj_member<"Flip Gamma Mode", &draw_options::m_ForceGammaMode, member_enum_span<force_gamma_mode_v>
-        ,  member_help<"This mode it to help you determine if an image should have been in gamma space or in linear space. You can look at the options to see more details."
+    , obj_member<"Display Mode", &draw_options::m_DisplayInGammaMode, member_enum_span<display_gamma_mode_v>
+        ,  member_help<"This mode shows the image in gamma (This is the normal mode, also how all the displays works), or it can show the image in LINEAR which is how the shader receives the image."
         >>
+    , obj_member
+        < "Display Gamma"
+        , &draw_options::m_DisplayGamma
+        , member_ui<float>::scroll_bar<1, 4>
+        , member_dynamic_flags < +[](const draw_options& O)
+        {
+            xproperty::flags::type Flags{};
+            Flags.m_bDontShow = O.m_DisplayInGammaMode != display_gamma_mode::GAMMA;
+            return Flags;
+        } >
+        , member_help<"Changes the display gamma for the image"
+        >>
+
     )
 };
 XPROPERTY_REG(draw_options)
@@ -556,17 +569,6 @@ int E10_Example()
             const float my = ((io.MousePos.y / (float)MainWindowHeight) - 0.5f) * 2.0f;
             DrawControls.m_MouseTranslate.m_X += (DrawControls.m_MouseTranslate.m_X - mx) * (DrawControls.m_MouseScale - OldScale) / OldScale;
             DrawControls.m_MouseTranslate.m_Y += (DrawControls.m_MouseTranslate.m_Y - my) * (DrawControls.m_MouseScale - OldScale) / OldScale;
-
-            // Make sure that the picture does not leave the view
-            // should be 0.5 but I left a little bit of the picture inside the view with 0.4f
-            /*
-            const int W = static_cast<int>(MainWindowWidth*0.49f), H = static_cast<int>(MainWindowHeight * 0.65f);
-
-            const float BorderX = ((W * 0.4f) / (float)DrawControls.m_MainWindowWidth)  * DrawControls.m_MouseScale;
-            const float BorderY = ((H * 0.4f) / (float)DrawControls.m_MainWindowHeight) * DrawControls.m_MouseScale;
-            DrawControls.m_MouseTranslate.m_X = std::min(1.0f + BorderX, std::max(-1.0f - BorderX, DrawControls.m_MouseTranslate.m_X));
-            DrawControls.m_MouseTranslate.m_Y = std::min(1.0f + BorderY, std::max(-1.0f - BorderY, DrawControls.m_MouseTranslate.m_Y));
-            */
         }
 
         //
@@ -592,7 +594,7 @@ int E10_Example()
                 PushContants.m_Translation.setZero();
                 PushContants.m_UVScale = { 120.0f,120.0f };
 
-                PushContants.m_ToGamma   = 1;
+                PushContants.m_ToGamma   = 2.2f;
 
                 PushContants.m_ColorMask = xcore::vector4(1);
                 PushContants.m_Mode      = xcore::vector4(0,0,1,1);
@@ -657,38 +659,26 @@ int E10_Example()
 
                 PushContants.m_MipLevel = static_cast<float>(std::max(0,DrawOptions.m_ChooseMipLevel));
 
-                switch (DrawOptions.m_ForceGammaMode)
+                PushContants.m_TintColor = xcore::vector4(1);
+                switch (DrawOptions.m_DisplayInGammaMode)
                 {
-                case draw_options::force_gamma_mode::MATCH_TEXTURE: 
+                case draw_options::display_gamma_mode::GAMMA: 
+                    PushContants.m_ToGamma = DrawOptions.m_DisplayGamma;
+                    break;
+                case draw_options::display_gamma_mode::LINEAR:
                     PushContants.m_ToGamma = 1;
-                    PushContants.m_TintColor = xcore::vector4(1);
                     break;
-                case draw_options::force_gamma_mode::FLIP_RAW_DATA:
+                case draw_options::display_gamma_mode::RAW_DATA_INFILE:
                     if (DrawOptions.m_bCurrentImageIsGamma)
                     {
-                        PushContants.m_ToGamma = 1.0f;
-                        PushContants.m_TintColor = xcore::vector4(1);//0.454545f, 0.454545f, 0.454545f, 1);
-                    }
-                    else
-                    {
-                        PushContants.m_ToGamma = 0.454545f;
-                        PushContants.m_TintColor = xcore::vector4(1);
-                    }
-                    break;
-                case draw_options::force_gamma_mode::SHOW_RAW_DATA:
-                    if (DrawOptions.m_bCurrentImageIsGamma)
-                    {
-                        PushContants.m_ToGamma   = 0.454545f;
-                        PushContants.m_TintColor = xcore::vector4(1);
+                        PushContants.m_ToGamma   = 2.2f;
                     }
                     else
                     {
                         PushContants.m_ToGamma   = 1.0f;
-                        PushContants.m_TintColor = xcore::vector4(1);
                     }
                     break;
                 }
-
 
                 CmdBuffer.setPushConstants(PushContants);
 

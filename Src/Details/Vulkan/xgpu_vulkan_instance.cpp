@@ -275,7 +275,7 @@ namespace xgpu::vulkan
         if( Setup.m_bEnableRenderDoc )
         {
         // Seems like this should not be done here: RDOC 002888: [00:16:05]  vk_device_funcs.cpp( 607) - Error   - RenderDoc's layer should NEVER be activated manually. Do not include it in vkCreateInstance's instance layers.
-        //    Layers.emplace_back( "VK_LAYER_RENDERDOC_Capture" );
+          //  Layers.emplace_back( "VK_LAYER_RENDERDOC_Capture" );
         }
 
         //

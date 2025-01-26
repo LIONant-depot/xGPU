@@ -36,8 +36,8 @@ void main()
                  + NewColor * pc.Mode.y 
                  + NoAlpha  * pc.Mode.z;
 
-    // Output color in linear space 0.454545f
-    outFragColor.rgb = pow(outFragColor.rgb, vec3(pc.ToGamma)); 
+    // We must convert to gamma every time...
+    outFragColor.rgb = pow( outFragColor.rgb, vec3(1/pc.ToGamma) );
 }
 
 
