@@ -193,9 +193,6 @@
     <ClCompile Include="..\..\Src\Examples\E04_Properties\E04_Properties.cpp">
       <Filter>Examples\Example 04 Properties</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\Src\Examples\E05_Textures\E05_Textures.cpp">
-      <Filter>Examples\Example 05 Textures</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\Src\Examples\E06_AssimLoader\E06_AssimLoader.cpp">
       <Filter>Examples\Example 06 Assim Loader</Filter>
     </ClCompile>
@@ -324,6 +321,9 @@
     </ClCompile>
     <ClCompile Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore.cpp">
       <Filter>Dependencies\xCore</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Src\Examples\E05_Textures\E05_Textures.cpp">
+      <Filter>Examples\Example 05 Textures</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -836,6 +836,12 @@
     </ClInclude>
     <ClInclude Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src\xcore_vector.h">
       <Filter>Dependencies\xCore</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\E05_Textures\E05_Textures.h">
+      <Filter>Examples\Example 05 Textures</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\E05_Textures\E05_BitmapInspector.h">
+      <Filter>Examples\Example 05 Textures</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

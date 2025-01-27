@@ -264,6 +264,8 @@
     <ClInclude Include="..\..\Src\Details\xgpu_texture_inline.h" />
     <ClInclude Include="..\..\Src\Details\xgpu_vertex_descriptor_inline.h" />
     <ClInclude Include="..\..\Src\Details\xgpu_window_inline.h" />
+    <ClInclude Include="..\..\Src\Examples\E05_Textures\E05_BitmapInspector.h" />
+    <ClInclude Include="..\..\Src\Examples\E05_Textures\E05_Textures.h" />
     <ClInclude Include="..\..\Src\Examples\E06_AssimLoader\E06_LoadTextureHelper.h" />
     <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_Compiler.h" />
     <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_AnimCharacter.h" />

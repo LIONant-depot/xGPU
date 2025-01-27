@@ -1,3 +1,7 @@
+#ifndef XGPU_XCORE_BITMAP_HELPERS_H
+#define XGPU_XCORE_BITMAP_HELPERS_H
+#pragma once
+
 namespace xgpu::tools::bitmap
 {
     //---------------------------------------------------------------------------------------
@@ -112,5 +116,6 @@ namespace xgpu::tools::bitmap
 
         return nullptr;
     }
-
 }
+
+#endif

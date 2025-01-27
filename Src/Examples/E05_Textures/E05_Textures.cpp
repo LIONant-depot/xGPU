@@ -1,10 +1,6 @@
-#include "xGPU.h"
-#include "xcore.h"
+
+#include "E05_BitmapInspector.h"
 #include "../../tools/xgpu_imgui_breach.h"
-#include "../../tools/xgpu_xcore_bitmap_helpers.h"
-#include "../../dependencies/xtexture.plugin/dependencies/xresource_pipeline_v2/dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
-#include "../../dependencies/xtexture.plugin/dependencies/xbmp_tools/src/xbmp_tools.h"
-#include "../../tools/xgpu_basis_universal_texture_loader.h"
 #include <format>
 
 #include "imgui_internal.h"
@@ -40,178 +36,11 @@ namespace e05
 
     //------------------------------------------------------------------------------------------------
 
-    static
-    void DebugMessage(std::string_view View)
-    {
-        printf("%s\n", View.data());
-    }
-
-    //------------------------------------------------------------------------------------------------
-
     struct bitmap_inspector;
-
-    //------------------------------------------------------------------------------------------------
-
-    struct ivec2
-    {
-        std::uint32_t x, y;
-        XPROPERTY_DEF
-        ("ivec2", ivec2, xproperty::settings::vector2_group
-        , obj_member_ro<"W", &ivec2::x >
-        , obj_member_ro<"H", &ivec2::y >
-        )
-    };
-    XPROPERTY_REG(ivec2)
 
 }
 
 //------------------------------------------------------------------------------------------------
-
-struct e05::bitmap_inspector
-{
-    void Load( const char* pFileName, xgpu::device& Device, xgpu::pipeline& Pipeline ) noexcept
-    {
-        xgpu::texture Texture;
-
-        //
-        // Get the file name
-        //
-        m_FileName = pFileName;
-        m_FileName = m_FileName.substr(m_FileName.find_last_of("/\\") + 1);
-
-        //
-        // Load file
-        //
-        if( auto x = m_FileName.find(".basis"); x != (~0ull) )
-        {
-            Texture = xgpu::tools::basis_universal::basis_Loader(Device, pFileName);
-
-            auto Size = Texture.getTextureDimensions();
-            auto FrameSize = (Size[0] * Size[1]) / 4;
-            m_Bitmap.setup
-            ( Size[0]
-            , Size[1]
-            , xcore::bitmap::format::BC1_4RGB
-            , FrameSize
-            , std::span( new std::byte [FrameSize], FrameSize + (Texture.getMipCount()*sizeof(int)))
-            , true
-            , Texture.getMipCount()
-            , 1
-            );
-        }
-        else if (auto Err = xbmp::tools::loader::LoadDSS(m_Bitmap, pFileName); Err)
-        {
-            e05::DebugMessage(xbmp::tools::getErrorMsg(Err));
-            std::exit(xbmp::tools::getErrorInt(Err));
-        }
-        else if( auto Err = xgpu::tools::bitmap::Create(Texture, Device, m_Bitmap ); Err )
-        {
-            e05::DebugMessage(xgpu::getErrorMsg(Err));
-            std::exit(xgpu::getErrorInt(Err));
-        }
-
-        //
-        // Create Pipeline Instance
-        //
-        {
-            auto  Bindings  = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
-            auto  Setup     = xgpu::pipeline_instance::setup
-            { .m_PipeLine           = Pipeline
-            , .m_SamplersBindings   = Bindings
-            };
-
-            if (auto Err = Device.Create(m_Instance, Setup); Err)
-            {
-                e05::DebugMessage(xgpu::getErrorMsg(Err));
-                std::exit(xgpu::getErrorInt(Err));
-            }
-        }
-
-        //
-        // Set the mipmap sizes
-        //
-        m_MipMapSizes.resize(m_Bitmap.getMipCount());
-        for (int i = 0; i < m_Bitmap.getMipCount(); ++i)
-        {
-            m_MipMapSizes[i].x = std::max(1u, m_Bitmap.getWidth() >> i);
-            m_MipMapSizes[i].y = std::max(1u, m_Bitmap.getHeight() >> i);
-        }
-    }
-
-    xgpu::pipeline_instance m_Instance;
-    std::string             m_FileName;
-    xcore::bitmap           m_Bitmap;
-    std::vector<ivec2>      m_MipMapSizes;
-
-    XPROPERTY_DEF
-    ( "Bitmap Info", bitmap_inspector
-    , obj_member_ro< "FileName", &bitmap_inspector::m_FileName, member_help<"The file name of the image"> >
-    , obj_member_ro< "Size", +[](bitmap_inspector& I) ->ivec2&
-    {
-        static ivec2 Out;
-        Out.x = I.m_Bitmap.getWidth();
-        Out.y = I.m_Bitmap.getHeight();
-        return Out;
-    }, member_help<"Image Size in pixels" > >
-    , obj_member_ro< "Format",  +[](bitmap_inspector& I, bool bRead, std::string& Out )
-    {
-        assert(bRead);
-        switch (I.m_Bitmap.getFormat())
-        {
-            case xcore::bitmap::format::R4G4B4A4:   Out = "R4G4B4A4"; break;
-            case xcore::bitmap::format::R5G6B5:     Out = "R5G6B5"; break;
-            case xcore::bitmap::format::B5G5R5A1:   Out = "B5G5R5A1"; break;
-            case xcore::bitmap::format::R8G8B8:     Out = "R8G8B8"; break;
-            case xcore::bitmap::format::R8G8B8U8:   Out = "R8G8B8U8"; break;
-            case xcore::bitmap::format::R8G8B8A8:   Out = "R8G8B8A8"; break;
-            case xcore::bitmap::format::B8G8R8A8:   Out = "B8G8R8A8"; break;
-            case xcore::bitmap::format::B8G8R8U8:   Out = "B8G8R8U8"; break;
-            case xcore::bitmap::format::U8R8G8B8:   Out = "U8R8G8B8"; break;
-
-            case xcore::bitmap::format::BC1_4RGB:   Out = "BC1_4RGB / DXT1"; break;
-            case xcore::bitmap::format::BC1_4RGBA1: Out = "BC1_4RGBA1 / DXT1"; break;
-            case xcore::bitmap::format::BC2_8RGBA:  Out = "BC2_8RGBA / DXT3"; break;
-            case xcore::bitmap::format::BC3_8RGBA:  Out = "BC3_8RGBA / DXT5"; break;
-
-            default: Out = "Unexpected format"; break;
-        }
-    }, member_help<"Format from xcore bitmap of the image" > >
-    , obj_member_ro< "DataSize", +[](bitmap_inspector& I, bool, std::uint64_t& Out)
-    {
-        Out = I.m_Bitmap.getDataSize();
-    }, member_help<"Size in bytes of the image/file" > >
-    , obj_member_ro< "HasAlphaChannel", +[](bitmap_inspector& I, bool, bool& Out)
-    {
-        Out = I.m_Bitmap.hasAlphaChannel();
-    }, member_help<"Checks if the data has an alpha channel" > >
-    , obj_member_ro< "SRGB", +[](bitmap_inspector& I, bool, bool& Out)
-    {
-        Out = !I.m_Bitmap.isLinearSpace();
-    }, member_help<"Check if the data is in Gamma space (if true) or Linear Space (if false)" > >
-    , obj_member_ro< "FrameCount", +[](bitmap_inspector& I, bool, int& Out)
-    {
-        Out = static_cast<int>(I.m_Bitmap.getFrameCount());
-    }, member_help<"Tells how many frames there is in this file" > >
-    , obj_member_ro< "FrameSizeBytes", +[](bitmap_inspector& I, bool, int& Out)
-    {
-        Out = static_cast<int>(I.m_Bitmap.getFrameSize());
-    }, member_help<"How big a frame in the file is" > >
-    , obj_member_ro< "isCubeMap", +[](bitmap_inspector& I, bool, bool& Out)
-    {
-        Out = I.m_Bitmap.isCubemap();
-    }, member_help<"Check if the image is a cube map" > >
-    , obj_member_ro< "NumFacesCubeMap", +[](bitmap_inspector& I, bool, int& Out)
-    {
-        Out = static_cast<int>(I.m_Bitmap.getFaceCount());
-    }, member_help<"If we have loaded a cubemap how many faces the file contains" > >
-    , obj_member_ro< "NumFacesFaceSizeBytes", +[](bitmap_inspector& I, bool, int& Out)
-    {
-        Out = static_cast<int>(I.m_Bitmap.getFaceSize());
-    }, member_help<"How many bytes does a face of the cubemap is in this file" > >
-    , obj_member_ro< "Mips", &bitmap_inspector::m_MipMapSizes, member_help<"Tells how many mip map the image has" > >
-    );
-};
-XPROPERTY_REG2(bitmap_inspector_props, e05::bitmap_inspector)
 
 //------------------------------------------------------------------------------------------------
 
@@ -354,13 +183,48 @@ int E05_Example()
     , "../../Src/Examples/E05_Textures/Alita-DXT1-NoAlpha-Mipmaps.dds"
     , "../../Src/Examples/E05_Textures/Alita-DXT3.dds"
     , "../../Src/Examples/E05_Textures/Alita-DXT5.dds"
-    , "../../bin/Run3.basis"
+  //  , "../../bin/Run3.basis"
     };
-    std::array<e05::bitmap_inspector, TextureList.size()> BitmapInspector;
-
+    std::array<e05::bitmap_inspector, TextureList.size()>    BitmapInspector;
+    std::array<xgpu::pipeline_instance, TextureList.size() > PipelineInstance;
     for( int i=0; i< TextureList.size(); ++i )
     {
-        BitmapInspector[i].Load(TextureList[i], Device, Pipeline);
+        auto& BitmapInspect = BitmapInspector[i];
+        auto& PipeInst      = PipelineInstance[i];
+        auto& TextureName   = TextureList[i];
+
+        BitmapInspect.Load(TextureName);
+
+        //
+        // Create Pipeline Instance
+        //
+        {
+            xgpu::texture   Texture;
+
+            //
+            // Create the texture
+            //
+            if (auto Err = xgpu::tools::bitmap::Create(Texture, Device, *BitmapInspect.m_pBitmap ); Err)
+            {
+                e05::DebugMessage(xgpu::getErrorMsg(Err));
+                std::exit(xgpu::getErrorInt(Err));
+            }
+
+            //
+            // Create the pipeline
+            //
+            auto            Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
+            auto            Setup    = xgpu::pipeline_instance::setup
+            { .m_PipeLine         = Pipeline
+            , .m_SamplersBindings = Bindings
+            };
+
+            if (auto Err = Device.Create(PipeInst, Setup); Err)
+            {
+                e05::DebugMessage(xgpu::getErrorMsg(Err));
+                std::exit(xgpu::getErrorInt(Err));
+            }
+        }
     }
 
     //
@@ -443,8 +307,8 @@ int E05_Example()
 
             // Make sure that the picture does not leave the view
             // should be 0.5 but I left a little bit of the picture inside the view with 0.4f
-            const float BorderX = ((BitmapInspector[iActiveImage].m_Bitmap.getWidth() * 0.4f) / (float)MainWindow.getWidth()) * MouseScale;
-            const float BorderY = ((BitmapInspector[iActiveImage].m_Bitmap.getHeight() * 0.4f) / (float)MainWindow.getHeight()) * MouseScale;
+            const float BorderX = ((BitmapInspector[iActiveImage].m_pBitmap->getWidth() * 0.4f) / (float)MainWindow.getWidth()) * MouseScale;
+            const float BorderY = ((BitmapInspector[iActiveImage].m_pBitmap->getHeight() * 0.4f) / (float)MainWindow.getHeight()) * MouseScale;
             MouseTranslate.m_X = std::min(1.0f + BorderX, std::max(-1.0f - BorderX, MouseTranslate.m_X));
             MouseTranslate.m_Y = std::min(1.0f + BorderY, std::max(-1.0f - BorderY, MouseTranslate.m_Y));
         }
@@ -481,12 +345,12 @@ int E05_Example()
             // Render Image
             //
             {
-                CmdBuffer.setPipelineInstance(BitmapInspector[iActiveImage].m_Instance);
+                CmdBuffer.setPipelineInstance(PipelineInstance[iActiveImage]);
                 CmdBuffer.setBuffer(VertexBuffer);
                 CmdBuffer.setBuffer(IndexBuffer);
 
                 e05::push_contants PushContants;
-                PushContants.m_Scale = { (MouseScale * 2.0f) / MainWindow.getWidth()    * BitmapInspector[iActiveImage].m_Bitmap.getAspectRatio()
+                PushContants.m_Scale = { (MouseScale * 2.0f) / MainWindow.getWidth()    * BitmapInspector[iActiveImage].m_pBitmap->getAspectRatio()
                                        , (MouseScale * 2.0f) / MainWindow.getHeight()
                                        };
                 PushContants.m_UVScale.setup(1.0f, 1.0f);

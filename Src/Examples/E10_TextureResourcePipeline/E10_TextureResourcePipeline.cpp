@@ -1,6 +1,4 @@
-#include "xGPU.h"
-#include "xcore.h"
-
+#include "../E05_Textures/E05_BitmapInspector.h"
 #include "../../tools/xgpu_imgui_breach.h"
 #include "../../tools/xgpu_xcore_bitmap_helpers.h"
 #include "../../dependencies/xtexture.plugin/dependencies/xresource_pipeline_v2/dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
@@ -223,8 +221,12 @@ XPROPERTY_REG(draw_options)
 
 //------------------------------------------------------------------------------------------------
 float s_AspectRation = 1;
-bool LoadTexture(const std::string& ResourcePath, xgpu::texture& Texture, xgpu::device& Device)
+bool LoadTexture(const std::string& ResourcePath, xgpu::texture& Texture, xgpu::device& Device, e05::bitmap_inspector& BmpInspector )
 {
+    BmpInspector.Load(ResourcePath.c_str());
+
+/*
+
     xcore::bitmap* pBitmap;
     xcore::bitmap  StorageBitmap;
     std::wcout << L"Loading Texture: " << ResourcePath.c_str() << L"\n";
@@ -251,21 +253,17 @@ bool LoadTexture(const std::string& ResourcePath, xgpu::texture& Texture, xgpu::
         e10::DebugMessage("Unknown file format");
         std::exit(-1);
     }
+*/
 
-    if (auto Err = xgpu::tools::bitmap::Create(Texture, Device, *pBitmap); Err)
+    if (auto Err = xgpu::tools::bitmap::Create(Texture, Device, *BmpInspector.m_pBitmap); Err)
     {
         e10::DebugMessage(xgpu::getErrorMsg(Err));
         std::exit(xgpu::getErrorInt(Err));
     }
 
-    s_AspectRation = pBitmap->getAspectRatio();
+    s_AspectRation = BmpInspector.m_pBitmap->getAspectRatio();
 
-    bool isGamma = pBitmap->getColorSpace() != xcore::bitmap::color_space::LINEAR;
-
-    if (pBitmap != &StorageBitmap)
-    {
-        xcore::memory::AlignedFree(pBitmap);
-    }
+    bool isGamma = BmpInspector.m_pBitmap->getColorSpace() != xcore::bitmap::color_space::LINEAR;
 
     return isGamma;
 }
@@ -445,8 +443,9 @@ int E10_Example()
     //
     // Define the draw options
     //
-    draw_options         DrawOptions;
-
+    draw_options            DrawOptions;
+    e05::bitmap_inspector   BitmapInspector;
+    draw_controls           DrawControls;
 
     //
     // This will be the texture that we compiled
@@ -456,7 +455,7 @@ int E10_Example()
     auto UpdateTextureMaterial = [&]()
     {
         xgpu::texture Texture;
-        DrawOptions.m_bCurrentImageIsGamma = LoadTexture(Compiler->m_ResourcePath, Texture, Device);
+        DrawOptions.m_bCurrentImageIsGamma = LoadTexture(Compiler->m_ResourcePath, Texture, Device, BitmapInspector);
 
         // Set the max mip levels
         // Make sure the current level is within the range
@@ -512,8 +511,7 @@ int E10_Example()
     //
     // Setup the inspector windows
     //
-    draw_controls        DrawControls;
-    auto                 Inspectors = std::array
+    auto                  Inspectors = std::array
     { xproperty::inspector("Descriptor")
     , xproperty::inspector("Viewer")
     };
@@ -527,7 +525,8 @@ int E10_Example()
     Inspectors[1].AppendEntityComponent(*xproperty::getObject(Errors), &Errors);
     Inspectors[1].AppendEntityComponent(*xproperty::getObject(DrawControls), &DrawControls);
     Inspectors[1].AppendEntityComponent(*xproperty::getObject(DrawOptions), &DrawOptions);
-
+    Inspectors[1].AppendEntityComponent(*xproperty::getObject(BitmapInspector), &BitmapInspector );
+    
     //
     // Main loop
     //
