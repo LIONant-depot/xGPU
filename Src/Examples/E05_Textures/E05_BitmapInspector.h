@@ -176,8 +176,10 @@ namespace e05
                     case xcore::bitmap::format::BC1_4RGBA1: Out = "BC1_4RGBA1 / DXT1"; break;
                     case xcore::bitmap::format::BC2_8RGBA:  Out = "BC2_8RGBA / DXT3"; break;
                     case xcore::bitmap::format::BC3_8RGBA:  Out = "BC3_8RGBA / DXT5"; break;
+                    case xcore::bitmap::format::BC3_81Y0X_NORMAL: Out = "BC3_81Y0X_NORMAL"; break;
                     case xcore::bitmap::format::BC4_4R:     Out = "BC4_4R"; break;
                     case xcore::bitmap::format::BC5_8RG:    Out = "BC5_8RG"; break;
+                    case xcore::bitmap::format::BC5_8YX_NORMAL: Out = "BC5_8YX_NORMAL"; break;
                     case xcore::bitmap::format::BC7_8RGBA:  Out = "BC7_8RGBA"; break;
                         
 

@@ -47,6 +47,7 @@ namespace e10
         xcore::vector4 m_TintColor      {1};
         xcore::vector4 m_ColorMask      {0};
         xcore::vector4 m_Mode           {0};
+        xcore::vector4 m_NormalModes    {0};
     };
 
     //------------------------------------------------------------------------------------------------
@@ -603,8 +604,9 @@ int E10_Example()
                                                         , DrawOptions.m_BackgroundIntensity
                                                         , DrawOptions.m_BackgroundIntensity
                                                         , 1);
-
                 PushContants.m_MipLevel = 0;
+                PushContants.m_NormalModes.setZero();
+
                 CmdBuffer.setPushConstants(PushContants);
 
                 CmdBuffer.Draw(6);
@@ -656,6 +658,21 @@ int E10_Example()
                     PushContants.m_ColorMask = xcore::vector4(0, 0, 1, 0);
                     PushContants.m_Mode      = xcore::vector4(0, 1, 0, MipMode);
                     break;
+                }
+
+                if ( BitmapInspector.m_pBitmap->getFormat() == xcore::bitmap::format::BC3_81Y0X_NORMAL 
+                        && DrawOptions.m_DisplayInGammaMode != draw_options::display_gamma_mode::RAW_DATA_INFILE)
+                {
+                    PushContants.m_NormalModes = xcore::vector4(1, 0, 0, 0);
+                }
+                else if (BitmapInspector.m_pBitmap->getFormat() == xcore::bitmap::format::BC5_8YX_NORMAL
+                        && DrawOptions.m_DisplayInGammaMode != draw_options::display_gamma_mode::RAW_DATA_INFILE)
+                {
+                    PushContants.m_NormalModes = xcore::vector4(0, 1, 0, 0);
+                }
+                else
+                {
+                    PushContants.m_NormalModes = xcore::vector4(0, 0, 0, 0);
                 }
 
                 PushContants.m_MipLevel = static_cast<float>(std::max(0,DrawOptions.m_ChooseMipLevel));

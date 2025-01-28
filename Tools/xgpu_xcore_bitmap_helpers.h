@@ -4,61 +4,44 @@
 
 namespace xgpu::tools::bitmap
 {
+    inline static constexpr auto table_xbmp_to_xgpu_v = []() consteval
+    {
+        auto Table = std::array<xgpu::texture::format, static_cast<std::size_t>(xcore::bitmap::format::ENUM_COUNT) >
+        { xgpu::texture::format::INVALID };
+
+        Table[static_cast<std::size_t>(xcore::bitmap::format::B8G8R8A8)]        = xgpu::texture::format::B8G8R8A8        ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::B8G8R8U8)]        = xgpu::texture::format::B8G8R8U8        ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::A8R8G8B8)]        = xgpu::texture::format::A8R8G8B8        ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::U8R8G8B8)]        = xgpu::texture::format::U8R8G8B8        ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::R8G8B8U8)]        = xgpu::texture::format::R8G8B8U8        ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::R8G8B8A8)]        = xgpu::texture::format::R8G8B8A8        ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::R4G4B4A4)]        = xgpu::texture::format::R4G4B4A4        ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::R5G6B5)]          = xgpu::texture::format::R5G6B5          ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::B5G5R5A1)]        = xgpu::texture::format::B5G5R5A1        ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::BC1_4RGB)]        = xgpu::texture::format::BC1_4RGB        ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::BC1_4RGBA1)]      = xgpu::texture::format::BC1_4RGBA1      ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::BC2_8RGBA)]       = xgpu::texture::format::BC2_8RGBA       ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::BC3_8RGBA)]       = xgpu::texture::format::BC3_8RGBA       ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::BC3_81Y0X_NORMAL)]= xgpu::texture::format::BC3_8RGBA       ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::BC4_4R)]          = xgpu::texture::format::BC4_4R          ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::BC5_8RG)]         = xgpu::texture::format::BC5_8RG         ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::BC5_8YX_NORMAL)]  = xgpu::texture::format::BC5_8RG         ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::BC6H_8RGB_FLOAT)] = xgpu::texture::format::BC6H_8RGB_FLOAT ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::BC7_8RGBA)]       = xgpu::texture::format::BC7_8RGBA       ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::ETC2_4RGB)]       = xgpu::texture::format::ETC2_4RGB       ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::ETC2_4RGBA1)]     = xgpu::texture::format::ETC2_4RGBA1     ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::ETC2_8RGBA)]      = xgpu::texture::format::ETC2_8RGBA      ;
+
+        return Table;
+    }();
+
     //---------------------------------------------------------------------------------------
 
     constexpr
     xgpu::texture::format getFormat( xcore::bitmap::format Fmt ) noexcept
     {
-        /*
-        switch(Fmt)
-        {
-            case xcore::bitmap::format::INVALID             : return xgpu::texture::format::INVALID                   ;
-            case xcore::bitmap::format::B8G8R8A8            : return xgpu::texture::format::B8G8R8A8                  ;
-            case xcore::bitmap::format::B8G8R8U8            : return xgpu::texture::format::B8G8R8U8                  ;
-            case xcore::bitmap::format::A8R8G8B8            : return xgpu::texture::format::A8R8G8B8                  ;
-            case xcore::bitmap::format::U8R8G8B8            : return xgpu::texture::format::U8R8G8B8                  ;
-            case xcore::bitmap::format::R8G8B8U8            : return xgpu::texture::format::R8G8B8U8                  ;
-            case xcore::bitmap::format::R8G8B8A8            : return xgpu::texture::format::R8G8B8A8                  ;
-            case xcore::bitmap::format::R8G8B8              : return xgpu::texture::format::R8G8B8                    ;
-            case xcore::bitmap::format::R4G4B4A4            : return xgpu::texture::format::R4G4B4A4                  ;
-            case xcore::bitmap::format::R5G6B5              : return xgpu::texture::format::R5G6B5                    ;
-            case xcore::bitmap::format::B5G5R5A1            : return xgpu::texture::format::B5G5R5A1                  ;
-            case xcore::bitmap::format::BC1_4RGB            : return xgpu::texture::format::BC1_4RGB                  ;
-            case xcore::bitmap::format::BC1_4RGBA1          : return xgpu::texture::format::BC1_4RGBA1                ;
-            case xcore::bitmap::format::BC2_8RGBA           : return xgpu::texture::format::BC2_8RGBA                 ;
-            case xcore::bitmap::format::BC3_8RGBA           : return xgpu::texture::format::BC3_8RGBA                 ;
-            case xcore::bitmap::format::BC4_4R              : return xgpu::texture::format::BC4_4R                    ;
-            case xcore::bitmap::format::BC5_8RG             : return xgpu::texture::format::BC5_8RG                   ;
-            case xcore::bitmap::format::BC6H_8RGB_FLOAT     : return xgpu::texture::format::BC6H_8RGB_FLOAT           ;
-            case xcore::bitmap::format::BC7_8RGBA           : return xgpu::texture::format::BC7_8RGBA                 ;
-            case xcore::bitmap::format::ETC2_4RGB           : return xgpu::texture::format::ETC2_4RGB                 ;
-            case xcore::bitmap::format::ETC2_4RGBA1         : return xgpu::texture::format::ETC2_4RGBA1               ;
-            case xcore::bitmap::format::ETC2_8RGBA          : return xgpu::texture::format::ETC2_8RGBA                ;
-        }
-        */
-        static_assert( (int)xcore::bitmap::format::INVALID                  ==          (int)xgpu::texture::format::INVALID                     );
-        static_assert( (int)xcore::bitmap::format::B8G8R8A8                 ==          (int)xgpu::texture::format::B8G8R8A8                    );
-        static_assert( (int)xcore::bitmap::format::B8G8R8U8                 ==          (int)xgpu::texture::format::B8G8R8U8                    );
-        static_assert( (int)xcore::bitmap::format::A8R8G8B8                 ==          (int)xgpu::texture::format::A8R8G8B8                    );
-        static_assert( (int)xcore::bitmap::format::U8R8G8B8                 ==          (int)xgpu::texture::format::U8R8G8B8                    );
-        static_assert( (int)xcore::bitmap::format::R8G8B8U8                 ==          (int)xgpu::texture::format::R8G8B8U8                    );
-        static_assert( (int)xcore::bitmap::format::R8G8B8A8                 ==          (int)xgpu::texture::format::R8G8B8A8                    );
-        static_assert( (int)xcore::bitmap::format::R4G4B4A4                 ==          (int)xgpu::texture::format::R4G4B4A4                    );
-        static_assert( (int)xcore::bitmap::format::R5G6B5                   ==          (int)xgpu::texture::format::R5G6B5                      );
-        static_assert( (int)xcore::bitmap::format::B5G5R5A1                 ==          (int)xgpu::texture::format::B5G5R5A1                    );
-        static_assert( (int)xcore::bitmap::format::BC1_4RGB                 ==          (int)xgpu::texture::format::BC1_4RGB                    );
-        static_assert( (int)xcore::bitmap::format::BC1_4RGBA1               ==          (int)xgpu::texture::format::BC1_4RGBA1                  );
-        static_assert( (int)xcore::bitmap::format::BC2_8RGBA                ==          (int)xgpu::texture::format::BC2_8RGBA                   );
-        static_assert( (int)xcore::bitmap::format::BC3_8RGBA                ==          (int)xgpu::texture::format::BC3_8RGBA                   );
-        static_assert( (int)xcore::bitmap::format::BC4_4R                   ==          (int)xgpu::texture::format::BC4_4R                      );
-        static_assert( (int)xcore::bitmap::format::BC5_8RG                  ==          (int)xgpu::texture::format::BC5_8RG                     );
-        static_assert( (int)xcore::bitmap::format::BC6H_8RGB_FLOAT          ==          (int)xgpu::texture::format::BC6H_8RGB_FLOAT             );
-        static_assert( (int)xcore::bitmap::format::BC7_8RGBA                ==          (int)xgpu::texture::format::BC7_8RGBA                   );
-        static_assert( (int)xcore::bitmap::format::ETC2_4RGB                ==          (int)xgpu::texture::format::ETC2_4RGB                   );
-        static_assert( (int)xcore::bitmap::format::ETC2_4RGBA1              ==          (int)xgpu::texture::format::ETC2_4RGBA1                 );
-        static_assert( (int)xcore::bitmap::format::ETC2_8RGBA               ==          (int)xgpu::texture::format::ETC2_8RGBA                  );
-
-        return static_cast<xgpu::texture::format>(Fmt);
+        assert(table_xbmp_to_xgpu_v[static_cast<std::size_t>(Fmt)] != xgpu::texture::format::INVALID );
+        return table_xbmp_to_xgpu_v[static_cast<std::size_t>(Fmt)];
     }
 
     //---------------------------------------------------------------------------------------

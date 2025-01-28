@@ -6,13 +6,14 @@ layout(location = 2) in vec4 aColor;
 layout(push_constant) uniform uPushConstant 
 { 
    float MipLevel;
-   float    m_Padding;
+   float ToGamma;
    vec2  uScale; 
    vec2  uTranslate; 
    vec2  uvScale; 
    vec4  TintColor;
    vec4  ColorMask; 
    vec4  Mode;
+   vec4  NormalModes;
 } pc;
 
 out gl_PerVertex { vec4 gl_Position; };
