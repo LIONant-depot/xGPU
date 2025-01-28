@@ -170,8 +170,6 @@ namespace e10
         , const bool bOutputInConsole 
         )
         {
-            std::cout << "Begin Compilation\n";
-
             SECURITY_ATTRIBUTES saAttr;
             saAttr.nLength = sizeof(SECURITY_ATTRIBUTES);
             saAttr.bInheritHandle = TRUE;
@@ -573,9 +571,13 @@ namespace e10
                             , O.m_DebugLevel == debug::D0 ? "D0" : O.m_DebugLevel == debug::D1 ? "D1" : "Dz"
                             , O.m_DescriptorRelativePath.c_str()
                             , O.m_OutputPath.c_str()
-                            );
+                        );
 
-                        std::cout << "Command Line:\n" << CommandLine << "\n";
+                        if (O.m_bOutputInConsole)
+                        {
+                            std::cout << "Command Line:\n" << CommandLine << "\n";
+                        }
+
                         O.m_CompilerThread = std::make_unique<std::thread>(RunCompiler, std::ref(O), std::move(CommandLine) );
                         
                     }
