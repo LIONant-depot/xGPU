@@ -81,9 +81,11 @@ namespace e10
 struct errors
 {
     std::vector<std::string> m_Errors;
+
     XPROPERTY_DEF
-    ( "Validation", errors
-    , obj_member_ro<"ErrorList", &errors::m_Errors, member_ui_open<true> >
+    ( "Validation"
+    , errors
+    , obj_member_ro<"ValidationErrorList", &errors::m_Errors, member_ui_open<true> >\
     )
 };
 XPROPERTY_REG(errors)
@@ -446,6 +448,7 @@ int E10_Example()
     draw_options            DrawOptions;
     e05::bitmap_inspector   BitmapInspector;
     draw_controls           DrawControls;
+    errors                  Errors;
 
     //
     // This will be the texture that we compiled
@@ -506,7 +509,6 @@ int E10_Example()
     // Storate some input context
     //
     int             iActiveImage  = 0;
-    errors          Errors;
 
     //
     // Setup the inspector windows

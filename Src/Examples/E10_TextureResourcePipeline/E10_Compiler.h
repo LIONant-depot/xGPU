@@ -7,22 +7,25 @@ namespace e10
     //------------------------------------------------------------------------------------------------
 
     // Function to convert a wstring to lowercase using standard functions
-    inline std::wstring ToLower(const std::wstring& str) noexcept
+    template< typename T_STRING >
+    inline T_STRING ToLower(const T_STRING& str) noexcept
     {
-        std::wstring lowerStr(str.size(), L'\0');
+        using char_t = std::remove_reference_t<decltype(str[0])>;
+        T_STRING lowerStr(str.size(), char_t{'\0'});
         std::transform(str.begin(), str.end(), lowerStr.begin(),
-            [](wchar_t c) { return std::tolower(c, std::locale()); });
+            [](char_t c) { return std::tolower(c, std::locale()); });
         return lowerStr;
     }
 
     //------------------------------------------------------------------------------------------------
 
     // Function to find a case-insensitive substring in a wstring using standard functions
-    inline size_t FindCaseInsensitive(const std::wstring& haystack, const std::wstring& needle) noexcept
+    template< typename T_STRING>
+    inline size_t FindCaseInsensitive(const T_STRING& haystack, const T_STRING& needle, std::size_t Pos = 0) noexcept
     {
-        std::wstring lowerHaystack = ToLower(haystack);
-        std::wstring lowerNeedle   = ToLower(needle);
-        return lowerHaystack.find(lowerNeedle);
+        T_STRING lowerHaystack = ToLower(haystack);
+        T_STRING lowerNeedle   = ToLower(needle);
+        return lowerHaystack.find(lowerNeedle, Pos);
     }
 
     //------------------------------------------------------------------------------------------------
@@ -136,6 +139,10 @@ namespace e10
         //------------------------------------------------------------------------------------------------
 
         xcore::lock::object<std::string, xcore::lock::spin>     m_CompilerFeedback;
+        xcore::lock::object<std::string, xcore::lock::spin>     m_CompilerRawlog;
+        std::vector<std::string>                                m_CompilationWarnings;
+        std::vector<std::string>                                m_CompilationInfo;
+        std::vector<std::string>                                m_CompilationErrors;
         compilation_state                                       m_CompilationState  = compilation_state::IDLE;
         std::string                                             m_CompilerDebugPath;
         std::string                                             m_CompilerReleasePath;
@@ -156,7 +163,12 @@ namespace e10
 
         //------------------------------------------------------------------------------------------------
 
-        static void RunCommandLine(const std::wstring& WStrCommanLine, xcore::lock::object<std::string, xcore::lock::spin>& CompilerFeedback, const bool bOutputInConsole )
+        static void RunCommandLine
+        ( const std::wstring& WStrCommanLine
+        , xcore::lock::object<std::string, xcore::lock::spin>&  CompilerFeedback
+        , xcore::lock::object<std::string, xcore::lock::spin>&  RawLogs
+        , const bool bOutputInConsole 
+        )
         {
             std::cout << "Begin Compilation\n";
 
@@ -260,25 +272,27 @@ namespace e10
             // Check if we were successful
             //
             {
-                xcore::lock::scope lock(CompilerFeedback);
-                auto& Str = CompilerFeedback.get();
-                if (Str.find("[COMPILATION_SUCCESS]") != std::string::npos)
+                xcore::lock::scope lock1(RawLogs);
+                xcore::lock::scope lock2(CompilerFeedback);
+
+                RawLogs.get() = std::move(CompilerFeedback.get());
+                
+                auto& Str = RawLogs.get();
+                if (FindCaseInsensitive( Str, {"[COMPILATION_SUCCESS]"} ) != std::string::npos)
                 {
-                    if (Str.find("[Warning]") != std::string::npos)
+                    if (FindCaseInsensitive(Str, {"[Warning]"}) != std::string::npos)
                     {
-                        std::cout << "SUCCESSFUL Compilation with Warnings\n";
+                        CompilerFeedback.get() = "SUCCESSFUL + Warnings";
                     }
                     else
                     {
-                        std::cout << "SUCCESSFUL Compilation\n";
-
                         // Nothing to report so let us just tell the user everything is cool...
-                        Str = "SUCCESSFUL";
+                        CompilerFeedback.get() = "SUCCESSFUL";
                     }
                 }
                 else
                 {
-                    std::cout << "ERROR Compilation\n";
+                    CompilerFeedback.get() = "FAILURE";
                 }
             }
         }
@@ -345,7 +359,7 @@ namespace e10
             std::string xGPU;
 
             std::wcout << L"Full path: " << szFileName << L"\n";
-            if (auto I = e10::FindCaseInsensitive(szFileName, L"xGPU"); I != -1)
+            if (auto I = e10::FindCaseInsensitive( std::wstring{szFileName}, {L"xGPU"}); I != -1)
             {
                 I += 4; // Skip the xGPU part
                 szFileName[I] = 0;
@@ -406,7 +420,12 @@ namespace e10
                 std::wstring FinalCommand;
                 std::transform(CommandLine.begin(), CommandLine.end(), std::back_inserter(FinalCommand), [](char c) {return (wchar_t)c; });
 
-                RunCommandLine(FinalCommand, Instance.m_CompilerFeedback, Instance.m_bOutputInConsole);
+                RunCommandLine
+                ( FinalCommand
+                , Instance.m_CompilerFeedback
+                , Instance.m_CompilerRawlog
+                , Instance.m_bOutputInConsole
+                );
 
                 Instance.m_CompilationState = compilation_state::DONE_SUCCESS;
             }
@@ -427,6 +446,60 @@ namespace e10
                 m_CompilerThread->join();
                 m_CompilerThread.reset();
 
+                //
+                // Update the logs
+                //
+                {
+                    xcore::lock::scope lock(m_CompilerRawlog);
+                    auto& RawLog = m_CompilerRawlog.get();
+
+                    m_CompilationErrors.clear();
+                    m_CompilationWarnings.clear();
+                    m_CompilationInfo.clear();
+
+                    //
+                    // Collect all errors
+                    //
+                    if (RawLog.size())
+                    {
+                        // Collect all errors 
+                        for (auto pos = e10::FindCaseInsensitive(RawLog, { "[Error]" }); pos != std::string::npos; pos = e10::FindCaseInsensitive(RawLog, { "[Error]" }, pos + 1))
+                        {
+                            auto End = RawLog.find_first_of("\n", pos);
+                            m_CompilationErrors.push_back(RawLog.substr(pos, End - pos));
+                            pos = End - 1;
+                        }
+
+                        // Collect all warnings
+                        for (auto pos = e10::FindCaseInsensitive(RawLog, { "[Warning]" }); pos != std::string::npos; pos = e10::FindCaseInsensitive(RawLog, { "[Warning]" }, pos + 1))
+                        {
+                            auto End = RawLog.find_first_of("\n", pos);
+                            m_CompilationWarnings.push_back(RawLog.substr(pos, End - pos));
+                            pos = End - 1;
+                        }
+
+                        // Collect all warnings
+                        for (auto pos = e10::FindCaseInsensitive(RawLog, { "[Info]" }); pos != std::string::npos; pos = e10::FindCaseInsensitive(RawLog, { "[Info]" }, pos + 1))
+                        {
+                            auto End = RawLog.find_first_of("\n", pos);
+
+                            if (auto p = RawLog.find("-----", pos); p < End)
+                            {
+                                // This is just a delimiter... ignore it
+                            }
+                            else
+                            {
+                                m_CompilationInfo.push_back(RawLog.substr(pos, End - pos));
+                            }
+
+                            pos = End - 1;
+                        }
+                    }
+                }
+
+                //
+                // Update the state
+                //
                 if (m_CompilationState == compilation_state::DONE_SUCCESS)
                 {
                     m_CompilationState = compilation_state::IDLE;
@@ -518,15 +591,20 @@ namespace e10
                           "Then it will trigger a compilation base on the options seem below and it will generate a new dds file. "
                           "Once it finish the compilation the editor will reload the texture and show the new version. "
             >>
+        , obj_scope< "Last Compilation"
             , obj_member_ro
-            < "Compiler Result"
-            , +[](compiler& O, bool bRead, std::string& Value)
-            {
-                xcore::lock::scope lock(O.m_CompilerFeedback);
-                Value = O.m_CompilerFeedback.get();
-            }
-            , member_help<"Reports the state of the compilation. However to see the compiler working, or if there are errors there will be here to see..."
-            >>
+                < "Compiler Result"
+                , +[](compiler& O, bool bRead, std::string& Value)
+                {
+                    xcore::lock::scope lock(O.m_CompilerFeedback);
+                    Value = O.m_CompilerFeedback.get();
+                }
+                , member_help<"Reports the state of the compilation. However to see the compiler working, or if there are errors there will be here to see..."
+                >>
+            , obj_member_ro<"Errors", &compiler::m_CompilationErrors, member_ui_open<true>>
+            , obj_member_ro<"Warnings", &compiler::m_CompilationWarnings, member_ui_open<true>>
+            , obj_member_ro<"Info", &compiler::m_CompilationInfo, member_ui_open<false>>
+            >
         , obj_member
             < "bOutputInConsole"
             , &compiler::m_bOutputInConsole
