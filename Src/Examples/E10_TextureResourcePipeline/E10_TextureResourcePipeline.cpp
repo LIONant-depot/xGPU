@@ -266,19 +266,6 @@ XPROPERTY_REG(draw_options)
 
 //------------------------------------------------------------------------------------------------
 
-void LoadTexture(const std::string& ResourcePath, xgpu::texture& Texture, xgpu::device& Device, e05::bitmap_inspector& BmpInspector )
-{
-    BmpInspector.Load(ResourcePath.c_str());
-
-    if (auto Err = xgpu::tools::bitmap::Create(Texture, Device, *BmpInspector.m_pBitmap); Err)
-    {
-        e10::DebugMessage(xgpu::getErrorMsg(Err));
-        std::exit(xgpu::getErrorInt(Err));
-    }
-}
-
-//------------------------------------------------------------------------------------------------
-
 int E10_Example()
 {
     xgpu::instance Instance;
@@ -461,7 +448,13 @@ int E10_Example()
     {
         xgpu::texture Texture;
 
-        LoadTexture(Compiler->m_ResourcePath, Texture, Device, BitmapInspector);
+        BitmapInspector.Load(Compiler->m_ResourcePath.c_str());
+
+        if (auto Err = xgpu::tools::bitmap::Create(Texture, Device, *BitmapInspector.m_pBitmap); Err)
+        {
+            e10::DebugMessage(xgpu::getErrorMsg(Err));
+            std::exit(xgpu::getErrorInt(Err));
+        }
 
         // Set the max mip levels
         // Make sure the current level is within the range
