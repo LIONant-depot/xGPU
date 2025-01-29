@@ -35,8 +35,8 @@ layout(push_constant) uniform uPushConstant
 
 void main() 
 {
-    vec4 Color     = texture( uSamplerColor, In.UV )                 *    pc.Mode.z + 
-                     textureLod( uSamplerColor, In.UV, pc.MipLevel ) * (1-pc.Mode.z);
+    vec4 Color     = texture( uSamplerColor, In.UV )                 *    pc.Mode.w + 
+                     textureLod( uSamplerColor, In.UV, pc.MipLevel ) * (1-pc.Mode.w);
 
     // Decode the normal
     float DisplayNormal = dot(pc.NormalModes.xy, pc.NormalModes.xy);
