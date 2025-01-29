@@ -4,7 +4,10 @@
 
 layout (binding = 0)    uniform     sampler2D   uSamplerColor; // [INPUT_TEXTURE]
 
-layout(location = 0) in struct { vec2 UV; } In;
+layout(location = 0) in struct 
+{ 
+    vec2  UV; 
+} In;
 
 layout (location = 0)   out         vec4        outFragColor;
 
@@ -19,6 +22,8 @@ layout(push_constant) uniform uPushConstant
    vec4  ColorMask; 
    vec4  Mode;
    vec4  NormalModes;
+   mat4  L2C;
+   vec3  LocalSpaceLightPos;
 } pc;
 
 

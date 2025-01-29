@@ -896,10 +896,16 @@
     <CustomBuild Include="..\..\Src\Examples\E18_QuantizeSkinVertex\e18_quantize_skingeom_vert.glsl">
       <Filter>Examples\Example 18 QuantizeSkinVertex</Filter>
     </CustomBuild>
-    <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_frag.glsl">
+    <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_2d_frag.glsl">
       <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
     </CustomBuild>
-    <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_vert.glsl">
+    <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_2d_vert.glsl">
+      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_3d_vert.glsl">
+      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_3d_frag.glsl">
       <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
     </CustomBuild>
   </ItemGroup>

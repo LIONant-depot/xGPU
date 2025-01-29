@@ -2,8 +2,9 @@
 #include "../../tools/xgpu_imgui_breach.h"
 #include "../../tools/xgpu_xcore_bitmap_helpers.h"
 #include "../../dependencies/xtexture.plugin/dependencies/xresource_pipeline_v2/dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
-#include "../../dependencies/xtexture.plugin/dependencies/xbmp_tools/src/xbmp_tools.h"
 #include "../../tools/xgpu_basis_universal_texture_loader.h"
+#include "../../dependencies/xprim_geom/src/xprim_geom.h"
+#include "../../tools/xgpu_view.h"
 #include <format>
 
 // This define forces the pipeline to ignore including the empty functions that the compiler needs to link
@@ -12,13 +13,22 @@
 #include "../../dependencies/xtexture.plugin/source/xtexture_rsc_descriptor.h"
 #include "imgui_internal.h"
 
-constexpr auto g_VertShaderSPV = std::array
+constexpr auto g_VertShader2DSPV = std::array
 {
-    #include "x64\e10_vert.h"
+    #include "x64\e10_2d_vert.h"
 };
-constexpr auto g_FragShaderSPV = std::array
+constexpr auto g_FragShader2DSPV = std::array
 {
-    #include "x64\e10_frag.h"
+    #include "x64\e10_2d_frag.h"
+};
+
+constexpr auto g_VertShader3DSPV = std::array
+{
+    #include "x64\e10_3d_vert.h"
+};
+constexpr auto g_FragShader3DSPV = std::array
+{
+    #include "x64\e10_3d_frag.h"
 };
 
 static_assert(xproperty::meta::meets_requirements_v< true, false, std::string> );
@@ -58,6 +68,8 @@ namespace e10
         xcore::vector4 m_ColorMask      {0};
         xcore::vector4 m_Mode           {0};
         xcore::vector4 m_NormalModes    {0};
+        xcore::matrix4 m_L2C;
+        xcore::vector3 m_LocalSpaceLightPosition;
     };
 
     //------------------------------------------------------------------------------------------------
@@ -166,7 +178,22 @@ XPROPERTY_REG(draw_controls)
 
 struct draw_options
 {
-    enum class mode
+    enum class render_mode
+    { RENDER_2D
+    , RENDER_3D
+    , RENDER_3D_WITH_LIGHTING
+    };
+
+    static constexpr auto render_modes_v = std::array
+    { xproperty::settings::enum_item("2D",   render_mode::RENDER_2D,  "Renders the texture in a 2D plane. Good for close examination of a general texture.")
+    , xproperty::settings::enum_item("3D",   render_mode::RENDER_3D,  "Renders using a 3d cube to see the textures in different angles. Good to check any mipmap issues")
+    , xproperty::settings::enum_item("3D_LIGHTING",   render_mode::RENDER_3D_WITH_LIGHTING,  "Renders using a 3d cube assuming that the texture is a normal map. "
+                                                                                              "It will render using a diffuse lighting. This method is good for checking "
+                                                                                              "the quality of your normal maps.\nNOTE: You can freeze and unfreeze the light "
+                                                                                              "direction by pressing the space bar.")
+    };
+
+    enum class channels_mode
     { COLOR_ALPHA
     , NO_ALPHA
     , A_ONLY
@@ -175,13 +202,13 @@ struct draw_options
     , B_ONLY
     };
 
-    static constexpr auto mode_v = std::array
-    { xproperty::settings::enum_item("COLOR + ALPHA",   mode::COLOR_ALPHA,  "Render the image normally using all the channels available")
-    , xproperty::settings::enum_item("NO_ALPHA",        mode::NO_ALPHA,     "Render the image normally using all available channels except Alpha. Alpha will be set to opaque.")
-    , xproperty::settings::enum_item("A_ONLY",          mode::A_ONLY,       "Renders only the alpha channel as a single color without any alpha")
-    , xproperty::settings::enum_item("R_ONLY",          mode::R_ONLY,       "Renders only the red channel as a single color without any alpha")
-    , xproperty::settings::enum_item("G_ONLY",          mode::G_ONLY,       "Renders only the green channel as a single color without any alpha")
-    , xproperty::settings::enum_item("B_ONLY",          mode::B_ONLY,       "Renders only the blue channel as a single color without any alpha")
+    static constexpr auto channels_mode_v = std::array
+    { xproperty::settings::enum_item("COLOR + ALPHA",   channels_mode::COLOR_ALPHA,  "Render the image normally using all the channels available")
+    , xproperty::settings::enum_item("NO_ALPHA",        channels_mode::NO_ALPHA,     "Render the image normally using all available channels except Alpha. Alpha will be set to opaque.")
+    , xproperty::settings::enum_item("A_ONLY",          channels_mode::A_ONLY,       "Renders only the alpha channel as a single color without any alpha")
+    , xproperty::settings::enum_item("R_ONLY",          channels_mode::R_ONLY,       "Renders only the red channel as a single color without any alpha")
+    , xproperty::settings::enum_item("G_ONLY",          channels_mode::G_ONLY,       "Renders only the green channel as a single color without any alpha")
+    , xproperty::settings::enum_item("B_ONLY",          channels_mode::B_ONLY,       "Renders only the blue channel as a single color without any alpha")
     };
 
     enum class display_gamma_mode
@@ -196,9 +223,10 @@ struct draw_options
     , xproperty::settings::enum_item("RAW_DATA_INFILE", display_gamma_mode::RAW_DATA_INFILE,    "This is the raw data in the file. Useful to see the kind of precision of the data.")
     };
 
+    render_mode         m_RenderMode            = render_mode::RENDER_2D;  
     float               m_UVScale               = 1;
     float               m_BackgroundIntensity   = 0.76f;
-    mode                m_Mode                  = mode::COLOR_ALPHA;
+    channels_mode       m_ChannelsMode          = channels_mode::COLOR_ALPHA;
     bool                m_bBilinearMode         = false;
     int                 m_ChooseMipLevel        = -1;
     int                 m_MaxMipLevels          = 0;
@@ -207,6 +235,13 @@ struct draw_options
 
     XPROPERTY_DEF
     ("Render", draw_options
+    , obj_member
+        < "Render Mode"
+        , &draw_options::m_RenderMode
+        , member_enum_span<render_modes_v>
+        , member_help<"Changes between 2D and 3D views for your texture."
+        >>
+
     , obj_member
         < "Bilinear"
         , &draw_options::m_bBilinearMode
@@ -219,9 +254,9 @@ struct draw_options
         , member_help<"Scales the UV of the image"
         >>
     , obj_member
-        < "Render Mode"
-        , &draw_options::m_Mode
-        , member_enum_span<mode_v>
+        < "Channels Mode"
+        , &draw_options::m_ChannelsMode
+        , member_enum_span<channels_mode_v>
         , member_help<"Renders the image following one of the rules selected"
         >>
     , obj_member
@@ -281,63 +316,60 @@ int E10_Example()
         return xgpu::getErrorInt(Err);
 
     //
-    // Define materials
+    // Define 2d materials
     //
-    xgpu::pipeline BilinearPipeline;
-    xgpu::pipeline NearestPipeline;
+    xgpu::pipeline BilinearPipeline2D;
+    xgpu::pipeline NearestPipeline2D;
     {
-        xgpu::vertex_descriptor VertexDescriptor;
+        xgpu::vertex_descriptor VertexDescriptor2D;
         {
             auto Attributes = std::array
             {
                 xgpu::vertex_descriptor::attribute
-                {
-                    .m_Offset = offsetof(e10::vert_2d, m_X)
-                ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
+                { .m_Offset = offsetof(e10::vert_2d, m_X)
+                , .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
                 }
             ,   xgpu::vertex_descriptor::attribute
-                {
-                    .m_Offset = offsetof(e10::vert_2d, m_U)
-                ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
+                { .m_Offset = offsetof(e10::vert_2d, m_U)
+                , .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
                 }
             };
             auto Setup = xgpu::vertex_descriptor::setup
-            {
-                .m_VertexSize = sizeof(e10::vert_2d)
-            ,   .m_Attributes = Attributes
+            { .m_VertexSize = sizeof(e10::vert_2d)
+            , .m_Attributes = Attributes
             };
 
-            if (auto Err = Device.Create(VertexDescriptor, Setup); Err)
+            if (auto Err = Device.Create(VertexDescriptor2D, Setup); Err)
                 return xgpu::getErrorInt(Err);
         }
 
-        xgpu::shader MyFragmentShader;
+        xgpu::shader MyFragmentShader2D;
         {
             xgpu::shader::setup Setup
             { .m_Type = xgpu::shader::type::bit::FRAGMENT
-            , .m_Sharer = xgpu::shader::setup::raw_data{ g_FragShaderSPV }
+            , .m_Sharer = xgpu::shader::setup::raw_data{ g_FragShader2DSPV }
             };
-            if (auto Err = Device.Create(MyFragmentShader, Setup); Err)
+            if (auto Err = Device.Create(MyFragmentShader2D, Setup); Err)
                 return xgpu::getErrorInt(Err);
         }
 
-        xgpu::shader MyVertexShader;
+        xgpu::shader MyVertexShader2D;
         {
             xgpu::shader::setup Setup
             {
                 .m_Type = xgpu::shader::type::bit::VERTEX
-            ,   .m_Sharer = xgpu::shader::setup::raw_data{g_VertShaderSPV}
+            ,   .m_Sharer = xgpu::shader::setup::raw_data{g_VertShader2DSPV}
             };
 
-            if (auto Err = Device.Create(MyVertexShader, Setup); Err)
+            if (auto Err = Device.Create(MyVertexShader2D, Setup); Err)
                 return xgpu::getErrorInt(Err);
         }
 
-        auto Shaders  = std::array<const xgpu::shader*, 2>{ &MyFragmentShader, & MyVertexShader };
+        auto Shaders  = std::array<const xgpu::shader*, 2>{ &MyFragmentShader2D, & MyVertexShader2D };
         auto Samplers = std::array{ xgpu::pipeline::sampler{} };
         auto Setup    = xgpu::pipeline::setup
         {
-            .m_VertexDescriptor  = VertexDescriptor
+            .m_VertexDescriptor  = VertexDescriptor2D
         ,   .m_Shaders           = Shaders
         ,   .m_PushConstantsSize = sizeof(e10::push_contants)
         ,   .m_Samplers          = Samplers
@@ -345,25 +377,114 @@ int E10_Example()
         ,   .m_Blend             = xgpu::pipeline::blend::getAlphaOriginal()
         };
 
-        if (auto Err = Device.Create(BilinearPipeline, Setup); Err)
+        if (auto Err = Device.Create(BilinearPipeline2D, Setup); Err)
             return xgpu::getErrorInt(Err);
 
         Samplers[0].m_MipmapMin = xgpu::pipeline::sampler::mipmap_sampler::NEAREST;
         Samplers[0].m_MipmapMag = xgpu::pipeline::sampler::mipmap_sampler::NEAREST;
-        if (auto Err = Device.Create(NearestPipeline, Setup); Err)
+        if (auto Err = Device.Create(NearestPipeline2D, Setup); Err)
+            return xgpu::getErrorInt(Err);
+    }
+
+    //
+    // Define 3d materials
+    //
+    xgpu::pipeline BilinearPipeline3D;
+    xgpu::pipeline NearestPipeline3D;
+    {
+        xgpu::vertex_descriptor VertexDescriptor3D;
+        {
+            auto Attributes = std::array
+            {
+                xgpu::vertex_descriptor::attribute
+                {
+                    .m_Offset = offsetof(e10::vert_3d, m_Position)
+                ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
+                }
+            ,   xgpu::vertex_descriptor::attribute
+                {
+                    .m_Offset = offsetof(e10::vert_3d, m_Binormal)
+                ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
+                }
+            ,   xgpu::vertex_descriptor::attribute
+                {
+                    .m_Offset = offsetof(e10::vert_3d, m_Tangent)
+                ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
+                }
+            ,   xgpu::vertex_descriptor::attribute
+                {
+                    .m_Offset = offsetof(e10::vert_3d, m_Normal)
+                ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
+                }
+            ,   xgpu::vertex_descriptor::attribute
+                {
+                    .m_Offset = offsetof(e10::vert_3d, m_TexCoord)
+                ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
+                }
+            };
+            auto Setup = xgpu::vertex_descriptor::setup
+            {
+                .m_VertexSize = sizeof(e10::vert_3d)
+            ,   .m_Attributes = Attributes
+            };
+
+            if (auto Err = Device.Create(VertexDescriptor3D, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        xgpu::shader MyFragmentShader3D;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type = xgpu::shader::type::bit::FRAGMENT
+            , .m_Sharer = xgpu::shader::setup::raw_data{ g_FragShader3DSPV }
+            };
+            if (auto Err = Device.Create(MyFragmentShader3D, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        xgpu::shader MyVertexShader3D;
+        {
+            xgpu::shader::setup Setup
+            {
+                .m_Type = xgpu::shader::type::bit::VERTEX
+            ,   .m_Sharer = xgpu::shader::setup::raw_data{g_VertShader3DSPV}
+            };
+
+            if (auto Err = Device.Create(MyVertexShader3D, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        auto Shaders  = std::array<const xgpu::shader*, 2>{ &MyFragmentShader3D, & MyVertexShader3D };
+        auto Samplers = std::array{ xgpu::pipeline::sampler{} };
+        auto Setup    = xgpu::pipeline::setup
+        {
+            .m_VertexDescriptor  = VertexDescriptor3D
+        ,   .m_Shaders           = Shaders
+        ,   .m_PushConstantsSize = sizeof(e10::push_contants)
+        ,   .m_Samplers          = Samplers
+        ,   .m_DepthStencil      = {.m_bDepthTestEnable = true }
+        ,   .m_Blend             = xgpu::pipeline::blend::getAlphaOriginal()
+        };
+
+        if (auto Err = Device.Create(BilinearPipeline3D, Setup); Err)
+            return xgpu::getErrorInt(Err);
+
+        Samplers[0].m_MipmapMin = xgpu::pipeline::sampler::mipmap_sampler::NEAREST;
+        Samplers[0].m_MipmapMag = xgpu::pipeline::sampler::mipmap_sampler::NEAREST;
+        if (auto Err = Device.Create(NearestPipeline3D, Setup); Err)
             return xgpu::getErrorInt(Err);
 
     }
 
     //
-    // Setup the meshes
+    // Setup the 2D meshes
     //
-    xgpu::buffer VertexBuffer;
+    xgpu::buffer VertexBuffer2D;
     {
-        if (auto Err = Device.Create(VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e10::vert_2d), .m_EntryCount = 4 }); Err)
+        if (auto Err = Device.Create(VertexBuffer2D, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e10::vert_2d), .m_EntryCount = 4 }); Err)
             return xgpu::getErrorInt(Err);
 
-        (void)VertexBuffer.MemoryMap(0, 4, [&](void* pData)
+        (void)VertexBuffer2D.MemoryMap(0, 4, [&](void* pData)
             {
                 auto pVertex = static_cast<e10::vert_2d*>(pData);
                 pVertex[0] = { -100.0f, -100.0f,  0.0f, 0.0f };
@@ -373,12 +494,12 @@ int E10_Example()
             });
     }
 
-    xgpu::buffer IndexBuffer;
+    xgpu::buffer IndexBuffer2D;
     {
-        if (auto Err = Device.Create(IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = 6 }); Err)
+        if (auto Err = Device.Create(IndexBuffer2D, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = 6 }); Err)
             return xgpu::getErrorInt(Err);
 
-        (void)IndexBuffer.MemoryMap(0, 6, [&](void* pData)
+        (void)IndexBuffer2D.MemoryMap(0, 6, [&](void* pData)
             {
                 auto            pIndex = static_cast<std::uint32_t*>(pData);
                 constexpr auto  StaticIndex = std::array
@@ -394,6 +515,57 @@ int E10_Example()
             });
     }
 
+    //
+    // Setup the 3D meshes
+    //
+    xgpu::buffer VertexBuffer3DBox;
+    xgpu::buffer IndexBuffer3dBox;
+    {
+        auto Mesh = xprim_geom::cube::Generate(4, 4, 4, 4, xprim_geom::float3{ 1,1,1 });
+        xcore::vector2 UVScale{ 1,1 };
+
+        //
+        // Vertex buffer
+        //
+        {
+            if (auto Err = Device.Create(VertexBuffer3DBox, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e10::vert_3d), .m_EntryCount = static_cast<int>(Mesh.m_Vertices.size()) }); Err)
+                return xgpu::getErrorInt(Err);
+
+            (void)VertexBuffer3DBox.MemoryMap(0, static_cast<int>(Mesh.m_Vertices.size()), [&](void* pData)
+            {
+                auto pVertex = static_cast<e10::vert_3d*>(pData);
+                for( int i=0; i< static_cast<int>(Mesh.m_Vertices.size()); ++i )
+                {
+                    auto&       V  = pVertex[i];
+                    const auto& v  = Mesh.m_Vertices[i];
+                    V.m_Position.setup( v.m_Position.m_X, v.m_Position.m_Y, v.m_Position.m_Z );
+                    V.m_Normal.setup( v.m_Normal.m_X, v.m_Normal.m_Y, v.m_Normal.m_Z );
+
+                    V.m_Tangent.setup(v.m_Tangent.m_X, v.m_Tangent.m_Y, v.m_Tangent.m_Z);
+                    V.m_Binormal = (xcore::vector3{ V.m_Normal }.Cross(xcore::vector3{ V.m_Tangent } )).NormalizeSafe();
+
+                    V.m_TexCoord.setup(v.m_Texcoord.m_X* UVScale.m_X, v.m_Texcoord.m_Y* UVScale.m_Y);
+                }
+            });
+        }
+        
+        //
+        // index buffer
+        //
+        {
+            if (auto Err = Device.Create(IndexBuffer3dBox, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = static_cast<int>(Mesh.m_Indices.size()) }); Err)
+                return xgpu::getErrorInt(Err);
+
+            (void)IndexBuffer3dBox.MemoryMap(0, static_cast<int>(Mesh.m_Indices.size()), [&](void* pData)
+            {
+                auto            pIndex      = static_cast<std::uint32_t*>(pData);
+                for( int i=0; i< static_cast<int>(Mesh.m_Indices.size()); ++i )
+                {
+                    pIndex[i] = Mesh.m_Indices[i];
+                }
+            });
+        }
+    }
 
     //
     // Setup ImGui
@@ -414,7 +586,7 @@ int E10_Example()
 
         auto  Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
         auto  Setup = xgpu::pipeline_instance::setup
-        { .m_PipeLine = BilinearPipeline
+        { .m_PipeLine = BilinearPipeline2D
         , .m_SamplersBindings = Bindings
         };
 
@@ -442,8 +614,10 @@ int E10_Example()
     //
     // This will be the texture that we compiled
     //
-    xgpu::pipeline_instance BilinearMaterialTexture;
-    xgpu::pipeline_instance NearestMaterialTexture;
+    xgpu::pipeline_instance BilinearMaterialInstanceTexture2D;
+    xgpu::pipeline_instance NearestMaterialInstanceTexture2D;
+    xgpu::pipeline_instance BilinearMaterialInstanceTexture3D;
+    xgpu::pipeline_instance NearestMaterialInstanceTexture3D;
     auto UpdateTextureMaterial = [&]()
     {
         xgpu::texture Texture;
@@ -466,39 +640,68 @@ int E10_Example()
 
         //HACK: This is a huge hack to clear the MaterialTexture
         xgpu::pipeline_instance temp;
-        std::memcpy(&BilinearMaterialTexture, &temp, sizeof(temp));
-        std::memcpy(&NearestMaterialTexture,  &temp, sizeof(temp));
+        std::memcpy(&BilinearMaterialInstanceTexture2D, &temp, sizeof(temp));
+        std::memcpy(&NearestMaterialInstanceTexture2D,  &temp, sizeof(temp));
+        std::memcpy(&BilinearMaterialInstanceTexture3D, &temp, sizeof(temp));
+        std::memcpy(&NearestMaterialInstanceTexture3D, &temp, sizeof(temp));
 
         auto  Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
 
-        // Bilinear mode
+        // Bilinear mode for 2d
         {
             auto  Setup = xgpu::pipeline_instance::setup
-            { .m_PipeLine         = BilinearPipeline
+            { .m_PipeLine         = BilinearPipeline2D
             , .m_SamplersBindings = Bindings
             };
 
-            if (auto Err = Device.Create(BilinearMaterialTexture, Setup); Err)
+            if (auto Err = Device.Create(BilinearMaterialInstanceTexture2D, Setup); Err)
             {
                 e10::DebugMessage(xgpu::getErrorMsg(Err));
                 std::exit(xgpu::getErrorInt(Err));
             }
         }
 
-        // Nearest mode
+        // Bilinear mode for 3d
+        {
+            auto  Setup = xgpu::pipeline_instance::setup
+            { .m_PipeLine           = BilinearPipeline3D
+            , .m_SamplersBindings   = Bindings
+            };
+
+            if (auto Err = Device.Create(BilinearMaterialInstanceTexture3D, Setup); Err)
+            {
+                e10::DebugMessage(xgpu::getErrorMsg(Err));
+                std::exit(xgpu::getErrorInt(Err));
+            }
+        }
+
+        // Nearest mode 2d
         {
             auto Setup = xgpu::pipeline_instance::setup
-            { .m_PipeLine         = NearestPipeline
+            { .m_PipeLine         = NearestPipeline2D
             , .m_SamplersBindings = Bindings
             };
 
-            if (auto Err = Device.Create(NearestMaterialTexture, Setup); Err)
+            if (auto Err = Device.Create(NearestMaterialInstanceTexture2D, Setup); Err)
             {
                 e10::DebugMessage(xgpu::getErrorMsg(Err));
                 std::exit(xgpu::getErrorInt(Err));
             }
         }
 
+        // Nearest mode 3d
+        {
+            auto Setup = xgpu::pipeline_instance::setup
+            { .m_PipeLine         = NearestPipeline3D
+            , .m_SamplersBindings = Bindings
+            };
+
+            if (auto Err = Device.Create(NearestMaterialInstanceTexture3D, Setup); Err)
+            {
+                e10::DebugMessage(xgpu::getErrorMsg(Err));
+                std::exit(xgpu::getErrorInt(Err));
+            }
+        }
     };
 
     //
@@ -524,7 +727,28 @@ int E10_Example()
     Inspectors[1].AppendEntityComponent(*xproperty::getObject(DrawControls), &DrawControls);
     Inspectors[1].AppendEntityComponent(*xproperty::getObject(DrawOptions), &DrawOptions);
     Inspectors[1].AppendEntityComponent(*xproperty::getObject(BitmapInspector), &BitmapInspector );
-    
+
+    //
+    // Create the input devices
+    //
+    xgpu::mouse Mouse;
+    xgpu::keyboard Keyboard;
+    {
+        Instance.Create(Mouse, {});
+        Instance.Create(Keyboard, {});
+    }
+
+    //
+    // 3D view
+    //
+    xgpu::tools::view View;
+
+    View.setFov(60_xdeg);
+    xcore::vector3 FrozenLightPosition;
+    xcore::radian3 Angles;
+    float          Distance = 2;
+    bool           FollowCamera = true;
+
     //
     // Main loop
     //
@@ -541,31 +765,61 @@ int E10_Example()
         //
         if (auto ctx = ImGui::GetCurrentContext(); ctx->HoveredWindow == nullptr || ctx->HoveredWindow->ID == ImGui::GetID("MainDockSpace"))
         {
-            const float  OldScale = DrawControls.m_MouseScale;
-            auto& io = ImGui::GetIO();
-
-            if (io.MouseDown[1] || io.MouseDown[2])
+            if ( DrawOptions.m_RenderMode == draw_options::render_mode::RENDER_2D )
             {
-                if (io.MouseDown[0])
+                const float  OldScale = DrawControls.m_MouseScale;
+                auto& io = ImGui::GetIO();
+
+                if (io.MouseDown[1] || io.MouseDown[2])
                 {
-                    DrawControls.m_MouseScale -= 8000.0f * io.DeltaTime * (io.MouseDelta.y * (2.0f / MainWindowHeight));
+                    if (io.MouseDown[0])
+                    {
+                        DrawControls.m_MouseScale -= 8000.0f * io.DeltaTime * (io.MouseDelta.y * (2.0f / MainWindowHeight));
+                    }
+                    else
+                    {
+                        DrawControls.m_MouseTranslate.m_X += io.MouseDelta.x * (2.0f / MainWindowWidth);
+                        DrawControls.m_MouseTranslate.m_Y += io.MouseDelta.y * (2.0f / MainWindowHeight);
+                    }
                 }
-                else
-                {
-                    DrawControls.m_MouseTranslate.m_X += io.MouseDelta.x * (2.0f / MainWindowWidth);
-                    DrawControls.m_MouseTranslate.m_Y += io.MouseDelta.y * (2.0f / MainWindowHeight);
-                }
+
+                // Wheel scale
+                DrawControls.m_MouseScale += 1.9f * io.MouseWheel;
+                if (DrawControls.m_MouseScale < 0.1f) DrawControls.m_MouseScale = 0.1f;
+
+                // Always zoom from the perspective of the mouse
+                const float mx = ((io.MousePos.x / (float)MainWindowWidth) - 0.5f) * 2.0f;
+                const float my = ((io.MousePos.y / (float)MainWindowHeight) - 0.5f) * 2.0f;
+                DrawControls.m_MouseTranslate.m_X += (DrawControls.m_MouseTranslate.m_X - mx) * (DrawControls.m_MouseScale - OldScale) / OldScale;
+                DrawControls.m_MouseTranslate.m_Y += (DrawControls.m_MouseTranslate.m_Y - my) * (DrawControls.m_MouseScale - OldScale) / OldScale;
             }
+            else
+            {
+                //
+                // Input
+                //
+                if (Mouse.isPressed(xgpu::mouse::digital::BTN_RIGHT))
+                {
+                    auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
+                    Angles.m_Pitch.m_Value -= 0.01f * MousePos[1];
+                    Angles.m_Yaw.m_Value -= 0.01f * MousePos[0];
+                }
 
-            // Wheel scale
-            DrawControls.m_MouseScale += 1.9f * io.MouseWheel;
-            if (DrawControls.m_MouseScale < 0.1f) DrawControls.m_MouseScale = 0.1f;
+                if (Keyboard.wasPressed(xgpu::keyboard::digital::KEY_SPACE))
+                {
+                    FrozenLightPosition = View.getPosition();
+                    FollowCamera = !FollowCamera;
+                }
 
-            // Always zoom from the perspective of the mouse
-            const float mx = ((io.MousePos.x / (float)MainWindowWidth) - 0.5f) * 2.0f;
-            const float my = ((io.MousePos.y / (float)MainWindowHeight) - 0.5f) * 2.0f;
-            DrawControls.m_MouseTranslate.m_X += (DrawControls.m_MouseTranslate.m_X - mx) * (DrawControls.m_MouseScale - OldScale) / OldScale;
-            DrawControls.m_MouseTranslate.m_Y += (DrawControls.m_MouseTranslate.m_Y - my) * (DrawControls.m_MouseScale - OldScale) / OldScale;
+                Distance += Distance * -0.2f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
+                if (Distance < 0.5f) Distance = 0.5f;
+
+                // Update the camera
+                View.LookAt(Distance, Angles, { 0,0,0 });
+
+                static xcore::radian R{ 0 };
+                R += xcore::radian{ 0.001f };
+            }
         }
 
         //
@@ -579,8 +833,8 @@ int E10_Example()
             //
             {
                 CmdBuffer.setPipelineInstance(BackgroundMaterialInstance);
-                CmdBuffer.setBuffer(VertexBuffer);
-                CmdBuffer.setBuffer(IndexBuffer);
+                CmdBuffer.setBuffer(VertexBuffer2D);
+                CmdBuffer.setBuffer(IndexBuffer2D);
 
                 e10::push_contants PushContants;
 
@@ -608,60 +862,55 @@ int E10_Example()
             }
 
             //
-            // Render Image
+            // Render the Texture
             //
-            if( BilinearMaterialTexture.m_Private.get() )
+            if( BilinearMaterialInstanceTexture2D.m_Private.get() )
             {
-                if (DrawOptions.m_bBilinearMode ) CmdBuffer.setPipelineInstance(BilinearMaterialTexture);
-                else                              CmdBuffer.setPipelineInstance(NearestMaterialTexture);
-
-                CmdBuffer.setBuffer(VertexBuffer);
-                CmdBuffer.setBuffer(IndexBuffer);
-
                 e10::push_contants PushContants;
+
                 PushContants.m_Scale = { (DrawControls.m_MouseScale * 2.0f) / MainWindowWidth * BitmapInspector.m_pBitmap->getAspectRatio()
                                        , (DrawControls.m_MouseScale * 2.0f) / MainWindowHeight
                 };
-                PushContants.m_UVScale = DrawOptions.m_UVScale; //.setup(1.0f, 1.0f);
+                PushContants.m_UVScale     = DrawOptions.m_UVScale;
                 PushContants.m_Translation = DrawControls.m_MouseTranslate;
 
                 const float MipMode = DrawOptions.m_ChooseMipLevel == -1 ? 1.0f : 0.0f;
 
-                switch (DrawOptions.m_Mode)
+                switch (DrawOptions.m_ChannelsMode)
                 {
-                case draw_options::mode::COLOR_ALPHA: 
+                case draw_options::channels_mode::COLOR_ALPHA:
                     PushContants.m_ColorMask = xcore::vector4(1);
-                    PushContants.m_Mode      = xcore::vector4(1, 0, 0, MipMode);
+                    PushContants.m_Mode = xcore::vector4(1, 0, 0, MipMode);
                     break;
-                case draw_options::mode::NO_ALPHA:
+                case draw_options::channels_mode::NO_ALPHA:
                     PushContants.m_ColorMask = xcore::vector4(1);
-                    PushContants.m_Mode      = xcore::vector4(0, 0, 1, MipMode);
+                    PushContants.m_Mode = xcore::vector4(0, 0, 1, MipMode);
                     break;
-                case draw_options::mode::A_ONLY:
+                case draw_options::channels_mode::A_ONLY:
                     PushContants.m_ColorMask = xcore::vector4(0, 0, 0, 1);
-                    PushContants.m_Mode      = xcore::vector4(0, 1, 0, MipMode);
+                    PushContants.m_Mode = xcore::vector4(0, 1, 0, MipMode);
                     break;
-                case draw_options::mode::R_ONLY:
+                case draw_options::channels_mode::R_ONLY:
                     PushContants.m_ColorMask = xcore::vector4(1, 0, 0, 0);
-                    PushContants.m_Mode      = xcore::vector4(0, 1, 0, MipMode);
+                    PushContants.m_Mode = xcore::vector4(0, 1, 0, MipMode);
                     break;
-                case draw_options::mode::G_ONLY:
+                case draw_options::channels_mode::G_ONLY:
                     PushContants.m_ColorMask = xcore::vector4(0, 1, 0, 0);
-                    PushContants.m_Mode      = xcore::vector4(0, 1, 0, MipMode);
+                    PushContants.m_Mode = xcore::vector4(0, 1, 0, MipMode);
                     break;
-                case draw_options::mode::B_ONLY:
+                case draw_options::channels_mode::B_ONLY:
                     PushContants.m_ColorMask = xcore::vector4(0, 0, 1, 0);
-                    PushContants.m_Mode      = xcore::vector4(0, 1, 0, MipMode);
+                    PushContants.m_Mode = xcore::vector4(0, 1, 0, MipMode);
                     break;
                 }
 
-                if ( BitmapInspector.m_pBitmap->getFormat() == xcore::bitmap::format::BC3_81Y0X_NORMAL 
-                        && DrawOptions.m_DisplayInGammaMode != draw_options::display_gamma_mode::RAW_DATA_INFILE)
+                if (BitmapInspector.m_pBitmap->getFormat() == xcore::bitmap::format::BC3_81Y0X_NORMAL
+                    && DrawOptions.m_DisplayInGammaMode != draw_options::display_gamma_mode::RAW_DATA_INFILE)
                 {
                     PushContants.m_NormalModes = xcore::vector4(1, 0, 0, 0);
                 }
                 else if (BitmapInspector.m_pBitmap->getFormat() == xcore::bitmap::format::BC5_8YX_NORMAL
-                        && DrawOptions.m_DisplayInGammaMode != draw_options::display_gamma_mode::RAW_DATA_INFILE)
+                    && DrawOptions.m_DisplayInGammaMode != draw_options::display_gamma_mode::RAW_DATA_INFILE)
                 {
                     PushContants.m_NormalModes = xcore::vector4(0, 1, 0, 0);
                 }
@@ -670,12 +919,12 @@ int E10_Example()
                     PushContants.m_NormalModes = xcore::vector4(0, 0, 0, 0);
                 }
 
-                PushContants.m_MipLevel = static_cast<float>(std::max(0,DrawOptions.m_ChooseMipLevel));
+                PushContants.m_MipLevel = static_cast<float>(std::max(0, DrawOptions.m_ChooseMipLevel));
 
                 PushContants.m_TintColor = xcore::vector4(1);
                 switch (DrawOptions.m_DisplayInGammaMode)
                 {
-                case draw_options::display_gamma_mode::GAMMA: 
+                case draw_options::display_gamma_mode::GAMMA:
                     PushContants.m_ToGamma = DrawOptions.m_DisplayGamma;
                     break;
                 case draw_options::display_gamma_mode::LINEAR:
@@ -684,18 +933,63 @@ int E10_Example()
                 case draw_options::display_gamma_mode::RAW_DATA_INFILE:
                     if (BitmapInspector.m_pBitmap->getColorSpace() == xcore::bitmap::color_space::SRGB)
                     {
-                        PushContants.m_ToGamma   = 2.2f;
+                        PushContants.m_ToGamma = 2.2f;
                     }
                     else
                     {
-                        PushContants.m_ToGamma   = 1.0f;
+                        PushContants.m_ToGamma = 1.0f;
                     }
                     break;
                 }
 
-                CmdBuffer.setPushConstants(PushContants);
+                if (DrawOptions.m_RenderMode == draw_options::render_mode::RENDER_2D)
+                {
+                    if (DrawOptions.m_bBilinearMode ) CmdBuffer.setPipelineInstance(BilinearMaterialInstanceTexture2D);
+                    else                              CmdBuffer.setPipelineInstance(NearestMaterialInstanceTexture2D);
 
-                CmdBuffer.Draw(6);
+                    CmdBuffer.setBuffer(VertexBuffer2D);
+                    CmdBuffer.setBuffer(IndexBuffer2D);
+
+
+                    CmdBuffer.setPushConstants(PushContants);
+
+                    CmdBuffer.Draw(6);
+                }
+                else
+                {
+                    //
+                    // Render Image (3D)
+                    //
+                    // Update the view with latest window size
+                    View.setViewport({ 0, 0, (int)MainWindowWidth, (int)MainWindowHeight });
+
+                    if (DrawOptions.m_bBilinearMode) CmdBuffer.setPipelineInstance(BilinearMaterialInstanceTexture3D);
+                    else                             CmdBuffer.setPipelineInstance(NearestMaterialInstanceTexture3D);
+
+                    CmdBuffer.setBuffer(VertexBuffer3DBox);
+                    CmdBuffer.setBuffer(IndexBuffer3dBox);
+
+                    const auto  W2C = View.getW2C();
+                    xcore::matrix4 L2W;
+                    L2W.setIdentity();
+                    L2W.setScale({BitmapInspector.m_pBitmap->getAspectRatio(), 1, BitmapInspector.m_pBitmap->getAspectRatio()});
+
+                    // Take the light to local space of the object
+                    auto W2L = L2W;
+                    W2L.InvertSRT();
+
+                    auto LightPosition = FollowCamera ? View.getPosition() : FrozenLightPosition;
+
+                    PushContants.m_L2C = W2C * L2W;
+                    PushContants.m_LocalSpaceLightPosition = W2L * LightPosition;
+
+                    // Enable lighting if the user requested it
+                    if (DrawOptions.m_RenderMode == draw_options::render_mode::RENDER_3D_WITH_LIGHTING)
+                        PushContants.m_NormalModes.m_Z = 1;
+
+                    CmdBuffer.setPushConstants(PushContants);
+                    CmdBuffer.Draw(IndexBuffer3dBox.getEntryCount());
+                }
             }
         }
 

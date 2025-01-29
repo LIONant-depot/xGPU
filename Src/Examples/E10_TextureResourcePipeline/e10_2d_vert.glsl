@@ -13,12 +13,14 @@ layout(push_constant) uniform uPushConstant
    vec4  ColorMask; 
    vec4  Mode;
    vec4  NormalModes;
+   mat4  L2C;
+   vec3  LocalSpaceLightPos;
 } pc;
 
 out gl_PerVertex { vec4 gl_Position; };
 layout(location = 0) out struct 
 { 
-  vec2 UV; 
+    vec2  UV; 
 } Out;
 
 void main()

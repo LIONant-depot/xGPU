@@ -8,13 +8,21 @@ layout (location = 1) in vec3 inBinormal;   //[INPUT_BINORMAL]
 layout (location = 2) in vec3 inTangent;    //[INPUT_TANGENT]
 layout (location = 3) in vec3 inNormal;     //[INPUT_NORMAL]
 layout (location = 4) in vec2 inUV;         //[INPUT_UVS]
-layout (location = 5) in vec4 inColor;      //[INPUT_COLOR]
 
-layout (push_constant) uniform PushConsts 
-{
-    mat4 L2C;
-    vec3 LocalSpaceLightPos;
-} pushConsts;
+layout(push_constant) uniform uPushConstant 
+{ 
+   float MipLevel;
+   float ToGamma;
+   vec2  uScale; 
+   vec2  uTranslate; 
+   vec2  uvScale; 
+   vec4  TintColor;
+   vec4  ColorMask; 
+   vec4  Mode;
+   vec4  NormalModes;
+   mat4  L2C;
+   vec3  LocalSpaceLightPos;
+} pc;
 
 layout(location = 0) out struct 
 { 
@@ -30,19 +38,19 @@ layout(location = 0) out struct
 void main() 
 {
     // Compute lighting information
-    Out.LocalSpaceLightPosition = pushConsts.LocalSpaceLightPos;
+    Out.LocalSpaceLightPosition = pc.LocalSpaceLightPos;
 
     //-------------------------------------------------------------------------------
-    Out.LocalSpaceLightDir      = normalize( pushConsts.LocalSpaceLightPos - inPos );
+    Out.LocalSpaceLightDir      = normalize( pc.LocalSpaceLightPos - inPos );
     Out.VertexLighting          = max( 0, dot( inNormal, Out.LocalSpaceLightDir ));
     //-------------------------------------------------------------------------------
 
-    Out.UV                      = inUV;
+    Out.UV                      = inUV * pc.uvScale;
 
     Out.BTN                     = mat3( inTangent, inBinormal, inNormal);
     Out.TangentLightDir         = transpose(Out.BTN) * Out.LocalSpaceLightDir;
 
     Out.LocalSpacePosition      = inPos;
 
-    gl_Position                 = pushConsts.L2C * vec4(inPos.xyz, 1.0);
+    gl_Position                 = pc.L2C * vec4(inPos.xyz, 1.0);
 }
