@@ -32,7 +32,17 @@ namespace e10
     {
         float           m_X, m_Y;
         float           m_U, m_V;
-        std::uint32_t   m_Color;
+    };
+
+    //------------------------------------------------------------------------------------------------
+
+    struct vert_3d
+    {
+        xcore::vector3d m_Position;
+        xcore::vector3d m_Binormal;
+        xcore::vector3d m_Tangent;
+        xcore::vector3d m_Normal;
+        xcore::vector2  m_TexCoord;
     };
 
     //------------------------------------------------------------------------------------------------
@@ -74,7 +84,6 @@ namespace e10
         )
     };
     XPROPERTY_REG(ivec2)
-
 }
 
 //------------------------------------------------------------------------------------------------
@@ -117,9 +126,14 @@ struct draw_controls
     float               m_MouseScale     = 1;
     xcore::vector2      m_MouseTranslate = { 0.0f, 0.0f };
     XPROPERTY_DEF
-    ( "Controls", draw_controls
-        , obj_member<"Image Location", &draw_controls::m_MouseTranslate, member_help<"Zooms in and out of the image"> >
-        , obj_member
+    ( "Controls"
+    , draw_controls
+    , obj_member
+        < "Image Location"
+        , &draw_controls::m_MouseTranslate
+        , member_help<"Zooms in and out of the image"
+        >>
+    , obj_member
         < "Recenter"
         , +[](draw_controls& O, bool bRead, std::string& Value)
         {
@@ -129,7 +143,9 @@ struct draw_controls
         , member_ui<std::string>::button<>
         , member_help<"Reset the image at the center of the screen"
         >>
-        , obj_member < "Zoom", +[](draw_controls& O, bool bRead, float& Value)
+    , obj_member 
+        < "Zoom"
+        , +[](draw_controls& O, bool bRead, float& Value)
         {
             if (bRead) Value = O.m_MouseScale;
             else
@@ -188,22 +204,49 @@ struct draw_options
     int                 m_MaxMipLevels          = 0;
     display_gamma_mode  m_DisplayInGammaMode    = display_gamma_mode::GAMMA;
     float               m_DisplayGamma          = 2.2f;
-    bool                m_bCurrentImageIsGamma  = false;
 
     XPROPERTY_DEF
     ("Render", draw_options
-    , obj_member<"Bilinear", &draw_options::m_bBilinearMode, member_help<"Render the texture with bilinear filtering or nearest"> >
-    , obj_member<"UVScale", &draw_options::m_UVScale, member_ui<float>::scroll_bar<1, 10>, member_help<"Scales the UV of the image"> >
-    , obj_member<"Render Mode", &draw_options::m_Mode, member_enum_span<mode_v>, member_help<"Renders the image following one of the rules selected"> >
-    , obj_member<"Background Intensity", &draw_options::m_BackgroundIntensity, member_ui<float>::scroll_bar<0, 3>, member_help<"Changes the intensity of the background"> >
-    , obj_member<"ChooseMip", +[](draw_options& O, bool bRead, int& Value)
+    , obj_member
+        < "Bilinear"
+        , &draw_options::m_bBilinearMode
+        , member_help<"Render the texture with bilinear filtering or nearest"
+        >>
+    , obj_member
+        < "UVScale"
+        , &draw_options::m_UVScale
+        , member_ui<float>::scroll_bar<1, 10>
+        , member_help<"Scales the UV of the image"
+        >>
+    , obj_member
+        < "Render Mode"
+        , &draw_options::m_Mode
+        , member_enum_span<mode_v>
+        , member_help<"Renders the image following one of the rules selected"
+        >>
+    , obj_member
+        < "Background Intensity"
+        , &draw_options::m_BackgroundIntensity
+        , member_ui<float>::scroll_bar<0, 3>
+        , member_help<"Changes the intensity of the background"
+        >>
+    , obj_member
+        < "ChooseMip"
+        , +[](draw_options& O, bool bRead, int& Value)
         {
             if (bRead) Value = O.m_ChooseMipLevel;
             else       O.m_ChooseMipLevel = std::min( O.m_MaxMipLevels, Value);
-        }, member_ui<int>::scroll_bar<-1, 20>, member_help<"Selects a particular mip to render the texture. If you set the value to -1 "
-                                                           "then it will go back to using the texture with all the mips (trilinear when bilinear is enable)"> >
-    , obj_member<"Display Mode", &draw_options::m_DisplayInGammaMode, member_enum_span<display_gamma_mode_v>
-        ,  member_help<"This mode shows the image in gamma (This is the normal mode, also how all the displays works), or it can show the image in LINEAR which is how the shader receives the image."
+        }
+        , member_ui<int>::scroll_bar<-1, 20>
+        , member_help<"Selects a particular mip to render the texture. If you set the value to -1 "
+                      "then it will go back to using the texture with all the mips (trilinear when bilinear is enable)"
+        >>
+    , obj_member
+        < "Display Mode"
+        , &draw_options::m_DisplayInGammaMode
+        , member_enum_span<display_gamma_mode_v>
+        , member_help<"This mode shows the image in gamma (This is the normal mode, also how all the displays works), "
+                      "or it can show the image in LINEAR which is how the shader receives the image."
         >>
     , obj_member
         < "Display Gamma"
@@ -217,58 +260,21 @@ struct draw_options
         } >
         , member_help<"Changes the display gamma for the image"
         >>
-
     )
 };
 XPROPERTY_REG(draw_options)
 
 //------------------------------------------------------------------------------------------------
-float s_AspectRation = 1;
-bool LoadTexture(const std::string& ResourcePath, xgpu::texture& Texture, xgpu::device& Device, e05::bitmap_inspector& BmpInspector )
+
+void LoadTexture(const std::string& ResourcePath, xgpu::texture& Texture, xgpu::device& Device, e05::bitmap_inspector& BmpInspector )
 {
     BmpInspector.Load(ResourcePath.c_str());
-
-/*
-
-    xcore::bitmap* pBitmap;
-    xcore::bitmap  StorageBitmap;
-    std::wcout << L"Loading Texture: " << ResourcePath.c_str() << L"\n";
-
-    if ( ResourcePath.find(".dds" ) != std::string::npos )
-    {
-        pBitmap = &StorageBitmap;
-        if (auto pError = xbmp::tools::loader::LoadDSS(*pBitmap, ResourcePath.c_str()); pError)
-        {
-            e10::DebugMessage("Failed to load the resource dds");
-            std::exit(-1);
-        }
-    }
-    else if (ResourcePath.find(".xbmp") != std::string::npos)
-    {
-        if (auto Err = xcore::bitmap::SerializeLoad(pBitmap, xcore::string::To<wchar_t>(ResourcePath)); Err)
-        {
-            e10::DebugMessage("Failed to load the xbmp resource");
-            std::exit(-1);
-        }
-    }
-    else
-    {
-        e10::DebugMessage("Unknown file format");
-        std::exit(-1);
-    }
-*/
 
     if (auto Err = xgpu::tools::bitmap::Create(Texture, Device, *BmpInspector.m_pBitmap); Err)
     {
         e10::DebugMessage(xgpu::getErrorMsg(Err));
         std::exit(xgpu::getErrorInt(Err));
     }
-
-    s_AspectRation = BmpInspector.m_pBitmap->getAspectRatio();
-
-    bool isGamma = BmpInspector.m_pBitmap->getColorSpace() != xcore::bitmap::color_space::LINEAR;
-
-    return isGamma;
 }
 
 //------------------------------------------------------------------------------------------------
@@ -306,11 +312,6 @@ int E10_Example()
                 {
                     .m_Offset = offsetof(e10::vert_2d, m_U)
                 ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
-                }
-            ,   xgpu::vertex_descriptor::attribute
-                {
-                    .m_Offset = offsetof(e10::vert_2d, m_Color)
-                ,   .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED
                 }
             };
             auto Setup = xgpu::vertex_descriptor::setup
@@ -378,10 +379,10 @@ int E10_Example()
         (void)VertexBuffer.MemoryMap(0, 4, [&](void* pData)
             {
                 auto pVertex = static_cast<e10::vert_2d*>(pData);
-                pVertex[0] = { -100.0f, -100.0f,  0.0f, 0.0f, 0xffffffff };
-                pVertex[1] = { 100.0f, -100.0f,  1.0f, 0.0f, 0xffffffff };
-                pVertex[2] = { 100.0f,  100.0f,  1.0f, 1.0f, 0xffffffff };
-                pVertex[3] = { -100.0f,  100.0f,  0.0f, 1.0f, 0xffffffff };
+                pVertex[0] = { -100.0f, -100.0f,  0.0f, 0.0f };
+                pVertex[1] = { 100.0f, -100.0f,  1.0f, 0.0f  };
+                pVertex[2] = { 100.0f,  100.0f,  1.0f, 1.0f  };
+                pVertex[3] = { -100.0f,  100.0f,  0.0f, 1.0f };
             });
     }
 
@@ -459,7 +460,8 @@ int E10_Example()
     auto UpdateTextureMaterial = [&]()
     {
         xgpu::texture Texture;
-        DrawOptions.m_bCurrentImageIsGamma = LoadTexture(Compiler->m_ResourcePath, Texture, Device, BitmapInspector);
+
+        LoadTexture(Compiler->m_ResourcePath, Texture, Device, BitmapInspector);
 
         // Set the max mip levels
         // Make sure the current level is within the range
@@ -624,7 +626,7 @@ int E10_Example()
                 CmdBuffer.setBuffer(IndexBuffer);
 
                 e10::push_contants PushContants;
-                PushContants.m_Scale = { (DrawControls.m_MouseScale * 2.0f) / MainWindowWidth * s_AspectRation
+                PushContants.m_Scale = { (DrawControls.m_MouseScale * 2.0f) / MainWindowWidth * BitmapInspector.m_pBitmap->getAspectRatio()
                                        , (DrawControls.m_MouseScale * 2.0f) / MainWindowHeight
                 };
                 PushContants.m_UVScale = DrawOptions.m_UVScale; //.setup(1.0f, 1.0f);
@@ -687,7 +689,7 @@ int E10_Example()
                     PushContants.m_ToGamma = 1;
                     break;
                 case draw_options::display_gamma_mode::RAW_DATA_INFILE:
-                    if (DrawOptions.m_bCurrentImageIsGamma)
+                    if (BitmapInspector.m_pBitmap->getColorSpace() == xcore::bitmap::color_space::SRGB)
                     {
                         PushContants.m_ToGamma   = 2.2f;
                     }
