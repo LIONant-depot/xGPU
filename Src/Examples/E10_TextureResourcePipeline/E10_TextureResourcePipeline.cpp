@@ -117,7 +117,7 @@ XPROPERTY_REG(errors)
 #include "E10_Compiler.h"
 
 //------------------------------------------------------------------------------------------------
-// Give properties for xcore::vector2
+// Give properties for xcore::vector2 and xcore::vector3
 //------------------------------------------------------------------------------------------------
 struct vec2_friend : xcore::vector2
 {
@@ -131,48 +131,16 @@ XPROPERTY_REG(vec2_friend)
 
 //------------------------------------------------------------------------------------------------
 
-struct draw_controls
+struct vec3_friend : xcore::vector3
 {
-    float               m_MainWindowWidth;
-    float               m_MainWindowHeight;
-    float               m_MouseScale     = 1;
-    xcore::vector2      m_MouseTranslate = { 0.0f, 0.0f };
     XPROPERTY_DEF
-    ( "Controls"
-    , draw_controls
-    , obj_member
-        < "Image Location"
-        , &draw_controls::m_MouseTranslate
-        , member_help<"Zooms in and out of the image"
-        >>
-    , obj_member
-        < "Recenter"
-        , +[](draw_controls& O, bool bRead, std::string& Value)
-        {
-            if (bRead) Value = "Recenter";
-            else       O.m_MouseTranslate = { 0.0f, 0.0f };
-        }
-        , member_ui<std::string>::button<>
-        , member_help<"Reset the image at the center of the screen"
-        >>
-    , obj_member 
-        < "Zoom"
-        , +[](draw_controls& O, bool bRead, float& Value)
-        {
-            if (bRead) Value = O.m_MouseScale;
-            else
-            {
-                O.m_MouseTranslate.m_X += (O.m_MouseTranslate.m_X) * (Value - O.m_MouseScale) / O.m_MouseScale;
-                O.m_MouseTranslate.m_Y += (O.m_MouseTranslate.m_Y) * (Value - O.m_MouseScale) / O.m_MouseScale;
-                O.m_MouseScale = Value;
-            }
-        }
-        , member_ui<float>::scroll_bar<1, 150>
-        , member_help<"Zooms in and out of the image"
-        >>
+    ("vector3", xcore::vector3, xproperty::settings::vector3_group
+    , obj_member<"X", &xcore::vector3::m_X >
+    , obj_member<"Y", &xcore::vector3::m_Y >
+    , obj_member<"Z", &xcore::vector3::m_Z >
     )
 };
-XPROPERTY_REG(draw_controls)
+XPROPERTY_REG(vec3_friend)
 
 //------------------------------------------------------------------------------------------------
 
@@ -298,6 +266,136 @@ struct draw_options
     )
 };
 XPROPERTY_REG(draw_options)
+
+//------------------------------------------------------------------------------------------------
+
+struct draw_controls
+{
+    draw_options*       m_pOptions                  = nullptr;
+
+    float               m_MainWindowWidth           = {};
+    float               m_MainWindowHeight          = {};
+
+    float               m_2DMouseScale              = 1;
+    xcore::vector2      m_2DMouseTranslate          = { 0.0f, 0.0f };
+
+    xgpu::tools::view   m_3DView                    = {};
+    xcore::vector3      m_3DLightPosition           = {};
+    xcore::radian3      m_3DAngles                  = {};
+    float               m_3DDistance                = 2;
+    bool                m_3DFollowCamera            = true;
+
+    draw_controls() = default;
+    draw_controls(draw_options& O) : m_pOptions(&O)
+    {
+        m_3DView.setFov(60_xdeg);
+        m_3DView.setPosition({ 0,0,m_3DDistance });
+    }
+
+    constexpr static xproperty::flags::type filter_2d(const draw_controls& O)
+    {
+        xproperty::flags::type Flags{};
+        Flags.m_bDontShow = O.m_pOptions->m_RenderMode != draw_options::render_mode::RENDER_2D;
+        return Flags;
+    }
+
+    constexpr static xproperty::flags::type filter_3d(const draw_controls& O)
+    {
+        xproperty::flags::type Flags{};
+        Flags.m_bDontShow = O.m_pOptions->m_RenderMode == draw_options::render_mode::RENDER_2D;
+        return Flags;
+    }
+
+    constexpr static xproperty::flags::type filter_3d_wl(const draw_controls& O)
+    {
+        xproperty::flags::type Flags{};
+        Flags.m_bDontShow = O.m_pOptions->m_RenderMode != draw_options::render_mode::RENDER_3D_WITH_LIGHTING;
+        return Flags;
+    }
+
+    XPROPERTY_DEF
+    ( "Controls"
+    , draw_controls
+    , obj_member
+        < "Image Location"
+        , &draw_controls::m_2DMouseTranslate
+        , member_dynamic_flags<filter_2d>
+        , member_help<"The location of the texture"
+        >>
+    , obj_member_ro
+        < "Camera Location"
+        , +[](draw_controls& O) -> xcore::vector3& { static xcore::vector3 pos; pos = O.m_3DView.getPosition(); return pos; }
+        , member_dynamic_flags<filter_3d>
+        , member_help<"Zooms in and out"
+        >>
+    , obj_member
+        < "Light Location"
+        , &draw_controls::m_3DLightPosition
+        , member_dynamic_flags<filter_3d_wl>
+        , member_help<"The action location of the light relative to the object"
+        >>
+    , obj_member
+        < "Light Follow"
+        , &draw_controls::m_3DFollowCamera
+        , member_dynamic_flags<filter_3d_wl>
+        , member_help<"Tells if the light should follow the camera position or hold in place.\nNOTE: You can press space-bar to achieve the same effect"
+        >>
+    , obj_member
+        < "Recenter"
+        , +[](draw_controls& O, bool bRead, std::string& Value)
+        {
+            if (bRead) Value = "Recenter";
+            else
+            {
+                if ( O.m_pOptions->m_RenderMode == draw_options::render_mode::RENDER_2D )
+                {
+                    O.m_2DMouseTranslate = { 0.0f, 0.0f };
+                }
+                else
+                {
+                    O.m_3DView.setPosition({ 0,0,O.m_3DDistance });
+                    O.m_3DAngles = xcore::radian3{ 0_xdeg,0_xdeg,0_xdeg };
+                }
+            }
+        }
+        , member_ui<std::string>::button<>
+        , member_help<"Reset the image at the center of the screen"
+        >>
+    , obj_member 
+        < "Zoom"
+        , +[](draw_controls& O, bool bRead, float& Value)
+        {
+            if (O.m_pOptions->m_RenderMode == draw_options::render_mode::RENDER_2D)
+            {
+                static constexpr auto max_v = 30;
+                if (bRead)
+                {
+                    Value = O.m_2DMouseScale / max_v;
+                }
+                else
+                {
+                    float v = Value * max_v;
+                    O.m_2DMouseTranslate.m_X += (O.m_2DMouseTranslate.m_X) * (v - O.m_2DMouseScale) / O.m_2DMouseScale;
+                    O.m_2DMouseTranslate.m_Y += (O.m_2DMouseTranslate.m_Y) * (v - O.m_2DMouseScale) / O.m_2DMouseScale;
+                    O.m_2DMouseScale = v;
+                }
+            }
+            else
+            {
+                static constexpr auto max_v = 7;
+                static constexpr auto min_v = 0.61f;
+                static constexpr auto range_v = max_v - min_v;
+                if (bRead) Value = 1 - (O.m_3DDistance - min_v) / range_v;
+                else O.m_3DDistance = (1 - Value) * range_v + min_v;
+            }
+        }
+        , member_ui<float>::scroll_bar<0.01, 1>
+//        , member_dynamic_flags<filter_2d>
+        , member_help<"Zooms in and out of the image"
+        >>
+    )
+};
+XPROPERTY_REG(draw_controls)
 
 //------------------------------------------------------------------------------------------------
 
@@ -608,7 +706,7 @@ int E10_Example()
     //
     draw_options            DrawOptions;
     e05::bitmap_inspector   BitmapInspector;
-    draw_controls           DrawControls;
+    draw_controls           DrawControls(DrawOptions);
     errors                  Errors;
 
     //
@@ -739,17 +837,6 @@ int E10_Example()
     }
 
     //
-    // 3D view
-    //
-    xgpu::tools::view View;
-
-    View.setFov(60_xdeg);
-    xcore::vector3 FrozenLightPosition;
-    xcore::radian3 Angles;
-    float          Distance = 2;
-    bool           FollowCamera = true;
-
-    //
     // Main loop
     //
     while (Instance.ProcessInputEvents())
@@ -767,31 +854,31 @@ int E10_Example()
         {
             if ( DrawOptions.m_RenderMode == draw_options::render_mode::RENDER_2D )
             {
-                const float  OldScale = DrawControls.m_MouseScale;
+                const float  OldScale = DrawControls.m_2DMouseScale;
                 auto& io = ImGui::GetIO();
 
                 if (io.MouseDown[1] || io.MouseDown[2])
                 {
                     if (io.MouseDown[0])
                     {
-                        DrawControls.m_MouseScale -= 8000.0f * io.DeltaTime * (io.MouseDelta.y * (2.0f / MainWindowHeight));
+                        DrawControls.m_2DMouseScale -= 8000.0f * io.DeltaTime * (io.MouseDelta.y * (2.0f / MainWindowHeight));
                     }
                     else
                     {
-                        DrawControls.m_MouseTranslate.m_X += io.MouseDelta.x * (2.0f / MainWindowWidth);
-                        DrawControls.m_MouseTranslate.m_Y += io.MouseDelta.y * (2.0f / MainWindowHeight);
+                        DrawControls.m_2DMouseTranslate.m_X += io.MouseDelta.x * (2.0f / MainWindowWidth);
+                        DrawControls.m_2DMouseTranslate.m_Y += io.MouseDelta.y * (2.0f / MainWindowHeight);
                     }
                 }
 
                 // Wheel scale
-                DrawControls.m_MouseScale += 1.9f * io.MouseWheel;
-                if (DrawControls.m_MouseScale < 0.1f) DrawControls.m_MouseScale = 0.1f;
+                DrawControls.m_2DMouseScale += 1.9f * io.MouseWheel;
+                if (DrawControls.m_2DMouseScale < 0.1f) DrawControls.m_2DMouseScale = 0.1f;
 
                 // Always zoom from the perspective of the mouse
                 const float mx = ((io.MousePos.x / (float)MainWindowWidth) - 0.5f) * 2.0f;
                 const float my = ((io.MousePos.y / (float)MainWindowHeight) - 0.5f) * 2.0f;
-                DrawControls.m_MouseTranslate.m_X += (DrawControls.m_MouseTranslate.m_X - mx) * (DrawControls.m_MouseScale - OldScale) / OldScale;
-                DrawControls.m_MouseTranslate.m_Y += (DrawControls.m_MouseTranslate.m_Y - my) * (DrawControls.m_MouseScale - OldScale) / OldScale;
+                DrawControls.m_2DMouseTranslate.m_X += (DrawControls.m_2DMouseTranslate.m_X - mx) * (DrawControls.m_2DMouseScale - OldScale) / OldScale;
+                DrawControls.m_2DMouseTranslate.m_Y += (DrawControls.m_2DMouseTranslate.m_Y - my) * (DrawControls.m_2DMouseScale - OldScale) / OldScale;
             }
             else
             {
@@ -801,26 +888,25 @@ int E10_Example()
                 if (Mouse.isPressed(xgpu::mouse::digital::BTN_RIGHT))
                 {
                     auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
-                    Angles.m_Pitch.m_Value -= 0.01f * MousePos[1];
-                    Angles.m_Yaw.m_Value -= 0.01f * MousePos[0];
+                    DrawControls.m_3DAngles.m_Pitch.m_Value -= 0.01f * MousePos[1];
+                    DrawControls.m_3DAngles.m_Yaw.m_Value   -= 0.01f * MousePos[0];
                 }
 
                 if (Keyboard.wasPressed(xgpu::keyboard::digital::KEY_SPACE))
                 {
-                    FrozenLightPosition = View.getPosition();
-                    FollowCamera = !FollowCamera;
+                    DrawControls.m_3DLightPosition = DrawControls.m_3DView.getPosition();
+                    DrawControls.m_3DFollowCamera = !DrawControls.m_3DFollowCamera;
                 }
 
-                Distance += Distance * -0.2f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
-                if (Distance < 0.5f) Distance = 0.5f;
-
-                // Update the camera
-                View.LookAt(Distance, Angles, { 0,0,0 });
-
-                static xcore::radian R{ 0 };
-                R += xcore::radian{ 0.001f };
+                DrawControls.m_3DDistance += DrawControls.m_3DDistance * -0.2f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
+                if (DrawControls.m_3DDistance < 0.5f) DrawControls.m_3DDistance = 0.5f;
             }
         }
+
+        //
+        // Update the camera
+        //
+        DrawControls.m_3DView.LookAt(DrawControls.m_3DDistance, DrawControls.m_3DAngles, { 0,0,0 });
 
         //
         // Render the image
@@ -868,11 +954,11 @@ int E10_Example()
             {
                 e10::push_contants PushContants;
 
-                PushContants.m_Scale = { (DrawControls.m_MouseScale * 2.0f) / MainWindowWidth * BitmapInspector.m_pBitmap->getAspectRatio()
-                                       , (DrawControls.m_MouseScale * 2.0f) / MainWindowHeight
+                PushContants.m_Scale = { (DrawControls.m_2DMouseScale * 2.0f) / MainWindowWidth * BitmapInspector.m_pBitmap->getAspectRatio()
+                                       , (DrawControls.m_2DMouseScale * 2.0f) / MainWindowHeight
                 };
                 PushContants.m_UVScale     = DrawOptions.m_UVScale;
-                PushContants.m_Translation = DrawControls.m_MouseTranslate;
+                PushContants.m_Translation = DrawControls.m_2DMouseTranslate;
 
                 const float MipMode = DrawOptions.m_ChooseMipLevel == -1 ? 1.0f : 0.0f;
 
@@ -961,7 +1047,7 @@ int E10_Example()
                     // Render Image (3D)
                     //
                     // Update the view with latest window size
-                    View.setViewport({ 0, 0, (int)MainWindowWidth, (int)MainWindowHeight });
+                    DrawControls.m_3DView.setViewport({ 0, 0, (int)MainWindowWidth, (int)MainWindowHeight });
 
                     if (DrawOptions.m_bBilinearMode) CmdBuffer.setPipelineInstance(BilinearMaterialInstanceTexture3D);
                     else                             CmdBuffer.setPipelineInstance(NearestMaterialInstanceTexture3D);
@@ -969,7 +1055,7 @@ int E10_Example()
                     CmdBuffer.setBuffer(VertexBuffer3DBox);
                     CmdBuffer.setBuffer(IndexBuffer3dBox);
 
-                    const auto  W2C = View.getW2C();
+                    const auto  W2C = DrawControls.m_3DView.getW2C();
                     xcore::matrix4 L2W;
                     L2W.setIdentity();
                     L2W.setScale({BitmapInspector.m_pBitmap->getAspectRatio(), 1, BitmapInspector.m_pBitmap->getAspectRatio()});
@@ -978,10 +1064,10 @@ int E10_Example()
                     auto W2L = L2W;
                     W2L.InvertSRT();
 
-                    auto LightPosition = FollowCamera ? View.getPosition() : FrozenLightPosition;
+                    if (DrawControls.m_3DFollowCamera) DrawControls.m_3DLightPosition = DrawControls.m_3DView.getPosition();
 
                     PushContants.m_L2C = W2C * L2W;
-                    PushContants.m_LocalSpaceLightPosition = W2L * LightPosition;
+                    PushContants.m_LocalSpaceLightPosition = W2L * DrawControls.m_3DLightPosition;
 
                     // Enable lighting if the user requested it
                     if (DrawOptions.m_RenderMode == draw_options::render_mode::RENDER_3D_WITH_LIGHTING)
