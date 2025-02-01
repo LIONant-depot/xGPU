@@ -44,7 +44,7 @@ void main()
     vec3 NormalFromBC5 = vec3( Color.gr, 0);
     vec3 Normal        = NormalFromBC3.rgb * pc.NormalModes.x + NormalFromBC5.rgb * pc.NormalModes.y;
     Normal.xy = Normal.rg * 2.0 - 1.0;
-    Normal.z  = sqrt(1 - min( 1, dot(Normal.xy, Normal.xy)));
+    Normal.z  = sqrt(max( 0, 1 - dot(Normal.xy, Normal.xy)));
 
     // Chose between a compressed normal and a raw normal
     Normal = (Color.rgb * 2.0 - 1.0) * (1 - DisplayNormal) + Normal.rgb * DisplayNormal; 
