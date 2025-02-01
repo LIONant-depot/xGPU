@@ -229,6 +229,14 @@ namespace e05
             , member_help<"Size in bytes of the file"
             >>
         , obj_member_ro
+            < "DataSize"
+            , +[](bitmap_inspector& I, bool, std::uint64_t& Out)
+            {
+                Out = I.m_pBitmap->getDataSize();
+            }
+            , member_help<"Size in bytes of the image in memory" 
+            >>
+        , obj_member_ro
             < "FileSize"
             , +[](bitmap_inspector& I, bool, std::size_t& Out)
             {
@@ -237,12 +245,14 @@ namespace e05
             , member_help<"Size in bytes of the file"
             >>
         , obj_member_ro
-            < "DataSize"
-            , +[](bitmap_inspector& I, bool, std::uint64_t& Out)
+            < "Disk Compression"
+            , +[](bitmap_inspector& I, bool, float& Out)
             {
-                Out = I.m_pBitmap->getDataSize();
+                if (I.m_pBitmap->getDataSize()) Out = (1.0f - (I.m_FileSize / (float)I.m_pBitmap->getDataSize())) * 100.0f;
+                else Out = 0;
             }
-            , member_help<"Size in bytes of the image in memory" 
+            , member_ui<float>::drag_bar<0, 0, 100, "%.2f%%">
+            , member_help<"How much the file is compressed in disk"
             >>
         , obj_member_ro
             < "HasAlphaChannel"

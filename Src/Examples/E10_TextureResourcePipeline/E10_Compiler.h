@@ -143,6 +143,7 @@ namespace e10
         std::vector<std::string>                                m_CompilationWarnings;
         std::vector<std::string>                                m_CompilationInfo;
         std::vector<std::string>                                m_CompilationErrors;
+        std::vector<std::string>                                m_ValidationErrors;
         compilation_state                                       m_CompilationState  = compilation_state::IDLE;
         std::string                                             m_CompilerDebugPath;
         std::string                                             m_CompilerReleasePath;
@@ -324,13 +325,13 @@ namespace e10
                 );
 
             // Set up the resource and descriptor paths
-            m_ResourcePath              = std::format("{}\\WINDOWS\\{}.xbmp",      m_OutputPath.c_str(),  RelativePath.c_str());
+            m_ResourcePath              = std::format("{}\\{}\\WINDOWS\\{}.xbmp", m_ProjectPath.c_str(), m_OutputPath.c_str(), RelativePath.c_str());
 
             m_DescriptorRelativePath    = std::format("Descriptors\\{}.desc", RelativePath.c_str());
-            m_DescriptorPath            = std::format("{}\\{}", m_ProjectPath.c_str(), m_DescriptorRelativePath.c_str());
+            m_DescriptorPath            = std::format("{}", m_DescriptorRelativePath.c_str());
 
             // Log path
-            m_LogPath = std::format("{}\\Cache\\Resources\\Logs\\{}.log", m_ProjectPath.c_str(), RelativePath.c_str() );
+            m_LogPath = std::format("Cache\\Resources\\Logs\\{}.log", RelativePath.c_str() );
 
             //
             // Allocate the descriptors memory
@@ -382,7 +383,7 @@ namespace e10
 
             m_CompilerReleasePath = std::format("{}\\dependencies\\xtexture.plugin\\Build\\xtexture_compiler.vs2022\\x64\\Release\\xtexture_compiler.exe", xGPU.c_str());
             m_CompilerDebugPath   = std::format("{}\\dependencies\\xtexture.plugin\\Build\\xtexture_compiler.vs2022\\x64\\Debug\\xtexture_compiler.exe", xGPU.c_str());
-            m_OutputPath          = std::format("{}\\Cache\\Resources\\Platforms", m_ProjectPath.c_str());
+            m_OutputPath          = std::format("Cache\\Resources\\Platforms");
         }
 
         //------------------------------------------------------------------------------------------------
@@ -395,12 +396,12 @@ namespace e10
 
             xproperty::settings::context Context;
 
-            if (auto Err = m_pInfo->Serialize(isRead, std::format("{}\\Info.txt", m_DescriptorPath.c_str()), Context); Err)
+            if (auto Err = m_pInfo->Serialize(isRead, std::format("{}\\{}\\Info.txt", m_ProjectPath.c_str(), m_DescriptorPath.c_str()), Context); Err)
             {
                 return Err;
             }
 
-            if (auto Err = m_pDescriptor->Serialize(isRead, std::format("{}\\Descriptor.txt", m_DescriptorPath.c_str()), Context); Err)
+            if (auto Err = m_pDescriptor->Serialize(isRead, std::format("{}\\{}\\Descriptor.txt", m_ProjectPath.c_str(), m_DescriptorPath.c_str()), Context); Err)
             {
                 return Err;
             }
@@ -530,6 +531,55 @@ namespace e10
 
         XPROPERTY_DEF
         ( "Compiler", compiler
+        , obj_scope< "Project Details"
+            , obj_member
+                < "Project Path"
+                , &compiler::m_ProjectPath
+                , member_ui<std::string>::file_dialog<"LION Project\0 *.lion_project; *.lion_library\0" >
+                , member_help<"Path of the project"
+                >>
+            , obj_member_ro
+                < "Descriptor Path"
+                , &compiler::m_DescriptorPath
+                , member_dynamic_flags < +[](const compiler& O)
+                {   xproperty::flags::type Flags{ xproperty::flags::DONT_SAVE };
+                    Flags.m_bDontShow = O.m_ProjectPath.empty();
+                    return Flags;
+                }>
+                , member_help<"Path to the descriptor"
+                >>
+            , obj_member_ro
+                < "Output Path"
+                , &compiler::m_OutputPath
+                , member_dynamic_flags < +[](const compiler& O)
+                {   xproperty::flags::type Flags{ xproperty::flags::DONT_SAVE };
+                    Flags.m_bDontShow = O.m_ProjectPath.empty();
+                    return Flags;
+                }>
+                , member_help<"Path for the complied resource"
+                >>
+            , obj_member_ro
+                < "Log Path"
+                , &compiler::m_LogPath
+                , member_dynamic_flags < +[](const compiler& O)
+                {   xproperty::flags::type Flags{ xproperty::flags::DONT_SAVE };
+                    Flags.m_bDontShow = O.m_ProjectPath.empty();
+                    return Flags;
+                }>
+                , member_help<"Path for the log information of the resource"
+                >>
+            , obj_member_ro
+                < "Debug Compiler Path"
+                , &compiler::m_CompilerDebugPath
+                , member_help<"Path to the debug compiler"
+                >>
+            , obj_member_ro
+                < "Release Compiler Path"
+                , &compiler::m_CompilerReleasePath
+                , member_help<"Path to the Release compiler"
+                >>
+            , member_ui_open<false>
+            >
         , obj_member
             < "Compiler"
             , +[](compiler& O, bool bRead, std::string& Value)
@@ -564,12 +614,13 @@ namespace e10
                         //
                         // Now we can call the compiler
                         //
-                        auto CommandLine = std::format(R"("{}" -PROJECT "{}" -OPTIMIZATION {} -DEBUG {} -DESCRIPTOR "{}" -OUTPUT "{}")"
+                        auto CommandLine = std::format(R"("{}" -PROJECT "{}" -OPTIMIZATION {} -DEBUG {} -DESCRIPTOR "{}" -OUTPUT "{}\{}")"
                             , O.m_bUseDebugCompiler ? O.m_CompilerDebugPath.c_str() : O.m_CompilerReleasePath.c_str()
                             , O.m_ProjectPath.c_str()
                             , O.m_OptimizationLevel == optimization::O0 ? "O0" : O.m_OptimizationLevel == optimization::O1 ? "O1" : "Oz"
                             , O.m_DebugLevel == debug::D0 ? "D0" : O.m_DebugLevel == debug::D1 ? "D1" : "Dz"
-                            , O.m_DescriptorRelativePath.c_str()
+                            , O.m_DescriptorPath.c_str()
+                            , O.m_ProjectPath.c_str()
                             , O.m_OutputPath.c_str()
                         );
 
@@ -593,7 +644,8 @@ namespace e10
                           "Then it will trigger a compilation base on the options seem below and it will generate a new dds file. "
                           "Once it finish the compilation the editor will reload the texture and show the new version. "
             >>
-        , obj_scope< "Last Compilation"
+        , obj_scope< "Compilation Info" 
+            , obj_member_ro<"Validation Errors", &compiler::m_ValidationErrors, member_ui_open<true>>
             , obj_member_ro
                 < "Compiler Result"
                 , +[](compiler& O, bool bRead, std::string& Value)
@@ -645,7 +697,7 @@ namespace e10
                     {
                     case open_explorer::SELECT_ONE: break;
                     case open_explorer::TO_THE_PROJECT: ShellExecute( NULL, L"open", L"explorer", xcore::string::To<wchar_t>(O.m_ProjectPath.c_str()).data(), NULL, SW_SHOW); break;
-                    case open_explorer::TO_DESCRIPTOR_FILE: ShellExecute(NULL, L"open", L"explorer", xcore::string::To<wchar_t>(O.m_DescriptorPath.c_str()).data(), NULL, SW_SHOW); break;
+                    case open_explorer::TO_DESCRIPTOR_FILE: ShellExecute(NULL, L"open", L"explorer", xcore::string::To<wchar_t>(xcore::string::Fmt("%s\\%s", O.m_ProjectPath.c_str(), O.m_DescriptorPath.c_str())).data(), NULL, SW_SHOW); break;
                     case open_explorer::TO_RESOURCE_FILE: 
                     {
                         auto Str = xcore::string::Fmt("explorer /select,%s", O.m_ResourcePath.c_str());
@@ -654,7 +706,7 @@ namespace e10
                     }
                     case open_explorer::TO_LOG_FILE:
                     {
-                        auto Str = xcore::string::Fmt("explorer /select,%s\\Log.txt", O.m_LogPath.c_str());
+                        auto Str = xcore::string::Fmt("explorer /select,%s\\%s\\Log.txt", O.m_ProjectPath.c_str(), O.m_LogPath.c_str());
                         system(Str.data());
                         break;
                     }

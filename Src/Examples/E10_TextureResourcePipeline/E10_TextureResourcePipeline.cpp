@@ -100,20 +100,6 @@ namespace e10
 
 //------------------------------------------------------------------------------------------------
 
-struct errors
-{
-    std::vector<std::string> m_Errors;
-
-    XPROPERTY_DEF
-    ( "Validation"
-    , errors
-    , obj_member_ro<"ValidationErrorList", &errors::m_Errors, member_ui_open<true> >\
-    )
-};
-XPROPERTY_REG(errors)
-
-//------------------------------------------------------------------------------------------------
-
 #include "E10_Compiler.h"
 
 //------------------------------------------------------------------------------------------------
@@ -707,7 +693,6 @@ int E10_Example()
     draw_options            DrawOptions;
     e05::bitmap_inspector   BitmapInspector;
     draw_controls           DrawControls(DrawOptions);
-    errors                  Errors;
 
     //
     // This will be the texture that we compiled
@@ -821,7 +806,6 @@ int E10_Example()
 
     Inspectors[1].AppendEntity();
     Inspectors[1].AppendEntityComponent(*xproperty::getObject(*Compiler.get()), Compiler.get());
-    Inspectors[1].AppendEntityComponent(*xproperty::getObject(Errors), &Errors);
     Inspectors[1].AppendEntityComponent(*xproperty::getObject(DrawControls), &DrawControls);
     Inspectors[1].AppendEntityComponent(*xproperty::getObject(DrawOptions), &DrawOptions);
     Inspectors[1].AppendEntityComponent(*xproperty::getObject(BitmapInspector), &BitmapInspector );
@@ -1091,8 +1075,8 @@ int E10_Example()
         //
         // Render the Inspectors
         //
-        Errors.m_Errors.clear();
-        Compiler->m_pDescriptor->Validate(Errors.m_Errors);
+        Compiler->m_ValidationErrors.clear();
+        Compiler->m_pDescriptor->Validate(Compiler->m_ValidationErrors);
 
         for (auto& E: Inspectors )
         {
