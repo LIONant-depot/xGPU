@@ -136,6 +136,30 @@ namespace e05
             return O.m_pBitmap == nullptr || O.m_pBitmap->getFormat() == xcore::bitmap::format::INVALID;
         }
 
+        inline static std::string ConvertToCommas( std::size_t Value ) noexcept
+        {
+            std::array<char, 50> buffer;
+            snprintf(buffer.data(), buffer.size(), "%10.0zu", Value);
+            const auto len      = static_cast<int>(strlen(buffer.data()));
+            std::array<char, 50> result;
+            int new_len = static_cast<int>(result.size() - 1);
+
+            result[new_len] = '\0';
+            int  j = new_len - 1;
+            auto k = 0;
+            for (int i = len - 1; i >= 0; i--) 
+            {
+                if (k == 3) 
+                {
+                    if (buffer[i] != ' ') result[j--] = ',';
+                    k = 0;
+                }
+                result[j--] = buffer[i];
+                k++;
+            }
+            return std::format( "{} bytes", &result[j+1]);
+        }
+
         XPROPERTY_DEF
         ( "Bitmap Info", bitmap_inspector
         , obj_member_ro
@@ -230,17 +254,27 @@ namespace e05
             >>
         , obj_member_ro
             < "DataSize"
-            , +[](bitmap_inspector& I, bool, std::uint64_t& Out)
+            , +[](bitmap_inspector& I, bool, std::string& Out)
             {
-                Out = I.m_pBitmap->getDataSize();
+                if (I.m_pBitmap->getDataSize() == 0) 
+                {
+                    Out = "No Bitmap loaded";
+                    return;
+                }
+                Out = ConvertToCommas(I.m_pBitmap->getDataSize());
             }
             , member_help<"Size in bytes of the image in memory" 
             >>
         , obj_member_ro
             < "FileSize"
-            , +[](bitmap_inspector& I, bool, std::size_t& Out)
+            , +[](bitmap_inspector& I, bool, std::string& Out)
             {
-                Out = I.m_FileSize;
+                if (I.m_pBitmap->getDataSize() == 0) 
+                {
+                    Out = "No Bitmap loaded";
+                    return;
+                }
+                Out = ConvertToCommas(I.m_FileSize);
             }
             , member_help<"Size in bytes of the file"
             >>
@@ -289,10 +323,15 @@ namespace e05
             , member_help<"Tells how many frames there is in this file" 
             >>
         , obj_member_ro
-            < "FrameSizeBytes"
-            , +[](bitmap_inspector& I, bool, int& Out)
+            < "FrameSize"
+            , +[](bitmap_inspector& I, bool, std::string& Out)
             {
-                Out = static_cast<int>(I.m_pBitmap->getFrameSize());
+                if (I.m_pBitmap->getDataSize() == 0)
+                {
+                    Out = "No Bitmap loaded";
+                    return;
+                }
+                Out = ConvertToCommas(I.m_pBitmap->getFrameSize());
             }
             , member_help<"How big a frame in the file is" 
             >>
@@ -313,12 +352,17 @@ namespace e05
                 , member_help<"If we have loaded a cubemap how many faces the file contains" 
                 >>
         , obj_member_ro
-            < "NumFacesFaceSizeBytes"
-            , +[](bitmap_inspector& I, bool, int& Out)
+            < "FaceSize"
+            , +[](bitmap_inspector& I, bool, std::string& Out)
             {
-                Out = static_cast<int>(I.m_pBitmap->getFaceSize());
+                if (I.m_pBitmap->getDataSize() == 0)
+                {
+                    Out = "No Bitmap loaded";
+                    return;
+                }
+                Out = ConvertToCommas(I.m_pBitmap->getFaceSize());
             }
-            , member_help<"How many bytes does a face of the cubemap is in this file" 
+            , member_help<"How many bytes does a face of the cubemap / texture array is in this file" 
             >>
         , obj_member_ro
             < "Mips"
