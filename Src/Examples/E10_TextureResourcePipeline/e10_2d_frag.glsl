@@ -58,6 +58,23 @@ void main()
 
     // We must convert to gamma every time...
     outFragColor.rgb = pow( outFragColor.rgb, vec3(1/pc.ToGamma) );
+
+    //
+    // Gamma correction with color satuation
+    //
+    /*
+    float lum    = dot(outFragColor.rgb, vec3(0.299, 0.587, 0.114));
+    if( lum > 0.001f )
+    {
+        float newLum = pow(lum, (1/pc.ToGamma));
+        float t      = 0.2f;
+        outFragColor.rgb = pow( outFragColor.rgb, vec3(1/pc.ToGamma)) * (1-t) + t * (outFragColor.rgb / lum * newLum);
+    }
+    else
+    {
+        outFragColor.rgb = pow( outFragColor.rgb, vec3(1/pc.ToGamma) );
+    }
+    */
 }
 
 
