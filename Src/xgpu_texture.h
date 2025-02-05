@@ -22,12 +22,14 @@ namespace xgpu
         ,   BC3_8RGBA
         ,   BC4_4R
         ,   BC5_8RG
-        ,   BC6H_8RGB_FLOAT
+        ,   BC6H_8RGB_UFLOAT
+        ,   BC6H_8RGB_SFLOAT
         ,   BC7_8RGBA
         ,   ETC2_4RGB
         ,   ETC2_4RGBA1
         ,   ETC2_8RGBA
         ,   R32G32B32A32_FLOAT
+        ,   R16G16B16A16_FLOAT
         ,   DEPTH_U16
         ,   DEPTH_U24_STENCIL_U8
         ,   DEPTH_F32

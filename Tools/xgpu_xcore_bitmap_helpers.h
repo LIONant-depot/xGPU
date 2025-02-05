@@ -26,11 +26,15 @@ namespace xgpu::tools::bitmap
         Table[static_cast<std::size_t>(xcore::bitmap::format::BC4_4R)]          = xgpu::texture::format::BC4_4R          ;
         Table[static_cast<std::size_t>(xcore::bitmap::format::BC5_8RG)]         = xgpu::texture::format::BC5_8RG         ;
         Table[static_cast<std::size_t>(xcore::bitmap::format::BC5_8YX_NORMAL)]  = xgpu::texture::format::BC5_8RG         ;
-        Table[static_cast<std::size_t>(xcore::bitmap::format::BC6H_8RGB_FLOAT)] = xgpu::texture::format::BC6H_8RGB_FLOAT ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::BC6H_8RGB_SFLOAT)] = xgpu::texture::format::BC6H_8RGB_SFLOAT ;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::BC6H_8RGB_UFLOAT)] = xgpu::texture::format::BC6H_8RGB_UFLOAT ;
         Table[static_cast<std::size_t>(xcore::bitmap::format::BC7_8RGBA)]       = xgpu::texture::format::BC7_8RGBA       ;
         Table[static_cast<std::size_t>(xcore::bitmap::format::ETC2_4RGB)]       = xgpu::texture::format::ETC2_4RGB       ;
         Table[static_cast<std::size_t>(xcore::bitmap::format::ETC2_4RGBA1)]     = xgpu::texture::format::ETC2_4RGBA1     ;
         Table[static_cast<std::size_t>(xcore::bitmap::format::ETC2_8RGBA)]      = xgpu::texture::format::ETC2_8RGBA      ;
+
+        Table[static_cast<std::size_t>(xcore::bitmap::format::R16G16B16A16_FLOAT)] = xgpu::texture::format::R16G16B16A16_FLOAT;
+        Table[static_cast<std::size_t>(xcore::bitmap::format::R32G32B32A32_FLOAT)] = xgpu::texture::format::R32G32B32A32_FLOAT;
 
         return Table;
     }();
@@ -65,6 +69,7 @@ namespace xgpu::tools::bitmap
             Setup.m_MipChain    = Mips;
             Setup.m_Data        = std::span{ Bitmap.getMip<std::byte>(0).data(), Bitmap.getFrameSize() };
             Setup.m_Type        = Bitmap.isLinearSpace() ? xgpu::texture::type::LINEAR : xgpu::texture::type::GAMMA;
+            Setup.m_hasSignedChannels = Bitmap.isSigned();
 
             if (auto Err = Device.Create(Texture, Setup); Err)
                 return Err;

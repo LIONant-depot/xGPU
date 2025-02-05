@@ -60,7 +60,8 @@ namespace xgpu::vulkan
             FormatTable[(int)xgpu::texture::format::BC3_8RGBA           ] = texture_format  { VK_FORMAT_BC3_UNORM_BLOCK           , VK_FORMAT_UNDEFINED                  , VK_FORMAT_BC3_SRGB_BLOCK             };
             FormatTable[(int)xgpu::texture::format::BC4_4R              ] = texture_format  { VK_FORMAT_BC4_UNORM_BLOCK           , VK_FORMAT_BC4_SNORM_BLOCK            , VK_FORMAT_UNDEFINED                  };
             FormatTable[(int)xgpu::texture::format::BC5_8RG             ] = texture_format  { VK_FORMAT_BC5_UNORM_BLOCK           , VK_FORMAT_BC5_SNORM_BLOCK            , VK_FORMAT_UNDEFINED                  };
-            FormatTable[(int)xgpu::texture::format::BC6H_8RGB_FLOAT     ] = texture_format  { VK_FORMAT_BC6H_UFLOAT_BLOCK         , VK_FORMAT_BC6H_SFLOAT_BLOCK          , VK_FORMAT_UNDEFINED                  };
+            FormatTable[(int)xgpu::texture::format::BC6H_8RGB_SFLOAT    ] = texture_format  { VK_FORMAT_UNDEFINED                 , VK_FORMAT_BC6H_SFLOAT_BLOCK          , VK_FORMAT_UNDEFINED                  };
+            FormatTable[(int)xgpu::texture::format::BC6H_8RGB_UFLOAT    ] = texture_format  { VK_FORMAT_BC6H_UFLOAT_BLOCK         , VK_FORMAT_UNDEFINED                  , VK_FORMAT_UNDEFINED                  };
             FormatTable[(int)xgpu::texture::format::BC7_8RGBA           ] = texture_format  { VK_FORMAT_BC7_UNORM_BLOCK           , VK_FORMAT_UNDEFINED                  , VK_FORMAT_BC7_SRGB_BLOCK             };
 
             FormatTable[(int)xgpu::texture::format::ETC2_4RGB           ] = texture_format  { VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK   , VK_FORMAT_UNDEFINED                  , VK_FORMAT_ETC2_R8G8B8_SRGB_BLOCK     };
@@ -68,6 +69,7 @@ namespace xgpu::vulkan
             FormatTable[(int)xgpu::texture::format::ETC2_8RGBA          ] = texture_format  { VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK , VK_FORMAT_UNDEFINED                  , VK_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK   };
 
             FormatTable[(int)xgpu::texture::format::R32G32B32A32_FLOAT  ] = texture_format  { VK_FORMAT_R32G32B32A32_SFLOAT       , VK_FORMAT_R32G32B32A32_SFLOAT        , VK_FORMAT_R32G32B32A32_SFLOAT        };
+            FormatTable[(int)xgpu::texture::format::R16G16B16A16_FLOAT  ] = texture_format  { VK_FORMAT_R16G16B16A16_SFLOAT       , VK_FORMAT_R16G16B16A16_SFLOAT        , VK_FORMAT_R16G16B16A16_SFLOAT        };
 
             FormatTable[(int)xgpu::texture::format::DEPTH_U16           ] = texture_format  { VK_FORMAT_D16_UNORM                 , VK_FORMAT_UNDEFINED                  , VK_FORMAT_UNDEFINED                  };
             FormatTable[(int)xgpu::texture::format::DEPTH_U24_STENCIL_U8] = texture_format  { VK_FORMAT_D24_UNORM_S8_UINT         , VK_FORMAT_UNDEFINED                  , VK_FORMAT_UNDEFINED                  };

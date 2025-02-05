@@ -196,37 +196,43 @@ namespace e05
                     case xcore::bitmap::format::B8G8R8U8:   Out = "B8G8R8U8"; break;
                     case xcore::bitmap::format::U8R8G8B8:   Out = "U8R8G8B8"; break;
 
-                    case xcore::bitmap::format::BC1_4RGB:   Out = "BC1_4RGB / DXT1"; break;
-                    case xcore::bitmap::format::BC1_4RGBA1: Out = "BC1_4RGBA1 / DXT1"; break;
-                    case xcore::bitmap::format::BC2_8RGBA:  Out = "BC2_8RGBA / DXT3"; break;
-                    case xcore::bitmap::format::BC3_8RGBA:  Out = "BC3_8RGBA / DXT5"; break;
-                    case xcore::bitmap::format::BC3_81Y0X_NORMAL: Out = "BC3_81Y0X_NORMAL"; break;
-                    case xcore::bitmap::format::BC4_4R:     Out = "BC4_4R"; break;
-                    case xcore::bitmap::format::BC5_8RG:    Out = "BC5_8RG"; break;
-                    case xcore::bitmap::format::BC5_8YX_NORMAL: Out = "BC5_8YX_NORMAL"; break;
-                    case xcore::bitmap::format::BC7_8RGBA:  Out = "BC7_8RGBA"; break;
-                        
+                    case xcore::bitmap::format::R32G32B32A32_FLOAT: Out = "R32G32B32A32_FLOAT"; break;
+                    case xcore::bitmap::format::R16G16B16A16_FLOAT: Out = "R16G16B16A16_FLOAT"; break;
 
+                    case xcore::bitmap::format::BC1_4RGB:           Out = "BC1_4RGB / DXT1"; break;
+                    case xcore::bitmap::format::BC1_4RGBA1:         Out = "BC1_4RGBA1 / DXT1"; break;
+                    case xcore::bitmap::format::BC2_8RGBA:          Out = "BC2_8RGBA / DXT3"; break;
+                    case xcore::bitmap::format::BC3_8RGBA:          Out = "BC3_8RGBA / DXT5"; break;
+                    case xcore::bitmap::format::BC3_81Y0X_NORMAL:   Out = "BC3_81Y0X_NORMAL"; break;
+                    case xcore::bitmap::format::BC4_4R:             Out = "BC4_4R"; break;
+                    case xcore::bitmap::format::BC5_8RG:            Out = "BC5_8RG"; break;
+                    case xcore::bitmap::format::BC5_8YX_NORMAL:     Out = "BC5_8YX_NORMAL"; break;
+                    case xcore::bitmap::format::BC6H_8RGB_SFLOAT:   Out = "BC6H_8RGB_SFLOAT"; break;
+                    case xcore::bitmap::format::BC6H_8RGB_UFLOAT:   Out = "BC6H_8RGB_UFLOAT"; break;
+                    case xcore::bitmap::format::BC7_8RGBA:          Out = "BC7_8RGBA"; break;
                     default: Out = "Unexpected format"; break;
                 }
             }
             , member_help<"Format from xcore bitmap of the image" 
             >>
         , obj_member_ro
+            < "isSigned"
+            ,  +[](bitmap_inspector& I, bool bRead, bool& Out )
+            {
+                Out = I.m_pBitmap->isSigned();
+            }
+            , member_help < "If the pixel format contains signed data"
+            >>
+        , obj_member_ro
             < "UAdress Mode"
             ,  +[](bitmap_inspector& I, bool bRead, std::string& Out )
             {
                 assert(bRead);
-                switch (I.m_pBitmap->getWrapMode())
+                switch (I.m_pBitmap->getUWrapMode())
                 {
-                case xcore::bitmap::wrap_mode::UV_UCLAMP_VWRAP:
-                case xcore::bitmap::wrap_mode::UV_UCLAMP_VMIRROR:
-                case xcore::bitmap::wrap_mode::UV_BOTH_CLAMP_TO_EDGE:  Out = "CLAMP_TO_EDGE"; break;
-                case xcore::bitmap::wrap_mode::UV_UWRAP_VCLAMP:
-                case xcore::bitmap::wrap_mode::UV_BOTH_WRAP:   Out = "WRAP"; break;
-                case xcore::bitmap::wrap_mode::UV_UMIRROR_VWRAP:
-                case xcore::bitmap::wrap_mode::UV_UMIRROR_VCLAMP:
-                case xcore::bitmap::wrap_mode::UV_BOTH_MIRROR: Out = "MIRROR"; break;
+                case xcore::bitmap::wrap_mode::CLAMP_TO_EDGE: Out = "CLAMP_TO_EDGE"; break;
+                case xcore::bitmap::wrap_mode::MIRROR:        Out = "MIRROR"; break;
+                case xcore::bitmap::wrap_mode::WRAP:          Out = "WRAP"; break;
                 default: Out = "Unexpected wrap"; break;
                 }
             }
@@ -237,16 +243,11 @@ namespace e05
             ,  +[](bitmap_inspector& I, bool bRead, std::string& Out )
             {
                 assert(bRead);
-                switch (I.m_pBitmap->getWrapMode())
+                switch (I.m_pBitmap->getVWrapMode())
                 {
-                case xcore::bitmap::wrap_mode::UV_UWRAP_VCLAMP:
-                case xcore::bitmap::wrap_mode::UV_UMIRROR_VCLAMP:
-                case xcore::bitmap::wrap_mode::UV_BOTH_CLAMP_TO_EDGE:  Out = "CLAMP_TO_EDGE"; break;
-                case xcore::bitmap::wrap_mode::UV_UCLAMP_VWRAP:
-                case xcore::bitmap::wrap_mode::UV_UMIRROR_VWRAP:
-                case xcore::bitmap::wrap_mode::UV_BOTH_WRAP:   Out = "WRAP"; break;
-                case xcore::bitmap::wrap_mode::UV_UCLAMP_VMIRROR:
-                case xcore::bitmap::wrap_mode::UV_BOTH_MIRROR: Out = "MIRROR"; break;
+                case xcore::bitmap::wrap_mode::CLAMP_TO_EDGE: Out = "CLAMP_TO_EDGE"; break;
+                case xcore::bitmap::wrap_mode::MIRROR:        Out = "MIRROR"; break;
+                case xcore::bitmap::wrap_mode::WRAP:          Out = "WRAP"; break;
                 default: Out = "Unexpected wrap"; break;
                 }
             }

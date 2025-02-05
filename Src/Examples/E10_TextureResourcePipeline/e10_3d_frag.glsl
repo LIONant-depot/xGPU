@@ -32,11 +32,10 @@ layout(push_constant) uniform uPushConstant
    vec3  LocalSpaceLightPos;
 } pc;
 
-
 void main() 
 {
-    vec4 Color     = texture( uSamplerColor, In.UV )                 *    pc.Mode.w + 
-                     textureLod( uSamplerColor, In.UV, pc.MipLevel ) * (1-pc.Mode.w);
+    vec4 Color     = clamp( texture( uSamplerColor, In.UV ), 0, 1)                 *    pc.Mode.w + 
+                     clamp( textureLod( uSamplerColor, In.UV, pc.MipLevel ), 0, 1) * (1-pc.Mode.w);
 
     // Decode the normal
     float DisplayNormal = dot(pc.NormalModes.xy, pc.NormalModes.xy);
