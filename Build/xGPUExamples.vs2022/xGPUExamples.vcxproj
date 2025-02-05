@@ -519,7 +519,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
     <SourcePath>$(VC_SourcePath);</SourcePath>
-    <IncludePath>../../Src\Examples\Settings;$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src;./;../../src;../../Dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\assimp\include;../../dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui</IncludePath>
+    <IncludePath>../../Src\Examples\Settings;$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src;./;../../src;../../Dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\assimp\include;../../dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui;D:\LIONant\xGPU\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\dependencies\zstd\lib</IncludePath>
     <PublicIncludeDirectories>
     </PublicIncludeDirectories>
   </PropertyGroup>
