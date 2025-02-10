@@ -2,8 +2,7 @@ namespace xgpu::vulkan
 {
     struct texture_format
     {
-        VkFormat            m_VKFormatLinearUnsigned;
-        VkFormat            m_VKFormatLinearSigned;
+        VkFormat            m_VKFormatLinear;
         VkFormat            m_VKFormatSRGB;
     };
 
@@ -20,8 +19,7 @@ namespace xgpu::vulkan
     static
     VkFormat getVKTextureFormat
     ( const xgpu::texture::format   Fmt
-    , const bool                    bLinear
-    , const bool                    bSinged 
+    , const bool                    bGamma
     ) noexcept
     {
         // https://www.khronos.org/registry/vulkan/specs/1.0/xhtml/vkspec.html 
@@ -38,55 +36,50 @@ namespace xgpu::vulkan
         //           while the A component (if one exists) is a regular unsigned normalized value
         constexpr static auto FormatTable = []() constexpr noexcept -> auto
         {
-            auto FormatTable = std::array<texture_format, (int)xgpu::texture::format::ENUM_COUNT>{ texture_format{VK_FORMAT_UNDEFINED,VK_FORMAT_UNDEFINED,VK_FORMAT_UNDEFINED} };
+            auto FormatTable = std::array<texture_format, (int)xgpu::texture::format::ENUM_COUNT>{ texture_format{VK_FORMAT_UNDEFINED,VK_FORMAT_UNDEFINED} };
 
-            //             xgpu::texture::format                                            VKFormat_LinearUnsigned                VKFormat_LinearSigned                   VKFormat_SRGB
-            //           ---------------------------------                                  ----------------------------------    -----------------------------------    ------------------------------------
-            FormatTable[(int)xgpu::texture::format::B8G8R8A8            ] = texture_format  { VK_FORMAT_B8G8R8A8_UNORM            , VK_FORMAT_B8G8R8A8_SNORM             , VK_FORMAT_B8G8R8A8_SRGB              };
-            FormatTable[(int)xgpu::texture::format::B8G8R8U8            ] = texture_format  { VK_FORMAT_B8G8R8A8_UNORM            , VK_FORMAT_B8G8R8A8_SNORM             , VK_FORMAT_B8G8R8A8_SRGB              };
-            FormatTable[(int)xgpu::texture::format::A8R8G8B8            ] = texture_format  { VK_FORMAT_UNDEFINED                 , VK_FORMAT_UNDEFINED                  , VK_FORMAT_UNDEFINED                  };
-            FormatTable[(int)xgpu::texture::format::U8R8G8B8            ] = texture_format  { VK_FORMAT_UNDEFINED                 , VK_FORMAT_UNDEFINED                  , VK_FORMAT_UNDEFINED                  };
-            FormatTable[(int)xgpu::texture::format::R8G8B8U8            ] = texture_format  { VK_FORMAT_R8G8B8A8_UNORM            , VK_FORMAT_R8G8B8A8_SNORM             , VK_FORMAT_R8G8B8A8_SRGB              };
-            FormatTable[(int)xgpu::texture::format::R8G8B8A8            ] = texture_format  { VK_FORMAT_R8G8B8A8_UNORM            , VK_FORMAT_R8G8B8A8_SNORM             , VK_FORMAT_R8G8B8A8_SRGB              };
-            FormatTable[(int)xgpu::texture::format::R8G8B8              ] = texture_format  { VK_FORMAT_R8G8B8_UNORM              , VK_FORMAT_R8G8B8_SNORM               , VK_FORMAT_R8G8B8_SRGB                };
-            FormatTable[(int)xgpu::texture::format::R4G4B4A4            ] = texture_format  { VK_FORMAT_R4G4B4A4_UNORM_PACK16     , VK_FORMAT_UNDEFINED                  , VK_FORMAT_R4G4B4A4_UNORM_PACK16      };
+            //             xgpu::texture::format                                                    VKFormat_LinearUnsigned                 VKFormat_SRGB
+            //           ---------------------------------                                          ----------------------------------    ------------------------------------
+            FormatTable[(int)xgpu::texture::format::B8G8R8A8_UNORM            ] = texture_format  { VK_FORMAT_B8G8R8A8_UNORM            , VK_FORMAT_B8G8R8A8_SRGB              };
+            FormatTable[(int)xgpu::texture::format::B8G8R8U8_UNORM            ] = texture_format  { VK_FORMAT_B8G8R8A8_UNORM            , VK_FORMAT_B8G8R8A8_SRGB              };
+            FormatTable[(int)xgpu::texture::format::A8R8G8B8_UNORM            ] = texture_format  { VK_FORMAT_UNDEFINED                 , VK_FORMAT_UNDEFINED                  };
+            FormatTable[(int)xgpu::texture::format::U8R8G8B8_UNORM            ] = texture_format  { VK_FORMAT_UNDEFINED                 , VK_FORMAT_UNDEFINED                  };
+            FormatTable[(int)xgpu::texture::format::R8G8B8U8_UNORM            ] = texture_format  { VK_FORMAT_R8G8B8A8_UNORM            , VK_FORMAT_R8G8B8A8_SRGB              };
+            FormatTable[(int)xgpu::texture::format::R8G8B8A8_UNORM            ] = texture_format  { VK_FORMAT_R8G8B8A8_UNORM            , VK_FORMAT_R8G8B8A8_SRGB              };
+            FormatTable[(int)xgpu::texture::format::R8G8B8_UNORM              ] = texture_format  { VK_FORMAT_R8G8B8_UNORM              , VK_FORMAT_R8G8B8_SRGB                };
+            FormatTable[(int)xgpu::texture::format::R4G4B4A4_UNORM            ] = texture_format  { VK_FORMAT_R4G4B4A4_UNORM_PACK16     , VK_FORMAT_R4G4B4A4_UNORM_PACK16      };
 
-            FormatTable[(int)xgpu::texture::format::R5G6B5              ] = texture_format  { VK_FORMAT_R5G6B5_UNORM_PACK16       , VK_FORMAT_UNDEFINED                  , VK_FORMAT_R5G6B5_UNORM_PACK16        };
-            FormatTable[(int)xgpu::texture::format::B5G5R5A1            ] = texture_format  { VK_FORMAT_B5G5R5A1_UNORM_PACK16     , VK_FORMAT_UNDEFINED                  , VK_FORMAT_B5G5R5A1_UNORM_PACK16      };
+            FormatTable[(int)xgpu::texture::format::R5G6B5_UNORM              ] = texture_format  { VK_FORMAT_R5G6B5_UNORM_PACK16       , VK_FORMAT_R5G6B5_UNORM_PACK16        };
+            FormatTable[(int)xgpu::texture::format::B5G5R5A1_UNORM            ] = texture_format  { VK_FORMAT_B5G5R5A1_UNORM_PACK16     , VK_FORMAT_B5G5R5A1_UNORM_PACK16      };
 
-            FormatTable[(int)xgpu::texture::format::BC1_4RGB            ] = texture_format  { VK_FORMAT_BC1_RGB_UNORM_BLOCK       , VK_FORMAT_UNDEFINED                  , VK_FORMAT_BC1_RGB_SRGB_BLOCK         };
-            FormatTable[(int)xgpu::texture::format::BC1_4RGBA1          ] = texture_format  { VK_FORMAT_BC1_RGBA_UNORM_BLOCK      , VK_FORMAT_UNDEFINED                  , VK_FORMAT_BC1_RGBA_SRGB_BLOCK        };
-            FormatTable[(int)xgpu::texture::format::BC2_8RGBA           ] = texture_format  { VK_FORMAT_BC2_UNORM_BLOCK           , VK_FORMAT_UNDEFINED                  , VK_FORMAT_BC2_SRGB_BLOCK             };
-            FormatTable[(int)xgpu::texture::format::BC3_8RGBA           ] = texture_format  { VK_FORMAT_BC3_UNORM_BLOCK           , VK_FORMAT_UNDEFINED                  , VK_FORMAT_BC3_SRGB_BLOCK             };
-            FormatTable[(int)xgpu::texture::format::BC4_4R              ] = texture_format  { VK_FORMAT_BC4_UNORM_BLOCK           , VK_FORMAT_BC4_SNORM_BLOCK            , VK_FORMAT_UNDEFINED                  };
-            FormatTable[(int)xgpu::texture::format::BC5_8RG             ] = texture_format  { VK_FORMAT_BC5_UNORM_BLOCK           , VK_FORMAT_BC5_SNORM_BLOCK            , VK_FORMAT_UNDEFINED                  };
-            FormatTable[(int)xgpu::texture::format::BC6H_8RGB_SFLOAT    ] = texture_format  { VK_FORMAT_UNDEFINED                 , VK_FORMAT_BC6H_SFLOAT_BLOCK          , VK_FORMAT_UNDEFINED                  };
-            FormatTable[(int)xgpu::texture::format::BC6H_8RGB_UFLOAT    ] = texture_format  { VK_FORMAT_BC6H_UFLOAT_BLOCK         , VK_FORMAT_UNDEFINED                  , VK_FORMAT_UNDEFINED                  };
-            FormatTable[(int)xgpu::texture::format::BC7_8RGBA           ] = texture_format  { VK_FORMAT_BC7_UNORM_BLOCK           , VK_FORMAT_UNDEFINED                  , VK_FORMAT_BC7_SRGB_BLOCK             };
+            FormatTable[(int)xgpu::texture::format::BC1_4RGB_UNORM            ] = texture_format  { VK_FORMAT_BC1_RGB_UNORM_BLOCK       , VK_FORMAT_BC1_RGB_SRGB_BLOCK         };
+            FormatTable[(int)xgpu::texture::format::BC1_4RGBA1_UNORM          ] = texture_format  { VK_FORMAT_BC1_RGBA_UNORM_BLOCK      , VK_FORMAT_BC1_RGBA_SRGB_BLOCK        };
+            FormatTable[(int)xgpu::texture::format::BC2_8RGBA_UNORM           ] = texture_format  { VK_FORMAT_BC2_UNORM_BLOCK           , VK_FORMAT_BC2_SRGB_BLOCK             };
+            FormatTable[(int)xgpu::texture::format::BC3_8RGBA_UNORM           ] = texture_format  { VK_FORMAT_BC3_UNORM_BLOCK           , VK_FORMAT_BC3_SRGB_BLOCK             };
+            FormatTable[(int)xgpu::texture::format::BC4_4R_UNORM              ] = texture_format  { VK_FORMAT_BC4_UNORM_BLOCK           , VK_FORMAT_UNDEFINED                  };
+            FormatTable[(int)xgpu::texture::format::BC5_8RG_UNORM             ] = texture_format  { VK_FORMAT_BC5_UNORM_BLOCK           , VK_FORMAT_UNDEFINED                  };
+            FormatTable[(int)xgpu::texture::format::BC6H_8RGB_SFLOAT          ] = texture_format  { VK_FORMAT_BC6H_SFLOAT_BLOCK         , VK_FORMAT_UNDEFINED                  };
+            FormatTable[(int)xgpu::texture::format::BC6H_8RGB_UFLOAT          ] = texture_format  { VK_FORMAT_BC6H_UFLOAT_BLOCK         , VK_FORMAT_UNDEFINED                  };
+            FormatTable[(int)xgpu::texture::format::BC7_8RGBA_UNORM           ] = texture_format  { VK_FORMAT_BC7_UNORM_BLOCK           , VK_FORMAT_BC7_SRGB_BLOCK             };
 
-            FormatTable[(int)xgpu::texture::format::ETC2_4RGB           ] = texture_format  { VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK   , VK_FORMAT_UNDEFINED                  , VK_FORMAT_ETC2_R8G8B8_SRGB_BLOCK     };
-            FormatTable[(int)xgpu::texture::format::ETC2_4RGBA1         ] = texture_format  { VK_FORMAT_ETC2_R8G8B8A1_UNORM_BLOCK , VK_FORMAT_UNDEFINED                  , VK_FORMAT_ETC2_R8G8B8A1_SRGB_BLOCK   };
-            FormatTable[(int)xgpu::texture::format::ETC2_8RGBA          ] = texture_format  { VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK , VK_FORMAT_UNDEFINED                  , VK_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK   };
+            FormatTable[(int)xgpu::texture::format::ETC2_4RGB_UNORM           ] = texture_format  { VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK   , VK_FORMAT_ETC2_R8G8B8_SRGB_BLOCK     };
+            FormatTable[(int)xgpu::texture::format::ETC2_4RGBA1_UNORM         ] = texture_format  { VK_FORMAT_ETC2_R8G8B8A1_UNORM_BLOCK , VK_FORMAT_ETC2_R8G8B8A1_SRGB_BLOCK   };
+            FormatTable[(int)xgpu::texture::format::ETC2_8RGBA_UNORM          ] = texture_format  { VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK , VK_FORMAT_ETC2_R8G8B8A8_SRGB_BLOCK   };
 
-            FormatTable[(int)xgpu::texture::format::R32G32B32A32_FLOAT  ] = texture_format  { VK_FORMAT_R32G32B32A32_SFLOAT       , VK_FORMAT_R32G32B32A32_SFLOAT        , VK_FORMAT_R32G32B32A32_SFLOAT        };
-            FormatTable[(int)xgpu::texture::format::R16G16B16A16_FLOAT  ] = texture_format  { VK_FORMAT_R16G16B16A16_SFLOAT       , VK_FORMAT_R16G16B16A16_SFLOAT        , VK_FORMAT_R16G16B16A16_SFLOAT        };
+            FormatTable[(int)xgpu::texture::format::R32G32B32A32_SFLOAT       ] = texture_format  { VK_FORMAT_R32G32B32A32_SFLOAT       , VK_FORMAT_R32G32B32A32_SFLOAT        };
+            FormatTable[(int)xgpu::texture::format::R16G16B16A16_SFLOAT       ] = texture_format  { VK_FORMAT_R16G16B16A16_SFLOAT       , VK_FORMAT_R16G16B16A16_SFLOAT        };
 
-            FormatTable[(int)xgpu::texture::format::DEPTH_U16           ] = texture_format  { VK_FORMAT_D16_UNORM                 , VK_FORMAT_UNDEFINED                  , VK_FORMAT_UNDEFINED                  };
-            FormatTable[(int)xgpu::texture::format::DEPTH_U24_STENCIL_U8] = texture_format  { VK_FORMAT_D24_UNORM_S8_UINT         , VK_FORMAT_UNDEFINED                  , VK_FORMAT_UNDEFINED                  };
-            FormatTable[(int)xgpu::texture::format::DEPTH_F32           ] = texture_format  { VK_FORMAT_D32_SFLOAT                , VK_FORMAT_UNDEFINED                  , VK_FORMAT_UNDEFINED                  };
-            FormatTable[(int)xgpu::texture::format::DEPTH_F32_STENCIL_U8] = texture_format  { VK_FORMAT_D32_SFLOAT_S8_UINT        , VK_FORMAT_UNDEFINED                  , VK_FORMAT_UNDEFINED                  };
+            FormatTable[(int)xgpu::texture::format::DEPTH_U16           ]       = texture_format  { VK_FORMAT_D16_UNORM                 , VK_FORMAT_UNDEFINED                  };
+            FormatTable[(int)xgpu::texture::format::DEPTH_U24_STENCIL_U8]       = texture_format  { VK_FORMAT_D24_UNORM_S8_UINT         , VK_FORMAT_UNDEFINED                  };
+            FormatTable[(int)xgpu::texture::format::DEPTH_F32           ]       = texture_format  { VK_FORMAT_D32_SFLOAT                , VK_FORMAT_UNDEFINED                  };
+            FormatTable[(int)xgpu::texture::format::DEPTH_F32_STENCIL_U8]       = texture_format  { VK_FORMAT_D32_SFLOAT_S8_UINT        , VK_FORMAT_UNDEFINED                  };
 
             return FormatTable;
         }();  
 
         const auto& Entry = FormatTable[(int)Fmt];
-        if( bLinear )
-        {
-            if( bSinged ) return Entry.m_VKFormatLinearSigned;
-            return Entry.m_VKFormatLinearUnsigned;
-        }
-
-        return Entry.m_VKFormatSRGB;
+        if (bGamma) return Entry.m_VKFormatSRGB;
+        return Entry.m_VKFormatLinear;
     }
 
     //-------------------------------------------------------------------------------                        
@@ -181,28 +174,40 @@ namespace xgpu::vulkan
 
     //---------------------------------------------------------------------------------------
 
+    bool texture::isCubemap(void) const noexcept
+    {
+        return m_bCubeMap;
+    }
+
+    //---------------------------------------------------------------------------------------
+
+    std::array<xgpu::texture::address_mode, 3> texture::getAdressModes(void) const noexcept
+    {
+        return m_AdressModes;
+    }
+
+    //---------------------------------------------------------------------------------------
+
     xgpu::device::error* texture::Initialize
     ( std::shared_ptr<vulkan::device>&& Device
     , const xgpu::texture::setup&       Setup
     ) noexcept
     {
         m_Device = Device;
+        m_bCubeMap = Setup.m_isCubemap;
+        m_AdressModes = Setup.m_AdressModes;
 
-        m_VKFormat = getVKTextureFormat ( Setup.m_Format
-                                        , Setup.m_Type == xgpu::texture::type::LINEAR
-                                          || Setup.m_Type == xgpu::texture::type::NORMAL
-                                        , Setup.m_hasSignedChannels
-                                        );
-        if(m_VKFormat == VK_FORMAT_UNDEFINED )
+        // Get texture format        
+        if(m_VKFormat = getVKTextureFormat(Setup.m_Format, Setup.m_isGamma); m_VKFormat == VK_FORMAT_UNDEFINED )
         {
             m_Device->m_Instance->ReportError( "Unsorported texture format with the specific LINEAR, and SIGNED Flags");
             return VGPU_ERROR(xgpu::device::error::FAILURE, "Unsorported texture format with the specific LINEAR, and SIGNED Flags");
         }
 
-        m_nMips      = static_cast<std::uint8_t>(Setup.m_MipChain.size());
+        m_nMips      = static_cast<std::uint8_t>(Setup.m_MipSizes.size());
         m_Width      = static_cast<std::uint16_t>(Setup.m_Width);
         m_Height     = static_cast<std::uint16_t>(Setup.m_Height);
-        m_ArrayCount = static_cast<std::uint16_t>(Setup.m_ArrayCount);
+        m_ArrayCount = static_cast<std::uint16_t>(Setup.m_FaceCount);
         m_Format     = Setup.m_Format;
         
         // Get device properites for the requested texture format
@@ -317,7 +322,7 @@ namespace xgpu::vulkan
                 .sType          = VkStructureType::VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
             ,   .pNext          = nullptr
             ,   .flags          = 0
-            ,   .size           = Setup.m_Data.size()
+            ,   .size           = Setup.m_AllFacesData.size()
             ,   .usage          = VK_BUFFER_USAGE_TRANSFER_SRC_BIT
             ,   .sharingMode    = VK_SHARING_MODE_EXCLUSIVE
             };
@@ -377,45 +382,48 @@ namespace xgpu::vulkan
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to map with the allocated memory for the texture");
             }
             
-            assert(MemoryRequirements.size >= Setup.m_Data.size() );
-            memcpy(pData, Setup.m_Data.data(), Setup.m_Data.size());
+            assert(MemoryRequirements.size >= Setup.m_AllFacesData.size() );
+            memcpy(pData, Setup.m_AllFacesData.data(), Setup.m_AllFacesData.size());
             vkUnmapMemory( m_Device->m_VKDevice, StagingMemory );
 
             // Setup buffer copy regions for each mip level
             std::vector<VkBufferImageCopy>  BufferCopyRegions{};
-            std::uint32_t                   Offset{ 0 };
 
             // Load mip levels into linear textures that are used to copy from
-            auto Width   = Setup.m_Width;
-            auto Height  = Setup.m_Height;
-
-            for( std::uint32_t i = 0; i < m_nMips; i++ )
+            std::uint32_t Offset{ 0 };
+            for (std::uint32_t iFace = 0; iFace < Setup.m_FaceCount; iFace++)
             {
-                BufferCopyRegions.emplace_back
-                (
-                    VkBufferImageCopy
-                    {
-                        .bufferOffset           = Offset
-                    ,   .imageSubresource
-                        {
-                            .aspectMask         = VK_IMAGE_ASPECT_COLOR_BIT
-                        ,   .mipLevel           = i
-                        ,   .baseArrayLayer     = 0
-                        ,   .layerCount         = 1
-                        }
-                    ,   .imageExtent
-                        {
-                            .width              = static_cast<std::uint32_t>(Width)
-                        ,   .height             = static_cast<std::uint32_t>(Height)
-                        ,   .depth              = 1
-                        }
-                    }
-                );
+                auto Width  = Setup.m_Width;
+                auto Height = Setup.m_Height;
 
-                // Get ready for next mip
-                Width  = std::max( 1, Width>>1);
-                Height = std::max( 1, Height>>1);
-                Offset += static_cast<uint32_t>(Setup.m_MipChain[i].m_Size);
+                for (std::uint32_t i = 0; i < m_nMips; i++)
+                {
+                    BufferCopyRegions.emplace_back
+                    (
+                        VkBufferImageCopy
+                        {
+                            .bufferOffset           = Offset
+                        ,   .imageSubresource
+                            {
+                                .aspectMask         = VK_IMAGE_ASPECT_COLOR_BIT
+                            ,   .mipLevel           = i
+                            ,   .baseArrayLayer     = iFace
+                            ,   .layerCount         = 1//Setup.m_FaceCount
+                            }
+                        ,   .imageExtent
+                            {
+                                .width              = static_cast<std::uint32_t>(Width)
+                            ,   .height             = static_cast<std::uint32_t>(Height)
+                            ,   .depth              = 1
+                            }
+                        }
+                    );
+
+                    // Get ready for next mip
+                    Width   = std::max(1, Width >> 1);
+                    Height  = std::max(1, Height >> 1);
+                    Offset += static_cast<uint32_t>(Setup.m_MipSizes[i].m_SizeInBytes);
+                }
             }
 
             // Create optimal tiled target image
@@ -423,6 +431,7 @@ namespace xgpu::vulkan
             {
                 .sType          = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO
             ,   .pNext          = nullptr
+            ,   .flags          = Setup.m_isCubemap ? VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT : 0u
             ,   .imageType      = VK_IMAGE_TYPE_2D
             ,   .format         = m_VKFormat
             ,   .extent
@@ -432,7 +441,7 @@ namespace xgpu::vulkan
                 ,   .depth      = 1
                 }
             ,   .mipLevels      = m_nMips
-            ,   .arrayLayers    = 1
+            ,   .arrayLayers    = Setup.m_FaceCount
             ,   .samples        = VK_SAMPLE_COUNT_1_BIT
             ,   .tiling         = VK_IMAGE_TILING_OPTIMAL
             ,   .usage          = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
@@ -486,7 +495,7 @@ namespace xgpu::vulkan
                 .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT
             ,   .baseMipLevel   = 0
             ,   .levelCount     = m_nMips
-            ,   .layerCount     = 1
+            ,   .layerCount     = Setup.m_FaceCount
             };
 
             // Optimal image will be used as destination for the copy, so we must transfer from our
@@ -633,8 +642,8 @@ namespace xgpu::vulkan
 
             // Copy image data into memory
             memcpy( pData
-                  , Setup.m_Data.data()
-                  , Setup.m_MipChain.data() ? Setup.m_MipChain[ ImageSubresource.mipLevel ].m_Size : Setup.m_Data.size()
+                  , Setup.m_AllFacesData.data()
+                  , Setup.m_MipSizes.data() ? Setup.m_MipSizes[ ImageSubresource.mipLevel ].m_SizeInBytes : Setup.m_AllFacesData.size()
                   );
 
             vkUnmapMemory(m_Device->m_VKDevice, MappableMemory );
@@ -680,7 +689,7 @@ namespace xgpu::vulkan
             .sType              = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO
         ,   .pNext              = nullptr
         ,   .image              = m_VKImage
-        ,   .viewType           = VK_IMAGE_VIEW_TYPE_2D
+        ,   .viewType           = Setup.m_isCubemap ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D
         ,   .format             = m_VKFormat
         ,   .components         = 
             {
@@ -697,7 +706,7 @@ namespace xgpu::vulkan
                 // Only set mip map count if optimal tiling is used
             ,   .levelCount     = (bUseStaging) ? static_cast<std::uint32_t>(m_nMips) : 1u
             ,   .baseArrayLayer = 0
-            ,   .layerCount     = 1
+            ,   .layerCount     = Setup.m_FaceCount
             }
         };
         if( auto VKErr = vkCreateImageView( m_Device->m_VKDevice

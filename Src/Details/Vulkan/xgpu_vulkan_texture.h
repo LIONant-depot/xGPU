@@ -11,7 +11,8 @@ namespace xgpu::vulkan
         virtual std::array<int, 3>                  getTextureDimensions(void)                  const   noexcept override;
         virtual int                                 getMipCount         (void)                  const   noexcept override;
         virtual xgpu::texture::format               getFormat           (void)                  const   noexcept override;
-
+        virtual bool                                isCubemap           (void)                  const   noexcept override;
+        virtual std::array<xgpu::texture::address_mode, 3> getAdressModes(void)                  const   noexcept override;
 
         std::shared_ptr<vulkan::device> m_Device                {};
         VkImage                         m_VKImage               {};
@@ -24,5 +25,7 @@ namespace xgpu::vulkan
         std::uint8_t                    m_nMips                 {};
         xgpu::texture::format           m_Format                {};
         VkFormat                        m_VKFormat              {};
+        std::array<xgpu::texture::address_mode, 3> m_AdressModes {};
+        bool                            m_bCubeMap              {};
     };
 }

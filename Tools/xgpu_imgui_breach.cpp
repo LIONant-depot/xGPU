@@ -632,13 +632,14 @@ struct breach_instance : window_info
 
         // Create the texture in xgpu
         {
-            std::array<xgpu::texture::setup::mip,1> Mip{ height * width * sizeof(std::uint32_t) };
-            xgpu::texture::setup                    Setup;
+            auto Mip  = std::array{ xgpu::texture::setup::mip_size{ height * width * sizeof(std::uint32_t) } };
+
+            xgpu::texture::setup    Setup;
 
             Setup.m_Height      = height;
             Setup.m_Width       = width;
-            Setup.m_MipChain    = Mip;
-            Setup.m_Data        = { reinterpret_cast<const std::byte*>(pixels), Mip[0].m_Size };
+            Setup.m_MipSizes    = Mip;
+            Setup.m_AllFacesData = std::span{ reinterpret_cast<const std::byte*>(pixels), Mip[0].m_SizeInBytes * sizeof(char) };
 
             if (auto Err = m_Device.Create(Texture, Setup); Err)
                 return Err;

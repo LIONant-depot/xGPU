@@ -155,15 +155,7 @@ namespace xgpu
 
         struct sampler
         {
-            enum class address_mode : std::uint8_t
-            {
-                TILE
-            ,   CLAMP
-            ,   CLAMP_BORDER
-            ,   MIRROR
-            ,   MIRROR_CLAMP
-            ,   ENUM_COUNT
-            };
+            using address_mode = xgpu::texture::address_mode;
 
             enum class mipmap_sampler : std::uint8_t
             {

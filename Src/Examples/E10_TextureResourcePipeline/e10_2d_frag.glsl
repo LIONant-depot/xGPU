@@ -6,7 +6,7 @@ layout (binding = 0)    uniform     sampler2D   uSamplerColor; // [INPUT_TEXTURE
 
 layout(location = 0) in struct 
 { 
-    vec2  UV; 
+    vec3  UV; 
 } In;
 
 layout (location = 0)   out         vec4        outFragColor;
@@ -24,13 +24,15 @@ layout(push_constant) uniform uPushConstant
    vec4  NormalModes;
    mat4  L2C;
    vec3  LocalSpaceLightPos;
+   vec4  UVMode;
 } pc;
 
 
 void main() 
 {
-    vec4 Color     = clamp( texture( uSamplerColor, In.UV ), 0, 1)                 *    pc.Mode.w + 
-                     clamp( textureLod( uSamplerColor, In.UV, pc.MipLevel ), 0, 1) * (1-pc.Mode.w);
+ //   int faceIndex  = int( pc.UVMode.z );
+    vec4 Color     = clamp( texture( uSamplerColor, In.UV.xy ), 0, 1)                 *    pc.Mode.w + 
+                     clamp( textureLod( uSamplerColor, In.UV.xy, pc.MipLevel ), 0, 1) * (1-pc.Mode.w);
 
     // Decode the normal
     float DisplayNormal = dot(pc.NormalModes, pc.NormalModes);

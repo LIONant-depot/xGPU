@@ -2,7 +2,7 @@
 #extension GL_ARB_separate_shader_objects  : enable
 #extension GL_ARB_shading_language_420pack : enable
 
-layout (binding = 0)    uniform     sampler2D   uSamplerColor; // [INPUT_TEXTURE]
+layout (binding = 0)    uniform     samplerCube   uSamplerColor; // [INPUT_TEXTURE]
 
 layout(location = 0) in struct 
 { 
@@ -35,8 +35,8 @@ layout(push_constant) uniform uPushConstant
 
 void main() 
 {
-    vec4 Color     = clamp( texture( uSamplerColor, In.UV.xy ), 0, 1)                 *    pc.Mode.w + 
-                     clamp( textureLod( uSamplerColor, In.UV.xy, pc.MipLevel ), 0, 1) * (1-pc.Mode.w);
+    vec4 Color     = clamp( texture( uSamplerColor, In.UV.xyz ), 0, 1)                 *    pc.Mode.w + 
+                     clamp( textureLod( uSamplerColor, In.UV.xyz, pc.MipLevel ), 0, 1) * (1-pc.Mode.w);
 
     // Decode the normal
     float DisplayNormal = dot(pc.NormalModes.xy, pc.NormalModes.xy);

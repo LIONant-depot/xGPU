@@ -46,7 +46,7 @@ void main()
     Out.VertexLighting          = max( 0, dot( inNormal, Out.LocalSpaceLightDir ));
     //-------------------------------------------------------------------------------
 
-    Out.UV                      = vec3(inUV * pc.uvScale,0);
+    Out.UV                      = normalize(inPos);
 
     Out.BTN                     = mat3( inTangent, inBinormal, inNormal);
     Out.TangentLightDir         = transpose(Out.BTN) * Out.LocalSpaceLightDir;

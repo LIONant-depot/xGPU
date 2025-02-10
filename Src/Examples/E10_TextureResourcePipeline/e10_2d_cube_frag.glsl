@@ -2,17 +2,11 @@
 #extension GL_ARB_separate_shader_objects  : enable
 #extension GL_ARB_shading_language_420pack : enable
 
-layout (binding = 0)    uniform     sampler2D   uSamplerColor; // [INPUT_TEXTURE]
+layout (binding = 0)    uniform     samplerCube   uSamplerColor; // [INPUT_TEXTURE]
 
 layout(location = 0) in struct 
 { 
-    float VertexLighting; 
     vec3  UV; 
-    vec3  LocalSpaceLightPosition;
-    vec3  LocalSpaceLightDir;
-    vec3  TangentLightDir;
-    mat3  BTN;
-	vec3  LocalSpacePosition;
 } In;
 
 layout (location = 0)   out         vec4        outFragColor;
@@ -33,32 +27,23 @@ layout(push_constant) uniform uPushConstant
    vec4  UVMode;
 } pc;
 
+
 void main() 
 {
-    vec4 Color     = clamp( texture( uSamplerColor, In.UV.xy ), 0, 1)                 *    pc.Mode.w + 
-                     clamp( textureLod( uSamplerColor, In.UV.xy, pc.MipLevel ), 0, 1) * (1-pc.Mode.w);
+ //   int faceIndex  = int( pc.UVMode.z );
+    vec4 Color     = clamp( texture( uSamplerColor, In.UV.xyz ), 0, 1)                 *    pc.Mode.w + 
+                     clamp( textureLod( uSamplerColor, In.UV.xyz, pc.MipLevel ), 0, 1) * (1-pc.Mode.w);
 
     // Decode the normal
-    float DisplayNormal = dot(pc.NormalModes.xy, pc.NormalModes.xy);
+    float DisplayNormal = dot(pc.NormalModes, pc.NormalModes);
     vec3 NormalFromBC3 = vec3( Color.ag, 0);
     vec3 NormalFromBC5 = vec3( Color.gr, 0);
     vec3 Normal        = NormalFromBC3.rgb * pc.NormalModes.x + NormalFromBC5.rgb * pc.NormalModes.y;
     Normal.xy = Normal.rg * 2.0 - 1.0;
-    Normal.z  = sqrt(max( 0, 1 - dot(Normal.xy, Normal.xy)));
-
-    // Chose between a compressed normal and a raw normal
-    Normal = (Color.rgb * 2.0 - 1.0) * (1 - DisplayNormal) + Normal.rgb * DisplayNormal; 
-
-    float LightingDiffuse = max( 0, dot( In.BTN*Normal, normalize(In.LocalSpaceLightPosition - In.LocalSpacePosition) ));
+    Normal.z  = sqrt(1 - min( 1, dot(Normal.xy, Normal.xy)));
 
     // Convert Normal to color
     Normal = Normal * 0.5 + 0.5;
-
-    // Make sure that display normal is activated in the case where we want lighting but we did not have a compressed normal
-    DisplayNormal = max( DisplayNormal, pc.NormalModes.z);
-
-    // Choose between lighting mode or normal mode
-    Normal = vec3(LightingDiffuse) * pc.NormalModes.z + Normal * ( 1 - pc.NormalModes.z);
 
     Color = (Color * (1 - DisplayNormal)) + vec4( (Normal.rgb * DisplayNormal), DisplayNormal);
 
@@ -75,6 +60,23 @@ void main()
 
     // We must convert to gamma every time...
     outFragColor.rgb = pow( outFragColor.rgb, vec3(1/pc.ToGamma) );
+
+    //
+    // Gamma correction with color satuation
+    //
+    /*
+    float lum    = dot(outFragColor.rgb, vec3(0.299, 0.587, 0.114));
+    if( lum > 0.001f )
+    {
+        float newLum = pow(lum, (1/pc.ToGamma));
+        float t      = 0.2f;
+        outFragColor.rgb = pow( outFragColor.rgb, vec3(1/pc.ToGamma)) * (1-t) + t * (outFragColor.rgb / lum * newLum);
+    }
+    else
+    {
+        outFragColor.rgb = pow( outFragColor.rgb, vec3(1/pc.ToGamma) );
+    }
+    */
 }
 
 

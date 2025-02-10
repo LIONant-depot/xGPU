@@ -26,6 +26,6 @@ layout(location = 0) out struct
 
 void main()
 {
-    Out.UV      = vec3(aUV.xy * pc.uvScale, 0);
+    Out.UV      = aUV; 
     gl_Position = vec4(aPos * pc.uScale + pc.uTranslate, 0, 1);
 }

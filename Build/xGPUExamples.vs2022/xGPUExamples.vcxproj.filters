@@ -127,6 +127,9 @@
     <Filter Include="Examples\Example 10 Texture Resource Pipeline\ResourcePipeline\Documentation">
       <UniqueIdentifier>{10af73e4-d2e8-4cbf-a034-bc933375fac4}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Examples\Example 10 Texture Resource Pipeline\Shaders">
+      <UniqueIdentifier>{5bac80fb-2f9a-4922-a792-5e12e324aa0e}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\..\Src\Examples\main.cpp" />
@@ -896,17 +899,29 @@
     <CustomBuild Include="..\..\Src\Examples\E18_QuantizeSkinVertex\e18_quantize_skingeom_vert.glsl">
       <Filter>Examples\Example 18 QuantizeSkinVertex</Filter>
     </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_2d_cube_frag.glsl">
+      <Filter>Examples\Example 10 Texture Resource Pipeline\Shaders</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_2d_cube_vert.glsl">
+      <Filter>Examples\Example 10 Texture Resource Pipeline\Shaders</Filter>
+    </CustomBuild>
     <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_2d_frag.glsl">
-      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+      <Filter>Examples\Example 10 Texture Resource Pipeline\Shaders</Filter>
     </CustomBuild>
     <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_2d_vert.glsl">
-      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
-    </CustomBuild>
-    <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_3d_vert.glsl">
-      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+      <Filter>Examples\Example 10 Texture Resource Pipeline\Shaders</Filter>
     </CustomBuild>
     <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_3d_frag.glsl">
-      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+      <Filter>Examples\Example 10 Texture Resource Pipeline\Shaders</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_3d_vert.glsl">
+      <Filter>Examples\Example 10 Texture Resource Pipeline\Shaders</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_3d_cube_vert.glsl">
+      <Filter>Examples\Example 10 Texture Resource Pipeline\Shaders</Filter>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_3d_cube_frag.glsl">
+      <Filter>Examples\Example 10 Texture Resource Pipeline\Shaders</Filter>
     </CustomBuild>
   </ItemGroup>
   <ItemGroup>

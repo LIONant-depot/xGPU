@@ -8,6 +8,8 @@ namespace xgpu
             virtual std::array<int, 3>                  getTextureDimensions    (void)                  const   noexcept = 0;
             virtual int                                 getMipCount             (void)                  const   noexcept = 0;
             virtual xgpu::texture::format               getFormat               (void)                  const   noexcept = 0;
+            virtual bool                                isCubemap               (void)                  const   noexcept = 0;
+            virtual std::array<texture::address_mode, 3> getAdressModes         (void)                  const   noexcept = 0;
         };
     }
 
@@ -30,5 +32,17 @@ namespace xgpu
         return m_Private->getFormat();
     }
 
+    //-----------------------------------------------------------------------------
+    bool texture::isCubemap(void) const noexcept
+    {
+        return m_Private->isCubemap();
+    }
+
+    //-----------------------------------------------------------------------------
+    inline
+    std::array<texture::address_mode, 3> texture::getAdressModes(void) const noexcept
+    {
+        return m_Private->getAdressModes();
+    }
 }
 

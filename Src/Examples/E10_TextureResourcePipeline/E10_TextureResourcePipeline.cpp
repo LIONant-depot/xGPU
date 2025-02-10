@@ -31,6 +31,26 @@ constexpr auto g_FragShader3DSPV = std::array
     #include "x64\e10_3d_frag.h"
 };
 
+constexpr auto g_VertShader2DCubeSPV = std::array
+{
+    #include "x64\e10_2d_cube_vert.h"
+};
+constexpr auto g_FragShader2DCubeSPV = std::array
+{
+    #include "x64\e10_2d_cube_frag.h"
+};
+
+constexpr auto g_VertShader3DCubeSPV = std::array
+{
+    #include "x64\e10_3d_cube_vert.h"
+};
+constexpr auto g_FragShader3DCubeSPV = std::array
+{
+    #include "x64\e10_3d_cube_frag.h"
+};
+
+
+
 static_assert(xproperty::meta::meets_requirements_v< true, false, std::string> );
 
 
@@ -41,7 +61,7 @@ namespace e10
     struct vert_2d
     {
         float           m_X, m_Y;
-        float           m_U, m_V;
+        xcore::vector3d m_UV;           // UV able to deal with cube maps as well...
     };
 
     //------------------------------------------------------------------------------------------------
@@ -70,6 +90,7 @@ namespace e10
         xcore::vector4 m_NormalModes    {0};
         xcore::matrix4 m_L2C;
         xcore::vector3 m_LocalSpaceLightPosition;
+        xcore::vector4 m_UVMode;
     };
 
     //------------------------------------------------------------------------------------------------
@@ -179,7 +200,7 @@ struct draw_options
 
     render_mode         m_RenderMode            = render_mode::RENDER_2D;  
     float               m_UVScale               = 1;
-    float               m_BackgroundIntensity   = 0.76f;
+    float               m_BackgroundIntensity   = 0.16f;
     channels_mode       m_ChannelsMode          = channels_mode::COLOR_ALPHA;
     bool                m_bBilinearMode         = false;
     int                 m_ChooseMipLevel        = -1;
@@ -385,98 +406,144 @@ XPROPERTY_REG(draw_controls)
 
 //------------------------------------------------------------------------------------------------
 
-int E10_Example()
+struct material_mgr
 {
-    xgpu::instance Instance;
-    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = e10::DebugMessage, .m_pLogWarning = e10::DebugMessage }); Err)
-        return xgpu::getErrorInt(Err);
-
-    xgpu::device Device;
-    if (auto Err = Instance.Create(Device); Err)
-        return xgpu::getErrorInt(Err);
-
-    xgpu::window MainWindow;
-    if (auto Err = Device.Create(MainWindow, {}); Err)
-        return xgpu::getErrorInt(Err);
-
-    //
-    // Define 2d materials
-    //
-    xgpu::pipeline BilinearPipeline2D;
-    xgpu::pipeline NearestPipeline2D;
+    union material
     {
-        xgpu::vertex_descriptor VertexDescriptor2D;
+        std::uint32_t m_Value {};
+
+        static constexpr auto num_bits_used = 7;
+        struct
         {
-            auto Attributes = std::array
-            {
-                xgpu::vertex_descriptor::attribute
-                { .m_Offset = offsetof(e10::vert_2d, m_X)
-                , .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
-                }
-            ,   xgpu::vertex_descriptor::attribute
-                { .m_Offset = offsetof(e10::vert_2d, m_U)
-                , .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
-                }
-            };
-            auto Setup = xgpu::vertex_descriptor::setup
-            { .m_VertexSize = sizeof(e10::vert_2d)
-            , .m_Attributes = Attributes
-            };
-
-            if (auto Err = Device.Create(VertexDescriptor2D, Setup); Err)
-                return xgpu::getErrorInt(Err);
-        }
-
-        xgpu::shader MyFragmentShader2D;
-        {
-            xgpu::shader::setup Setup
-            { .m_Type = xgpu::shader::type::bit::FRAGMENT
-            , .m_Sharer = xgpu::shader::setup::raw_data{ g_FragShader2DSPV }
-            };
-            if (auto Err = Device.Create(MyFragmentShader2D, Setup); Err)
-                return xgpu::getErrorInt(Err);
-        }
-
-        xgpu::shader MyVertexShader2D;
-        {
-            xgpu::shader::setup Setup
-            {
-                .m_Type = xgpu::shader::type::bit::VERTEX
-            ,   .m_Sharer = xgpu::shader::setup::raw_data{g_VertShader2DSPV}
-            };
-
-            if (auto Err = Device.Create(MyVertexShader2D, Setup); Err)
-                return xgpu::getErrorInt(Err);
-        }
-
-        auto Shaders  = std::array<const xgpu::shader*, 2>{ &MyFragmentShader2D, & MyVertexShader2D };
-        auto Samplers = std::array{ xgpu::pipeline::sampler{} };
-        auto Setup    = xgpu::pipeline::setup
-        {
-            .m_VertexDescriptor  = VertexDescriptor2D
-        ,   .m_Shaders           = Shaders
-        ,   .m_PushConstantsSize = sizeof(e10::push_contants)
-        ,   .m_Samplers          = Samplers
-        ,   .m_DepthStencil      = {.m_bDepthTestEnable = false }
-        ,   .m_Blend             = xgpu::pipeline::blend::getAlphaOriginal()
+            std::uint8_t    m_Bilinear : 1
+            ,               m_CubeMap  : 1
+            ,               m_3DRender : 1
+            ,               m_UWrapMode: 2      // base on xcore::bitmap::wrap_mode
+            ,               m_VWrapMode: 2      // base on xcore::bitmap::wrap_mode
+            ;
         };
 
-        if (auto Err = Device.Create(BilinearPipeline2D, Setup); Err)
-            return xgpu::getErrorInt(Err);
+        std::uint32_t getGuid() const noexcept
+        {
+            return xcore::crc<32>::FromBytes({reinterpret_cast<const std::byte*>(this), sizeof(*this)}).m_Value;
+        }
+    };
 
-        Samplers[0].m_MipmapMin = xgpu::pipeline::sampler::mipmap_sampler::NEAREST;
-        Samplers[0].m_MipmapMag = xgpu::pipeline::sampler::mipmap_sampler::NEAREST;
-        if (auto Err = Device.Create(NearestPipeline2D, Setup); Err)
-            return xgpu::getErrorInt(Err);
+    struct material_instance
+    {
+        xgpu::texture m_Texture;
+
+        std::uint32_t getGuid() const noexcept
+        {
+            return xcore::crc<32>::FromBytes({ reinterpret_cast<const std::byte*>(this), sizeof(*this) }).m_Value;
+        }
+    };
+
+    //----------------------------------------------------------------------------------------
+
+    void SetMaterialInstance(xgpu::device& Device, xgpu::cmd_buffer& CmdBuffer, material_instance& MaterialInstance, bool b2D, bool bBilinear )
+    {
+        material Material
+        { .m_Bilinear  = bBilinear
+        , .m_CubeMap   = MaterialInstance.m_Texture.isCubemap()
+        , .m_3DRender  = !b2D
+        , .m_UWrapMode = static_cast<std::uint8_t>(MaterialInstance.m_Texture.getAdressModes()[0])
+        , .m_VWrapMode = static_cast<std::uint8_t>(MaterialInstance.m_Texture.getAdressModes()[1])
+        };
+
+        std::uint32_t PipelineGuid = Material.getGuid() ^ MaterialInstance.getGuid();
+
+        if (auto Entry = m_PipelineInstances.find(PipelineGuid); Entry != m_PipelineInstances.end())
+        {
+            CmdBuffer.setPipelineInstance(Entry->second);
+        }
+        else
+        {
+            auto& Pipeline = getMaterial(Device, Material);
+            auto  Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ MaterialInstance.m_Texture } };
+            auto  Setup    = xgpu::pipeline_instance::setup
+            { .m_PipeLine           = Pipeline
+            , .m_SamplersBindings   = Bindings
+            };
+
+            xgpu::pipeline_instance TempPI;
+            if (auto Err = Device.Create(TempPI, Setup); Err)
+            {
+                e10::DebugMessage(xgpu::getErrorMsg(Err));
+                std::exit(xgpu::getErrorInt(Err));
+            }
+
+            CmdBuffer.setPipelineInstance(TempPI);
+            m_PipelineInstances.insert({ PipelineGuid, std::move(TempPI) });
+        }
     }
 
-    //
-    // Define 3d materials
-    //
-    xgpu::pipeline BilinearPipeline3D;
-    xgpu::pipeline NearestPipeline3D;
+    //----------------------------------------------------------------------------------------
+
+    void CreateMaterialInstance(xgpu::device& Device, material_instance& MaterialInstance, const xcore::bitmap& Bitmap)
     {
-        xgpu::vertex_descriptor VertexDescriptor3D;
+        assert(MaterialInstance.m_Texture.m_Private == nullptr);
+
+        // Create officially the material instance
+        if (auto Err = xgpu::tools::bitmap::Create(MaterialInstance.m_Texture, Device, Bitmap); Err)
+        {
+            e10::DebugMessage(xgpu::getErrorMsg(Err));
+            std::exit(xgpu::getErrorInt(Err));
+        }
+    }
+
+    //----------------------------------------------------------------------------------------
+
+    void UpdateMaterialInstance( xgpu::device& Device, material_instance& MaterialInstance, const xcore::bitmap& Bitmap )
+    {
+        // First let us be sure that we are clear...
+        ReleaseMaterialInstance(Device, MaterialInstance );
+
+        // Now we can create a new material instance
+        CreateMaterialInstance(Device, MaterialInstance, Bitmap);
+    }
+
+    //----------------------------------------------------------------------------------------
+
+    void ReleaseMaterialInstance(xgpu::device& Device, material_instance& MaterialInstance)
+    {
+        if (MaterialInstance.m_Texture.m_Private == nullptr ) return;
+        
+        for (int i = 0; i < (1 << material::num_bits_used); ++i)
+        {
+            material Material;
+            Material.m_Value = i;
+            std::uint32_t PipelineGuid = Material.getGuid() ^ MaterialInstance.getGuid();
+            if (auto Entry = m_PipelineInstances.find(PipelineGuid); Entry != m_PipelineInstances.end())
+            {
+                // This is what we should do to release all combinations
+                //Device.Destroy(Entry->second);
+                //m_PipelineInstances.erase(Entry);
+            }
+
+            // Release the texture
+            // MaterialInstance.m_Texture.m_Private.reset();
+            // HACK: This is a hack to avoid the texture to be released
+            memset(&MaterialInstance.m_Texture, 0, sizeof(MaterialInstance.m_Texture));
+        }
+    }
+
+    //----------------------------------------------------------------------------------------
+
+    xgpu::pipeline& getMaterial( xgpu::device& Device, material Material )
+    {
+        // Do first the simple job of finding the right pipeline
+        {
+            auto Entry = m_Pipelines.find(Material.getGuid());
+            if (Entry != m_Pipelines.end())
+                return Entry->second;
+        }
+
+        //
+        // Vertex descriptors
+        //
+        xgpu::vertex_descriptor VertexDescriptor;
+        if( Material.m_3DRender )
         {
             auto Attributes = std::array
             {
@@ -512,144 +579,416 @@ int E10_Example()
             ,   .m_Attributes = Attributes
             };
 
-            if (auto Err = Device.Create(VertexDescriptor3D, Setup); Err)
-                return xgpu::getErrorInt(Err);
+            if (auto Err = Device.Create(VertexDescriptor, Setup); Err)
+                exit( xgpu::getErrorInt(Err) );
         }
-
-        xgpu::shader MyFragmentShader3D;
+        else
         {
-            xgpu::shader::setup Setup
-            { .m_Type = xgpu::shader::type::bit::FRAGMENT
-            , .m_Sharer = xgpu::shader::setup::raw_data{ g_FragShader3DSPV }
-            };
-            if (auto Err = Device.Create(MyFragmentShader3D, Setup); Err)
-                return xgpu::getErrorInt(Err);
-        }
-
-        xgpu::shader MyVertexShader3D;
-        {
-            xgpu::shader::setup Setup
+            auto Attributes = std::array
             {
-                .m_Type = xgpu::shader::type::bit::VERTEX
-            ,   .m_Sharer = xgpu::shader::setup::raw_data{g_VertShader3DSPV}
+                xgpu::vertex_descriptor::attribute
+                { .m_Offset = offsetof(e10::vert_2d, m_X)
+                , .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
+                }
+            ,   xgpu::vertex_descriptor::attribute
+                { .m_Offset = offsetof(e10::vert_2d, m_UV)
+                , .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
+                }
+            };
+            auto Setup = xgpu::vertex_descriptor::setup
+            { .m_VertexSize = sizeof(e10::vert_2d)
+            , .m_Attributes = Attributes
             };
 
-            if (auto Err = Device.Create(MyVertexShader3D, Setup); Err)
-                return xgpu::getErrorInt(Err);
+            if (auto Err = Device.Create(VertexDescriptor, Setup); Err)
+                exit(xgpu::getErrorInt(Err));
         }
 
-        auto Shaders  = std::array<const xgpu::shader*, 2>{ &MyFragmentShader3D, & MyVertexShader3D };
+        //
+        // Shaders
+        //
+        xgpu::shader FragmentShader;
+        xgpu::shader VertexShader;
+        if (Material.m_3DRender)
+        {
+            if (Material.m_CubeMap)
+            {
+                xgpu::shader::setup SetupF
+                { .m_Type = xgpu::shader::type::bit::FRAGMENT
+                , .m_Sharer = xgpu::shader::setup::raw_data{ g_FragShader3DCubeSPV }
+                };
+                if (auto Err = Device.Create(FragmentShader, SetupF); Err)
+                    exit(xgpu::getErrorInt(Err));
+
+                xgpu::shader::setup Setup
+                {
+                    .m_Type = xgpu::shader::type::bit::VERTEX
+                ,   .m_Sharer = xgpu::shader::setup::raw_data{g_VertShader3DCubeSPV}
+                };
+
+                if (auto Err = Device.Create(VertexShader, Setup); Err)
+                    exit(xgpu::getErrorInt(Err));
+            }
+            else
+            {
+                xgpu::shader::setup SetupF
+                { .m_Type = xgpu::shader::type::bit::FRAGMENT
+                , .m_Sharer = xgpu::shader::setup::raw_data{ g_FragShader3DSPV }
+                };
+                if (auto Err = Device.Create(FragmentShader, SetupF); Err)
+                    exit(xgpu::getErrorInt(Err));
+
+                xgpu::shader::setup Setup
+                {
+                    .m_Type = xgpu::shader::type::bit::VERTEX
+                ,   .m_Sharer = xgpu::shader::setup::raw_data{g_VertShader3DSPV}
+                };
+
+                if (auto Err = Device.Create(VertexShader, Setup); Err)
+                    exit(xgpu::getErrorInt(Err));
+            }
+        }
+        else
+        {
+            if ( Material.m_CubeMap )
+            {
+                xgpu::shader::setup SetupF
+                { .m_Type   = xgpu::shader::type::bit::FRAGMENT
+                , .m_Sharer = xgpu::shader::setup::raw_data{ g_FragShader2DCubeSPV }
+                };
+                if (auto Err = Device.Create(FragmentShader, SetupF); Err)
+                    exit(xgpu::getErrorInt(Err));
+
+                xgpu::shader::setup SetupV
+                { .m_Type   = xgpu::shader::type::bit::VERTEX
+                , .m_Sharer = xgpu::shader::setup::raw_data{g_VertShader2DCubeSPV}
+                };
+
+                if (auto Err = Device.Create(VertexShader, SetupV); Err)
+                    exit(xgpu::getErrorInt(Err));
+            }
+            else
+            {
+                xgpu::shader::setup SetupF
+                { .m_Type   = xgpu::shader::type::bit::FRAGMENT
+                , .m_Sharer = xgpu::shader::setup::raw_data{ g_FragShader2DSPV }
+                };
+                if (auto Err = Device.Create(FragmentShader, SetupF); Err)
+                    exit(xgpu::getErrorInt(Err));
+
+                xgpu::shader::setup SetupV
+                { .m_Type   = xgpu::shader::type::bit::VERTEX
+                , .m_Sharer = xgpu::shader::setup::raw_data{g_VertShader2DSPV}
+                };
+
+                if (auto Err = Device.Create(VertexShader, SetupV); Err)
+                    exit(xgpu::getErrorInt(Err));
+            }
+        }
+
+        auto Shaders  = std::array<const xgpu::shader*, 2>{ &FragmentShader, &VertexShader };
         auto Samplers = std::array{ xgpu::pipeline::sampler{} };
         auto Setup    = xgpu::pipeline::setup
         {
-            .m_VertexDescriptor  = VertexDescriptor3D
+            .m_VertexDescriptor  = VertexDescriptor
         ,   .m_Shaders           = Shaders
         ,   .m_PushConstantsSize = sizeof(e10::push_contants)
         ,   .m_Samplers          = Samplers
-        ,   .m_DepthStencil      = {.m_bDepthTestEnable = true }
+        ,   .m_Primitive         = {.m_Cull             = xgpu::pipeline::primitive::cull::NONE }
+        ,   .m_DepthStencil      = {.m_bDepthTestEnable = (bool)Material.m_3DRender }
         ,   .m_Blend             = xgpu::pipeline::blend::getAlphaOriginal()
         };
 
-        if (auto Err = Device.Create(BilinearPipeline3D, Setup); Err)
-            return xgpu::getErrorInt(Err);
+        Samplers[0].m_MipmapMin  = Material.m_Bilinear ? xgpu::pipeline::sampler::mipmap_sampler::LINEAR : xgpu::pipeline::sampler::mipmap_sampler::NEAREST;
+        Samplers[0].m_MipmapMag  = Material.m_Bilinear ? xgpu::pipeline::sampler::mipmap_sampler::LINEAR : xgpu::pipeline::sampler::mipmap_sampler::NEAREST;
+        Samplers[0].m_MipmapMode = Material.m_Bilinear ? xgpu::pipeline::sampler::mipmap_mode::LINEAR    : xgpu::pipeline::sampler::mipmap_mode::NEAREST;
+        Samplers[0].m_AddressMode[0] = static_cast<xgpu::pipeline::sampler::address_mode>(Material.m_UWrapMode);
+        Samplers[0].m_AddressMode[1] = static_cast<xgpu::pipeline::sampler::address_mode>(Material.m_VWrapMode);
 
-        Samplers[0].m_MipmapMin = xgpu::pipeline::sampler::mipmap_sampler::NEAREST;
-        Samplers[0].m_MipmapMag = xgpu::pipeline::sampler::mipmap_sampler::NEAREST;
-        if (auto Err = Device.Create(NearestPipeline3D, Setup); Err)
-            return xgpu::getErrorInt(Err);
+        xgpu::pipeline Temp;
+        if (auto Err = Device.Create(Temp, Setup); Err)
+            exit(xgpu::getErrorInt(Err));
 
+        m_Pipelines.insert({Material.getGuid(), std::move(Temp) });
+
+        return m_Pipelines.find(Material.getGuid())->second;
     }
 
-    //
-    // Setup the 2D meshes
-    //
-    xgpu::buffer VertexBuffer2D;
-    {
-        if (auto Err = Device.Create(VertexBuffer2D, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e10::vert_2d), .m_EntryCount = 4 }); Err)
-            return xgpu::getErrorInt(Err);
+    //----------------------------------------------------------------------------------------
 
-        (void)VertexBuffer2D.MemoryMap(0, 4, [&](void* pData)
-            {
-                auto pVertex = static_cast<e10::vert_2d*>(pData);
-                pVertex[0] = { -100.0f, -100.0f,  0.0f, 0.0f };
-                pVertex[1] = { 100.0f, -100.0f,  1.0f, 0.0f  };
-                pVertex[2] = { 100.0f,  100.0f,  1.0f, 1.0f  };
-                pVertex[3] = { -100.0f,  100.0f,  0.0f, 1.0f };
-            });
+    std::unordered_map<std::uint32_t, xgpu::pipeline>           m_Pipelines;
+    std::unordered_map<std::uint32_t, xgpu::pipeline_instance>  m_PipelineInstances;
+};
+
+//------------------------------------------------------------------------------------------------
+
+struct mesh_mgr
+{
+    struct mesh
+    {
+        xgpu::buffer m_VertexBuffer;
+        xgpu::buffer m_IndexBuffer;
+        int          m_IndexCount;
+    };
+
+    enum class model
+    { PLANE_2D
+    , EXPLODED_CUBE_2D
+    , CUBE_3D
+    , SPHERE_3D
+    , ENUM_COUNT
+    };
+
+    //----------------------------------------------------------------------------------
+
+    void Initialize(xgpu::device& Device)
+    {
+        Create_2DPlane(Device);
+        Create_2DExplodedCube(Device);
+        Create_3DCube(Device);
+        Create_3DSphere(Device);
     }
 
-    xgpu::buffer IndexBuffer2D;
-    {
-        if (auto Err = Device.Create(IndexBuffer2D, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = 6 }); Err)
-            return xgpu::getErrorInt(Err);
+    //----------------------------------------------------------------------------------
 
-        (void)IndexBuffer2D.MemoryMap(0, 6, [&](void* pData)
+    void Render( xgpu::cmd_buffer& CmdBuffer, model Model )
+    {
+        auto& Mesh = m_Meshes[static_cast<int>(Model)];
+        CmdBuffer.setBuffer(Mesh.m_VertexBuffer);
+        CmdBuffer.setBuffer(Mesh.m_IndexBuffer);
+        CmdBuffer.Draw(Mesh.m_IndexCount);
+    }
+
+    //----------------------------------------------------------------------------------
+
+    void Create_2DPlane(xgpu::device& Device)
+    {
+        mesh& Mesh = m_Meshes[static_cast<int>(model::PLANE_2D)];
+        Mesh.m_IndexCount = 6;
+
+        if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e10::vert_2d), .m_EntryCount = 4 }); Err)
+            exit(xgpu::getErrorInt(Err));
+
+        (void)Mesh.m_VertexBuffer.MemoryMap(0, 4, [&](void* pData)
+        {
+            auto pVertex = static_cast<e10::vert_2d*>(pData);
+            pVertex[0] = { -100.0f, -100.0f,  { 0.0f, 0.0f, 0.0f } };
+            pVertex[1] = {  100.0f, -100.0f,  { 1.0f, 0.0f, 0.0f } };
+            pVertex[2] = {  100.0f,  100.0f,  { 1.0f, 1.0f, 0.0f } };
+            pVertex[3] = { -100.0f,  100.0f,  { 0.0f, 1.0f, 0.0f } };
+        });
+
+        if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = Mesh.m_IndexCount }); Err)
+            exit(xgpu::getErrorInt(Err));
+
+        (void)Mesh.m_IndexBuffer.MemoryMap(0, Mesh.m_IndexCount, [&](void* pData)
+        {
+            auto            pIndex = static_cast<std::uint32_t*>(pData);
+            constexpr auto  StaticIndex = std::array
             {
-                auto            pIndex = static_cast<std::uint32_t*>(pData);
-                constexpr auto  StaticIndex = std::array
+                2u,  1u,  0u,      3u,  2u,  0u,    // front
+            };
+            static_assert(StaticIndex.size() == 6);
+            for (auto i : StaticIndex)
+            {
+                *pIndex = i;
+                pIndex++;
+            }
+        });
+    }
+
+    //----------------------------------------------------------------------------------
+
+    void Create_2DExplodedCube(xgpu::device& Device)
+    {
+        mesh& Mesh = m_Meshes[static_cast<int>(model::EXPLODED_CUBE_2D)];
+        Mesh.m_IndexCount = 6 * 6;
+
+        if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e10::vert_2d), .m_EntryCount = 4*6 }); Err)
+            exit( xgpu::getErrorInt(Err) );
+
+        (void)Mesh.m_VertexBuffer.MemoryMap(0, 4*6, [&](void* pData)
+        {
+            auto pVertex = static_cast<e10::vert_2d*>(pData);
+
+            int iVert=0;
+            pVertex[iVert++] = { 0.0f, -100.0f,  xcore::vector3(1.0f,  1.0f,  1.0f).NormalizeSafe() };
+            pVertex[iVert++] = { 200.0f, -100.0f,  xcore::vector3(1.0f,  1.0f, -1.0f).NormalizeSafe() };
+            pVertex[iVert++] = { 200.0f,  100.0f,  xcore::vector3(1.0f, -1.0f, -1.0f).NormalizeSafe() };
+            pVertex[iVert++] = { 0.0f,  100.0f,  xcore::vector3(1.0f, -1.0f,  1.0f).NormalizeSafe() };
+
+            for ( int iFace=0; iFace<2; iFace++)
+            {
+                for (int i=0;i<4;++i)
                 {
-                    2u,  1u,  0u,      3u,  2u,  0u,    // front
-                };
-                static_assert(StaticIndex.size() == 6);
+                    pVertex[iVert] = pVertex[iVert - 4];
+                    pVertex[iVert].m_UV = xcore::vector3(pVertex[iVert].m_UV).RotateY(-90_xdeg);
+                    pVertex[iVert].m_X -= 200.0f;
+                    iVert++;
+                }
+            }
+
+            for (int i = 0; i < 4; ++i)
+            {
+                pVertex[iVert] = pVertex[i];
+                pVertex[iVert].m_UV = xcore::vector3(pVertex[iVert].m_UV).RotateY(90_xdeg);
+                pVertex[iVert].m_X += 200.0f;
+                iVert++;
+            }
+
+            for (int i = 0; i < 4; ++i)
+            {
+                pVertex[iVert] = pVertex[4 + i];
+                pVertex[iVert].m_UV = xcore::vector3(pVertex[iVert].m_UV).RotateX(-90_xdeg);
+                pVertex[iVert].m_Y -= 200.0f;
+                iVert++;
+            }
+
+            for (int i = 0; i < 4; ++i)
+            {
+                pVertex[iVert] = pVertex[4 + i];
+                pVertex[iVert].m_UV = xcore::vector3(pVertex[iVert].m_UV).RotateX(90_xdeg);
+                pVertex[iVert].m_Y += 200.0f;
+                iVert++;
+            }
+
+            assert(iVert <= (4 * 6) );
+        });
+
+        if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = Mesh.m_IndexCount }); Err)
+            exit( xgpu::getErrorInt(Err) );
+
+        (void)Mesh.m_IndexBuffer.MemoryMap(0, Mesh.m_IndexCount, [&](void* pData)
+        {
+            auto            pIndex = static_cast<std::uint32_t*>(pData);
+            constexpr auto  StaticIndex = std::array
+            {
+                2u,  1u,  0u,      3u,  2u,  0u,    // front
+            };
+            static_assert(StaticIndex.size() == 6);
+
+            for (int iFace = 0; iFace < 6; ++iFace)
+            {
                 for (auto i : StaticIndex)
                 {
-                    *pIndex = i;
+                    *pIndex = static_cast<std::uint32_t>(i + iFace* 4);
                     pIndex++;
                 }
-            });
+            }
+        });
     }
 
-    //
-    // Setup the 3D meshes
-    //
-    xgpu::buffer VertexBuffer3DBox;
-    xgpu::buffer IndexBuffer3dBox;
+    //----------------------------------------------------------------------------------
+
+    void Create_3DCube(xgpu::device& Device)
     {
-        auto Mesh = xprim_geom::cube::Generate(4, 4, 4, 4, xprim_geom::float3{ 1,1,1 });
-        xcore::vector2 UVScale{ 1,1 };
+        const auto  Primitive = xprim_geom::cube::Generate(4, 4, 4, 4, xprim_geom::float3{ 1,1,1 });
+        mesh&       Mesh      = m_Meshes[static_cast<int>(model::CUBE_3D)];
 
-        //
-        // Vertex buffer
-        //
+        Mesh.m_IndexCount = static_cast<int>(Primitive.m_Indices.size());
+
+        if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e10::vert_3d), .m_EntryCount = static_cast<int>(Primitive.m_Vertices.size()) }); Err)
+            exit(xgpu::getErrorInt(Err));
+
+        (void)Mesh.m_VertexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Vertices.size()), [&](void* pData)
         {
-            if (auto Err = Device.Create(VertexBuffer3DBox, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e10::vert_3d), .m_EntryCount = static_cast<int>(Mesh.m_Vertices.size()) }); Err)
-                return xgpu::getErrorInt(Err);
-
-            (void)VertexBuffer3DBox.MemoryMap(0, static_cast<int>(Mesh.m_Vertices.size()), [&](void* pData)
+            auto pVertex = static_cast<e10::vert_3d*>(pData);
+            for( int i=0; i< static_cast<int>(Primitive.m_Vertices.size()); ++i )
             {
-                auto pVertex = static_cast<e10::vert_3d*>(pData);
-                for( int i=0; i< static_cast<int>(Mesh.m_Vertices.size()); ++i )
-                {
-                    auto&       V  = pVertex[i];
-                    const auto& v  = Mesh.m_Vertices[i];
-                    V.m_Position.setup( v.m_Position.m_X, v.m_Position.m_Y, v.m_Position.m_Z );
-                    V.m_Normal.setup( v.m_Normal.m_X, v.m_Normal.m_Y, v.m_Normal.m_Z );
+                auto&       V  = pVertex[i];
+                const auto& v  = Primitive.m_Vertices[i];
+                V.m_Position.setup( v.m_Position.m_X, v.m_Position.m_Y, v.m_Position.m_Z );
+                V.m_Normal.setup( v.m_Normal.m_X, v.m_Normal.m_Y, v.m_Normal.m_Z );
 
-                    V.m_Tangent.setup(v.m_Tangent.m_X, v.m_Tangent.m_Y, v.m_Tangent.m_Z);
-                    V.m_Binormal = (xcore::vector3{ V.m_Normal }.Cross(xcore::vector3{ V.m_Tangent } )).NormalizeSafe();
+                V.m_Tangent.setup(v.m_Tangent.m_X, v.m_Tangent.m_Y, v.m_Tangent.m_Z);
+                V.m_Binormal = (xcore::vector3{ V.m_Normal }.Cross(xcore::vector3{ V.m_Tangent } )).NormalizeSafe();
 
-                    V.m_TexCoord.setup(v.m_Texcoord.m_X* UVScale.m_X, v.m_Texcoord.m_Y* UVScale.m_Y);
-                }
-            });
-        }
+                V.m_TexCoord.setup(v.m_Texcoord.m_X, v.m_Texcoord.m_Y);
+            }
+        });
         
-        //
-        // index buffer
-        //
-        {
-            if (auto Err = Device.Create(IndexBuffer3dBox, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = static_cast<int>(Mesh.m_Indices.size()) }); Err)
-                return xgpu::getErrorInt(Err);
+        if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = static_cast<int>(Primitive.m_Indices.size()) }); Err)
+            exit( xgpu::getErrorInt(Err) );
 
-            (void)IndexBuffer3dBox.MemoryMap(0, static_cast<int>(Mesh.m_Indices.size()), [&](void* pData)
+        (void)Mesh.m_IndexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Indices.size()), [&](void* pData)
+        {
+            auto            pIndex      = static_cast<std::uint32_t*>(pData);
+            for( int i=0; i< static_cast<int>(Primitive.m_Indices.size()); ++i )
             {
-                auto            pIndex      = static_cast<std::uint32_t*>(pData);
-                for( int i=0; i< static_cast<int>(Mesh.m_Indices.size()); ++i )
-                {
-                    pIndex[i] = Mesh.m_Indices[i];
-                }
-            });
-        }
+                pIndex[i] = Primitive.m_Indices[i];
+            }
+        });
     }
+
+    //----------------------------------------------------------------------------------
+
+    void Create_3DSphere(xgpu::device& Device)
+    {
+        const auto  Primitive = xprim_geom::uvsphere::Generate( 70, 70, 1, 0.5f );
+        mesh&       Mesh      = m_Meshes[static_cast<int>(model::SPHERE_3D)];
+
+        Mesh.m_IndexCount = static_cast<int>(Primitive.m_Indices.size());
+
+        if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e10::vert_3d), .m_EntryCount = static_cast<int>(Primitive.m_Vertices.size()) }); Err)
+            exit(xgpu::getErrorInt(Err));
+
+        (void)Mesh.m_VertexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Vertices.size()), [&](void* pData)
+        {
+            auto pVertex = static_cast<e10::vert_3d*>(pData);
+            for( int i=0; i< static_cast<int>(Primitive.m_Vertices.size()); ++i )
+            {
+                auto&       V  = pVertex[i];
+                const auto& v  = Primitive.m_Vertices[i];
+                V.m_Position.setup( v.m_Position.m_X, v.m_Position.m_Y, v.m_Position.m_Z );
+                V.m_Normal.setup( v.m_Normal.m_X, v.m_Normal.m_Y, v.m_Normal.m_Z );
+
+                V.m_Tangent.setup(v.m_Tangent.m_X, v.m_Tangent.m_Y, v.m_Tangent.m_Z);
+                V.m_Binormal = (xcore::vector3{ V.m_Normal }.Cross(xcore::vector3{ V.m_Tangent } )).NormalizeSafe();
+
+                V.m_TexCoord.setup(v.m_Texcoord.m_X, v.m_Texcoord.m_Y);
+            }
+        });
+
+        if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = static_cast<int>(Primitive.m_Indices.size()) }); Err)
+            exit( xgpu::getErrorInt(Err) );
+
+        (void)Mesh.m_IndexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Indices.size()), [&](void* pData)
+        {
+            auto            pIndex      = static_cast<std::uint32_t*>(pData);
+            for( int i=0; i< static_cast<int>(Primitive.m_Indices.size()); ++i )
+            {
+                pIndex[i] = Primitive.m_Indices[i];
+            }
+        });
+    }
+
+    std::array<mesh, static_cast<int>(mesh_mgr::model::ENUM_COUNT)> m_Meshes;
+};
+
+//------------------------------------------------------------------------------------------------
+
+int E10_Example()
+{
+    xgpu::instance Instance;
+    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = e10::DebugMessage, .m_pLogWarning = e10::DebugMessage }); Err)
+        return xgpu::getErrorInt(Err);
+
+    xgpu::device Device;
+    if (auto Err = Instance.Create(Device); Err)
+        return xgpu::getErrorInt(Err);
+
+    xgpu::window MainWindow;
+    if (auto Err = Device.Create(MainWindow, {}); Err)
+        return xgpu::getErrorInt(Err);
+
+    //
+    // Create the main render managers
+    //
+    material_mgr MaterialMgr;
+    mesh_mgr     MeshMgr;
+
+    MeshMgr.Initialize(Device);
+
 
     //
     // Setup ImGui
@@ -659,27 +998,9 @@ int E10_Example()
     //
     // Create the background material instance
     //
-    xgpu::pipeline_instance BackgroundMaterialInstance;
-    {
-        xgpu::texture Texture;
-        if (auto Err = xgpu::tools::bitmap::Create(Texture, Device, xcore::bitmap::getDefaultBitmap()); Err)
-        {
-            e10::DebugMessage(xgpu::getErrorMsg(Err));
-            std::exit(xgpu::getErrorInt(Err));
-        }
 
-        auto  Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
-        auto  Setup = xgpu::pipeline_instance::setup
-        { .m_PipeLine = BilinearPipeline2D
-        , .m_SamplersBindings = Bindings
-        };
-
-        if (auto Err = Device.Create(BackgroundMaterialInstance, Setup); Err)
-        {
-            e10::DebugMessage(xgpu::getErrorMsg(Err));
-            std::exit(xgpu::getErrorInt(Err));
-        }
-    }
+    material_mgr::material_instance BackgroundMaterialInstance;
+    MaterialMgr.CreateMaterialInstance(Device, BackgroundMaterialInstance, xcore::bitmap::getDefaultBitmap());
 
     //
     // Setup the compiler
@@ -697,100 +1018,23 @@ int E10_Example()
     //
     // This will be the texture that we compiled
     //
-    xgpu::pipeline_instance BilinearMaterialInstanceTexture2D;
-    xgpu::pipeline_instance NearestMaterialInstanceTexture2D;
-    xgpu::pipeline_instance BilinearMaterialInstanceTexture3D;
-    xgpu::pipeline_instance NearestMaterialInstanceTexture3D;
+    material_mgr::material_instance UserMaterialInstance;
+
     auto UpdateTextureMaterial = [&]()
     {
-        xgpu::texture Texture;
-
         BitmapInspector.Load(Compiler->m_ResourcePath.c_str());
 
-        if (auto Err = xgpu::tools::bitmap::Create(Texture, Device, *BitmapInspector.m_pBitmap); Err)
-        {
-            e10::DebugMessage(xgpu::getErrorMsg(Err));
-            std::exit(xgpu::getErrorInt(Err));
-        }
+        // update the material instance to use the new texture
+        MaterialMgr.UpdateMaterialInstance(Device, UserMaterialInstance, *BitmapInspector.m_pBitmap);
 
         // Set the max mip levels
         // Make sure the current level is within the range
-        DrawOptions.m_MaxMipLevels = Texture.getMipCount()-1;
+        DrawOptions.m_MaxMipLevels = BitmapInspector.m_pBitmap->getMipCount()-1;
         if (DrawOptions.m_ChooseMipLevel >= DrawOptions.m_MaxMipLevels )
         {
             DrawOptions.m_ChooseMipLevel = std::min(DrawOptions.m_MaxMipLevels, std::max( 0, DrawOptions.m_MaxMipLevels - 1) );
         }
-
-        //HACK: This is a huge hack to clear the MaterialTexture
-        xgpu::pipeline_instance temp;
-        std::memcpy(&BilinearMaterialInstanceTexture2D, &temp, sizeof(temp));
-        std::memcpy(&NearestMaterialInstanceTexture2D,  &temp, sizeof(temp));
-        std::memcpy(&BilinearMaterialInstanceTexture3D, &temp, sizeof(temp));
-        std::memcpy(&NearestMaterialInstanceTexture3D, &temp, sizeof(temp));
-
-        auto  Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
-
-        // Bilinear mode for 2d
-        {
-            auto  Setup = xgpu::pipeline_instance::setup
-            { .m_PipeLine         = BilinearPipeline2D
-            , .m_SamplersBindings = Bindings
-            };
-
-            if (auto Err = Device.Create(BilinearMaterialInstanceTexture2D, Setup); Err)
-            {
-                e10::DebugMessage(xgpu::getErrorMsg(Err));
-                std::exit(xgpu::getErrorInt(Err));
-            }
-        }
-
-        // Bilinear mode for 3d
-        {
-            auto  Setup = xgpu::pipeline_instance::setup
-            { .m_PipeLine           = BilinearPipeline3D
-            , .m_SamplersBindings   = Bindings
-            };
-
-            if (auto Err = Device.Create(BilinearMaterialInstanceTexture3D, Setup); Err)
-            {
-                e10::DebugMessage(xgpu::getErrorMsg(Err));
-                std::exit(xgpu::getErrorInt(Err));
-            }
-        }
-
-        // Nearest mode 2d
-        {
-            auto Setup = xgpu::pipeline_instance::setup
-            { .m_PipeLine         = NearestPipeline2D
-            , .m_SamplersBindings = Bindings
-            };
-
-            if (auto Err = Device.Create(NearestMaterialInstanceTexture2D, Setup); Err)
-            {
-                e10::DebugMessage(xgpu::getErrorMsg(Err));
-                std::exit(xgpu::getErrorInt(Err));
-            }
-        }
-
-        // Nearest mode 3d
-        {
-            auto Setup = xgpu::pipeline_instance::setup
-            { .m_PipeLine         = NearestPipeline3D
-            , .m_SamplersBindings = Bindings
-            };
-
-            if (auto Err = Device.Create(NearestMaterialInstanceTexture3D, Setup); Err)
-            {
-                e10::DebugMessage(xgpu::getErrorMsg(Err));
-                std::exit(xgpu::getErrorInt(Err));
-            }
-        }
     };
-
-    //
-    // Storate some input context
-    //
-    int             iActiveImage  = 0;
 
     //
     // Setup the inspector windows
@@ -813,8 +1057,8 @@ int E10_Example()
     //
     // Create the input devices
     //
-    xgpu::mouse Mouse;
-    xgpu::keyboard Keyboard;
+    xgpu::mouse     Mouse;
+    xgpu::keyboard  Keyboard;
     {
         Instance.Create(Mouse, {});
         Instance.Create(Keyboard, {});
@@ -902,9 +1146,8 @@ int E10_Example()
             // Render background
             //
             {
-                CmdBuffer.setPipelineInstance(BackgroundMaterialInstance);
-                CmdBuffer.setBuffer(VertexBuffer2D);
-                CmdBuffer.setBuffer(IndexBuffer2D);
+                //CmdBuffer.setPipelineInstance(BackgroundMaterialInstance);
+                MaterialMgr.SetMaterialInstance(Device, CmdBuffer, BackgroundMaterialInstance, true, true);
 
                 e10::push_contants PushContants;
 
@@ -927,14 +1170,13 @@ int E10_Example()
                 PushContants.m_NormalModes.setZero();
 
                 CmdBuffer.setPushConstants(PushContants);
-
-                CmdBuffer.Draw(6);
+                MeshMgr.Render(CmdBuffer, mesh_mgr::model::PLANE_2D);
             }
 
             //
             // Render the Texture
             //
-            if( BilinearMaterialInstanceTexture2D.m_Private.get() )
+            if( UserMaterialInstance.m_Texture.m_Private != nullptr )
             {
                 e10::push_contants PushContants;
 
@@ -1012,18 +1254,28 @@ int E10_Example()
                     break;
                 }
 
+                // Set the right material
+                MaterialMgr.SetMaterialInstance
+                ( Device
+                , CmdBuffer
+                , UserMaterialInstance
+                , DrawOptions.m_RenderMode == draw_options::render_mode::RENDER_2D
+                , DrawOptions.m_bBilinearMode
+                );
+
                 if (DrawOptions.m_RenderMode == draw_options::render_mode::RENDER_2D)
                 {
-                    if (DrawOptions.m_bBilinearMode ) CmdBuffer.setPipelineInstance(BilinearMaterialInstanceTexture2D);
-                    else                              CmdBuffer.setPipelineInstance(NearestMaterialInstanceTexture2D);
+                    if ( BitmapInspector.m_pBitmap->isCubemap() )
+                    {
+                        CmdBuffer.setPushConstants(PushContants);
+                        MeshMgr.Render(CmdBuffer, mesh_mgr::model::EXPLODED_CUBE_2D);
 
-                    CmdBuffer.setBuffer(VertexBuffer2D);
-                    CmdBuffer.setBuffer(IndexBuffer2D);
-
-
-                    CmdBuffer.setPushConstants(PushContants);
-
-                    CmdBuffer.Draw(6);
+                    }
+                    else
+                    {
+                        CmdBuffer.setPushConstants(PushContants);
+                        MeshMgr.Render(CmdBuffer, mesh_mgr::model::PLANE_2D);
+                    }
                 }
                 else
                 {
@@ -1032,12 +1284,6 @@ int E10_Example()
                     //
                     // Update the view with latest window size
                     DrawControls.m_3DView.setViewport({ 0, 0, (int)MainWindowWidth, (int)MainWindowHeight });
-
-                    if (DrawOptions.m_bBilinearMode) CmdBuffer.setPipelineInstance(BilinearMaterialInstanceTexture3D);
-                    else                             CmdBuffer.setPipelineInstance(NearestMaterialInstanceTexture3D);
-
-                    CmdBuffer.setBuffer(VertexBuffer3DBox);
-                    CmdBuffer.setBuffer(IndexBuffer3dBox);
 
                     const auto  W2C = DrawControls.m_3DView.getW2C();
                     xcore::matrix4 L2W;
@@ -1058,7 +1304,16 @@ int E10_Example()
                         PushContants.m_NormalModes.m_Z = 1;
 
                     CmdBuffer.setPushConstants(PushContants);
-                    CmdBuffer.Draw(IndexBuffer3dBox.getEntryCount());
+
+                    if (BitmapInspector.m_pBitmap->isCubemap())
+                    {
+                        MeshMgr.Render(CmdBuffer, mesh_mgr::model::SPHERE_3D);
+                        
+                    }
+                    else
+                    {
+                        MeshMgr.Render(CmdBuffer, mesh_mgr::model::CUBE_3D);
+                    }
                 }
             }
         }

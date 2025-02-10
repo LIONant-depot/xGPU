@@ -479,6 +479,42 @@
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">x64\%(FileName).h</Outputs>
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">x64\%(FileName).h</Outputs>
     </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_2d_cube_frag.glsl">
+      <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</DeploymentContent>
+      <FileType>Document</FileType>
+      <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</DeploymentContent>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=frag "%(FullPath)" -mfmt=num -o  "$(ProjectDir)\x64\%(FileName).h"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=frag "%(FullPath)" -mfmt=num -o  "$(ProjectDir)\x64\%(FileName).h"</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">x64\%(FileName).h</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">x64\%(FileName).h</Outputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_2d_cube_vert.glsl">
+      <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</DeploymentContent>
+      <FileType>Document</FileType>
+      <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</DeploymentContent>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=vert "%(FullPath)" -mfmt=num -o  "$(ProjectDir)\x64\%(FileName).h"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=vert "%(FullPath)" -mfmt=num -o  "$(ProjectDir)\x64\%(FileName).h"</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">x64\%(FileName).h</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">x64\%(FileName).h</Outputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_3d_cube_frag.glsl">
+      <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</DeploymentContent>
+      <FileType>Document</FileType>
+      <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</DeploymentContent>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=frag "%(FullPath)" -mfmt=num -o  "$(ProjectDir)\x64\%(FileName).h"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=frag "%(FullPath)" -mfmt=num -o  "$(ProjectDir)\x64\%(FileName).h"</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">x64\%(FileName).h</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">x64\%(FileName).h</Outputs>
+    </CustomBuild>
+    <CustomBuild Include="..\..\Src\Examples\E10_TextureResourcePipeline\e10_3d_cube_vert.glsl">
+      <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">true</DeploymentContent>
+      <FileType>Document</FileType>
+      <DeploymentContent Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</DeploymentContent>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=vert "%(FullPath)" -mfmt=num -o  "$(ProjectDir)\x64\%(FileName).h"</Command>
+      <Command Condition="'$(Configuration)|$(Platform)'=='Release|x64'">"../../Dependencies/shaderc/bin/glslc.exe" -fshader-stage=vert "%(FullPath)" -mfmt=num -o  "$(ProjectDir)\x64\%(FileName).h"</Command>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">x64\%(FileName).h</Outputs>
+      <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">x64\%(FileName).h</Outputs>
+    </CustomBuild>
   </ItemGroup>
   <ItemGroup>
     <Text Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\LICENSE.txt" />

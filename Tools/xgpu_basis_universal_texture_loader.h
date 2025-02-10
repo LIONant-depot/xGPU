@@ -19,6 +19,8 @@ namespace xgpu::tools::basis_universal
             init = true;
         }
 
+        return {};
+#if 0
         //
         // Read the file
         //
@@ -41,13 +43,13 @@ namespace xgpu::tools::basis_universal
         basist::ktx2_transcoder Decoder;//&g_BasisGlobalSelectorCodebook);
         if(!Decoder.init( FileMemory.get(), static_cast<uint32_t>(FileSize))) return {};
 
-        std::array< xgpu::texture::setup::mip, 32 > Mips;   // Decoder.get_levels();
-        xgpu::texture::setup                        Setup;
+        std::array< xgpu::texture::setup::mip_size, 32 > MipSizes;   // Decoder.get_levels();
+        xgpu::texture::setup                             Setup;
 
+        Setup.m_isGamma     = true;
         Setup.m_Width       = Decoder.get_width();
         Setup.m_Height      = Decoder.get_height();
-        Setup.m_ArrayCount  = std::max(Setup.m_ArrayCount, static_cast<int>(Decoder.get_layers() * Decoder.get_faces()));
-        Setup.m_Type        = xgpu::texture::type::GAMMA;
+//        Setup.m_ArrayCount  = std::max(Setup.m_ArrayCount, static_cast<int>(Decoder.get_layers() * Decoder.get_faces()));
 
         if (Decoder.get_faces() == 6)
         {
@@ -61,11 +63,11 @@ namespace xgpu::tools::basis_universal
         {
             if (Decoder.get_has_alpha())
             {
-                Setup.m_Format = xgpu::texture::format::BC3_8RGBA;
+                Setup.m_Format = xgpu::texture::format::BC3_8RGBA_UNORM;
                 return basist::transcoder_texture_format::cTFBC3_RGBA;
             }
 
-            Setup.m_Format = xgpu::texture::format::BC1_4RGB;
+            Setup.m_Format = xgpu::texture::format::BC1_4RGB_UNORM;
             return basist::transcoder_texture_format::cTFBC1_RGB;
         }();
         const auto BytesPerBlock = basis_get_bytes_per_block_or_pixel(Format);
@@ -226,6 +228,9 @@ namespace xgpu::tools::basis_universal
         if (auto Err = Device.Create(Texture, Setup); Err) return {};
 
         return Texture;
+
+#endif
+
     }
 }
 #endif
