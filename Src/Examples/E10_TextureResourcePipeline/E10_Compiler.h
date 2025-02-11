@@ -369,16 +369,18 @@ namespace e10
                 TCHAR LIONantProject[] = L"\\dependencies\\xtexture.plugin\\bin\\example.lion_project";
                 for (int i = 0; szFileName[I++] = LIONantProject[i]; ++i);
 
+                std::transform(szFileName, &szFileName[I], std::back_inserter(m_ProjectPath), [](wchar_t c) {return (char)c; });
+                std::cout << "Project Path: " << m_ProjectPath.c_str() << "\n";
+
                 // Set the current directory to the project
                 {
                     std::wstring a = szFileName;
                     a = a + L"\\Assets";
                     SetCurrentDirectory(a.c_str());
+
+                    // Set this for the properties
+                    xproperty::member_ui<std::string>::g_CurrentPath = std::format("{}\\Assets", m_ProjectPath.c_str());
                 }
-
-                std::transform(szFileName, &szFileName[I], std::back_inserter(m_ProjectPath), [](wchar_t c) {return (char)c; });
-
-                std::cout << "Project Path: " << m_ProjectPath.c_str() << "\n";
             }
 
             m_CompilerReleasePath = std::format("{}\\dependencies\\xtexture.plugin\\Build\\xtexture_compiler.vs2022\\x64\\Release\\xtexture_compiler.exe", xGPU.c_str());
