@@ -1015,7 +1015,7 @@ int E10_Example()
         GetModuleFileName(NULL, szFileName, MAX_PATH);
 
         std::wcout << L"Full path: " << szFileName << L"\n";
-        if (auto I = e10::FindCaseInsensitive(std::wstring{ szFileName }, { L"xGPU" }); I != -1)
+        if (auto I = e10::FindCaseInsensitive(std::wstring{ szFileName }, { L"xGPU" }); I != std::string::npos )
         {
             I += 4; // Skip the xGPU part
             szFileName[I] = 0;
@@ -1026,13 +1026,12 @@ int E10_Example()
 
             std::wcout << "Project Path: " << szFileName << "\n";
 
-            Compiler->SetupProject(setX(szFileName));
+            Compiler->SetupProject(strXstr(szFileName));
         }
     }
 
-
-    //"Texture"
-    if ( auto Err = Compiler->SetupDescriptor( 0x398238f38a754, 0x34DBB69E8762EFA9); Err )
+    // Set active the particular descriptor
+    if ( auto Err = Compiler->SetupDescriptor( "Texture", 0x34DBB69E8762EFA9); Err )
     {
         e10::DebugMessage(Err.getCode().m_pString);
         return 1;
@@ -1083,6 +1082,15 @@ int E10_Example()
     Inspectors[1].AppendEntityComponent(*xproperty::getObject(DrawControls), &DrawControls);
     Inspectors[1].AppendEntityComponent(*xproperty::getObject(DrawOptions), &DrawOptions);
     Inspectors[1].AppendEntityComponent(*xproperty::getObject(BitmapInspector), &BitmapInspector );
+
+    // Theme the property dialogs to be more readable
+    for ( auto& E: Inspectors)
+    {
+        E.m_Settings.m_ColorVScalar1 = 0.270f*1.4f;
+        E.m_Settings.m_ColorVScalar2 = 0.305f* 1.4f;
+        E.m_Settings.m_ColorSScalar  = 0.26f * 1.4f;
+    }
+    ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.5f;
 
     //
     // Create the input devices
@@ -1365,7 +1373,8 @@ int E10_Example()
 
         for (auto& E: Inspectors )
         {
-            E.Show([] {});
+            ImGui::SetNextWindowBgAlpha(0.5f);
+            E.Show([&]{});
         }
 
         //

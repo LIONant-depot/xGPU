@@ -6,95 +6,108 @@
 //------------------------------------------------------------------------------------------------
 
 constexpr
-auto setX(const wchar_t* pW )
+auto strXstr(const wchar_t* pW )
 {
     std::string S;
     if (pW == nullptr) return S;
 
     S.reserve( [=]{ int i=0; while(pW[i++]); return i-1; }() );
-    for( int i=0; pW[i]; i++) S.push_back((char)pW[i]);
+    for( int i=0; pW[i]; i++) S.push_back(static_cast<char>(pW[i]));
     return S;
 }
 
 //------------------------------------------------------------------------------------------------
 
 constexpr
-auto setX( const std::wstring_view W )
+auto strXstr(const char* pW)
+{
+    std::wstring S;
+    if (pW == nullptr) return S;
+
+    S.reserve([=] { int i = 0; while (pW[i++]); return i - 1; }());
+    for (int i = 0; pW[i]; i++) S.push_back(static_cast<wchar_t>(pW[i]));
+    return S;
+}
+
+//------------------------------------------------------------------------------------------------
+
+constexpr
+auto strXstr( const std::wstring_view W )
 {
     std::string S;
     S.reserve(W.size());
-    for (auto c : W) S.push_back((char)c);
+    for (auto c : W) S.push_back(static_cast<char>(c));
     return S;
 }
 
 //------------------------------------------------------------------------------------------------
 
 constexpr
-auto setX(const std::wstring& W)
+auto strXstr(const std::wstring& W)
 {
     std::string S;
     S.reserve(W.size());
-    for (auto c : W) S.push_back((char)c);
+    for (auto c : W) S.push_back(static_cast<char>(c));
     return S;
 }
 
 //------------------------------------------------------------------------------------------------
 
 constexpr
-auto setX(const std::string_view S)
+auto strXstr(const std::string_view S)
 {
     std::wstring W;
     W.reserve(S.size());
-    for (auto c : S) W.push_back((wchar_t)c);
+    for (auto c : S) W.push_back(static_cast<wchar_t>(c));
     return W;
 }
 
 //------------------------------------------------------------------------------------------------
 
 constexpr
-auto setX(const std::string& S)
+auto strXstr(const std::string& S)
 {
     std::wstring W;
     W.reserve(S.size());
-    for (auto c : S) W.push_back((wchar_t)c);
+    for (auto c : S) W.push_back(static_cast<wchar_t>(c));
     return W;
-}
-
-//------------------------------------------------------------------------------------------------
-
-void GetFileTimestamp(const std::string& filePath, SYSTEMTIME& systemTime)
-{
-    HANDLE hFile = CreateFile(
-        setX(filePath).c_str(),
-        GENERIC_READ,
-        FILE_SHARE_READ,
-        NULL,
-        OPEN_EXISTING,
-        FILE_ATTRIBUTE_NORMAL,
-        NULL
-    );
-
-    if (hFile == INVALID_HANDLE_VALUE) {
-        std::cerr << "Error opening file: " << filePath << std::endl;
-        return;
-    }
-
-    FILETIME fileTime;
-    if (!GetFileTime(hFile, NULL, NULL, &fileTime)) {
-        std::cerr << "Error getting file time: " << filePath << std::endl;
-        CloseHandle(hFile);
-        return;
-    }
-
-    if (!FileTimeToSystemTime(&fileTime, &systemTime)) {
-        std::cerr << "Error converting file time to system time: " << filePath << std::endl;
-    }
-
-    CloseHandle(hFile);
 }
 
 namespace e10
 {
+    //------------------------------------------------------------------------------------------------
+
+    void GetFileTimestamp(const std::string& filePath, SYSTEMTIME& systemTime)
+    {
+        HANDLE hFile = CreateFile(
+            strXstr(filePath).c_str(),
+            GENERIC_READ,
+            FILE_SHARE_READ,
+            NULL,
+            OPEN_EXISTING,
+            FILE_ATTRIBUTE_NORMAL,
+            NULL
+        );
+
+        if (hFile == INVALID_HANDLE_VALUE) {
+            std::cerr << "Error opening file: " << filePath << std::endl;
+            return;
+        }
+
+        FILETIME fileTime;
+        if (!GetFileTime(hFile, NULL, NULL, &fileTime)) {
+            std::cerr << "Error getting file time: " << filePath << std::endl;
+            CloseHandle(hFile);
+            return;
+        }
+
+        if (!FileTimeToSystemTime(&fileTime, &systemTime)) {
+            std::cerr << "Error converting file time to system time: " << filePath << std::endl;
+        }
+
+        CloseHandle(hFile);
+    }
+
     //------------------------------------------------------------------------------------------------
 
     // Function to convert a wstring to lowercase using standard functions
@@ -112,7 +125,7 @@ namespace e10
 
     // Function to find a case-insensitive substring in a wstring using standard functions
     template< typename T_STRING>
-    inline size_t FindCaseInsensitive(const T_STRING& haystack, const T_STRING& needle, std::size_t Pos = 0) noexcept
+    inline auto FindCaseInsensitive(const T_STRING& haystack, const T_STRING& needle, std::size_t Pos = 0) noexcept
     {
         T_STRING lowerHaystack = ToLower(haystack);
         T_STRING lowerNeedle   = ToLower(needle);
@@ -196,7 +209,7 @@ namespace e10
                 // Read the config file
                 //
                 xcore::textfile::stream Stream;
-                if (auto Err = Stream.Open(bRead, Path, {}); Err)
+                if (auto Err = Stream.Open(bRead, Path, xcore::textfile::file_type::TEXT); Err)
                 {
                     return std::format("Error: Failed to read {} with error {}", Path, Err.getCode().m_pString );
                 }
@@ -288,7 +301,7 @@ namespace e10
             {
                 if (std::filesystem::is_directory(entry.path()) == false) continue;
 
-                std::string ConfigFile = std::format("{}\\resource_pipeline.config.txt", setX(entry.path()).c_str() );
+                std::string ConfigFile = std::format("{}\\resource_pipeline.config.txt", strXstr(entry.path()).c_str() );
                 if (std::filesystem::exists(ConfigFile) == false) continue;
 
                 // Read the plugin
@@ -310,7 +323,8 @@ namespace e10
                 //
                 Plugin.m_PluginPath = std::move(entry.path().string());
 
-                m_mPlugins[Plugin.m_TypeGUID] = static_cast<int>(m_lPlugins.size());
+                m_mPluginsByTypeName[Plugin.m_TypeName] = static_cast<int>(m_lPlugins.size());
+                m_mPluginsByTypeGUID[Plugin.m_TypeGUID] = static_cast<int>(m_lPlugins.size());
                 m_lPlugins.push_back(std::move(Plugin));
             }
         }
@@ -319,8 +333,17 @@ namespace e10
 
         pipeline_plugin* find(std::uint64_t TypeGUID)
         {
-            auto it = m_mPlugins.find(TypeGUID);
-            if (it == m_mPlugins.end()) return nullptr;
+            auto it = m_mPluginsByTypeGUID.find(TypeGUID);
+            if (it == m_mPluginsByTypeGUID.end()) return nullptr;
+            return &m_lPlugins[it->second];
+        }
+
+        //------------------------------------------------------------------------------------------------
+
+        pipeline_plugin* find(const std::string& String)
+        {
+            auto it = m_mPluginsByTypeName.find(String);
+            if (it == m_mPluginsByTypeName.end()) return nullptr;
             return &m_lPlugins[it->second];
         }
 
@@ -329,11 +352,12 @@ namespace e10
         void clear()
         {
             m_lPlugins.clear();
-            m_mPlugins.clear();
+            m_mPluginsByTypeGUID.clear();
         }
 
         std::vector<pipeline_plugin>                m_lPlugins;
-        std::unordered_map<std::uint64_t, int>      m_mPlugins;
+        std::unordered_map<std::uint64_t, int>      m_mPluginsByTypeGUID;
+        std::unordered_map<std::string, int>        m_mPluginsByTypeName;
     };
 
 
@@ -557,6 +581,17 @@ namespace e10
 
         //------------------------------------------------------------------------------------------------
 
+        xcore::err SetupDescriptor(const std::string& TypeName, std::uint64_t InstanceGUID)
+        {
+            auto p = m_AssetPlugins.find(TypeName);
+            if (p == nullptr)
+                return xerr_failure_s("The plugin type by name was not found");
+
+            return SetupDescriptor(p->m_TypeGUID, InstanceGUID);
+        }
+
+        //------------------------------------------------------------------------------------------------
+
         xcore::err SetupDescriptor( std::uint64_t TypeGUID, std::uint64_t InstanceGUID )
         {
             // Make sure we have the project open first
@@ -566,7 +601,7 @@ namespace e10
             auto pPlugin = m_AssetPlugins.find(TypeGUID);
             if ( pPlugin == nullptr )
             {
-                return xerr_failure_s("The plugin type was not found");
+                return xerr_failure_s("The plugin type by guid was not found");
             }
 
             m_InstanceGUID = InstanceGUID;
@@ -625,7 +660,7 @@ namespace e10
             //
             // Set the current directory to the asset folder
             //
-            std::wstring wProjectPath = setX(ProjectPath) + L"\\Assets";
+            std::wstring wProjectPath = strXstr(ProjectPath) + L"\\Assets";
             SetCurrentDirectory(wProjectPath.c_str());
 
             //
