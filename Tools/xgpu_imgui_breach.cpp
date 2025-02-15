@@ -2,6 +2,7 @@
 #include "imgui.h"
 #include "xGPU.h"
 #include <windows.h>
+#include <chrono>
 
 namespace xgpu::tools::imgui {
 

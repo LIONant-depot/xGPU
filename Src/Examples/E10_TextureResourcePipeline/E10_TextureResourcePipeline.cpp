@@ -1006,7 +1006,37 @@ int E10_Example()
     // Setup the compiler
     //
     auto Compiler = std::make_unique<e10::compiler>();
-    Compiler->SetupDescriptor("Texture", 0x34DBB69E8762EFA9);
+
+    //
+    // Set the project path
+    //
+    {
+        TCHAR szFileName[MAX_PATH];
+        GetModuleFileName(NULL, szFileName, MAX_PATH);
+
+        std::wcout << L"Full path: " << szFileName << L"\n";
+        if (auto I = e10::FindCaseInsensitive(std::wstring{ szFileName }, { L"xGPU" }); I != -1)
+        {
+            I += 4; // Skip the xGPU part
+            szFileName[I] = 0;
+            std::wcout << L"Found xGPU at: " << szFileName << L"\n";
+
+            TCHAR LIONantProject[] = L"\\dependencies\\xtexture.plugin\\bin\\example.lion_project";
+            for (int i = 0; szFileName[I++] = LIONantProject[i]; ++i);
+
+            std::wcout << "Project Path: " << szFileName << "\n";
+
+            Compiler->SetupProject(setX(szFileName));
+        }
+    }
+
+
+    //"Texture"
+    if ( auto Err = Compiler->SetupDescriptor( 0x398238f38a754, 0x34DBB69E8762EFA9); Err )
+    {
+        e10::DebugMessage(Err.getCode().m_pString);
+        return 1;
+    }
 
     //
     // Define the draw options

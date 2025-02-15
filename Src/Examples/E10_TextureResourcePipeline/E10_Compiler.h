@@ -1,6 +1,97 @@
 #include <windows.h>
 #include <iostream>
+#include "../dependencies/xtexture.plugin/dependencies/xresource_pipeline_v2/dependencies/xproperty/source/examples/xcore_sprop_serializer/xcore_sprop_serializer.h"
 #pragma once
+
+//------------------------------------------------------------------------------------------------
+
+constexpr
+auto setX(const wchar_t* pW )
+{
+    std::string S;
+    if (pW == nullptr) return S;
+
+    S.reserve( [=]{ int i=0; while(pW[i++]); return i-1; }() );
+    for( int i=0; pW[i]; i++) S.push_back((char)pW[i]);
+    return S;
+}
+
+//------------------------------------------------------------------------------------------------
+
+constexpr
+auto setX( const std::wstring_view W )
+{
+    std::string S;
+    S.reserve(W.size());
+    for (auto c : W) S.push_back((char)c);
+    return S;
+}
+
+//------------------------------------------------------------------------------------------------
+
+constexpr
+auto setX(const std::wstring& W)
+{
+    std::string S;
+    S.reserve(W.size());
+    for (auto c : W) S.push_back((char)c);
+    return S;
+}
+
+//------------------------------------------------------------------------------------------------
+
+constexpr
+auto setX(const std::string_view S)
+{
+    std::wstring W;
+    W.reserve(S.size());
+    for (auto c : S) W.push_back((wchar_t)c);
+    return W;
+}
+
+//------------------------------------------------------------------------------------------------
+
+constexpr
+auto setX(const std::string& S)
+{
+    std::wstring W;
+    W.reserve(S.size());
+    for (auto c : S) W.push_back((wchar_t)c);
+    return W;
+}
+
+//------------------------------------------------------------------------------------------------
+
+void GetFileTimestamp(const std::string& filePath, SYSTEMTIME& systemTime)
+{
+    HANDLE hFile = CreateFile(
+        setX(filePath).c_str(),
+        GENERIC_READ,
+        FILE_SHARE_READ,
+        NULL,
+        OPEN_EXISTING,
+        FILE_ATTRIBUTE_NORMAL,
+        NULL
+    );
+
+    if (hFile == INVALID_HANDLE_VALUE) {
+        std::cerr << "Error opening file: " << filePath << std::endl;
+        return;
+    }
+
+    FILETIME fileTime;
+    if (!GetFileTime(hFile, NULL, NULL, &fileTime)) {
+        std::cerr << "Error getting file time: " << filePath << std::endl;
+        CloseHandle(hFile);
+        return;
+    }
+
+    if (!FileTimeToSystemTime(&fileTime, &systemTime)) {
+        std::cerr << "Error converting file time to system time: " << filePath << std::endl;
+    }
+
+    CloseHandle(hFile);
+}
 
 namespace e10
 {
@@ -78,6 +169,174 @@ namespace e10
         OldLength = NewLength;
     }
 
+    struct asset_plugins_db
+    {
+        struct pipeline_plugin
+        {
+            std::string                 m_TypeName;
+            std::uint64_t               m_TypeGUID;
+            std::vector<std::uint64_t>  m_RunAfter;
+            std::string                 m_DebugCompiler;
+            SYSTEMTIME                  m_DebugCompilerTimeStamp;
+            std::string                 m_ReleaseCompiler;
+            SYSTEMTIME                  m_ReleaseCompilerTimeStamp;
+            std::string                 m_PluginPath;
+            std::string                 m_CompilationScript;
+
+                             pipeline_plugin()                  = default;
+                            ~pipeline_plugin()                  = default;
+                             pipeline_plugin(pipeline_plugin&&) = default;
+            pipeline_plugin& operator = (pipeline_plugin&&)     = default;
+
+            //------------------------------------------------------------------------------------------------
+
+            std::string Serialize(bool bRead, std::string_view Path)
+            {
+                //
+                // Read the config file
+                //
+                xcore::textfile::stream Stream;
+                if (auto Err = Stream.Open(bRead, Path, {}); Err)
+                {
+                    return std::format("Error: Failed to read {} with error {}", Path, Err.getCode().m_pString );
+                }
+
+                //
+                // Read the configuration file
+                //
+                xproperty::settings::context    Context{};
+                if (auto Err = xproperty::sprop::serializer::Stream(Stream, *this, Context); Err)
+                {
+                    return std::format("Error: Failed to read {} with error {}", Path, Err.getCode().m_pString);
+                }
+
+                return {};
+            }
+
+            XPROPERTY_DEF
+            ( "PipelinePlugin", pipeline_plugin
+            , obj_member< "TypeName"
+                , &pipeline_plugin::m_TypeName
+                , member_flags<xproperty::flags::SHOW_READONLY
+                >>
+            , obj_member< "TypeGUID"
+                , &pipeline_plugin::m_TypeGUID
+                , member_ui<std::uint64_t>::drag_bar< 0.0f, 0, std::numeric_limits<std::uint64_t>::max(), "%llX">
+                , member_flags<xproperty::flags::SHOW_READONLY
+                >>
+            , obj_scope< "Details"
+                , obj_member_ro< "PluginPath"
+                    , &pipeline_plugin::m_PluginPath
+                    , member_flags<xproperty::flags::SHOW_READONLY
+                    >>
+                , obj_member< "RunAfter"
+                    , &pipeline_plugin::m_RunAfter
+                    , member_flags<xproperty::flags::SHOW_READONLY
+                    >>
+                , obj_member< "DebugCompiler"
+                    , &pipeline_plugin::m_DebugCompiler
+                    , member_flags<xproperty::flags::SHOW_READONLY
+                    >>
+                , obj_member_ro< "DebugCompilerTimeStamp"
+                    , +[](pipeline_plugin& O, bool, std::string& Value )
+                    {
+                        Value = std::format("{:02}/{:02}/{:04} {:02}:{:02}:{:02}"
+                            , O.m_DebugCompilerTimeStamp.wDay
+                            , O.m_DebugCompilerTimeStamp.wMonth
+                            , O.m_DebugCompilerTimeStamp.wYear
+                            , O.m_DebugCompilerTimeStamp.wHour
+                            , O.m_DebugCompilerTimeStamp.wMinute
+                            , O.m_DebugCompilerTimeStamp.wSecond
+                            );
+                    }
+                    >
+                , obj_member< "ReleaseCompiler"
+                    , &pipeline_plugin::m_ReleaseCompiler
+                    , member_flags<xproperty::flags::SHOW_READONLY
+                    >>
+                , obj_member_ro < "ReleaseCompilerTimeStamp"
+                    , +[](pipeline_plugin& O, bool, std::string& Value)
+                    {
+                        Value = std::format("{:02}/{:02}/{:04} {:02}:{:02}:{:02}"
+                            , O.m_ReleaseCompilerTimeStamp.wDay
+                            , O.m_ReleaseCompilerTimeStamp.wMonth
+                            , O.m_ReleaseCompilerTimeStamp.wYear
+                            , O.m_ReleaseCompilerTimeStamp.wHour
+                            , O.m_ReleaseCompilerTimeStamp.wMinute
+                            , O.m_ReleaseCompilerTimeStamp.wSecond
+                        );
+                    }
+                    >
+                , obj_member< "CompilationScript"
+                    , &pipeline_plugin::m_CompilationScript
+                    , member_flags<xproperty::flags::SHOW_READONLY
+                    >>
+                , member_ui_open<false
+                >>
+            )
+        };
+
+        //------------------------------------------------------------------------------------------------
+
+        void SetupProject( std::string_view ProjectPath )
+        {
+            //
+            // Go throw all the plugins and read their information
+            //
+            auto PluginPath = std::format("{}\\cache\\plugins", ProjectPath);
+            for (const auto& entry : std::filesystem::recursive_directory_iterator(PluginPath))
+            {
+                if (std::filesystem::is_directory(entry.path()) == false) continue;
+
+                std::string ConfigFile = std::format("{}\\resource_pipeline.config.txt", setX(entry.path()).c_str() );
+                if (std::filesystem::exists(ConfigFile) == false) continue;
+
+                // Read the plugin
+                pipeline_plugin Plugin;
+                if (auto Err = Plugin.Serialize(true, ConfigFile.c_str()); Err.empty() == false)
+                {
+                    std::cerr << Err << "\n";
+                    continue;
+                }
+
+                //
+                // get the timestamp of the compilers
+                //
+                GetFileTimestamp(std::format("{}\\{}", ProjectPath, Plugin.m_ReleaseCompiler.c_str()), Plugin.m_ReleaseCompilerTimeStamp);
+                GetFileTimestamp(std::format("{}\\{}", ProjectPath, Plugin.m_DebugCompiler.c_str()), Plugin.m_DebugCompilerTimeStamp);
+
+                //
+                // Insert the plugin in the list
+                //
+                Plugin.m_PluginPath = std::move(entry.path().string());
+
+                m_mPlugins[Plugin.m_TypeGUID] = static_cast<int>(m_lPlugins.size());
+                m_lPlugins.push_back(std::move(Plugin));
+            }
+        }
+
+        //------------------------------------------------------------------------------------------------
+
+        pipeline_plugin* find(std::uint64_t TypeGUID)
+        {
+            auto it = m_mPlugins.find(TypeGUID);
+            if (it == m_mPlugins.end()) return nullptr;
+            return &m_lPlugins[it->second];
+        }
+
+        //------------------------------------------------------------------------------------------------
+
+        void clear()
+        {
+            m_lPlugins.clear();
+            m_mPlugins.clear();
+        }
+
+        std::vector<pipeline_plugin>                m_lPlugins;
+        std::unordered_map<std::uint64_t, int>      m_mPlugins;
+    };
+
+
     //------------------------------------------------------------------------------------------------
     //
     // This class deals with the compilation of resources
@@ -145,8 +404,6 @@ namespace e10
         std::vector<std::string>                                m_CompilationErrors;
         std::vector<std::string>                                m_ValidationErrors;
         compilation_state                                       m_CompilationState  = compilation_state::IDLE;
-        std::string                                             m_CompilerDebugPath;
-        std::string                                             m_CompilerReleasePath;
         std::string                                             m_ProjectPath;
         std::string                                             m_DescriptorPath;
         std::string                                             m_DescriptorRelativePath;
@@ -157,10 +414,12 @@ namespace e10
         std::unique_ptr<xresource_pipeline::descriptor::base>   m_pDescriptor;
         std::unique_ptr<xresource_pipeline::info>               m_pInfo;
         std::uint64_t                                           m_InstanceGUID = 0;
+        std::uint64_t                                           m_TypeGUID = 0;
         bool                                                    m_bUseDebugCompiler = false;
         bool                                                    m_bOutputInConsole = false;
         debug                                                   m_DebugLevel = debug::D0;
         optimization                                            m_OptimizationLevel = optimization::O1;
+        asset_plugins_db                                        m_AssetPlugins;
 
         //------------------------------------------------------------------------------------------------
 
@@ -298,27 +557,28 @@ namespace e10
 
         //------------------------------------------------------------------------------------------------
 
-        void SetupDescriptor(const char* pType, std::uint64_t InstanceGUID )
+        xcore::err SetupDescriptor( std::uint64_t TypeGUID, std::uint64_t InstanceGUID )
         {
-            // Set our global feedback variable to ready
+            // Make sure we have the project open first
+            assert(m_ProjectPath.empty() == false);
+
+            // Check that we have a plugin for this type
+            auto pPlugin = m_AssetPlugins.find(TypeGUID);
+            if ( pPlugin == nullptr )
             {
-                xcore::lock::scope lock(m_CompilerFeedback);
-                m_CompilerFeedback.get() = "Ready";
+                return xerr_failure_s("The plugin type was not found");
             }
 
-
-            SetupPaths();
-
             m_InstanceGUID = InstanceGUID;
+            m_TypeGUID     = TypeGUID;
             assert(m_InstanceGUID);
             assert(m_InstanceGUID&1);
-
 
             //
             // Set the relative path of the resource
             //
             std::string RelativePath = std::format("{}\\{:2X}\\{:2X}\\{:X}"
-                , pType
+                , pPlugin->m_TypeName.c_str()
                 , m_InstanceGUID&0xff
                 , (m_InstanceGUID & 0xff00)>>8
                 , m_InstanceGUID
@@ -336,8 +596,8 @@ namespace e10
             //
             // Allocate the descriptors memory
             //
-            m_pDescriptor = xresource_pipeline::factory_base::Find("Texture")->CreateDescriptor();
-            m_pInfo        = std::make_unique<xresource_pipeline::info>(xresource_pipeline::factory_base::Find("Texture")->CreateInfo(InstanceGUID));
+            m_pDescriptor = xresource_pipeline::factory_base::Find(pPlugin->m_TypeName.c_str())->CreateDescriptor();
+            m_pInfo        = std::make_unique<xresource_pipeline::info>(xresource_pipeline::factory_base::Find(pPlugin->m_TypeName.c_str())->CreateInfo(InstanceGUID));
 
             //
             // Ok let us try to load read in the current versions
@@ -347,45 +607,38 @@ namespace e10
                 // If we fail to load them is fine not big deal...
                 Err.clear();
             }
+
+            return {};
         }
 
         //------------------------------------------------------------------------------------------------
 
-        void SetupPaths()
+        void SetupProject( std::string_view ProjectPath )
         {
-            TCHAR szFileName[MAX_PATH];
-            GetModuleFileName(NULL, szFileName, MAX_PATH);
-            std::string xGPU;
+            m_ProjectPath = ProjectPath;
 
-            std::wcout << L"Full path: " << szFileName << L"\n";
-            if (auto I = e10::FindCaseInsensitive( std::wstring{szFileName}, {L"xGPU"}); I != -1)
-            {
-                I += 4; // Skip the xGPU part
-                szFileName[I] = 0;
-                std::wcout << L"Found xGPU at: " << szFileName << L"\n";
+            //
+            // Setup the asset plugins
+            //
+            m_AssetPlugins.SetupProject(m_ProjectPath);
 
-                std::transform(szFileName, &szFileName[I], std::back_inserter(xGPU), [](wchar_t c) {return (char)c; });
+            //
+            // Set the current directory to the asset folder
+            //
+            std::wstring wProjectPath = setX(ProjectPath) + L"\\Assets";
+            SetCurrentDirectory(wProjectPath.c_str());
 
-                TCHAR LIONantProject[] = L"\\dependencies\\xtexture.plugin\\bin\\example.lion_project";
-                for (int i = 0; szFileName[I++] = LIONantProject[i]; ++i);
-
-                std::transform(szFileName, &szFileName[I], std::back_inserter(m_ProjectPath), [](wchar_t c) {return (char)c; });
-                std::cout << "Project Path: " << m_ProjectPath.c_str() << "\n";
-
-                // Set the current directory to the project
-                {
-                    std::wstring a = szFileName;
-                    a = a + L"\\Assets";
-                    SetCurrentDirectory(a.c_str());
-
-                    // Set this for the properties
-                    xproperty::member_ui<std::string>::g_CurrentPath = std::format("{}\\Assets", m_ProjectPath.c_str());
-                }
-            }
-
-            m_CompilerReleasePath = std::format("{}\\dependencies\\xtexture.plugin\\Build\\xtexture_compiler.vs2022\\x64\\Release\\xtexture_compiler.exe", xGPU.c_str());
-            m_CompilerDebugPath   = std::format("{}\\dependencies\\xtexture.plugin\\Build\\xtexture_compiler.vs2022\\x64\\Debug\\xtexture_compiler.exe", xGPU.c_str());
+            //
+            // Set this for the properties out default path
+            //
+            xproperty::member_ui<std::string>::g_CurrentPath = std::format("{}\\Assets", m_ProjectPath.c_str());
             m_OutputPath          = std::format("Cache\\Resources\\Platforms");
+
+            // Set our global feedback variable to ready
+            {
+                xcore::lock::scope lock(m_CompilerFeedback);
+                m_CompilerFeedback.get() = "Ready";
+            }
         }
 
         //------------------------------------------------------------------------------------------------
@@ -515,6 +768,60 @@ namespace e10
 
         //------------------------------------------------------------------------------------------------
 
+        void RunTheCompilers()
+        {
+            //
+            // First check the basic validation
+            //
+            if (hasValidationErrors())
+            {
+                std::cout << "*** ERROR you can not compile as there are validation errors ***\n";
+                return;
+            }
+
+            //
+            // Let us serialize the descriptor
+            //
+            if (auto Err = Serialize(false); Err)
+            {
+                std::cout << "*** ERROR failed to serialize the descriptor ***\n";
+                return;
+            }
+
+            //
+            // Now we can call the compiler
+            //
+            auto pPlugin = m_AssetPlugins.find(m_TypeGUID);
+
+            // Make sure the path for the compiler is clean for the command line
+            auto CompilerPath = std::format("{}\\{}", m_ProjectPath.c_str(), m_bUseDebugCompiler ? pPlugin->m_DebugCompiler.c_str() : pPlugin->m_ReleaseCompiler.c_str());
+            {
+                std::filesystem::path p(CompilerPath);
+                CompilerPath = p.lexically_normal().string();
+            }
+
+            // Generate the command line
+            auto CommandLine = std::format(R"("{}" -PROJECT "{}" -OPTIMIZATION {} -DEBUG {} -DESCRIPTOR "{}" -OUTPUT "{}\{}")"
+                , CompilerPath.c_str()
+                , m_ProjectPath.c_str()
+                , m_OptimizationLevel == optimization::O0 ? "O0" : m_OptimizationLevel == optimization::O1 ? "O1" : "Oz"
+                , m_DebugLevel == debug::D0 ? "D0" : m_DebugLevel == debug::D1 ? "D1" : "Dz"
+                , m_DescriptorPath.c_str()
+                , m_ProjectPath.c_str()
+                , m_OutputPath.c_str()
+            );
+
+            if (m_bOutputInConsole)
+            {
+                std::cout << "Command Line:\n" << CommandLine << "\n";
+            }
+
+            // Run the compiler
+            m_CompilerThread = std::make_unique<std::thread>(RunCompiler, std::ref(*this), std::move(CommandLine));
+        }
+
+        //------------------------------------------------------------------------------------------------
+
         bool isCompilerWorking() const noexcept
         {
             return m_CompilerThread != nullptr;
@@ -536,8 +843,15 @@ namespace e10
         , obj_scope< "Project Details"
             , obj_member
                 < "Project Path"
-                , &compiler::m_ProjectPath
-                , member_ui<std::string>::file_dialog<"LION Project\0 *.lion_project; *.lion_library\0" >
+                , +[]( compiler& O, bool bRead, std::string& Var )
+                {
+                    if (bRead) Var = O.m_ProjectPath;
+                    else
+                    {
+                        O.m_ProjectPath = Var;
+                    }
+                }
+                , member_ui<std::string>::folder_dialog<"LION Project\0 *.lion_project; *.lion_library\0" >
                 , member_help<"Path of the project"
                 >>
             , obj_member_ro
@@ -570,16 +884,12 @@ namespace e10
                 }>
                 , member_help<"Path for the log information of the resource"
                 >>
-            , obj_member_ro
-                < "Debug Compiler Path"
-                , &compiler::m_CompilerDebugPath
-                , member_help<"Path to the debug compiler"
+            , obj_member< "Plugins"
+                , +[](compiler& O)->auto& { return O.m_AssetPlugins.m_lPlugins; }
+                , member_ui_open<false
                 >>
-            , obj_member_ro
-                < "Release Compiler Path"
-                , &compiler::m_CompilerReleasePath
-                , member_help<"Path to the Release compiler"
-                >>
+
+
             , member_ui_open<false>
             >
         , obj_member
@@ -591,50 +901,7 @@ namespace e10
                     if (O.isCompilerWorking() == false) Value = "Press To Compile";
                     else                                Value = "Compiling...";
                 }
-                else
-                {
-                    if ( O.isCompilerWorking() == false )
-                    {
-                        //
-                        // First check the basic validation
-                        //
-                        if (O.hasValidationErrors())
-                        {
-                            std::cout << "*** ERROR you can not compile as there are validation errors ***\n";
-                            return;
-                        }
-
-                        //
-                        // Let us serialize the descriptor
-                        //
-                        if ( auto Err = O.Serialize(false); Err )
-                        {
-                            std::cout << "*** ERROR failed to serialize the descriptor ***\n";
-                            return;
-                        }
-
-                        //
-                        // Now we can call the compiler
-                        //
-                        auto CommandLine = std::format(R"("{}" -PROJECT "{}" -OPTIMIZATION {} -DEBUG {} -DESCRIPTOR "{}" -OUTPUT "{}\{}")"
-                            , O.m_bUseDebugCompiler ? O.m_CompilerDebugPath.c_str() : O.m_CompilerReleasePath.c_str()
-                            , O.m_ProjectPath.c_str()
-                            , O.m_OptimizationLevel == optimization::O0 ? "O0" : O.m_OptimizationLevel == optimization::O1 ? "O1" : "Oz"
-                            , O.m_DebugLevel == debug::D0 ? "D0" : O.m_DebugLevel == debug::D1 ? "D1" : "Dz"
-                            , O.m_DescriptorPath.c_str()
-                            , O.m_ProjectPath.c_str()
-                            , O.m_OutputPath.c_str()
-                        );
-
-                        if (O.m_bOutputInConsole)
-                        {
-                            std::cout << "Command Line:\n" << CommandLine << "\n";
-                        }
-
-                        O.m_CompilerThread = std::make_unique<std::thread>(RunCompiler, std::ref(O), std::move(CommandLine) );
-                        
-                    }
-                }
+                else if (O.isCompilerWorking() == false) O.RunTheCompilers();
             }
             , member_ui<std::string>::button<>
             , member_dynamic_flags < +[](const compiler& O)
@@ -723,4 +990,6 @@ namespace e10
         )
     };
     XPROPERTY_REG(compiler)
+    XPROPERTY_REG2( pepe, asset_plugins_db::pipeline_plugin)
 }
+

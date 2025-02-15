@@ -846,6 +846,9 @@
     <ClInclude Include="..\..\Src\Examples\E05_Textures\E05_BitmapInspector.h">
       <Filter>Examples\Example 05 Textures</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_AssetMgr.h">
+      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="../../Bin/draw_vert.glsl" />
