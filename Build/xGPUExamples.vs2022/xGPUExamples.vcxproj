@@ -269,6 +269,8 @@
     <ClInclude Include="..\..\Src\Examples\E06_AssimLoader\E06_LoadTextureHelper.h" />
     <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_AssetBrowser.h" />
     <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_AssetMgr.h" />
+    <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_asset_browser_search_tab.h" />
+    <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_asset_browser_virtual_tree_tab.h" />
     <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_Compiler.h" />
     <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_PluginMgr.h" />
     <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_AnimCharacter.h" />

@@ -126,6 +126,8 @@ namespace e10
 #include "E10_AssetMgr.h"
 #include "E10_Compiler.h"
 #include "E10_AssetBrowser.h"
+#include "E10_asset_browser_virtual_tree_tab.h"
+#include "E10_asset_browser_search_tab.h"
 
 //------------------------------------------------------------------------------------------------
 // Give properties for xcore::vector2 and xcore::vector3
@@ -1062,9 +1064,9 @@ int E10_Example()
     //
     // Create the main render managers
     //
-    material_mgr    MaterialMgr;
-    mesh_mgr        MeshMgr;
-    e10::assert_browser AsserBrowser;
+    material_mgr            MaterialMgr;
+    mesh_mgr                MeshMgr;
+    e10::assert_browser     AsserBrowser;
 
     MeshMgr.Initialize(Device);
 

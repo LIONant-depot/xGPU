@@ -855,6 +855,12 @@
     <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_AssetBrowser.h">
       <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_asset_browser_virtual_tree_tab.h">
+      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_asset_browser_search_tab.h">
+      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="../../Bin/draw_vert.glsl" />
