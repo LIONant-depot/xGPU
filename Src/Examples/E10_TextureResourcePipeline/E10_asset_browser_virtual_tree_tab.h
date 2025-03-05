@@ -111,6 +111,8 @@ namespace e10
             return TypeOfPress;
         }
 
+        //=============================================================================
+
         void RenderPath()
         {
             ImGuiStyle& style = ImGui::GetStyle();
@@ -430,17 +432,15 @@ namespace e10
                             bool& IsInTheoryOpen = m_IsTreeNodeOpen[GUID.m_Instance];
                             if (isSelected) ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[1]);
 
-                            // static std::array<std::array<const char*, 2>, 2> IconSet = { { { "\xee\xa0\xb8", "\xee\xa2\xb7" }, {"\xEE\xA3\x95", } } };
-                            static std::array<std::array<const char*, 2>, 2> IconSet = { { { "\xEE\xB5\x81", "\xEE\xB5\x83" }, {"\xEE\xB5\x82", "\xEE\xB5\x84"} } };
+                            static std::array<std::array<const char*, 2>, 2> IconSet = { { { "\xee\xa0\xb8", "\xee\xa2\xb7" }, {"\xEE\xA3\x95", "\xEE\xB5\x84"} } };
+                            //static std::array<std::array<const char*, 2>, 2> IconSet = { { { "\xEE\xB5\x81", "\xEE\xB5\x83" }, {"\xEE\xB5\x82", "\xEE\xB5\x84"} } };
 
                             const char* pCon = IconSet[InfoEntry.m_lChildLinks.size() >= 1 ? 1 : 0][IsInTheoryOpen];
-
-                            //auto Str = (IsInTheoryOpen ? std::format("\xee\xa0\xb8 {}###{}", Name.data(), GUID.m_Instance.m_Value) : std::format("\xee\xa2\xb7 {}###{}", Name.data(), GUID.m_Instance.m_Value));
-
+                            const auto AdditionaFlags = InfoEntry.m_lChildLinks.size() == 0 ? (ImGuiTreeNodeFlags_Leaf ) : 0u;
                             auto Str = std::format("{} {}###{}", pCon, Name.data(), GUID.m_Instance.m_Value);
 
                             if (IsInTheoryOpen) ImGui::SetNextItemOpen(IsInTheoryOpen);
-                            bool bOpen = ImGui::TreeNodeEx(Str.c_str(), ImGuiTreeNodeFlags_OpenOnArrow | (isSelected ? ImGuiTreeNodeFlags_Selected : 0));
+                            bool bOpen = ImGui::TreeNodeEx(Str.c_str(), AdditionaFlags | ImGuiTreeNodeFlags_OpenOnArrow | (isSelected ? ImGuiTreeNodeFlags_Selected : 0));
                             if (isSelected) ImGui::PopFont();
                             IsInTheoryOpen = bOpen;
 
@@ -1066,6 +1066,8 @@ namespace e10
         std::vector<path_node>                              m_PathNodes             = {};
         xresource::type_guid                                m_SelectedType          = {};
     };
+
+    //=============================================================================
 
     namespace
     {
