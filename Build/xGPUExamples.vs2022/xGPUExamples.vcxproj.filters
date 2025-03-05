@@ -849,6 +849,12 @@
     <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_AssetMgr.h">
       <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_PluginMgr.h">
+      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_AssetBrowser.h">
+      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="../../Bin/draw_vert.glsl" />

@@ -267,8 +267,10 @@
     <ClInclude Include="..\..\Src\Examples\E05_Textures\E05_BitmapInspector.h" />
     <ClInclude Include="..\..\Src\Examples\E05_Textures\E05_Textures.h" />
     <ClInclude Include="..\..\Src\Examples\E06_AssimLoader\E06_LoadTextureHelper.h" />
+    <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_AssetBrowser.h" />
     <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_AssetMgr.h" />
     <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_Compiler.h" />
+    <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_PluginMgr.h" />
     <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_AnimCharacter.h" />
     <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_Importer.h" />
     <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_Skeleton.h" />

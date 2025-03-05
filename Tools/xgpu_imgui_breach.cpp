@@ -883,7 +883,7 @@ void EnableDocking()
     constexpr bool                  opt_padding = false;
     constexpr ImGuiDockNodeFlags    dockspace_flags = ImGuiDockNodeFlags_AutoHideTabBar
         | ImGuiDockNodeFlags_PassthruCentralNode;
-    constexpr ImGuiWindowFlags      window_flags = ImGuiWindowFlags_MenuBar
+    constexpr ImGuiWindowFlags      window_flags = 0//ImGuiWindowFlags_MenuBar
         | ImGuiWindowFlags_NoDocking
         | ImGuiWindowFlags_NoBackground
         | ImGuiWindowFlags_NoTitleBar
@@ -1026,6 +1026,13 @@ void ChildSwapBuffers(ImGuiViewport* pViewport, void*) noexcept
 
 //------------------------------------------------------------------------------------------------------------
 
+ImFont*& getFont(int Index) noexcept
+{
+    return ImGui::GetIO().Fonts->Fonts[Index];
+}
+
+//------------------------------------------------------------------------------------------------------------
+
 xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
 {
     xgpu::instance  XGPUInstance;
@@ -1054,6 +1061,57 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
  //   io.BackendFlags |= ImGuiBackendFlags_PlatformHasViewports;  // We can create multi-viewports on the Platform side (optional)
     //io.ConfigViewportsNoAutoMerge = true;
     //io.ConfigViewportsNoTaskBarIcon = true;
+
+    
+    {
+        // Load a font that supports Unicode symbols (e.g., Segoe UI Emoji)
+        //ImFontConfig config;
+        //config.MergeMode = true;
+        //io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/consola.ttf", 12.0f, nullptr, glyph_ranges1);
+        //io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/SEGOEICONS.TTF", 12.0f, nullptr, glyph_ranges2);
+        //io.Fonts->Build();
+
+        static const ImWchar glyph_ranges1[] = 
+        {
+            0x0020, 0xE000, 0
+        };
+
+        static const ImWchar glyph_ranges2[] =
+        {
+            0xE000, 0xF8CC, 0
+        };
+
+        ImGuiIO& io = ImGui::GetIO();
+        ImFontAtlas* atlas = io.Fonts;
+        atlas->Clear();
+
+        // Load the first font (Consolas)
+        ImFontConfig config1;
+        config1.PixelSnapH = true;
+        ImFont* font1 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/consola.ttf", 12.0f, &config1, glyph_ranges1);
+        assert(font1 != nullptr && "Failed to load consola.ttf");
+
+        // Load and merge the second font (Segoe Icons)
+        ImFontConfig config2;
+        config2.MergeMode = true;   // Merge into the previous font
+        config2.PixelSnapH = true;  // Align horizontally
+        config2.GlyphOffset.y = 3.0f; // Move icons down
+        ImFont* font2 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/SEGOEICONS.TTF", 12.0f, &config2, glyph_ranges2);
+        assert(font2 != nullptr && "Failed to load SEGOEICONS.TTF");
+
+
+        ImFont* font3 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/consolab.ttf", 12.0f, &config1, glyph_ranges1);
+        ImFont* font4 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/SEGOEICONS.TTF", 12.0f, &config2, glyph_ranges2);
+
+        ImFont* font5 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/SEGOEICONS.TTF", 64.0f, &config1, glyph_ranges2);
+
+        // Build the atlas
+        bool success = atlas->Build();
+        assert(success && "Failed to build font atlas");
+
+        // Optional: Store font1 or font2 in io.FontDefault if you want it as the default
+        io.FontDefault = font1;
+    }
 
     if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
     {

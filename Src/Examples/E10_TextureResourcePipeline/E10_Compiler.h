@@ -1,366 +1,12 @@
 #include <windows.h>
 #include <iostream>
 #include "../dependencies/xtexture.plugin/dependencies/xresource_pipeline_v2/dependencies/xproperty/source/examples/xcore_sprop_serializer/xcore_sprop_serializer.h"
+
 #pragma once
 
-//------------------------------------------------------------------------------------------------
-
-constexpr
-auto strXstr(const wchar_t* pW )
-{
-    std::string S;
-    if (pW == nullptr) return S;
-
-    S.reserve( [=]{ int i=0; while(pW[i++]); return i-1; }() );
-    for( int i=0; pW[i]; i++) S.push_back(static_cast<char>(pW[i]));
-    return S;
-}
-
-//------------------------------------------------------------------------------------------------
-
-constexpr
-auto strXstr(const char* pW)
-{
-    std::wstring S;
-    if (pW == nullptr) return S;
-
-    S.reserve([=] { int i = 0; while (pW[i++]); return i - 1; }());
-    for (int i = 0; pW[i]; i++) S.push_back(static_cast<wchar_t>(pW[i]));
-    return S;
-}
-
-//------------------------------------------------------------------------------------------------
-
-constexpr
-auto strXstr( const std::wstring_view W )
-{
-    std::string S;
-    S.reserve(W.size());
-    for (auto c : W) S.push_back(static_cast<char>(c));
-    return S;
-}
-
-//------------------------------------------------------------------------------------------------
-
-constexpr
-auto strXstr(const std::wstring& W)
-{
-    std::string S;
-    S.reserve(W.size());
-    for (auto c : W) S.push_back(static_cast<char>(c));
-    return S;
-}
-
-//------------------------------------------------------------------------------------------------
-
-constexpr
-auto strXstr(const std::string_view S)
-{
-    std::wstring W;
-    W.reserve(S.size());
-    for (auto c : S) W.push_back(static_cast<wchar_t>(c));
-    return W;
-}
-
-//------------------------------------------------------------------------------------------------
-
-constexpr
-auto strXstr(const std::string& S)
-{
-    std::wstring W;
-    W.reserve(S.size());
-    for (auto c : S) W.push_back(static_cast<wchar_t>(c));
-    return W;
-}
 
 namespace e10
 {
-    //------------------------------------------------------------------------------------------------
-
-    void GetFileTimestamp(const std::string& filePath, SYSTEMTIME& systemTime)
-    {
-        HANDLE hFile = CreateFile(
-            strXstr(filePath).c_str(),
-            GENERIC_READ,
-            FILE_SHARE_READ,
-            NULL,
-            OPEN_EXISTING,
-            FILE_ATTRIBUTE_NORMAL,
-            NULL
-        );
-
-        if (hFile == INVALID_HANDLE_VALUE) {
-            std::cerr << "Error opening file: " << filePath << std::endl;
-            return;
-        }
-
-        FILETIME fileTime;
-        if (!GetFileTime(hFile, NULL, NULL, &fileTime)) {
-            std::cerr << "Error getting file time: " << filePath << std::endl;
-            CloseHandle(hFile);
-            return;
-        }
-
-        if (!FileTimeToSystemTime(&fileTime, &systemTime)) {
-            std::cerr << "Error converting file time to system time: " << filePath << std::endl;
-        }
-
-        CloseHandle(hFile);
-    }
-
-    //------------------------------------------------------------------------------------------------
-
-    // Function to convert a wstring to lowercase using standard functions
-    template< typename T_STRING >
-    inline T_STRING ToLower(const T_STRING& str) noexcept
-    {
-        using char_t = std::remove_reference_t<decltype(str[0])>;
-        T_STRING lowerStr(str.size(), char_t{'\0'});
-        std::transform(str.begin(), str.end(), lowerStr.begin(),
-            [](char_t c) { return std::tolower(c, std::locale()); });
-        return lowerStr;
-    }
-
-    //------------------------------------------------------------------------------------------------
-
-    // Function to find a case-insensitive substring in a wstring using standard functions
-    template< typename T_STRING>
-    inline auto FindCaseInsensitive(const T_STRING& haystack, const T_STRING& needle, std::size_t Pos = 0) noexcept
-    {
-        T_STRING lowerHaystack = ToLower(haystack);
-        T_STRING lowerNeedle   = ToLower(needle);
-        return lowerHaystack.find(lowerNeedle, Pos);
-    }
-
-    //------------------------------------------------------------------------------------------------
-
-    inline void ConsoleCompliantString( std::string& CurrentBuffer, std::size_t& OldLength, std::size_t& LastLinePos, const std::string_view NewChunk ) noexcept
-    {
-        auto NewLength = CurrentBuffer.length() + NewChunk.size();
-        CurrentBuffer.append(NewChunk.data(), NewChunk.size());
-
-        // Find any '\r' and delete all previous character until the previous line
-        // This allows us to have the same output as a proper console
-        for (auto i = OldLength; i < NewLength; ++i)
-        {
-            if (CurrentBuffer[i] == '\r')
-            {
-                if ((i + 1) != NewLength)
-                {
-                    // If we have this character right after a new line then skip it
-                    if (CurrentBuffer[i + 1] == '\n') continue;
-                }
-                else
-                {
-                    // We will need to wait until we have more data...
-                    NewLength -= 1;
-                    break;
-                }
-
-                auto ToErrase = i - LastLinePos + 1;
-                CurrentBuffer.erase(LastLinePos, ToErrase);
-                NewLength -= ToErrase;
-                i = LastLinePos;
-
-                // Find a new LastLine
-                while (LastLinePos > 0)
-                {
-                    if (CurrentBuffer[LastLinePos] == '\n')
-                    {
-                        LastLinePos++;
-                        break;
-                    }
-                    LastLinePos--;
-                }
-            }
-            else if (CurrentBuffer[i] == '\n')
-            {
-                LastLinePos = i + 1;
-            }
-        }
-
-        OldLength = NewLength;
-    }
-
-    struct asset_plugins_db
-    {
-        struct pipeline_plugin
-        {
-            std::string                 m_TypeName;
-            std::uint64_t               m_TypeGUID;
-            std::vector<std::uint64_t>  m_RunAfter;
-            std::string                 m_DebugCompiler;
-            SYSTEMTIME                  m_DebugCompilerTimeStamp;
-            std::string                 m_ReleaseCompiler;
-            SYSTEMTIME                  m_ReleaseCompilerTimeStamp;
-            std::string                 m_PluginPath;
-            std::string                 m_CompilationScript;
-
-                             pipeline_plugin()                  = default;
-                            ~pipeline_plugin()                  = default;
-                             pipeline_plugin(pipeline_plugin&&) = default;
-            pipeline_plugin& operator = (pipeline_plugin&&)     = default;
-
-            //------------------------------------------------------------------------------------------------
-
-            std::string Serialize(bool bRead, std::string_view Path)
-            {
-                //
-                // Read the config file
-                //
-                xcore::textfile::stream Stream;
-                if (auto Err = Stream.Open(bRead, Path, xcore::textfile::file_type::TEXT); Err)
-                {
-                    return std::format("Error: Failed to read {} with error {}", Path, Err.getCode().m_pString );
-                }
-
-                //
-                // Read the configuration file
-                //
-                xproperty::settings::context    Context{};
-                if (auto Err = xproperty::sprop::serializer::Stream(Stream, *this, Context); Err)
-                {
-                    return std::format("Error: Failed to read {} with error {}", Path, Err.getCode().m_pString);
-                }
-
-                return {};
-            }
-
-            XPROPERTY_DEF
-            ( "PipelinePlugin", pipeline_plugin
-            , obj_member< "TypeName"
-                , &pipeline_plugin::m_TypeName
-                , member_flags<xproperty::flags::SHOW_READONLY
-                >>
-            , obj_member< "TypeGUID"
-                , &pipeline_plugin::m_TypeGUID
-                , member_ui<std::uint64_t>::drag_bar< 0.0f, 0, std::numeric_limits<std::uint64_t>::max(), "%llX">
-                , member_flags<xproperty::flags::SHOW_READONLY
-                >>
-            , obj_scope< "Details"
-                , obj_member_ro< "PluginPath"
-                    , &pipeline_plugin::m_PluginPath
-                    , member_flags<xproperty::flags::SHOW_READONLY
-                    >>
-                , obj_member< "RunAfter"
-                    , &pipeline_plugin::m_RunAfter
-                    , member_flags<xproperty::flags::SHOW_READONLY
-                    >>
-                , obj_member< "DebugCompiler"
-                    , &pipeline_plugin::m_DebugCompiler
-                    , member_flags<xproperty::flags::SHOW_READONLY
-                    >>
-                , obj_member_ro< "DebugCompilerTimeStamp"
-                    , +[](pipeline_plugin& O, bool, std::string& Value )
-                    {
-                        Value = std::format("{:02}/{:02}/{:04} {:02}:{:02}:{:02}"
-                            , O.m_DebugCompilerTimeStamp.wDay
-                            , O.m_DebugCompilerTimeStamp.wMonth
-                            , O.m_DebugCompilerTimeStamp.wYear
-                            , O.m_DebugCompilerTimeStamp.wHour
-                            , O.m_DebugCompilerTimeStamp.wMinute
-                            , O.m_DebugCompilerTimeStamp.wSecond
-                            );
-                    }
-                    >
-                , obj_member< "ReleaseCompiler"
-                    , &pipeline_plugin::m_ReleaseCompiler
-                    , member_flags<xproperty::flags::SHOW_READONLY
-                    >>
-                , obj_member_ro < "ReleaseCompilerTimeStamp"
-                    , +[](pipeline_plugin& O, bool, std::string& Value)
-                    {
-                        Value = std::format("{:02}/{:02}/{:04} {:02}:{:02}:{:02}"
-                            , O.m_ReleaseCompilerTimeStamp.wDay
-                            , O.m_ReleaseCompilerTimeStamp.wMonth
-                            , O.m_ReleaseCompilerTimeStamp.wYear
-                            , O.m_ReleaseCompilerTimeStamp.wHour
-                            , O.m_ReleaseCompilerTimeStamp.wMinute
-                            , O.m_ReleaseCompilerTimeStamp.wSecond
-                        );
-                    }
-                    >
-                , obj_member< "CompilationScript"
-                    , &pipeline_plugin::m_CompilationScript
-                    , member_flags<xproperty::flags::SHOW_READONLY
-                    >>
-                , member_ui_open<false
-                >>
-            )
-        };
-
-        //------------------------------------------------------------------------------------------------
-
-        void SetupProject( std::string_view ProjectPath )
-        {
-            //
-            // Go throw all the plugins and read their information
-            //
-            auto PluginPath = std::format("{}\\cache\\plugins", ProjectPath);
-            for (const auto& entry : std::filesystem::recursive_directory_iterator(PluginPath))
-            {
-                if (std::filesystem::is_directory(entry.path()) == false) continue;
-
-                std::string ConfigFile = std::format("{}\\resource_pipeline.config.txt", strXstr(entry.path()).c_str() );
-                if (std::filesystem::exists(ConfigFile) == false) continue;
-
-                // Read the plugin
-                pipeline_plugin Plugin;
-                if (auto Err = Plugin.Serialize(true, ConfigFile.c_str()); Err.empty() == false)
-                {
-                    std::cerr << Err << "\n";
-                    continue;
-                }
-
-                //
-                // get the timestamp of the compilers
-                //
-                GetFileTimestamp(std::format("{}\\{}", ProjectPath, Plugin.m_ReleaseCompiler.c_str()), Plugin.m_ReleaseCompilerTimeStamp);
-                GetFileTimestamp(std::format("{}\\{}", ProjectPath, Plugin.m_DebugCompiler.c_str()), Plugin.m_DebugCompilerTimeStamp);
-
-                //
-                // Insert the plugin in the list
-                //
-                Plugin.m_PluginPath = std::move(entry.path().string());
-
-                m_mPluginsByTypeName[Plugin.m_TypeName] = static_cast<int>(m_lPlugins.size());
-                m_mPluginsByTypeGUID[Plugin.m_TypeGUID] = static_cast<int>(m_lPlugins.size());
-                m_lPlugins.push_back(std::move(Plugin));
-            }
-        }
-
-        //------------------------------------------------------------------------------------------------
-
-        pipeline_plugin* find(std::uint64_t TypeGUID)
-        {
-            auto it = m_mPluginsByTypeGUID.find(TypeGUID);
-            if (it == m_mPluginsByTypeGUID.end()) return nullptr;
-            return &m_lPlugins[it->second];
-        }
-
-        //------------------------------------------------------------------------------------------------
-
-        pipeline_plugin* find(const std::string& String)
-        {
-            auto it = m_mPluginsByTypeName.find(String);
-            if (it == m_mPluginsByTypeName.end()) return nullptr;
-            return &m_lPlugins[it->second];
-        }
-
-        //------------------------------------------------------------------------------------------------
-
-        void clear()
-        {
-            m_lPlugins.clear();
-            m_mPluginsByTypeGUID.clear();
-        }
-
-        std::vector<pipeline_plugin>                m_lPlugins;
-        std::unordered_map<std::uint64_t, int>      m_mPluginsByTypeGUID;
-        std::unordered_map<std::string, int>        m_mPluginsByTypeName;
-    };
-
-
     //------------------------------------------------------------------------------------------------
     //
     // This class deals with the compilation of resources
@@ -428,7 +74,6 @@ namespace e10
         std::vector<std::string>                                m_CompilationErrors;
         std::vector<std::string>                                m_ValidationErrors;
         compilation_state                                       m_CompilationState  = compilation_state::IDLE;
-        std::string                                             m_ProjectPath;
         std::string                                             m_DescriptorPath;
         std::string                                             m_DescriptorRelativePath;
         std::string                                             m_OutputPath;
@@ -437,13 +82,12 @@ namespace e10
         std::unique_ptr<std::thread>                            m_CompilerThread;
         std::unique_ptr<xresource_pipeline::descriptor::base>   m_pDescriptor;
         std::unique_ptr<xresource_pipeline::info>               m_pInfo;
-        std::uint64_t                                           m_InstanceGUID = 0;
-        std::uint64_t                                           m_TypeGUID = 0;
+        xresource::full_guid                                    m_ResourceGUID {};
         bool                                                    m_bUseDebugCompiler = false;
         bool                                                    m_bOutputInConsole = false;
         debug                                                   m_DebugLevel = debug::D0;
         optimization                                            m_OptimizationLevel = optimization::O1;
-        asset_plugins_db                                        m_AssetPlugins;
+        e10::library_mgr*                                       m_pLibraryMgr = nullptr;
 
         //------------------------------------------------------------------------------------------------
 
@@ -581,46 +225,45 @@ namespace e10
 
         //------------------------------------------------------------------------------------------------
 
-        xcore::err SetupDescriptor(const std::string& TypeName, std::uint64_t InstanceGUID)
+        xcore::err SetupDescriptor(const std::string& TypeName, xresource::instance_guid InstanceGUID)
         {
-            auto p = m_AssetPlugins.find(TypeName);
+            assert(m_pLibraryMgr);
+            auto p = m_pLibraryMgr->m_AssetPluginsDB.find(TypeName);
             if (p == nullptr)
                 return xerr_failure_s("The plugin type by name was not found");
 
-            return SetupDescriptor(p->m_TypeGUID, InstanceGUID);
+            return SetupDescriptor({ InstanceGUID, p->m_TypeGUID });
         }
 
         //------------------------------------------------------------------------------------------------
 
-        xcore::err SetupDescriptor( std::uint64_t TypeGUID, std::uint64_t InstanceGUID )
+        xcore::err SetupDescriptor( xresource::full_guid GUID )
         {
             // Make sure we have the project open first
-            assert(m_ProjectPath.empty() == false);
+            assert(m_pLibraryMgr->m_ProjectPath.empty() == false);
 
             // Check that we have a plugin for this type
-            auto pPlugin = m_AssetPlugins.find(TypeGUID);
+            auto pPlugin = m_pLibraryMgr->m_AssetPluginsDB.find(GUID.m_Type);
             if ( pPlugin == nullptr )
             {
                 return xerr_failure_s("The plugin type by guid was not found");
             }
 
-            m_InstanceGUID = InstanceGUID;
-            m_TypeGUID     = TypeGUID;
-            assert(m_InstanceGUID);
-            assert(m_InstanceGUID&1);
+            m_ResourceGUID = GUID;
+            assert(GUID.isValid());
 
             //
             // Set the relative path of the resource
             //
-            std::string RelativePath = std::format("{}\\{:2X}\\{:2X}\\{:X}"
+            std::string RelativePath = std::format("{}\\{:02X}\\{:02X}\\{:X}"
                 , pPlugin->m_TypeName.c_str()
-                , m_InstanceGUID&0xff
-                , (m_InstanceGUID & 0xff00)>>8
-                , m_InstanceGUID
+                , m_ResourceGUID.m_Instance.m_Value &0xff
+                , (m_ResourceGUID.m_Instance.m_Value & 0xff00)>>8
+                , m_ResourceGUID.m_Instance.m_Value
                 );
 
             // Set up the resource and descriptor paths
-            m_ResourcePath              = std::format("{}\\{}\\WINDOWS\\{}.xbmp", m_ProjectPath.c_str(), m_OutputPath.c_str(), RelativePath.c_str());
+            m_ResourcePath              = std::format("{}\\{}\\WINDOWS\\{}.xbmp", strXstr(m_pLibraryMgr->m_ProjectPath).c_str(), m_OutputPath.c_str(), RelativePath.c_str());
 
             m_DescriptorRelativePath    = std::format("Descriptors\\{}.desc", RelativePath.c_str());
             m_DescriptorPath            = std::format("{}", m_DescriptorRelativePath.c_str());
@@ -632,7 +275,7 @@ namespace e10
             // Allocate the descriptors memory
             //
             m_pDescriptor = xresource_pipeline::factory_base::Find(pPlugin->m_TypeName.c_str())->CreateDescriptor();
-            m_pInfo        = std::make_unique<xresource_pipeline::info>(xresource_pipeline::factory_base::Find(pPlugin->m_TypeName.c_str())->CreateInfo(InstanceGUID));
+            m_pInfo        = std::make_unique<xresource_pipeline::info>(xresource_pipeline::factory_base::Find(pPlugin->m_TypeName.c_str())->CreateInfo(m_ResourceGUID.m_Instance));
 
             //
             // Ok let us try to load read in the current versions
@@ -648,25 +291,10 @@ namespace e10
 
         //------------------------------------------------------------------------------------------------
 
-        void SetupProject( std::string_view ProjectPath )
+        void SetupProject( library_mgr& LibraryMgr )
         {
-            m_ProjectPath = ProjectPath;
+            m_pLibraryMgr = &LibraryMgr;
 
-            //
-            // Setup the asset plugins
-            //
-            m_AssetPlugins.SetupProject(m_ProjectPath);
-
-            //
-            // Set the current directory to the asset folder
-            //
-            std::wstring wProjectPath = strXstr(ProjectPath) + L"\\Assets";
-            SetCurrentDirectory(wProjectPath.c_str());
-
-            //
-            // Set this for the properties out default path
-            //
-            xproperty::member_ui<std::string>::g_CurrentPath = std::format("{}\\Assets", m_ProjectPath.c_str());
             m_OutputPath          = std::format("Cache\\Resources\\Platforms");
 
             // Set our global feedback variable to ready
@@ -686,12 +314,12 @@ namespace e10
 
             xproperty::settings::context Context;
 
-            if (auto Err = m_pInfo->Serialize(isRead, std::format("{}\\{}\\Info.txt", m_ProjectPath.c_str(), m_DescriptorPath.c_str()), Context); Err)
+            if (auto Err = m_pInfo->Serialize(isRead, std::format("{}\\{}\\Info.txt", strXstr(m_pLibraryMgr->m_ProjectPath).c_str(), m_DescriptorPath.c_str()), Context); Err)
             {
                 return Err;
             }
 
-            if (auto Err = m_pDescriptor->Serialize(isRead, std::format("{}\\{}\\Descriptor.txt", m_ProjectPath.c_str(), m_DescriptorPath.c_str()), Context); Err)
+            if (auto Err = m_pDescriptor->Serialize(isRead, std::format("{}\\{}\\Descriptor.txt", strXstr(m_pLibraryMgr->m_ProjectPath).c_str(), m_DescriptorPath.c_str()), Context); Err)
             {
                 return Err;
             }
@@ -752,7 +380,7 @@ namespace e10
                     if (RawLog.size())
                     {
                         // Collect all errors 
-                        for (auto pos = e10::FindCaseInsensitive(RawLog, { "[Error]" }); pos != std::string::npos; pos = e10::FindCaseInsensitive(RawLog, { "[Error]" }, pos + 1))
+                        for (auto pos = FindCaseInsensitive(RawLog, { "[Error]" }); pos != std::string::npos; pos = FindCaseInsensitive(RawLog, { "[Error]" }, pos + 1))
                         {
                             auto End = RawLog.find_first_of("\n", pos);
                             m_CompilationErrors.push_back(RawLog.substr(pos, End - pos));
@@ -760,7 +388,7 @@ namespace e10
                         }
 
                         // Collect all warnings
-                        for (auto pos = e10::FindCaseInsensitive(RawLog, { "[Warning]" }); pos != std::string::npos; pos = e10::FindCaseInsensitive(RawLog, { "[Warning]" }, pos + 1))
+                        for (auto pos = FindCaseInsensitive(RawLog, { "[Warning]" }); pos != std::string::npos; pos = FindCaseInsensitive(RawLog, { "[Warning]" }, pos + 1))
                         {
                             auto End = RawLog.find_first_of("\n", pos);
                             m_CompilationWarnings.push_back(RawLog.substr(pos, End - pos));
@@ -768,7 +396,7 @@ namespace e10
                         }
 
                         // Collect all warnings
-                        for (auto pos = e10::FindCaseInsensitive(RawLog, { "[Info]" }); pos != std::string::npos; pos = e10::FindCaseInsensitive(RawLog, { "[Info]" }, pos + 1))
+                        for (auto pos = FindCaseInsensitive(RawLog, { "[Info]" }); pos != std::string::npos; pos = FindCaseInsensitive(RawLog, { "[Info]" }, pos + 1))
                         {
                             auto End = RawLog.find_first_of("\n", pos);
 
@@ -826,10 +454,10 @@ namespace e10
             //
             // Now we can call the compiler
             //
-            auto pPlugin = m_AssetPlugins.find(m_TypeGUID);
+            auto pPlugin = m_pLibraryMgr->m_AssetPluginsDB.find(m_ResourceGUID.m_Type);
 
             // Make sure the path for the compiler is clean for the command line
-            auto CompilerPath = std::format("{}\\{}", m_ProjectPath.c_str(), m_bUseDebugCompiler ? pPlugin->m_DebugCompiler.c_str() : pPlugin->m_ReleaseCompiler.c_str());
+            auto CompilerPath = std::format("{}\\{}", strXstr(m_pLibraryMgr->m_ProjectPath).c_str(), m_bUseDebugCompiler ? pPlugin->m_DebugCompiler.c_str() : pPlugin->m_ReleaseCompiler.c_str());
             {
                 std::filesystem::path p(CompilerPath);
                 CompilerPath = p.lexically_normal().string();
@@ -838,11 +466,11 @@ namespace e10
             // Generate the command line
             auto CommandLine = std::format(R"("{}" -PROJECT "{}" -OPTIMIZATION {} -DEBUG {} -DESCRIPTOR "{}" -OUTPUT "{}\{}")"
                 , CompilerPath.c_str()
-                , m_ProjectPath.c_str()
+                , strXstr(m_pLibraryMgr->m_ProjectPath).c_str()
                 , m_OptimizationLevel == optimization::O0 ? "O0" : m_OptimizationLevel == optimization::O1 ? "O1" : "Oz"
                 , m_DebugLevel == debug::D0 ? "D0" : m_DebugLevel == debug::D1 ? "D1" : "Dz"
                 , m_DescriptorPath.c_str()
-                , m_ProjectPath.c_str()
+                , strXstr(m_pLibraryMgr->m_ProjectPath).c_str()
                 , m_OutputPath.c_str()
             );
 
@@ -873,17 +501,74 @@ namespace e10
 
         //------------------------------------------------------------------------------------------------
 
+        static void AddNewResource(compiler& O, bool bRead, std::string& Value)
+        {
+            static bool bOpenPopup = false;
+            if (bRead)
+            {
+                Value = "Press to Add";
+            }
+            else
+            {
+                if (O.m_pLibraryMgr->m_AssetPluginsDB.m_lPlugins.size())
+                {
+                    bOpenPopup = true;
+                }
+            }
+
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(4.0f,4.0f));
+            if (bOpenPopup) ImGui::OpenPopup("PopupMenu");
+            if (ImGui::BeginPopup("PopupMenu"))
+            {
+                for (auto& E : O.m_pLibraryMgr->m_AssetPluginsDB.m_lPlugins)
+                {
+                    if (ImGui::MenuItem(E.m_TypeName.c_str()))
+                    {
+                        //O.SetupDescriptor(E.m_TypeGUID, 0);
+                        ImGui::CloseCurrentPopup();
+                        bOpenPopup = false;
+                    }
+                }
+
+                if (ImGui::IsMouseClicked(0) && !ImGui::IsWindowHovered(ImGuiHoveredFlags_AnyWindow))
+                {
+                    ImGui::CloseCurrentPopup();
+                    bOpenPopup = false;
+                }
+
+                // Ends the menu...
+                ImGui::EndPopup();
+            }
+            ImGui::PopStyleVar();
+        }
+
+        //------------------------------------------------------------------------------------------------
+
         XPROPERTY_DEF
         ( "Compiler", compiler
+            , obj_member < "Add New Resource Type", +[](compiler& O, bool bRead, std::string& Value)
+            {
+                AddNewResource(O, bRead, Value);
+            }
+            , member_ui<std::string>::button<>
+            , member_help<"Press this button to add a new resource to the project"
+            >> 
         , obj_scope< "Project Details"
             , obj_member
                 < "Project Path"
                 , +[]( compiler& O, bool bRead, std::string& Var )
                 {
-                    if (bRead) Var = O.m_ProjectPath;
+                    if ( O.m_pLibraryMgr == nullptr )
+                    {
+                        // Nothing to do here
+                    }
                     else
                     {
-                        O.m_ProjectPath = Var;
+                        if (bRead) Var = strXstr(O.m_pLibraryMgr->m_ProjectPath);
+                        else
+                        {
+                            O.m_pLibraryMgr->m_ProjectPath = strXstr(Var);
+                        }
                     }
                 }
                 , member_ui<std::string>::folder_dialog<"LION Project\0 *.lion_project; *.lion_library\0" >
@@ -894,7 +579,7 @@ namespace e10
                 , &compiler::m_DescriptorPath
                 , member_dynamic_flags < +[](const compiler& O)
                 {   xproperty::flags::type Flags{ xproperty::flags::DONT_SAVE };
-                    Flags.m_bDontShow = O.m_ProjectPath.empty();
+                    Flags.m_bDontShow = O.m_pLibraryMgr == nullptr || O.m_pLibraryMgr->m_ProjectPath.empty();
                     return Flags;
                 }>
                 , member_help<"Path to the descriptor"
@@ -904,7 +589,7 @@ namespace e10
                 , &compiler::m_OutputPath
                 , member_dynamic_flags < +[](const compiler& O)
                 {   xproperty::flags::type Flags{ xproperty::flags::DONT_SAVE };
-                    Flags.m_bDontShow = O.m_ProjectPath.empty();
+                    Flags.m_bDontShow = O.m_pLibraryMgr == nullptr || O.m_pLibraryMgr->m_ProjectPath.empty();
                     return Flags;
                 }>
                 , member_help<"Path for the complied resource"
@@ -914,13 +599,13 @@ namespace e10
                 , &compiler::m_LogPath
                 , member_dynamic_flags < +[](const compiler& O)
                 {   xproperty::flags::type Flags{ xproperty::flags::DONT_SAVE };
-                    Flags.m_bDontShow = O.m_ProjectPath.empty();
+                    Flags.m_bDontShow = O.m_pLibraryMgr == nullptr || O.m_pLibraryMgr->m_ProjectPath.empty();
                     return Flags;
                 }>
                 , member_help<"Path for the log information of the resource"
                 >>
             , obj_member< "Plugins"
-                , +[](compiler& O)->auto& { return O.m_AssetPlugins.m_lPlugins; }
+                , +[](compiler& O)->auto& { return O.m_pLibraryMgr->m_AssetPluginsDB.m_lPlugins; }
                 , member_ui_open<false
                 >>
 
@@ -996,12 +681,13 @@ namespace e10
                 }
                 else
                 {
+                    if (O.m_pLibraryMgr == nullptr) return;
 
                     switch (Value)
                     {
                     case open_explorer::SELECT_ONE: break;
-                    case open_explorer::TO_THE_PROJECT: ShellExecute( NULL, L"open", L"explorer", xcore::string::To<wchar_t>(O.m_ProjectPath.c_str()).data(), NULL, SW_SHOW); break;
-                    case open_explorer::TO_DESCRIPTOR_FILE: ShellExecute(NULL, L"open", L"explorer", xcore::string::To<wchar_t>(xcore::string::Fmt("%s\\%s", O.m_ProjectPath.c_str(), O.m_DescriptorPath.c_str())).data(), NULL, SW_SHOW); break;
+                    case open_explorer::TO_THE_PROJECT: ShellExecute( NULL, L"open", L"explorer", xcore::string::To<wchar_t>(strXstr(O.m_pLibraryMgr->m_ProjectPath).c_str()).data(), NULL, SW_SHOW); break;
+                    case open_explorer::TO_DESCRIPTOR_FILE: ShellExecute(NULL, L"open", L"explorer", xcore::string::To<wchar_t>(xcore::string::Fmt("%s\\%s", strXstr(O.m_pLibraryMgr->m_ProjectPath).c_str(), O.m_DescriptorPath.c_str())).data(), NULL, SW_SHOW); break;
                     case open_explorer::TO_RESOURCE_FILE: 
                     {
                         auto Str = xcore::string::Fmt("explorer /select,%s", O.m_ResourcePath.c_str());
@@ -1010,11 +696,11 @@ namespace e10
                     }
                     case open_explorer::TO_LOG_FILE:
                     {
-                        auto Str = xcore::string::Fmt("explorer /select,%s\\%s\\Log.txt", O.m_ProjectPath.c_str(), O.m_LogPath.c_str());
+                        auto Str = xcore::string::Fmt("explorer /select,%s\\%s\\Log.txt", strXstr(O.m_pLibraryMgr->m_ProjectPath).c_str(), O.m_LogPath.c_str());
                         system(Str.data());
                         break;
                     }
-                    case open_explorer::TO_THE_FIRST_ASSET: ShellExecute(NULL, L"open", L"explorer", xcore::string::To<wchar_t>(xcore::string::Fmt("%s\\Assets",O.m_ProjectPath.c_str())).data(), NULL, SW_SHOW); break;
+                    case open_explorer::TO_THE_FIRST_ASSET: ShellExecute(NULL, L"open", L"explorer", xcore::string::To<wchar_t>(xcore::string::Fmt("%s\\Assets", strXstr(O.m_pLibraryMgr->m_ProjectPath).c_str())).data(), NULL, SW_SHOW); break;
                     default: assert(false); break;
                     }
                 }

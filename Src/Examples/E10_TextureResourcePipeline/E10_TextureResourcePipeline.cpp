@@ -8,6 +8,7 @@
 #include <format>
 
 // This define forces the pipeline to ignore including the empty functions that the compiler needs to link
+
 #define XRESOURCE_PIPELINE_NO_COMPILER
 #include "../../dependencies/xtexture.plugin/dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
 #include "../../dependencies/xtexture.plugin/source/xtexture_rsc_descriptor.h"
@@ -121,7 +122,10 @@ namespace e10
 
 //------------------------------------------------------------------------------------------------
 
+#include "E10_PluginMgr.h"
+#include "E10_AssetMgr.h"
 #include "E10_Compiler.h"
+#include "E10_AssetBrowser.h"
 
 //------------------------------------------------------------------------------------------------
 // Give properties for xcore::vector2 and xcore::vector3
@@ -965,6 +969,80 @@ struct mesh_mgr
     std::array<mesh, static_cast<int>(mesh_mgr::model::ENUM_COUNT)> m_Meshes;
 };
 
+void SetImGuiStyleToUnity() {
+    ImGuiStyle& style = ImGui::GetStyle();
+    ImVec4* colors = style.Colors;
+
+    // Set background color
+    colors[ImGuiCol_WindowBg] = ImVec4(0.192f, 0.192f, 0.192f, 1.00f); // Dark gray (Unity3D-like)
+
+    // Set other colors to match Unity3D style
+    colors[ImGuiCol_Text] = ImVec4(0.85f, 0.85f, 0.85f, 1.00f);
+    colors[ImGuiCol_Border] = ImVec4(0.282f, 0.282f, 0.282f, 1.00f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.282f, 0.282f, 0.282f, 1.00f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.282f, 0.282f, 0.282f, 1.00f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.282f, 0.282f, 0.282f, 1.00f);
+    colors[ImGuiCol_TitleBg] = ImVec4(0.192f, 0.192f, 0.192f, 1.00f);
+    colors[ImGuiCol_TitleBgActive] = ImVec4(0.282f, 0.282f, 0.282f, 1.00f);
+    colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.192f, 0.192f, 0.192f, 1.00f);
+    colors[ImGuiCol_ScrollbarBg] = ImVec4(0.192f, 0.192f, 0.192f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.282f, 0.282f, 0.282f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.282f, 0.282f, 0.282f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.282f, 0.282f, 0.282f, 1.00f);
+    colors[ImGuiCol_CheckMark] = ImVec4(0.70f, 0.70f, 0.70f, 1.00f);
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.70f, 0.70f, 0.70f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.90f, 0.90f, 0.90f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.282f, 0.282f, 0.282f, 1.00f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.384f, 0.384f, 0.384f, 1.00f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.384f, 0.384f, 0.384f, 1.00f);
+    colors[ImGuiCol_Header] = ImVec4(0.384f, 0.384f, 0.384f, 1.00f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.448f, 0.448f, 0.448f, 1.00f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.448f, 0.448f, 0.448f, 1.00f);
+
+    // You can adjust other style settings here as needed
+    style.WindowRounding = 2.0f;
+    style.FrameRounding = 2.0f;
+    style.ScrollbarRounding = 2.0f;
+    style.GrabRounding = 2.0f;
+}
+
+void SetImGuiStyleToUnreal() {
+    ImGuiStyle& style = ImGui::GetStyle();
+    ImVec4* colors = style.Colors;
+
+    // Set background color
+    colors[ImGuiCol_WindowBg] = ImVec4(0.145f, 0.145f, 0.145f, 1.00f); // Dark gray (Unreal Engine 5-like)
+
+    // Set other colors to match Unreal Engine 5 style
+    colors[ImGuiCol_Text] = ImVec4(0.86f, 0.86f, 0.86f, 1.00f);
+    colors[ImGuiCol_Border] = ImVec4(0.282f, 0.282f, 0.282f, 1.00f);
+    colors[ImGuiCol_FrameBg] = ImVec4(0.200f, 0.200f, 0.200f, 1.00f);
+    colors[ImGuiCol_FrameBgHovered] = ImVec4(0.250f, 0.250f, 0.250f, 1.00f);
+    colors[ImGuiCol_FrameBgActive] = ImVec4(0.300f, 0.300f, 0.300f, 1.00f);
+    colors[ImGuiCol_TitleBg] = ImVec4(0.145f, 0.145f, 0.145f, 1.00f);
+    colors[ImGuiCol_TitleBgActive] = ImVec4(0.200f, 0.200f, 0.200f, 1.00f);
+    colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.145f, 0.145f, 0.145f, 1.00f);
+    colors[ImGuiCol_ScrollbarBg] = ImVec4(0.145f, 0.145f, 0.145f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrab] = ImVec4(0.282f, 0.282f, 0.282f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrabHovered] = ImVec4(0.282f, 0.282f, 0.282f, 1.00f);
+    colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.282f, 0.282f, 0.282f, 1.00f);
+    colors[ImGuiCol_CheckMark] = ImVec4(0.70f, 0.70f, 0.70f, 1.00f);
+    colors[ImGuiCol_SliderGrab] = ImVec4(0.70f, 0.70f, 0.70f, 1.00f);
+    colors[ImGuiCol_SliderGrabActive] = ImVec4(0.90f, 0.90f, 0.90f, 1.00f);
+    colors[ImGuiCol_Button] = ImVec4(0.282f, 0.282f, 0.282f, 1.00f);
+    colors[ImGuiCol_ButtonHovered] = ImVec4(0.384f, 0.384f, 0.384f, 1.00f);
+    colors[ImGuiCol_ButtonActive] = ImVec4(0.384f, 0.384f, 0.384f, 1.00f);
+    colors[ImGuiCol_Header] = ImVec4(0.384f, 0.384f, 0.384f, 1.00f);
+    colors[ImGuiCol_HeaderHovered] = ImVec4(0.448f, 0.448f, 0.448f, 1.00f);
+    colors[ImGuiCol_HeaderActive] = ImVec4(0.448f, 0.448f, 0.448f, 1.00f);
+
+    // You can adjust other style settings here as needed
+    style.WindowRounding = 2.0f;
+    style.FrameRounding = 2.0f;
+    style.ScrollbarRounding = 2.0f;
+    style.GrabRounding = 2.0f;
+}
+
 //------------------------------------------------------------------------------------------------
 
 int E10_Example()
@@ -984,11 +1062,11 @@ int E10_Example()
     //
     // Create the main render managers
     //
-    material_mgr MaterialMgr;
-    mesh_mgr     MeshMgr;
+    material_mgr    MaterialMgr;
+    mesh_mgr        MeshMgr;
+    e10::assert_browser AsserBrowser;
 
     MeshMgr.Initialize(Device);
-
 
     //
     // Setup ImGui
@@ -1005,7 +1083,8 @@ int E10_Example()
     //
     // Setup the compiler
     //
-    auto Compiler = std::make_unique<e10::compiler>();
+    auto                Compiler = std::make_unique<e10::compiler>();
+    e10::library_mgr    AssetMgr;
 
     //
     // Set the project path
@@ -1015,7 +1094,7 @@ int E10_Example()
         GetModuleFileName(NULL, szFileName, MAX_PATH);
 
         std::wcout << L"Full path: " << szFileName << L"\n";
-        if (auto I = e10::FindCaseInsensitive(std::wstring{ szFileName }, { L"xGPU" }); I != std::string::npos )
+        if (auto I = FindCaseInsensitive(std::wstring{ szFileName }, { L"xGPU" }); I != std::string::npos )
         {
             I += 4; // Skip the xGPU part
             szFileName[I] = 0;
@@ -1026,12 +1105,24 @@ int E10_Example()
 
             std::wcout << "Project Path: " << szFileName << "\n";
 
-            Compiler->SetupProject(strXstr(szFileName));
+            //
+            // Open the project
+            //
+            if (auto Err = AssetMgr.OpenProject(szFileName); Err)
+            {
+                e10::DebugMessage(Err.getCode().m_pString);
+                return 1;
+            }
+
+            //
+            // Setup the compiler
+            //
+            Compiler->SetupProject(AssetMgr);
         }
     }
 
     // Set active the particular descriptor
-    if ( auto Err = Compiler->SetupDescriptor( "Texture", 0x34DBB69E8762EFA9); Err )
+    if (auto Err = Compiler->SetupDescriptor("Texture", { 0x34DBB69E8762EFA9 | 1 }); Err)
     {
         e10::DebugMessage(Err.getCode().m_pString);
         return 1;
@@ -1356,13 +1447,81 @@ int E10_Example()
             }
         }
 
-
         //
         // Check if we should refresh the texture pipeline
         //
         if (Compiler->ReloadTexture())
         {
             UpdateTextureMaterial();
+        }
+
+        if (ImGui::BeginMainMenuBar())
+        {
+            if (ImGui::BeginMenu("Home"))
+            {
+                if (ImGui::MenuItem("Resource Browser", "Ctrl-Space"))
+                {
+                    // Handle Open action
+                    // Opens a popup window and allows you to select a Texture from there
+                    // The texture is then loaded and the material is updated
+                    // The material is then updated
+                    AsserBrowser.Show(true);
+                }
+
+                if (ImGui::MenuItem("Save", "Ctrl-S"))
+                {
+                    
+                }
+
+                ImGui::Separator();
+
+                if (ImGui::MenuItem("Exit"))
+                {
+                    // Handle Open action
+                }
+                ImGui::EndMenu();
+            }
+
+            // Add a button to the menu bar
+            ImGui::Separator();
+            if (ImGui::Button(" Save "))
+            {
+                // Handle button click
+            }
+
+            ImGui::EndMainMenuBar();
+        }
+
+        //
+        // Show a texture selector in IMGUI
+        //
+        AsserBrowser.Render(AssetMgr);
+
+        if ( auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false )
+        {
+            if (NewAsset.m_Type.m_Value == 0x398238F38A754)
+            {
+                (void)Compiler->SetupDescriptor(NewAsset);
+
+                Inspectors[0].clear();
+                Inspectors[0].AppendEntity();
+                Inspectors[0].AppendEntityComponent(*xproperty::getObject(*Compiler->m_pInfo), Compiler->m_pInfo.get());
+                Inspectors[0].AppendEntityComponent(*Compiler->m_pDescriptor->getProperties(), Compiler->m_pDescriptor.get());
+            }
+        }
+
+        if (auto SelectedAsset = AsserBrowser.getSelectedAsset(); SelectedAsset.empty() == false )
+        {
+            if (auto Err = Compiler->SetupDescriptor(SelectedAsset); Err)
+            {
+                e10::DebugMessage(Err.getCode().m_pString);
+                exit(1);
+            }
+
+            Inspectors[0].clear();
+            Inspectors[0].AppendEntity();
+            Inspectors[0].AppendEntityComponent(*xproperty::getObject(*Compiler->m_pInfo), Compiler->m_pInfo.get());
+            Inspectors[0].AppendEntityComponent(*Compiler->m_pDescriptor->getProperties(), Compiler->m_pDescriptor.get());
         }
 
         //
