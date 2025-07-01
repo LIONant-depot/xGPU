@@ -3,6 +3,8 @@
 #include "xGPU.h"
 #include <windows.h>
 #include <chrono>
+#include <unordered_map>
+#include <memory>
 
 namespace xgpu::tools::imgui {
 
@@ -349,6 +351,164 @@ using clock        = std::chrono::high_resolution_clock;
 
 //------------------------------------------------------------------------------------------------------------
 
+struct share_resources
+{
+    inline static std::shared_ptr<share_resources> s_SharePointer;
+
+    //-------------------------------------------------------------------------------------------
+
+    static std::shared_ptr<share_resources>& getOrCreate()
+    {
+        if ( s_SharePointer.get() == nullptr )
+        {
+            s_SharePointer = std::make_shared<share_resources>();
+        }
+
+        return s_SharePointer;
+    }
+
+    //-------------------------------------------------------------------------------------------
+
+    static void Destroy(std::shared_ptr<share_resources>& Ref )
+    {
+        Ref.reset();
+        if (s_SharePointer.use_count() == 1)
+        {
+            s_SharePointer.reset();
+        }
+    }
+
+    //-------------------------------------------------------------------------------------------
+
+    void setTexture(cmd_buffer& CmdBuffer, xgpu::texture& Texture )
+    {
+        if ( auto E = m_TextureToPipeline.find( Texture.m_Private.get() ); E != m_TextureToPipeline.end())
+        {
+            CmdBuffer.setPipelineInstance( E->second );
+        }
+        else
+        {
+            auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
+            auto Setup    = xgpu::pipeline_instance::setup
+            { .m_PipeLine         = m_PipeLine
+            , .m_SamplersBindings = Bindings
+            };
+
+            xgpu::pipeline_instance PipelineInstance;
+            if (auto Err = m_Device.Create(PipelineInstance, Setup); Err)
+            {
+                assert(false);
+            }
+
+            m_TextureToPipeline.insert( {Texture.m_Private.get(), PipelineInstance} );
+
+            CmdBuffer.setPipelineInstance(PipelineInstance);
+        }
+    }
+
+    //-------------------------------------------------------------------------------------------
+
+    xgpu::device::error* CreteDefaultPipeline(xgpu::texture& Texture )
+    {
+        //
+        // Define the vertex descriptors
+        //
+        {
+            auto Attributes = std::array
+            {
+                xgpu::vertex_descriptor::attribute
+                {
+                    .m_Offset = offsetof(ImDrawVert, pos)
+                ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
+                }
+            ,   xgpu::vertex_descriptor::attribute
+                {
+                    .m_Offset = offsetof(ImDrawVert, uv)
+                ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
+                }
+            ,   xgpu::vertex_descriptor::attribute
+                {
+                    .m_Offset = offsetof(ImDrawVert, col)
+                ,   .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED
+                }
+            };
+            auto Setup = xgpu::vertex_descriptor::setup
+            {
+                .m_VertexSize = sizeof(ImDrawVert)
+            ,   .m_Attributes = Attributes
+            };
+
+            if ( auto Err = m_Device.Create(m_VertexDescriptor, Setup); Err )
+                return Err;
+        }
+
+        //
+        // Define the pipeline
+        //
+        {
+            xgpu::shader ImGuiFragmentShader;
+            {
+                xgpu::shader::setup Setup
+                { .m_Type   = xgpu::shader::type::bit::FRAGMENT
+                , .m_Sharer = xgpu::shader::setup::raw_data{ g_FragShaderSPV }
+                };
+                if (auto Err = m_Device.Create(ImGuiFragmentShader, Setup ); Err) return Err;
+            }
+            xgpu::shader ImGuiVertexShader;
+            {
+                auto UniformConstans = std::array
+                { static_cast<int>(sizeof(float) * 2)   // Scale
+                , static_cast<int>(sizeof(float) * 2)   // Translation
+                };
+                xgpu::shader::setup Setup
+                {
+                    .m_Type                 = xgpu::shader::type::bit::VERTEX
+                ,   .m_Sharer               = xgpu::shader::setup::raw_data{g_VertShaderSPV}
+                };
+                if (auto Err = m_Device.Create(ImGuiVertexShader, Setup); Err) return Err;
+            }
+
+            auto Shaders  = std::array<const xgpu::shader*, 2>{ &ImGuiFragmentShader, &ImGuiVertexShader };
+            auto Samplers = std::array{ xgpu::pipeline::sampler{} };
+            auto Setup    = xgpu::pipeline::setup
+            {
+                .m_VertexDescriptor  = m_VertexDescriptor
+            ,   .m_Shaders           = Shaders
+            ,   .m_PushConstantsSize = sizeof(imgui_push_constants)
+            ,   .m_Samplers          = Samplers
+            ,   .m_Primitive         = { .m_Cull             = xgpu::pipeline::primitive::cull::NONE }
+            ,   .m_DepthStencil      = { .m_bDepthTestEnable = false }
+            ,   .m_Blend             = xgpu::pipeline::blend::getAlphaOriginal()
+            };
+
+            if ( auto Err = m_Device.Create(m_PipeLine, Setup); Err ) return Err;
+        }
+
+        //
+        // Create Pipeline Instance
+        //
+        {
+            auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
+            auto Setup    = xgpu::pipeline_instance::setup
+            { .m_PipeLine         = m_PipeLine
+            , .m_SamplersBindings = Bindings
+            };
+
+            if (auto Err = m_Device.Create(m_DefaultPipelineInstance, Setup); Err) return Err;
+        }
+
+        return nullptr;
+    }
+    
+    std::unordered_map<void*,xgpu::pipeline_instance> m_TextureToPipeline       = {};
+    xgpu::pipeline                                    m_PipeLine                = {};
+    xgpu::pipeline_instance                           m_DefaultPipelineInstance = {};
+    xgpu::device                                      m_Device                  = {};
+    xgpu::vertex_descriptor                           m_VertexDescriptor        = {};
+};
+
+//============================================================================================
+
 struct window_info
 {
     struct buffers
@@ -357,57 +517,36 @@ struct window_info
         xgpu::buffer                m_IndexBuffer{};
     };
 
-    xgpu::device                m_Device            {};
-    xgpu::window                m_Window            {};
-    xgpu::vertex_descriptor     m_VertexDescritor   {};
-    std::array<buffers, 2>      m_PrimitiveBuffers  {};
-    int                         m_iFrame            {0};
+    std::shared_ptr<share_resources>    m_Shared            {};
+    xgpu::window                        m_Window            {};
+    std::array<buffers, 2>              m_PrimitiveBuffers  {};
+    int                                 m_iFrame            {0};
 
     //------------------------------------------------------------------------------------------------------------
 
-    window_info( xgpu::device& D, xgpu::window& Window ) noexcept
-    : m_Device{ D }
+    window_info( xgpu::window& Window ) noexcept
+    : m_Shared{ share_resources::getOrCreate() }
     , m_Window{ Window }
     {
-        auto Attributes = std::array
-        {
-            xgpu::vertex_descriptor::attribute
-            {
-                .m_Offset = offsetof(ImDrawVert, pos)
-            ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
-            }
-        ,   xgpu::vertex_descriptor::attribute
-            {
-                .m_Offset = offsetof(ImDrawVert, uv)
-            ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
-            }
-        ,   xgpu::vertex_descriptor::attribute
-            {
-                .m_Offset = offsetof(ImDrawVert, col)
-            ,   .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED
-            }
-        };
-        auto Setup = xgpu::vertex_descriptor::setup
-        {
-            .m_VertexSize = sizeof(ImDrawVert)
-        ,   .m_Attributes = Attributes
-        };
-
-        auto Err = m_Device.Create(m_VertexDescritor, Setup);
-        assert(Err == nullptr);
-
         InitializeBuffers();
     }
 
     //------------------------------------------------------------------------------------------------------------
 
-    window_info(xgpu::device& D, xgpu::vertex_descriptor& VertexDescritor ) noexcept
-    : m_Device{ D }
-    , m_VertexDescritor{ VertexDescritor }
+    window_info( void ) noexcept
+    : m_Shared{ share_resources::getOrCreate() }
     {
-        auto Err = m_Device.Create(m_Window, {});
+        auto Err = m_Shared->m_Device.Create(m_Window, {});
         assert( Err == nullptr );
         InitializeBuffers();
+    }
+
+    //------------------------------------------------------------------------------------------------------------
+
+    ~window_info()
+    {
+        // Let the system deals with references...
+        share_resources::Destroy(m_Shared);
     }
 
     //------------------------------------------------------------------------------------------------------------
@@ -426,7 +565,7 @@ struct window_info
             };
 
             for( auto& Prim : m_PrimitiveBuffers )
-                if (auto Err = m_Device.Create( Prim.m_VertexBuffer, Setup ); Err) return Err;
+                if (auto Err = m_Shared->m_Device.Create( Prim.m_VertexBuffer, Setup ); Err) return Err;
         }
 
         //
@@ -441,7 +580,7 @@ struct window_info
             };
 
             for (auto& Prim : m_PrimitiveBuffers)
-                if (auto Err = m_Device.Create( Prim.m_IndexBuffer, Setup ); Err) return Err;
+                if (auto Err = m_Shared->m_Device.Create( Prim.m_IndexBuffer, Setup ); Err) return Err;
         }
 
         return nullptr;
@@ -449,7 +588,7 @@ struct window_info
 
     //------------------------------------------------------------------------------------------------------------
 
-    void Render( ImGuiIO& io, ImDrawData* draw_data, xgpu::pipeline_instance& PipelineInstance ) noexcept
+    void Render( ImGuiIO& io, ImDrawData* draw_data ) noexcept
     {
         //
         // Make sure we are fully sync up before touching any dependent resources
@@ -514,7 +653,7 @@ struct window_info
         //
         // Get ready to render
         //
-        auto UpdateRenderState = [&]
+        auto UpdateRenderState = [&](xgpu::pipeline_instance& PipelineInstance)
         {
             CmdBuffer.setPipelineInstance(PipelineInstance);
             CmdBuffer.setBuffer(Prim.m_VertexBuffer);
@@ -532,7 +671,7 @@ struct window_info
         };
 
         // Set it!
-        UpdateRenderState();
+        UpdateRenderState(share_resources::getOrCreate()->m_DefaultPipelineInstance);
 
         // Will project scissor/clipping rectangles into framebuffer space
         ImVec2 clip_off   = draw_data->DisplayPos;          // (0,0) unless using multi-viewports
@@ -542,19 +681,20 @@ struct window_info
     // (Because we merged all buffers into a single one, we maintain our own offset into them)
         int global_vtx_offset = 0;
         int global_idx_offset = 0;
+        xgpu::texture* pLastTextureUsed = nullptr;
         for (int n = 0; n < draw_data->CmdListsCount; n++)
         {
             const ImDrawList* cmd_list = draw_data->CmdLists[n];
             for (int cmd_i = 0; cmd_i < cmd_list->CmdBuffer.Size; cmd_i++)
             {
                 const ImDrawCmd* pcmd = &cmd_list->CmdBuffer[cmd_i];
-                if (pcmd->UserCallback != NULL)
+                if (pcmd->UserCallback != nullptr)
                 {
                     // User callback, registered via ImDrawList::AddCallback()
                     // (ImDrawCallback_ResetRenderState is a special callback value used by the user to request the renderer to reset render state.)
                     if (pcmd->UserCallback == ImDrawCallback_ResetRenderState)
                     {
-                        UpdateRenderState();
+                        UpdateRenderState(share_resources::getOrCreate()->m_DefaultPipelineInstance);
                     }
                     else
                     {
@@ -586,6 +726,29 @@ struct window_info
                         , static_cast<int32_t>(clip_rect.w - clip_rect.y)
                         );
 
+
+                        //
+                        // Bind the texture here
+                        //
+                        {
+                            auto texture_handle = reinterpret_cast<xgpu::texture*>(pcmd->TextureId);
+                         //   CmdBuffer.setTexture(*texture_handle); // You may need to adapt this to your API
+                            if (pLastTextureUsed != texture_handle)
+                            {
+                                pLastTextureUsed = texture_handle;
+                                if (texture_handle)
+                                {
+                                    share_resources::getOrCreate()->setTexture(CmdBuffer, *texture_handle);
+                                }
+                                else
+                                {
+                                    CmdBuffer.setPipelineInstance(share_resources::getOrCreate()->m_DefaultPipelineInstance);
+                                }
+                            }
+                            
+                        }
+
+
                         // Draw
                         CmdBuffer.Draw
                         ( static_cast<int32_t>(pcmd->ElemCount)
@@ -605,15 +768,14 @@ struct window_info
 
 struct breach_instance : window_info
 {
-    xgpu::pipeline_instance             m_PipelineInstance;
     xgpu::mouse                         m_Mouse;
     xgpu::keyboard                      m_Keyboard;
     clock::time_point                   m_LastFrameTimer;
     
     //------------------------------------------------------------------------------------------------------------
 
-    breach_instance( xgpu::instance& Intance, xgpu::device& D, xgpu::window MainWindow ) noexcept
-    : window_info{D, MainWindow }
+    breach_instance( xgpu::instance& Intance, xgpu::window MainWindow ) noexcept
+    : window_info{MainWindow }
     {
         Intance.Create( m_Mouse,    {} );
         Intance.Create( m_Keyboard, {} );
@@ -642,7 +804,7 @@ struct breach_instance : window_info
             Setup.m_MipSizes    = Mip;
             Setup.m_AllFacesData = std::span{ reinterpret_cast<const std::byte*>(pixels), Mip[0].m_SizeInBytes * sizeof(char) };
 
-            if (auto Err = m_Device.Create(Texture, Setup); Err)
+            if (auto Err = m_Shared->m_Device.Create(Texture, Setup); Err)
                 return Err;
         }
 
@@ -660,59 +822,12 @@ struct breach_instance : window_info
         xgpu::texture Texture;
         if( auto Err = CreateFontsTexture( Texture, io ); Err ) return Err;
 
-        //
-        // Define the pipeline
-        //
-        xgpu::pipeline PipeLine;
-        {
-            xgpu::shader ImGuiFragmentShader;
-            {
-                xgpu::shader::setup Setup
-                { .m_Type   = xgpu::shader::type::bit::FRAGMENT
-                , .m_Sharer = xgpu::shader::setup::raw_data{ g_FragShaderSPV }
-                };
-                if (auto Err = m_Device.Create(ImGuiFragmentShader, Setup ); Err) return Err;
-            }
-            xgpu::shader ImGuiVertexShader;
-            {
-                auto UniformConstans = std::array
-                { static_cast<int>(sizeof(float) * 2)   // Scale
-                , static_cast<int>(sizeof(float) * 2)   // Translation
-                };
-                xgpu::shader::setup Setup
-                {
-                    .m_Type                 = xgpu::shader::type::bit::VERTEX
-                ,   .m_Sharer               = xgpu::shader::setup::raw_data{g_VertShaderSPV}
-                };
-                if (auto Err = m_Device.Create(ImGuiVertexShader, Setup); Err) return Err;
-            }
-
-            auto Shaders  = std::array<const xgpu::shader*, 2>{ &ImGuiFragmentShader, &ImGuiVertexShader };
-            auto Samplers = std::array{ xgpu::pipeline::sampler{} };
-            auto Setup    = xgpu::pipeline::setup
-            {
-                .m_VertexDescriptor  = m_VertexDescritor
-            ,   .m_Shaders           = Shaders
-            ,   .m_PushConstantsSize = sizeof(imgui_push_constants)
-            ,   .m_Samplers          = Samplers
-            ,   .m_Primitive         = { .m_Cull = xgpu::pipeline::primitive::cull::NONE }
-            ,   .m_DepthStencil      = { .m_bDepthTestEnable = false }
-            ,   .m_Blend             = xgpu::pipeline::blend::getAlphaOriginal()
-            };
-
-            if ( auto Err = m_Device.Create(PipeLine, Setup); Err ) return Err;
-        }
 
         //
-        // Create Pipeline Instance
+        // Create the default pipeline
         //
-        auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
-        auto Setup    = xgpu::pipeline_instance::setup
-        { .m_PipeLine         = PipeLine
-        , .m_SamplersBindings = Bindings
-        };
-
-        if (auto Err = m_Device.Create(m_PipelineInstance, Setup); Err) return Err;
+        if ( auto Err = share_resources::getOrCreate()->CreteDefaultPipeline(Texture); Err )
+            return Err;
 
         return nullptr;
     }
@@ -882,16 +997,16 @@ void EnableDocking()
     //
     constexpr bool                  opt_padding = false;
     constexpr ImGuiDockNodeFlags    dockspace_flags = ImGuiDockNodeFlags_AutoHideTabBar
-        | ImGuiDockNodeFlags_PassthruCentralNode;
-    constexpr ImGuiWindowFlags      window_flags = 0//ImGuiWindowFlags_MenuBar
-        | ImGuiWindowFlags_NoDocking
-        | ImGuiWindowFlags_NoBackground
-        | ImGuiWindowFlags_NoTitleBar
-        | ImGuiWindowFlags_NoCollapse
-        | ImGuiWindowFlags_NoResize
-        | ImGuiWindowFlags_NoMove
-        | ImGuiWindowFlags_NoBringToFrontOnFocus
-        | ImGuiWindowFlags_NoNavFocus;
+                                                    | ImGuiDockNodeFlags_PassthruCentralNode;
+    constexpr ImGuiWindowFlags      window_flags    = 0//ImGuiWindowFlags_MenuBar
+                                                    | ImGuiWindowFlags_NoDocking
+                                                    | ImGuiWindowFlags_NoBackground
+                                                    | ImGuiWindowFlags_NoTitleBar
+                                                    | ImGuiWindowFlags_NoCollapse
+                                                    | ImGuiWindowFlags_NoResize
+                                                    | ImGuiWindowFlags_NoMove
+                                                    | ImGuiWindowFlags_NoBringToFrontOnFocus
+                                                    | ImGuiWindowFlags_NoNavFocus;
 
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
@@ -936,7 +1051,7 @@ void Render( void ) noexcept
     GETINSTANCE;
     ImGui::Render();
     ImDrawData* pMainDrawData = ImGui::GetDrawData();
-    Instance.Render( io, pMainDrawData, Instance.m_PipelineInstance );
+    Instance.Render( io, pMainDrawData );
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -945,7 +1060,7 @@ static
 void CreateChildWindow( ImGuiViewport* pViewport ) noexcept
 {
     GETINSTANCE;
-    auto& Info = *new window_info( Instance.m_Device, Instance.m_VertexDescritor );
+    auto& Info = *new window_info();
     pViewport->RendererUserData = &Info;
 }
 
@@ -1012,7 +1127,7 @@ void RenderChildWindow(ImGuiViewport* pViewport, void*) noexcept
 {
     GETINSTANCE;
     auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
-    Info.Render( io, pViewport->DrawData, Instance.m_PipelineInstance );
+    Info.Render( io, pViewport->DrawData );
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -1167,7 +1282,8 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
     //
     // Initialize the instance
     //
-    auto Instance = std::make_unique<breach_instance>(XGPUInstance, Device, MainWindow);
+    share_resources::getOrCreate()->m_Device = Device;
+    auto Instance = std::make_unique<breach_instance>(XGPUInstance, MainWindow);
     if( auto Err = Instance->InitializePipeline(io); Err ) return Err;
     Instance->m_LastFrameTimer = clock::now();
     io.UserData = Instance.release();

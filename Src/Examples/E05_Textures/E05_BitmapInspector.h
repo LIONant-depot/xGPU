@@ -50,7 +50,7 @@ namespace e05
             clear();
         }
 
-        void Load( const char* pFileName ) noexcept
+        void Load( const char* pFileName, bool isXBMP = false ) noexcept
         {
             clear();
 
@@ -64,7 +64,15 @@ namespace e05
             //
             // Load file
             //
-            if( m_FileName.find(".basis") != (~0ull) )
+            if (isXBMP || m_FileName.find(".xbmp") != (~0ull) )
+            {
+                if (auto Err = xcore::bitmap::SerializeLoad(m_pBitmap, xcore::string::To<wchar_t>(pFileName)); Err)
+                {
+                    e05::DebugMessage(Err.getCode().m_pString);
+                    std::exit(Err.getCode().m_RawState);
+                }
+            }
+            else if( m_FileName.find(".basis") != (~0ull) )
             {
                 assert(false);
                 /*
@@ -83,14 +91,6 @@ namespace e05
                 , 1
                 );
                 */
-            }
-            else if (m_FileName.find(".xbmp") != (~0ull))
-            {
-                if (auto Err = xcore::bitmap::SerializeLoad(m_pBitmap, xcore::string::To<wchar_t>(pFileName)); Err)
-                {
-                    e05::DebugMessage(Err.getCode().m_pString);
-                    std::exit(Err.getCode().m_RawState);
-                }
             }
             else if (m_FileName.find(".dds") != (~0ull))
             {

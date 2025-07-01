@@ -328,6 +328,9 @@
     <ClCompile Include="..\..\Src\Examples\E05_Textures\E05_Textures.cpp">
       <Filter>Examples\Example 05 Textures</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_Resources.cpp">
+      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\..\Src\Examples\Examples.h">
@@ -859,6 +862,18 @@
       <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_asset_browser_search_tab.h">
+      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\xcommandline\xcommanline_parser.h">
+      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_AssetManagerContext.h">
+      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_Resources.h">
+      <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_asset_browser_compiler_tab.h">
       <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
     </ClInclude>
   </ItemGroup>

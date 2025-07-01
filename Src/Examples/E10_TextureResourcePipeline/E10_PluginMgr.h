@@ -189,8 +189,10 @@ namespace e10
         struct pipeline_plugin
         {
             std::string                         m_TypeName;
+            std::string                         m_ResourceFileExtension;
             xresource::type_guid                m_TypeGUID;
             std::vector<xresource::type_guid>   m_RunAfter;
+            std::string                         m_Icon;
             std::string                         m_DebugCompiler;
             SYSTEMTIME                          m_DebugCompilerTimeStamp;
             std::string                         m_ReleaseCompiler;
@@ -234,9 +236,17 @@ namespace e10
                 , &pipeline_plugin::m_TypeName
                 , member_flags<xproperty::flags::SHOW_READONLY
                 >>
+            , obj_member< "FileExtension"
+                , &pipeline_plugin::m_ResourceFileExtension
+                , member_flags<xproperty::flags::SHOW_READONLY
+                >>
             , obj_member< "TypeGUID"
                 , &pipeline_plugin::m_TypeGUID
                 , member_ui<std::uint64_t>::drag_bar< 0.0f, 0, std::numeric_limits<std::uint64_t>::max(), "%llX">
+                , member_flags<xproperty::flags::SHOW_READONLY
+                >>
+            , obj_member< "Icon"
+                , &pipeline_plugin::m_Icon
                 , member_flags<xproperty::flags::SHOW_READONLY
                 >>
             , obj_scope< "Details"
@@ -361,5 +371,5 @@ namespace e10
         std::unordered_map<std::string, int>            m_mPluginsByTypeName;
     };
 }
-
+XPROPERTY_REG2( plugin_mgr_reg, e10::asset_plugins_db::pipeline_plugin )
 #endif

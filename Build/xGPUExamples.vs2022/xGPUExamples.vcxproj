@@ -112,7 +112,10 @@
     <ClCompile Include="..\..\Src\Examples\E07_PrimitiveGeoms\E07_PrimitiveGeoms.cpp" />
     <ClCompile Include="..\..\Src\Examples\E08_AsyncTextureLoading\E08_AsyncTextureLoading.cpp" />
     <ClCompile Include="..\..\Src\Examples\E09_Raw3DViewer\E09_Raw3DViewer.cpp" />
-    <ClCompile Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_TextureResourcePipeline.cpp" />
+    <ClCompile Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_Resources.cpp" />
+    <ClCompile Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_TextureResourcePipeline.cpp">
+      <AdditionalOptions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">/bigobj %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
     <ClCompile Include="..\..\Src\Examples\E11_NormalMaps\E11_NormalMaps.cpp" />
     <ClCompile Include="..\..\Src\Examples\E12_Lighting\E12_Ligting.cpp" />
     <ClCompile Include="..\..\Src\Examples\E13_ParallaxOcclusionMapping\E13_POM.cpp" />
@@ -130,6 +133,7 @@
     <ClCompile Include="..\..\Tools\xgpu_imgui_breach.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\dependencies\xcommandline\xcommanline_parser.h" />
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\meshoptimizer.h" />
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyExample.h" />
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.h" />
@@ -268,11 +272,14 @@
     <ClInclude Include="..\..\Src\Examples\E05_Textures\E05_Textures.h" />
     <ClInclude Include="..\..\Src\Examples\E06_AssimLoader\E06_LoadTextureHelper.h" />
     <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_AssetBrowser.h" />
+    <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_AssetManagerContext.h" />
     <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_AssetMgr.h" />
+    <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_asset_browser_compiler_tab.h" />
     <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_asset_browser_search_tab.h" />
     <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_asset_browser_virtual_tree_tab.h" />
     <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_Compiler.h" />
     <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_PluginMgr.h" />
+    <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_Resources.h" />
     <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_AnimCharacter.h" />
     <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_Importer.h" />
     <ClInclude Include="..\..\Src\Examples\E16_Animation\E16_Skeleton.h" />
@@ -560,7 +567,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
     <SourcePath>$(VC_SourcePath);</SourcePath>
-    <IncludePath>../../Src\Examples\Settings;$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src;./;../../src;../../Dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\assimp\include;../../dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui;D:\LIONant\xGPU\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\dependencies\zstd\lib</IncludePath>
+    <IncludePath>../../dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\dependencies\zstd\lib;../../dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies;../../Src\Examples\Settings;$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src;./;../../src;../../Dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\assimp\include;../../dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui;..\..\dependencies\xresource_pipeline_v2\dependencies\xcore\dependencies\zstd\lib;../../dependencies\xundo\source;../../dependencies\xundo\dependencies\xcmdline\source</IncludePath>
     <PublicIncludeDirectories>
     </PublicIncludeDirectories>
   </PropertyGroup>

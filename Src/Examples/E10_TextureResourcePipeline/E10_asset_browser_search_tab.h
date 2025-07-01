@@ -67,10 +67,10 @@ namespace e10
             bool SelectedItemFound = false;
             for (auto& L : m_AssetMgr.m_mLibraryDB)
             {
-                auto Path = strXstr(L.second.m_Library.m_Path);
+                auto Path = strXstr(L.second->m_Library.m_Path);
                 if (ImGui::TreeNodeEx(Path.substr(Path.rfind('\\') + 1).c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth))
                 {
-                    for (auto& T : L.second.m_InfoByTypeDataBase)
+                    for (auto& T : L.second->m_InfoByTypeDataBase)
                     {
                         std::string TypeView;
                         if (auto e = m_AssetMgr.m_AssetPluginsDB.m_mPluginsByTypeGUID.find(T.second->m_TypeGUID); e == m_AssetMgr.m_AssetPluginsDB.m_mPluginsByTypeGUID.end())
@@ -86,7 +86,7 @@ namespace e10
                             if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
                             {
                                 m_SelectedType = T.second->m_TypeGUID;
-                                m_SelectedLibrary = L.second.m_Library.m_GUID;
+                                m_SelectedLibrary = L.second->m_Library.m_GUID;
                             }
 
 
@@ -114,9 +114,9 @@ namespace e10
         void RightPanel() noexcept override
         {
             m_AssetMgr.m_mLibraryDB.FindAsReadOnly(m_SelectedLibrary,
-                [&](const e10::library_db& Lib)
+                [&](const std::unique_ptr<e10::library_db>& Lib)
                 {
-                    Lib.m_InfoByTypeDataBase.FindAsReadOnly(m_SelectedType,
+                    Lib->m_InfoByTypeDataBase.FindAsReadOnly(m_SelectedType,
                         [&](const std::unique_ptr<e10::library_db::info_db>& InfoDB)
                         {
                             float old_font_size = ImGui::GetFont()->Scale;
@@ -156,7 +156,7 @@ namespace e10
 
                                 if (WrappedButton(std::format("{}\n{}", NameView, TypeView).c_str(), button_sz))
                                 {
-                                    m_Browser.setSelection(I.second.m_Info.m_Guid, {});
+                                    m_Browser.setSelection(m_SelectedLibrary, I.second.m_Info.m_Guid, {});
                                 }
                                 float last_button_x2 = ImGui::GetItemRectMax().x;
                                 float next_button_x2 = last_button_x2 + style.ItemSpacing.x + button_sz.x; // Expected position if next button was on same line
@@ -189,7 +189,7 @@ namespace e10
 
 
         e10::library_mgr&                                   m_AssetMgr;
-        xresource::full_guid                                m_SelectedLibrary   = {};
+        library::guid                                       m_SelectedLibrary   = {};
         xresource::type_guid                                m_SelectedType      = {};
         xresource::full_guid                                m_ParentGUID        = {};
 
@@ -197,6 +197,6 @@ namespace e10
 
     namespace
     {
-        inline browser_registration<search_tab, "\xEE\x9C\xA1 Search", 1.0f> g_SearchTab{};
+        inline browser_registration<search_tab, "\xEE\x9C\xA1 Search", 2.0f> g_SearchTab{};
     }
 }

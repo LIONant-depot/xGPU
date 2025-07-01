@@ -7,6 +7,12 @@
 #include "../../tools/xgpu_view.h"
 #include <format>
 
+#include "E10_Resources.h"
+
+#include "../dependencies/xundo/source/xundo_system.h"
+#include "../dependencies/xundo/source/Examples/xundo_example_history.h"
+
+
 // This define forces the pipeline to ignore including the empty functions that the compiler needs to link
 
 #define XRESOURCE_PIPELINE_NO_COMPILER
@@ -123,10 +129,10 @@ namespace e10
 //------------------------------------------------------------------------------------------------
 
 #include "E10_PluginMgr.h"
-#include "E10_AssetMgr.h"
-#include "E10_Compiler.h"
+#include "E10_AssetManagerContext.h"
 #include "E10_AssetBrowser.h"
 #include "E10_asset_browser_virtual_tree_tab.h"
+#include "E10_asset_browser_compiler_tab.h"
 #include "E10_asset_browser_search_tab.h"
 
 //------------------------------------------------------------------------------------------------
@@ -437,27 +443,35 @@ struct material_mgr
 
     struct material_instance
     {
-        xgpu::texture m_Texture;
+        xrsc::texture_ref  m_TextureRef;
 
-        std::uint32_t getGuid() const noexcept
+        std::uint32_t getGuid(xresource::mgr& RscMgr ) const noexcept
         {
-            return xcore::crc<32>::FromBytes({ reinterpret_cast<const std::byte*>(this), sizeof(*this) }).m_Value;
+            const auto Guid = RscMgr.getFullGuid(m_TextureRef).m_Instance;
+            return static_cast<std::uint32_t>((Guid.m_Value>>0) ^ (Guid.m_Value>>32));
         }
     };
 
     //----------------------------------------------------------------------------------------
 
+    material_mgr( xresource::mgr& RscMgr ) : m_RscManager(RscMgr)
+    {}
+
+    //----------------------------------------------------------------------------------------
+
     void SetMaterialInstance(xgpu::device& Device, xgpu::cmd_buffer& CmdBuffer, material_instance& MaterialInstance, bool b2D, bool bBilinear )
     {
+        auto& Texture = *m_RscManager.getResource(MaterialInstance.m_TextureRef);
+
         material Material
         { .m_Bilinear  = bBilinear
-        , .m_CubeMap   = MaterialInstance.m_Texture.isCubemap()
+        , .m_CubeMap   = Texture.isCubemap()
         , .m_3DRender  = !b2D
-        , .m_UWrapMode = static_cast<std::uint8_t>(MaterialInstance.m_Texture.getAdressModes()[0])
-        , .m_VWrapMode = static_cast<std::uint8_t>(MaterialInstance.m_Texture.getAdressModes()[1])
+        , .m_UWrapMode = static_cast<std::uint8_t>(Texture.getAdressModes()[0])
+        , .m_VWrapMode = static_cast<std::uint8_t>(Texture.getAdressModes()[1])
         };
 
-        std::uint32_t PipelineGuid = Material.getGuid() ^ MaterialInstance.getGuid();
+        std::uint32_t PipelineGuid = Material.getGuid() ^ MaterialInstance.getGuid(m_RscManager);
 
         if (auto Entry = m_PipelineInstances.find(PipelineGuid); Entry != m_PipelineInstances.end())
         {
@@ -466,7 +480,7 @@ struct material_mgr
         else
         {
             auto& Pipeline = getMaterial(Device, Material);
-            auto  Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ MaterialInstance.m_Texture } };
+            auto  Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
             auto  Setup    = xgpu::pipeline_instance::setup
             { .m_PipeLine           = Pipeline
             , .m_SamplersBindings   = Bindings
@@ -488,50 +502,71 @@ struct material_mgr
 
     void CreateMaterialInstance(xgpu::device& Device, material_instance& MaterialInstance, const xcore::bitmap& Bitmap)
     {
-        assert(MaterialInstance.m_Texture.m_Private == nullptr);
+        assert(MaterialInstance.m_TextureRef.isValid() == false);
+
+        // Generate a unique ID for it
+        MaterialInstance.m_TextureRef.m_Instance = xresource::guid_generator::Instance64();
 
         // Create officially the material instance
-        if (auto Err = xgpu::tools::bitmap::Create(MaterialInstance.m_Texture, Device, Bitmap); Err)
+        auto Texture = std::make_unique<xgpu::texture>();
+        if (auto Err = xgpu::tools::bitmap::Create(*Texture, Device, Bitmap); Err)
         {
             e10::DebugMessage(xgpu::getErrorMsg(Err));
             std::exit(xgpu::getErrorInt(Err));
         }
+
+        // Register it with the resource manager
+        m_RscManager.RegisterResource(MaterialInstance.m_TextureRef, Texture.release() );
     }
 
     //----------------------------------------------------------------------------------------
 
-    void UpdateMaterialInstance( xgpu::device& Device, material_instance& MaterialInstance, const xcore::bitmap& Bitmap )
+    void CreateMaterialInstance(xgpu::device& Device, material_instance& MaterialInstance, xrsc::texture_ref Guid)
+    {
+        assert(MaterialInstance.m_TextureRef.isValid() == false);
+        MaterialInstance.m_TextureRef = Guid;
+    }
+
+    //----------------------------------------------------------------------------------------
+
+    void UpdateMaterialInstance( xgpu::device& Device, material_instance& MaterialInstance, xrsc::texture_ref Guid )
     {
         // First let us be sure that we are clear...
         ReleaseMaterialInstance(Device, MaterialInstance );
 
         // Now we can create a new material instance
-        CreateMaterialInstance(Device, MaterialInstance, Bitmap);
+        CreateMaterialInstance(Device, MaterialInstance, Guid);
     }
 
     //----------------------------------------------------------------------------------------
 
     void ReleaseMaterialInstance(xgpu::device& Device, material_instance& MaterialInstance)
     {
-        if (MaterialInstance.m_Texture.m_Private == nullptr ) return;
+        if ( MaterialInstance.m_TextureRef.m_Instance.isValid() == false || false == MaterialInstance.m_TextureRef.m_Instance.isPointer() ) return;
         
         for (int i = 0; i < (1 << material::num_bits_used); ++i)
         {
             material Material;
             Material.m_Value = i;
-            std::uint32_t PipelineGuid = Material.getGuid() ^ MaterialInstance.getGuid();
+            std::uint32_t PipelineGuid = Material.getGuid() ^ MaterialInstance.getGuid(m_RscManager);
             if (auto Entry = m_PipelineInstances.find(PipelineGuid); Entry != m_PipelineInstances.end())
             {
-                // This is what we should do to release all combinations
-                //Device.Destroy(Entry->second);
-                //m_PipelineInstances.erase(Entry);
-            }
+                // This is the right code we should do
+                // Device.Destroy(Entry->second);
+                // m_PipelineInstances.erase(Entry);
 
-            // Release the texture
-            // MaterialInstance.m_Texture.m_Private.reset();
-            // HACK: This is a hack to avoid the texture to be released
-            memset(&MaterialInstance.m_Texture, 0, sizeof(MaterialInstance.m_Texture));
+                // This is a HACK!! because xgpu does not support the destructions of things...
+                auto Str = Entry->second.m_Private;
+                m_PipelineInstances.erase(Entry);
+                memset(&Str,0,sizeof(Str));
+            }
         }
+
+        // Release the texture
+        m_RscManager.ReleaseRef( MaterialInstance.m_TextureRef );
+
+        // Since we have fully released it when can set it back to null...
+        MaterialInstance.m_TextureRef.clear();
     }
 
     //----------------------------------------------------------------------------------------
@@ -724,6 +759,7 @@ struct material_mgr
 
     std::unordered_map<std::uint32_t, xgpu::pipeline>           m_Pipelines;
     std::unordered_map<std::uint32_t, xgpu::pipeline_instance>  m_PipelineInstances;
+    xresource::mgr&                                             m_RscManager;
 };
 
 //------------------------------------------------------------------------------------------------
@@ -1047,6 +1083,78 @@ void SetImGuiStyleToUnreal() {
 
 //------------------------------------------------------------------------------------------------
 
+struct selected_desc
+{
+    bool empty() const
+    {
+        return m_InfoGUID.empty();
+    }
+
+    void clear()
+    {
+        m_pTempInfo = nullptr;
+        m_InfoGUID.clear();
+        m_LibraryGUID.clear();
+        m_Log.reset();
+        m_DescriptorPath.clear();
+        m_ResourcePath.clear();
+        m_pDescriptor.reset();
+        m_ValidationErrors.clear();
+
+        m_Log = std::make_shared<e10::compilation::historical_entry::log>( e10::compilation::historical_entry::communication{.m_Result = e10::compilation::historical_entry::result::SUCCESS } );
+    }
+
+    void GeneratePaths(const std::wstring& InfoPath)
+    {
+        m_DescriptorPath = InfoPath;
+        m_DescriptorPath = m_DescriptorPath.replace(InfoPath.find(L"info.txt"), std::wstring_view(L"info.txt").length(), L"Descriptor.txt");
+        m_ResourcePath = m_DescriptorPath.substr(0, m_DescriptorPath.rfind(L'\\') - sizeof("desc"));
+
+        //
+        // Finish generating the resource path
+        //
+        size_t pos = m_ResourcePath.rfind(L"Descriptors");
+        assert(pos != std::wstring::npos);
+
+        assert(m_DescriptorPath[pos - 1] == '\\');
+        if (m_DescriptorPath[pos - 2] == L'e'
+            && m_DescriptorPath[pos - 3] == L'h'
+            && m_DescriptorPath[pos - 4] == L'c'
+            && m_DescriptorPath[pos - 5] == L'a'
+            && m_DescriptorPath[pos - 6] == L'C'
+            && m_DescriptorPath[pos - 7] == L'\\')
+        {
+            m_ResourcePath = m_ResourcePath.replace(pos, sizeof("Descriptors"), L"Resources\\Platforms\\WINDOWS\\");
+
+        }
+        else
+        {
+            m_ResourcePath = m_ResourcePath.replace(pos, sizeof("Descriptors"), L"Cache\\Resources\\Platforms\\WINDOWS\\");
+        }
+    }
+
+    void SaveDescriptor()
+    {
+        xproperty::settings::context Context;
+        if (auto Err = m_pDescriptor->Serialize(false, strXstr(m_DescriptorPath), Context); Err)
+        {
+            assert(false);
+        }
+    }
+
+    xresource_pipeline::info* m_pTempInfo = {};   // This is assumed to be temporary and so you can't trust its value
+    e10::library::guid                                          m_LibraryGUID       = {};
+    xresource::full_guid                                        m_InfoGUID          = {};
+    std::shared_ptr<e10::compilation::historical_entry::log>    m_Log               = {};
+    std::wstring                                                m_DescriptorPath    = {};
+    std::wstring                                                m_ResourcePath      = {};
+    std::unique_ptr<xresource_pipeline::descriptor::base>       m_pDescriptor       = {};
+    std::vector<std::string>                                    m_ValidationErrors  = {};
+    bool                                                        m_bReloadTexture    = false;
+};
+
+//------------------------------------------------------------------------------------------------
+
 int E10_Example()
 {
     xgpu::instance Instance;
@@ -1062,11 +1170,20 @@ int E10_Example()
         return xgpu::getErrorInt(Err);
 
     //
+    // Editing...
+    //
+    selected_desc SelectedDescriptor;
+
+    //
     // Create the main render managers
     //
-    material_mgr            MaterialMgr;
+    xresource::mgr          ResourceMgr;
+    ResourceMgr.Initiallize();
+
+    material_mgr            MaterialMgr(ResourceMgr);
     mesh_mgr                MeshMgr;
     e10::assert_browser     AsserBrowser;
+    resource_mgr_user_data  m_ResourceMgrUserData;
 
     MeshMgr.Initialize(Device);
 
@@ -1085,8 +1202,35 @@ int E10_Example()
     //
     // Setup the compiler
     //
-    auto                Compiler = std::make_unique<e10::compiler>();
+    //auto                Compiler = std::make_unique<e10::compiler>();
     e10::library_mgr    AssetMgr;
+    auto                CallBackForCompilation = [&](e10::library_mgr& LibMgr, e10::library::guid gLibrary, xresource::full_guid gCompilingEntry, std::shared_ptr<e10::compilation::historical_entry::log>& LogInformation)
+    {
+        // Filter by our entry...
+        if (SelectedDescriptor.m_InfoGUID == gCompilingEntry)
+        {
+            if (SelectedDescriptor.m_Log.get() != LogInformation.get() )
+                SelectedDescriptor.m_Log = LogInformation;
+
+            assert(SelectedDescriptor.m_Log);
+
+            //
+            // Check if we are done compiling
+            //
+            e10::compilation::historical_entry::result Results;
+            {
+                xcore::lock::scope lk(*SelectedDescriptor.m_Log);
+                Results = SelectedDescriptor.m_Log->get().m_Result;
+            }
+
+            // If we are successful we should reload the texture
+            if (Results == e10::compilation::historical_entry::result::SUCCESS_WARNINGS || Results == e10::compilation::historical_entry::result::SUCCESS )
+            {
+                SelectedDescriptor.m_bReloadTexture = true;
+            }
+        }
+    };
+    AssetMgr.m_OnCompilationState.Register(CallBackForCompilation);
 
     //
     // Set the project path
@@ -1119,15 +1263,15 @@ int E10_Example()
             //
             // Setup the compiler
             //
-            Compiler->SetupProject(AssetMgr);
-        }
-    }
+            //Compiler->SetupProject(AssetMgr);
 
-    // Set active the particular descriptor
-    if (auto Err = Compiler->SetupDescriptor("Texture", { 0x34DBB69E8762EFA9 | 1 }); Err)
-    {
-        e10::DebugMessage(Err.getCode().m_pString);
-        return 1;
+            //
+            // Set the path for the resources
+            //
+            m_ResourceMgrUserData.m_Device          = Device;
+            ResourceMgr.setUserData(&m_ResourceMgrUserData, false);
+            ResourceMgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", AssetMgr.m_ProjectPath));
+        }
     }
 
     //
@@ -1142,12 +1286,12 @@ int E10_Example()
     //
     material_mgr::material_instance UserMaterialInstance;
 
-    auto UpdateTextureMaterial = [&]()
+    auto UpdateTextureMaterial = [&](xrsc::texture_ref InstanceGuid)
     {
-        BitmapInspector.Load(Compiler->m_ResourcePath.c_str());
+        BitmapInspector.Load( strXstr(SelectedDescriptor.m_ResourcePath).c_str(), true);
 
         // update the material instance to use the new texture
-        MaterialMgr.UpdateMaterialInstance(Device, UserMaterialInstance, *BitmapInspector.m_pBitmap);
+        MaterialMgr.UpdateMaterialInstance(Device, UserMaterialInstance, InstanceGuid);
 
         // Set the max mip levels
         // Make sure the current level is within the range
@@ -1161,20 +1305,74 @@ int E10_Example()
     //
     // Setup the inspector windows
     //
-    auto                  Inspectors = std::array
+    xproperty::ui::undo::system  UndoSystem;
+    int                          ModificationCount = 0;
+
+    auto Inspectors = std::array
     { xproperty::inspector("Descriptor")
     , xproperty::inspector("Viewer")
     };
 
-    Inspectors[0].AppendEntity();
-    Inspectors[0].AppendEntityComponent(*xproperty::getObject(*Compiler->m_pInfo), Compiler->m_pInfo.get());
-    Inspectors[0].AppendEntityComponent(*Compiler->m_pDescriptor->getProperties(), Compiler->m_pDescriptor.get());
-
     Inspectors[1].AppendEntity();
-    Inspectors[1].AppendEntityComponent(*xproperty::getObject(*Compiler.get()), Compiler.get());
     Inspectors[1].AppendEntityComponent(*xproperty::getObject(DrawControls), &DrawControls);
     Inspectors[1].AppendEntityComponent(*xproperty::getObject(DrawOptions), &DrawOptions);
     Inspectors[1].AppendEntityComponent(*xproperty::getObject(BitmapInspector), &BitmapInspector );
+
+    auto OnChangeEventInfo = [&](xproperty::inspector& Inspector, const xproperty::ui::undo::cmd& Cmd)
+    {
+        ModificationCount++;
+        UndoSystem.Add(Cmd);
+        if (auto Err = AssetMgr.MakeDescriptorDirty({ SelectedDescriptor.m_LibraryGUID.m_Instance }, SelectedDescriptor.m_InfoGUID); Err.empty() == false )
+        {
+            printf("Error: %s", Err.c_str());
+        }
+
+
+        if (Cmd.m_Name == "Texture/Input/Filename")
+        {
+            AssetMgr.getInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](xresource_pipeline::info& Info )
+            {
+                auto str = Cmd.m_NewValue.get<std::string>();
+
+                // Keep the filename only
+                size_t pos = str.find_last_of('\\');
+                str = (pos != std::string::npos) ? str.substr(pos + 1) : str;
+
+                // Remove extension
+                pos = str.find_last_of('.');
+                if (pos != std::string::npos) 
+                    str = str.substr(0, pos);
+
+                // Ok let us set it!
+                if ( Info.m_Name.empty() && str.empty() == false ) Info.m_Name = std::move(str);
+            });
+        }
+
+        /*
+        if ( Cmd.m_Name == "Info/Name" )
+        {
+            // By renaming the descriptor like this the info will be mark as dirty
+            if ( auto Err = AssetMgr.RenameDescriptor({ SelectedDescriptor.m_LibraryGUID.m_Instance}, SelectedDescriptor.m_InfoGUID, Cmd.m_NewValue.get<std::string>()); Err )
+            {
+                int a = 0;
+            }
+        }
+        else
+        {
+            ModificationCount++;
+            UndoSystem.Add(Cmd);
+        }
+        */
+    };
+
+    auto OnChangeEventSettings = [&](xproperty::inspector& Inspector, const xproperty::ui::undo::cmd& Cmd)
+    {
+        UndoSystem.Add(Cmd);
+    };
+
+    Inspectors[0].m_OnChangeEvent.Register<&decltype(OnChangeEventInfo)::operator()>(OnChangeEventInfo);
+    Inspectors[1].m_OnChangeEvent.Register<&decltype(OnChangeEventSettings)::operator()>(OnChangeEventSettings);
+
 
     // Theme the property dialogs to be more readable
     for ( auto& E: Inspectors)
@@ -1307,7 +1505,7 @@ int E10_Example()
             //
             // Render the Texture
             //
-            if( UserMaterialInstance.m_Texture.m_Private != nullptr )
+            if( SelectedDescriptor.m_InfoGUID.empty() == false && UserMaterialInstance.m_TextureRef.isValid() )
             {
                 e10::push_contants PushContants;
 
@@ -1419,7 +1617,7 @@ int E10_Example()
                     const auto  W2C = DrawControls.m_3DView.getW2C();
                     xcore::matrix4 L2W;
                     L2W.setIdentity();
-                    L2W.setScale({BitmapInspector.m_pBitmap->getAspectRatio(), 1, BitmapInspector.m_pBitmap->getAspectRatio()});
+                    if (BitmapInspector.m_pBitmap->isValid()) L2W.setScale({BitmapInspector.m_pBitmap->getAspectRatio(), 1, BitmapInspector.m_pBitmap->getAspectRatio()});
 
                     // Take the light to local space of the object
                     auto W2L = L2W;
@@ -1452,14 +1650,16 @@ int E10_Example()
         //
         // Check if we should refresh the texture pipeline
         //
-        if (Compiler->ReloadTexture())
+        if (SelectedDescriptor.m_bReloadTexture)
         {
-            UpdateTextureMaterial();
+            assert(SelectedDescriptor.m_InfoGUID.m_Type == xrsc::texture_type_guid_v);
+            UpdateTextureMaterial({SelectedDescriptor.m_InfoGUID.m_Instance});
+            SelectedDescriptor.m_bReloadTexture = false;
         }
 
         if (ImGui::BeginMainMenuBar())
         {
-            if (ImGui::BeginMenu("Home"))
+            if (ImGui::BeginMenu("\xEE\x9C\x80 Home\xee\xa5\xb2"))
             {
                 if (ImGui::MenuItem("Resource Browser", "Ctrl-Space"))
                 {
@@ -1470,9 +1670,27 @@ int E10_Example()
                     AsserBrowser.Show(true);
                 }
 
-                if (ImGui::MenuItem("Save", "Ctrl-S"))
+                // Save menu
                 {
-                    
+                    bool bDisableSave = !AssetMgr.isReadyToSave() && ModificationCount == 0;
+                    if (bDisableSave) ImGui::BeginDisabled();
+                    if (ImGui::MenuItem("Save", "Ctrl-S"))
+                    {
+                        xproperty::settings::context Context;
+                        AssetMgr.Save(Context);
+                    }
+                    if (bDisableSave) ImGui::EndDisabled();
+                }
+
+                // Close
+                {
+                    const bool bDisable = SelectedDescriptor.m_InfoGUID.empty();
+                    if (bDisable) ImGui::BeginDisabled();
+                    if (ImGui::MenuItem("Close"))
+                    {
+                        SelectedDescriptor.clear();
+                    }
+                    if (bDisable) ImGui::EndDisabled();
                 }
 
                 ImGui::Separator();
@@ -1484,11 +1702,149 @@ int E10_Example()
                 ImGui::EndMenu();
             }
 
-            // Add a button to the menu bar
             ImGui::Separator();
-            if (ImGui::Button(" Save "))
+
+            //
+            // Undo Redo
+            //
             {
-                // Handle button click
+                xproperty::settings::context Context;
+                bool bDisable = false;
+                if (UndoSystem.m_Index == 0 ) bDisable = true;
+                if (bDisable) ImGui::BeginDisabled();
+                if ( ImGui::Button(" \xEE\x9E\xA7 ") )
+                {
+                    UndoSystem.Undo(Context);
+                }
+                if (bDisable) ImGui::EndDisabled();
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Undo the last change");
+
+                ImGui::SameLine(0,4);
+
+                bDisable = false;
+                if (UndoSystem.m_Index == UndoSystem.m_lCmds.size()) bDisable = true;
+                if (bDisable) ImGui::BeginDisabled();
+                if ( ImGui::Button(" \xEE\x9E\xA6 ") )
+                {
+                    UndoSystem.Redo(Context);
+                }
+                if (bDisable) ImGui::EndDisabled();
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Redo the last change");
+            }
+
+            // Add a button to the menu bar
+            {
+                ImGui::Separator();
+                bool bDisableSave = !AssetMgr.isReadyToSave() && ModificationCount == 0;
+                if (bDisableSave) ImGui::BeginDisabled();
+                if (ImGui::Button(" Save "))
+                {
+                    xproperty::settings::context Context;
+                    AssetMgr.Save(Context);
+                }
+                if (bDisableSave) ImGui::EndDisabled();
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Save Every thing, Resource Manager, however this will not save the Descriptor");
+            }
+
+            // Compilation
+            if (false == SelectedDescriptor.m_InfoGUID.empty())
+            {
+                ImGui::Separator();
+                xcore::lock::scope lk(*SelectedDescriptor.m_Log);
+                auto& Log = SelectedDescriptor.m_Log->get();
+
+                if ( Log.m_Result == e10::compilation::historical_entry::result::COMPILING_WARNINGS 
+                     || Log.m_Result == e10::compilation::historical_entry::result::COMPILING 
+                     || SelectedDescriptor.m_ValidationErrors.empty() == false )
+                {
+                    ImGui::BeginDisabled();
+                }
+
+                if (ImGui::Button("\xEF\x96\xB0 Compile "))
+                {
+                    SelectedDescriptor.SaveDescriptor();
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("This saves the descriptor witch will trigger the a compilation");
+
+                if (Log.m_Result == e10::compilation::historical_entry::result::COMPILING_WARNINGS 
+                    || Log.m_Result == e10::compilation::historical_entry::result::COMPILING 
+                    || SelectedDescriptor.m_ValidationErrors.empty() == false )
+                {
+                    ImGui::EndDisabled();
+                }
+
+                std::uint32_t Color;
+                if (SelectedDescriptor.m_ValidationErrors.empty() == false)
+                {
+                    // Failure
+                    Color = IM_COL32(255, 170, 140, 255);
+                }
+                else
+                {
+                    switch( Log.m_Result )
+                    {
+                    case e10::compilation::historical_entry::result::COMPILING_WARNINGS:
+                        Color = IM_COL32(255, 255, 0, 255);
+                        break;
+                    case e10::compilation::historical_entry::result::COMPILING:
+                        Color = IM_COL32(0, 255, 0, 255);
+                        break;
+                    case e10::compilation::historical_entry::result::FAILURE:
+                        Color = IM_COL32(255, 170, 140, 255);
+                        break;
+                    case e10::compilation::historical_entry::result::SUCCESS_WARNINGS:
+                        Color = IM_COL32(255, 255, 0, 255);
+                        break;
+                    case e10::compilation::historical_entry::result::SUCCESS:
+                        Color = IM_COL32(255, 255, 255, 255);
+                        break;
+                    }
+                }
+
+                ImGui::PushStyleColor(ImGuiCol_Text, Color);
+                if (ImGui::Button("Feedback:\xee\xa5\xb2"))
+                {
+                    // Get button position and size
+                    ImVec2 button_pos   = ImGui::GetItemRectMin();
+                    ImVec2 button_size  = ImGui::GetItemRectSize();
+
+                    // Set popup position just below the button
+                    ImGui::SetNextWindowPos(ImVec2(button_pos.x, button_pos.y + button_size.y));
+                    ImGui::OpenPopup("Feedback");
+                }
+                ImGui::PopStyleColor();
+
+                if (ImGui::BeginPopup("Feedback"))
+                {
+                    ImGui::BeginChild( "###Feedback-Child", ImVec2(600,300) );
+                    ImGui::PushTextWrapPos(600);
+                    if (SelectedDescriptor.m_ValidationErrors.empty() == false)
+                    {
+                        ImGui::Text("Validation Errors:");
+                        ImGui::Text("=====================================================");
+                        for (auto& E : SelectedDescriptor.m_ValidationErrors)
+                        {
+                            ImGui::Text("ERROR[%d]: ", static_cast<int>(&E - SelectedDescriptor.m_ValidationErrors.data()) );
+                            ImGui::SameLine();
+                            ImGui::TextUnformatted(E.c_str());
+                        }
+                        ImGui::Text("=====================================================");
+                    }
+
+                    if (Log.m_Log.empty() == false)
+                    {
+                        ImGui::TextUnformatted(Log.m_Log.c_str());
+                    }
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndChild();
+                    ImGui::EndPopup();
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Gives information about the compilation process");
+
+                if (Log.m_Log.empty() == false)
+                {
+                    ImGui::Text("%s", std::format("{}",e10::get_last_line(Log.m_Log)).c_str());
+                }
             }
 
             ImGui::EndMainMenuBar();
@@ -1497,45 +1853,128 @@ int E10_Example()
         //
         // Show a texture selector in IMGUI
         //
-        AsserBrowser.Render(AssetMgr);
+        AsserBrowser.Render(AssetMgr, ResourceMgr);
 
         if ( auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false )
         {
             if (NewAsset.m_Type.m_Value == 0x398238F38A754)
             {
-                (void)Compiler->SetupDescriptor(NewAsset);
+                SelectedDescriptor.clear();
+                SelectedDescriptor.m_pDescriptor = xresource_pipeline::factory_base::Find(std::string_view{ "Texture" })->CreateDescriptor();
+                SelectedDescriptor.m_LibraryGUID = AsserBrowser.getSelectedLibrary();
+                SelectedDescriptor.m_InfoGUID    = NewAsset;
 
+                // Generate the paths
+                AssetMgr.getNodeInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
+                {
+                    SelectedDescriptor.GeneratePaths(NodeInfo.m_Path);
+                });
+
+
+                //
+                // Register descriptor with inspector
+                //
                 Inspectors[0].clear();
                 Inspectors[0].AppendEntity();
-                Inspectors[0].AppendEntityComponent(*xproperty::getObject(*Compiler->m_pInfo), Compiler->m_pInfo.get());
-                Inspectors[0].AppendEntityComponent(*Compiler->m_pDescriptor->getProperties(), Compiler->m_pDescriptor.get());
+                Inspectors[0].AppendEntityComponent(*xproperty::getObjectByType<xresource_pipeline::info>(), nullptr, &SelectedDescriptor );
+                Inspectors[0].AppendEntityComponent(*SelectedDescriptor.m_pDescriptor->getProperties(), SelectedDescriptor.m_pDescriptor.get());
+                Inspectors[0].m_OnGetComponentPointer.m_Delegates.clear();
+                Inspectors[0].m_OnGetComponentPointer.Register < [](xproperty::inspector&, const int ComponentIndex, void*& pObject, void* pUserData)
+                {
+                    if (ComponentIndex == 0)
+                    {
+                        auto& SelectedDesc = *static_cast<selected_desc*>(pUserData);
+                        pObject = SelectedDesc.m_pTempInfo;
+                    }
+                } > ();
+
+                //
+                // Nothing to load so just clear the existing bitmap...
+                //
+                BitmapInspector.clear();
             }
         }
-
-        if (auto SelectedAsset = AsserBrowser.getSelectedAsset(); SelectedAsset.empty() == false )
+        else if (auto SelectedAsset = AsserBrowser.getSelectedAsset(); SelectedAsset.empty() == false )
         {
-            if (auto Err = Compiler->SetupDescriptor(SelectedAsset); Err)
+            SelectedDescriptor.clear();
+            SelectedDescriptor.m_pDescriptor = xresource_pipeline::factory_base::Find(std::string_view{ "Texture" })->CreateDescriptor();
+            SelectedDescriptor.m_LibraryGUID = AsserBrowser.getSelectedLibrary();
+            SelectedDescriptor.m_InfoGUID    = SelectedAsset;
+
+            //
+            // Load new descriptor
+            //
             {
-                e10::DebugMessage(Err.getCode().m_pString);
-                exit(1);
+                AssetMgr.getNodeInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
+                {
+                    SelectedDescriptor.GeneratePaths(NodeInfo.m_Path);
+                });
+
+                // If it is a new resource it probably does not have a descriptor yet...
+                if(std::filesystem::exists(SelectedDescriptor.m_DescriptorPath))
+                {
+                    xproperty::settings::context Context;
+                    if (auto Err = SelectedDescriptor.m_pDescriptor->Serialize(true, strXstr(SelectedDescriptor.m_DescriptorPath), Context); Err)
+                    {
+                        assert(false);
+                    }
+                }
             }
 
+            //
+            // Register descriptor with inspector
+            //
             Inspectors[0].clear();
             Inspectors[0].AppendEntity();
-            Inspectors[0].AppendEntityComponent(*xproperty::getObject(*Compiler->m_pInfo), Compiler->m_pInfo.get());
-            Inspectors[0].AppendEntityComponent(*Compiler->m_pDescriptor->getProperties(), Compiler->m_pDescriptor.get());
+            Inspectors[0].AppendEntityComponent(*xproperty::getObjectByType<xresource_pipeline::info>(), nullptr, &SelectedDescriptor );
+            Inspectors[0].AppendEntityComponent(*SelectedDescriptor.m_pDescriptor->getProperties(), SelectedDescriptor.m_pDescriptor.get());
+            Inspectors[0].m_OnGetComponentPointer.m_Delegates.clear();
+            Inspectors[0].m_OnGetComponentPointer.Register<[](xproperty::inspector&, const int ComponentIndex, void*& pObject, void* pUserData )
+            {
+                if ( ComponentIndex == 0 )
+                {
+                    auto& SelectedDesc = *static_cast<selected_desc*>(pUserData);
+                    pObject = SelectedDesc.m_pTempInfo;
+                }
+            }>();
+
+            //
+            // Load the texture resource if already exists
+            //
+            if (std::filesystem::exists(SelectedDescriptor.m_ResourcePath))
+            {
+                assert(SelectedDescriptor.m_InfoGUID.m_Type == xrsc::texture_type_guid_v);
+                UpdateTextureMaterial({SelectedDescriptor.m_InfoGUID.m_Instance});
+            }
+            else
+            {
+                BitmapInspector.clear();
+            }
         }
 
         //
         // Render the Inspectors
         //
-        Compiler->m_ValidationErrors.clear();
-        Compiler->m_pDescriptor->Validate(Compiler->m_ValidationErrors);
+        SelectedDescriptor.m_ValidationErrors.clear();
+        if (SelectedDescriptor.m_pDescriptor) SelectedDescriptor.m_pDescriptor->Validate(SelectedDescriptor.m_ValidationErrors);
 
-        for (auto& E: Inspectors )
+        if (SelectedDescriptor.empty() == false)
         {
-            ImGui::SetNextWindowBgAlpha(0.5f);
-            E.Show([&]{});
+            for (auto& E : Inspectors )
+            {
+                ImGui::SetNextWindowBgAlpha(0.5f);
+                xproperty::settings::context Context;
+                if ( 0 == static_cast<int>(&E - Inspectors.data()))
+                {
+                    AssetMgr.getInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](xresource_pipeline::info& Info)
+                    {
+                        SelectedDescriptor.m_pTempInfo = &Info;
+                        E.Show(Context, [] {});
+                        SelectedDescriptor.m_pTempInfo = nullptr;
+                    });
+                }
+                else E.Show(Context,[]{});
+            }
         }
 
         //

@@ -73,7 +73,7 @@ namespace e10
         std::vector<std::string>                                m_CompilationInfo;
         std::vector<std::string>                                m_CompilationErrors;
         std::vector<std::string>                                m_ValidationErrors;
-        compilation_state                                       m_CompilationState  = compilation_state::IDLE;
+        compilation_state                                       m_CompilationState      = compilation_state::IDLE;
         std::string                                             m_DescriptorPath;
         std::string                                             m_DescriptorRelativePath;
         std::string                                             m_OutputPath;
@@ -82,12 +82,12 @@ namespace e10
         std::unique_ptr<std::thread>                            m_CompilerThread;
         std::unique_ptr<xresource_pipeline::descriptor::base>   m_pDescriptor;
         std::unique_ptr<xresource_pipeline::info>               m_pInfo;
-        xresource::full_guid                                    m_ResourceGUID {};
-        bool                                                    m_bUseDebugCompiler = false;
-        bool                                                    m_bOutputInConsole = false;
-        debug                                                   m_DebugLevel = debug::D0;
-        optimization                                            m_OptimizationLevel = optimization::O1;
-        e10::library_mgr*                                       m_pLibraryMgr = nullptr;
+        xresource::full_guid                                    m_ResourceGUID          {};
+        bool                                                    m_bUseDebugCompiler     = false;
+        bool                                                    m_bOutputInConsole      = false;
+        debug                                                   m_DebugLevel            = debug::D0;
+        optimization                                            m_OptimizationLevel     = optimization::O1;
+        e10::library_mgr*                                       m_pLibraryMgr           = nullptr;
 
         //------------------------------------------------------------------------------------------------
 
@@ -263,7 +263,7 @@ namespace e10
                 );
 
             // Set up the resource and descriptor paths
-            m_ResourcePath              = std::format("{}\\{}\\WINDOWS\\{}.xbmp", strXstr(m_pLibraryMgr->m_ProjectPath).c_str(), m_OutputPath.c_str(), RelativePath.c_str());
+            m_ResourcePath              = std::format("{}\\{}\\WINDOWS\\{}", strXstr(m_pLibraryMgr->m_ProjectPath).c_str(), m_OutputPath.c_str(), RelativePath.c_str());
 
             m_DescriptorRelativePath    = std::format("Descriptors\\{}.desc", RelativePath.c_str());
             m_DescriptorPath            = std::format("{}", m_DescriptorRelativePath.c_str());

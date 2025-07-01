@@ -72,14 +72,15 @@ namespace e10
 
         //=============================================================================
 
-        void Render( e10::library_mgr& AssetMgr )
+        void Render( e10::library_mgr& AssetMgr, xresource::mgr& ResourceMgr )
         {
             if (m_bRenderBrowser == false) return;
 
             if (m_pAssetMgr == nullptr)
             {
                 // Set the asset manager
-                m_pAssetMgr = &AssetMgr;
+                m_pAssetMgr     = &AssetMgr;
+                m_pResourceMgr  = &ResourceMgr;
 
                 // Register all the tabs
                 for (auto p = browser_registration_base::g_pHead; p; p = p->m_pNext)
@@ -114,6 +115,16 @@ namespace e10
 
         //=============================================================================
 
+        library::guid getSelectedLibrary()
+        {
+            if (m_SelectedLibrary.empty()) return m_SelectedLibrary;
+            auto GUID = m_SelectedLibrary;
+            m_SelectedLibrary.clear();
+            return GUID;
+        }
+
+        //=============================================================================
+
         auto getAssetMgr() noexcept
         {
             return m_pAssetMgr;
@@ -128,8 +139,9 @@ namespace e10
 
         //=============================================================================
 
-        void setSelection(xresource::full_guid LastSelect, xresource::full_guid NewResource )
+        void setSelection(library::guid Library, xresource::full_guid LastSelect, xresource::full_guid NewResource )
         {
+            m_SelectedLibrary    = Library;
             m_SelectedAsset      = LastSelect;
             m_LastGeneratedAsset = NewResource;
             if (isAutoClose()) Show(false);
@@ -297,6 +309,7 @@ namespace e10
                         }
                     }
 
+                    /*
                     if (ImGui::BeginTabItem("\xEE\x9C\x93 Compilation"))
                     {
                         if (ImGui::BeginChild("FrameWindow", ImVec2{}))
@@ -305,6 +318,7 @@ namespace e10
                         ImGui::EndChild();
                         ImGui::EndTabItem();
                     }
+                    */
 
                     if (ImGui::BeginTabItem("\xEE\x9C\xB4 Favorites"))
                     {
@@ -381,8 +395,10 @@ namespace e10
         using tab_list = std::vector<std::unique_ptr<asset_browser_tab_base>>;
 
         e10::library_mgr*       m_pAssetMgr             = nullptr;
+        xresource::mgr*         m_pResourceMgr          = nullptr;
         xresource::full_guid    m_LastGeneratedAsset    = {};
         xresource::full_guid    m_SelectedAsset         = {};
+        library::guid           m_SelectedLibrary       = {};
         bool                    m_bAutoClose            = true;
         bool                    m_bRenderBrowser        = false;
         tab_list                m_Tabs                  = {};

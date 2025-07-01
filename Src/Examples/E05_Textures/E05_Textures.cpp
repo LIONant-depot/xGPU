@@ -1,3 +1,4 @@
+#define IMGUI_DEFINE_MATH_OPERATORS // Allows ImVec2 arithmetic
 
 #include "E05_BitmapInspector.h"
 #include "../../tools/xgpu_imgui_breach.h"
@@ -185,8 +186,9 @@ int E05_Example()
     , "../../Src/Examples/E05_Textures/Alita-DXT5.dds"
   //  , "../../bin/Run3.basis"
     };
-    std::array<e05::bitmap_inspector, TextureList.size()>    BitmapInspector;
-    std::array<xgpu::pipeline_instance, TextureList.size() > PipelineInstance;
+    std::array<xgpu::texture,           TextureList.size()>     GPUTextureList;
+    std::array<e05::bitmap_inspector,   TextureList.size()>     BitmapInspector;
+    std::array<xgpu::pipeline_instance, TextureList.size()>     PipelineInstance;
     for( int i=0; i< TextureList.size(); ++i )
     {
         auto& BitmapInspect = BitmapInspector[i];
@@ -199,7 +201,7 @@ int E05_Example()
         // Create Pipeline Instance
         //
         {
-            xgpu::texture   Texture;
+            xgpu::texture&   Texture = GPUTextureList[i];
 
             //
             // Create the texture
@@ -374,7 +376,8 @@ int E05_Example()
         //
         // Render the Inspector
         //
-        Inspector.Show([&]
+        xproperty::settings::context Context;
+        Inspector.Show(Context, [&]
         {
             if (ImGui::Combo("Select File", &iActiveImage, TextureList.data(), static_cast<int>(TextureList.size())))
             {
@@ -383,6 +386,52 @@ int E05_Example()
                 Inspector.AppendEntityComponent(*xproperty::getObject(BitmapInspector[iActiveImage]), &BitmapInspector[iActiveImage]);
             }
         });
+
+        //
+        // Render the texture into a ImGUI::Window as a grid...
+        //
+        ImGui::Begin("TextureInWindow");
+        {
+            constexpr auto  PicSize = 128;
+
+            for (int y = 0; y < 3; ++y)
+            {
+                for (int x = 0; x < 3; ++x)
+                {
+                    const auto& bitmap = BitmapInspector[iActiveImage].m_pBitmap;
+                    const float aspect = bitmap->getAspectRatio();
+
+                    // Start a fixed-size cell
+                    ImGui::BeginGroup(); 
+                    ImVec2 cursorPos = ImGui::GetCursorPos();
+
+                    ImVec2 imageSize;
+                    ImVec2 offset = { 0, 0 };
+
+                    if (aspect >= 1.0f) 
+                    { // Wider than tall
+                        imageSize = ImVec2(PicSize, PicSize / aspect);
+                        offset.y = (PicSize - imageSize.y) * 0.5f;
+                    }
+                    else 
+                    { // Taller than wide
+                        imageSize = ImVec2(PicSize * aspect, PicSize);
+                        offset.x = (PicSize - imageSize.x) * 0.5f;
+                    }
+
+                    // Apply offset to center the image
+                    ImGui::SetCursorPos(cursorPos + offset);
+                    ImGui::Image((void*)(intptr_t)&GPUTextureList[iActiveImage], imageSize);
+
+                    // Move cursor to bottom-right of the 128x128 cell
+                    ImGui::SetCursorPos(cursorPos + ImVec2(PicSize, PicSize));
+                    ImGui::EndGroup();
+
+                    if (x != 2) ImGui::SameLine();
+                }
+            }
+        }
+        ImGui::End();
 
 
         //

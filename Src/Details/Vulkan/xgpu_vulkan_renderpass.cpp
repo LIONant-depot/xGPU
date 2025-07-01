@@ -80,7 +80,7 @@ namespace xgpu::vulkan
         { .pipelineBindPoint        = VK_PIPELINE_BIND_POINT_GRAPHICS
         , .colorAttachmentCount     = nColorAttachments
         , .pColorAttachments        = colorReferences.data()
-        , .pDepthStencilAttachment  = &depthReference
+        , .pDepthStencilAttachment  = depthReference.layout != VK_IMAGE_LAYOUT_UNDEFINED ? &depthReference : nullptr
         };
 
         // Use subpass dependencies for layout transitions
