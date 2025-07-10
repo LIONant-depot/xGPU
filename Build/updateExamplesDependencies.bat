@@ -70,7 +70,7 @@ rem XCONTAINER
 rem ------------------------------------------------------------
 :XCONTAINER
 rmdir rmdir "../dependencies/xcontainer" /S /Q
-git clone https://github.com/LIONant-depot/xcontainer.git "../dependencies/xResourceMgr"
+git clone https://github.com/LIONant-depot/xcontainer.git "../dependencies/xcontainer"
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
 rem ------------------------------------------------------------
