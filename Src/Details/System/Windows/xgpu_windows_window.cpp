@@ -282,6 +282,8 @@ namespace xgpu::windows
         HINSTANCE   hInstance,
         HWND&       hWnd,
         bool        bFullScreen,
+        int         x,
+        int         y,
         int         width,
         int         height)
     {
@@ -327,9 +329,9 @@ namespace xgpu::windows
         }
         else
         {
-            windowRect.left   = static_cast<long>(screenWidth) / 2 - width/2;
+            windowRect.left   = x < 0 ? static_cast<long>(screenWidth) / 2 - width/2 : x;
             windowRect.right  = static_cast<long>(width);
-            windowRect.top    = static_cast<long>(screenHeight) / 2 - height/2;
+            windowRect.top    = y < 0 ? static_cast<long>(screenHeight) / 2 - height/2 : y;
             windowRect.bottom = static_cast<long>(height);
         }
 
@@ -373,7 +375,7 @@ namespace xgpu::windows
         if (auto Err = CreateWindowClass(hInstance, WindowProc); Err )
             return Err;
       
-        if ( auto Err = CreateSytemWindow(hInstance, m_hWindow, Setup.m_bFullScreen, Setup.m_Width, Setup.m_Height); Err )
+        if ( auto Err = CreateSytemWindow(hInstance, m_hWindow, Setup.m_bFullScreen, Setup.m_X, Setup.m_Y, Setup.m_Width, Setup.m_Height); Err )
             return Err;
 
         if (m_hWindow) SetWindowLongPtr(m_hWindow, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));

@@ -4,6 +4,8 @@ namespace xgpu
     {
         struct setup
         {
+            int                 m_X             { -1 };
+            int                 m_Y             { -1 };
             int                 m_Width         { 1280 };
             int                 m_Height        { 720 };
             bool                m_bFullScreen   { false };
@@ -25,7 +27,12 @@ namespace xgpu
         XGPU_INLINE                 void                setClearColor           ( float R, float G, float B, float A ) noexcept;
         XGPU_INLINE [[nodiscard]]   std::size_t         getSystemWindowHandle   ( void ) const noexcept;
         XGPU_INLINE [[nodiscard]]   bool                isFocused               ( void ) const noexcept;
+        XGPU_INLINE                 void                setFocus                ( void ) const noexcept;
+        XGPU_INLINE [[nodiscard]]   bool                isMinimized             ( void ) const noexcept;
         XGPU_INLINE [[nodiscard]]   std::pair<int,int>  getPosition             ( void ) const noexcept;
+        XGPU_INLINE                 void                setPosition             ( int x, int y ) noexcept;
+        XGPU_INLINE                 void                setSize                 ( int Width, int Height) noexcept;
+        XGPU_INLINE                 void                setMousePosition        ( int x, int y ) noexcept;
         XGPU_INLINE [[nodiscard]]   void                getDevice               ( xgpu::device& Device ) const noexcept;
 
         std::shared_ptr<details::window_handle> m_Private{};

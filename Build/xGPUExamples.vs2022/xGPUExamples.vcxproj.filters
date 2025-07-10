@@ -229,12 +229,6 @@
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\indexgenerator.cpp">
       <Filter>Dependencies\meshoptimizer</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\overdrawanalyzer.cpp">
-      <Filter>Dependencies\meshoptimizer</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\overdrawoptimizer.cpp">
-      <Filter>Dependencies\meshoptimizer</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\simplifier.cpp">
       <Filter>Dependencies\meshoptimizer</Filter>
     </ClCompile>
@@ -242,9 +236,6 @@
       <Filter>Dependencies\meshoptimizer</Filter>
     </ClCompile>
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\stripifier.cpp">
-      <Filter>Dependencies\meshoptimizer</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\vcacheanalyzer.cpp">
       <Filter>Dependencies\meshoptimizer</Filter>
     </ClCompile>
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\vcacheoptimizer.cpp">
@@ -256,26 +247,8 @@
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\vertexfilter.cpp">
       <Filter>Dependencies\meshoptimizer</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\vfetchanalyzer.cpp">
-      <Filter>Dependencies\meshoptimizer</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\vfetchoptimizer.cpp">
       <Filter>Dependencies\meshoptimizer</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui.cpp">
-      <Filter>Dependencies\ImGui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui_demo.cpp">
-      <Filter>Dependencies\ImGui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui_draw.cpp">
-      <Filter>Dependencies\ImGui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui_tables.cpp">
-      <Filter>Dependencies\ImGui</Filter>
-    </ClCompile>
-    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui_widgets.cpp">
-      <Filter>Dependencies\ImGui</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Src\Examples\E11_NormalMaps\E11_NormalMaps.cpp">
       <Filter>Examples\Example 11 Normal Maps</Filter>
@@ -330,6 +303,21 @@
     </ClCompile>
     <ClCompile Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_Resources.cpp">
       <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\imgui\imgui.cpp">
+      <Filter>Dependencies\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\imgui\imgui_demo.cpp">
+      <Filter>Dependencies\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\imgui\imgui_draw.cpp">
+      <Filter>Dependencies\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\imgui\imgui_tables.cpp">
+      <Filter>Dependencies\ImGui</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\dependencies\imgui\imgui_widgets.cpp">
+      <Filter>Dependencies\ImGui</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -464,24 +452,6 @@
     </ClInclude>
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\meshoptimizer.h">
       <Filter>Dependencies\meshoptimizer</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imconfig.h">
-      <Filter>Dependencies\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui.h">
-      <Filter>Dependencies\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui_internal.h">
-      <Filter>Dependencies\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imstb_rectpack.h">
-      <Filter>Dependencies\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imstb_textedit.h">
-      <Filter>Dependencies\ImGui</Filter>
-    </ClInclude>
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imstb_truetype.h">
-      <Filter>Dependencies\ImGui</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Src\xGPU.h">
       <Filter>xGPU</Filter>
@@ -876,6 +846,24 @@
     <ClInclude Include="..\..\Src\Examples\E10_TextureResourcePipeline\E10_asset_browser_compiler_tab.h">
       <Filter>Examples\Example 10 Texture Resource Pipeline</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\dependencies\imgui\imconfig.h">
+      <Filter>Dependencies\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\imgui\imgui.h">
+      <Filter>Dependencies\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\imgui\imgui_internal.h">
+      <Filter>Dependencies\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\imgui\imstb_rectpack.h">
+      <Filter>Dependencies\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\imgui\imstb_textedit.h">
+      <Filter>Dependencies\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\dependencies\imgui\imstb_truetype.h">
+      <Filter>Dependencies\ImGui</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="../../Bin/draw_vert.glsl" />
@@ -996,10 +984,5 @@
     <None Include="..\..\dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\documentation\Terminology.md">
       <Filter>Examples\Example 10 Texture Resource Pipeline\ResourcePipeline\Documentation</Filter>
     </None>
-  </ItemGroup>
-  <ItemGroup>
-    <Text Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\LICENSE.txt">
-      <Filter>Dependencies\ImGui</Filter>
-    </Text>
   </ItemGroup>
 </Project>

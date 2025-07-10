@@ -89,7 +89,8 @@ int E08_Example()
         // Handle input
         //
         static bool StartProfiling = false;
-        if( StartProfiling == false && ImGui::GetIO().KeysDown[(int)xgpu::keyboard::digital::KEY_SPACE] ) StartProfiling = true;
+        //  ImGui::GetIO().KeysDown[(int)xgpu::keyboard::digital::KEY_SPACE]
+        if( StartProfiling == false && ImGui::GetIO().KeysData[ImGuiKey_Space].Down ) StartProfiling = true;
 
         //
         // Process the textures

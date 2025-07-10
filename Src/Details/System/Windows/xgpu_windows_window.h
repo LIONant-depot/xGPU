@@ -30,6 +30,11 @@ namespace xgpu::windows
             return m_hWindow == GetFocus();
         }
 
+        virtual     void                            setFocus(void) const                                                noexcept override
+        {
+            SetFocus(m_hWindow);
+        }
+
         virtual     std::pair<int, int>             getPosition(void) const                                            noexcept override
         {
             //RECT Rect;
@@ -39,11 +44,37 @@ namespace xgpu::windows
             return{ Point.x, Point.y };
         }
 
+        virtual     void                           setPosition( int x, int y)                                          noexcept override
+        {
+            // Explanation:
+            // hwnd: Handle to your existing window.
+            // HWND_TOP : Keeps the window at the top of the Z - order.
+            // x, y : New X and Y coordinates.
+            // 0, 0 : Width and height(ignored because of SWP_NOSIZE).
+            // SWP_NOSIZE | SWP_NOZORDER : Keeps the current size and Z - order.
+            SetWindowPos(m_hWindow, HWND_TOP, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+        }
+
+        virtual     void                            setSize(int Width, int Height)                                   noexcept
+        {
+            SetWindowPos(m_hWindow, NULL, 0, 0, Width, Height, SWP_NOMOVE | SWP_NOZORDER);
+        }
+
         bool                            getResizedAndReset( void ) noexcept
         {
             auto b = m_isResized;
             m_isResized = false;
             return b;
+        }
+
+        bool                            isMinimized(void) const                                              noexcept
+        {
+            return IsIconic(m_hWindow);
+        }
+
+        void                            setMousePosition( int x, int y)                                     noexcept
+        {
+            SetCursorPos(x, y);
         }
 
         HWND                                        m_hWindow   { 0 };

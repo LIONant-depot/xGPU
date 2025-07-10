@@ -6,6 +6,8 @@
 #include <unordered_map>
 #include <memory>
 
+#include "imgui_internal.h"
+
 namespace xgpu::tools::imgui {
 
 #define IMGUI_GAMMA_CORRECTION
@@ -362,9 +364,125 @@ struct share_resources
         if ( s_SharePointer.get() == nullptr )
         {
             s_SharePointer = std::make_shared<share_resources>();
+            s_SharePointer->CreateKeyMapping();
         }
 
         return s_SharePointer;
+    }
+
+    //-------------------------------------------------------------------------------------------
+
+    void CreateKeyMapping()
+    {
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_ESCAPE)]     = ImGuiKey_Escape;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_1)]          = ImGuiKey_1;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_2)]          = ImGuiKey_2;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_3)]          = ImGuiKey_3;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_4)]          = ImGuiKey_4;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_5)]          = ImGuiKey_5;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_6)]          = ImGuiKey_6;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_7)]          = ImGuiKey_7;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_8)]          = ImGuiKey_8;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_9)]          = ImGuiKey_9;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_0)]          = ImGuiKey_0;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_MINUS)]      = ImGuiKey_Minus;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_EQUALS)]     = ImGuiKey_Equal;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_BACKSPACE)]  = ImGuiKey_Backspace;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_TAB)]        = ImGuiKey_Tab;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_Q)]          = ImGuiKey_Q;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_W)]          = ImGuiKey_W;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_E)]          = ImGuiKey_E;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_R)]          = ImGuiKey_R;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_T)]          = ImGuiKey_T;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_Y)]          = ImGuiKey_Y;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_U)]          = ImGuiKey_U;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_I)]          = ImGuiKey_I;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_O)]          = ImGuiKey_O;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_P)]          = ImGuiKey_P;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_LBRACKET)]   = ImGuiKey_LeftBracket;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_RBRACKET)]   = ImGuiKey_RightBracket;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_RETURN)]     = ImGuiKey_Enter;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_LCONTROL)]   = ImGuiKey_LeftCtrl;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_A)]          = ImGuiKey_A;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_S)]          = ImGuiKey_S;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_D)]          = ImGuiKey_D;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_F)]          = ImGuiKey_F;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_G)]          = ImGuiKey_G;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_H)]          = ImGuiKey_H;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_J)]          = ImGuiKey_J;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_K)]          = ImGuiKey_K;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_L)]          = ImGuiKey_L;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_SEMICOLON)]  = ImGuiKey_Semicolon;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_APOSTROPHE)] = ImGuiKey_Apostrophe;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_GRAVE)]      = ImGuiKey_GraveAccent;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_LSHIFT)]     = ImGuiKey_LeftShift;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_BACKSLASH)]  = ImGuiKey_Backslash;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_Z)]          = ImGuiKey_Z;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_X)]          = ImGuiKey_X;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_C)]          = ImGuiKey_C;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_V)]          = ImGuiKey_V;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_B)]          = ImGuiKey_B;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_N)]          = ImGuiKey_N;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_M)]          = ImGuiKey_M;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_COMMA)]      = ImGuiKey_Comma;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_PERIOD)]     = ImGuiKey_Period;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_SLASH)]      = ImGuiKey_Slash;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_RSHIFT)]     = ImGuiKey_RightShift;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_MULTIPLY)]   = ImGuiKey_KeypadMultiply;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_LALT)]       = ImGuiKey_LeftAlt;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_SPACE)]      = ImGuiKey_Space;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_CAPSLOCK)]   = ImGuiKey_CapsLock;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_F1)]         = ImGuiKey_F1;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_F2)]         = ImGuiKey_F2;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_F3)]         = ImGuiKey_F3;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_F4)]         = ImGuiKey_F4;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_F5)]         = ImGuiKey_F5;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_F6)]         = ImGuiKey_F6;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_F7)]         = ImGuiKey_F7;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_F8)]         = ImGuiKey_F8;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_F9)]         = ImGuiKey_F9;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_F10)]        = ImGuiKey_F10;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_NUMLOCK)]    = ImGuiKey_NumLock;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_SCROLLLOCK)] = ImGuiKey_ScrollLock;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_NUMPAD7)]    = ImGuiKey_Keypad7;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_NUMPAD8)]    = ImGuiKey_Keypad8;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_NUMPAD9)]    = ImGuiKey_Keypad9;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_SUBTRACT)]   = ImGuiKey_KeypadSubtract;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_NUMPAD4)]    = ImGuiKey_Keypad4;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_NUMPAD5)]    = ImGuiKey_Keypad5;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_NUMPAD6)]    = ImGuiKey_Keypad6;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_ADD)]        = ImGuiKey_KeypadAdd;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_NUMPAD1)]    = ImGuiKey_Keypad1;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_NUMPAD2)]    = ImGuiKey_Keypad2;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_NUMPAD3)]    = ImGuiKey_Keypad3;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_NUMPAD0)]    = ImGuiKey_Keypad0;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_DECIMAL)]    = ImGuiKey_KeypadDecimal;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_OEM_102)]    = ImGuiKey_Oem102;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_F11)]        = ImGuiKey_F11;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_F12)]        = ImGuiKey_F12;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_F13)]        = ImGuiKey_F13;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_F14)]        = ImGuiKey_F14;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_F15)]        = ImGuiKey_F15;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_NUMPADENTER)]= ImGuiKey_KeypadEnter;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_RCONTROL)]   = ImGuiKey_RightCtrl;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_DIVIDE)]     = ImGuiKey_KeypadDivide;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_RALT)]       = ImGuiKey_RightAlt;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_PAUSE)]      = ImGuiKey_Pause;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_HOME)]       = ImGuiKey_Home;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_UP)]         = ImGuiKey_UpArrow;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_PAGEUP)]     = ImGuiKey_PageUp;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_LEFT)]       = ImGuiKey_LeftArrow;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_RIGHT)]      = ImGuiKey_RightArrow;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_END)]        = ImGuiKey_End;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_DOWN)]       = ImGuiKey_DownArrow;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_PAGEDOWN)]   = ImGuiKey_PageDown;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_INSERT)]     = ImGuiKey_Insert;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_DELETE)]     = ImGuiKey_Delete;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_LWIN)]       = ImGuiKey_LeftSuper;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_RWIN)]       = ImGuiKey_RightSuper;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_APPS)]       = ImGuiKey_Menu;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_WEBBACK)]    = ImGuiKey_AppBack;
+        m_xGPUToImGuiKey[static_cast<int>(xgpu::keyboard::digital::KEY_WEBFORWARD)] = ImGuiKey_AppForward;
     }
 
     //-------------------------------------------------------------------------------------------
@@ -505,6 +623,9 @@ struct share_resources
     xgpu::pipeline_instance                           m_DefaultPipelineInstance = {};
     xgpu::device                                      m_Device                  = {};
     xgpu::vertex_descriptor                           m_VertexDescriptor        = {};
+    std::unordered_map<int, ImGuiKey>                 m_xGPUToImGuiKey          = {};
+    std::array<bool, static_cast<int>(xgpu::keyboard::digital::ENUM_COUNT)> m_LastsKeyState         = {};
+    std::array<bool,3>                                                      m_LastMouseButtonStates = {};
 };
 
 //============================================================================================
@@ -547,6 +668,13 @@ struct window_info
     {
         // Let the system deals with references...
         share_resources::Destroy(m_Shared);
+    }
+
+    //------------------------------------------------------------------------------------------------------------
+
+    void setMousePosition( int x, int y ) noexcept
+    {
+        m_Window.setMousePosition(x,y);
     }
 
     //------------------------------------------------------------------------------------------------------------
@@ -619,13 +747,13 @@ struct window_info
             if (draw_data->TotalVtxCount > Prim.m_VertexBuffer.getEntryCount() )
             {
                 auto Err = Prim.m_VertexBuffer.Resize(draw_data->TotalVtxCount);
-                assert(Err == nullptr);
+                assert(Err == nullptr && "Vertex buffer resize failed");
             }
 
             if (draw_data->TotalIdxCount > Prim.m_IndexBuffer.getEntryCount())
             {
                 auto Err = Prim.m_IndexBuffer.Resize(draw_data->TotalIdxCount);
-                assert(Err == nullptr);
+                assert(Err == nullptr && "Index buffer resize failed");
             }
 
             //
@@ -641,6 +769,8 @@ struct window_info
                     for (int n = 0; n < draw_data->CmdListsCount; n++)
                     {
                         const ImDrawList* cmd_list = draw_data->CmdLists[n];
+                        assert(cmd_list->VtxBuffer.Data != nullptr && "Invalid vertex buffer data");
+                        assert(cmd_list->IdxBuffer.Data != nullptr && "Invalid index buffer data");
                         std::memcpy(pVertex, cmd_list->VtxBuffer.Data, cmd_list->VtxBuffer.Size * sizeof(ImDrawVert));
                         std::memcpy(pIndex,  cmd_list->IdxBuffer.Data, cmd_list->IdxBuffer.Size * sizeof(ImDrawIdx));
                         pVertex += cmd_list->VtxBuffer.Size;
@@ -731,13 +861,15 @@ struct window_info
                         // Bind the texture here
                         //
                         {
-                            auto texture_handle = reinterpret_cast<xgpu::texture*>(pcmd->TextureId);
+                            auto texture_handle = reinterpret_cast<xgpu::texture*>(pcmd->TexRef._TexID);
+
                          //   CmdBuffer.setTexture(*texture_handle); // You may need to adapt this to your API
                             if (pLastTextureUsed != texture_handle)
                             {
                                 pLastTextureUsed = texture_handle;
                                 if (texture_handle)
                                 {
+                                    assert(texture_handle->m_Private != nullptr && "Invalid texture pointer");
                                     share_resources::getOrCreate()->setTexture(CmdBuffer, *texture_handle);
                                 }
                                 else
@@ -748,6 +880,8 @@ struct window_info
                             
                         }
 
+                        assert(size_t(pcmd->IdxOffset + global_idx_offset + pcmd->ElemCount) <= Prim.m_IndexBuffer.getEntryCount() && "Index offset out of bounds");
+                        assert(size_t(pcmd->VtxOffset + global_vtx_offset) < Prim.m_VertexBuffer.getEntryCount() && "Vertex offset out of bounds");
 
                         // Draw
                         CmdBuffer.Draw
@@ -809,7 +943,8 @@ struct breach_instance : window_info
         }
 
         // We could put here the texture id if we wanted 
-        io.Fonts->TexID = nullptr;
+        //io.Fonts->TexID = nullptr;
+        io.Fonts->SetTexID(reinterpret_cast<ImTextureID>(&Texture));
 
         return nullptr;
     }
@@ -871,11 +1006,26 @@ struct breach_instance : window_info
         {
             io.MouseHoveredViewport = 0;
 
-            io.MouseDown[0] = m_Mouse.isPressed(xgpu::mouse::digital::BTN_LEFT   );
-            io.MouseDown[1] = m_Mouse.isPressed(xgpu::mouse::digital::BTN_RIGHT  );
-            io.MouseDown[2] = m_Mouse.isPressed(xgpu::mouse::digital::BTN_MIDDLE );
+            std::array<bool, 3> MouseButtonStates
+            { m_Mouse.isPressed(xgpu::mouse::digital::BTN_LEFT)
+            , m_Mouse.isPressed(xgpu::mouse::digital::BTN_RIGHT)
+            , m_Mouse.isPressed(xgpu::mouse::digital::BTN_MIDDLE)
+            };
 
-            io.MouseWheel   = m_Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
+            for( auto& j : MouseButtonStates )
+            {
+                auto Index = static_cast<int>( &j - MouseButtonStates.data() );
+                if ( j != share_resources::s_SharePointer->m_LastMouseButtonStates[Index] )
+                {
+                    io.AddMouseButtonEvent(Index, j);
+                    share_resources::s_SharePointer->m_LastMouseButtonStates[Index] = j;
+                }
+            }
+
+            if ( auto Wheel = m_Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0]; Wheel != 0.0f )
+            {
+                io.AddMouseWheelEvent(0.0f, Wheel);
+            }
 
             // Windows get mouse pos
             //POINT MousePos;
@@ -904,8 +1054,7 @@ struct breach_instance : window_info
                 {
                     if (io.WantSetMousePos)
                     {
-                        // SetCursorPos(MouseValues[0] - pViewport->Pos.x, MouseValues[1] - pViewport->Pos.y );
-                        assert(false);
+                        Info.m_Window.setMousePosition(static_cast<int>(io.MousePos.x - pViewport->Pos.x), static_cast<int>(io.MousePos.y - pViewport->Pos.y));
                     }
                     else
                     {
@@ -915,12 +1064,14 @@ struct breach_instance : window_info
                             //printf("Mouse[%d  %d]  Win+Mouse(%d  %d)\n", int(MouseValues[0]), int(MouseValues[1]), int(WindowX + MouseValues[0]), int(WindowY + MouseValues[1]));
 
                             // Multi-viewport mode: mouse position in OS absolute coordinates (io.MousePos is (0,0) when the mouse is on the upper-left of the primary monitor)
-                            io.MousePos = ImVec2( (float)WindowX + MouseValues[0], (float)WindowY + MouseValues[1] );
+                            //io.MousePos = ImVec2( (float)WindowX + MouseValues[0], (float)WindowY + MouseValues[1] );
+                            io.AddMousePosEvent(WindowX + MouseValues[0], WindowY + MouseValues[1]);
                         }
                         else
                         {
                             // Single viewport mode: mouse position in client window coordinates (io.MousePos is (0,0) when the mouse is on the upper-left corner of the app window)
-                            io.MousePos = ImVec2{ (float)MouseValues[0], (float)MouseValues[1] };
+                            //io.MousePos = ImVec2{ (float)MouseValues[0], (float)MouseValues[1] };
+                            io.AddMousePosEvent(MouseValues[0], MouseValues[1]);
                         }
                     }
                 }
@@ -932,16 +1083,30 @@ struct breach_instance : window_info
         //
         {
             // Modifiers are not reliable across systems
-            io.KeyCtrl  = m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_LCONTROL ) || m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_RCONTROL );
-            io.KeyShift = m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_LSHIFT   ) || m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_RSHIFT   );
-            io.KeyAlt   = m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_LALT     ) || m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_RALT     );
-            io.KeySuper = m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_LWIN     ) || m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_RWIN     );
+            const bool KeyCtrl  = m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_LCONTROL ) || m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_RCONTROL );
+            const bool KeyShift = m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_LSHIFT   ) || m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_RSHIFT   );
+            const bool KeyAlt   = m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_LALT     ) || m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_RALT     );
+            const bool KeySuper = m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_LWIN     ) || m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_RWIN     );
+            io.AddKeyEvent(ImGuiKey_ModCtrl,    KeyCtrl);
+            io.AddKeyEvent(ImGuiKey_ModShift,   KeyShift);
+            io.AddKeyEvent(ImGuiKey_ModAlt,     KeyAlt);
+            io.AddKeyEvent(ImGuiKey_ModSuper,   KeySuper);
 
             bool bPresses = false;
             for( int i = 1; i < static_cast<int>(xgpu::keyboard::digital::ENUM_COUNT); i++ )
             {
-                io.KeysDown[i] = m_Keyboard.isPressed(static_cast<xgpu::keyboard::digital>(i));
-                bPresses |= io.KeysDown[i];
+                const bool j = m_Keyboard.isPressed(static_cast<xgpu::keyboard::digital>(i));
+                if( j != share_resources::s_SharePointer->m_LastsKeyState[i] )
+                {
+                    auto it = share_resources::s_SharePointer->m_xGPUToImGuiKey.find(i);
+                    if (it != share_resources::s_SharePointer->m_xGPUToImGuiKey.end())
+                    {
+                        assert(it->second >= 0 && it->second < ImGuiKey_COUNT && "Invalid ImGuiKey value");
+                        io.AddKeyEvent(static_cast<ImGuiKey>(it->second), j);
+                        share_resources::s_SharePointer->m_LastsKeyState[i] = j;
+                    }
+                    bPresses |= j;
+                }
             }
 
             //
@@ -981,6 +1146,16 @@ struct breach_instance : window_info
             }                
         }
 
+        // Focus events (check if window focus changed)
+        static bool was_focused = false;
+        bool is_focused = m_Window.isFocused(); // Assuming xGPU provides a focus check
+        if (is_focused != was_focused)
+        {
+            io.AddFocusEvent(is_focused);
+            printf("Window Focus: %s\n", is_focused ? "Gained" : "Lost");
+            was_focused = is_focused;
+        }
+
         // Start the frame
         ImGui::NewFrame();
 
@@ -1018,15 +1193,15 @@ void EnableDocking()
     if (!opt_padding)
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
 
-    ImGui::Begin("Main DockSpace", nullptr, window_flags);
-    if (!opt_padding)
-        ImGui::PopStyleVar();
-
-    ImGui::PopStyleVar(2);
-
-    static ImGuiID dockspace_id = ImGui::GetID("MainDockSpace");
+    bool open = true;
+    ImGui::Begin("Main DockSpace", &open, window_flags);
+    ImGuiID dockspace_id = ImGui::GetID("MainDockSpace");
     ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
     ImGui::End();
+
+    if (!opt_padding)
+        ImGui::PopStyleVar();
+    ImGui::PopStyleVar(2);
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -1037,7 +1212,11 @@ bool BeginRendering( bool bEnableDocking ) noexcept
     if (Instance.m_Window.BeginRendering())
         return true;
 
-    Instance.StartNewFrame(io);
+    if (auto Err = Instance.StartNewFrame(io))
+    {
+        printf("StartNewFrame failed: %s\n", Err );
+        return true;
+    }
 
     if(bEnableDocking) EnableDocking();
 
@@ -1052,6 +1231,13 @@ void Render( void ) noexcept
     ImGui::Render();
     ImDrawData* pMainDrawData = ImGui::GetDrawData();
     Instance.Render( io, pMainDrawData );
+
+    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
+    {
+        ImGui::UpdatePlatformWindows();
+        ImGui::RenderPlatformWindowsDefault();
+    }
+    ImGui::EndFrame();
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -1059,9 +1245,26 @@ void Render( void ) noexcept
 static
 void CreateChildWindow( ImGuiViewport* pViewport ) noexcept
 {
+/*
     GETINSTANCE;
     auto& Info = *new window_info();
     pViewport->RendererUserData = &Info;
+*/
+    GETINSTANCE;
+    auto pInfo = new window_info();
+    xgpu::window::setup Setup;
+    Setup.m_Width   = static_cast<int>(pViewport->Size.x);
+    Setup.m_Height  = static_cast<int>(pViewport->Size.y);
+    Setup.m_X       = static_cast<int>(pViewport->Pos.x);
+    Setup.m_Y       = static_cast<int>(pViewport->Pos.y);
+    if (auto Err = Instance.m_Shared->m_Device.Create(pInfo->m_Window, Setup))
+    {
+        printf("Failed to create child window: %s\n", Err );
+        delete pInfo;
+        return;
+    }
+    pViewport->RendererUserData = pInfo;
+    pViewport->PlatformHandle = reinterpret_cast<void*>(&pInfo->m_Window);
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -1069,11 +1272,22 @@ void CreateChildWindow( ImGuiViewport* pViewport ) noexcept
 static
 void DestroyChildWindow(ImGuiViewport* pViewport) noexcept
 {
+    /*
     auto pInfo = reinterpret_cast<window_info*>(pViewport->RendererUserData);
     delete pInfo;
     pViewport->RendererUserData = nullptr;
+    */
+    auto pInfo = reinterpret_cast<window_info*>(pViewport->RendererUserData);
+    if (pInfo)
+    {
+        // Ensure xgpu::window is properly destroyed if needed
+        delete pInfo;
+    }
+    pViewport->RendererUserData = nullptr;
+    pViewport->PlatformHandle = nullptr;
 }
 
+/*
 //------------------------------------------------------------------------------------------------------------
 
 static
@@ -1092,6 +1306,7 @@ void SetChildWindowSize(ImGuiViewport* pViewport, ImVec2 size ) noexcept
     , SWP_NOMOVE | SWP_NOZORDER
     );
 }
+*/
 
 //------------------------------------------------------------------------------------------------------------
 
@@ -1101,13 +1316,23 @@ ImVec2 GetChildWindowSize(ImGuiViewport* pViewport ) noexcept
     auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
     return { (float)Info.m_Window.getWidth(), (float)Info.m_Window.getHeight() };
 }
+
 //------------------------------------------------------------------------------------------------------------
 
 static
-void SetChildWindowPos(ImGuiViewport* pViewport, ImVec2 size) noexcept
+void SetChildWindowPos(ImGuiViewport* pViewport, ImVec2 pos) noexcept
 {
+    auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
+    Info.m_Window.setPosition(static_cast<int>(pos.x), static_cast<int>(pos.y));
+}
 
+//------------------------------------------------------------------------------------------------------------
 
+static
+void SetChildWindowSize(ImGuiViewport* pViewport, ImVec2 size) noexcept
+{
+    auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
+    Info.m_Window.setSize(static_cast<int>(size.x), static_cast<int>(size.y));
 }
 
 //------------------------------------------------------------------------------------------------------------
@@ -1166,12 +1391,20 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
     }
 
     ImGuiIO& io = ImGui::GetIO();
+    io.ConfigFlags = 0;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;       // Enable Keyboard Controls
-    //io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+    io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;           // Enable Docking
-  //  io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;         // Enable Multi-Viewport / Platform Windows
+    io.ConfigFlags &= ~ImGuiConfigFlags_ViewportsEnable;         // Enable Multi-Viewport / Platform Windows
     io.BackendRendererName = "xgpu_imgui_breach";
     io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;  // We can honor the ImDrawCmd::VtxOffset field, allowing for large meshes.
+
+    io.ConfigDebugIniSettings = false; // Debug INI settings
+    //io.IniFilename = nullptr; // Prevent loading/saving .ini files
+    //ImGui::GetCurrentContext()->SettingsIniData.clear();
+    //ImGui::ClearIniSettings();
+    //printf("SettingsIniData after clear: %s\n", ImGui::GetCurrentContext()->SettingsIniData.c_str());
+
   //  io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;  // We can create multi-viewports on the Renderer side (optional)
  //   io.BackendFlags |= ImGuiBackendFlags_PlatformHasViewports;  // We can create multi-viewports on the Platform side (optional)
     //io.ConfigViewportsNoAutoMerge = true;
@@ -1231,11 +1464,11 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
     if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
     {
         ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
-        platform_io.Renderer_CreateWindow  = CreateChildWindow;
-        platform_io.Renderer_DestroyWindow = DestroyChildWindow;
-        platform_io.Renderer_SetWindowSize = SetChildWindowSize;
-        platform_io.Renderer_RenderWindow  = RenderChildWindow;
-        platform_io.Renderer_SwapBuffers   = ChildSwapBuffers;
+        platform_io.Renderer_CreateWindow       = CreateChildWindow;
+        platform_io.Renderer_DestroyWindow      = DestroyChildWindow;
+        platform_io.Renderer_SetWindowSize      = SetChildWindowSize;
+        platform_io.Renderer_RenderWindow       = RenderChildWindow;
+        platform_io.Renderer_SwapBuffers        = ChildSwapBuffers;
 
         platform_io.Platform_CreateWindow       = CreateChildWindow;
         platform_io.Platform_DestroyWindow      = DestroyChildWindow;
@@ -1244,12 +1477,29 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
         platform_io.Platform_GetWindowPos       = GetChildWindowPos;
         platform_io.Platform_SetWindowSize      = SetChildWindowSize;
         platform_io.Platform_GetWindowSize      = GetChildWindowSize;
-//        platform_io.Platform_SetWindowFocus     = ImGui_ImplGlfw_SetWindowFocus;
-//        platform_io.Platform_GetWindowFocus     = ImGui_ImplGlfw_GetWindowFocus;
-//        platform_io.Platform_GetWindowMinimized = ImGui_ImplGlfw_GetWindowMinimized;
         platform_io.Platform_SetWindowTitle     = [](ImGuiViewport* pViewport, const char*){};
         platform_io.Platform_RenderWindow       = RenderChildWindow;
         platform_io.Platform_SwapBuffers        = ChildSwapBuffers;
+
+
+        platform_io.Platform_SetWindowFocus = [](ImGuiViewport* pViewport)
+        {
+            auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
+            Info.m_Window.setFocus();
+        };
+
+        platform_io.Platform_GetWindowFocus = [](ImGuiViewport* pViewport)
+        {
+            auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
+            return Info.m_Window.isFocused();
+        };
+
+        platform_io.Platform_GetWindowMinimized = [](ImGuiViewport* pViewport)
+        {
+            auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
+            return Info.m_Window.isMinimized();
+        };
+
 
         platform_io.Monitors.resize(0);
         ImGuiPlatformMonitor monitor;
@@ -1257,27 +1507,6 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
         monitor.MainSize = monitor.WorkSize = ImVec2((float)4000.0f, (float)4000.0f);
         platform_io.Monitors.push_back(monitor);
     }
-
-    io.KeyMap[ImGuiKey_Tab]         = static_cast<int>( xgpu::keyboard::digital::KEY_TAB       );                         // Keyboard mapping. ImGui will use those indices to peek into the io.KeyDown[] array.
-    io.KeyMap[ImGuiKey_LeftArrow]   = static_cast<int>( xgpu::keyboard::digital::KEY_LEFT      );
-    io.KeyMap[ImGuiKey_RightArrow]  = static_cast<int>( xgpu::keyboard::digital::KEY_RIGHT     );
-    io.KeyMap[ImGuiKey_UpArrow]     = static_cast<int>( xgpu::keyboard::digital::KEY_UP        );
-    io.KeyMap[ImGuiKey_DownArrow]   = static_cast<int>( xgpu::keyboard::digital::KEY_DOWN      );
-    io.KeyMap[ImGuiKey_PageUp]      = static_cast<int>( xgpu::keyboard::digital::KEY_PAGEUP    );
-    io.KeyMap[ImGuiKey_PageDown]    = static_cast<int>( xgpu::keyboard::digital::KEY_PAGEDOWN  );
-    io.KeyMap[ImGuiKey_Home]        = static_cast<int>( xgpu::keyboard::digital::KEY_HOME      );
-    io.KeyMap[ImGuiKey_End]         = static_cast<int>( xgpu::keyboard::digital::KEY_END       );
-    io.KeyMap[ImGuiKey_Delete]      = static_cast<int>( xgpu::keyboard::digital::KEY_DELETE    );
-    io.KeyMap[ImGuiKey_Backspace]   = static_cast<int>( xgpu::keyboard::digital::KEY_BACKSPACE );
-    io.KeyMap[ImGuiKey_Enter]       = static_cast<int>( xgpu::keyboard::digital::KEY_ENTER     );
-    io.KeyMap[ImGuiKey_Escape]      = static_cast<int>( xgpu::keyboard::digital::KEY_ESCAPE    );
-    io.KeyMap[ImGuiKey_A]           = static_cast<int>( xgpu::keyboard::digital::KEY_A         );
-    io.KeyMap[ImGuiKey_C]           = static_cast<int>( xgpu::keyboard::digital::KEY_C         );
-    io.KeyMap[ImGuiKey_V]           = static_cast<int>( xgpu::keyboard::digital::KEY_V         );
-    io.KeyMap[ImGuiKey_X]           = static_cast<int>( xgpu::keyboard::digital::KEY_X         );
-    io.KeyMap[ImGuiKey_Y]           = static_cast<int>( xgpu::keyboard::digital::KEY_Y         );
-    io.KeyMap[ImGuiKey_Z]           = static_cast<int>( xgpu::keyboard::digital::KEY_Z         );
-    io.KeyMap[ImGuiKey_Space]       = static_cast<int>( xgpu::keyboard::digital::KEY_SPACE     );
 
     //
     // Initialize the instance

@@ -1,3 +1,4 @@
+#include "imgui_internal.h"
 #include "xGPU.h"
 #include "xcore.h"
 #include "../../tools/xgpu_imgui_breach.h"
@@ -46,7 +47,7 @@ int E03_Example()
         // 
         static bool show_demo_window = true;
         ImGui::ShowDemoWindow(&show_demo_window);
-
+        
         //
         // Render
         //

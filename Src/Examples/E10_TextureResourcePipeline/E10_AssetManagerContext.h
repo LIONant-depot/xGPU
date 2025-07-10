@@ -4,7 +4,7 @@
 
 #include "E10_AssetMgr.h"
 #include "../../../dependencies/xtexture.plugin/dependencies/xresource_pipeline_v2/dependencies/xresource/source/xresource_guid.h"
-#include "xundo_system.h"
+//#include "xundo_system.h"
 
 namespace e10
 {

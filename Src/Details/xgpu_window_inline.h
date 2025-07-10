@@ -22,12 +22,16 @@ namespace xgpu
             virtual     void                            setPushConstants        ( xgpu::cmd_buffer& CmdBuffer, const void* pData, std::size_t Size )                     noexcept = 0;
             virtual     void*                           getUniformBufferVMem    ( xgpu::cmd_buffer& CmdBuffer, xgpu::shader::type::bit ShaderType, std::size_t Size )    noexcept = 0;
             virtual     void                            setDepthBias            ( xgpu::cmd_buffer& CmdBuffer, float ConstantFactor, float DepthBiasClamp, float DepthBiasSlope) noexcept = 0;
-
+            virtual     bool                            isMinimized             ( void ) const                                              noexcept = 0;
             virtual     void                            setClearColor           ( float R, float G, float B, float A )                      noexcept = 0;
             virtual     std::size_t                     getSystemWindowHandle   ( void ) const                                              noexcept = 0;
             virtual     bool                            isFocused               ( void ) const                                              noexcept = 0;
+            virtual     void                            setFocus                ( void ) const                                              noexcept = 0;
             virtual     std::pair<int, int>             getPosition             ( void ) const                                              noexcept = 0;
+            virtual     void                            setPosition             ( int x, int y )                                            noexcept = 0;
+            virtual     void                            setSize                 ( int Width, int Height )                                   noexcept = 0;
             virtual     xgpu::device                    getDevice               ( void ) const                                              noexcept = 0;
+            virtual     void                            setMousePosition        ( int x, int y )                                            noexcept = 0;
 
 
 //            virtual     bool                            HandleEvents(void)                                                    noexcept = 0;
@@ -132,10 +136,49 @@ namespace xgpu
 
     //--------------------------------------------------------------------------
 
+    XGPU_INLINE
+    void window::setFocus(void) const noexcept
+    {
+        return m_Private->setFocus();
+    }
+
+    XGPU_INLINE
+    [[nodiscard]] bool
+    window::isMinimized(void) const noexcept
+    {
+        return m_Private->isMinimized();
+    }
+
+    //--------------------------------------------------------------------------
+
     XGPU_INLINE [[nodiscard]]
     std::pair<int, int> window::getPosition(void) const noexcept
     {
         return m_Private->getPosition();
+    }
+
+    //--------------------------------------------------------------------------
+
+    XGPU_INLINE
+    void window::setPosition(int x, int y) noexcept
+    {
+        return m_Private->setPosition(x,y);
+    }
+
+    //--------------------------------------------------------------------------
+
+    XGPU_INLINE
+    void window::setSize(int Width, int Height) noexcept
+    {
+        return m_Private->setSize(Width, Height);
+    }
+
+    //--------------------------------------------------------------------------
+
+    XGPU_INLINE
+    void window::setMousePosition(int x, int y) noexcept
+    {
+        return m_Private->setMousePosition(x, y);
     }
 
     //--------------------------------------------------------------------------

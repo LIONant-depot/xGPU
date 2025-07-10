@@ -11,27 +11,23 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\dependencies\imgui\imgui.cpp" />
+    <ClCompile Include="..\..\dependencies\imgui\imgui_demo.cpp" />
+    <ClCompile Include="..\..\dependencies\imgui\imgui_draw.cpp" />
+    <ClCompile Include="..\..\dependencies\imgui\imgui_tables.cpp" />
+    <ClCompile Include="..\..\dependencies\imgui\imgui_widgets.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\allocator.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\clusterizer.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\indexcodec.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\indexgenerator.cpp" />
-    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\overdrawanalyzer.cpp" />
-    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\overdrawoptimizer.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\simplifier.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\spatialorder.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\stripifier.cpp" />
-    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\vcacheanalyzer.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\vcacheoptimizer.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\vertexcodec.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\vertexfilter.cpp" />
-    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\vfetchanalyzer.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\vfetchoptimizer.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.cpp" />
-    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui.cpp" />
-    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui_demo.cpp" />
-    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui_draw.cpp" />
-    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui_tables.cpp" />
-    <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui_widgets.cpp" />
     <ClCompile Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\src\xraw3d.cpp" />
     <ClCompile Include="..\..\dependencies\xtexture.plugin\dependencies\basis_universal\transcoder\basisu_transcoder.cpp" />
     <ClCompile Include="..\..\dependencies\xtexture.plugin\dependencies\xbmp_tools\src\xbmp_tools.cpp" />
@@ -133,16 +129,16 @@
     <ClCompile Include="..\..\Tools\xgpu_imgui_breach.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\dependencies\imgui\imconfig.h" />
+    <ClInclude Include="..\..\dependencies\imgui\imgui.h" />
+    <ClInclude Include="..\..\dependencies\imgui\imgui_internal.h" />
+    <ClInclude Include="..\..\dependencies\imgui\imstb_rectpack.h" />
+    <ClInclude Include="..\..\dependencies\imgui\imstb_textedit.h" />
+    <ClInclude Include="..\..\dependencies\imgui\imstb_truetype.h" />
     <ClInclude Include="..\..\dependencies\xcommandline\xcommanline_parser.h" />
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\meshoptimizer\src\meshoptimizer.h" />
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyExample.h" />
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\properties\src\Examples\ImGuiExample\ImGuiPropertyInspector.h" />
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imconfig.h" />
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui.h" />
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imgui_internal.h" />
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imstb_rectpack.h" />
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imstb_textedit.h" />
-    <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\imstb_truetype.h" />
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\src\xraw3d.h" />
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\src\xraw3d_anim.h" />
     <ClInclude Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\src\xraw3d_assimp_import.h" />
@@ -528,9 +524,6 @@
       <Outputs Condition="'$(Configuration)|$(Platform)'=='Release|x64'">x64\%(FileName).h</Outputs>
     </CustomBuild>
   </ItemGroup>
-  <ItemGroup>
-    <Text Include="..\..\dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui\LICENSE.txt" />
-  </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>16.0</VCProjectVersion>
     <Keyword>Win32Proj</Keyword>
@@ -567,7 +560,7 @@
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <LinkIncremental>true</LinkIncremental>
     <SourcePath>$(VC_SourcePath);</SourcePath>
-    <IncludePath>../../dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\dependencies\zstd\lib;../../dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies;../../Src\Examples\Settings;$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src;./;../../src;../../Dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\assimp\include;../../dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\xcore\dependencies\tracy\imgui;..\..\dependencies\xresource_pipeline_v2\dependencies\xcore\dependencies\zstd\lib;../../dependencies\xundo\source;../../dependencies\xundo\dependencies\xcmdline\source</IncludePath>
+    <IncludePath>../../dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\dependencies\zstd\lib;../../dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies;../../Src\Examples\Settings;$(VULKAN_SDK)\Include;$(VC_IncludePath);$(WindowsSDK_IncludePath);../../dependencies\xtexture.plugin\dependencies\xresource_pipeline_v2\dependencies\xcore\src;./;../../src;../../Dependencies\xgeom_compiler\dependencies\xraw3D\dependencies\assimp\include;../../dependencies\imgui;..\..\dependencies\xresource_pipeline_v2\dependencies\xcore\dependencies\zstd\lib;../../dependencies\xundo\source;../../dependencies\xundo\dependencies\xcmdline\source</IncludePath>
     <PublicIncludeDirectories>
     </PublicIncludeDirectories>
   </PropertyGroup>

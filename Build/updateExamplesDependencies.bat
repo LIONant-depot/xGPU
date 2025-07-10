@@ -50,6 +50,39 @@ cd /d %XGPU_PATH%
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
 rem ------------------------------------------------------------
+rem IMGUI
+rem ------------------------------------------------------------
+:IMGUI
+rmdir "../dependencies/imgui" /S /Q
+git clone -b docking https://github.com/ocornut/imgui.git "../dependencies/imgui"
+if %ERRORLEVEL% GEQ 1 goto :ERROR
+
+rem ------------------------------------------------------------
+rem XRESOURCE_MGR
+rem ------------------------------------------------------------
+:RESOURCE_MGR
+rmdir rmdir "../dependencies/xResourceMgr" /S /Q
+git clone https://github.com/LIONant-depot/xResourceMgr.git "../dependencies/xResourceMgr"
+if %ERRORLEVEL% GEQ 1 goto :ERROR
+
+rem ------------------------------------------------------------
+rem XCONTAINER
+rem ------------------------------------------------------------
+:XCONTAINER
+rmdir rmdir "../dependencies/xcontainer" /S /Q
+git clone https://github.com/LIONant-depot/xcontainer.git "../dependencies/xResourceMgr"
+if %ERRORLEVEL% GEQ 1 goto :ERROR
+
+rem ------------------------------------------------------------
+rem XDELEGATE
+rem ------------------------------------------------------------
+:XDELEGATE
+rmdir rmdir "../dependencies/xdelegate" /S /Q
+git clone https://github.com/LIONant-depot/xdelegate.git "../dependencies/xdelegate"
+if %ERRORLEVEL% GEQ 1 goto :ERROR
+
+
+rem ------------------------------------------------------------
 rem XPRIM_GEOM
 rem ------------------------------------------------------------
 :XPRIM_GEOM

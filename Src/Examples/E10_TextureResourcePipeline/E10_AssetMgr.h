@@ -8,7 +8,7 @@
 #include <queue>
 #include <cwctype>
 
-#include "../../dependencies/xtexture.plugin/dependencies/xresource_pipeline_v2/dependencies/xresource/dependencies/xcontainer/source/xcontainer.h"
+#include "../../dependencies/xcontainer/source/xcontainer.h"
 #include "../../dependencies/xdelegate/source/xdelegate.h"
 
 #pragma once
@@ -2423,6 +2423,11 @@ namespace e10
                 Library.m_UserDescriptorPath = std::format(L"{}\\Descriptors", Library.m_Path);
                 Library.m_SysDescriptorPath  = std::format(L"{}\\Cache\\Descriptors", Library.m_Path);
                 Library.m_ResourcePath       = std::format(L"{}\\Cache\\Resources\\Platforms\\WINDOWS", Library.m_Path);
+
+                // Make sure that those key paths are always created...
+                if (false == std::filesystem::exists(Library.m_ResourcePath))       create_directory_path(Library.m_ResourcePath);
+                if (false == std::filesystem::exists(Library.m_SysDescriptorPath))  create_directory_path(Library.m_SysDescriptorPath);
+                if (false == std::filesystem::exists(Library.m_UserDescriptorPath)) create_directory_path(Library.m_UserDescriptorPath);
             }
 
             //

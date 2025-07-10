@@ -1191,7 +1191,7 @@ namespace e10
                             renameFolder.clear();
                         }
 
-                        if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Escape))) 
+                        if (ImGui::IsKeyPressed(ImGuiKey_Escape)) 
                         {
                             ImGui::CloseCurrentPopup(); // Close without saving
                             renameFolder.clear();
@@ -2079,7 +2079,7 @@ namespace e10
                     // Optional: Ensure cursor is at the end (if there's existing text)
                     if (ImGui::IsKeyPressed(ImGuiKey_Enter, false)) bEnterPressed = true;
 
-                    if (ImGui::IsKeyPressed(ImGui::GetKeyIndex(ImGuiKey_Escape)))
+                    if (ImGui::IsKeyPressed(ImGuiKey_Escape))
                     {
                         ImGui::CloseCurrentPopup(); // Close without saving
                         m_RenameItem.clear();
