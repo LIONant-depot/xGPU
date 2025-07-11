@@ -552,13 +552,8 @@ struct material_mgr
             if (auto Entry = m_PipelineInstances.find(PipelineGuid); Entry != m_PipelineInstances.end())
             {
                 // This is the right code we should do
-                // Device.Destroy(Entry->second);
-                // m_PipelineInstances.erase(Entry);
-
-                // This is a HACK!! because xgpu does not support the destructions of things...
-                auto Str = Entry->second.m_Private;
+                Device.Destroy( std::move(Entry->second) );
                 m_PipelineInstances.erase(Entry);
-                memset(&Str,0,sizeof(Str));
             }
         }
 
@@ -1986,6 +1981,9 @@ int E10_Example()
         // Pageflip the windows
         //
         MainWindow.PageFlip();
+
+        // Let the resource manager know we have change the frame
+        ResourceMgr.OnEndFrameEvent();
     }
 
     return 0;

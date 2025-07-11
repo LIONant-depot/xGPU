@@ -13,7 +13,6 @@ namespace xgpu::vulkan
                                                             , std::size_t               Size
                                                             ) noexcept;
 
-        
         struct per_renderpass
         {
             pipeline_instance*              m_pPipelineInstance {};

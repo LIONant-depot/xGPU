@@ -814,6 +814,9 @@ namespace xgpu::vulkan
 
         m_FrameIndex     = (m_FrameIndex + 1)     % m_ImageCount;
         m_SemaphoreIndex = (m_SemaphoreIndex + 1) % m_ImageCount;
+
+        // Let the device know what is going on...
+        m_Device->PageFlipNotification();
     }
 
     //------------------------------------------------------------------------------------------------------------------------
@@ -1132,7 +1135,7 @@ namespace xgpu::vulkan
         //
         // Create the render pipeline if we have not done so yet
         //
-        if( auto It = m_PipeLineInstanceMap.find(reinterpret_cast<std::uint64_t>(&PipelineInstance) ); It == m_PipeLineInstanceMap.end() )
+        if( auto It = m_Device->m_PipeLineInstanceMap.find(reinterpret_cast<std::uint64_t>(&PipelineInstance) ); It == m_Device->m_PipeLineInstanceMap.end() )
         {
             const auto& Pipeline           = *PipelineInstance.m_Pipeline;
             auto        PipelineCreateInfo = Pipeline.m_VkPipelineCreateInfo;
@@ -1223,7 +1226,7 @@ namespace xgpu::vulkan
             //
             // See if we have already created this material
             //
-            if (auto ItPipeline = m_PipeLineMap.find(reinterpret_cast<std::uint64_t>(CB.m_VKActiveRenderPass) ^ reinterpret_cast<std::uint64_t>(PipelineInstance.m_Pipeline.get())); ItPipeline == m_PipeLineMap.end())
+            if (auto ItPipeline = m_Device->m_PipeLineMap.find(reinterpret_cast<std::uint64_t>(CB.m_VKActiveRenderPass) ^ reinterpret_cast<std::uint64_t>(PipelineInstance.m_Pipeline.get())); ItPipeline == m_Device->m_PipeLineMap.end())
             {
                 //
                 // Create the pipeline info
@@ -1257,7 +1260,7 @@ namespace xgpu::vulkan
                 { .m_pPipeline  = PipelineInstance.m_Pipeline.get()
                 , .m_VKPipeline = PerRenderPass.m_VKPipeline
                 };
-                m_PipeLineMap.emplace(std::pair{ reinterpret_cast<std::uint64_t>(PipelineInstance.m_Pipeline.get()), PipelinePerRP });
+                m_Device->m_PipeLineMap.emplace(std::pair{ reinterpret_cast<std::uint64_t>(PipelineInstance.m_Pipeline.get()), PipelinePerRP });
             }
             else
             {
@@ -1268,7 +1271,7 @@ namespace xgpu::vulkan
             //
             // Cache this instance
             //
-            m_PipeLineInstanceMap.emplace( std::pair{ reinterpret_cast<std::uint64_t>(&PipelineInstance), PerRenderPass } );
+            m_Device->m_PipeLineInstanceMap.emplace( std::pair{ reinterpret_cast<std::uint64_t>(&PipelineInstance), PerRenderPass } );
         }
         else
         {

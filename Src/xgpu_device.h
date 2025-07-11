@@ -31,37 +31,42 @@ namespace xgpu
 
         XGPU_INLINE               void           getInstance    ( xgpu::instance& Instance 
                                                                 ) const noexcept;
-        XGPU_INLINE [[nodiscard]] device::error* Create         ( window&                            Window
-                                                                , const window::setup&               Setup 
+        XGPU_INLINE [[nodiscard]] device::error* Create         ( window&                           Window
+                                                                , const window::setup&              Setup 
                                                                 ) noexcept;
 
-        XGPU_INLINE [[nodiscard]] device::error* Create         ( renderpass&                        Renderpass
-                                                                , const renderpass::setup&           Setup 
+        XGPU_INLINE [[nodiscard]] device::error* Create         ( renderpass&                       Renderpass
+                                                                , const renderpass::setup&          Setup 
                                                                 ) noexcept;
 
-        XGPU_INLINE [[nodiscard]] device::error* Create         ( pipeline&                          Pipeline
-                                                                , const pipeline::setup&             Setup 
+        XGPU_INLINE [[nodiscard]] device::error* Create         ( pipeline&                         Pipeline
+                                                                , const pipeline::setup&            Setup 
                                                                 ) noexcept;
 
-        XGPU_INLINE [[nodiscard]] device::error* Create         ( pipeline_instance&                 PipelineInstance
-                                                                , const pipeline_instance::setup&    Setup 
+        XGPU_INLINE [[nodiscard]] device::error* Create         ( pipeline_instance&                PipelineInstance
+                                                                , const pipeline_instance::setup&   Setup 
                                                                 ) noexcept;
 
-        XGPU_INLINE [[nodiscard]] device::error* Create         ( shader&                            Shader
-                                                                , const shader::setup&               Setup 
+        XGPU_INLINE [[nodiscard]] device::error* Create         ( shader&                           Shader
+                                                                , const shader::setup&              Setup 
                                                                 ) noexcept;
 
-        XGPU_INLINE [[nodiscard]] device::error* Create         ( vertex_descriptor&                 VDescriptor
-                                                                , const vertex_descriptor::setup&    Setup 
+        XGPU_INLINE [[nodiscard]] device::error* Create         ( vertex_descriptor&                VDescriptor
+                                                                , const vertex_descriptor::setup&   Setup 
                                                                 ) noexcept;
 
-        XGPU_INLINE [[nodiscard]] device::error* Create         ( texture&                           Texture
-                                                                , const texture::setup&              Setup 
+        XGPU_INLINE [[nodiscard]] device::error* Create         ( texture&                          Texture
+                                                                , const texture::setup&             Setup 
                                                                 ) noexcept;
 
-        XGPU_INLINE [[nodiscard]] device::error* Create         ( buffer&                            Buffer
-                                                                , const buffer::setup&               Setup 
+        XGPU_INLINE [[nodiscard]] device::error* Create         ( buffer&                           Buffer
+                                                                , const buffer::setup&              Setup 
                                                                 ) noexcept;
+
+        XGPU_INLINE void                         Destroy        ( pipeline_instance&&               PipelineInstance ) noexcept;
+        XGPU_INLINE void                         Destroy        ( pipeline&&                        Pipeline )         noexcept;
+        XGPU_INLINE void                         Destroy        ( texture&&                         Texture )          noexcept;
+
 
         std::shared_ptr<details::device_handle>   m_Private;
     };

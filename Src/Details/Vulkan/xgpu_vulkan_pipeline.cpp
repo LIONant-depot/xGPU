@@ -43,6 +43,19 @@ namespace xgpu::vulkan
 
     //----------------------------------------------------------------------------------------
 
+    pipeline::~pipeline( void )
+    {
+        for (int i = 0; i < m_nSamplers; ++i)
+            if (m_VKSamplers[i]) vkDestroySampler(m_Device->m_VKDevice, m_VKSamplers[i], m_Device->m_Instance->m_pVKAllocator);
+
+        for (int i = 0; i < m_nVKDescriptorSetLayout; ++i)
+            if (m_VKDescriptorSetLayout[i]) vkDestroyDescriptorSetLayout(m_Device->m_VKDevice, m_VKDescriptorSetLayout[i], m_Device->m_Instance->m_pVKAllocator);
+
+        if (m_VKPipelineLayout) vkDestroyPipelineLayout(m_Device->m_VKDevice, m_VKPipelineLayout, m_Device->m_Instance->m_pVKAllocator);
+    }
+
+    //----------------------------------------------------------------------------------------
+
     xgpu::device::error* pipeline::Initialize
     ( std::shared_ptr<device>&&     Device
     , const xgpu::pipeline::setup&  Setup 

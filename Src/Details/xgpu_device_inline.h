@@ -40,6 +40,10 @@ namespace xgpu
                                                                     , const xgpu::buffer::setup&            Setup
                                                                     , std::shared_ptr<device_handle>&       SharedDevice
                                                                     ) noexcept = 0;
+
+            virtual void Destroy(pipeline_instance&& PipelineInstance)  noexcept = 0;
+            virtual void Destroy(pipeline&& Pipeline)                   noexcept = 0;
+            virtual void Destroy(texture&& Texture)                     noexcept = 0;
         };
     }
 
@@ -147,5 +151,13 @@ namespace xgpu
     {
         return m_Private->Create( Buffer, Setup, m_Private );
     }
+
+    //------------------------------------------------------------------------------------------------
+
+    void device::Destroy(pipeline_instance&& PipelineInstance)  noexcept { m_Private->Destroy( std::move(PipelineInstance) ); }
+    void device::Destroy(pipeline&& Pipeline)                   noexcept { m_Private->Destroy( std::move(Pipeline) ); }
+    void device::Destroy(texture&& Texture)                     noexcept { m_Private->Destroy( std::move(Texture) ); }
+
+
 
 }

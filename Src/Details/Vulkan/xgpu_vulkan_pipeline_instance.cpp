@@ -4,6 +4,7 @@ namespace xgpu::vulkan
 
     pipeline_instance::~pipeline_instance( void ) noexcept
     {
+        int a=0;
     }
 
     //-------------------------------------------------------------------------------

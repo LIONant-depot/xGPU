@@ -62,6 +62,22 @@ namespace xgpu::vulkan
                                                             , std::shared_ptr<device_handle>&           SharedDevice
                                                             ) noexcept override;
 
+        void                            PageFlipNotification( void ) noexcept;
+
+        virtual void                    Destroy             ( xgpu::pipeline_instance&& PipelineInstance )  noexcept override;
+        virtual void                    Destroy             ( xgpu::pipeline&& Pipeline )                   noexcept override;
+        virtual void                    Destroy             ( xgpu::texture&& Texture )                     noexcept override;
+
+
+        struct death_march
+        {
+            std::vector<xgpu::texture>            m_Texture;
+            std::vector<xgpu::pipeline_instance>  m_PipelineInstance;
+            std::vector<xgpu::pipeline>           m_Pipeline;
+        };
+
+        using mati_per_renderpass_map = std::unordered_map<std::uint64_t, pipeline_instance::per_renderpass>;
+        using mat_per_renderpass_map = std::unordered_map<std::uint64_t, pipeline::per_renderpass>;
 
 
         std::shared_ptr<xgpu::vulkan::instance>         m_Instance                  {};
@@ -76,5 +92,9 @@ namespace xgpu::vulkan
         VkDeviceSize                                    m_BufferMemoryAlignment     {256};
         VkPhysicalDeviceProperties                      m_VKPhysicalDeviceProperties{};
         lock_object<VkDescriptorPool>                   m_LockedVKDescriptorPool    {};
+        int                                             m_FrameIndex                = 0;
+        std::array<death_march,2>                       m_DeathMarchList            {};
+        mati_per_renderpass_map                         m_PipeLineInstanceMap       {};
+        mat_per_renderpass_map                          m_PipeLineMap               {};
     };
 }

@@ -114,9 +114,6 @@ namespace xgpu::vulkan
         xgpu::device                            getDevice                   ( void
                                                                             ) const noexcept override;
 
-        using mati_per_renderpass_map = std::unordered_map<std::uint64_t, pipeline_instance::per_renderpass>;
-        using mat_per_renderpass_map  = std::unordered_map<std::uint64_t, pipeline::per_renderpass>;
-
         std::shared_ptr<vulkan::device>         m_Device                {};
         VkSurfaceKHR                            m_VKSurface             {};
         std::array<VkClearValue,2>              m_VKClearValue          { VkClearValue{ .color = {.float32 = {0,0,0,1}} }, VkClearValue{ .depthStencil{ 1.0f, 0 } }};
@@ -140,7 +137,5 @@ namespace xgpu::vulkan
         int                                     m_nCmds                 {0};
         VkViewport                              m_DefaultViewport       {};
         VkRect2D                                m_DefaultScissor        {};
-        mati_per_renderpass_map                 m_PipeLineInstanceMap   {};
-        mat_per_renderpass_map                  m_PipeLineMap           {};
     };
 }

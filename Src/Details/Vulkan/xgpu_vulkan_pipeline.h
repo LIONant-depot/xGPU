@@ -5,6 +5,7 @@ namespace xgpu::vulkan
         xgpu::device::error* Initialize     ( std::shared_ptr<device>&&    Device
                                             , const xgpu::pipeline::setup& Setup
                                             ) noexcept;
+        ~pipeline(void) override;
 
         struct per_renderpass
         {
@@ -16,6 +17,7 @@ namespace xgpu::vulkan
         using stages_createinfo_array      = std::array<VkPipelineShaderStageCreateInfo,       xgpu::shader::type::count_v>;
         using samples_array                = std::array<VkSampler, 16>;
         using blend_attachment_state_array = std::array<VkPipelineColorBlendAttachmentState, xgpu::renderpass::max_attachments_v>;
+
         std::shared_ptr<device>                             m_Device                        {};
         std::shared_ptr<vulkan::vertex_descriptor>          m_VertexDesciptor               {};
         int                                                 m_nVKDescriptorSetLayout        { 0 };
