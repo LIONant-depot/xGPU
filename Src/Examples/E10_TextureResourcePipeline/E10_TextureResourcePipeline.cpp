@@ -1983,7 +1983,7 @@ int E10_Example()
         MainWindow.PageFlip();
 
         // Let the resource manager know we have change the frame
-        ResourceMgr.OnEndFrameEvent();
+        ResourceMgr.OnEndFrameDelegate();
     }
 
     return 0;
