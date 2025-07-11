@@ -385,40 +385,52 @@ namespace xgpu::vulkan
 
         auto& DeathMarch = m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()];
 
-        for ( auto& E : DeathMarch.m_Texture )
-            E.m_Private.reset();
-
-        for (auto& E : DeathMarch.m_PipelineInstance)
+        if (false == DeathMarch.m_Texture.empty())
         {
-            if ( E.m_Private.use_count() == 1 )
-            {
-                if (auto It = m_PipeLineInstanceMap.find(reinterpret_cast<std::uint64_t>(E.m_Private.get())); It != m_PipeLineInstanceMap.end())
-                {
-                    m_PipeLineInstanceMap.erase( It );
-                }
-            }
-            E.m_Private.reset();
+            for (auto& E : DeathMarch.m_Texture)
+                E.m_Private.reset();
+            DeathMarch.m_Texture.clear();
         }
 
-        for (auto& E : DeathMarch.m_Pipeline)
+        if (false == DeathMarch.m_PipelineInstance.empty() )
         {
-            if( E.m_Private.use_count() == 1 )
+            for (auto& E : DeathMarch.m_PipelineInstance)
             {
-                for (auto it = m_PipeLineMap.begin(); it != m_PipeLineMap.end(); )
+                if ( E.m_Private.use_count() == 1 )
                 {
-                    if (it->second.m_pPipeline == E.m_Private.get())
+                    if (auto It = m_PipeLineInstanceMap.find(reinterpret_cast<std::uint64_t>(E.m_Private.get())); It != m_PipeLineInstanceMap.end())
                     {
-                        it = m_PipeLineMap.erase(it); // erase returns the next iterator
-                    }
-                    else
-                    {
-                        ++it;
+                        m_PipeLineInstanceMap.erase( It );
                     }
                 }
+                E.m_Private.reset();
             }
-            E.m_Private.reset();
+            DeathMarch.m_PipelineInstance.clear();
         }
-            
+
+        if ( false == DeathMarch.m_Pipeline.empty())
+        {
+            for (auto& E : DeathMarch.m_Pipeline)
+            {
+                if( E.m_Private.use_count() == 1 )
+                {
+                    for (auto it = m_PipeLineMap.begin(); it != m_PipeLineMap.end(); )
+                    {
+                        if (it->second.m_pPipeline == E.m_Private.get())
+                        {
+                            it = m_PipeLineMap.erase(it); // erase returns the next iterator
+                        }
+                        else
+                        {
+                            ++it;
+                        }
+                    }
+                }
+                E.m_Private.reset();
+            }
+            DeathMarch.m_Pipeline.clear();
+        }
+
     }
 
     //----------------------------------------------------------------------------------------------------------
