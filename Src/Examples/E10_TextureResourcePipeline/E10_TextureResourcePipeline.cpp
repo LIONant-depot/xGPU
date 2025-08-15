@@ -1425,11 +1425,12 @@ int E10_Example()
                 }
 
                 // Wheel scale
-                DrawControls.m_2DMouseScale += 1.9f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL )[0];
+                const double Wheel = Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
+                DrawControls.m_2DMouseScale += static_cast<float>(2000.9f * io.DeltaTime * (Wheel * Wheel * Wheel));
                 if (DrawControls.m_2DMouseScale < 0.1f) DrawControls.m_2DMouseScale = 0.1f;
 
                 // Always zoom from the perspective of the mouse
-                auto MouseAbs = Mouse.getValue(xgpu::mouse::analog::POS_ABS);
+                const auto MouseAbs = Mouse.getValue(xgpu::mouse::analog::POS_ABS);
 
                 const float mx = ((MouseAbs[0] / (float)MainWindowWidth) - 0.5f) * 2.0f;
                 const float my = ((MouseAbs[1] / (float)MainWindowHeight) - 0.5f) * 2.0f;
