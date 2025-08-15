@@ -1398,7 +1398,7 @@ int E10_Example()
 
         const float MainWindowWidth  = static_cast<float>(MainWindow.getWidth());
         const float MainWindowHeight = static_cast<float>(MainWindow.getHeight());
-
+        
         //
         // Handle Input
         //
@@ -1408,27 +1408,31 @@ int E10_Example()
             {
                 const float  OldScale = DrawControls.m_2DMouseScale;
                 auto& io = ImGui::GetIO();
-
-                if (io.MouseDown[1] || io.MouseDown[2])
+                
+                if (Mouse.isPressed( xgpu::mouse::digital::BTN_LEFT ) || Mouse.isPressed(xgpu::mouse::digital::BTN_RIGHT) )
                 {
-                    if (io.MouseDown[0])
+                    auto MouseDelta = Mouse.getValue(xgpu::mouse::analog::POS_REL);
+
+                    if (Mouse.isPressed(xgpu::mouse::digital::BTN_LEFT))
                     {
-                        DrawControls.m_2DMouseScale -= 8000.0f * io.DeltaTime * (io.MouseDelta.y * (2.0f / MainWindowHeight));
+                        DrawControls.m_2DMouseScale -= 8000.0f * io.DeltaTime * (MouseDelta[1] * (2.0f / MainWindowHeight));
                     }
                     else
                     {
-                        DrawControls.m_2DMouseTranslate.m_X += io.MouseDelta.x * (2.0f / MainWindowWidth);
-                        DrawControls.m_2DMouseTranslate.m_Y += io.MouseDelta.y * (2.0f / MainWindowHeight);
+                        DrawControls.m_2DMouseTranslate.m_X += MouseDelta[0] * (2.0f / MainWindowWidth);
+                        DrawControls.m_2DMouseTranslate.m_Y += MouseDelta[1] * (2.0f / MainWindowHeight);
                     }
                 }
 
                 // Wheel scale
-                DrawControls.m_2DMouseScale += 1.9f * io.MouseWheel;
+                DrawControls.m_2DMouseScale += 1.9f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL )[0];
                 if (DrawControls.m_2DMouseScale < 0.1f) DrawControls.m_2DMouseScale = 0.1f;
 
                 // Always zoom from the perspective of the mouse
-                const float mx = ((io.MousePos.x / (float)MainWindowWidth) - 0.5f) * 2.0f;
-                const float my = ((io.MousePos.y / (float)MainWindowHeight) - 0.5f) * 2.0f;
+                auto MouseAbs = Mouse.getValue(xgpu::mouse::analog::POS_ABS);
+
+                const float mx = ((MouseAbs[0] / (float)MainWindowWidth) - 0.5f) * 2.0f;
+                const float my = ((MouseAbs[1] / (float)MainWindowHeight) - 0.5f) * 2.0f;
                 DrawControls.m_2DMouseTranslate.m_X += (DrawControls.m_2DMouseTranslate.m_X - mx) * (DrawControls.m_2DMouseScale - OldScale) / OldScale;
                 DrawControls.m_2DMouseTranslate.m_Y += (DrawControls.m_2DMouseTranslate.m_Y - my) * (DrawControls.m_2DMouseScale - OldScale) / OldScale;
             }

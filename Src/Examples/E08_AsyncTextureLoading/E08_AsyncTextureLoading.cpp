@@ -80,6 +80,12 @@ int E08_Example()
         std::exit(xbmp::tools::getErrorInt(Err));
     }
 
+    xgpu::keyboard  Keyboard;
+    {
+        Instance.Create(Keyboard, {});
+    }
+
+
     //
     // Main loop
     //
@@ -89,8 +95,7 @@ int E08_Example()
         // Handle input
         //
         static bool StartProfiling = false;
-        //  ImGui::GetIO().KeysDown[(int)xgpu::keyboard::digital::KEY_SPACE]
-        if( StartProfiling == false && ImGui::GetIO().KeysData[ImGuiKey_Space].Down ) StartProfiling = true;
+        if( StartProfiling == false && Keyboard.wasPressed(xgpu::keyboard::digital::KEY_SPACE)) StartProfiling = true;
 
         //
         // Process the textures

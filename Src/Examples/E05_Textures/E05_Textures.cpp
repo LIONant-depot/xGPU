@@ -298,7 +298,7 @@ int E05_Example()
             }
 
             // Wheel scale
-            MouseScale += 0.9f * io.MouseWheel;
+            MouseScale += 0.09f * io.MouseWheel;
             if(MouseScale < 0.1f ) MouseScale = 0.1f;
 
             // Always zoom from the perspective of the mouse
@@ -425,6 +425,11 @@ int E05_Example()
 
                     // Move cursor to bottom-right of the 128x128 cell
                     ImGui::SetCursorPos(cursorPos + ImVec2(PicSize, PicSize));
+
+                    // Add a Dummy item to reserve the cell space
+                    // Zero-sized dummy to register the cursor position
+                    ImGui::Dummy(ImVec2(0, 0)); 
+
                     ImGui::EndGroup();
 
                     if (x != 2) ImGui::SameLine();
