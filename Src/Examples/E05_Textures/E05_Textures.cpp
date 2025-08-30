@@ -277,83 +277,110 @@ int E05_Example()
             continue;
 
         //
-        // Handle Input
-        //
-        if( auto ctx = ImGui::GetCurrentContext(); ctx->HoveredWindow == nullptr || ctx->HoveredWindow->ID == ImGui::GetID("MainDockSpace") )
-        {
-            const float  OldScale = MouseScale;
-            auto&        io       = ImGui::GetIO();
-
-            if ( io.MouseDown[1] || io.MouseDown[2] )
-            {
-                if( io.MouseDown[0] )
-                {
-                    MouseScale -= 8000.0f * io.DeltaTime * (io.MouseDelta.y * (2.0f / MainWindow.getHeight()));
-                }
-                else
-                {
-                    MouseTranslate.m_X += io.MouseDelta.x * (2.0f / MainWindow.getWidth());
-                    MouseTranslate.m_Y += io.MouseDelta.y * (2.0f / MainWindow.getHeight());
-                }
-            }
-
-            // Wheel scale
-            MouseScale += 0.09f * io.MouseWheel;
-            if(MouseScale < 0.1f ) MouseScale = 0.1f;
-
-            // Always zoom from the perspective of the mouse
-            const float mx = ((io.MousePos.x / (float)MainWindow.getWidth()) - 0.5f) * 2.0f;
-            const float my = ((io.MousePos.y / (float)MainWindow.getHeight()) - 0.5f) * 2.0f;
-            MouseTranslate.m_X += (MouseTranslate.m_X - mx) * (MouseScale - OldScale) / OldScale;
-            MouseTranslate.m_Y += (MouseTranslate.m_Y - my) * (MouseScale - OldScale) / OldScale;
-
-            // Make sure that the picture does not leave the view
-            // should be 0.5 but I left a little bit of the picture inside the view with 0.4f
-            const float BorderX = ((BitmapInspector[iActiveImage].m_pBitmap->getWidth() * 0.4f) / (float)MainWindow.getWidth()) * MouseScale;
-            const float BorderY = ((BitmapInspector[iActiveImage].m_pBitmap->getHeight() * 0.4f) / (float)MainWindow.getHeight()) * MouseScale;
-            MouseTranslate.m_X = std::min(1.0f + BorderX, std::max(-1.0f - BorderX, MouseTranslate.m_X));
-            MouseTranslate.m_Y = std::min(1.0f + BorderY, std::max(-1.0f - BorderY, MouseTranslate.m_Y));
-        }
-
-        //
-        // Render the image
+        // Render the window
         //
         {
-            auto CmdBuffer = MainWindow.getCmdBuffer();
-
-            //
-            // Render background
-            //
-            {
-                CmdBuffer.setPipelineInstance(BackgroundMaterialInstance);
-                CmdBuffer.setBuffer(VertexBuffer);
-                CmdBuffer.setBuffer(IndexBuffer);
-
-                e05::push_contants PushContants;
-
-                PushContants.m_Scale = 
-                { (150 * 2.0f) / MainWindow.getWidth()
-                , (150 * 2.0f) / MainWindow.getHeight()
-                };
-                PushContants.m_Translation.setZero();
-                PushContants.m_UVScale = { 100.0f,100.0f };
-
-                CmdBuffer.setPushConstants( PushContants );
-
-                CmdBuffer.Draw(6);
-            }
-
             //
             // Render Image
             //
+            ImGui::Begin("PictureInWindow", nullptr, ImGuiWindowFlags_NoBackground);
+            const bool isWindowed = ImGui::IsWindowHovered();
+            float NewMouseWheel = 0;
+            if (isWindowed)
             {
+                auto& io = ImGui::GetIO();
+                NewMouseWheel = io.MouseWheel;
+            }
+
+            xgpu::tools::imgui::AddCustomRenderCallback([&]( const ImVec2& windowPos, const ImVec2& windowSize )
+            {
+                //
+                // Handle Input
+                //
+                if (isWindowed)
+                {
+                    const float  OldScale = MouseScale;
+                    auto& io = ImGui::GetIO();
+
+                    if (io.MouseDown[1] || io.MouseDown[2])
+                    {
+                        if (io.MouseDown[0])
+                        {
+                            MouseScale -= 8000.0f * io.DeltaTime * (io.MouseDelta.y * (2.0f / windowSize.y));
+                        }
+                        else
+                        {
+                            MouseTranslate.m_X += io.MouseDelta.x * (2.0f / windowSize.x);
+                            MouseTranslate.m_Y += io.MouseDelta.y * (2.0f / windowSize.y);
+                        }
+                    }
+
+                    // set the mouse pos relative to the window
+                    const auto MousePosX = io.MousePos.x - windowPos.x;
+                    const auto MousePosY = io.MousePos.y - windowPos.y;
+
+                    // Wheel scale
+                    MouseScale += 0.09f * NewMouseWheel;
+                    if (MouseScale < 0.1f) MouseScale = 0.1f;
+
+                    // Always zoom from the perspective of the mouse
+                    const float mx = ((MousePosX / (float)windowSize.x) - 0.5f) * 2.0f;
+                    const float my = ((MousePosY / (float)windowSize.y) - 0.5f) * 2.0f;
+                    MouseTranslate.m_X += (MouseTranslate.m_X - mx) * (MouseScale - OldScale) / OldScale;
+                    MouseTranslate.m_Y += (MouseTranslate.m_Y - my) * (MouseScale - OldScale) / OldScale;
+
+                    // Make sure that the picture does not leave the view
+                    // should be 0.5 but I left a little bit of the picture inside the view with 0.4f
+                    const float BorderX = ((BitmapInspector[iActiveImage].m_pBitmap->getWidth() * 0.4f)  / (float)windowSize.x) * MouseScale;
+                    const float BorderY = ((BitmapInspector[iActiveImage].m_pBitmap->getHeight() * 0.4f) / (float)windowSize.y) * MouseScale;
+                    MouseTranslate.m_X = std::min(1.0f + BorderX, std::max(-1.0f - BorderX, MouseTranslate.m_X));
+                    MouseTranslate.m_Y = std::min(1.0f + BorderY, std::max(-1.0f - BorderY, MouseTranslate.m_Y));
+                }
+
+                auto CmdBuffer = MainWindow.getCmdBuffer();
+
+                //
+                // Set the view port to match the actual window size
+                // 
+                CmdBuffer.setViewport
+                ( windowPos.x
+                , windowPos.y
+                , windowSize.x
+                , windowSize.y
+                );
+
+                //
+                // Render background
+                //
+                {
+                    CmdBuffer.setPipelineInstance(BackgroundMaterialInstance);
+                    CmdBuffer.setBuffer(VertexBuffer);
+                    CmdBuffer.setBuffer(IndexBuffer);
+
+                    e05::push_contants PushContants;
+
+                    PushContants.m_Scale =
+                    { (150 * 2.0f) / windowSize.x
+                    , (150 * 2.0f) / windowSize.y
+                    };
+                    PushContants.m_Translation.setZero();
+                    PushContants.m_UVScale = { 100.0f,100.0f };
+
+                    CmdBuffer.setPushConstants(PushContants);
+
+                    CmdBuffer.Draw(6);
+                }
+
+                //
+                // Render Image
+                //
                 CmdBuffer.setPipelineInstance(PipelineInstance[iActiveImage]);
                 CmdBuffer.setBuffer(VertexBuffer);
                 CmdBuffer.setBuffer(IndexBuffer);
 
                 e05::push_contants PushContants;
-                PushContants.m_Scale = { (MouseScale * 2.0f) / MainWindow.getWidth()    * BitmapInspector[iActiveImage].m_pBitmap->getAspectRatio()
-                                       , (MouseScale * 2.0f) / MainWindow.getHeight()
+                PushContants.m_Scale = { (MouseScale * 2.0f) / windowSize.x * BitmapInspector[iActiveImage].m_pBitmap->getAspectRatio()
+                                       , (MouseScale * 2.0f) / windowSize.y
                                        };
                 PushContants.m_UVScale.setup(1.0f, 1.0f);
                 PushContants.m_Translation = MouseTranslate;
@@ -361,7 +388,8 @@ int E05_Example()
                 CmdBuffer.setPushConstants( PushContants );
 
                 CmdBuffer.Draw( 6 );
-            }
+            });
+            ImGui::End();
         }
 
         //

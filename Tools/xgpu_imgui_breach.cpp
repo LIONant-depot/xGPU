@@ -769,6 +769,7 @@ struct window_info
                     for (int n = 0; n < draw_data->CmdListsCount; n++)
                     {
                         const ImDrawList* cmd_list = draw_data->CmdLists[n];
+                        if (cmd_list->VtxBuffer.Data == nullptr) continue;
                         assert(cmd_list->VtxBuffer.Data != nullptr && "Invalid vertex buffer data");
                         assert(cmd_list->IdxBuffer.Data != nullptr && "Invalid index buffer data");
                         std::memcpy(pVertex, cmd_list->VtxBuffer.Data, cmd_list->VtxBuffer.Size * sizeof(ImDrawVert));
@@ -828,7 +829,47 @@ struct window_info
                     }
                     else
                     {
+                        // Project scissor/clipping rectangles into framebuffer space
+                        ImVec4 clip_rect;
+                        clip_rect.x = (pcmd->ClipRect.x - clip_off.x) * clip_scale.x;
+                        clip_rect.y = (pcmd->ClipRect.y - clip_off.y) * clip_scale.y;
+                        clip_rect.z = (pcmd->ClipRect.z - clip_off.x) * clip_scale.x;
+                        clip_rect.w = (pcmd->ClipRect.w - clip_off.y) * clip_scale.y;
+
+                        if (clip_rect.x < fb_width && clip_rect.y < fb_height && clip_rect.z >= 0.0f && clip_rect.w >= 0.0f)
+                        {
+                            // Better than nothing... but to do it right the user should set this by himself...
+                            CmdBuffer.setViewport
+                            ( clip_rect.x
+                            , clip_rect.y
+                            , clip_rect.z - clip_rect.x
+                            , clip_rect.w - clip_rect.y
+                            );
+
+                            // Negative offsets are illegal for vkCmdSetScissor
+                            if (clip_rect.x < 0.0f)
+                                clip_rect.x = 0.0f;
+                            if (clip_rect.y < 0.0f)
+                                clip_rect.y = 0.0f;
+
+                            // Apply scissor/clipping rectangle
+                            CmdBuffer.setScissor
+                            ( static_cast<int32_t>(clip_rect.x)
+                            , static_cast<int32_t>(clip_rect.y)
+                            , static_cast<int32_t>(clip_rect.z - clip_rect.x)
+                            , static_cast<int32_t>(clip_rect.w - clip_rect.y)
+                            );
+                        }
+
                         pcmd->UserCallback(cmd_list, pcmd);
+
+                        // Restore full window view port
+                        CmdBuffer.setViewport
+                        ( 0
+                        , 0
+                        , m_Window.getWidth()
+                        , m_Window.getHeight()
+                        );
                     }
                 }
                 else
