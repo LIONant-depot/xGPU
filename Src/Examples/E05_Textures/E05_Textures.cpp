@@ -379,8 +379,8 @@ int E05_Example()
                 CmdBuffer.setBuffer(IndexBuffer);
 
                 e05::push_contants PushContants;
-                PushContants.m_Scale = { (MouseScale * 2.0f) / windowSize.x * BitmapInspector[iActiveImage].m_pBitmap->getAspectRatio()
-                                       , (MouseScale * 2.0f) / windowSize.y
+                PushContants.m_Scale = { (MouseScale * 2.0f * windowSize.y/800) / windowSize.x * BitmapInspector[iActiveImage].m_pBitmap->getAspectRatio()
+                                       , (MouseScale * 2.0f * windowSize.y/800) / windowSize.y
                                        };
                 PushContants.m_UVScale.setup(1.0f, 1.0f);
                 PushContants.m_Translation = MouseTranslate;
