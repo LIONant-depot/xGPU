@@ -268,7 +268,7 @@ namespace xgpu::vulkan
 
     buffer::~buffer(void) noexcept
     {
-        Destroy();
+
     }
 
     //-------------------------------------------------------------------------------
@@ -312,6 +312,7 @@ namespace xgpu::vulkan
 
     void buffer::Destroy(void) noexcept
     {
+
         if(m_pVMapMemory)
         {
             vkUnmapMemory(m_Device->m_VKDevice, m_VKBufferMemory);

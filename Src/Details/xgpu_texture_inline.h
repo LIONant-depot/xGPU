@@ -44,5 +44,11 @@ namespace xgpu
     {
         return m_Private->getAdressModes();
     }
+
+    texture::~texture(void)
+    {
+        if (m_Device)
+            m_Device->Destroy(std::move(*this));
+    }
 }
 

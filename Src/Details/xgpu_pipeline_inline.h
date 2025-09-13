@@ -127,4 +127,10 @@ namespace xgpu
         , .m_AlphaOperation     = op::ADD
         };
     }
+
+    pipeline::~pipeline()
+    {
+        if (m_Device)
+            m_Device->Destroy(std::move(*this));
+    }
 }

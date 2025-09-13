@@ -191,6 +191,10 @@ namespace xgpu
             pipeline::blend                     m_Blend             {};
         };
 
+
+        inline ~pipeline ( void ) noexcept;
+        
         std::shared_ptr<details::pipeline_handle> m_Private {};
+        device*                                   m_Device {};
     };
 }

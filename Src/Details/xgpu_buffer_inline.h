@@ -50,4 +50,12 @@ namespace xgpu
         return m_Private->Resize( NewEntryCount );
     }
 
+    //--------------------------------------------------------------------------------------------------------
+
+    buffer::~buffer() noexcept
+    {
+        if( m_Device )
+            m_Device->Destroy(std::move(*this));
+    }
+
 }

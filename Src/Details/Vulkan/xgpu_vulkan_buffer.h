@@ -7,8 +7,7 @@ namespace xgpu::vulkan
         virtual xgpu::device::error*    MapLock                 ( void*& pMemory, int StartIndex, int Count )                           noexcept override;
         virtual xgpu::device::error*    MapUnlock               ( int StartIndex, int Count )                                           noexcept override;
         virtual int                     getEntryCount           ( void ) const                                                          noexcept override;
-        virtual xgpu::buffer::error*    Resize            ( int NewEntryCount )                                                   noexcept override;
-
+        virtual xgpu::buffer::error*    Resize                  ( int NewEntryCount )                                                   noexcept override;
                 xgpu::device::error*    TransferToDestination   ( void )                                                                noexcept;
                 xgpu::device::error*    Create                  ( const xgpu::buffer::setup& Setup )                                    noexcept;
                 void                    Destroy                 ( void )                                                                noexcept;
