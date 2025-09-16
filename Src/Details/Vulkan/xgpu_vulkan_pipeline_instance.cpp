@@ -84,4 +84,11 @@ namespace xgpu::vulkan
     }
 
 
+
+    void pipeline_instance::DeathMarch(xgpu::pipeline_instance&& PipelineInstance) noexcept
+    {
+        if (!m_Device) return;
+        m_Device->Destroy(std::move(PipelineInstance));
+        m_Device.reset();
+    }
 }

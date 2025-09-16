@@ -377,17 +377,29 @@ namespace xgpu::vulkan
         return nullptr;
     }
 
-    void device::PageFlipNotification(void)
+    void device::PageFlipNotification(void) noexcept
     {
         DeathMarch();
     }
 
     //----------------------------------------------------------------------------------------------------------
 
-    void device::Destroy(xgpu::texture&& Texture)                     noexcept { m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Texture.push_back(std::move(Texture)); }
-    void device::Destroy(xgpu::pipeline_instance&& PipelineInstance)  noexcept { m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_PipelineInstance.push_back(std::move(PipelineInstance)); }
-    void device::Destroy(xgpu::pipeline&& Pipeline)                   noexcept { m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Pipeline.push_back(std::move(Pipeline)); }
-    void device::Destroy(xgpu::buffer&& Buffer)                       noexcept { m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Buffer.push_back(std::move(Buffer)); }
+    void device::Destroy(xgpu::texture&& Texture)                     noexcept 
+    { 
+        m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Texture.push_back(std::move(Texture)); 
+    }
+    void device::Destroy(xgpu::pipeline_instance&& PipelineInstance)  noexcept 
+    { 
+        m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_PipelineInstance.push_back(std::move(PipelineInstance));
+    }
+    void device::Destroy(xgpu::pipeline&& Pipeline)                   noexcept 
+    { 
+        m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Pipeline.push_back(std::move(Pipeline)); 
+    }
+    void device::Destroy(xgpu::buffer&& Buffer)                       noexcept 
+    { 
+        m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Buffer.push_back(std::move(Buffer)); 
+    }
 
     //----------------------------------------------------------------------------------------------------------
 

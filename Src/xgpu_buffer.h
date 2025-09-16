@@ -49,6 +49,5 @@ namespace xgpu
                            ~buffer                  ( void ) noexcept;
 
         std::shared_ptr<details::buffer_handle> m_Private{};
-        device*                                 m_Device{};
     };
 }

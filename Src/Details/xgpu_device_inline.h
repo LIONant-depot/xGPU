@@ -93,7 +93,6 @@ namespace xgpu
     , const pipeline::setup&      Setup
     ) noexcept
     {
-        Pipeline.m_Device = this;
         return m_Private->Create( Pipeline, Setup, m_Private);
     }
 
@@ -130,7 +129,6 @@ namespace xgpu
     , const texture::setup&             Setup
     ) noexcept
     {
-        Texture.m_Device = this;
         return m_Private->Create(Texture, Setup, m_Private);
     }
 
@@ -143,7 +141,6 @@ namespace xgpu
     , const pipeline_instance::setup&   Setup
     ) noexcept
     {
-        PipelineInstance.m_Device = this;
         return m_Private->Create(PipelineInstance, Setup, m_Private);
     }
 
@@ -155,7 +152,6 @@ namespace xgpu
     , const buffer::setup&      Setup 
     ) noexcept
     {
-        Buffer.m_Device = this;
         return m_Private->Create( Buffer, Setup, m_Private );
     }
 
@@ -163,22 +159,18 @@ namespace xgpu
 
     void device::Destroy(pipeline_instance&& PipelineInstance)  noexcept 
     { 
-        PipelineInstance.m_Device = nullptr;
         m_Private->Destroy( std::move(PipelineInstance) );
     }
     void device::Destroy(pipeline&& Pipeline)                   noexcept 
     {
-        Pipeline.m_Device = nullptr;
         m_Private->Destroy( std::move(Pipeline) ); 
     }
     void device::Destroy(texture&& Texture)                     noexcept 
     {
-        Texture.m_Device = nullptr;
         m_Private->Destroy( std::move(Texture) );
     }
     void device::Destroy(buffer&& Buffer)                       noexcept
     {
-        Buffer.m_Device = nullptr;
         m_Private->Destroy( std::move(Buffer) ); 
     }
 

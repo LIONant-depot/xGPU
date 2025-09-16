@@ -10,6 +10,7 @@ namespace xgpu
             virtual xgpu::texture::format               getFormat               (void)                  const   noexcept = 0;
             virtual bool                                isCubemap               (void)                  const   noexcept = 0;
             virtual std::array<texture::address_mode, 3> getAdressModes         (void)                  const   noexcept = 0;
+            virtual void                                DeathMarch              (xgpu::texture&&)               noexcept = 0;
         };
     }
 
@@ -47,8 +48,9 @@ namespace xgpu
 
     texture::~texture(void)
     {
-        if (m_Device)
-            m_Device->Destroy(std::move(*this));
+        if (!m_Private) return;
+        m_Private->DeathMarch(std::move(*this));
+        m_Private.reset();
     }
 }
 

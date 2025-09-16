@@ -5,6 +5,7 @@ namespace xgpu
         struct pipeline_handle
         {
             virtual                                    ~pipeline_handle(void)                                                    noexcept = default;
+            virtual void                                DeathMarch(xgpu::pipeline&&)                                             noexcept = 0;
         };
     }
 
@@ -130,7 +131,8 @@ namespace xgpu
 
     pipeline::~pipeline()
     {
-        if (m_Device)
-            m_Device->Destroy(std::move(*this));
+        if (!m_Private) return;
+        m_Private->DeathMarch(std::move(*this));
+        m_Private.reset();
     }
 }

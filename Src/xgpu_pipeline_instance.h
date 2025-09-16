@@ -22,6 +22,5 @@ namespace xgpu
         inline ~pipeline_instance ( void ) noexcept;
         
         std::shared_ptr<details::pipeline_instance_handle> m_Private;
-        device*                                            m_Device{};
     };
 }

@@ -12,7 +12,8 @@ namespace xgpu::vulkan
                 xgpu::device::error*    Create                  ( const xgpu::buffer::setup& Setup )                                    noexcept;
                 void                    Destroy                 ( void )                                                                noexcept;
                 void*                   getUniformBufferVMem    ( std::uint32_t& DynamicOffset )                                        noexcept;
-
+                
+        virtual void                    DeathMarch              ( xgpu::buffer&& buffer )                                               noexcept override;
 
         std::shared_ptr<device>     m_Device            {};
         std::atomic<int>            m_CurrentOffset     {};     // For uniform buffers

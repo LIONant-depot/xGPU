@@ -9,6 +9,7 @@ namespace xgpu
             virtual xgpu::device::error*                MapUnlock       ( int StartIndex, int Count )                   noexcept = 0;
             virtual int                                 getEntryCount   ( void )                                  const noexcept = 0;
             virtual xgpu::buffer::error*                Resize          ( int NewEntryCount )                           noexcept = 0;
+            virtual void                                DeathMarch      ( xgpu::buffer&& )                              noexcept = 0;
         };
     }
 
@@ -54,8 +55,9 @@ namespace xgpu
 
     buffer::~buffer() noexcept
     {
-        if( m_Device )
-            m_Device->Destroy(std::move(*this));
+        if (!m_Private) return;
+        m_Private->DeathMarch(std::move(*this));
+        m_Private.reset();
     }
 
 }

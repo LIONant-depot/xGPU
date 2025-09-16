@@ -92,6 +92,5 @@ namespace xgpu
         inline                     ~texture                             ( void ) noexcept;
 
         std::shared_ptr<details::texture_handle> m_Private;
-        device*                                  m_Device{};
     };
 }
