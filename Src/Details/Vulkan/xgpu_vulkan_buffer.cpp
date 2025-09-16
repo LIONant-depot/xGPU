@@ -268,7 +268,7 @@ namespace xgpu::vulkan
 
     buffer::~buffer(void) noexcept
     {
-        Destroy();
+
     }
 
     //-------------------------------------------------------------------------------
@@ -310,8 +310,9 @@ namespace xgpu::vulkan
 
     //----------------------------------------------------------------------------------
 
-    void buffer::Destroy(void) noexcept
+    void buffer::Destroy( void ) noexcept
     {
+
         if(m_pVMapMemory)
         {
             vkUnmapMemory(m_Device->m_VKDevice, m_VKBufferMemory);
@@ -329,5 +330,12 @@ namespace xgpu::vulkan
             vkFreeMemory(m_Device->m_VKDevice, m_VKBufferMemory, m_Device->m_Instance->m_pVKAllocator );
             m_VKBufferMemory = VK_NULL_HANDLE;
         }
+    }
+
+    void buffer::DeathMarch(xgpu::buffer&& Buffer) noexcept
+    {
+        if (!m_Device) return;
+        m_Device->Destroy(std::move(Buffer));
+        m_Device.reset();
     }
 }

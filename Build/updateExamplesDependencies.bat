@@ -40,12 +40,10 @@ git clone https://github.com/LIONant-depot/xtexture.plugin "../dependencies/xtex
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 cd ../dependencies/xtexture.plugin/build
 if %ERRORLEVEL% GEQ 1 goto :ERROR
-call updateDependencies.bat "return"
+call CreateProject.bat "return"
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 
-rem now let us build
-call build_versions.bat "return"
-if %ERRORLEVEL% GEQ 1 goto :ERROR
+rem assume this builds automatically
 cd /d %XGPU_PATH%
 if %ERRORLEVEL% GEQ 1 goto :ERROR
 

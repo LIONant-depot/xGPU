@@ -19,6 +19,8 @@ namespace xgpu
             std::span<sampler_binding>  m_SamplersBindings          {};
         };
         
+        inline ~pipeline_instance ( void ) noexcept;
+        
         std::shared_ptr<details::pipeline_instance_handle> m_Private;
     };
 }

@@ -63,10 +63,13 @@ namespace xgpu::vulkan
                                                             ) noexcept override;
 
         void                            PageFlipNotification( void ) noexcept;
+        void                            DeathMarch          ( void ) noexcept;
+        virtual void                    Shutdown            ( void ) noexcept override;
 
         virtual void                    Destroy             ( xgpu::pipeline_instance&& PipelineInstance )  noexcept override;
         virtual void                    Destroy             ( xgpu::pipeline&& Pipeline )                   noexcept override;
         virtual void                    Destroy             ( xgpu::texture&& Texture )                     noexcept override;
+        virtual void                    Destroy             ( xgpu::buffer&& Buffer )                       noexcept override;
 
 
         struct death_march
@@ -74,6 +77,7 @@ namespace xgpu::vulkan
             std::vector<xgpu::texture>            m_Texture;
             std::vector<xgpu::pipeline_instance>  m_PipelineInstance;
             std::vector<xgpu::pipeline>           m_Pipeline;
+            std::vector<xgpu::buffer>             m_Buffer;
         };
 
         using mati_per_renderpass_map = std::unordered_map<std::uint64_t, pipeline_instance::per_renderpass>;

@@ -13,6 +13,7 @@ namespace xgpu::vulkan
                                                             , std::size_t               Size
                                                             ) noexcept;
 
+        virtual void            DeathMarch                  ( xgpu::pipeline_instance && buffer) noexcept override;
         struct per_renderpass
         {
             pipeline_instance*              m_pPipelineInstance {};

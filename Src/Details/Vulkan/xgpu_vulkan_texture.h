@@ -12,7 +12,9 @@ namespace xgpu::vulkan
         virtual int                                 getMipCount         (void)                  const   noexcept override;
         virtual xgpu::texture::format               getFormat           (void)                  const   noexcept override;
         virtual bool                                isCubemap           (void)                  const   noexcept override;
-        virtual std::array<xgpu::texture::address_mode, 3> getAdressModes(void)                  const   noexcept override;
+        virtual std::array<xgpu::texture::address_mode, 3> getAdressModes(void)                 const   noexcept override;
+
+        virtual void                                DeathMarch(xgpu::texture&& buffer)                  noexcept override;
 
         std::shared_ptr<vulkan::device> m_Device                {};
         VkImage                         m_VKImage               {};

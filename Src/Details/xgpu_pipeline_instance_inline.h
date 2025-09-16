@@ -5,6 +5,12 @@ namespace xgpu
         struct pipeline_instance_handle
         {
             virtual                                    ~pipeline_instance_handle(void)                                                  noexcept = default;
+            virtual void                                DeathMarch(xgpu::pipeline_instance&&)                                           noexcept = 0;
         };
+    }
+
+    pipeline_instance::~pipeline_instance()
+    {
+        m_Private->DeathMarch(std::move(*this));
     }
 }
