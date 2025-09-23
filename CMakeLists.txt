@@ -75,12 +75,12 @@ if(NOT EXISTS "${CMAKE_SOURCE_DIR}/dependencies/xtexture.plugin")
     # Change to the build directory and execute the batch script
     message(STATUS "Running CreateProject.bat in ${XTEXTURE_PLUGIN_BUILD_DIR}...")
     execute_process(
-        COMMAND "${XTEXTURE_PLUGIN_BUILD_DIR}/CreateProject.bat" "return"
+        COMMAND "${XTEXTURE_PLUGIN_BUILD_DIR}/CreateAndBuildProject.bat" "return"
         WORKING_DIRECTORY "${XTEXTURE_PLUGIN_BUILD_DIR}"
         RESULT_VARIABLE result
     )
     if(result)
-        message(FATAL_ERROR "Failed to execute CreateProject.bat: ${result}")
+        message(FATAL_ERROR "Failed to execute CreateAndBuildProject.bat: ${result}")
     endif()    
 endif()
 
