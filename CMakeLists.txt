@@ -309,6 +309,9 @@ add_executable(${TARGET_PROJECT}
   "dependencies/xproperty/source/examples/imgui/my_properties.h"
   "dependencies/xproperty/source/examples/imgui/my_property_ui.h"
   "dependencies/xproperty/source/examples/imgui/xPropertyImGuiExample.h"  
+
+  "Readme.md"
+
   ${GENERATED_HEADERS}
   ${SHADER_SOURCES}
 )
@@ -512,6 +515,7 @@ source_group("Examples/E18_QuantizeSkinVertex/Shaders" FILES
 source_group("" FILES
   "source/Examples/main.cpp"
   "source/Examples/Examples.h"
+  "Readme.md"
 )
 
 # Add dependency subdirectory
