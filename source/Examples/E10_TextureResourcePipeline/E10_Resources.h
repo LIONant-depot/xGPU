@@ -14,6 +14,6 @@ struct resource_mgr_user_data
 
 //-----------------------------------------------------------------------
 
-#include "../../dependencies/xtexture.plugin/source/xtexture_xgpu_rsc_loader.h"
+#include "dependencies/xtexture.plugin/source/xtexture_xgpu_rsc_loader.h"
 
 #endif

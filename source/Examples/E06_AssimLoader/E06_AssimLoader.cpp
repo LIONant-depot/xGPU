@@ -1,7 +1,6 @@
 #include "source/xGPU.h"
-#include "../../tools/xgpu_view.h"
-#include "../../tools/xgpu_view_inline.h"
-#include "../../tools/Import3D/import3d.h"
+#include "source/tools/xgpu_view.h"
+#include "source/tools/Import3D/import3d.h"
 
 #include "E06_LoadTextureHelper.h"
 

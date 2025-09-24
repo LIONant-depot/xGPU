@@ -1,11 +1,11 @@
 #define IMGUI_DEFINE_MATH_OPERATORS // Allows ImVec2 arithmetic
 
 #include "E05_BitmapInspector.h"
-#include "../../tools/xgpu_imgui_breach.h"
-#include <format>
+#include "source/tools/xgpu_imgui_breach.h"
 #include "dependencies/xmath/source/xmath.h"
-
 #include "imgui_internal.h"
+
+#include <format>
 
 constexpr auto g_VertShaderSPV = std::array
 {

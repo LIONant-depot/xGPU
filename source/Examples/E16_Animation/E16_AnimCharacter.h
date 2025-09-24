@@ -3,9 +3,8 @@
 #pragma once
 
 #include <vector>
-
-#include "../../tools/Import3D/import3d.h"
-#include "../../Examples/E06_AssimLoader/E06_LoadTextureHelper.h"
+#include "source/tools/Import3D/import3d.h"
+#include "source/Examples/E06_AssimLoader/E06_LoadTextureHelper.h"
 
 namespace e16
 {

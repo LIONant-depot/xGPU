@@ -1,11 +1,7 @@
 #include "source/xGPU.h"
-
-#include "../../tools/xgpu_view.h"
-#include "../../tools/xgpu_view_inline.h"
-
+#include "source/tools/xgpu_view.h"
 #include "dependencies/xprim_geom/source/xprim_geom.h"
-
-#include "../../Examples/E16_Animation/E16_AnimCharacter.h"
+#include "source/Examples/E16_Animation/E16_AnimCharacter.h"
 
 //------------------------------------------------------------------------------------------------
 static

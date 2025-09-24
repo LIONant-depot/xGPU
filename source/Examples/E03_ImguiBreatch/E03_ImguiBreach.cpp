@@ -1,6 +1,5 @@
-#include "dependencies/imgui/imgui_internal.h"
 #include "source/xGPU.h"
-#include "../../tools/xgpu_imgui_breach.h"
+#include "source/tools/xgpu_imgui_breach.h"
 
 namespace e03
 {

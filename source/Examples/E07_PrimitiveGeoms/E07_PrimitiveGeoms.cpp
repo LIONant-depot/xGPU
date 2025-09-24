@@ -1,8 +1,7 @@
 #include "source/xGPU.h"
-#include "../../tools/xgpu_view.h"
-#include "../../tools/xgpu_view_inline.h"
+#include "source/tools/xgpu_view.h"
 #include "dependencies/xprim_geom/source/xprim_geom.h"
-#include "../../tools/xgpu_xcore_bitmap_helpers.h"
+#include "source/tools/xgpu_xcore_bitmap_helpers.h"
 
 namespace e07
 {

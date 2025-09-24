@@ -1,12 +1,10 @@
 
 #include "source/xGPU.h"
-
-#include "../../tools/xgpu_view.h"
-#include "../../tools/xgpu_view_inline.h"
-#include "../../tools/xgpu_xcore_bitmap_helpers.h"
+#include "source/tools/xgpu_view.h"
+#include "source/tools/xgpu_xcore_bitmap_helpers.h"
 #include "dependencies/xgeom.plugin/dependencies/xraw3D/source/xraw3d.h"
-#include "../../tools/xgpu_imgui_breach.h"
-#include "../../tools/WindowsFileDialog/FileBrowser.h"
+#include "source/tools/xgpu_imgui_breach.h"
+#include "source/tools/WindowsFileDialog/FileBrowser.h"
 #include "dependencies/xproperty/source/Examples/imgui/xPropertyImGuiInspector.h"
 #include "dependencies/xgeom.plugin/source/xgeom.h"
 

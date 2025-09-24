@@ -313,6 +313,9 @@ add_executable(${TARGET_PROJECT}
   ${SHADER_SOURCES}
 )
 
+# Organize the shades under the folder shaders (At least the default folder)
+source_group("Shaders" FILES ${SHADER_SOURCES} ${GENERATED_HEADERS} )
+
 # Add support for assimp paths...
 include_directories(${TARGET_PROJECT} PRIVATE "dependencies/xgeom.plugin/dependencies/assimp/include"
                                               "dependencies/xgeom.plugin/dependencies/assimp/BINARIES/Win32/include") 
@@ -422,22 +425,56 @@ source_group("Examples/E11_NormalMaps" FILES
 source_group("Examples/E11_NormalMaps/Shaders" FILES
   "source/Examples/E11_NormalMaps/E11_frag_btn.glsl"  
   "source/Examples/E11_NormalMaps/E11_vert_btn.glsl"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E11_frag_btn.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E11_vert_btn.h"
 )
 
 source_group("Examples/E12_Lighting" FILES
    "source/Examples/E12_Lighting/E12_Ligting.cpp"
 )
 
+source_group("Examples/E12_Lighting/Shaders" FILES
+  "source/Examples/E12_Lighting/E12_frag_lighting.glsl"  
+  "source/Examples/E12_Lighting/E12_vert_lighting.glsl"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E12_frag_lighting.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E12_vert_lighting.h"
+)
+
 source_group("Examples/E13_ParallaxOcclusionMapping" FILES
    "source/Examples/E13_ParallaxOcclusionMapping/E13_POM.cpp"
+)
+
+source_group("Examples/E13_ParallaxOcclusionMapping/Shaders" FILES
+  "source/Examples/E13_ParallaxOcclusionMapping/E13_POM_frag.glsl"
+  "source/Examples/E13_ParallaxOcclusionMapping/E13_POM_vert.glsl"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E13_POM_frag.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E13_POM_vert.h"
 )
 
 source_group("Examples/E14_PhysicalBasedRendering" FILES
    "source/Examples/E14_PhysicalBasedRendering/E14_PBR.cpp"
 )
 
+source_group("Examples/E14_PhysicalBasedRendering/Shaders" FILES
+  "source/Examples/E14_PhysicalBasedRendering/E14_PBR_frag.glsl"
+  "source/Examples/E14_PhysicalBasedRendering/E14_PBR_vert.glsl"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E14_PBR_frag.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E14_PBR_vert.h"
+)
+
 source_group("Examples/E15_Shadowmap" FILES
    "source/Examples/E15_Shadowmap/E15_Shadowmap.cpp"
+)
+
+source_group("Examples/E15_Shadowmap/Shaders" FILES
+  "source/Examples/E15_Shadowmap/E15_ShadowmapGeneration_vert.glsl"
+  "source/Examples/E15_Shadowmap/E15_ShadowmapLighting_vert.glsl"
+  "source/Examples/E15_Shadowmap/E15_ShadowmapGeneration_frag.glsl"
+  "source/Examples/E15_Shadowmap/E15_ShadowmapLighting_frag.glsl"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E15_ShadowmapGeneration_vert.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E15_ShadowmapLighting_vert.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E15_ShadowmapGeneration_frag.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E15_ShadowmapLighting_frag.h"
 )
 
 source_group("Examples/E16_Animation" FILES
@@ -445,22 +482,37 @@ source_group("Examples/E16_Animation" FILES
    "source/Examples/E16_Animation/E16_AnimCharacter.h"
 )
 
+source_group("Examples/E16_Animation/Shaders" FILES
+  "source/Examples/E16_Animation/E16_skingeom_vert.glsl"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E16_skingeom_vert.h"
+)
+
 source_group("Examples/E17_FullSkin" FILES
    "source/Examples/E17_FullSkin/E17_FullSkinExample.cpp"
+)
+
+source_group("Examples/E17_FullSkin/Shaders" FILES
+  "source/Examples/E17_FullSkin/E17_skingeom_frag.glsl"
+  "source/Examples/E17_FullSkin/E17_skingeom_vert.glsl"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E17_skingeom_frag.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E17_skingeom_vert.h"
 )
 
 source_group("Examples/E18_QuantizeSkinVertex" FILES
    "source/Examples/E18_QuantizeSkinVertex/E18_QuantizeSkinVertex.cpp"
 )
 
+source_group("Examples/E18_QuantizeSkinVertex/Shaders" FILES
+  "source/Examples/E18_QuantizeSkinVertex/E18_quantize_skingeom_vert.glsl"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E18_quantize_skingeom_vert.h"
+)
+
+
 
 source_group("" FILES
   "source/Examples/main.cpp"
   "source/Examples/Examples.h"
 )
-
-# Organize the shades under the folder shaders
-source_group("Shaders" FILES ${SHADER_SOURCES} ${GENERATED_HEADERS} )
 
 # Add dependency subdirectory
 add_subdirectory("build/dependency" "${CMAKE_CURRENT_BINARY_DIR}/xGPUExamples")

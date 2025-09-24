@@ -1,10 +1,10 @@
-#include "../E05_Textures/E05_BitmapInspector.h"
-#include "../../tools/xgpu_imgui_breach.h"
-#include "../../tools/xgpu_xcore_bitmap_helpers.h"
+#include "source/Examples/E05_Textures/E05_BitmapInspector.h"
+#include "source/tools/xgpu_imgui_breach.h"
+#include "source/tools/xgpu_xcore_bitmap_helpers.h"
 #include "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
-#include "../../tools/xgpu_basis_universal_texture_loader.h"
+#include "source/tools/xgpu_basis_universal_texture_loader.h"
 #include "dependencies/xprim_geom/source/xprim_geom.h"
-#include "../../tools/xgpu_view.h"
+#include "source/tools/xgpu_view.h"
 #include <format>
 
 #include "E10_Resources.h"
@@ -16,8 +16,8 @@
 // This define forces the pipeline to ignore including the empty functions that the compiler needs to link
 
 #define XRESOURCE_PIPELINE_NO_COMPILER
-#include "../../dependencies/xtexture.plugin/dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
-#include "../../dependencies/xtexture.plugin/source/xtexture_rsc_descriptor.h"
+#include "Dependencies/xtexture.plugin/dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
+#include "Dependencies/xtexture.plugin/source/xtexture_rsc_descriptor.h"
 #include "imgui_internal.h"
 
 constexpr auto g_VertShader2DSPV = std::array
