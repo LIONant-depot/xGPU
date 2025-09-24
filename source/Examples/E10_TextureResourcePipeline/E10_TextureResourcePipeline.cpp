@@ -1351,7 +1351,7 @@ int E10_Example()
         {
             AssetMgr.getInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](xresource_pipeline::info& Info )
             {
-                auto str = Cmd.m_NewValue.get<std::string>();
+                auto str = Cmd.m_NewValue.get<std::wstring>();
 
                 // Keep the filename only
                 size_t pos = str.find_last_of('\\');
@@ -1363,7 +1363,7 @@ int E10_Example()
                     str = str.substr(0, pos);
 
                 // Ok let us set it!
-                if ( Info.m_Name.empty() && str.empty() == false ) Info.m_Name = std::move(str);
+                if ( Info.m_Name.empty() && str.empty() == false ) Info.m_Name = xstrtool::To(str);
             });
         }
 

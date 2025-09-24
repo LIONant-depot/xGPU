@@ -1874,7 +1874,7 @@ namespace e10
                                             for( auto& E : InfoEntry.m_Dependencies.m_Assets)
                                             {
                                                 auto pos = E.rfind('\\') + 1;
-                                                if (ImGui::MenuItem(std::string_view(xstrtool::To(E).data() + pos, E.size()-pos).data()))
+                                                if (ImGui::MenuItem(std::format( "###{}{}", (void*) & E, std::string_view(xstrtool::To(E).data() + pos, E.size() - pos).data()).c_str()))
                                                 {
                                                     //ShellExecute(NULL, L"open", L"explorer", xcore::string::To<wchar_t>(xcore::string::Fmt("%s\\Assets", strXstr(O.m_pLibraryMgr->m_ProjectPath).c_str())).data(), NULL, SW_SHOW);
                                                     auto Str = std::format(L"explorer /select,{}\\{}", m_AssetMgr.m_ProjectPath, E);

@@ -1258,7 +1258,7 @@ namespace e10
                         m_pLibraryDB->m_AssetDataBase.FindAsWriteOrCreate(AssetPath, [&](library_db::asset& Asset)
                         {
                             const auto FullPath = std::format(L"{}/{}", LibraryPath, AssetPath);
-                            Asset.m_Path            = std::move(AssetPath);
+                            Asset.m_Path            = AssetPath;
                             Asset.m_LastWriteTime   = std::filesystem::last_write_time(FullPath);
                             NewestDependencyTime    = std::max(NewestDependencyTime, Asset.m_LastWriteTime);
                         }
