@@ -1456,7 +1456,7 @@ int E10_Example()
                 // Always zoom from the perspective of the mouse
                 const auto MouseAbs = Mouse.getValue(xgpu::mouse::analog::POS_ABS);
 
-                const float mx = ((MouseAbs[0] / static_cast<float>(MainWindowWidth)) - 0.5f) * 2.0f;
+                const float mx = ((MouseAbs[0] / static_cast<float>(MainWindowWidth))  - 0.5f) * 2.0f;
                 const float my = ((MouseAbs[1] / static_cast<float>(MainWindowHeight)) - 0.5f) * 2.0f;
                 DrawControls.m_2DMouseTranslate.m_X += (DrawControls.m_2DMouseTranslate.m_X - mx) * (DrawControls.m_2DMouseScale - OldScale) / OldScale;
                 DrawControls.m_2DMouseTranslate.m_Y += (DrawControls.m_2DMouseTranslate.m_Y - my) * (DrawControls.m_2DMouseScale - OldScale) / OldScale;
@@ -1533,9 +1533,9 @@ int E10_Example()
             {
                 e10::push_contants PushContants;
 
-                PushContants.m_Scale = { (DrawControls.m_2DMouseScale * 2.0f) / MainWindowWidth * BitmapInspector.m_pBitmap->getAspectRatio()
-                                       , (DrawControls.m_2DMouseScale * 2.0f) / MainWindowHeight
-                };
+                PushContants.m_Scale.m_X = (DrawControls.m_2DMouseScale * 0.01f) / (MainWindowWidth / MainWindowHeight) * BitmapInspector.m_pBitmap->getAspectRatio();
+                PushContants.m_Scale.m_Y = (DrawControls.m_2DMouseScale * 0.01f);
+
                 PushContants.m_UVScale     = DrawOptions.m_UVScale;
                 PushContants.m_Translation = DrawControls.m_2DMouseTranslate;
 
