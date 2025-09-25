@@ -1451,13 +1451,13 @@ int E10_Example()
                 // Wheel scale
                 const double Wheel = Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
                 DrawControls.m_2DMouseScale += static_cast<float>(2000.9f * io.DeltaTime * (Wheel * Wheel * Wheel));
-                if (DrawControls.m_2DMouseScale < 0.1f) DrawControls.m_2DMouseScale = 0.1f;
+                DrawControls.m_2DMouseScale = std::max(DrawControls.m_2DMouseScale, 0.1f);
 
                 // Always zoom from the perspective of the mouse
                 const auto MouseAbs = Mouse.getValue(xgpu::mouse::analog::POS_ABS);
 
-                const float mx = ((MouseAbs[0] / (float)MainWindowWidth) - 0.5f) * 2.0f;
-                const float my = ((MouseAbs[1] / (float)MainWindowHeight) - 0.5f) * 2.0f;
+                const float mx = ((MouseAbs[0] / static_cast<float>(MainWindowWidth)) - 0.5f) * 2.0f;
+                const float my = ((MouseAbs[1] / static_cast<float>(MainWindowHeight)) - 0.5f) * 2.0f;
                 DrawControls.m_2DMouseTranslate.m_X += (DrawControls.m_2DMouseTranslate.m_X - mx) * (DrawControls.m_2DMouseScale - OldScale) / OldScale;
                 DrawControls.m_2DMouseTranslate.m_Y += (DrawControls.m_2DMouseTranslate.m_Y - my) * (DrawControls.m_2DMouseScale - OldScale) / OldScale;
             }
@@ -1480,7 +1480,7 @@ int E10_Example()
                 }
 
                 DrawControls.m_3DDistance += DrawControls.m_3DDistance * -0.2f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
-                if (DrawControls.m_3DDistance < 0.5f) DrawControls.m_3DDistance = 0.5f;
+                DrawControls.m_3DDistance = std::max(DrawControls.m_3DDistance, 0.2f );
             }
         }
 
@@ -1636,12 +1636,12 @@ int E10_Example()
                     // Render Image (3D)
                     //
                     // Update the view with latest window size
-                    DrawControls.m_3DView.setViewport({ 0, 0, (int)MainWindowWidth, (int)MainWindowHeight });
+                    DrawControls.m_3DView.setViewport({ 0, 0, static_cast<int>(MainWindowWidth), static_cast<int>(MainWindowHeight) });
 
                     const auto  W2C = DrawControls.m_3DView.getW2C();
                     xmath::fmat4 L2W;
                     L2W.setupIdentity();
-                    if (BitmapInspector.m_pBitmap->isValid()) L2W.setupScale({BitmapInspector.m_pBitmap->getAspectRatio(), 1, BitmapInspector.m_pBitmap->getAspectRatio()});
+                    if (BitmapInspector.m_pBitmap->isValid()) L2W.setupScale(xmath::fvec3{BitmapInspector.m_pBitmap->getAspectRatio(), 1, BitmapInspector.m_pBitmap->getAspectRatio()}*2.0f);
 
                     // Take the light to local space of the object
                     auto W2L = L2W;
