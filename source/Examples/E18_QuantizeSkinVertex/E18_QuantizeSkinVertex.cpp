@@ -629,12 +629,12 @@ int E18_Example()
         Instance.Create(Keyboard);
     }
 
-    xmath::fvec3      FrozenLightPosition;
+    xmath::fvec3        FrozenLightPosition;
     xmath::radian3      Angles;
     float               Distance     = 2;
     bool                FollowCamera = true;
     auto                Clock        = std::chrono::system_clock::now();
-    xmath::fvec3      CameraTarget(0,0,0);
+    xmath::fvec3        CameraTarget(0,0,0);
     xgpu::tools::view   View;
 
     View.setFov(60_xdeg);
@@ -656,20 +656,20 @@ int E18_Example()
         {
             auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
             Angles.m_Pitch.m_Value -= 0.01f * MousePos[1];
-            Angles.m_Yaw.m_Value -= 0.01f * MousePos[0];
+            Angles.m_Yaw.m_Value   -= 0.01f * MousePos[0];
         }
 
         if (Keyboard.wasPressed(xgpu::keyboard::digital::KEY_SPACE))
         {
             FrozenLightPosition = View.getPosition();
-            FollowCamera = !FollowCamera;
+            FollowCamera        = !FollowCamera;
         }
 
         if(Mouse.isPressed(xgpu::mouse::digital::BTN_MIDDLE))
         {
             auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
-            CameraTarget -= View.getWorldYVector() * (0.005f * MousePos[1]);
-            CameraTarget -= View.getWorldXVector() * (0.005f * MousePos[0]);
+            CameraTarget += View.getWorldYVector() * (0.005f * MousePos[1]);
+            CameraTarget += View.getWorldXVector() * (0.005f * MousePos[0]);
         }
 
         Distance += Distance * -0.2f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];

@@ -422,8 +422,8 @@ int E17_Example()
         if(Mouse.isPressed(xgpu::mouse::digital::BTN_MIDDLE))
         {
             auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
-            CameraTarget -= View.getWorldYVector() * (0.005f * MousePos[1]);
-            CameraTarget -= View.getWorldXVector() * (0.005f * MousePos[0]);
+            CameraTarget += View.getWorldYVector() * (0.005f * MousePos[1]);
+            CameraTarget += View.getWorldXVector() * (0.005f * MousePos[0]);
         }
 
         Distance += Distance * -0.2f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
