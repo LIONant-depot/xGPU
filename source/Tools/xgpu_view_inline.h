@@ -157,7 +157,7 @@ namespace xgpu::tools
             m_StateFlags.m_V2C = false;
             m_V2C.setupZero();
             m_V2C.setupScale( getV2CScales( m_StateFlags.m_INF_CLIP ) );
-
+            
             if( !m_StateFlags.m_USE_FOV )
             {
                 //if using a custom frustum, need to take possible off-centerness into account
@@ -172,6 +172,9 @@ namespace xgpu::tools
     #else
             m_V2C(3,2) = 1;
             m_V2C(2,3) = -(m_FarZ * m_NearZ) / (m_FarZ - m_NearZ);
+
+            //HACK: We can nuke this to reset the nearZ
+            m_V2C(3, 3) = 0;
     #endif
         }
 

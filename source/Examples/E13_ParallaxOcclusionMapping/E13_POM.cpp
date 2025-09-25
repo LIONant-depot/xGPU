@@ -399,7 +399,7 @@ int E13_Example()
     xgpu::tools::view View;
 
     View.setFov( 60_xdeg );
-
+\
     xgpu::mouse Mouse;
     xgpu::keyboard Keyboard;
     {
@@ -465,12 +465,13 @@ int E13_Example()
                 W2L = W2L.InverseSRT();
              
                 e13::push_constants PushConstants;
-                PushConstants.m_L2C                 = W2C * L2W;
-                PushConstants.m_LocalSpaceEyePos    = (W2L * View.getPosition()).xyzz();
-                PushConstants.m_LocalSpaceLightPos  = (W2L * LightPosition).xyzz();
+                PushConstants.m_L2C                     = W2C * L2W;
+                PushConstants.m_LocalSpaceEyePos        = (W2L * View.getPosition()).xyzz();
+                PushConstants.m_LocalSpaceEyePos.m_W    = 1;
+                PushConstants.m_LocalSpaceLightPos      = (W2L * LightPosition).xyzz();
                 PushConstants.m_AmbientLightColor.setup( 0.05f, 0.05f, 0.05f, 1.0f );
                 PushConstants.m_LightColor.setup( 0.8f, 0.8f, 0.8f, 1.0f );
-                PushConstants.m_LocalSpaceEyePos.m_W = 2.2f;  // We store gamma in the w component of the eye
+                PushConstants.m_LocalSpaceEyePos.m_W    = 2.2f;  // We store gamma in the w component of the eye
 
                 CmdBuffer.setPipelineInstance(PipeLineInstance);
                 CmdBuffer.setBuffer(VertexBuffer);

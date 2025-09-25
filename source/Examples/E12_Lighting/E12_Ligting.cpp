@@ -438,6 +438,7 @@ int E12_Example()
                 PushConstants.m_L2C                 = W2C * L2W;
                 PushConstants.m_LocalSpaceEyePos    = W2L * View.getPosition();
                 PushConstants.m_LocalSpaceLightPos  = (W2L * LightPosition).xyzz();
+                PushConstants.m_LocalSpaceLightPos.m_W = 1;
                 PushConstants.m_AmbientLightColor.setup( 0.05f, 0.05f, 0.05f, 1.0f );
                 PushConstants.m_LightColor.setup( 0.8f, 0.8f, 0.8f, 1.0f );
                 PushConstants.m_LocalSpaceEyePos.m_W = 2.2f;  // We store gamma in the w component of the eye
