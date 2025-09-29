@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(xGPU_unit_test LANGUAGES CXX)
+project(xGPU_unit_test LANGUAGES C CXX)
 set(TARGET_PROJECT "xGPU_unit_test")
 set(COMPONENT_REGISTRY "")
 
@@ -36,6 +36,7 @@ FetchAndPopulate("https://github.com/LIONant-depot/xstrtool.git" "main")
 FetchAndPopulate("https://github.com/LIONant-depot/xbmp_tools.git" "main")
 FetchAndPopulate("https://github.com/LIONant-depot/xserializer.git" "main")
 FetchAndPopulate("https://github.com/LIONant-depot/xscheduler.git" "main")
+FetchAndPopulate("https://github.com/thedmd/imgui-node-editor.git" "master")
 
 #
 # Add ImGui files directly
@@ -56,60 +57,52 @@ DefineInterfaceComponent(imgui "dependencies"
 )
 
 #
+# Add ImGui Node Editor files directly
+#
+DefineInterfaceComponent(imgui-node-editor "dependencies"
+  "crude_json.cpp"
+  "crude_json.h"
+  "imgui_bezier_math.h"
+  "imgui_bezier_math.inl"
+  "imgui_canvas.cpp"
+  "imgui_canvas.h"
+  "imgui_extra_math.h"
+  "imgui_extra_math.inl"
+  "imgui_node_editor.cpp"
+  "imgui_node_editor.h"
+  "imgui_node_editor_api.cpp"
+  "imgui_node_editor_internal.h"
+  "imgui_node_editor_internal.inl"
+  "LICENSE"
+)
+
+
+#
 # Get and build the texture compiler
 #
-if(NOT EXISTS "${CMAKE_SOURCE_DIR}/dependencies/xtexture.plugin")
+if(NOT EXISTS "${CMAKE_SOURCE_DIR}/dependencies/xresource_pipeline_example.lion_project")
 
     FetchContent_Declare(
-      xtexture_plugin
-      GIT_REPOSITORY https://github.com/LIONant-depot/xtexture.plugin.git
+      xresource_pipeline_example
+      GIT_REPOSITORY https://github.com/LIONant-depot/xresource_pipeline_example.lion_project.git
       GIT_TAG main
       GIT_SHALLOW TRUE
-      SOURCE_DIR "${CMAKE_SOURCE_DIR}/dependencies/xtexture.plugin"
+      SOURCE_DIR "${CMAKE_SOURCE_DIR}/dependencies/xresource_pipeline_example.lion_project"
     )
-    FetchContent_Populate(xtexture_plugin)
+    FetchContent_Populate(xresource_pipeline_example)
     
     # Define the working directory
-    set(XTEXTURE_PLUGIN_BUILD_DIR "${CMAKE_SOURCE_DIR}/dependencies/xtexture.plugin/build")
+    set(XEXAMPLE_PLUGIN_BUILD_DIR "${CMAKE_SOURCE_DIR}/dependencies/xresource_pipeline_example.lion_project")
     
     # Change to the build directory and execute the batch script
-    message(STATUS "Running CreateProject.bat in ${XTEXTURE_PLUGIN_BUILD_DIR}...")
+    message(STATUS "Running Install.bat in ${XEXAMPLE_PLUGIN_BUILD_DIR}...")
     execute_process(
-        COMMAND "${XTEXTURE_PLUGIN_BUILD_DIR}/CreateAndBuildProject.bat" "return"
-        WORKING_DIRECTORY "${XTEXTURE_PLUGIN_BUILD_DIR}"
+        COMMAND "${XEXAMPLE_PLUGIN_BUILD_DIR}/Install.bat" "return"
+        WORKING_DIRECTORY "${XEXAMPLE_PLUGIN_BUILD_DIR}"
         RESULT_VARIABLE result
     )
     if(result)
-        message(FATAL_ERROR "Failed to execute CreateAndBuildProject.bat: ${result}")
-    endif()    
-endif()
-
-#
-# Get and build the geometry compiler
-#
-if(NOT EXISTS "${CMAKE_SOURCE_DIR}/dependencies/xgeom.plugin")
-
-    FetchContent_Declare(
-      xgeom_plugin
-      GIT_REPOSITORY https://github.com/LIONant-depot/xgeom.plugin.git
-      GIT_TAG main
-      GIT_SHALLOW TRUE
-      SOURCE_DIR "${CMAKE_SOURCE_DIR}/dependencies/xgeom.plugin"
-    )
-    FetchContent_Populate(xgeom_plugin)
-    
-    # Define the working directory
-    set(XGEOM_PLUGIN_BUILD_DIR "${CMAKE_SOURCE_DIR}/dependencies/xgeom.plugin/build")
-    
-    # Change to the build directory and execute the batch script
-    message(STATUS "Running CreateProject.bat in ${XGEOM_PLUGIN_BUILD_DIR}...")
-    execute_process(
-        COMMAND "${XGEOM_PLUGIN_BUILD_DIR}/CreateProject.bat" "return"
-        WORKING_DIRECTORY "${XGEOM_PLUGIN_BUILD_DIR}"
-        RESULT_VARIABLE result
-    )
-    if(result)
-        message(FATAL_ERROR "Failed to execute CreateProject.bat: ${result}")
+        message(FATAL_ERROR "Failed to execute Install.bat: ${result}")
     endif()    
 endif()
 
@@ -119,7 +112,7 @@ endif()
 # Define source and destination paths
 set(ASSIMP_DEST "${CMAKE_CURRENT_SOURCE_DIR}/Build/xGPUExamples.vs2022")
 if(NOT EXISTS "${ASSIMP_DEST}/assimp-vc143-mt.dll")
-    set(ASSIMP_SRC "${CMAKE_SOURCE_DIR}/dependencies/xgeom.plugin/dependencies/assimp/BINARIES/Win32/bin/Release/assimp-vc143-mt.dll")
+    set(ASSIMP_SRC "${CMAKE_SOURCE_DIR}/dependencies/xresource_pipeline_example.lion_project/Cache/Plugins/xgeom.plugin/dependencies/assimp/BINARIES/Win32/bin/Release/assimp-vc143-mt.dll")
 
     # Copy the DLL file
     message(STATUS "Copying assimp-vc143-mt.dll...")
@@ -293,7 +286,15 @@ add_executable(${TARGET_PROJECT}
   "source/Examples/E16_Animation/E16_AnimCharacter.h"
   "source/Examples/E17_FullSkin/E17_FullSkinExample.cpp"
   "source/Examples/E18_QuantizeSkinVertex/E18_QuantizeSkinVertex.cpp"
+  "source/Examples/E19_MaterialEditor/E19_Material_Editor.cpp"
+  "source/Examples/E19_MaterialEditor/E19_Node_Core.h"
+  "dependencies/xresource_pipeline_example.lion_project/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph.cpp"
+  "dependencies/xresource_pipeline_example.lion_project/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph.h"
+  "dependencies/xresource_pipeline_example.lion_project/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph_node.cpp"
+  "dependencies/xresource_pipeline_example.lion_project/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph_node.h"
+  "dependencies/xresource_pipeline_example.lion_project/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph_node_guid.h"
 
+  
   "source/tools/xgpu_view.h"
   "source/tools/xgpu_view_inline.h"
   "source/tools/xgpu_xcore_bitmap_helpers.h"
@@ -320,9 +321,9 @@ add_executable(${TARGET_PROJECT}
 source_group("Shaders" FILES ${SHADER_SOURCES} ${GENERATED_HEADERS} )
 
 # Add support for assimp paths...
-include_directories(${TARGET_PROJECT} PRIVATE "dependencies/xgeom.plugin/dependencies/assimp/include"
-                                              "dependencies/xgeom.plugin/dependencies/assimp/BINARIES/Win32/include") 
-target_link_directories(${TARGET_PROJECT} PRIVATE "dependencies/xgeom.plugin")
+include_directories(${TARGET_PROJECT} PRIVATE "dependencies/xresource_pipeline_example.lion_project/Cache/Plugins/xgeom.plugin/dependencies/assimp/include"
+                                              "dependencies/xresource_pipeline_example.lion_project/Cache/Plugins/xgeom.plugin/dependencies/assimp/BINARIES/Win32/include") 
+target_link_directories(${TARGET_PROJECT} PRIVATE "dependencies/xresource_pipeline_example.lion_project/Cache/Plugins/xgeom.plugin")
 
 
 source_group("Tools" FILES
@@ -380,6 +381,9 @@ source_group("Examples/E07_PrimitiveGeoms" FILES
    "source/Examples/E07_PrimitiveGeoms/E07_PrimitiveGeoms.cpp"
 )
 
+# Include the xgeom.plugin so it works
+include_directories( "${CMAKE_SOURCE_DIR}/dependencies/xresource_pipeline_example.lion_project/Cache/Plugins/xgeom.plugin" )
+
 source_group("Examples/E08_AsyncTextureLoading" FILES
    "source/Examples/E08_AsyncTextureLoading/E08_AsyncTextureLoading.cpp"
 )
@@ -401,6 +405,9 @@ source_group("Examples/E10_TextureResourcePipeline" FILES
    "source/Examples/E10_TextureResourcePipeline/E10_asset_browser_search_tab.h"
    "source/Examples/E10_TextureResourcePipeline/E10_asset_browser_compiler_tab.h"
 )
+
+# Include the xtexture.plugin so it works
+include_directories( "${CMAKE_SOURCE_DIR}/dependencies/xresource_pipeline_example.lion_project/Cache/Plugins/xtexture.plugin" )
 
 source_group("Examples/E10_TextureResourcePipeline/Shaders" FILES
   "${CMAKE_BINARY_DIR}/sprv_shaders_h/e10_2d_cube_frag.h"
@@ -510,6 +517,24 @@ source_group("Examples/E18_QuantizeSkinVertex/Shaders" FILES
   "${CMAKE_BINARY_DIR}/sprv_shaders_h/E18_quantize_skingeom_vert.h"
 )
 
+source_group("Examples/E19_MaterialEditor" FILES
+   "source/Examples/E19_MaterialEditor/E19_Material_Editor.cpp"
+   "source/Examples/E19_MaterialEditor/E19_Node_Core.h"
+)
+
+# Include the material.plugin so it works
+include_directories( "${CMAKE_SOURCE_DIR}/dependencies/xresource_pipeline_example.lion_project/Cache/Plugins/xmaterial.plugin" )
+
+# We also need to predefine EDITOR 
+target_compile_definitions(${TARGET_PROJECT} PRIVATE EDITOR)
+
+source_group("Examples/E19_MaterialEditor/graph" FILES
+  "dependencies/xresource_pipeline_example.lion_project/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph.cpp"
+  "dependencies/xresource_pipeline_example.lion_project/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph.h"
+  "dependencies/xresource_pipeline_example.lion_project/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph_node.cpp"
+  "dependencies/xresource_pipeline_example.lion_project/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph_node.h"
+  "dependencies/xresource_pipeline_example.lion_project/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph_node_guid.h"
+)
 
 
 source_group("" FILES

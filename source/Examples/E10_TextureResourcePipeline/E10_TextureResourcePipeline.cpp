@@ -16,8 +16,8 @@
 // This define forces the pipeline to ignore including the empty functions that the compiler needs to link
 
 #define XRESOURCE_PIPELINE_NO_COMPILER
-#include "Dependencies/xtexture.plugin/dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
-#include "Dependencies/xtexture.plugin/source/xtexture_rsc_descriptor.h"
+#include "dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
+#include "source/xtexture_rsc_descriptor.h"
 #include "imgui_internal.h"
 
 constexpr auto g_VertShader2DSPV = std::array
@@ -1265,7 +1265,7 @@ int E10_Example()
             szFileName[I] = 0;
             std::wcout << L"Found xGPU at: " << szFileName << L"\n";
 
-            TCHAR LIONantProject[] = L"\\dependencies\\xtexture.plugin\\bin\\example.lion_project";
+            TCHAR LIONantProject[] = L"\\dependencies\\xresource_pipeline_example.lion_project";
             for (int i = 0; szFileName[I++] = LIONantProject[i]; ++i);
 
             std::wcout << "Project Path: " << szFileName << "\n";
@@ -1867,7 +1867,7 @@ int E10_Example()
 
                 if (Log.m_Log.empty() == false)
                 {
-                    ImGui::Text("%s", std::format("{}",e10::get_last_line(Log.m_Log)).c_str());
+                    ImGui::Text("%s", std::format("{}",xstrtool::getLastLine(Log.m_Log)).c_str());
                 }
             }
 

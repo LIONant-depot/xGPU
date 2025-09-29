@@ -11,7 +11,7 @@
 namespace e10
 {
     //------------------------------------------------------------------------------------------------
-
+    inline
     void GetFileTimestamp(const std::wstring& filePath, SYSTEMTIME& systemTime)
     {
         HANDLE hFile = CreateFile(

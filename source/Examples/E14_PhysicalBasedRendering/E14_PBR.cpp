@@ -1,7 +1,7 @@
 #include "source/xGPU.h"
 #include "source/tools/xgpu_view.h"
 #include "dependencies/xprim_geom/source/xprim_geom.h"
-#include "dependencies/xtexture.plugin/dependencies/xbmp_tools/src/xbmp_tools.h"
+#include "dependencies/xbmp_tools/src/xbmp_tools.h"
 #include "source/tools/xgpu_xcore_bitmap_helpers.h"
 
 namespace e14

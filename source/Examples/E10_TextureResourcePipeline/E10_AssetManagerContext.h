@@ -3,7 +3,7 @@
 #pragma once
 
 #include "E10_AssetMgr.h"
-#include "dependencies/xtexture.plugin/dependencies/xresource_guid/source/xresource_guid.h"
+#include "dependencies/xresource_guid/source/xresource_guid.h"
 //#include "xundo_system.h"
 
 namespace e10
