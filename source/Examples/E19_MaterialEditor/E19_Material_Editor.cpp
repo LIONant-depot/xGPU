@@ -1435,7 +1435,8 @@ int E19_Example()
     g.CreateGraph(g);
     int compileSuccess{ 0 };
     xgpu::tools::view View;
-    
+    View.setFov(60_xdeg);
+
     //
     //create input devices
     //
@@ -1749,17 +1750,18 @@ int E19_Example()
             ImGui::PopStyleColor(6);
 
             //prevent to move the node editor when right click the mesh to preview
-            if (ImGui::IsWindowHovered())//ImGuiHoveredFlags_AllowWhenBlockedByActiveItem))
+            if (ImGui::IsWindowHovered())
             {
-                if (Mouse.isPressed(xgpu::mouse::digital::BTN_RIGHT))   //ImGui::IsMouseClicked(ImGuiMouseButton_Right))//
+                if (Mouse.isPressed(xgpu::mouse::digital::BTN_RIGHT))
                 {
                     auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
-                    Angles.m_Pitch.m_Value += 0.01f * MousePos[1];
-                    Angles.m_Yaw.m_Value += 0.01f * MousePos[0];
-                    Distance += -1.0f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
+                    Angles.m_Pitch.m_Value -= 0.01f * MousePos[1];
+                    Angles.m_Yaw.m_Value   -= 0.01f * MousePos[0];
                 }
+
+                // zoom
+                Distance += Distance * -0.02f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
             }
-            if (Distance < 2) Distance = 1;
             
             if (material_instance.m_Private) xgpu::tools::imgui::AddCustomRenderCallback([&](const ImVec2& windowPos, const ImVec2& windowSize)
             {
@@ -1775,8 +1777,7 @@ int E19_Example()
                     float aspect = windowSize.x / windowSize.y;
 
                     // Update the camera
-                    xmath::radian3 fixedAngles(xmath::radian(0), xmath::radian(0), xmath::radian(0));
-                    View.LookAt(Distance, fixedAngles, { 0,0,0 });
+                    View.LookAt(Distance, Angles, { 0,0,0 });
 
                     //dragging cause the mesh to be elongated so set the aspect ratio 
                     View.setAspect(aspect);
@@ -1784,7 +1785,7 @@ int E19_Example()
                     const auto W2C = View.getW2C();
 
                     e19::push_constants pushConst;
-                    xmath::fmat4 L2W({ 2.f,2.f,2.f }, Angles, {0});
+                    xmath::fmat4 L2W({ 2.f,2.f,2.f }, xmath::radian3{0_xdeg}, {0});
                     pushConst.m_L2C = (W2C * L2W);
 
                     // Set pipeline and push constants
