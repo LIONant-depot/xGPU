@@ -20,25 +20,22 @@
 #include "source/Examples/E10_TextureResourcePipeline/E10_AssetMgr.h"
 #include "source/Examples/E10_TextureResourcePipeline/E10_AssetBrowser.h"
 
-namespace ed = ax::NodeEditor;
-static ed::EditorContext*       g_Editor = nullptr;
-static std::vector<std::string> g_CompilerLog;
-
-static int g_SelectedTexture = 0;
-
-constexpr auto g_2DVertShader = std::array
+namespace                   ed                  = ax::NodeEditor;
+static ed::EditorContext*   g_pEditor           = nullptr;
+static int                  g_SelectedTexture   = 0;
+constexpr auto              g_2DVertShader      = std::array
 {
     #include "imgui_vert.h"
 };
-
-constexpr auto g_2DFragShader = std::array
+constexpr auto              g_2DFragShader      = std::array
 {
     #include "draw_frag.h"
 };
 
+//-----------------------------------------------------------------------------------
+
 namespace e19
 {
-    //-----------------------------------------------------------------------------------
     static void Debugger(std::string_view view)
     {
         printf("%s\n", view.data());
@@ -60,14 +57,14 @@ namespace e19
 
     struct push_const2D
     {
-        xmath::fvec2 m_Scale;
-        xmath::fvec2 m_Translation;
-        xmath::fvec2 m_UVScale;
+        xmath::fvec2    m_Scale;
+        xmath::fvec2    m_Translation;
+        xmath::fvec2    m_UVScale;
     };
 
     struct push_constants
     {
-        xmath::fmat4 m_L2C;
+        xmath::fmat4    m_L2C;
     };
 
     std::string ExtractNodeName(const std::string_view clog)
@@ -86,13 +83,13 @@ namespace e19
 
     struct TextureManager
     {
-        xgpu::device*               m_Device = nullptr;
-        std::vector<xgpu::texture>  m_Textures;
-        std::vector<xgpu::texture>  m_BgTextures;
-        std::vector<std::string>    m_Names;		//for combo
-        int                         m_CurrentIndex = 0;
-        int                         m_CurrentBGIndex = 0;
-        e05::bitmap_inspector       m_BMInspector;
+        xgpu::device*               m_Device            = nullptr;
+        std::vector<xgpu::texture>  m_Textures          = {};
+        std::vector<xgpu::texture>  m_BgTextures        = {};
+        std::vector<std::string>    m_Names             = {};   //for combo
+        int                         m_CurrentIndex      = {};
+        int                         m_CurrentBGIndex    = {};
+        e05::bitmap_inspector       m_BMInspector       = {};
 
         void Init(xgpu::device& device)
         {
@@ -100,9 +97,9 @@ namespace e19
             m_Names.push_back("None"); //for default bit map
         }
 
-        void loadTexture(const std::wstring& path)
+        void loadTexture(const std::wstring_view path)
         {
-            m_BMInspector.Load(path.c_str());
+            m_BMInspector.Load(path);
 
             xgpu::texture Tex;
             xgpu::texture BgTex;
@@ -120,11 +117,11 @@ namespace e19
             m_Textures.push_back(std::move(Tex));
             m_BgTextures.push_back(std::move(BgTex));
 
-            auto lastslash = path.find_last_of(L"/\\");
+            auto lastslash  = path.find_last_of(L"/\\");
             auto startPoint = (lastslash == std::string::npos) ? 0 : lastslash + 1;
 
-            auto lastDot = path.find_last_of(L".");
-            size_t end = (lastDot == std::string::npos || lastDot < startPoint) ? path.size() : lastDot;
+            auto lastDot    = path.find_last_of(L".");
+            size_t end      = (lastDot == std::string::npos || lastDot < startPoint) ? path.size() : lastDot;
 
             m_Names.push_back(xstrtool::To(path.substr(startPoint, end - startPoint)));
         }
@@ -133,36 +130,25 @@ namespace e19
         {
             if (index <= 0 || index > m_Textures.size())
                 return nullptr;
-            return &m_Textures[index - 1]; // because 0 = "None"
+
+            // because 0 = "None"
+            return &m_Textures[index - 1]; 
         }
 
-        xgpu::texture* GetCurrentBGTexture()
+        xgpu::texture* GetCurrentBGTexture(void)
         {
-            if (m_CurrentBGIndex == 0) return nullptr;   // None = default texture
-            return &m_BgTextures[m_CurrentBGIndex - 1];    // offset by 1 because slot 0 = None
-        }
-    };
+            // None = default texture
+            if (m_CurrentBGIndex == 0) return nullptr;
 
-    //descriptor manager
-    struct DescriptorManager
-    {
-        std::vector<std::wstring> m_Paths;
-        int m_CurrentIndex = 0; // selected descriptor
-
-        void Add(const std::wstring& path)
-        {
-            m_Paths.push_back(path);
-        }
-
-        const std::wstring& Current() const
-        {
-            return m_Paths[m_CurrentIndex];
+            // offset by 1 because slot 0 = None
+            return &m_BgTextures[m_CurrentBGIndex - 1];    
         }
     };
 }
+
 namespace e19
 {
-    void meshpreviewStyle()
+    void MeshPreviewStyle(void)
     {
         ImGui::PushStyleColor(ImGuiCol_Text,            IM_COL32(0, 0, 0, 255));           //Text black colour
         ImGui::PushStyleColor(ImGuiCol_FrameBg,         IM_COL32(200, 200, 200, 255));
@@ -177,7 +163,8 @@ namespace e19
 std::vector<std::int32_t> readSPVFiles(const std::wstring_view filename) 
 {
     std::ifstream file(std::wstring(filename), std::ios::binary | std::ios::ate);
-    if (!file.is_open()) {
+    if (!file.is_open()) 
+    {
         throw std::runtime_error("Failed to open SPIR-V file: " + xstrtool::To(filename));
     }
     size_t fileSize = (size_t)file.tellg();
@@ -185,7 +172,7 @@ std::vector<std::int32_t> readSPVFiles(const std::wstring_view filename)
 
     std::vector<std::int32_t> buffer(fileSize / 4);
     file.seekg(0);
-    file.read((char*)buffer.data(), fileSize);
+    file.read(reinterpret_cast<char*>(buffer.data()), fileSize);
     file.close();
 
     return buffer;
@@ -211,24 +198,21 @@ void PipelineReload(const xmaterial_compiler::graph& g ,xgpu::device& Device, xg
     Device.Destroy(std::move(material));
 
     //
-    //Material
+    // Material
     //
     auto Data = readSPVFiles(shaderName);
 
     g.m_shaderDetail.serializeShaderDetails(true, std::format(L"{}/shader_detail.txt", logPath));
 
-
     xgpu::shader FragmentShader;
     {
-        auto RawData = xgpu::shader::setup::raw_data
-        {
-            Data
-        };
+        auto RawData = xgpu::shader::setup::raw_data{ Data };
 
         if (auto Err = Device.Create(FragmentShader, { .m_Type = xgpu::shader::type::bit::FRAGMENT, .m_Sharer = RawData }); Err)
             exit(xgpu::getErrorInt(Err));
         
     }
+
     xgpu::shader VertexShader;
     {
         auto RawData = xgpu::shader::setup::raw_data
@@ -239,9 +223,8 @@ void PipelineReload(const xmaterial_compiler::graph& g ,xgpu::device& Device, xg
         };
 
         xgpu::shader::setup Setup
-        {
-            .m_Type = xgpu::shader::type::bit::VERTEX
-        ,   .m_Sharer = RawData
+        { .m_Type = xgpu::shader::type::bit::VERTEX
+        , .m_Sharer = RawData
         };
         if (auto Err = Device.Create(VertexShader, Setup); Err)
             exit(xgpu::getErrorInt(Err));
@@ -250,14 +233,13 @@ void PipelineReload(const xmaterial_compiler::graph& g ,xgpu::device& Device, xg
     std::vector<xgpu::pipeline::sampler> SL;
     SL.resize(g.m_shaderDetail.m_Textures.size());
 
-    auto Shaders = std::array<const xgpu::shader*, 2>{ &FragmentShader, &VertexShader };
-    auto Samplers = std::array{ xgpu::pipeline::sampler{}};
-    auto Setup = xgpu::pipeline::setup
-    {
-        .m_VertexDescriptor = vd
-    ,   .m_Shaders = Shaders
-    ,   .m_PushConstantsSize = sizeof(e19::push_constants)
-    ,   .m_Samplers = SL
+    auto Shaders    = std::array<const xgpu::shader*, 2>{ &FragmentShader, &VertexShader };
+    auto Samplers   = std::array{ xgpu::pipeline::sampler{}};
+    auto Setup      = xgpu::pipeline::setup
+    { .m_VertexDescriptor   = vd
+    , .m_Shaders            = Shaders
+    , .m_PushConstantsSize  = sizeof(e19::push_constants)
+    , .m_Samplers           = SL
     };
 
     if (auto Err = Device.Create(material, Setup); Err)
@@ -269,28 +251,27 @@ struct mesh_manager
 {
     struct mesh
     {
-        xgpu::buffer m_VertexBuffer	{};
-        xgpu::buffer m_IndexBuffer	{};
-        int			 m_IndexCount	{};
+        xgpu::buffer m_VertexBuffer {};
+        xgpu::buffer m_IndexBuffer  {};
+        int          m_IndexCount   {};
     };
 
     enum class model
-    {
-        CUBE
-    ,   SPHERE
-    ,	CAPSULE
-    ,	CYLINDER
-    ,	PLANE2D
-    ,   ENUM_COUNT
+    { CUBE
+    , SPHERE
+    , CAPSULE
+    , CYLINDER
+    , PLANE2D
+    , ENUM_COUNT
     };
 
     void Init(xgpu::device& Device)
     {
-        Create_Cube(Device);
-        Create_Sphere(Device);
-        Create_Capsule(Device);
-        Create_Cylinder(Device);
-        Create_2DPlane(Device);
+        CreateCube(Device);
+        CreateSphere(Device);
+        CreateCapsule(Device);
+        CreateCylinder(Device);
+        Create2DPlane(Device);
     }
 
     void Rendering(xgpu::cmd_buffer& CmdBuffer, model Model)
@@ -300,11 +281,12 @@ struct mesh_manager
         CmdBuffer.setBuffer(Mesh.m_IndexBuffer);
         CmdBuffer.Draw(Mesh.m_IndexCount);
     }
+
     //CUBE
-    void Create_Cube(xgpu::device& Device)
+    void CreateCube(xgpu::device& Device)
     {
-        const auto  Primitive = xprim_geom::cube::Generate(4, 4, 4, 4, xprim_geom::float3{ 0.7f,0.7f,0.7f });
-        mesh& Mesh = m_Meshes[static_cast<int>(model::CUBE)];
+        const auto  Primitive   = xprim_geom::cube::Generate(4, 4, 4, 4, xprim_geom::float3{ 0.7f,0.7f,0.7f });
+        mesh&       Mesh        = m_Meshes[static_cast<int>(model::CUBE)];
 
         Mesh.m_IndexCount = static_cast<int>(Primitive.m_Indices.size());
 
@@ -312,39 +294,39 @@ struct mesh_manager
             exit(xgpu::getErrorInt(Err));
 
         (void)Mesh.m_VertexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Vertices.size()), [&](void* pData)
+        {
+            auto pVertex = static_cast<e19::draw_vert*>(pData);
+            for (int i = 0; i < static_cast<int>(Primitive.m_Vertices.size()); ++i)
             {
-                auto pVertex = static_cast<e19::draw_vert*>(pData);
-                for (int i = 0; i < static_cast<int>(Primitive.m_Vertices.size()); ++i)
-                {
-                    auto& V = pVertex[i];
-                    const auto& v = Primitive.m_Vertices[i];
-                    V.m_X = v.m_Position.m_X;
-                    V.m_Y = v.m_Position.m_Y;
-                    V.m_Z = v.m_Position.m_Z;
-                    V.m_U = v.m_Texcoord.m_X;
-                    V.m_V = v.m_Texcoord.m_Y;
-                    V.m_Color = ~0;
-                }
-            });
+                auto&       V = pVertex[i];
+                const auto& v = Primitive.m_Vertices[i];
+                V.m_X = v.m_Position.m_X;
+                V.m_Y = v.m_Position.m_Y;
+                V.m_Z = v.m_Position.m_Z;
+                V.m_U = v.m_Texcoord.m_X;
+                V.m_V = v.m_Texcoord.m_Y;
+                V.m_Color = ~0;
+            }
+        });
 
         if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = static_cast<int>(Primitive.m_Indices.size()) }); Err)
             exit(xgpu::getErrorInt(Err));
 
         (void)Mesh.m_IndexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Indices.size()), [&](void* pData)
+        {
+            auto pIndex = static_cast<std::uint32_t*>(pData);
+            for (int i = 0; i < static_cast<int>(Primitive.m_Indices.size()); ++i)
             {
-                auto            pIndex = static_cast<std::uint32_t*>(pData);
-                for (int i = 0; i < static_cast<int>(Primitive.m_Indices.size()); ++i)
-                {
-                    pIndex[i] = Primitive.m_Indices[i];
-                }
-            });
+                pIndex[i] = Primitive.m_Indices[i];
+            }
+        });
     }
 
     //SPHERE
-    void Create_Sphere(xgpu::device& Device)
+    void CreateSphere(xgpu::device& Device)
     {
-        const auto  Primitive = xprim_geom::uvsphere::Generate(70, 70, 1, 0.5f);
-        mesh& Mesh = m_Meshes[static_cast<int>(model::SPHERE)];
+        const auto  Primitive   = xprim_geom::uvsphere::Generate(70, 70, 1, 0.5f);
+        mesh&       Mesh        = m_Meshes[static_cast<int>(model::SPHERE)];
 
         Mesh.m_IndexCount = static_cast<int>(Primitive.m_Indices.size());
 
@@ -352,39 +334,39 @@ struct mesh_manager
             exit(xgpu::getErrorInt(Err));
 
         (void)Mesh.m_VertexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Vertices.size()), [&](void* pData)
+        {
+            auto pVertex = static_cast<e19::draw_vert*>(pData);
+            for (int i = 0; i < static_cast<int>(Primitive.m_Vertices.size()); ++i)
             {
-                auto pVertex = static_cast<e19::draw_vert*>(pData);
-                for (int i = 0; i < static_cast<int>(Primitive.m_Vertices.size()); ++i)
-                {
-                    auto& V = pVertex[i];
-                    const auto& v = Primitive.m_Vertices[i];
-                    V.m_X = v.m_Position.m_X;
-                    V.m_Y = v.m_Position.m_Y;
-                    V.m_Z = v.m_Position.m_Z;
-                    V.m_U = v.m_Texcoord.m_X;
-                    V.m_V = v.m_Texcoord.m_Y;
-                    V.m_Color = ~0;
-                }
-            });
+                auto&       V = pVertex[i];
+                const auto& v = Primitive.m_Vertices[i];
+                V.m_X = v.m_Position.m_X;
+                V.m_Y = v.m_Position.m_Y;
+                V.m_Z = v.m_Position.m_Z;
+                V.m_U = v.m_Texcoord.m_X;
+                V.m_V = v.m_Texcoord.m_Y;
+                V.m_Color = ~0;
+            }
+        });
 
         if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = static_cast<int>(Primitive.m_Indices.size()) }); Err)
             exit(xgpu::getErrorInt(Err));
 
         (void)Mesh.m_IndexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Indices.size()), [&](void* pData)
+        {
+            auto pIndex = static_cast<std::uint32_t*>(pData);
+            for (int i = 0; i < static_cast<int>(Primitive.m_Indices.size()); ++i)
             {
-                auto            pIndex = static_cast<std::uint32_t*>(pData);
-                for (int i = 0; i < static_cast<int>(Primitive.m_Indices.size()); ++i)
-                {
-                    pIndex[i] = Primitive.m_Indices[i];
-                }
-            });
+                pIndex[i] = Primitive.m_Indices[i];
+            }
+        });
     }
 
     //CAPSULE
-    void Create_Capsule(xgpu::device& Device)
+    void CreateCapsule(xgpu::device& Device)
     {
-        const auto  Primitive = xprim_geom::capsule::Generate(32, 32, 0.4f, 1.2f);
-        mesh& Mesh = m_Meshes[static_cast<int>(model::CAPSULE)];
+        const auto  Primitive   = xprim_geom::capsule::Generate(32, 32, 0.4f, 1.2f);
+        mesh&       Mesh        = m_Meshes[static_cast<int>(model::CAPSULE)];
 
         Mesh.m_IndexCount = static_cast<int>(Primitive.m_Indices.size());
 
@@ -392,39 +374,39 @@ struct mesh_manager
             exit(xgpu::getErrorInt(Err));
 
         (void)Mesh.m_VertexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Vertices.size()), [&](void* pData)
+        {
+            auto pVertex = static_cast<e19::draw_vert*>(pData);
+            for (int i = 0; i < static_cast<int>(Primitive.m_Vertices.size()); ++i)
             {
-                auto pVertex = static_cast<e19::draw_vert*>(pData);
-                for (int i = 0; i < static_cast<int>(Primitive.m_Vertices.size()); ++i)
-                {
-                    auto& V = pVertex[i];
-                    const auto& v = Primitive.m_Vertices[i];
-                    V.m_X = v.m_Position.m_X;
-                    V.m_Y = v.m_Position.m_Y;
-                    V.m_Z = v.m_Position.m_Z;
-                    V.m_U = v.m_Texcoord.m_X;
-                    V.m_V = v.m_Texcoord.m_Y;
-                    V.m_Color = ~0;
-                }
-            });
+                auto&       V = pVertex[i];
+                const auto& v = Primitive.m_Vertices[i];
+                V.m_X = v.m_Position.m_X;
+                V.m_Y = v.m_Position.m_Y;
+                V.m_Z = v.m_Position.m_Z;
+                V.m_U = v.m_Texcoord.m_X;
+                V.m_V = v.m_Texcoord.m_Y;
+                V.m_Color = ~0;
+            }
+        });
 
         if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = static_cast<int>(Primitive.m_Indices.size()) }); Err)
             exit(xgpu::getErrorInt(Err));
 
         (void)Mesh.m_IndexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Indices.size()), [&](void* pData)
+        {
+            auto pIndex = static_cast<std::uint32_t*>(pData);
+            for (int i = 0; i < static_cast<int>(Primitive.m_Indices.size()); ++i)
             {
-                auto            pIndex = static_cast<std::uint32_t*>(pData);
-                for (int i = 0; i < static_cast<int>(Primitive.m_Indices.size()); ++i)
-                {
-                    pIndex[i] = Primitive.m_Indices[i];
-                }
-            });
+                pIndex[i] = Primitive.m_Indices[i];
+            }
+        });
     }
 
     //CYLINDER
-    void Create_Cylinder(xgpu::device& Device)
+    void CreateCylinder(xgpu::device& Device)
     {
-        const auto  Primitive = xprim_geom::cylinder::Generate(1, 64, 1.f, 0.3f, 0.3f);;
-        mesh& Mesh = m_Meshes[static_cast<int>(model::CYLINDER)];
+        const auto  Primitive   = xprim_geom::cylinder::Generate(1, 64, 1.f, 0.3f, 0.3f);;
+        mesh&       Mesh        = m_Meshes[static_cast<int>(model::CYLINDER)];
 
         Mesh.m_IndexCount = static_cast<int>(Primitive.m_Indices.size());
 
@@ -432,35 +414,35 @@ struct mesh_manager
             exit(xgpu::getErrorInt(Err));
 
         (void)Mesh.m_VertexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Vertices.size()), [&](void* pData)
+        {
+            auto pVertex = static_cast<e19::draw_vert*>(pData);
+            for (int i = 0; i < static_cast<int>(Primitive.m_Vertices.size()); ++i)
             {
-                auto pVertex = static_cast<e19::draw_vert*>(pData);
-                for (int i = 0; i < static_cast<int>(Primitive.m_Vertices.size()); ++i)
-                {
-                    auto& V = pVertex[i];
-                    const auto& v = Primitive.m_Vertices[i];
-                    V.m_X = v.m_Position.m_X;
-                    V.m_Y = v.m_Position.m_Y;
-                    V.m_Z = v.m_Position.m_Z;
-                    V.m_U = v.m_Texcoord.m_X;
-                    V.m_V = v.m_Texcoord.m_Y;
-                    V.m_Color = ~0;
-                }
-            });
+                auto&       V = pVertex[i];
+                const auto& v = Primitive.m_Vertices[i];
+                V.m_X = v.m_Position.m_X;
+                V.m_Y = v.m_Position.m_Y;
+                V.m_Z = v.m_Position.m_Z;
+                V.m_U = v.m_Texcoord.m_X;
+                V.m_V = v.m_Texcoord.m_Y;
+                V.m_Color = ~0;
+            }
+        });
 
         if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = static_cast<int>(Primitive.m_Indices.size()) }); Err)
             exit(xgpu::getErrorInt(Err));
 
         (void)Mesh.m_IndexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Indices.size()), [&](void* pData)
+        {
+            auto pIndex = static_cast<std::uint32_t*>(pData);
+            for (int i = 0; i < static_cast<int>(Primitive.m_Indices.size()); ++i)
             {
-                auto            pIndex = static_cast<std::uint32_t*>(pData);
-                for (int i = 0; i < static_cast<int>(Primitive.m_Indices.size()); ++i)
-                {
-                    pIndex[i] = Primitive.m_Indices[i];
-                }
-            });
+                pIndex[i] = Primitive.m_Indices[i];
+            }
+        });
     }
 
-    void Create_2DPlane(xgpu::device& Device)
+    void Create2DPlane(xgpu::device& Device)
     {
         mesh& Mesh = m_Meshes[static_cast<int>(model::PLANE2D)];
         Mesh.m_IndexCount = 6;
@@ -469,31 +451,31 @@ struct mesh_manager
             exit(xgpu::getErrorInt(Err));
 
         (void)Mesh.m_VertexBuffer.MemoryMap(0, 4, [&](void* pData)
-            {
-                auto pVertex = static_cast<e19::vert_2d*>(pData);
-                pVertex[0] = { -100.0f, -100.0f,  0.0f, 0.0f, 0xffffffff };
-                pVertex[1] = { 100.0f, -100.0f,  1.0f, 0.0f, 0xffffffff };
-                pVertex[2] = { 100.0f,  100.0f,  1.0f, 1.0f, 0xffffffff };
-                pVertex[3] = { -100.0f,  100.0f,  0.0f, 1.0f, 0xffffffff };
-            });
+        {
+            auto pVertex = static_cast<e19::vert_2d*>(pData);
+            pVertex[0] = { -100.0f, -100.0f,  0.0f, 0.0f, 0xffffffff };
+            pVertex[1] = {  100.0f, -100.0f,  1.0f, 0.0f, 0xffffffff };
+            pVertex[2] = {  100.0f,  100.0f,  1.0f, 1.0f, 0xffffffff };
+            pVertex[3] = { -100.0f,  100.0f,  0.0f, 1.0f, 0xffffffff };
+        });
 
         if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = Mesh.m_IndexCount }); Err)
             exit(xgpu::getErrorInt(Err));
 
         (void)Mesh.m_IndexBuffer.MemoryMap(0, Mesh.m_IndexCount, [&](void* pData)
+        {
+            auto            pIndex = static_cast<std::uint32_t*>(pData);
+            constexpr auto  StaticIndex = std::array
             {
-                auto            pIndex = static_cast<std::uint32_t*>(pData);
-                constexpr auto  StaticIndex = std::array
-                {
-                    2u,  1u,  0u,      3u,  2u,  0u,    // front
-                };
-                static_assert(StaticIndex.size() == 6);
-                for (auto i : StaticIndex)
-                {
-                    *pIndex = i;
-                    pIndex++;
-                }
-            });
+                2u,  1u,  0u,      3u,  2u,  0u,    // front
+            };
+            static_assert(StaticIndex.size() == 6);
+            for (auto i : StaticIndex)
+            {
+                *pIndex = i;
+                pIndex++;
+            }
+        });
     }
 
     std::array<mesh, static_cast<int>(mesh_manager::model::ENUM_COUNT)> m_Meshes;
@@ -502,33 +484,25 @@ struct mesh_manager
 ImColor e19::GetIconColor(const xmaterial_compiler::type_guid& type, const xmaterial_compiler::graph& g)
 {
     const auto* t = g.GetType(type);
-    if (!t)
-        return ImColor(255, 255, 255); // fallback white
+    if (!t) return ImColor(255, 255, 255); // fallback white
 
     return ToImColor(t->m_Color);
 }
 
 void e19::DrawPinCircle(const xmaterial_compiler::type_guid& type, const xmaterial_compiler::pin_guid& pinId, const xmaterial_compiler::graph& g, ImVec2 size)
 {
-    bool connected = IsPinConnected(pinId, g);
-    ImColor iconColor = GetIconColor(type, g);
+    const bool    connected   = IsPinConnected(pinId, g);
+    const ImColor iconColor   = GetIconColor(type, g);
+    const auto    cursorPos   = ImGui::GetCursorScreenPos();
+    const auto    drawList    = ImGui::GetWindowDrawList();
+    const float   radius      = size.x * 0.5f;
+    const ImVec2  center      = ImVec2(cursorPos.x + radius, cursorPos.y + radius);
 
+    if (connected) drawList->AddCircleFilled(center, radius, iconColor);
+    else           drawList->AddCircle(center, radius, iconColor);
 
-    auto cursorPos = ImGui::GetCursorScreenPos();
-    auto drawList = ImGui::GetWindowDrawList();
-
-    float radius = size.x * 0.5f;
-    ImVec2 center = ImVec2(cursorPos.x + radius, cursorPos.y + radius);
-
-    if (connected)
-    {
-        drawList->AddCircleFilled(center, radius, iconColor);
-    }
-    else
-    {
-        drawList->AddCircle(center, radius, iconColor);
-    }
-    ImGui::Dummy(size); // advance layout
+    // advance layout
+    ImGui::Dummy(size); 
 }
 
 bool e19::IsPinConnected(const xmaterial_compiler::pin_guid& pinId, const xmaterial_compiler::graph& g)
@@ -541,7 +515,6 @@ bool e19::IsPinConnected(const xmaterial_compiler::pin_guid& pinId, const xmater
     return false;
 }
 
-bool RightMouseButton = false;
 //draw ui
 void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode, e19::TextureManager& texturemgr)
 {
@@ -561,8 +534,8 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode, e19
         }
 
         ed::BeginNode(n.m_Guid.m_Value);
-        // Draw node header
 
+        // Draw node header
         ImGui::TextUnformatted(n.m_Name.c_str());
         ImGui::Dummy({ 0.f, 5.f }); //adding spacing between the header and content
 
@@ -571,6 +544,7 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode, e19
             ed::Group(ImVec2(n.m_Params.m_Properties[1].m_Value.get<float>(), n.m_Params.m_Properties[2].m_Value.get<float>()));
         }
         ImGui::BeginGroup();
+
         // INPUTS pins
         for (auto& ip : n.m_InputPins)
         {
@@ -639,11 +613,12 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode, e19
         n.m_Pos = { nodepos.x, nodepos.y };
 
         //
-        //design for node
+        // design for node
         //
         const float nysize = 26.f;
         const auto borderoutlineClr = IM_COL32(100, 100, 100, 255);
-        {// add color to header
+        {
+            // add color to header
             auto nsize = ed::GetNodeSize(n.m_Guid.m_Value);
             if (n.isFunctionNode())
             {
@@ -662,7 +637,6 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode, e19
             }
             else if (n.isCommentNode())
             {
-                
                 if (ed::BeginGroupHint(n.m_Guid.m_Value))
                 {
                     auto bgAlpha = static_cast<int>(ImGui::GetStyle().Alpha * 255);
@@ -705,14 +679,15 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode, e19
                     auto drawList = ImGui::GetForegroundDrawList();
     
                     auto hintBounds = ImRect(ImGui::GetItemRectMin(), ImGui::GetItemRectMax());
-                    auto ImRect_Expanded = [](const ImRect& rect, float x, float y){
-                            ImRect result = rect;
-                            result.Min.x -= x;
-                            result.Min.y -= y;
-                            result.Max.x += x;
-                            result.Max.y += y;
-                            return result;
-                        };
+                    auto ImRect_Expanded = [](const ImRect& rect, float x, float y)
+                    {
+                        ImRect result = rect;
+                        result.Min.x -= x;
+                        result.Min.y -= y;
+                        result.Max.x += x;
+                        result.Max.y += y;
+                        return result;
+                    };
                     auto hintFrameBounds = ImRect_Expanded(hintBounds, 8, 4);
 
                     drawList->AddRectFilled(
@@ -775,8 +750,6 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode, e19
             ImGui::SetTooltip("%s", n.m_ErrMsg.c_str());
         }
         ed::Resume();
-
-
         
         //
         //drawing for floating rect for editable props
@@ -803,7 +776,6 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode, e19
                         NodeFillColor(n, { widgetPos.x - 23.f ,widgetPos.y + 1.3f }, { 85,18 },
                             IM_COL32(64, 64, 64, 255), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersNone, true, borderoutlineClr);
                         
-
                         float textHeight = ImGui::GetTextLineHeight();
                         float dragHeight = ImGui::GetFrameHeight(); 
                         float offsetY = (dragHeight - textHeight) * 0.5f;
@@ -817,6 +789,7 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode, e19
                         ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 1.6f);
                         ImGui::PushStyleColor(ImGuiCol_FrameBg, IM_COL32(32, 32, 32, 200));
                         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 1.f));
+
                         //somehow when using multiple same nodes drag float cause issue so the id make it more unique
                         std::string addons = std::to_string(n.m_Guid.m_Value);
 
@@ -932,6 +905,7 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode, e19
             const xmaterial_compiler::pin* outP = nullptr;
             const xmaterial_compiler::pin* inP = nullptr;
             xmaterial_compiler::pin_guid outId{}, inId{};
+
             //handle output and input pins
             if (pA && pB)
             {
@@ -1100,15 +1074,6 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode, e19
         ImGui::EndPopup();
     }
     ed::Resume();
-
-    if (ImGui::IsWindowHovered())
-    {
-        if (ImGui::IsMouseClicked(ImGuiMouseButton_Right))
-        {
-            RightMouseButton = true;
-        }
-    }
-    
     ed::End();
 }
 
@@ -1163,7 +1128,6 @@ struct selected_descriptor
         }
     }
 
-
     e10::library::guid                                          m_LibraryGUID       = {};
     xresource::full_guid                                        m_InfoGUID          = {};
     std::shared_ptr<e10::compilation::historical_entry::log>    m_Log               = {};
@@ -1196,27 +1160,22 @@ int E19_Example()
     xgpu::vertex_descriptor VertexDescriptor;
     {
         auto Attributes = std::array
-        {
-            xgpu::vertex_descriptor::attribute
-            {
-                .m_Offset = offsetof(e19::draw_vert, m_X)
-            ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
-            }
-        ,   xgpu::vertex_descriptor::attribute
-            {
-                .m_Offset = offsetof(e19::draw_vert, m_U)
-            ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
-            }
-        ,   xgpu::vertex_descriptor::attribute
-            {
-                .m_Offset = offsetof(e19::draw_vert, m_Color)
-            ,   .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED
-            }
+        { xgpu::vertex_descriptor::attribute
+          { .m_Offset = offsetof(e19::draw_vert, m_X)
+          , .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
+          }
+        , xgpu::vertex_descriptor::attribute
+          { .m_Offset = offsetof(e19::draw_vert, m_U)
+          , .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
+          }
+        , xgpu::vertex_descriptor::attribute
+          { .m_Offset = offsetof(e19::draw_vert, m_Color)
+          , .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED
+          }
         };
         auto Setup = xgpu::vertex_descriptor::setup
-        {
-            .m_VertexSize = sizeof(e19::draw_vert)
-        ,   .m_Attributes = Attributes
+        { .m_VertexSize = sizeof(e19::draw_vert)
+        , .m_Attributes = Attributes
         };
 
         if (auto Err = Device.Create(VertexDescriptor, Setup); Err)
@@ -1233,25 +1192,21 @@ int E19_Example()
             auto Attributes = std::array
             {
                 xgpu::vertex_descriptor::attribute
-                {
-                    .m_Offset = offsetof(e19::vert_2d, m_X)
-                ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
+                { .m_Offset = offsetof(e19::vert_2d, m_X)
+                , .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
                 }
             ,   xgpu::vertex_descriptor::attribute
-                {
-                    .m_Offset = offsetof(e19::vert_2d, m_U)
-                ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
+                { .m_Offset = offsetof(e19::vert_2d, m_U)
+                , .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
                 }
             ,   xgpu::vertex_descriptor::attribute
-                {
-                    .m_Offset = offsetof(e19::vert_2d, m_Color)
-                ,   .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED
+                { .m_Offset = offsetof(e19::vert_2d, m_Color)
+                , .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED
                 }
             };
             auto Setup = xgpu::vertex_descriptor::setup
-            {
-                .m_VertexSize = sizeof(e19::vert_2d)
-            ,   .m_Attributes = Attributes
+            { .m_VertexSize = sizeof(e19::vert_2d)
+            , .m_Attributes = Attributes
             };
 
             if (auto Err = Device.Create(VertexDescriptor2D, Setup); Err)
@@ -1261,7 +1216,7 @@ int E19_Example()
         xgpu::shader FragmentShader2D;
         {
             xgpu::shader::setup Setup
-            { .m_Type = xgpu::shader::type::bit::FRAGMENT
+            { .m_Type   = xgpu::shader::type::bit::FRAGMENT
             , .m_Sharer = xgpu::shader::setup::raw_data{ g_2DFragShader }
             };
             if (auto Err = Device.Create(FragmentShader2D, Setup); Err)
@@ -1271,24 +1226,22 @@ int E19_Example()
         xgpu::shader VertexShader2D;
         {
             xgpu::shader::setup Setup
-            {
-                .m_Type = xgpu::shader::type::bit::VERTEX
-            ,   .m_Sharer = xgpu::shader::setup::raw_data{g_2DVertShader}
+            { .m_Type   = xgpu::shader::type::bit::VERTEX
+            , .m_Sharer = xgpu::shader::setup::raw_data{g_2DVertShader}
             };
 
             if (auto Err = Device.Create(VertexShader2D, Setup); Err)
                 return xgpu::getErrorInt(Err);
         }
 
-        auto Shaders = std::array<const xgpu::shader*, 2>{ &FragmentShader2D, &VertexShader2D };
-        auto Samplers = std::array{ xgpu::pipeline::sampler{} };
-        auto Setup = xgpu::pipeline::setup
-        {
-            .m_VertexDescriptor = VertexDescriptor2D
-        ,   .m_Shaders = Shaders
-        ,   .m_PushConstantsSize = sizeof(e19::push_const2D)
-        ,   .m_Samplers = Samplers
-        ,   .m_DepthStencil = {.m_bDepthTestEnable = false }
+        auto Shaders    = std::array<const xgpu::shader*, 2>{ &FragmentShader2D, &VertexShader2D };
+        auto Samplers   = std::array{ xgpu::pipeline::sampler{} };
+        auto Setup      = xgpu::pipeline::setup
+        { .m_VertexDescriptor     = VertexDescriptor2D
+        , .m_Shaders              = Shaders
+        , .m_PushConstantsSize    = sizeof(e19::push_const2D)
+        , .m_Samplers             = Samplers
+        , .m_DepthStencil         = {.m_bDepthTestEnable = false }
         };
 
         if (auto Err = Device.Create(Pipeline2D, Setup); Err)
@@ -1298,7 +1251,7 @@ int E19_Example()
     //
     // Asset Mgr
     //
-    resource_mgr_user_data  m_ResourceMgrUserData;
+    resource_mgr_user_data  ResourceMgrUserData;
     xresource::mgr          ResourceMgr;
     ResourceMgr.Initiallize();
 
@@ -1369,24 +1322,23 @@ int E19_Example()
             //
             // Set the path for the resources
             //
-            m_ResourceMgrUserData.m_Device = Device;
-            ResourceMgr.setUserData(&m_ResourceMgrUserData, false);
+            ResourceMgrUserData.m_Device = Device;
+            ResourceMgr.setUserData(&ResourceMgrUserData, false);
             ResourceMgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", AssetMgr.m_ProjectPath));
         }
     }
 
-
-
     //
-    //Create mesh mgr
+    // Create mesh mgr
     //
-    mesh_manager            MeshManager;
+    mesh_manager                MeshManager             = {};
+    xgpu::pipeline              material                = {};
+    xgpu::pipeline_instance     material_instance       = {};
+    xgpu::texture               defaulttexture          = {};
+    e19::TextureManager         texturemgr              = {};
+    xmaterial_compiler::graph   g                       = {};
+
     MeshManager.Init(Device);
-    xgpu::pipeline          material;
-    xgpu::pipeline_instance material_instance;
-    xgpu::texture           defaulttexture;
-    e19::TextureManager     texturemgr;
-    xmaterial_compiler::graph g;
     texturemgr.Init(Device);
     texturemgr.loadTexture(L"SheKnewMe.tga");
 
@@ -1420,32 +1372,33 @@ int E19_Example()
     }
 
     //
-    //setup Imgui interface
+    // setup Imgui interface
     //
     xgpu::tools::imgui::CreateInstance(MainWindow);
     ed::NodeId LastSelectedNode = {};
 
     //Editor node setting
     ed::Config config;
-    config.SettingsFile = "";//disable .json file for ed::editor
-    g_Editor = ed::CreateEditor(&config);
+    config.SettingsFile = "";   //disable .json file for ed::editor
+    g_pEditor = ed::CreateEditor(&config);
 
     //graph prefab nodes creation
     
     g.CreateGraph(g);
-    int compileSuccess{ 0 };
-    xgpu::tools::view View;
+
+    xgpu::tools::view   View        = {};
+    xmath::radian3      Angles      = {};
+    float               Distance    = 2;
+
     View.setFov(60_xdeg);
 
     //
     //create input devices
     //
-    xgpu::mouse Mouse;
-    xgpu::keyboard Keyboard;
+    xgpu::mouse         Mouse;
+    xgpu::keyboard      Keyboard;
     Instance.Create(Mouse, {});
     Instance.Create(Keyboard, {});
-    xmath::radian3 Angles;
-    float          Distance = 2;
 
     //
     // Create the inspector window
@@ -1453,12 +1406,12 @@ int E19_Example()
     xproperty::inspector Inspector("Property");
 
     //
-    //Main Loop
+    // Main Loop
     //
     while (Instance.ProcessInputEvents())
     {
         if (xgpu::tools::imgui::BeginRendering(true)) continue;
-        ed::SetCurrentEditor(g_Editor);
+        ed::SetCurrentEditor(g_pEditor);
         ImGui::Begin("Material Graph");
         DrawGraphUI(g, LastSelectedNode, texturemgr);
 
@@ -1619,7 +1572,9 @@ int E19_Example()
         int nSelected = ed::GetSelectedNodes(SelectedNodes.data(), static_cast<int>(SelectedNodes.size()));
         ed::SetCurrentEditor(nullptr);
 
-        //if compile success == spir-v okay == reload pipeline
+        //
+        // Re-load material if we have to
+        //
         if (SelectedDescriptor.m_bReload)
         {
             SelectedDescriptor.m_bReload = false;
@@ -1655,37 +1610,40 @@ int E19_Example()
             }
         }
 
+        //
+        // Preview window
+        //
         {
             ImGui::Begin("Mesh Preview");
-            xgpu::tools::imgui::AddCustomRenderCallback([&](const ImVec2& windowPos, const ImVec2& windowSize)
-                {
-                    auto CmdBufferRef = MainWindow.getCmdBuffer();
-                    CmdBufferRef.setViewport(
-                        windowPos.x
-                        , windowPos.y
-                        , windowSize.x
-                        , windowSize.y);
 
-                    {//render background
-                        e19::push_const2D pc;
-                        pc.m_Scale =
-                        { (150 * 2.0f) / windowSize.x
-                        , (150 * 2.0f) / windowSize.y
-                        };
-                        pc.m_Translation.setup(0);
-                        pc.m_UVScale = { 100.0f,100.0f };
-
-                        CmdBufferRef.setPipelineInstance(BackGroundMaterialInstance);
-                        CmdBufferRef.setPushConstants(pc);
-                        MeshManager.Rendering(CmdBufferRef, mesh_manager::model::PLANE2D);
-                    }
-                });
             //
-            //mesh selection
+            // render background
+            //
+            xgpu::tools::imgui::AddCustomRenderCallback([&](const ImVec2& windowPos, const ImVec2& windowSize)
+            {
+                auto CmdBufferRef = MainWindow.getCmdBuffer();
+
+                {
+                    e19::push_const2D pc;
+                    pc.m_Scale =
+                    { (150 * 2.0f) / windowSize.x
+                    , (150 * 2.0f) / windowSize.y
+                    };
+                    pc.m_Translation.setup(0);
+                    pc.m_UVScale = { 100.0f,100.0f };
+
+                    CmdBufferRef.setPipelineInstance(BackGroundMaterialInstance);
+                    CmdBufferRef.setPushConstants(pc);
+                    MeshManager.Rendering(CmdBufferRef, mesh_manager::model::PLANE2D);
+                }
+            });
+
+            //
+            // mesh selection
             //
             static int selected = 0;
             const char* meshSelection[] = { "Cube", "Sphere","Capsule","Cylinder" };
-            e19::meshpreviewStyle();
+            e19::MeshPreviewStyle();
             if (ImGui::Button("\xEE\xAF\x92 Meshes"))
             {
                 ImVec2 button_pos = ImGui::GetItemRectMin();
@@ -1693,6 +1651,7 @@ int E19_Example()
                 ImGui::SetNextWindowPos(ImVec2(button_pos.x, button_pos.y + button_size.y));
                 ImGui::OpenPopup("Meshes");
             }
+
             if (ImGui::BeginPopup("Meshes"))
             {
                 for (int n = 0; n < IM_ARRAYSIZE(meshSelection); n++)
@@ -1710,10 +1669,11 @@ int E19_Example()
             }
             ImGui::PopStyleVar();
             ImGui::PopStyleColor(6);
+
             //
-            //Background texture selection
+            // Background texture selection
             //
-            e19::meshpreviewStyle();
+            e19::MeshPreviewStyle();
             ImGui::SameLine();
             if (ImGui::Button("\xEE\xBC\x9F BackGround"))
             {
@@ -1722,6 +1682,7 @@ int E19_Example()
                 ImGui::SetNextWindowPos(ImVec2(button_pos.x, button_pos.y + button_size.y));
                 ImGui::OpenPopup("BackGround");
             }
+
             if (ImGui::BeginPopup("BackGround"))
             {
                 for (int i = 0; i < texturemgr.m_Names.size(); ++i)
@@ -1749,7 +1710,9 @@ int E19_Example()
             ImGui::PopStyleVar();
             ImGui::PopStyleColor(6);
 
-            //prevent to move the node editor when right click the mesh to preview
+            //
+            // Camera controls
+            //
             if (ImGui::IsWindowHovered())
             {
                 if (Mouse.isPressed(xgpu::mouse::digital::BTN_RIGHT))
@@ -1762,39 +1725,35 @@ int E19_Example()
                 // zoom
                 Distance += Distance * -0.02f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
             }
-            
+
+            //
+            // Render mesh
+            //
             if (material_instance.m_Private) xgpu::tools::imgui::AddCustomRenderCallback([&](const ImVec2& windowPos, const ImVec2& windowSize)
             {
-                    auto CmdBufferRef = MainWindow.getCmdBuffer();
-                    CmdBufferRef.setViewport( windowPos.x
-                                            , windowPos.y
-                                            , windowSize.x
-                                            , windowSize.y);
+                auto CmdBufferRef = MainWindow.getCmdBuffer();
 
-                    View.setViewport({ int(windowPos.x),int(windowPos.y),int(windowSize.x), int(windowSize.y) });
+                View.setViewport({ static_cast<int>(windowPos.x)
+                                 , static_cast<int>(windowPos.y)
+                                 , static_cast<int>(windowSize.x)
+                                 , static_cast<int>(windowSize.y)
+                                });
 
-                    // Compute aspect ratio from ImGui widget size
-                    float aspect = windowSize.x / windowSize.y;
+                // Compute aspect ratio from ImGui widget size
+                View.setAspect(windowSize.x / windowSize.y);
 
-                    // Update the camera
-                    View.LookAt(Distance, Angles, { 0,0,0 });
+                // Update the camera
+                View.LookAt(Distance, Angles, { 0,0,0 });
 
-                    //dragging cause the mesh to be elongated so set the aspect ratio 
-                    View.setAspect(aspect);
+                e19::push_constants pushConst;
+                pushConst.m_L2C = (View.getW2C() * xmath::fmat4::fromScale({ 2.f }));
 
-                    const auto W2C = View.getW2C();
+                // Set pipeline and push constants
+                CmdBufferRef.setPipelineInstance(material_instance);
+                CmdBufferRef.setPushConstants(pushConst);
 
-                    e19::push_constants pushConst;
-                    xmath::fmat4 L2W({ 2.f,2.f,2.f }, xmath::radian3{0_xdeg}, {0});
-                    pushConst.m_L2C = (W2C * L2W);
-
-                    // Set pipeline and push constants
-                    CmdBufferRef.setPipelineInstance(material_instance);
-                    CmdBufferRef.setPushConstants(pushConst);
-
-                    // Render the mesh
-                    MeshManager.Rendering(CmdBufferRef, CurrentModel);
-
+                // Render the mesh
+                MeshManager.Rendering(CmdBufferRef, CurrentModel);
             });
 
             ImGui::End();
@@ -1845,7 +1804,7 @@ int E19_Example()
         }
         else if (auto SelectedAsset = AsserBrowser.getSelectedAsset(); SelectedAsset.empty() == false && SelectedAsset.m_Type.m_Value == 0xC59E01444175409E)
         {
-            ed::SetCurrentEditor(g_Editor);
+            ed::SetCurrentEditor(g_pEditor);
             LastSelectedNode = { 0 };
             ed::ClearSelection();
 
@@ -1895,7 +1854,7 @@ int E19_Example()
 
         MainWindow.PageFlip();
     }
-    ed::DestroyEditor(g_Editor);
+    ed::DestroyEditor(g_pEditor);
     xgpu::tools::imgui::Shutdown();
 
     return 0;
