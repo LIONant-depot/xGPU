@@ -3,7 +3,7 @@
 #pragma once
 
 #define NOMINMAX
-#include<windows.h>
+#include <windows.h>
 
 #include "xgpu_windows_localstorage.h"
 #include "xgpu_windows_keyboard.h"

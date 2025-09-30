@@ -1,4 +1,3 @@
-
 namespace xgpu::vulkan
 {
     //----------------------------------------------------------------------------------------------------------
@@ -378,9 +377,35 @@ namespace xgpu::vulkan
         return nullptr;
     }
 
-    //----------------------------------------------------------------------------------------------------------
     void device::PageFlipNotification(void) noexcept
     {
+        DeathMarch();
+    }
+
+    //----------------------------------------------------------------------------------------------------------
+
+    void device::Destroy(xgpu::texture&& Texture)                     noexcept 
+    { 
+        m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Texture.push_back(std::move(Texture)); 
+    }
+    void device::Destroy(xgpu::pipeline_instance&& PipelineInstance)  noexcept 
+    { 
+        m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_PipelineInstance.push_back(std::move(PipelineInstance));
+    }
+    void device::Destroy(xgpu::pipeline&& Pipeline)                   noexcept 
+    { 
+        m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Pipeline.push_back(std::move(Pipeline)); 
+    }
+    void device::Destroy(xgpu::buffer&& Buffer)                       noexcept 
+    { 
+        m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Buffer.push_back(std::move(Buffer)); 
+    }
+
+    //----------------------------------------------------------------------------------------------------------
+
+    void device::DeathMarch(void) noexcept
+    {
+
         m_FrameIndex++;
 
         auto& DeathMarch = m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()];
@@ -392,27 +417,26 @@ namespace xgpu::vulkan
             DeathMarch.m_Texture.clear();
         }
 
-        if (false == DeathMarch.m_PipelineInstance.empty() )
+        if (false == DeathMarch.m_PipelineInstance.empty())
         {
             for (auto& E : DeathMarch.m_PipelineInstance)
             {
-                if ( E.m_Private.use_count() == 1 )
+                if (E.m_Private.use_count() == 1)
                 {
                     if (auto It = m_PipeLineInstanceMap.find(reinterpret_cast<std::uint64_t>(E.m_Private.get())); It != m_PipeLineInstanceMap.end())
                     {
-                        m_PipeLineInstanceMap.erase( It );
+                        m_PipeLineInstanceMap.erase(It);
                     }
                 }
                 E.m_Private.reset();
             }
-            DeathMarch.m_PipelineInstance.clear();
         }
 
-        if ( false == DeathMarch.m_Pipeline.empty())
+        if (false == DeathMarch.m_Pipeline.empty())
         {
             for (auto& E : DeathMarch.m_Pipeline)
             {
-                if( E.m_Private.use_count() == 1 )
+                if (E.m_Private.use_count() == 1)
                 {
                     for (auto it = m_PipeLineMap.begin(); it != m_PipeLineMap.end(); )
                     {
@@ -428,16 +452,18 @@ namespace xgpu::vulkan
                 }
                 E.m_Private.reset();
             }
-            DeathMarch.m_Pipeline.clear();
         }
 
+        if (false == DeathMarch.m_Buffer.empty())
+        {
+            DeathMarch.m_Buffer.clear();
+        }
     }
 
-    //----------------------------------------------------------------------------------------------------------
-
-    void device::Destroy(xgpu::texture&& Texture)                     noexcept { m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Texture.push_back(std::move(Texture)); }
-    void device::Destroy(xgpu::pipeline_instance&& PipelineInstance)  noexcept { m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_PipelineInstance.push_back(std::move(PipelineInstance)); }
-    void device::Destroy(xgpu::pipeline&& Pipeline)                   noexcept { m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Pipeline.push_back(std::move(Pipeline)); }
+    void device::Shutdown(void) noexcept
+    {
+        DeathMarch();
+    }
 }
 
 

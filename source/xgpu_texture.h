@@ -87,7 +87,9 @@ namespace xgpu
         bool                        isCubemap                           ( void ) const noexcept;
 
         inline
-        std::array<address_mode,3>  getAdressModes                        ( void ) const noexcept;
+        std::array<address_mode,3>  getAdressModes                      ( void ) const noexcept;
+
+        inline                     ~texture                             ( void ) noexcept;
 
         std::shared_ptr<details::texture_handle> m_Private;
     };

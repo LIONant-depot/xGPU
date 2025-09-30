@@ -494,4 +494,11 @@ namespace xgpu::vulkan
 
         return nullptr;
     }
+
+    void pipeline::DeathMarch(xgpu::pipeline&& Pipeline) noexcept
+    {
+        if (!m_Device) return;
+        m_Device->Destroy(std::move(Pipeline));
+        m_Device.reset();
+    }
 }

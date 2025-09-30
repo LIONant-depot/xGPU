@@ -728,5 +728,12 @@ namespace xgpu::vulkan
 
         return nullptr;
     }
+
+    void texture::DeathMarch(xgpu::texture&& Texture) noexcept
+    {
+        if (!m_Device) return;
+        m_Device->Destroy(std::move(Texture));
+        m_Device.reset();
+    }
 }
 
