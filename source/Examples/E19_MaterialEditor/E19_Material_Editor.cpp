@@ -20,6 +20,10 @@
 #include "source/Examples/E10_TextureResourcePipeline/E10_AssetMgr.h"
 #include "source/Examples/E10_TextureResourcePipeline/E10_AssetBrowser.h"
 
+// Just include the loader here...
+#include "dependencies/xresource_pipeline_example.lion_project/Cache/Plugins/xmaterial.plugin/source/xmaterial_xgpu_rsc_loader.cpp"
+
+
 namespace                   ed                  = ax::NodeEditor;
 static ed::EditorContext*   g_pEditor           = nullptr;
 static int                  g_SelectedTexture   = 0;
@@ -160,24 +164,6 @@ namespace e19
     }
 }
 
-std::vector<std::int32_t> readSPVFiles(const std::wstring_view filename) 
-{
-    std::ifstream file(std::wstring(filename), std::ios::binary | std::ios::ate);
-    if (!file.is_open()) 
-    {
-        throw std::runtime_error("Failed to open SPIR-V file: " + xstrtool::To(filename));
-    }
-    size_t fileSize = (size_t)file.tellg();
-    assert((fileSize & 3) == 0);
-
-    std::vector<std::int32_t> buffer(fileSize / 4);
-    file.seekg(0);
-    file.read(reinterpret_cast<char*>(buffer.data()), fileSize);
-    file.close();
-
-    return buffer;
-}
-
 void NodeFillColor(xmaterial_compiler::node& n, ImVec2 pos, ImVec2 size, ImU32 color, float rounding = 0, ImDrawFlags flags = ImDrawFlags_None, bool borderonly = false, ImU32 borderColor = IM_COL32(200,200,200,200))
 {
     auto drawList = ed::GetNodeBackgroundDrawList(n.m_Guid.m_Value);
@@ -191,61 +177,6 @@ void NodeFillColor(xmaterial_compiler::node& n, ImVec2 pos, ImVec2 size, ImU32 c
     
 }
 
-void PipelineReload(const xmaterial_compiler::graph& g ,xgpu::device& Device, xgpu::vertex_descriptor& vd, xgpu::pipeline& material, xgpu::pipeline_instance& materialInst, std::wstring_view logPath, std::wstring_view shaderName)
-{
-    //destroy old pipeline and pipeline instance
-    //after compile a few time will cause error hence need to call destroy 
-    Device.Destroy(std::move(material));
-
-    //
-    // Material
-    //
-    auto Data = readSPVFiles(shaderName);
-
-    g.m_shaderDetail.serializeShaderDetails(true, std::format(L"{}/shader_detail.txt", logPath));
-
-    xgpu::shader FragmentShader;
-    {
-        auto RawData = xgpu::shader::setup::raw_data{ Data };
-
-        if (auto Err = Device.Create(FragmentShader, { .m_Type = xgpu::shader::type::bit::FRAGMENT, .m_Sharer = RawData }); Err)
-            exit(xgpu::getErrorInt(Err));
-        
-    }
-
-    xgpu::shader VertexShader;
-    {
-        auto RawData = xgpu::shader::setup::raw_data
-        { std::array
-            {
-                #include "draw_vert.h"
-            }
-        };
-
-        xgpu::shader::setup Setup
-        { .m_Type = xgpu::shader::type::bit::VERTEX
-        , .m_Sharer = RawData
-        };
-        if (auto Err = Device.Create(VertexShader, Setup); Err)
-            exit(xgpu::getErrorInt(Err));
-    }
-
-    std::vector<xgpu::pipeline::sampler> SL;
-    SL.resize(g.m_shaderDetail.m_Textures.size());
-
-    auto Shaders    = std::array<const xgpu::shader*, 2>{ &FragmentShader, &VertexShader };
-    auto Samplers   = std::array{ xgpu::pipeline::sampler{}};
-    auto Setup      = xgpu::pipeline::setup
-    { .m_VertexDescriptor   = vd
-    , .m_Shaders            = Shaders
-    , .m_PushConstantsSize  = sizeof(e19::push_constants)
-    , .m_Samplers           = SL
-    };
-
-    if (auto Err = Device.Create(material, Setup); Err)
-         exit(xgpu::getErrorInt(Err));
-
-}
 
 struct mesh_manager
 {
@@ -1128,6 +1059,7 @@ struct selected_descriptor
         }
     }
 
+    xrsc::material_ref                                          m_MaterialRef       = {};
     e10::library::guid                                          m_LibraryGUID       = {};
     xresource::full_guid                                        m_InfoGUID          = {};
     std::shared_ptr<e10::compilation::historical_entry::log>    m_Log               = {};
@@ -1137,6 +1069,55 @@ struct selected_descriptor
     bool                                                        m_bReload           = {};
     bool                                                        m_bErrors           = {};
 };
+
+void PipelineReload(const xmaterial_compiler::graph& g, xgpu::device& Device, xgpu::vertex_descriptor& vd, xgpu::pipeline& material, xgpu::pipeline_instance& materialInst, selected_descriptor& SelcDesc, xresource::mgr& Mgr )
+{
+    //destroy old pipeline and pipeline instance
+    //after compile a few time will cause error hence need to call destroy 
+    Device.Destroy(std::move(material));
+    Mgr.ReleaseRef(SelcDesc.m_MaterialRef);
+    SelcDesc.m_MaterialRef.m_Instance = SelcDesc.m_InfoGUID.m_Instance;
+
+    //
+    // Material
+    //
+    if ( auto pRef = Mgr.getResource(SelcDesc.m_MaterialRef); pRef )
+    {
+        g.m_shaderDetail.serializeShaderDetails(true, std::format(L"{}/shader_detail.txt", SelcDesc.m_LogPath));
+
+        xgpu::shader VertexShader;
+        {
+            auto RawData = xgpu::shader::setup::raw_data
+            { std::array
+                {
+                    #include "draw_vert.h"
+                }
+            };
+
+            xgpu::shader::setup Setup
+            { .m_Type = xgpu::shader::type::bit::VERTEX
+            , .m_Sharer = RawData
+            };
+            if (auto Err = Device.Create(VertexShader, Setup); Err)
+                exit(xgpu::getErrorInt(Err));
+        }
+
+        std::vector<xgpu::pipeline::sampler> SL;
+        SL.resize(g.m_shaderDetail.m_Textures.size());
+
+        auto Shaders  = std::array<const xgpu::shader*, 2>{ &pRef->getShader(), &VertexShader};
+        auto Samplers = std::array{ xgpu::pipeline::sampler{} };
+        auto Setup    = xgpu::pipeline::setup
+        { .m_VertexDescriptor  = vd
+        , .m_Shaders           = Shaders
+        , .m_PushConstantsSize = sizeof(e19::push_constants)
+        , .m_Samplers          = SL
+        };
+
+        if (auto Err = Device.Create(material, Setup); Err)
+            exit(xgpu::getErrorInt(Err));
+    }
+}
 
 int E19_Example()
 {
@@ -1578,7 +1559,7 @@ int E19_Example()
         if (SelectedDescriptor.m_bReload)
         {
             SelectedDescriptor.m_bReload = false;
-            PipelineReload(g,Device, VertexDescriptor, material, material_instance, SelectedDescriptor.m_LogPath, SelectedDescriptor.m_ResourcePath);
+            PipelineReload(g,Device, VertexDescriptor, material, material_instance, SelectedDescriptor, ResourceMgr);
             {
                 xgpu::texture* curTex = &defaulttexture;
                 std::vector<xgpu::pipeline_instance::sampler_binding> Bindings;
@@ -1853,6 +1834,9 @@ int E19_Example()
         xgpu::tools::imgui::Render();
 
         MainWindow.PageFlip();
+
+        // Let the resource manager know we have change the frame
+        ResourceMgr.OnEndFrameDelegate();
     }
     ed::DestroyEditor(g_pEditor);
     xgpu::tools::imgui::Shutdown();
