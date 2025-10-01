@@ -305,7 +305,6 @@ add_executable(${TARGET_PROJECT}
   "source/tools/Import3D/import3d_animation.h"
   "source/tools/Import3D/import3d_geom.h"
   "source/tools/Import3D/import3d_skeleton.h"
-  "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.cpp"
   "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
   "dependencies/xproperty/source/examples/imgui/my_properties.h"
   "dependencies/xproperty/source/examples/imgui/my_property_ui.h"
@@ -360,7 +359,6 @@ source_group("Examples/E04_Properties" FILES
 )
 
 source_group("Examples/E04_Properties/xproperty" FILES
-  "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.cpp"
   "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
   "dependencies/xproperty/source/examples/imgui/my_properties.h"
   "dependencies/xproperty/source/examples/imgui/my_property_ui.h"

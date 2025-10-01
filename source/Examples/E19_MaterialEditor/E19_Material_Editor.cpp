@@ -1,4 +1,5 @@
 ﻿#define NOMINMAX
+#include "dependencies/xproperty/source/xcore/my_properties.h"
 #include "dependencies/xstrtool/source/xstrtool.h"
 #include "source/Examples/E05_Textures/E05_BitmapInspector.h"
 #include "E19_Node_Core.h"

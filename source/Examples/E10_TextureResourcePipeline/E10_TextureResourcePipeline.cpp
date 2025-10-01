@@ -1,6 +1,7 @@
 #include "source/Examples/E05_Textures/E05_BitmapInspector.h"
 #include "source/tools/xgpu_imgui_breach.h"
 #include "source/tools/xgpu_xcore_bitmap_helpers.h"
+#include "dependencies/xproperty/source/xcore/my_properties.h"
 #include "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
 #include "source/tools/xgpu_basis_universal_texture_loader.h"
 #include "dependencies/xprim_geom/source/xprim_geom.h"

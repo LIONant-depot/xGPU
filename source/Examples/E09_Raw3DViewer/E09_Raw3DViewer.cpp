@@ -5,6 +5,7 @@
 #include "dependencies/xraw3D/source/xraw3d.h"
 #include "source/tools/xgpu_imgui_breach.h"
 #include "source/tools/WindowsFileDialog/FileBrowser.h"
+#include "dependencies/xproperty/source/xcore/my_properties.h"
 #include "dependencies/xproperty/source/Examples/imgui/xPropertyImGuiInspector.h"
 #include "source/xgeom.h"
 
