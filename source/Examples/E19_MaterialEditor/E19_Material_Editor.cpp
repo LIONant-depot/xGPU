@@ -758,8 +758,10 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode, e19
                     {
                         NodeFillColor(n, { widgetPos.x - 23.f ,widgetPos.y + 1.3f }, { 85,18 },
                             IM_COL32(64, 64, 64, 255), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersNone, true, borderoutlineClr);
-                        
-                        n.m_pCustomInput(n, g_SelectedTexture, texturemgr.m_Names);
+
+                        xproperty::settings::context Context;
+                        // texturemgr.m_Names
+                        if (n.m_pCustomInput) n.m_pCustomInput(n, g_SelectedTexture, e10::g_LibMgr, Context);
 
                         auto* draw_list = ImGui::GetWindowDrawList();
                         //center of the circle
@@ -1239,7 +1241,6 @@ int E19_Example()
 
     e10::assert_browser AsserBrowser;
     selected_descriptor SelectedDescriptor;
-    e10::library_mgr    AssetMgr;
     auto                CallBackForCompilation = [&](e10::library_mgr& LibMgr, e10::library::guid gLibrary, xresource::full_guid gCompilingEntry, std::shared_ptr<e10::compilation::historical_entry::log>& LogInformation)
     {
         // Filter by our entry...
@@ -1271,7 +1272,7 @@ int E19_Example()
             }
         }
     };
-    AssetMgr.m_OnCompilationState.Register(CallBackForCompilation);
+    e10::g_LibMgr.m_OnCompilationState.Register(CallBackForCompilation);
 
     //
     // Set the project path
@@ -1295,7 +1296,7 @@ int E19_Example()
             //
             // Open the project
             //
-            if (auto Err = AssetMgr.OpenProject(szFileName); Err)
+            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
             {
                 e19::Debugger(Err.getMessage());
                 return 1;
@@ -1306,7 +1307,7 @@ int E19_Example()
             //
             ResourceMgrUserData.m_Device = Device;
             ResourceMgr.setUserData(&ResourceMgrUserData, false);
-            ResourceMgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", AssetMgr.m_ProjectPath));
+            ResourceMgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", e10::g_LibMgr.m_ProjectPath));
         }
     }
 
@@ -1414,12 +1415,12 @@ int E19_Example()
 
                 ImGui::Separator();
                 {
-                    bool bDisableSave = !AssetMgr.isReadyToSave() && SelectedDescriptor.m_InfoGUID.empty();
+                    bool bDisableSave = !e10::g_LibMgr.isReadyToSave() && SelectedDescriptor.m_InfoGUID.empty();
                     if (bDisableSave) ImGui::BeginDisabled();
                     if (ImGui::MenuItem("\xEE\x9D\x8E Save Graph", "Ctrl+S"))
                     {
                         xproperty::settings::context Context;
-                        AssetMgr.Save(Context);
+                        e10::g_LibMgr.Save(Context);
 
                         if (SelectedDescriptor.m_InfoGUID.empty() == false )
                         {
@@ -1770,7 +1771,7 @@ int E19_Example()
         //
         // Show a texture selector in IMGUI
         //
-        AsserBrowser.Render(AssetMgr, ResourceMgr);
+        AsserBrowser.Render(e10::g_LibMgr, ResourceMgr);
 
         if (auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false && NewAsset.m_Type.m_Value == 0xC59E01444175409E )
         {
@@ -1779,7 +1780,7 @@ int E19_Example()
             g.m_InstanceNodes.clear();
 
             // Generate the paths
-            AssetMgr.getNodeInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
+            e10::g_LibMgr.getNodeInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
             {
                 SelectedDescriptor.GeneratePaths(NodeInfo.m_Path);
             });
@@ -1800,7 +1801,7 @@ int E19_Example()
             SelectedDescriptor.m_InfoGUID = SelectedAsset;
 
             // Generate the paths
-            AssetMgr.getNodeInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
+            e10::g_LibMgr.getNodeInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
             {
                 SelectedDescriptor.GeneratePaths(NodeInfo.m_Path);
             });

@@ -1,18 +1,34 @@
 #ifndef ASSERT_MGR_HPP
 #define ASSERT_MGR_HPP
+#pragma once
+
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#ifdef ERROR
+    #undef ERROR
+#endif
+
 #include <algorithm>
 #include <filesystem>
 #include <cstdlib>
 #include <chrono>
 #include <queue>
 #include <cwctype>
+#include <iostream>
 
+
+#include "dependencies/xproperty/source/xcore/my_properties.h"
 #include "dependencies/xcontainer/source/xcontainer.h"
 #include "dependencies/xdelegate/source/xdelegate.h"
 #include "dependencies/xscheduler/source/xscheduler.h"
+#include "dependencies/xstrtool/source/xstrtool.h"
+#include "dependencies/xresource_guid/source/xresource_guid.h"
 
-#pragma once
+#define XRESOURCE_PIPELINE_NO_COMPILER
+#include "dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
+
+#include "E10_PluginMgr.h"
 
 namespace e10
 {
@@ -2958,6 +2974,8 @@ namespace e10
         map_rsc_to_library      m_RscToLibraryMap;
         compilation::instance   m_Compilation;
     };
+
+    inline library_mgr g_LibMgr;
 }
 
 #endif
