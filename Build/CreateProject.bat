@@ -4,6 +4,10 @@ setlocal enabledelayedexpansion
 rmdir /s /q xGPUExamples.vs2022
 rem rmdir /s /q ..\dependencies
 cmake ../ -G "Visual Studio 17 2022" -A x64 -B xGPUExamples.vs2022
+if errorlevel 1 (
+    echo Error: Cmake failed
+    goto :ERROR
+)
 
 rem -- HACK -- We must force the node library to support old ImGui Keys...
 
@@ -13,7 +17,7 @@ set "inputFile=..\dependencies\imgui-node-editor\imgui_node_editor_internal.h"
 :: Check if file exists
 if not exist "%inputFile%" (
     echo Error: imgui_node_editor_internal.h not found
-    exit /b 1
+    goto :ERROR
 )
 
 :: Define search string
@@ -29,9 +33,15 @@ powershell -command "$search = [regex]::Escape('%search%'); $replace = '#include
 move /y "%tempFile%" "%inputFile%" >nul
 if errorlevel 1 (
     echo Error: Failed to replace the original file
-    exit /b 1
+    goto :ERROR
 )
 
 echo String replacement complete
 endlocal
 pause
+exit /b 0
+
+:ERROR
+endlocal
+pause
+exit /b 1

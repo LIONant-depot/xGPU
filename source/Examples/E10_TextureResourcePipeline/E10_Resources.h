@@ -14,6 +14,6 @@ struct resource_mgr_user_data
 
 //-----------------------------------------------------------------------
 
-#include "source/xtexture_xgpu_rsc_loader.h"
+//#include "source/xtexture_xgpu_rsc_loader.h"
 
 #endif

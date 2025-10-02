@@ -1,7 +1,7 @@
 #pragma once
 
 #include "source/xGPU.h"
-#include "source/graph/xmaterial_graph.h"
+#include "plugins/xmaterial.plugin/source/graph/xmaterial_graph.h"
 #include "source/tools/xgpu_imgui_breach.h"
 #include "dependencies/xresource_mgr/source/xresource_mgr.h"
 #include "dependencies/imgui-node-editor/imgui_node_editor.h"

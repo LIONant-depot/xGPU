@@ -22,7 +22,7 @@
 #include "source/Examples/E10_TextureResourcePipeline/E10_AssetBrowser.h"
 
 // Just include the loader here...
-#include "dependencies/xresource_pipeline_example.lion_project/Cache/Plugins/xmaterial.plugin/source/xmaterial_xgpu_rsc_loader.cpp"
+#include "Plugins/xmaterial.plugin/source/xmaterial_xgpu_rsc_loader.cpp"
 
 
 namespace                   ed                  = ax::NodeEditor;

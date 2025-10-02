@@ -7,7 +7,7 @@
 #include "source/tools/WindowsFileDialog/FileBrowser.h"
 #include "dependencies/xproperty/source/xcore/my_properties.h"
 #include "dependencies/xproperty/source/Examples/imgui/xPropertyImGuiInspector.h"
-#include "source/xgeom.h"
+#include "Plugins/xgeom.plugin/source/xgeom.h"
 
 namespace e09
 {

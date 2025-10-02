@@ -18,8 +18,10 @@
 
 #define XRESOURCE_PIPELINE_NO_COMPILER
 #include "dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
-#include "source/xtexture_rsc_descriptor.h"
+#include "Plugins/xtexture.plugin/source/xtexture_xgpu_rsc_loader.h"
 #include "imgui_internal.h"
+
+#include "Plugins/xtexture.plugin/source/xtexture_xgpu_rsc_loader.cpp"
 
 constexpr auto g_VertShader2DSPV = std::array
 {
