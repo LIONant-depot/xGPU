@@ -17,7 +17,6 @@
 #include "dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
 #include "source/xstrtool.h"
 #include "source/Examples/E10_TextureResourcePipeline/E10_Resources.h"
-#include "source/Examples/E10_TextureResourcePipeline/E10_PluginMgr.h"
 #include "source/Examples/E10_TextureResourcePipeline/E10_AssetMgr.h"
 #include "source/Examples/E10_TextureResourcePipeline/E10_AssetBrowser.h"
 
@@ -1236,8 +1235,7 @@ int E19_Example()
     // Asset Mgr
     //
     resource_mgr_user_data  ResourceMgrUserData;
-    xresource::mgr          ResourceMgr;
-    ResourceMgr.Initiallize();
+    xresource::g_Mgr.Initiallize();
 
     e10::assert_browser AsserBrowser;
     selected_descriptor SelectedDescriptor;
@@ -1288,7 +1286,7 @@ int E19_Example()
             szFileName[I] = 0;
             std::wcout << L"Found xGPU at: " << szFileName << L"\n";
 
-            TCHAR LIONantProject[] = L"\\dependencies\\xresource_pipeline_example.lion_project";
+            TCHAR LIONantProject[] = L"\\bin_dependencies\\xresource_pipeline_example.lion_project";
             for (int i = 0; szFileName[I++] = LIONantProject[i]; ++i);
 
             std::wcout << "Project Path: " << szFileName << "\n";
@@ -1306,8 +1304,8 @@ int E19_Example()
             // Set the path for the resources
             //
             ResourceMgrUserData.m_Device = Device;
-            ResourceMgr.setUserData(&ResourceMgrUserData, false);
-            ResourceMgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", e10::g_LibMgr.m_ProjectPath));
+            xresource::g_Mgr.setUserData(&ResourceMgrUserData, false);
+            xresource::g_Mgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", e10::g_LibMgr.m_ProjectPath));
         }
     }
 
@@ -1561,7 +1559,7 @@ int E19_Example()
         if (SelectedDescriptor.m_bReload)
         {
             SelectedDescriptor.m_bReload = false;
-            PipelineReload(g,Device, VertexDescriptor, material, material_instance, SelectedDescriptor, ResourceMgr);
+            PipelineReload(g,Device, VertexDescriptor, material, material_instance, SelectedDescriptor, xresource::g_Mgr);
             {
                 xgpu::texture* curTex = &defaulttexture;
                 std::vector<xgpu::pipeline_instance::sampler_binding> Bindings;
@@ -1771,7 +1769,7 @@ int E19_Example()
         //
         // Show a texture selector in IMGUI
         //
-        AsserBrowser.Render(e10::g_LibMgr, ResourceMgr);
+        AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
 
         if (auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false && NewAsset.m_Type.m_Value == 0xC59E01444175409E )
         {
@@ -1838,7 +1836,7 @@ int E19_Example()
         MainWindow.PageFlip();
 
         // Let the resource manager know we have change the frame
-        ResourceMgr.OnEndFrameDelegate();
+        xresource::g_Mgr.OnEndFrameDelegate();
     }
     ed::DestroyEditor(g_pEditor);
     xgpu::tools::imgui::Shutdown();
