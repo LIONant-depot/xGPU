@@ -56,7 +56,21 @@ namespace e10
 
     struct assert_browser
     {
+        const void* getCurrentID(void)
+        {
+            return m_pPopupUID;
+        }
+
         //=============================================================================
+
+        void ShowAsPopup( const void* pUID, const char* pWindowName )
+        {
+            assert(m_pPopupUID == nullptr);
+
+            m_bRenderBrowser = true;
+            m_pPopupUID      = pUID;
+            m_pWindowName    = pWindowName;
+        }
 
         void Show( bool bShow = true )
         {
@@ -65,9 +79,23 @@ namespace e10
 
         //=============================================================================
 
-        bool IsVisible() const
+        bool isVisible() const
         {
             return m_bRenderBrowser;
+        }
+
+        //=============================================================================
+
+        void RenderAsPopup(e10::library_mgr& AssetMgr, xresource::mgr& ResourceMgr)
+        {
+            if (m_bRenderBrowser == false) return;
+            bool UsedtoBeVisible = m_bRenderBrowser;
+            Render(AssetMgr, ResourceMgr);
+            if (not isVisible() && UsedtoBeVisible)
+            {
+                // The user must have cancel this thing... 
+                if (m_SelectedAsset.empty()) m_pPopupUID = nullptr;
+            }
         }
 
         //=============================================================================
@@ -110,6 +138,7 @@ namespace e10
             if (m_SelectedAsset.empty()) return m_SelectedAsset;
             auto GUID = m_SelectedAsset;
             m_SelectedAsset.clear();
+            m_pPopupUID = nullptr;
             return GUID;
         }
 
@@ -267,7 +296,8 @@ namespace e10
         {
             ImGui::SetNextWindowBgAlpha(0.9f);
             ImGui::SetNextWindowSize(ImVec2(400, 400), ImGuiCond_FirstUseEver);
-            if (ImGui::Begin("Resources", nullptr, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse))
+            
+            if (ImGui::Begin(m_pWindowName, nullptr, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse))
             {
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));        // Transparent background
 
@@ -402,6 +432,8 @@ namespace e10
         bool                    m_bAutoClose            = true;
         bool                    m_bRenderBrowser        = false;
         tab_list                m_Tabs                  = {};
+        const void*             m_pPopupUID             = {};
+        const char*             m_pWindowName           = "Resource Browser";
     };
 
 } // namespace e10

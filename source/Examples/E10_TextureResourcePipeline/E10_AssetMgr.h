@@ -2232,6 +2232,41 @@ namespace e10
             return bSuccess;
         }
 
+        template<typename T_CALLBACK >
+        bool getNodeInfo(const xresource::full_guid& ResourceGUID, T_CALLBACK&& CallBack) noexcept
+        {
+            bool bSuccess = false;
+            for( auto& Lib : m_mLibraryDB )
+            {
+                Lib.second->m_InfoByTypeDataBase.FindAsReadOnly(ResourceGUID.m_Type, [&](const std::unique_ptr<library_db::info_db>& InfoDB)
+                {
+                    using Arg0          = typename details::function_traits<T_CALLBACK>::template arg<0>::type;
+                    using Arg0NoRef     = std::remove_reference_t<Arg0>;
+
+                    if constexpr (std::is_lvalue_reference_v<Arg0> && std::is_const_v<Arg0NoRef>)
+                    {
+                        InfoDB->m_InfoDataBase.FindAsReadOnly(ResourceGUID.m_Instance, [&](const library_db::info_node& InfoNode)
+                        {
+                            CallBack(InfoNode);
+                            bSuccess = true;
+                        });
+                    }
+                    else
+                    {
+                        InfoDB->m_InfoDataBase.FindAsWrite(ResourceGUID.m_Instance, [&](library_db::info_node& InfoNode)
+                        {
+                            CallBack(InfoNode);
+                            bSuccess = true;
+                        });
+                    }
+                });
+
+                if (bSuccess) break;
+            }
+
+            return bSuccess;
+        }
+
         //------------------------------------------------------------------------------------------------
 
         template<typename T_CALLBACK >

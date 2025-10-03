@@ -84,70 +84,6 @@ namespace e19
 
         return "";
     }
-
-    struct TextureManager
-    {
-        xgpu::device*               m_Device            = nullptr;
-        std::vector<xgpu::texture>  m_Textures          = {};
-        std::vector<xgpu::texture>  m_BgTextures        = {};
-        std::vector<std::string>    m_Names             = {};   //for combo
-        int                         m_CurrentIndex      = {};
-        int                         m_CurrentBGIndex    = {};
-        e05::bitmap_inspector       m_BMInspector       = {};
-
-        void Init(xgpu::device& device)
-        {
-            m_Device = &device;
-            m_Names.push_back("None"); //for default bit map
-        }
-
-        void loadTexture(const std::wstring_view path)
-        {
-            m_BMInspector.Load(path);
-
-            xgpu::texture Tex;
-            xgpu::texture BgTex;
-
-            if(auto Err = xgpu::tools::bitmap::Create(Tex, *m_Device, *m_BMInspector.m_pBitmap); Err)
-            {
-                e05::DebugMessage(xgpu::getErrorMsg(Err));
-                std::exit(xgpu::getErrorInt(Err));
-            }
-            if (auto Err = xgpu::tools::bitmap::Create(BgTex, *m_Device, *m_BMInspector.m_pBitmap); Err)
-            {
-                e05::DebugMessage(xgpu::getErrorMsg(Err));
-                std::exit(xgpu::getErrorInt(Err));
-            }
-            m_Textures.push_back(std::move(Tex));
-            m_BgTextures.push_back(std::move(BgTex));
-
-            auto lastslash  = path.find_last_of(L"/\\");
-            auto startPoint = (lastslash == std::string::npos) ? 0 : lastslash + 1;
-
-            auto lastDot    = path.find_last_of(L".");
-            size_t end      = (lastDot == std::string::npos || lastDot < startPoint) ? path.size() : lastDot;
-
-            m_Names.push_back(xstrtool::To(path.substr(startPoint, end - startPoint)));
-        }
-
-        xgpu::texture* GetTextureByIndex(int index)
-        {
-            if (index <= 0 || index > m_Textures.size())
-                return nullptr;
-
-            // because 0 = "None"
-            return &m_Textures[index - 1]; 
-        }
-
-        xgpu::texture* GetCurrentBGTexture(void)
-        {
-            // None = default texture
-            if (m_CurrentBGIndex == 0) return nullptr;
-
-            // offset by 1 because slot 0 = None
-            return &m_BgTextures[m_CurrentBGIndex - 1];    
-        }
-    };
 }
 
 namespace e19
@@ -222,7 +158,10 @@ struct mesh_manager
         Mesh.m_IndexCount = static_cast<int>(Primitive.m_Indices.size());
 
         if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e19::draw_vert), .m_EntryCount = static_cast<int>(Primitive.m_Vertices.size()) }); Err)
+        {
+            assert(false);
             exit(xgpu::getErrorInt(Err));
+        }
 
         (void)Mesh.m_VertexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Vertices.size()), [&](void* pData)
         {
@@ -241,7 +180,10 @@ struct mesh_manager
         });
 
         if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = static_cast<int>(Primitive.m_Indices.size()) }); Err)
+        {
+            assert(false);
             exit(xgpu::getErrorInt(Err));
+        }
 
         (void)Mesh.m_IndexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Indices.size()), [&](void* pData)
         {
@@ -262,7 +204,10 @@ struct mesh_manager
         Mesh.m_IndexCount = static_cast<int>(Primitive.m_Indices.size());
 
         if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e19::draw_vert), .m_EntryCount = static_cast<int>(Primitive.m_Vertices.size()) }); Err)
+        {
+            assert(false);
             exit(xgpu::getErrorInt(Err));
+        }
 
         (void)Mesh.m_VertexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Vertices.size()), [&](void* pData)
         {
@@ -281,7 +226,10 @@ struct mesh_manager
         });
 
         if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = static_cast<int>(Primitive.m_Indices.size()) }); Err)
+        {
+            assert(false);
             exit(xgpu::getErrorInt(Err));
+        }
 
         (void)Mesh.m_IndexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Indices.size()), [&](void* pData)
         {
@@ -302,7 +250,10 @@ struct mesh_manager
         Mesh.m_IndexCount = static_cast<int>(Primitive.m_Indices.size());
 
         if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e19::draw_vert), .m_EntryCount = static_cast<int>(Primitive.m_Vertices.size()) }); Err)
+        {
+            assert(false);
             exit(xgpu::getErrorInt(Err));
+        }
 
         (void)Mesh.m_VertexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Vertices.size()), [&](void* pData)
         {
@@ -321,7 +272,10 @@ struct mesh_manager
         });
 
         if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = static_cast<int>(Primitive.m_Indices.size()) }); Err)
+        {
+            assert(false);
             exit(xgpu::getErrorInt(Err));
+        }
 
         (void)Mesh.m_IndexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Indices.size()), [&](void* pData)
         {
@@ -342,7 +296,10 @@ struct mesh_manager
         Mesh.m_IndexCount = static_cast<int>(Primitive.m_Indices.size());
 
         if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e19::draw_vert), .m_EntryCount = static_cast<int>(Primitive.m_Vertices.size()) }); Err)
+        {
+            assert(false);
             exit(xgpu::getErrorInt(Err));
+        }
 
         (void)Mesh.m_VertexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Vertices.size()), [&](void* pData)
         {
@@ -361,7 +318,10 @@ struct mesh_manager
         });
 
         if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = static_cast<int>(Primitive.m_Indices.size()) }); Err)
+        {
+            assert(false);
             exit(xgpu::getErrorInt(Err));
+        }
 
         (void)Mesh.m_IndexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Indices.size()), [&](void* pData)
         {
@@ -379,7 +339,10 @@ struct mesh_manager
         Mesh.m_IndexCount = 6;
 
         if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e19::vert_2d), .m_EntryCount = 4 }); Err)
+        {
+            assert(false);
             exit(xgpu::getErrorInt(Err));
+        }
 
         (void)Mesh.m_VertexBuffer.MemoryMap(0, 4, [&](void* pData)
         {
@@ -391,7 +354,10 @@ struct mesh_manager
         });
 
         if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = Mesh.m_IndexCount }); Err)
+        {
+            assert(false);
             exit(xgpu::getErrorInt(Err));
+        }
 
         (void)Mesh.m_IndexBuffer.MemoryMap(0, Mesh.m_IndexCount, [&](void* pData)
         {
@@ -447,7 +413,7 @@ bool e19::IsPinConnected(const xmaterial_compiler::pin_guid& pinId, const xmater
 }
 
 //draw ui
-void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode, e19::TextureManager& texturemgr)
+void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
 {
     ed::Begin("Material Graph Editor");
 
@@ -753,14 +719,15 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode, e19
                         draw_list->AddLine(ImVec2(center.x + rad, center.y), line_end, IM_COL32(64, 200, 64, 255), 2.0f);
 
                     }
-                    else if (n.m_Params.m_Properties[ip.m_ParamIndex].m_Value.m_pType->m_GUID == xproperty::settings::var_type<std::string>::guid_v)
+                    else if (n.m_Params.m_Properties[ip.m_ParamIndex].m_Value.m_pType->m_GUID == xproperty::settings::var_type<xresource::full_guid>::guid_v)
                     {
                         NodeFillColor(n, { widgetPos.x - 23.f ,widgetPos.y + 1.3f }, { 85,18 },
                             IM_COL32(64, 64, 64, 255), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersNone, true, borderoutlineClr);
 
                         xproperty::settings::context Context;
+
                         // texturemgr.m_Names
-                        if (n.m_pCustomInput) n.m_pCustomInput(n, g_SelectedTexture, e10::g_LibMgr, Context);
+                        if (n.m_pCustomInput) n.m_pCustomInput(n, n.m_Params.m_Properties[ip.m_ParamIndex].m_Value.get<xresource::full_guid>(), e10::g_LibMgr, Context);
 
                         auto* draw_list = ImGui::GetWindowDrawList();
                         //center of the circle
@@ -1101,14 +1068,16 @@ void PipelineReload(const xmaterial_compiler::graph& g, xgpu::device& Device, xg
             , .m_Sharer = RawData
             };
             if (auto Err = Device.Create(VertexShader, Setup); Err)
+            {
+                assert(false);
                 exit(xgpu::getErrorInt(Err));
+            }
         }
 
         std::vector<xgpu::pipeline::sampler> SL;
-        SL.resize(g.m_shaderDetail.m_Textures.size());
+        SL.resize(pRef->m_nDefaultTextures);
 
         auto Shaders  = std::array<const xgpu::shader*, 2>{ &pRef->getShader(), &VertexShader};
-        auto Samplers = std::array{ xgpu::pipeline::sampler{} };
         auto Setup    = xgpu::pipeline::setup
         { .m_VertexDescriptor  = vd
         , .m_Shaders           = Shaders
@@ -1117,8 +1086,76 @@ void PipelineReload(const xmaterial_compiler::graph& g, xgpu::device& Device, xg
         };
 
         if (auto Err = Device.Create(material, Setup); Err)
+        {
+            assert(false);
             exit(xgpu::getErrorInt(Err));
+        }
     }
+}
+
+void RemapGUIDToString(std::string& Name, const xresource::full_guid& PreFullGuid)
+{
+    // if it is empty the just print empty
+    if (PreFullGuid.empty() )
+    {
+        Name = "empty";
+    }
+    else
+    {
+        // make sure that there are not pointer issues
+        auto FullGuid = xresource::g_Mgr.getFullGuid(PreFullGuid);
+
+        // Find our entry and get the name
+        e10::g_LibMgr.getNodeInfo(FullGuid, [&](e10::library_db::info_node& Node)
+        {
+            Name = Node.m_Info.m_Name;
+        });
+
+        // If we fail to find it for whatever reason let us just use the GUID
+        if (Name.empty()) Name = std::format("{:X}", FullGuid.m_Instance.m_Value);
+    }
+}
+
+e10::assert_browser g_AsserBrowserPopup;
+
+void ResourceBrowserPopup(const void* pUID, bool& Open, xresource::full_guid& Output, const char* pPopUpName, std::span<const xresource::type_guid > Filter )
+{
+    // If the g_AsserBrowserPopup available?
+    if (g_AsserBrowserPopup.getCurrentID() != nullptr && g_AsserBrowserPopup.getCurrentID() != pUID )
+        return;
+
+    // If the user want us to open let us do so... (as long as it is not already visible)
+    if (Open && not g_AsserBrowserPopup.isVisible()) g_AsserBrowserPopup.ShowAsPopup(pUID, pPopUpName);
+
+    // If the asset-browser sended us a new asset let us open and see what we have...
+    if (auto SelectedAsset = g_AsserBrowserPopup.getSelectedAsset(); SelectedAsset.empty() == false && SelectedAsset.m_Type == xrsc::texture_type_guid_v )
+    {
+        Output = SelectedAsset;
+    }
+
+    // Let the user know what is the current state of the popup...
+    Open = g_AsserBrowserPopup.isVisible();
+}
+
+xrsc::texture_ref CreateBackgroundTexture(xgpu::device& Device, const xbitmap& Bitmap)
+{
+    // Generate a unique ID for it
+    xrsc::texture_ref Ref;
+    Ref.m_Instance = xresource::guid_generator::Instance64();
+
+    // Create officially the material instance
+    auto Texture = std::make_unique<xgpu::texture>();
+    if (auto Err = xgpu::tools::bitmap::Create(*Texture, Device, Bitmap); Err)
+    {
+        assert(false);
+        e19::Debugger(xgpu::getErrorMsg(Err));
+        std::exit(xgpu::getErrorInt(Err));
+    }
+
+    // Register it with the resource manager
+    xresource::g_Mgr.RegisterResource(Ref, Texture.release());
+
+    return Ref;
 }
 
 int E19_Example()
@@ -1316,28 +1353,21 @@ int E19_Example()
     xgpu::pipeline              material                = {};
     xgpu::pipeline_instance     material_instance       = {};
     xgpu::texture               defaulttexture          = {};
-    e19::TextureManager         texturemgr              = {};
     xmaterial_compiler::graph   g                       = {};
 
     MeshManager.Init(Device);
-    texturemgr.Init(Device);
-    texturemgr.loadTexture(L"SheKnewMe.tga");
 
     mesh_manager::model CurrentModel = mesh_manager::model::CUBE;
 
     //
-    //Create Background material
+    // Create Background material
     //
-    xgpu::texture BgTexture;
-    xgpu::pipeline_instance BackGroundMaterialInstance;
-    {
-        if (auto Err = xgpu::tools::bitmap::Create(BgTexture, Device, xbitmap::getDefaultBitmap()); Err)
-        {
-            e19::Debugger(xgpu::getErrorMsg(Err));
-            std::exit(xgpu::getErrorInt(Err));
-        }
 
-        auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{BgTexture} };
+    xrsc::texture_ref BgTexture = CreateBackgroundTexture(Device, xbitmap::getDefaultBitmap());
+    xgpu::pipeline_instance BackGroundMaterialInstance;
+    if( auto p = xresource::g_Mgr.getResource(BgTexture); p )
+    {
+        auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{*p} };
         auto setup = xgpu::pipeline_instance::setup
         {
             .m_PipeLine = Pipeline2D
@@ -1347,9 +1377,9 @@ int E19_Example()
         if (auto Err = Device.Create(BackGroundMaterialInstance, setup); Err)
         {
             e19::Debugger(xgpu::getErrorMsg(Err));
+            assert(false);
             std::exit(xgpu::getErrorInt(Err));
         }
-
     }
 
     //
@@ -1385,6 +1415,8 @@ int E19_Example()
     // Create the inspector window
     //
     xproperty::inspector Inspector("Property");
+    Inspector.m_OnResourceNameRemapping.Register<[](xproperty::inspector&, std::string& Name, const xresource::full_guid& PreFullGuid){ RemapGUIDToString(Name, PreFullGuid); }>();
+    Inspector.m_OnResourceBrowser.Register<[](xproperty::inspector&, const void* pUID, bool& bOpen, xresource::full_guid& Out, const char* pName, std::span<const xresource::type_guid> Filters){ResourceBrowserPopup(pUID, bOpen, Out, pName, Filters);}>();
 
     //
     // Main Loop
@@ -1394,7 +1426,7 @@ int E19_Example()
         if (xgpu::tools::imgui::BeginRendering(true)) continue;
         ed::SetCurrentEditor(g_pEditor);
         ImGui::Begin("Material Graph");
-        DrawGraphUI(g, LastSelectedNode, texturemgr);
+        DrawGraphUI(g, LastSelectedNode );
 
         ImGui::End();
 
@@ -1559,35 +1591,40 @@ int E19_Example()
         if (SelectedDescriptor.m_bReload)
         {
             SelectedDescriptor.m_bReload = false;
-            PipelineReload(g,Device, VertexDescriptor, material, material_instance, SelectedDescriptor, xresource::g_Mgr);
+            PipelineReload(g, Device, VertexDescriptor, material, material_instance, SelectedDescriptor, xresource::g_Mgr);
             {
-                xgpu::texture* curTex = &defaulttexture;
-                std::vector<xgpu::pipeline_instance::sampler_binding> Bindings;
-                if (!g.m_shaderDetail.m_Textures.empty())
+                if ( auto p = xresource::g_Mgr.getResource(SelectedDescriptor.m_MaterialRef); p )
                 {
-                    for (int i = 0u; i < g.m_shaderDetail.m_Textures.size(); ++i)
-                    {
-                        auto& Texture = g.m_shaderDetail.m_Textures[i];
+                    xgpu::texture*                                          curTex      = &defaulttexture;
+                    std::vector<xgpu::pipeline_instance::sampler_binding>   Bindings;
 
-                        //Search for this texture
-                        for (int j = 0u; j < texturemgr.m_Names.size(); j++)
+                    for( int i=0; i<p->m_nDefaultTextures; ++i)
+                    {
+                        auto& E = p->m_pDefaultTextures[i];
+                        if (E.empty())
                         {
-                            if (texturemgr.m_Names[j] == Texture)
+                            Bindings.emplace_back(xgpu::pipeline_instance::sampler_binding{ *curTex });
+                        }
+                        else
+                        {
+                            if (auto t = xresource::g_Mgr.getResource(E); t)
                             {
-                                curTex = texturemgr.GetTextureByIndex(j);
+                                Bindings.emplace_back(xgpu::pipeline_instance::sampler_binding{ *t });
+                            }
+                            else
+                            {
+                                assert(false);
                             }
                         }
-                        //bindings 
-                        Bindings.emplace_back(xgpu::pipeline_instance::sampler_binding{ *curTex });
+                    }
+
+                    Device.Destroy(std::move(material_instance));
+                    if (auto Err = Device.Create(material_instance, { .m_PipeLine = material, .m_SamplersBindings = Bindings }); Err)
+                    {
+                        assert(false);
+                        exit(xgpu::getErrorInt(Err));
                     }
                 }
-
-                Device.Destroy(std::move(material_instance));
-                if (auto Err = Device.Create(material_instance,{ .m_PipeLine = material, .m_SamplersBindings = Bindings }); Err)
-                {
-                    exit(xgpu::getErrorInt(Err));
-                }
-
             }
         }
 
@@ -1617,6 +1654,52 @@ int E19_Example()
                     CmdBufferRef.setPushConstants(pc);
                     MeshManager.Rendering(CmdBufferRef, mesh_manager::model::PLANE2D);
                 }
+            });
+
+            //
+            // Camera controls
+            //
+            if (ImGui::IsWindowHovered())
+            {
+                if (Mouse.isPressed(xgpu::mouse::digital::BTN_RIGHT))
+                {
+                    auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
+                    Angles.m_Pitch.m_Value -= 0.01f * MousePos[1];
+                    Angles.m_Yaw.m_Value   -= 0.01f * MousePos[0];
+                }
+
+                // zoom
+                Distance += Distance * -0.02f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
+            }
+
+            //
+            // Render mesh
+            //
+            if (material_instance.m_Private) xgpu::tools::imgui::AddCustomRenderCallback([&](const ImVec2& windowPos, const ImVec2& windowSize)
+            {
+                auto CmdBufferRef = MainWindow.getCmdBuffer();
+
+                View.setViewport({ static_cast<int>(windowPos.x)
+                                 , static_cast<int>(windowPos.y)
+                                 , static_cast<int>(windowSize.x)
+                                 , static_cast<int>(windowSize.y)
+                                });
+
+                // Compute aspect ratio from ImGui widget size
+                View.setAspect(windowSize.x / windowSize.y);
+
+                // Update the camera
+                View.LookAt(Distance, Angles, { 0,0,0 });
+
+                e19::push_constants pushConst;
+                pushConst.m_L2C = (View.getW2C() * xmath::fmat4::fromScale({ 2.f }));
+
+                // Set pipeline and push constants
+                CmdBufferRef.setPipelineInstance(material_instance);
+                CmdBufferRef.setPushConstants(pushConst);
+
+                // Render the mesh
+                MeshManager.Rendering(CmdBufferRef, CurrentModel);
             });
 
             //
@@ -1666,6 +1749,7 @@ int E19_Example()
 
             if (ImGui::BeginPopup("BackGround"))
             {
+                /*
                 for (int i = 0; i < texturemgr.m_Names.size(); ++i)
                 {
                     bool selected = (texturemgr.m_CurrentBGIndex == i);
@@ -1682,60 +1766,19 @@ int E19_Example()
                         //need to destroy material_instance if not complain
                         Device.Destroy(std::move(BackGroundMaterialInstance));
                         if (auto Err = Device.Create(BackGroundMaterialInstance, { .m_PipeLine = Pipeline2D, .m_SamplersBindings = Bindings }); Err)
+                        {
+                            assert(false);
                             exit(xgpu::getErrorInt(Err));
+                        }
                     }
                     if (selected) ImGui::SetItemDefaultFocus();
                 }
+                */
                 ImGui::EndPopup();
             }
             ImGui::PopStyleVar();
             ImGui::PopStyleColor(6);
 
-            //
-            // Camera controls
-            //
-            if (ImGui::IsWindowHovered())
-            {
-                if (Mouse.isPressed(xgpu::mouse::digital::BTN_RIGHT))
-                {
-                    auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
-                    Angles.m_Pitch.m_Value -= 0.01f * MousePos[1];
-                    Angles.m_Yaw.m_Value   -= 0.01f * MousePos[0];
-                }
-
-                // zoom
-                Distance += Distance * -0.02f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
-            }
-
-            //
-            // Render mesh
-            //
-            if (material_instance.m_Private) xgpu::tools::imgui::AddCustomRenderCallback([&](const ImVec2& windowPos, const ImVec2& windowSize)
-            {
-                auto CmdBufferRef = MainWindow.getCmdBuffer();
-
-                View.setViewport({ static_cast<int>(windowPos.x)
-                                 , static_cast<int>(windowPos.y)
-                                 , static_cast<int>(windowSize.x)
-                                 , static_cast<int>(windowSize.y)
-                                });
-
-                // Compute aspect ratio from ImGui widget size
-                View.setAspect(windowSize.x / windowSize.y);
-
-                // Update the camera
-                View.LookAt(Distance, Angles, { 0,0,0 });
-
-                e19::push_constants pushConst;
-                pushConst.m_L2C = (View.getW2C() * xmath::fmat4::fromScale({ 2.f }));
-
-                // Set pipeline and push constants
-                CmdBufferRef.setPipelineInstance(material_instance);
-                CmdBufferRef.setPushConstants(pushConst);
-
-                // Render the mesh
-                MeshManager.Rendering(CmdBufferRef, CurrentModel);
-            });
 
             ImGui::End();
         }
@@ -1770,6 +1813,9 @@ int E19_Example()
         // Show a texture selector in IMGUI
         //
         AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
+
+        // We let the asset browser to decide if it needs to show or not
+        g_AsserBrowserPopup.RenderAsPopup( e10::g_LibMgr, xresource::g_Mgr);
 
         if (auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false && NewAsset.m_Type.m_Value == 0xC59E01444175409E )
         {
@@ -1812,16 +1858,6 @@ int E19_Example()
                 for (auto& [nid, pNode] : g.m_InstanceNodes)
                 {
                     ed::SetNodePosition(nid.m_Value, ImVec2(pNode->m_Pos.m_X, pNode->m_Pos.m_Y));
-                    if (pNode->m_Name == "Sampler2D" && !pNode->m_Params.m_Properties.empty())
-                    {
-                        for (int i = 0; i < texturemgr.m_Names.size(); i++)
-                        {
-                            if (texturemgr.m_Names[i] == pNode->m_Params.m_Properties[0].m_Value.get<std::string>())
-                            {
-                                g_SelectedTexture = i;
-                            }
-                        }
-                    }
                 }
 
                 // Tell the system if we should be loading the sprv
