@@ -924,6 +924,11 @@ namespace e10
                     
                 }
 
+                if (ImGui::MenuItem("Recurse child folders", nullptr, &m_RecuseChildFolder))
+                {
+
+                }
+
                 ImGui::EndPopup(); // Close the popup scope
             }
         }
@@ -1349,6 +1354,7 @@ namespace e10
                 std::string_view        m_TypeNameView;
                 std::string_view        m_IconView;
                 xresource::full_guid    m_ResourceGUID;
+                float                   m_Distance;
                 bool                    m_bHasChildren:1
                 ,                       m_bModified:1
                 ,                       m_bDeleted:1;
@@ -1367,72 +1373,115 @@ namespace e10
                 Lib->m_InfoByTypeDataBase.FindAsReadOnly(m_ParentGUID.m_Type
                 , [&](const std::unique_ptr<library_db::info_db>& Entry)
                 {
-                    Entry->m_InfoDataBase.FindAsReadOnly(m_ParentGUID.m_Instance
-                    , [&](const e10::library_db::info_node& Node)
-                    {
-                        TempNodes.reserve(Node.m_lChildLinks.size());
-
-                        for (auto& E : Node.m_lChildLinks)
+                    std::function<void(const e10::library_db::info_node&)> CollectItems = [&](const e10::library_db::info_node& Node)
                         {
-                            // Skip the trash can...
-                            if (E.m_Type == e10::folder::type_guid_v && E.m_Instance.m_Value == (e10::folder::trash_guid_v.m_Instance.m_Value)) continue;
+                            TempNodes.reserve(TempNodes.size()+Node.m_lChildLinks.size());
 
-                            //
-                            // Allow to filter by type
-                            // 
-                            bool bFilter = false;
-                            for (auto& I : m_FilterByType)
+                            for (auto& E : Node.m_lChildLinks)
                             {
-                                if (I == E.m_Type)
+                                // Skip the trash can...
+                                if (E.m_Type == e10::folder::type_guid_v && E.m_Instance.m_Value == (e10::folder::trash_guid_v.m_Instance.m_Value)) continue;
+
+                                //
+                                // Allow to filter by type
+                                // 
+                                bool bFilter = false;
+                                for (auto& I : m_FilterByType)
                                 {
-                                    bFilter = true;
-                                    break;
+                                    if (I == E.m_Type)
+                                    {
+                                        bFilter = true;
+                                        break;
+                                    }
                                 }
-                            }
-                            if (bFilter) continue;
+                                if (bFilter) continue;
 
-                            //
-                            // Otherwise, add the node
-                            //
-                            temp_node Temp;
-
-                            Temp.m_ResourceGUID = E;
-
-                            if (auto e = m_AssetMgr.m_AssetPluginsDB.m_mPluginsByTypeGUID.find(E.m_Type); e == m_AssetMgr.m_AssetPluginsDB.m_mPluginsByTypeGUID.end())
-                            {
-                                Temp.m_TypeNameView = "<unknown>";
-                            }
-                            else
-                            {
-                                auto& Plugin = m_AssetMgr.m_AssetPluginsDB.m_lPlugins[e->second];
-                                Temp.m_TypeNameView = Plugin.m_TypeName;
-                                Temp.m_IconView     = Plugin.m_Icon;
-                            }
-
-                            // Get the name
-                            Lib->m_InfoByTypeDataBase.FindAsReadOnly(E.m_Type
-                                , [&](const std::unique_ptr<library_db::info_db>& Entry)
+                                // If the user wants us to 
+                                if (m_RecuseChildFolder && E.m_Type == e10::folder::type_guid_v)
                                 {
-                                    Entry->m_InfoDataBase.FindAsReadOnly(E.m_Instance
-                                        , [&](const e10::library_db::info_node& Node)
-                                        {
-                                            Temp.m_ResourceName = Node.m_Info.m_Name;
-                                            Temp.m_bHasChildren = !Node.m_lChildLinks.empty();
-                                            Temp.m_bModified    = Node.m_InfoChangeCount > 0;
-                                            Temp.m_bDeleted     = Node.m_Info.m_RscLinks.empty() == false && Node.m_Info.m_RscLinks[0] == e10::folder::trash_guid_v;
-                                        });
-                                });
+                                    Entry->m_InfoDataBase.FindAsReadOnly(E.m_Instance, [&](const e10::library_db::info_node& X){ CollectItems(X); } );
+                                    continue;
+                                }
 
-                            TempNodes.emplace_back(std::move(Temp));
-                        }
-                    });
+                                //
+                                // Otherwise, add the node
+                                //
+                                temp_node Temp;
+
+                                Temp.m_ResourceGUID = E;
+
+                                if (auto e = m_AssetMgr.m_AssetPluginsDB.m_mPluginsByTypeGUID.find(E.m_Type); e == m_AssetMgr.m_AssetPluginsDB.m_mPluginsByTypeGUID.end())
+                                {
+                                    Temp.m_TypeNameView = "<unknown>";
+                                }
+                                else
+                                {
+                                    auto& Plugin = m_AssetMgr.m_AssetPluginsDB.m_lPlugins[e->second];
+                                    Temp.m_TypeNameView = Plugin.m_TypeName;
+                                    Temp.m_IconView = Plugin.m_Icon;
+                                }
+
+                                // Get the name
+                                Lib->m_InfoByTypeDataBase.FindAsReadOnly(E.m_Type
+                                    , [&](const std::unique_ptr<library_db::info_db>& Entry)
+                                    {
+                                        Entry->m_InfoDataBase.FindAsReadOnly(E.m_Instance
+                                            , [&](const e10::library_db::info_node& Node)
+                                            {
+                                                Temp.m_ResourceName = Node.m_Info.m_Name;
+                                                Temp.m_bHasChildren = !Node.m_lChildLinks.empty();
+                                                Temp.m_bModified = Node.m_InfoChangeCount > 0;
+                                                Temp.m_bDeleted = Node.m_Info.m_RscLinks.empty() == false && Node.m_Info.m_RscLinks[0] == e10::folder::trash_guid_v;
+                                            });
+                                    });
+
+                                TempNodes.emplace_back(std::move(Temp));
+                            }
+                        };
+
+                    Entry->m_InfoDataBase.FindAsReadOnly(m_ParentGUID.m_Instance, [&](const e10::library_db::info_node& X){ CollectItems(X);} );
                 });
             });
 
             //
             // Short the vector nodes
             //
-            switch (m_ShortBasedOn)
+            if (not m_Browser.m_SearchString.empty())
+            {
+                [&TempNodes](std::string_view query, std::size_t maxResults )
+                {
+                    const std::size_t   qLen            = query.size();
+                    constexpr float     prefix_weight   = 0.5f;
+                    constexpr float     length_weight   = 0.01f;
+                    constexpr float     maxDistance     = 10000;
+
+                    for (auto& E : TempNodes)
+                    {
+                        std::size_t sLen = E.m_ResourceName.length();
+                        if (sLen == 0) 
+                        {
+                            E.m_Distance = maxDistance;
+                            continue;
+                        }
+
+                        const std::size_t         dist        = xstrtool::SubstringDamerauLevenshteinDistanceI( query, E.m_ResourceName);
+                        const std::string_view    prefix      = std::string_view(E.m_ResourceName).substr(0, std::min(qLen, sLen));
+                        const std::size_t         prefix_dist = xstrtool::DamerauLevenshteinDistanceI(query, prefix);
+                        E.m_Distance = static_cast<float>(dist) + prefix_weight * static_cast<float>(prefix_dist) + length_weight * static_cast<float>(sLen);
+                    }
+
+                    // Sort: distance, then candidate length (shorter first for conciseness), then lex
+                    std::sort(TempNodes.begin(), TempNodes.end(), [](const temp_node& a, const temp_node& b)
+                    {
+                        if (a.m_Distance != b.m_Distance) return a.m_Distance < b.m_Distance;
+                        if (a.m_ResourceName.size() != b.m_ResourceName.size()) return a.m_ResourceName.size() < b.m_ResourceName.size();
+                        return a.m_ResourceName < b.m_ResourceName;
+                    });
+
+                    if (TempNodes.size() > maxResults) TempNodes.resize(maxResults);
+                }(m_Browser.m_SearchString, 100);
+            }
+            else switch (m_ShortBasedOn)
             {
             case sort_base_on::NAME_ASCENDING:
                 std::sort(TempNodes.begin(), TempNodes.end()
@@ -2245,6 +2294,7 @@ namespace e10
         ImVec2                                              m_PathHistorySize       = {};
         bool                                                m_PathHistoryShow       = {};
         bool                                                m_DisplayDeletedItems   = {false};
+        bool                                                m_RecuseChildFolder     = {false};
     };
 
     //=============================================================================

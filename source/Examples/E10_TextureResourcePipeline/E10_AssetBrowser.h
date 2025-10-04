@@ -217,14 +217,18 @@ namespace e10
 
         //=============================================================================
 
-        static void RenderSearchBar(ImVec2 Size)
+        void RenderSearchBar(ImVec2 Size)
         {
-            static char searchBuffer[256] = ""; // Buffer for search text
+            std::array<char,256> searchBuffer{0}; // Buffer for search text
+
+            strcpy_s( searchBuffer.data(), searchBuffer.size(), m_SearchString.c_str());
+
             auto x = ImGui::GetCursorPosX();
 
             if (ImGui::Button("\xe2\x96\xbc"))
             {
-
+                m_SearchString.clear();
+                searchBuffer[0]=0;
             }
             ImGui::SameLine(0, 0.1f);
 
@@ -249,7 +253,7 @@ namespace e10
             ImGui::PushItemWidth(inputWidth);
 
             // Search input field
-            ImGui::InputText("##search", searchBuffer, sizeof(searchBuffer));
+            const bool NewContent = ImGui::InputText("##search", searchBuffer.data(), searchBuffer.size());
 
             // Check if input is focused or has text
             bool isActive = ImGui::IsItemActive(); // True when input is focused
@@ -275,6 +279,9 @@ namespace e10
 
             ImGui::PopItemWidth();
             ImGui::PopStyleVar(1); // Restore style vars
+
+            // Copy back the string
+            m_SearchString = std::string_view(searchBuffer.data());
         }
 
         //=============================================================================
@@ -435,6 +442,9 @@ namespace e10
         tab_list                m_Tabs                  = {};
         const void*             m_pPopupUID             = {};
         const char*             m_pWindowName           = "Resource Browser";
+
+    public:
+        std::string             m_SearchString          = {};
     };
 
 } // namespace e10
