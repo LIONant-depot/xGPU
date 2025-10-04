@@ -1178,6 +1178,31 @@ struct selected_desc
 
 //------------------------------------------------------------------------------------------------
 
+void InspectorRemapGUIDToString(xproperty::inspector&, std::string& Name, const xresource::full_guid& PreFullGuid)
+{
+    // if it is empty the just print empty
+    if (PreFullGuid.empty())
+    {
+        Name = "empty";
+    }
+    else
+    {
+        // make sure that there are not pointer issues
+        auto FullGuid = xresource::g_Mgr.getFullGuid(PreFullGuid);
+
+        // Find our entry and get the name
+        e10::g_LibMgr.getNodeInfo(FullGuid, [&](e10::library_db::info_node& Node)
+            {
+                Name = Node.m_Info.m_Name;
+            });
+
+        // If we fail to find it for whatever reason let us just use the GUID
+        if (Name.empty()) Name = std::format("{:X}", FullGuid.m_Instance.m_Value);
+    }
+}
+
+//------------------------------------------------------------------------------------------------
+
 int E10_Example()
 {
     xgpu::instance Instance;
@@ -1391,6 +1416,7 @@ int E10_Example()
         UndoSystem.Add(Cmd);
     };
 
+    Inspectors[0].m_OnResourceNameRemapping.Register<InspectorRemapGUIDToString> ();
     Inspectors[0].m_OnChangeEvent.Register<&decltype(OnChangeEventInfo)::operator()>(OnChangeEventInfo);
     Inspectors[1].m_OnChangeEvent.Register<&decltype(OnChangeEventSettings)::operator()>(OnChangeEventSettings);
 
