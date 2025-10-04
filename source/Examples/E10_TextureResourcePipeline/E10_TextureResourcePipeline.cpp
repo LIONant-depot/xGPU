@@ -133,7 +133,6 @@ namespace e10
 //------------------------------------------------------------------------------------------------
 
 #include "E10_PluginMgr.h"
-#include "E10_AssetManagerContext.h"
 #include "E10_AssetBrowser.h"
 #include "E10_asset_browser_virtual_tree_tab.h"
 #include "E10_asset_browser_compiler_tab.h"

@@ -2,6 +2,7 @@
 #define _E10_ASSETBROWSER_H
 #pragma once
 #include "source/Tools/xgpu_imgui_breach.h"
+#include "E10_AssetMgr.h"
 
 namespace e10
 {

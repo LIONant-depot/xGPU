@@ -281,11 +281,8 @@ add_executable(${TARGET_PROJECT}
   "source/Examples/E09_Raw3DViewer/E09_Raw3DViewer.cpp"
   "source/Examples/E10_TextureResourcePipeline/E10_TextureResourcePipeline.cpp"
   "source/Examples/E10_TextureResourcePipeline/E10_Resources.h"
-  "source/Examples/E10_TextureResourcePipeline/E10_Resources.cpp"
   "source/Examples/E10_TextureResourcePipeline/E10_PluginMgr.h"
-  "source/Examples/E10_TextureResourcePipeline/E10_Compiler.h"
   "source/Examples/E10_TextureResourcePipeline/E10_AssetMgr.h"
-  "source/Examples/E10_TextureResourcePipeline/E10_AssetManagerContext.h"
   "source/Examples/E10_TextureResourcePipeline/E10_AssetBrowser.h"
   "source/Examples/E10_TextureResourcePipeline/E10_asset_browser_virtual_tree_tab.h"
   "source/Examples/E10_TextureResourcePipeline/E10_asset_browser_search_tab.h"
@@ -407,11 +404,11 @@ source_group("Examples/E09_Raw3DViewer" FILES
 source_group("Examples/E10_TextureResourcePipeline" FILES
    "source/Examples/E10_TextureResourcePipeline/E10_TextureResourcePipeline.cpp"
    "source/Examples/E10_TextureResourcePipeline/E10_Resources.h"
-   "source/Examples/E10_TextureResourcePipeline/E10_Resources.cpp"
    "source/Examples/E10_TextureResourcePipeline/E10_PluginMgr.h"
-   "source/Examples/E10_TextureResourcePipeline/E10_Compiler.h"
    "source/Examples/E10_TextureResourcePipeline/E10_AssetMgr.h"
-   "source/Examples/E10_TextureResourcePipeline/E10_AssetManagerContext.h"
+)
+
+source_group("Examples/E10_TextureResourcePipeline/AssetBrowser" FILES
    "source/Examples/E10_TextureResourcePipeline/E10_AssetBrowser.h"
    "source/Examples/E10_TextureResourcePipeline/E10_asset_browser_virtual_tree_tab.h"
    "source/Examples/E10_TextureResourcePipeline/E10_asset_browser_search_tab.h"

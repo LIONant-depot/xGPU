@@ -12,8 +12,4 @@ struct resource_mgr_user_data
      xgpu::device m_Device          = {};
 };
 
-//-----------------------------------------------------------------------
-
-//#include "source/xtexture_xgpu_rsc_loader.h"
-
 #endif
