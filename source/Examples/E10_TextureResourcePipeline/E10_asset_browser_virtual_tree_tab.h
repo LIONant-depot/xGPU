@@ -3,9 +3,12 @@
 
 #include "imgui.h"
 #ifndef IMGUI_DEFINE_MATH_OPERATORS
-#define IMGUI_DEFINE_MATH_OPERATORS // Allows ImVec2 arithmetic
+    #define IMGUI_DEFINE_MATH_OPERATORS // Allows ImVec2 arithmetic
 #endif
-#include "imgui_internal.h"       // For TreeNodeBehavior, GetIDWithSeed, etc.
+
+#ifndef IM_PI
+    #include "imgui_internal.h"       // For TreeNodeBehavior, GetIDWithSeed, etc.
+#endif
 
 namespace e10
 {
@@ -820,94 +823,100 @@ namespace e10
 
             if (ImGui::BeginPopup("Filter Resource"))
             {
-                if (ImGui::BeginMenu("\xEE\xA3\x8B Sort By"))
+                if (m_Browser.m_SearchString.empty())
                 {
-                    if (ImGui::MenuItem("\xEF\x82\xAD Name (a->Z)", nullptr, m_ShortBasedOn == sort_base_on::NAME_ASCENDING))
+                    if (ImGui::BeginMenu("\xEE\xA3\x8B Sort By"))
                     {
-                        m_ShortBasedOn = sort_base_on::NAME_ASCENDING;
-                        ImGui::CloseCurrentPopup();
-                        keepPopupOpen = false;
-                    }
+                        if (ImGui::MenuItem("\xEF\x82\xAD Name (a->Z)", nullptr, m_ShortBasedOn == sort_base_on::NAME_ASCENDING))
+                        {
+                            m_ShortBasedOn = sort_base_on::NAME_ASCENDING;
+                            ImGui::CloseCurrentPopup();
+                            keepPopupOpen = false;
+                        }
 
-                    if (ImGui::MenuItem("\xEF\x82\xAE Name (Z->a)", nullptr, m_ShortBasedOn == sort_base_on::NAME_DESCENDING))
-                    {
-                        m_ShortBasedOn = sort_base_on::NAME_DESCENDING;
-                        ImGui::CloseCurrentPopup();
-                        keepPopupOpen = false;
-                    }
+                        if (ImGui::MenuItem("\xEF\x82\xAE Name (Z->a)", nullptr, m_ShortBasedOn == sort_base_on::NAME_DESCENDING))
+                        {
+                            m_ShortBasedOn = sort_base_on::NAME_DESCENDING;
+                            ImGui::CloseCurrentPopup();
+                            keepPopupOpen = false;
+                        }
 
-                    if (ImGui::MenuItem("\xEF\x82\xAD Type (a->Z)", nullptr, m_ShortBasedOn == sort_base_on::TYPE_ASCENDING))
-                    {
-                        m_ShortBasedOn = sort_base_on::TYPE_ASCENDING;
-                        ImGui::CloseCurrentPopup();
-                        keepPopupOpen = false;
-                    }
+                        if (ImGui::MenuItem("\xEF\x82\xAD Type (a->Z)", nullptr, m_ShortBasedOn == sort_base_on::TYPE_ASCENDING))
+                        {
+                            m_ShortBasedOn = sort_base_on::TYPE_ASCENDING;
+                            ImGui::CloseCurrentPopup();
+                            keepPopupOpen = false;
+                        }
 
-                    if (ImGui::MenuItem("\xEF\x82\xAE Type (Z->a)", nullptr, m_ShortBasedOn == sort_base_on::TYPE_DESCENDING))
-                    {
-                        m_ShortBasedOn = sort_base_on::TYPE_DESCENDING;
-                        ImGui::CloseCurrentPopup();
-                        keepPopupOpen = false;
-                    }
+                        if (ImGui::MenuItem("\xEF\x82\xAE Type (Z->a)", nullptr, m_ShortBasedOn == sort_base_on::TYPE_DESCENDING))
+                        {
+                            m_ShortBasedOn = sort_base_on::TYPE_DESCENDING;
+                            ImGui::CloseCurrentPopup();
+                            keepPopupOpen = false;
+                        }
 
-                    if (ImGui::MenuItem("\xEF\x82\xAD Last Modified (a->Z)", nullptr, m_ShortBasedOn == sort_base_on::LAST_MODIFIED_ASCENDING))
-                    {
-                        m_ShortBasedOn = sort_base_on::LAST_MODIFIED_ASCENDING;
-                        ImGui::CloseCurrentPopup();
-                        keepPopupOpen = false;
-                    }
+                        if (ImGui::MenuItem("\xEF\x82\xAD Last Modified (a->Z)", nullptr, m_ShortBasedOn == sort_base_on::LAST_MODIFIED_ASCENDING))
+                        {
+                            m_ShortBasedOn = sort_base_on::LAST_MODIFIED_ASCENDING;
+                            ImGui::CloseCurrentPopup();
+                            keepPopupOpen = false;
+                        }
 
-                    if (ImGui::MenuItem("\xEF\x82\xAE Last Modified (Z->a)", nullptr, m_ShortBasedOn == sort_base_on::LAST_MODIFIED_DESCENDING))
-                    {
-                        m_ShortBasedOn = sort_base_on::LAST_MODIFIED_DESCENDING;
-                        ImGui::CloseCurrentPopup();
-                        keepPopupOpen = false;
-                    }
+                        if (ImGui::MenuItem("\xEF\x82\xAE Last Modified (Z->a)", nullptr, m_ShortBasedOn == sort_base_on::LAST_MODIFIED_DESCENDING))
+                        {
+                            m_ShortBasedOn = sort_base_on::LAST_MODIFIED_DESCENDING;
+                            ImGui::CloseCurrentPopup();
+                            keepPopupOpen = false;
+                        }
 
-                    ImGui::EndMenu();
+                        ImGui::EndMenu();
+                    }
                 }
 
-                if (ImGui::BeginMenu("\xee\x9c\x9c Filter By Type"))
+                if (not m_Browser.isPopup())
                 {
-                    if (ImGui::MenuItem("\xee\x9c\x9c Remove All Types"))
+                    if (ImGui::BeginMenu("\xee\x9c\x9c Filter By Type"))
                     {
+                        if (ImGui::MenuItem("\xee\x9c\x9c Remove All Types"))
+                        {
+                            for (auto& E : m_AssetMgr.m_AssetPluginsDB.m_lPlugins)
+                            {
+                                m_Browser.m_FilterByType.emplace_back(E.m_TypeGUID);
+                            }
+                        }
+
+                        if (ImGui::MenuItem("\xee\x9c\x9c View All Types"))
+                        {
+                            m_Browser.m_FilterByType.clear();
+                        }
+
+                        ImGui::SeparatorText("Type by Type");
+
                         for (auto& E : m_AssetMgr.m_AssetPluginsDB.m_lPlugins)
                         {
-                            m_FilterByType.emplace_back(E.m_TypeGUID);
-                        }
-                    }
-
-                    if (ImGui::MenuItem("\xee\x9c\x9c View All Types"))
-                    {
-                        m_FilterByType.clear();
-                    }
-
-                    ImGui::SeparatorText("Type by Type");
-
-                    for (auto& E : m_AssetMgr.m_AssetPluginsDB.m_lPlugins)
-                    {
-                        bool Selected = [&]
-                            {
-                                for (auto& T : m_FilterByType)
+                            bool Selected = [&]
                                 {
-                                    if (T == E.m_TypeGUID) return true;
-                                }
-                                return false;
-                            }();
+                                    for (auto& T : m_Browser.m_FilterByType)
+                                    {
+                                        if (T == E.m_TypeGUID) return true;
+                                    }
+                                    return false;
+                                }();
 
-                        if (ImGui::MenuItem(std::format("\xee\x9c\x9c Remove {}", E.m_TypeName).c_str(), nullptr, &Selected))
-                        {
-                            if (Selected)
+                            if (ImGui::MenuItem(std::format("\xee\x9c\x9c Remove {}", E.m_TypeName).c_str(), nullptr, &Selected))
                             {
-                                m_FilterByType.emplace_back(E.m_TypeGUID);
-                            }
-                            else
-                            {
-                                m_FilterByType.erase(std::ranges::remove(m_FilterByType, E.m_TypeGUID).begin(), m_FilterByType.end());
+                                if (Selected)
+                                {
+                                    m_Browser.m_FilterByType.emplace_back(E.m_TypeGUID);
+                                }
+                                else
+                                {
+                                    m_Browser.m_FilterByType.erase(std::ranges::remove(m_Browser.m_FilterByType, E.m_TypeGUID).begin(), m_Browser.m_FilterByType.end());
+                                }
                             }
                         }
+                        ImGui::EndMenu();
                     }
-                    ImGui::EndMenu();
                 }
 
                 //ImGui::SeparatorText("Build in");
@@ -1251,7 +1260,8 @@ namespace e10
 
         void TopControls()
         {
-            AddResourceButton();
+            if (not m_Browser.isPopup())
+                AddResourceButton();
 
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));        // Transparent background
             ImGui::SameLine(0, 3.5f);
@@ -1386,7 +1396,7 @@ namespace e10
                                 // Allow to filter by type
                                 // 
                                 bool bFilter = false;
-                                for (auto& I : m_FilterByType)
+                                for (auto& I : m_Browser.m_FilterByType)
                                 {
                                     if (I == E.m_Type)
                                     {
@@ -2282,7 +2292,6 @@ namespace e10
         library::guid                                       m_SelectedLibrary       = {};
         std::vector<xresource::full_guid>                   m_SelectedItems         = {};
         folder::guid                                        m_ParentGUID            = {};
-        std::vector<xresource::type_guid>                   m_FilterByType          = {};
         sort_base_on                                        m_ShortBasedOn          = sort_base_on::NAME_ASCENDING;
         std::unordered_map<e10::folder::guid, bool>         m_IsTreeNodeOpen        = {};
         xresource::full_guid                                m_DraggedDescriptorItem = {};

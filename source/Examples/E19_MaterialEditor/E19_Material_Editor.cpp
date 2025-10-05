@@ -1,6 +1,7 @@
-﻿#define NOMINMAX
-#include "dependencies/xproperty/source/xcore/my_properties.h"
+﻿#include "dependencies/xproperty/source/xcore/my_properties.h"
 #include "dependencies/xstrtool/source/xstrtool.h"
+
+
 #include "source/Examples/E05_Textures/E05_BitmapInspector.h"
 #include "E19_Node_Core.h"
 #include "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h" 
@@ -22,7 +23,6 @@
 
 // Just include the loader here...
 #include "Plugins/xmaterial.plugin/source/xmaterial_xgpu_rsc_loader.cpp"
-
 
 namespace                   ed                  = ax::NodeEditor;
 static ed::EditorContext*   g_pEditor           = nullptr;
@@ -1116,25 +1116,80 @@ void RemapGUIDToString(std::string& Name, const xresource::full_guid& PreFullGui
     }
 }
 
-e10::assert_browser g_AsserBrowserPopup;
+e10::assert_browser g_AssetBrowserPopup;
 
-void ResourceBrowserPopup(const void* pUID, bool& Open, xresource::full_guid& Output, const char* pPopUpName, std::span<const xresource::type_guid > Filter )
+void ResourceBrowserPopup(const void* pUID, bool& Open, xresource::full_guid& Output, std::span<const xresource::type_guid > Filters )
 {
-    // If the g_AsserBrowserPopup available?
-    if (g_AsserBrowserPopup.getCurrentID() != nullptr && g_AsserBrowserPopup.getCurrentID() != pUID )
-        return;
-
-    // If the user want us to open let us do so... (as long as it is not already visible)
-    if (Open && not g_AsserBrowserPopup.isVisible()) g_AsserBrowserPopup.ShowAsPopup(pUID, pPopUpName);
-
-    // If the asset-browser sended us a new asset let us open and see what we have...
-    if (auto SelectedAsset = g_AsserBrowserPopup.getSelectedAsset(); SelectedAsset.empty() == false && SelectedAsset.m_Type == xrsc::texture_type_guid_v )
+    //
+    // Add drag and drop
+    //
+    if (ImGui::BeginDragDropTarget())
     {
-        Output = SelectedAsset;
+        // This is the drag and drop payload from the asset browser we just duplicated here
+        struct drag_and_drop_folder_payload_t
+        {
+            e10::folder::guid           m_Parent;
+            xresource::full_guid        m_Source;
+            bool                        m_bSelection;
+        };
+
+        const ImGuiPayload* payload = ImGui::GetDragDropPayload();
+        if (payload && payload->IsDataType("DESCRIPTOR_GUID"))
+        {
+            IM_ASSERT(payload->DataSize == sizeof(drag_and_drop_folder_payload_t));
+            auto& payload_n = *static_cast<const drag_and_drop_folder_payload_t*>(payload->Data);
+
+            for (auto& Type : Filters)
+            {
+                if ( payload_n.m_Source.m_Type == Type)
+                {
+                    if ( const ImGuiPayload* accepted = ImGui::AcceptDragDropPayload("DESCRIPTOR_GUID") )
+                    {
+                        Output = payload_n.m_Source;
+                        if (g_AssetBrowserPopup.isVisible())  g_AssetBrowserPopup.ClosePopup();
+                        Open = false;
+                        break;
+                    }
+                }
+            }
+        }
+        ImGui::EndDragDropTarget();
     }
 
+    //
+    // If the g_AsserBrowserPopup it's been used, and we are not the owner then simply return?
+    //
+    if (g_AssetBrowserPopup.getCurrentID() != nullptr && g_AssetBrowserPopup.getCurrentID() != pUID )
+        return;
+
+    //
+    // If the user want us to open let us do so... (as long as it is not already visible)
+    //
+    if (Open && not g_AssetBrowserPopup.isVisible()) 
+    {
+        g_AssetBrowserPopup.ShowAsPopup(e10::g_LibMgr, pUID, Filters);
+    }
+
+    //
+    // If the asset-browser sended us a new asset let us open and see what we have...
+    //
+    if (auto SelectedAsset = g_AssetBrowserPopup.getSelectedAsset(); SelectedAsset.empty() == false )
+    {
+        // Make sure that the type in question is relevant to us
+        for (auto& Type : Filters)
+        {
+            if (SelectedAsset.m_Type == Type)
+            {
+                Output = SelectedAsset;
+                break;
+            }
+        }
+    }
+
+    //
     // Let the user know what is the current state of the popup...
-    Open = g_AsserBrowserPopup.isVisible();
+    //
+    Open = g_AssetBrowserPopup.isVisible();
 }
 
 xrsc::texture_ref CreateBackgroundTexture(xgpu::device& Device, const xbitmap& Bitmap)
@@ -1416,7 +1471,10 @@ int E19_Example()
     //
     xproperty::inspector Inspector("Property");
     Inspector.m_OnResourceNameRemapping.Register<[](xproperty::inspector&, std::string& Name, const xresource::full_guid& PreFullGuid){ RemapGUIDToString(Name, PreFullGuid); }>();
-    Inspector.m_OnResourceBrowser.Register<[](xproperty::inspector&, const void* pUID, bool& bOpen, xresource::full_guid& Out, const char* pName, std::span<const xresource::type_guid> Filters){ResourceBrowserPopup(pUID, bOpen, Out, pName, Filters);}>();
+    Inspector.m_OnResourceBrowser.Register<[](xproperty::inspector&, const void* pUID, bool& bOpen, xresource::full_guid& Out, std::span<const xresource::type_guid> Filters)
+    {
+        ResourceBrowserPopup(pUID, bOpen, Out, Filters);
+    }>();
 
     //
     // Main Loop
@@ -1815,7 +1873,7 @@ int E19_Example()
         AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
 
         // We let the asset browser to decide if it needs to show or not
-        g_AsserBrowserPopup.RenderAsPopup( e10::g_LibMgr, xresource::g_Mgr);
+        g_AssetBrowserPopup.RenderAsPopup( e10::g_LibMgr, xresource::g_Mgr);
 
         if (auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false && NewAsset.m_Type.m_Value == 0xC59E01444175409E )
         {
@@ -1842,7 +1900,7 @@ int E19_Example()
             SelectedDescriptor.clear();
             //SelectedDescriptor.m_pDescriptor = xresource_pipeline::factory_base::Find(std::string_view{ "Material" })->CreateDescriptor();
             SelectedDescriptor.m_LibraryGUID = AsserBrowser.getSelectedLibrary();
-            SelectedDescriptor.m_InfoGUID = SelectedAsset;
+            SelectedDescriptor.m_InfoGUID    = SelectedAsset;
 
             // Generate the paths
             e10::g_LibMgr.getNodeInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
