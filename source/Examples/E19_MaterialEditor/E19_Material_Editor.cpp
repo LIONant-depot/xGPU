@@ -438,7 +438,7 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
 
         if (n.isCommentNode())
         {
-            ed::Group(ImVec2(n.m_Params.m_Properties[1].m_Value.get<float>(), n.m_Params.m_Properties[2].m_Value.get<float>()));
+            ed::Group(ImVec2(n.m_Params[1].m_Value.get<float>(), n.m_Params[2].m_Value.get<float>()));
         }
         ImGui::BeginGroup();
 
@@ -547,11 +547,10 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
                     ImGui::PushID(static_cast<int>(n.m_Guid.m_Value)); // unique ID so ImGui doesn’t mix inputs
                     ImGui::SetNextItemWidth(100); // width of comment box
 
-                    auto& props = n.m_Params.m_Properties;
-                    auto& commentvalue = props[0].m_Value.get<std::string>();
+                    auto& commentvalue = n.m_Params[0].m_Value.get<std::string>();
 
-                    auto& sizex = props[1].m_Value.get<float>();
-                    auto& sizey = props[2].m_Value.get<float>();
+                    auto& sizex = n.m_Params[1].m_Value.get<float>();
+                    auto& sizey = n.m_Params[2].m_Value.get<float>();
                     auto commentnodesize = ed::GetNodeSize(n.m_Guid.m_Value);
                     sizex = commentnodesize.x;
                     sizey = commentnodesize.y;
@@ -663,12 +662,12 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
                 {
                     auto* type = g.GetType(ip.m_TypeGUID);
                     assert(type);
-                    assert(n.m_Params.m_Properties.empty() == false);
+                    assert(n.m_Params.empty() == false);
 
-                    if (n.m_Params.m_Properties[ip.m_ParamIndex].m_Value.m_pType->m_GUID == xproperty::settings::var_type<float>::guid_v ||
-                        n.m_Params.m_Properties[ip.m_ParamIndex].m_Value.m_pType->m_GUID == xproperty::settings::var_type<int>::guid_v)
+                    if (n.m_Params[ip.m_ParamIndex].m_Type == node_prop::type::FLOAT ||
+                        n.m_Params[ip.m_ParamIndex].m_Type == node_prop::type::INT )
                     {
-                        auto& prop = n.m_Params.m_Properties[ip.m_ParamIndex];
+                        auto& prop = n.m_Params[ip.m_ParamIndex];
                         
                         NodeFillColor(n, { widgetPos.x - 23.f ,widgetPos.y + 1.3f }, { 85,18 },
                             IM_COL32(64, 64, 64, 255), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersNone, true, borderoutlineClr);
@@ -690,12 +689,12 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
                         //somehow when using multiple same nodes drag float cause issue so the id make it more unique
                         std::string addons = std::to_string(n.m_Guid.m_Value);
 
-                        if (n.m_Params.m_Properties[ip.m_ParamIndex].m_Value.m_pType->m_GUID == xproperty::settings::var_type<float>::guid_v)
+                        if (n.m_Params[ip.m_ParamIndex].m_Type == node_prop::type::FLOAT)
                         {
                             float& value = prop.m_Value.get<float>();
                             ImGui::DragFloat(("##" + ip.m_Name + addons).c_str(), &value, 0.01f);
                         }
-                        else if (n.m_Params.m_Properties[ip.m_ParamIndex].m_Value.m_pType->m_GUID == xproperty::settings::var_type<int>::guid_v)
+                        else if (n.m_Params[ip.m_ParamIndex].m_Type == node_prop::type::INT)
                         {
                             int& value = prop.m_Value.get<int>();
                             ImGui::DragInt(("##" + ip.m_Name + addons).c_str(), &value, 0.01f);
@@ -719,7 +718,7 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
                         draw_list->AddLine(ImVec2(center.x + rad, center.y), line_end, IM_COL32(64, 200, 64, 255), 2.0f);
 
                     }
-                    else if (n.m_Params.m_Properties[ip.m_ParamIndex].m_Value.m_pType->m_GUID == xproperty::settings::var_type<xresource::full_guid>::guid_v)
+                    else if (n.m_Params[ip.m_ParamIndex].m_Type == node_prop::type::TEXTURE_RESOURCE)
                     {
                         NodeFillColor(n, { widgetPos.x - 23.f ,widgetPos.y + 1.3f }, { 85,18 },
                             IM_COL32(64, 64, 64, 255), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersNone, true, borderoutlineClr);
@@ -727,7 +726,7 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
                         xproperty::settings::context Context;
 
                         // texturemgr.m_Names
-                        if (n.m_pCustomInput) n.m_pCustomInput(n, n.m_Params.m_Properties[ip.m_ParamIndex].m_Value.get<xresource::full_guid>(), e10::g_LibMgr, Context);
+                        if (n.m_pCustomInput) n.m_pCustomInput(n, n.m_Params[ip.m_ParamIndex].m_Value.get<xresource::full_guid>(), e10::g_LibMgr, Context);
 
                         auto* draw_list = ImGui::GetWindowDrawList();
                         //center of the circle
