@@ -1176,9 +1176,11 @@ struct selected_desc
 };
 
 //------------------------------------------------------------------------------------------------
-
-void InspectorRemapGUIDToString(xproperty::inspector&, std::string& Name, const xresource::full_guid& PreFullGuid)
+static
+void RenderResourceWigzmos(xproperty::inspector&, bool& bOpen, const xresource::full_guid& PreFullGuid)
 {
+    std::string Name;
+
     // if it is empty the just print empty
     if (PreFullGuid.empty())
     {
@@ -1198,6 +1200,8 @@ void InspectorRemapGUIDToString(xproperty::inspector&, std::string& Name, const 
         // If we fail to find it for whatever reason let us just use the GUID
         if (Name.empty()) Name = std::format("{:X}", FullGuid.m_Instance.m_Value);
     }
+
+    bOpen = ImGui::Button(Name.c_str(), ImVec2(-1, 0));
 }
 
 //------------------------------------------------------------------------------------------------
@@ -1415,7 +1419,7 @@ int E10_Example()
         UndoSystem.Add(Cmd);
     };
 
-    Inspectors[0].m_OnResourceNameRemapping.Register<InspectorRemapGUIDToString> ();
+    Inspectors[0].m_OnResourceWigzmos.Register<RenderResourceWigzmos> ();
     Inspectors[0].m_OnChangeEvent.Register<&decltype(OnChangeEventInfo)::operator()>(OnChangeEventInfo);
     Inspectors[1].m_OnChangeEvent.Register<&decltype(OnChangeEventSettings)::operator()>(OnChangeEventSettings);
 

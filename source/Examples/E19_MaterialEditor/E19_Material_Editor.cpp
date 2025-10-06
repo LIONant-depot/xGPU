@@ -1092,10 +1092,11 @@ void PipelineReload(const xmaterial_compiler::graph& g, xgpu::device& Device, xg
     }
 }
 
+
 void RemapGUIDToString(std::string& Name, const xresource::full_guid& PreFullGuid)
 {
     // if it is empty the just print empty
-    if (PreFullGuid.empty() )
+    if (PreFullGuid.empty())
     {
         Name = "empty";
     }
@@ -1106,13 +1107,210 @@ void RemapGUIDToString(std::string& Name, const xresource::full_guid& PreFullGui
 
         // Find our entry and get the name
         e10::g_LibMgr.getNodeInfo(FullGuid, [&](e10::library_db::info_node& Node)
-        {
-            Name = Node.m_Info.m_Name;
-        });
+            {
+                Name = Node.m_Info.m_Name;
+            });
 
         // If we fail to find it for whatever reason let us just use the GUID
         if (Name.empty()) Name = std::format("{:X}", FullGuid.m_Instance.m_Value);
     }
+}
+
+// A nice cache for the inspector to deal with previewing textures and such...
+// May be this can become generic rather than just textures later...
+struct texture_cache_rlu
+{
+    using call_back = std::function<void(const xresource::full_guid&, xrsc::texture_ref&)>;
+
+    // Entry stored in the hash map: holds the value and its node position in the LRU list
+    struct entry
+    {
+        xrsc::texture_ref                         m_Value;
+        std::list<xresource::full_guid>::iterator m_Pos;   // position in LRU list
+    };
+
+    using map = std::unordered_map<xresource::full_guid, entry>;
+
+    std::size_t                     m_Capacity;
+    call_back                       m_Callback;
+    std::list<xresource::full_guid> m_LRU; // front = most-recent, back = least-recent
+    map                             m_Map;
+
+    std::size_t size()     const noexcept { return m_Map.size(); }
+    std::size_t capacity() const noexcept { return m_Capacity; }
+
+    explicit texture_cache_rlu(std::size_t Capacity = 100, call_back Callback = {})
+        : m_Capacity(Capacity), m_Callback(std::move(Callback))
+    {
+        // Optional: heuristic reserve to avoid early rehashing.
+        m_Map.reserve(m_Capacity + m_Capacity / 2);
+    }
+
+    void setupCapacity(std::size_t new_cap)
+    {
+        m_Capacity = new_cap;
+        EvictIfNeeded();
+    }
+
+    void clear()
+    {
+        // If you need to run the callback for everything, do it here before clearing.
+        if (m_Callback)
+        {
+            for (const auto& k : m_LRU)
+            {
+                auto it = m_Map.find(k);
+                if (it != m_Map.end()) m_Callback(it->first, it->second.m_Value);
+            }
+        }
+
+        m_Map.clear();
+        m_LRU.clear();
+    }
+
+    bool Contains(const xresource::full_guid& k) const
+    {
+        return m_Map.find(k) != m_Map.end();
+    }
+
+    // Get a pointer to the value if present; marks as most-recent.
+    // Returns nullptr if not found.
+    xrsc::texture_ref* find(const xresource::full_guid& k)
+    {
+        auto it = m_Map.find(k);
+        if (it == m_Map.end()) return nullptr;
+        touch(it);
+        return &it->second.m_Value;
+    }
+
+    // Touch without needing the value (if you already have it elsewhere).
+    bool touch(const xresource::full_guid& k)
+    {
+        auto it = m_Map.find(k);
+        if (it == m_Map.end()) return false;
+        touch(it);
+        return true;
+    }
+
+    // Insert or assign; marks as most-recent.
+    // Overload 1: pass a Value
+    void InsertOrAssign(const xresource::full_guid& k, xrsc::texture_ref v)
+    {
+        auto it = m_Map.find(k);
+        if (it != m_Map.end())
+        {
+            it->second.m_Value = std::move(v);
+            touch(it);
+        }
+        else
+        {
+            m_LRU.push_front(k);
+            entry e;
+            e.m_Value = std::move(v);
+            e.m_Pos = m_LRU.begin();
+            m_Map.emplace(k, std::move(e));
+            EvictIfNeeded();
+        }
+    }
+
+    // Erase a specific key (runs callback if provided)
+    bool erase(const xresource::full_guid& k)
+    {
+        auto it = m_Map.find(k);
+        if (it == m_Map.end()) return false;
+        if (m_Callback) m_Callback(it->first, it->second.m_Value);
+        m_LRU.erase(it->second.m_Pos);
+        m_Map.erase(it);
+        return true;
+    }
+
+private:
+
+    void touch(map::iterator it)
+    {
+        // Move this key to the front (most-recent)
+        m_LRU.splice(m_LRU.begin(), m_LRU, it->second.m_Pos);
+    }
+
+    void EvictIfNeeded()
+    {
+        while (m_Map.size() > m_Capacity)
+        {
+            const xresource::full_guid& OldKey = m_LRU.back(); // least-recent
+            auto it = m_Map.find(OldKey);
+            if (it != m_Map.end())
+            {
+                if (m_Callback) m_Callback(it->first, it->second.m_Value);
+                m_Map.erase(it);
+            }
+            m_LRU.pop_back();
+        }
+    }
+};
+
+void RenderResourceWigzmos(texture_cache_rlu& TextureLRU, bool& bOpen, const xresource::full_guid& PreFullGuid)
+{
+    std::string Name;
+
+    RemapGUIDToString(Name, PreFullGuid);
+
+    ImVec4 base = ImGui::GetStyleColorVec4(ImGuiCol_Button);
+    base.w = 1;
+    base.x *= 0.75f;
+    base.y *= 0.75f;
+    base.z *= 0.75f;
+    ImGui::PushStyleColor(ImGuiCol_Button, base);
+    if (PreFullGuid.empty() == false && PreFullGuid.m_Type == xrsc::texture_type_guid_v )
+    {
+        xrsc::texture_ref Ref;
+        bool              bFound = false;
+        if (auto pEntry = TextureLRU.find(PreFullGuid); pEntry)
+        {
+            Ref = *pEntry;
+            bFound = true;
+        }
+        else
+        {
+            Ref.m_Instance = PreFullGuid.m_Instance;
+        }
+
+        ImGui::BeginGroup();
+        ImVec2 imageSize;
+        imageSize.x = 48;
+        imageSize.y = imageSize.x;
+        if (auto p = xresource::g_Mgr.getResource(Ref); p )
+        {
+            ImGui::Image(static_cast<void*>(p), imageSize);
+            if (ImGui::BeginItemTooltip())
+            {
+                const auto      Size   = p->getTextureDimensions();
+                const float     Ration = Size[1] / static_cast<float>(Size[0]);
+                ImVec2          big(500, 500*Ration);
+
+                // Optional: clamp to viewport so the tooltip doesn't go off-screen
+                const ImVec2 vp = ImGui::GetMainViewport()->Size;
+                big.x = ImMin(big.x, vp.x * 0.75f);
+                big.y = ImMin(big.y, vp.y * 0.75f);
+
+                ImGui::Image(static_cast<void*>(p), big);
+                ImGui::EndTooltip();
+            }
+        }
+        if (bFound==false)
+        {
+            TextureLRU.InsertOrAssign(PreFullGuid, Ref);
+        }
+
+        ImGui::SameLine();
+
+        bOpen = ImGui::Button(Name.c_str(), ImVec2(-1, imageSize.y));
+        ImGui::EndGroup();
+    }
+    else
+    {
+        bOpen = ImGui::Button(Name.c_str(), ImVec2(-1, 0));
+    }
+    ImGui::PopStyleColor();
 }
 
 e10::assert_browser g_AssetBrowserPopup;
@@ -1363,6 +1561,8 @@ int E19_Example()
     };
     e10::g_LibMgr.m_OnCompilationState.Register(CallBackForCompilation);
 
+
+
     //
     // Set the project path
     //
@@ -1468,8 +1668,14 @@ int E19_Example()
     //
     // Create the inspector window
     //
-    xproperty::inspector Inspector("Property");
-    Inspector.m_OnResourceNameRemapping.Register<[](xproperty::inspector&, std::string& Name, const xresource::full_guid& PreFullGuid){ RemapGUIDToString(Name, PreFullGuid); }>();
+    texture_cache_rlu TextureLRU( 100, [&](const xresource::full_guid&, xrsc::texture_ref& Ref)
+    {
+        xresource::g_Mgr.ReleaseRef(Ref);
+    });
+
+    xproperty::inspector    Inspector("Property");
+    auto                    RenderResourceWigzmosCallBack = [&TextureLRU](xproperty::inspector&, bool& bOpen, const xresource::full_guid& PreFullGuid) { RenderResourceWigzmos(TextureLRU, bOpen, PreFullGuid); };
+    Inspector.m_OnResourceWigzmos.Register(RenderResourceWigzmosCallBack);
     Inspector.m_OnResourceBrowser.Register<[](xproperty::inspector&, const void* pUID, bool& bOpen, xresource::full_guid& Out, std::span<const xresource::type_guid> Filters)
     {
         ResourceBrowserPopup(pUID, bOpen, Out, Filters);
@@ -1738,15 +1944,20 @@ int E19_Example()
 
                 View.setViewport({ static_cast<int>(windowPos.x)
                                  , static_cast<int>(windowPos.y)
-                                 , static_cast<int>(windowSize.x)
-                                 , static_cast<int>(windowSize.y)
+                                 , static_cast<int>(windowPos.x + windowSize.x)
+                                 , static_cast<int>(windowPos.y + windowSize.y)
                                 });
 
-                // Compute aspect ratio from ImGui widget size
-                View.setAspect(windowSize.x / windowSize.y);
+                // Help compute the distance to keep the object inside the view port
+                const float vertical_fov    = View.getFov().m_Value;
+                const float aspect          = View.getAspect();
+                const float radius          = 0.5f;
+                const float hfov            = 2.0f * std::atan(aspect * std::tan(vertical_fov / 2.0f));
+                const float min_fov         = std::min(vertical_fov, hfov);
+                const float distance        = radius / std::tan(min_fov / 2.0f);
 
                 // Update the camera
-                View.LookAt(Distance, Angles, { 0,0,0 });
+                View.LookAt(Distance + distance, Angles, { 0,0,0 });
 
                 e19::push_constants pushConst;
                 pushConst.m_L2C = (View.getW2C() * xmath::fmat4::fromScale({ 2.f }));
