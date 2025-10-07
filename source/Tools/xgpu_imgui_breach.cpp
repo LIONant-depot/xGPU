@@ -1063,7 +1063,7 @@ struct breach_instance : window_info
                 }
             }
 
-            if ( auto Wheel = m_Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0]*10; Wheel != 0.0f )
+            if ( auto Wheel = m_Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0]*2.8f; Wheel != 0.0f )
             {
                 io.AddMouseWheelEvent(0.0f, Wheel);
             }

@@ -2,6 +2,7 @@
 #define _E10_ASSETBROWSER_H
 #pragma once
 #include "source/Tools/xgpu_imgui_breach.h"
+#include "E10_AssetMgr.h"
 
 namespace e10
 {
@@ -56,7 +57,69 @@ namespace e10
 
     struct assert_browser
     {
+        const void* getCurrentID(void)
+        {
+            return m_pPopupUID;
+        }
+
         //=============================================================================
+
+        void ShowAsPopup(e10::library_mgr& AssetMgr, const void* pUID, std::span<const xresource::type_guid> Types )
+        {
+            assert(m_pPopupUID == nullptr);
+
+            m_bRenderBrowser = true;
+            m_pPopupUID      = pUID;
+
+            //
+            // Select all the filters
+            //
+            m_FilterByType.clear();
+            for (auto& E : AssetMgr.m_AssetPluginsDB.m_lPlugins)
+            {
+                bool bFound = false;
+                for ( auto& J : Types)
+                {
+                    if ( E.m_TypeGUID == J )
+                    {
+                        bFound = true;
+                        break;
+                    }
+                }
+
+                if (not bFound) 
+                {
+                    // We always leave the folder in...
+                    if ( E.m_TypeGUID != e10::folder::type_guid_v )
+                    {
+                        m_FilterByType.push_back(E.m_TypeGUID);
+                    }
+                    
+                }
+            }
+
+            //
+            // Create the dialog name
+            //
+            std::string PopNameName{ "Select: {" };
+            for (auto& E : Types)
+            {
+                if (auto P = AssetMgr.m_AssetPluginsDB.find(E); P)
+                {
+                    PopNameName = std::format( "{} {}", PopNameName, P->m_TypeName );
+                }
+
+                PopNameName += " }###908312702";
+            }
+
+            xstrtool::Copy( m_WindowName, PopNameName );
+        }
+
+        void ClosePopup()
+        {
+            m_pPopupUID = nullptr;
+            Show(false);
+        }
 
         void Show( bool bShow = true )
         {
@@ -65,9 +128,23 @@ namespace e10
 
         //=============================================================================
 
-        bool IsVisible() const
+        bool isVisible() const
         {
             return m_bRenderBrowser;
+        }
+
+        //=============================================================================
+
+        void RenderAsPopup(e10::library_mgr& AssetMgr, xresource::mgr& ResourceMgr)
+        {
+            if (m_bRenderBrowser == false) return;
+            bool UsedtoBeVisible = m_bRenderBrowser;
+            Render(AssetMgr, ResourceMgr);
+            if (not isVisible() && UsedtoBeVisible)
+            {
+                // The user must have cancel this thing... 
+                if (m_SelectedAsset.empty()) m_pPopupUID = nullptr;
+            }
         }
 
         //=============================================================================
@@ -110,6 +187,7 @@ namespace e10
             if (m_SelectedAsset.empty()) return m_SelectedAsset;
             auto GUID = m_SelectedAsset;
             m_SelectedAsset.clear();
+            m_pPopupUID = nullptr;
             return GUID;
         }
 
@@ -187,14 +265,18 @@ namespace e10
 
         //=============================================================================
 
-        static void RenderSearchBar(ImVec2 Size)
+        void RenderSearchBar(ImVec2 Size)
         {
-            static char searchBuffer[256] = ""; // Buffer for search text
+            std::array<char,256> searchBuffer{0}; // Buffer for search text
+
+            strcpy_s( searchBuffer.data(), searchBuffer.size(), m_SearchString.c_str());
+
             auto x = ImGui::GetCursorPosX();
 
             if (ImGui::Button("\xe2\x96\xbc"))
             {
-
+                m_SearchString.clear();
+                searchBuffer[0]=0;
             }
             ImGui::SameLine(0, 0.1f);
 
@@ -219,7 +301,7 @@ namespace e10
             ImGui::PushItemWidth(inputWidth);
 
             // Search input field
-            ImGui::InputText("##search", searchBuffer, sizeof(searchBuffer));
+            const bool NewContent = ImGui::InputText("##search", searchBuffer.data(), searchBuffer.size());
 
             // Check if input is focused or has text
             bool isActive = ImGui::IsItemActive(); // True when input is focused
@@ -245,6 +327,9 @@ namespace e10
 
             ImGui::PopItemWidth();
             ImGui::PopStyleVar(1); // Restore style vars
+
+            // Copy back the string
+            m_SearchString = std::string_view(searchBuffer.data());
         }
 
         //=============================================================================
@@ -267,7 +352,8 @@ namespace e10
         {
             ImGui::SetNextWindowBgAlpha(0.9f);
             ImGui::SetNextWindowSize(ImVec2(400, 400), ImGuiCond_FirstUseEver);
-            if (ImGui::Begin("Resources", nullptr, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse))
+            
+            if (ImGui::Begin(m_WindowName.data(), nullptr, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse))
             {
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));        // Transparent background
 
@@ -394,14 +480,23 @@ namespace e10
 
         using tab_list = std::vector<std::unique_ptr<asset_browser_tab_base>>;
 
-        e10::library_mgr*       m_pAssetMgr             = nullptr;
-        xresource::mgr*         m_pResourceMgr          = nullptr;
-        xresource::full_guid    m_LastGeneratedAsset    = {};
-        xresource::full_guid    m_SelectedAsset         = {};
-        library::guid           m_SelectedLibrary       = {};
-        bool                    m_bAutoClose            = true;
-        bool                    m_bRenderBrowser        = false;
-        tab_list                m_Tabs                  = {};
+        e10::library_mgr*                   m_pAssetMgr             = nullptr;
+        xresource::mgr*                     m_pResourceMgr          = nullptr;
+        xresource::full_guid                m_LastGeneratedAsset    = {};
+        xresource::full_guid                m_SelectedAsset         = {};
+        library::guid                       m_SelectedLibrary       = {};
+        bool                                m_bAutoClose            = true;
+        bool                                m_bRenderBrowser        = false;
+        tab_list                            m_Tabs                  = {};
+        std::array<char,256>                m_WindowName            = {"Resource Browser"};
+
+    public:
+
+        bool isPopup() const noexcept {return m_pPopupUID; }
+
+        const void*                         m_pPopupUID             = {};
+        std::vector<xresource::type_guid>   m_FilterByType          = {};
+        std::string                         m_SearchString          = {};
     };
 
 } // namespace e10

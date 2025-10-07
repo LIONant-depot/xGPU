@@ -1,6 +1,7 @@
 #include "source/Examples/E05_Textures/E05_BitmapInspector.h"
 #include "source/tools/xgpu_imgui_breach.h"
 #include "source/tools/xgpu_xcore_bitmap_helpers.h"
+#include "dependencies/xproperty/source/xcore/my_properties.h"
 #include "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
 #include "source/tools/xgpu_basis_universal_texture_loader.h"
 #include "dependencies/xprim_geom/source/xprim_geom.h"
@@ -16,9 +17,12 @@
 // This define forces the pipeline to ignore including the empty functions that the compiler needs to link
 
 #define XRESOURCE_PIPELINE_NO_COMPILER
-#include "Dependencies/xtexture.plugin/dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
-#include "Dependencies/xtexture.plugin/source/xtexture_rsc_descriptor.h"
+#include "dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
+#include "Plugins/xtexture.plugin/source/xtexture_xgpu_rsc_loader.h"
+#include "Plugins/xtexture.plugin/source/xtexture_rsc_descriptor.h"
 #include "imgui_internal.h"
+
+#include "Plugins/xtexture.plugin/source/xtexture_xgpu_rsc_loader.cpp"
 
 constexpr auto g_VertShader2DSPV = std::array
 {
@@ -129,7 +133,6 @@ namespace e10
 //------------------------------------------------------------------------------------------------
 
 #include "E10_PluginMgr.h"
-#include "E10_AssetManagerContext.h"
 #include "E10_AssetBrowser.h"
 #include "E10_asset_browser_virtual_tree_tab.h"
 #include "E10_asset_browser_compiler_tab.h"
@@ -1173,6 +1176,35 @@ struct selected_desc
 };
 
 //------------------------------------------------------------------------------------------------
+static
+void RenderResourceWigzmos(xproperty::inspector&, bool& bOpen, const xresource::full_guid& PreFullGuid)
+{
+    std::string Name;
+
+    // if it is empty the just print empty
+    if (PreFullGuid.empty())
+    {
+        Name = "empty";
+    }
+    else
+    {
+        // make sure that there are not pointer issues
+        auto FullGuid = xresource::g_Mgr.getFullGuid(PreFullGuid);
+
+        // Find our entry and get the name
+        e10::g_LibMgr.getNodeInfo(FullGuid, [&](e10::library_db::info_node& Node)
+            {
+                Name = Node.m_Info.m_Name;
+            });
+
+        // If we fail to find it for whatever reason let us just use the GUID
+        if (Name.empty()) Name = std::format("{:X}", FullGuid.m_Instance.m_Value);
+    }
+
+    bOpen = ImGui::Button(Name.c_str(), ImVec2(-1, 0));
+}
+
+//------------------------------------------------------------------------------------------------
 
 int E10_Example()
 {
@@ -1196,10 +1228,9 @@ int E10_Example()
     //
     // Create the main render managers
     //
-    xresource::mgr          ResourceMgr;
-    ResourceMgr.Initiallize();
+    xresource::g_Mgr.Initiallize();
 
-    material_mgr            MaterialMgr(ResourceMgr);
+    material_mgr            MaterialMgr(xresource::g_Mgr);
     mesh_mgr                MeshMgr;
     e10::assert_browser     AsserBrowser;
     resource_mgr_user_data  m_ResourceMgrUserData;
@@ -1222,7 +1253,6 @@ int E10_Example()
     // Setup the compiler
     //
     //auto                Compiler = std::make_unique<e10::compiler>();
-    e10::library_mgr    AssetMgr;
     auto                CallBackForCompilation = [&](e10::library_mgr& LibMgr, e10::library::guid gLibrary, xresource::full_guid gCompilingEntry, std::shared_ptr<e10::compilation::historical_entry::log>& LogInformation)
     {
         // Filter by our entry...
@@ -1249,7 +1279,7 @@ int E10_Example()
             }
         }
     };
-    AssetMgr.m_OnCompilationState.Register(CallBackForCompilation);
+    e10::g_LibMgr.m_OnCompilationState.Register(CallBackForCompilation);
 
     //
     // Set the project path
@@ -1265,7 +1295,7 @@ int E10_Example()
             szFileName[I] = 0;
             std::wcout << L"Found xGPU at: " << szFileName << L"\n";
 
-            TCHAR LIONantProject[] = L"\\dependencies\\xtexture.plugin\\bin\\example.lion_project";
+            TCHAR LIONantProject[] = L"\\bin_dependencies\\xresource_pipeline_example.lion_project";
             for (int i = 0; szFileName[I++] = LIONantProject[i]; ++i);
 
             std::wcout << "Project Path: " << szFileName << "\n";
@@ -1273,7 +1303,7 @@ int E10_Example()
             //
             // Open the project
             //
-            if (auto Err = AssetMgr.OpenProject(szFileName); Err)
+            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
             {
                 e10::DebugMessage(Err.getMessage().data());
                 return 1;
@@ -1288,8 +1318,8 @@ int E10_Example()
             // Set the path for the resources
             //
             m_ResourceMgrUserData.m_Device          = Device;
-            ResourceMgr.setUserData(&m_ResourceMgrUserData, false);
-            ResourceMgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", AssetMgr.m_ProjectPath));
+            xresource::g_Mgr.setUserData(&m_ResourceMgrUserData, false);
+            xresource::g_Mgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", e10::g_LibMgr.m_ProjectPath));
         }
     }
 
@@ -1341,7 +1371,7 @@ int E10_Example()
     {
         ModificationCount++;
         UndoSystem.Add(Cmd);
-        if (auto Err = AssetMgr.MakeDescriptorDirty({ SelectedDescriptor.m_LibraryGUID.m_Instance }, SelectedDescriptor.m_InfoGUID); Err.empty() == false )
+        if (auto Err = e10::g_LibMgr.MakeDescriptorDirty({ SelectedDescriptor.m_LibraryGUID.m_Instance }, SelectedDescriptor.m_InfoGUID); Err.empty() == false )
         {
             printf("Error: %s", Err.c_str());
         }
@@ -1349,7 +1379,7 @@ int E10_Example()
 
         if (Cmd.m_Name == "Texture/Input/Filename")
         {
-            AssetMgr.getInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](xresource_pipeline::info& Info )
+            e10::g_LibMgr.getInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](xresource_pipeline::info& Info )
             {
                 auto str = Cmd.m_NewValue.get<std::wstring>();
 
@@ -1389,6 +1419,7 @@ int E10_Example()
         UndoSystem.Add(Cmd);
     };
 
+    Inspectors[0].m_OnResourceWigzmos.Register<RenderResourceWigzmos> ();
     Inspectors[0].m_OnChangeEvent.Register<&decltype(OnChangeEventInfo)::operator()>(OnChangeEventInfo);
     Inspectors[1].m_OnChangeEvent.Register<&decltype(OnChangeEventSettings)::operator()>(OnChangeEventSettings);
 
@@ -1696,12 +1727,12 @@ int E10_Example()
 
                 // Save menu
                 {
-                    bool bDisableSave = !AssetMgr.isReadyToSave() && ModificationCount == 0;
+                    bool bDisableSave = !e10::g_LibMgr.isReadyToSave() && ModificationCount == 0;
                     if (bDisableSave) ImGui::BeginDisabled();
                     if (ImGui::MenuItem("Save", "Ctrl-S"))
                     {
                         xproperty::settings::context Context;
-                        AssetMgr.Save(Context);
+                        e10::g_LibMgr.Save(Context);
                     }
                     if (bDisableSave) ImGui::EndDisabled();
                 }
@@ -1759,12 +1790,12 @@ int E10_Example()
             // Add a button to the menu bar
             {
                 ImGui::Separator();
-                bool bDisableSave = !AssetMgr.isReadyToSave() && ModificationCount == 0;
+                bool bDisableSave = !e10::g_LibMgr.isReadyToSave() && ModificationCount == 0;
                 if (bDisableSave) ImGui::BeginDisabled();
                 if (ImGui::Button(" Save "))
                 {
                     xproperty::settings::context Context;
-                    AssetMgr.Save(Context);
+                    e10::g_LibMgr.Save(Context);
                 }
                 if (bDisableSave) ImGui::EndDisabled();
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("Save Every thing, Resource Manager, however this will not save the Descriptor");
@@ -1867,7 +1898,7 @@ int E10_Example()
 
                 if (Log.m_Log.empty() == false)
                 {
-                    ImGui::Text("%s", std::format("{}",e10::get_last_line(Log.m_Log)).c_str());
+                    ImGui::Text("%s", std::format("{}",xstrtool::getLastLine(Log.m_Log)).c_str());
                 }
             }
 
@@ -1877,7 +1908,7 @@ int E10_Example()
         //
         // Show a texture selector in IMGUI
         //
-        AsserBrowser.Render(AssetMgr, ResourceMgr);
+        AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
 
         if ( auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false )
         {
@@ -1889,7 +1920,7 @@ int E10_Example()
                 SelectedDescriptor.m_InfoGUID    = NewAsset;
 
                 // Generate the paths
-                AssetMgr.getNodeInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
+                e10::g_LibMgr.getNodeInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
                 {
                     SelectedDescriptor.GeneratePaths(NodeInfo.m_Path);
                 });
@@ -1929,7 +1960,7 @@ int E10_Example()
             // Load new descriptor
             //
             {
-                AssetMgr.getNodeInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
+                e10::g_LibMgr.getNodeInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
                 {
                     SelectedDescriptor.GeneratePaths(NodeInfo.m_Path);
                 });
@@ -1990,7 +2021,7 @@ int E10_Example()
                 xproperty::settings::context Context;
                 if ( 0 == static_cast<int>(&E - Inspectors.data()))
                 {
-                    AssetMgr.getInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](xresource_pipeline::info& Info)
+                    e10::g_LibMgr.getInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](xresource_pipeline::info& Info)
                     {
                         SelectedDescriptor.m_pTempInfo = &Info;
                         E.Show(Context, [] {});
@@ -2012,7 +2043,7 @@ int E10_Example()
         MainWindow.PageFlip();
 
         // Let the resource manager know we have change the frame
-        ResourceMgr.OnEndFrameDelegate();
+        xresource::g_Mgr.OnEndFrameDelegate();
     }
 
     return 0;

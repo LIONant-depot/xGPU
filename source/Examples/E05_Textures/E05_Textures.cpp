@@ -3,8 +3,8 @@
 #include "E05_BitmapInspector.h"
 #include "source/tools/xgpu_imgui_breach.h"
 #include "dependencies/xmath/source/xmath.h"
-#include "imgui_internal.h"
-
+#include "dependencies/imgui/imgui_internal.h"
+#include "source/Tools/xgpu_xcore_bitmap_helpers.h"
 #include <format>
 
 constexpr auto g_VertShaderSPV = std::array
@@ -35,14 +35,7 @@ namespace e05
         xmath::fvec2 m_Translation;
         xmath::fvec2 m_UVScale;
     };
-
-    //------------------------------------------------------------------------------------------------
-
-    struct bitmap_inspector;
-
 }
-
-//------------------------------------------------------------------------------------------------
 
 //------------------------------------------------------------------------------------------------
 

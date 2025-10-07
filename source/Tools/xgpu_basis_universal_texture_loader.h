@@ -2,7 +2,7 @@
 #define XGPU_TOOLS_BASIS_UNIVERSAL_TEXTURE_LOADER_H
 #pragma once
 #define BASISU_NO_ITERATOR_DEBUG_LEVEL
-#include "../../dependencies/xtexture.plugin/dependencies/basis_universal/transcoder/basisu_transcoder.h"
+#include "dependencies/basis_universal/transcoder/basisu_transcoder.h"
 
 namespace xgpu::tools::basis_universal
 {

@@ -1,7 +1,7 @@
 #include "source/xGPU.h"
 #include "source/tools/xgpu_imgui_breach.h"
 #include "source/tools/xgpu_xcore_bitmap_helpers.h"
-#include "dependencies/xtexture.plugin/dependencies/xbmp_tools/src/xbmp_tools.h"
+#include "dependencies/xbmp_tools/src/xbmp_tools.h"
 #include "dependencies/xscheduler/source/xscheduler.h"
 #include <chrono>
 

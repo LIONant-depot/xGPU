@@ -3,7 +3,12 @@
 #pragma once
 
 #define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#ifdef ERROR
+    #undef ERROR
+#endif
+
 #include <iostream>
 #include <filesystem>
 #include "dependencies/xstrtool/source/xstrtool.h"
@@ -11,7 +16,7 @@
 namespace e10
 {
     //------------------------------------------------------------------------------------------------
-
+    inline
     void GetFileTimestamp(const std::wstring& filePath, SYSTEMTIME& systemTime)
     {
         HANDLE hFile = CreateFile(
