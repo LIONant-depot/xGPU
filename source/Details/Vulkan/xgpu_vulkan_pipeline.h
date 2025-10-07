@@ -6,6 +6,8 @@ namespace xgpu::vulkan
                                             , const xgpu::pipeline::setup& Setup
                                             ) noexcept;
         ~pipeline(void) override;
+        
+        virtual void              DeathMarch( xgpu::pipeline&& buffer ) noexcept override;
 
         struct per_renderpass
         {
