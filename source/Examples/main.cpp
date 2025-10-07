@@ -16,7 +16,7 @@ int main()
     if constexpr (false) if (auto err = E07_Example(); err) return err;
     if constexpr (false) if (auto err = E08_Example(); err) return err;
     if constexpr (false) if (auto err = E09_Example(); err) return err;
-    if constexpr (false) if (auto err = E10_Example(); err) return err;
+    if constexpr (!false) if (auto err = E10_Example(); err) return err;
     if constexpr (false) if (auto err = E11_Example(); err) return err;
     if constexpr (false) if (auto err = E12_Example(); err) return err;
     if constexpr (false) if (auto err = E13_Example(); err) return err;
@@ -24,7 +24,7 @@ int main()
     if constexpr (false) if (auto err = E15_Example(); err) return err;
     if constexpr (false) if (auto err = E16_Example(); err) return err;
     if constexpr (false) if (auto err = E17_Example(); err) return err;
-    if constexpr (!false) if (auto err = E18_Example(); err) return err;
+    if constexpr (false) if (auto err = E18_Example(); err) return err;
 
     return 0;
 }
