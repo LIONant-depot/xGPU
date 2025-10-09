@@ -1680,6 +1680,28 @@ int E19_Example()
     {
         ResourceBrowserPopup(pUID, bOpen, Out, Filters);
     }>();
+    Inspector.m_OnResourceLeftSize.m_Delegates.clear();
+    Inspector.m_OnResourceLeftSize.Register<[](xproperty::inspector& Inspector, void* pID, ImGuiTreeNodeFlags flags, const char* pName, bool& Open)
+    {
+        ImGuiStyle& style = ImGui::GetStyle();
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x, 18.0f));
+        Inspector.RenderBackground();
+
+        // Get the bounding box of the last item (the tree node)
+        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0.2f));
+
+        if (pID)
+        {
+            Open = ImGui::TreeNodeEx(pID, ImGuiTreeNodeFlags_Framed | flags, "  %s", pName);
+        }
+        else
+        {
+            Open = ImGui::TreeNodeEx(pName, flags);
+        }
+
+        ImGui::PopStyleColor();
+        ImGui::PopStyleVar();
+    }>();
 
     //
     // Main Loop
@@ -1957,7 +1979,7 @@ int E19_Example()
                 const float distance        = radius / std::tan(min_fov / 2.0f);
 
                 // Update the camera
-                View.LookAt(Distance + distance, Angles, { 0,0,0 });
+                View.LookAt(Distance + distance - 1, Angles, { 0,0,0 });
 
                 e19::push_constants pushConst;
                 pushConst.m_L2C = (View.getW2C() * xmath::fmat4::fromScale({ 2.f }));

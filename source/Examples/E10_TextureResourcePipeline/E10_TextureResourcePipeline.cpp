@@ -1418,7 +1418,29 @@ int E10_Example()
     {
         UndoSystem.Add(Cmd);
     };
+    /*
+    Inspectors[0].m_OnResourceLeftSize.Register < [](xproperty::inspector& Inspector, void* pID, ImGuiTreeNodeFlags flags, const char* pName, bool& Open)
+        {
+            ImGuiStyle& style = ImGui::GetStyle();
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x, 18.0f));
+            Inspector.RenderBackground();
 
+            // Get the bounding box of the last item (the tree node)
+            ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0.2f));
+
+            if (pID)
+            {
+                Open = ImGui::TreeNodeEx(pID, ImGuiTreeNodeFlags_Framed | flags, "  %s", pName);
+            }
+            else
+            {
+                Open = ImGui::TreeNodeEx(pName, flags);
+            }
+
+            ImGui::PopStyleColor();
+            ImGui::PopStyleVar();
+        } > ();
+        */
     Inspectors[0].m_OnResourceWigzmos.Register<RenderResourceWigzmos> ();
     Inspectors[0].m_OnChangeEvent.Register<&decltype(OnChangeEventInfo)::operator()>(OnChangeEventInfo);
     Inspectors[1].m_OnChangeEvent.Register<&decltype(OnChangeEventSettings)::operator()>(OnChangeEventSettings);

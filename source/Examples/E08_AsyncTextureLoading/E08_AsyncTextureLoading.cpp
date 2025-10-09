@@ -60,13 +60,13 @@ int E08_Example()
     constexpr auto                          n_textures_v    = 1000;
     constexpr auto                          n_max_workers_v = 20;
 
-    std::vector<xgpu::texture>              LoadedTextures  {}; 
-    std::array<e08::stinfo, e08::g_StatName.size()>   Stats           {};
-    auto                                    T0              = std::chrono::high_resolution_clock::now();
-    xscheduler::task_group                  TaskGroup      { xscheduler::str_v<"LoadingTextures"> };
-    std::atomic<int>                        nWorkerBusy     {0};
-    xbitmap                                 CachedBitmap    {};
-    int                                     iActiveStat     {0};
+    std::vector<xgpu::texture>                          LoadedTextures  {}; 
+    std::array<e08::stinfo, e08::g_StatName.size()>     Stats           {};
+    auto                                                T0              = std::chrono::high_resolution_clock::now();
+    xscheduler::task_group                              TaskGroup      { xscheduler::str_v<"LoadingTextures"> };
+    std::atomic<int>                                    nWorkerBusy     {0};
+    xbitmap                                             CachedBitmap    {};
+    int                                                 iActiveStat     {0};
 
     //
     // Make it grow!
