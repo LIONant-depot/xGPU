@@ -1294,10 +1294,12 @@ void CreateChildWindow( ImGuiViewport* pViewport ) noexcept
     GETINSTANCE;
     auto pInfo = new window_info();
     xgpu::window::setup Setup;
-    Setup.m_Width   = static_cast<int>(pViewport->Size.x);
-    Setup.m_Height  = static_cast<int>(pViewport->Size.y);
-    Setup.m_X       = static_cast<int>(pViewport->Pos.x);
-    Setup.m_Y       = static_cast<int>(pViewport->Pos.y);
+    Setup.m_Width       = static_cast<int>(pViewport->Size.x);
+    Setup.m_Height      = static_cast<int>(pViewport->Size.y);
+    Setup.m_X           = static_cast<int>(pViewport->Pos.x);
+    Setup.m_Y           = static_cast<int>(pViewport->Pos.y);
+    Setup.m_bFrameless  = true;
+
     if (auto Err = Instance.m_Shared->m_Device.Create(pInfo->m_Window, Setup))
     {
         printf("Failed to create child window: %s\n", Err );
