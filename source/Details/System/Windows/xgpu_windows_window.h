@@ -93,5 +93,6 @@ namespace xgpu::windows
         bool                                        m_isResized { false };
         
         bool                                        m_isFrameless{ false };
+        std::pair<int, int>                         m_TruePosition{};
     };
 }

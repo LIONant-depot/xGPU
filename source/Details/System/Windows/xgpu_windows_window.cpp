@@ -236,6 +236,15 @@ namespace xgpu::windows
                 if (wParam != 0 && pWin->m_isFrameless)
                     return 0;
             break;
+        case WM_WINDOWPOSCHANGED:
+            if (auto pWin = reinterpret_cast<windows::window*>(GetWindowLongPtr(hWnd, GWLP_USERDATA)); pWin)
+            {
+                WINDOWPOS* wpos = (WINDOWPOS*) lParam;
+
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][0] += pWin->m_TruePosition.first - wpos->x;
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][1] += pWin->m_TruePosition.second - wpos->y;
+                pWin->m_TruePosition = { wpos->x, wpos->y };
+            }
         }    // End switch
 
         // Pass Unhandled Messages To DefWindowProc
