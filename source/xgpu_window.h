@@ -17,6 +17,10 @@ namespace xgpu
             float               m_ClearColorA   { 1.0f };
         };
 
+
+        XGPU_INLINE                                     window                  ( void ) = default;
+        XGPU_INLINE                                    ~window                  ( void ) noexcept;
+
         XGPU_INLINE [[nodiscard]]   bool                isValid                 ( void ) const noexcept;
         XGPU_INLINE [[nodiscard]]   int                 getWidth                ( void ) const noexcept;
         XGPU_INLINE [[nodiscard]]   int                 getHeight               ( void ) const noexcept;

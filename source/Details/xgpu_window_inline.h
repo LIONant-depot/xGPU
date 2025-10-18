@@ -33,6 +33,7 @@ namespace xgpu
             virtual     xgpu::device                    getDevice               ( void ) const                                              noexcept = 0;
             virtual     void                            setMousePosition        ( int x, int y )                                            noexcept = 0;
 
+            virtual     void                            DeathMarch              ( xgpu::window&& Window )                                   noexcept = 0;
 
 //            virtual     bool                            HandleEvents(void)                                                    noexcept = 0;
             //            virtual     void                            BeginRender             ( const eng_view& View, const bool bUpdateViewPort = true ) noexcept = 0;
@@ -187,5 +188,14 @@ namespace xgpu
     void window::getDevice( xgpu::device& Device ) const noexcept
     {
         Device = m_Private->getDevice();
+    }
+
+
+    window::~window()
+    {
+        if (m_Private.use_count() > 1) return;
+        if (!m_Private) return;
+        m_Private->DeathMarch(std::move(*this));
+        m_Private.reset();
     }
 }

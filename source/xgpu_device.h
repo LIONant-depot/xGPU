@@ -67,6 +67,7 @@ namespace xgpu
         XGPU_INLINE void                         Destroy        ( pipeline&&                        Pipeline )         noexcept;
         XGPU_INLINE void                         Destroy        ( texture&&                         Texture )          noexcept;
         XGPU_INLINE void                         Destroy        ( buffer&&                          Buffer )           noexcept;
+        XGPU_INLINE void                         Destroy        ( window&&                          Window )           noexcept;
 
         XGPU_INLINE void                         Shutdown       ( void ) noexcept;
 
