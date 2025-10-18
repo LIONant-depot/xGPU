@@ -77,6 +77,8 @@ namespace xgpu::windows
             SetCursorPos(x, y);
         }
 
+        virtual                        ~window();
+
         HWND                                        m_hWindow   { 0 };
         std::shared_ptr<xgpu::windows::keyboard>    m_Keyboard;
         std::shared_ptr<xgpu::windows::mouse>       m_Mouse;

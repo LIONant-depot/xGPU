@@ -7,7 +7,7 @@ namespace xgpu::windows
         switch( uMsg )
         {
         case WM_CLOSE:
-            PostMessage( hWnd, WM_QUIT, 0, 0 );
+            PostMessage( hWnd, WM_QUIT, 0, 0 ); 
             return 0;
 
         case WM_PAINT:
@@ -406,5 +406,10 @@ namespace xgpu::windows
         }
 
         return nullptr;
+    }
+
+    window::~window()
+    {
+        DestroyWindow(m_hWindow);
     }
 }
