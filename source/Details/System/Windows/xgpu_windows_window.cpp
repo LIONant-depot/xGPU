@@ -231,8 +231,11 @@ namespace xgpu::windows
             if ((wParam & 0xfff0) == SC_KEYMENU) // Disable ALT application menu
                 return 0;
             break;
-
-
+        case WM_NCCALCSIZE: 
+            if (auto pWin = reinterpret_cast<windows::window*>(GetWindowLongPtr(hWnd, GWLP_USERDATA)); pWin)
+                if (wParam != 0 && pWin->m_isFrameless)
+                    return 0;
+            break;
         }    // End switch
 
         // Pass Unhandled Messages To DefWindowProc
@@ -384,6 +387,7 @@ namespace xgpu::windows
         m_Height   = Setup.m_Height;
         m_Mouse    = Instance.m_Mouse;
         m_Keyboard = Instance.m_Keyboard;
+        m_isFrameless = Setup.m_bFrameless;
 
         //
         // Allow us to track the mouse outside the window (get WM_INPUT messages) for the mouse

@@ -11,6 +11,7 @@ namespace xgpu
             bool                m_bFullScreen   { false };
             bool                m_bClearOnRender{ true };
             bool                m_bSyncOn       { false };
+            bool                m_bFrameless    { false };
             float               m_ClearColorR   { 0.45f };
             float               m_ClearColorG   { 0.45f };
             float               m_ClearColorB   { 0.45f };
