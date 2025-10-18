@@ -59,7 +59,7 @@ namespace xgpu::windows
         case WM_MOUSEMOVE:
             if( auto pWin = reinterpret_cast<windows::window*>( GetWindowLongPtr( hWnd, GWLP_USERDATA ) ); pWin )
             {
-                auto x = static_cast<const int>(lParam & 0xffff);
+                auto x = static_cast<const int>(static_cast<short>(lParam & 0xffff));
                 auto y = static_cast<const int>(lParam >> 16);
 
                 pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_REL)][0] = x - pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][0];
@@ -77,7 +77,7 @@ namespace xgpu::windows
             {
                 SetCapture(hWnd);
 
-                auto x = static_cast<const int>(lParam & 0xffff);
+                auto x = static_cast<const int>(static_cast<short>(lParam & 0xffff));
                 auto y = static_cast<const int>(lParam >> 16);
 
                 pWin->m_Mouse->m_ButtonIsDown[static_cast<int>(xgpu::mouse::digital::BTN_MIDDLE)] = 1;
@@ -102,7 +102,7 @@ namespace xgpu::windows
             {
                 SetCapture(hWnd);
 
-                auto x = static_cast<const int>(lParam & 0xffff);
+                auto x = static_cast<const int>(static_cast<short>(lParam & 0xffff));
                 auto y = static_cast<const int>(lParam >> 16);
 
                 pWin->m_Mouse->m_ButtonIsDown[static_cast<int>(xgpu::mouse::digital::BTN_LEFT)] = 1;
@@ -127,7 +127,7 @@ namespace xgpu::windows
             {
                 SetCapture(hWnd);
 
-                auto x = static_cast<const int>(lParam & 0xffff);
+                auto x = static_cast<const int>(static_cast<short>(lParam & 0xffff));
                 auto y = static_cast<const int>(lParam >> 16);
 
                 pWin->m_Mouse->m_ButtonIsDown[static_cast<int>(xgpu::mouse::digital::BTN_RIGHT)] = 1;
