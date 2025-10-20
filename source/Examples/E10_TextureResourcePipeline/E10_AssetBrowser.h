@@ -64,7 +64,7 @@ namespace e10
 
         //=============================================================================
 
-        void ShowAsPopup(e10::library_mgr& AssetMgr, const void* pUID, std::span<const xresource::type_guid> Types )
+        void ShowAsPopup(e10::library_mgr& AssetMgr, const void* pUID, std::span<const xresource::type_guid> Types, xresource::type_guid AdditionalType )
         {
             assert(m_pPopupUID == nullptr);
 
@@ -89,12 +89,14 @@ namespace e10
 
                 if (not bFound) 
                 {
-                    // We always leave the folder in...
-                    if ( E.m_TypeGUID != e10::folder::type_guid_v )
+                    if (E.m_TypeGUID != AdditionalType)
                     {
-                        m_FilterByType.push_back(E.m_TypeGUID);
+                        // We always leave the folder in...
+                        if ( E.m_TypeGUID != e10::folder::type_guid_v )
+                        {
+                            m_FilterByType.push_back(E.m_TypeGUID);
+                        }
                     }
-                    
                 }
             }
 
@@ -102,15 +104,24 @@ namespace e10
             // Create the dialog name
             //
             std::string PopNameName{ "Select: {" };
+
+            if (not AdditionalType.empty())
+            {
+                if (auto P = AssetMgr.m_AssetPluginsDB.find(AdditionalType); P)
+                {
+                    PopNameName = std::format("{} {}", PopNameName, P->m_TypeName);
+                }
+            }
+
             for (auto& E : Types)
             {
                 if (auto P = AssetMgr.m_AssetPluginsDB.find(E); P)
                 {
                     PopNameName = std::format( "{} {}", PopNameName, P->m_TypeName );
                 }
-
-                PopNameName += " }###908312702";
             }
+
+            PopNameName += " }###908312702";
 
             xstrtool::Copy( m_WindowName, PopNameName );
         }
