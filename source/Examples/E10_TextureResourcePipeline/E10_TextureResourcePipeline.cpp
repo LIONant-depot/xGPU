@@ -1253,7 +1253,7 @@ int E10_Example()
     // Setup the compiler
     //
     //auto                Compiler = std::make_unique<e10::compiler>();
-    auto                CallBackForCompilation = [&](e10::library_mgr& LibMgr, e10::library::guid gLibrary, xresource::full_guid gCompilingEntry, std::shared_ptr<e10::compilation::historical_entry::log>& LogInformation)
+    auto CallBackForCompilation = [&](e10::library_mgr& LibMgr, e10::library::guid gLibrary, xresource::full_guid gCompilingEntry, std::shared_ptr<e10::compilation::historical_entry::log>& LogInformation)
     {
         // Filter by our entry...
         if (SelectedDescriptor.m_InfoGUID == gCompilingEntry)
@@ -1932,7 +1932,7 @@ int E10_Example()
         //
         AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
 
-        if ( auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false )
+        if ( auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false && NewAsset.m_Type == xrsc::texture_type_guid_v)
         {
             if (NewAsset.m_Type.m_Value == 0x398238F38A754)
             {
@@ -1971,7 +1971,7 @@ int E10_Example()
                 BitmapInspector.clear();
             }
         }
-        else if (auto SelectedAsset = AsserBrowser.getSelectedAsset(); SelectedAsset.empty() == false )
+        else if (auto SelectedAsset = AsserBrowser.getSelectedAsset(); SelectedAsset.empty() == false && SelectedAsset.m_Type == xrsc::texture_type_guid_v )
         {
             SelectedDescriptor.clear();
             SelectedDescriptor.m_pDescriptor = xresource_pipeline::factory_base::Find(std::string_view{ "Texture" })->CreateDescriptor();

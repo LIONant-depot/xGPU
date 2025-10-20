@@ -6,7 +6,6 @@
 #include "E19_Node_Core.h"
 #include "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h" 
 #include <fstream>
-#include "dependencies/xprim_geom/source/xprim_geom.h"
 #include "source/tools/xgpu_xcore_bitmap_helpers.h"
 #include "source/tools/xgpu_view.h"
 #include <regex>
@@ -23,6 +22,8 @@
 
 // Just include the loader here...
 #include "Plugins/xmaterial.plugin/source/xmaterial_xgpu_rsc_loader.cpp"
+
+#include "E19_mesh_manager.h"
 
 namespace                   ed                  = ax::NodeEditor;
 static ed::EditorContext*   g_pEditor           = nullptr;
@@ -44,20 +45,6 @@ namespace e19
     {
         printf("%s\n", view.data());
     }
-
-    struct draw_vert
-    {
-        float           m_X, m_Y, m_Z;
-        float           m_U, m_V;
-        std::uint32_t   m_Color;
-    };
-
-    struct vert_2d
-    {
-        float           m_X, m_Y;
-        float           m_U, m_V;
-        std::uint32_t   m_Color;
-    };
 
     struct push_const2D
     {
@@ -112,271 +99,6 @@ void NodeFillColor(xmaterial_compiler::node& n, ImVec2 pos, ImVec2 size, ImU32 c
         drawList->AddRect(min, max, borderColor, rounding, flags);
     
 }
-
-
-struct mesh_manager
-{
-    struct mesh
-    {
-        xgpu::buffer m_VertexBuffer {};
-        xgpu::buffer m_IndexBuffer  {};
-        int          m_IndexCount   {};
-    };
-
-    enum class model
-    { CUBE
-    , SPHERE
-    , CAPSULE
-    , CYLINDER
-    , PLANE2D
-    , ENUM_COUNT
-    };
-
-    void Init(xgpu::device& Device)
-    {
-        CreateCube(Device);
-        CreateSphere(Device);
-        CreateCapsule(Device);
-        CreateCylinder(Device);
-        Create2DPlane(Device);
-    }
-
-    void Rendering(xgpu::cmd_buffer& CmdBuffer, model Model)
-    {
-        auto& Mesh = m_Meshes[static_cast<int>(Model)];
-        CmdBuffer.setBuffer(Mesh.m_VertexBuffer);
-        CmdBuffer.setBuffer(Mesh.m_IndexBuffer);
-        CmdBuffer.Draw(Mesh.m_IndexCount);
-    }
-
-    //CUBE
-    void CreateCube(xgpu::device& Device)
-    {
-        const auto  Primitive   = xprim_geom::cube::Generate(4, 4, 4, 4, xprim_geom::float3{ 0.7f,0.7f,0.7f });
-        mesh&       Mesh        = m_Meshes[static_cast<int>(model::CUBE)];
-
-        Mesh.m_IndexCount = static_cast<int>(Primitive.m_Indices.size());
-
-        if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e19::draw_vert), .m_EntryCount = static_cast<int>(Primitive.m_Vertices.size()) }); Err)
-        {
-            assert(false);
-            exit(xgpu::getErrorInt(Err));
-        }
-
-        (void)Mesh.m_VertexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Vertices.size()), [&](void* pData)
-        {
-            auto pVertex = static_cast<e19::draw_vert*>(pData);
-            for (int i = 0; i < static_cast<int>(Primitive.m_Vertices.size()); ++i)
-            {
-                auto&       V = pVertex[i];
-                const auto& v = Primitive.m_Vertices[i];
-                V.m_X = v.m_Position.m_X;
-                V.m_Y = v.m_Position.m_Y;
-                V.m_Z = v.m_Position.m_Z;
-                V.m_U = v.m_Texcoord.m_X;
-                V.m_V = v.m_Texcoord.m_Y;
-                V.m_Color = ~0;
-            }
-        });
-
-        if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = static_cast<int>(Primitive.m_Indices.size()) }); Err)
-        {
-            assert(false);
-            exit(xgpu::getErrorInt(Err));
-        }
-
-        (void)Mesh.m_IndexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Indices.size()), [&](void* pData)
-        {
-            auto pIndex = static_cast<std::uint32_t*>(pData);
-            for (int i = 0; i < static_cast<int>(Primitive.m_Indices.size()); ++i)
-            {
-                pIndex[i] = Primitive.m_Indices[i];
-            }
-        });
-    }
-
-    //SPHERE
-    void CreateSphere(xgpu::device& Device)
-    {
-        const auto  Primitive   = xprim_geom::uvsphere::Generate(70, 70, 1, 0.5f);
-        mesh&       Mesh        = m_Meshes[static_cast<int>(model::SPHERE)];
-
-        Mesh.m_IndexCount = static_cast<int>(Primitive.m_Indices.size());
-
-        if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e19::draw_vert), .m_EntryCount = static_cast<int>(Primitive.m_Vertices.size()) }); Err)
-        {
-            assert(false);
-            exit(xgpu::getErrorInt(Err));
-        }
-
-        (void)Mesh.m_VertexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Vertices.size()), [&](void* pData)
-        {
-            auto pVertex = static_cast<e19::draw_vert*>(pData);
-            for (int i = 0; i < static_cast<int>(Primitive.m_Vertices.size()); ++i)
-            {
-                auto&       V = pVertex[i];
-                const auto& v = Primitive.m_Vertices[i];
-                V.m_X = v.m_Position.m_X;
-                V.m_Y = v.m_Position.m_Y;
-                V.m_Z = v.m_Position.m_Z;
-                V.m_U = v.m_Texcoord.m_X;
-                V.m_V = v.m_Texcoord.m_Y;
-                V.m_Color = ~0;
-            }
-        });
-
-        if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = static_cast<int>(Primitive.m_Indices.size()) }); Err)
-        {
-            assert(false);
-            exit(xgpu::getErrorInt(Err));
-        }
-
-        (void)Mesh.m_IndexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Indices.size()), [&](void* pData)
-        {
-            auto pIndex = static_cast<std::uint32_t*>(pData);
-            for (int i = 0; i < static_cast<int>(Primitive.m_Indices.size()); ++i)
-            {
-                pIndex[i] = Primitive.m_Indices[i];
-            }
-        });
-    }
-
-    //CAPSULE
-    void CreateCapsule(xgpu::device& Device)
-    {
-        const auto  Primitive   = xprim_geom::capsule::Generate(32, 32, 0.4f, 1.2f);
-        mesh&       Mesh        = m_Meshes[static_cast<int>(model::CAPSULE)];
-
-        Mesh.m_IndexCount = static_cast<int>(Primitive.m_Indices.size());
-
-        if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e19::draw_vert), .m_EntryCount = static_cast<int>(Primitive.m_Vertices.size()) }); Err)
-        {
-            assert(false);
-            exit(xgpu::getErrorInt(Err));
-        }
-
-        (void)Mesh.m_VertexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Vertices.size()), [&](void* pData)
-        {
-            auto pVertex = static_cast<e19::draw_vert*>(pData);
-            for (int i = 0; i < static_cast<int>(Primitive.m_Vertices.size()); ++i)
-            {
-                auto&       V = pVertex[i];
-                const auto& v = Primitive.m_Vertices[i];
-                V.m_X = v.m_Position.m_X;
-                V.m_Y = v.m_Position.m_Y;
-                V.m_Z = v.m_Position.m_Z;
-                V.m_U = v.m_Texcoord.m_X;
-                V.m_V = v.m_Texcoord.m_Y;
-                V.m_Color = ~0;
-            }
-        });
-
-        if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = static_cast<int>(Primitive.m_Indices.size()) }); Err)
-        {
-            assert(false);
-            exit(xgpu::getErrorInt(Err));
-        }
-
-        (void)Mesh.m_IndexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Indices.size()), [&](void* pData)
-        {
-            auto pIndex = static_cast<std::uint32_t*>(pData);
-            for (int i = 0; i < static_cast<int>(Primitive.m_Indices.size()); ++i)
-            {
-                pIndex[i] = Primitive.m_Indices[i];
-            }
-        });
-    }
-
-    //CYLINDER
-    void CreateCylinder(xgpu::device& Device)
-    {
-        const auto  Primitive   = xprim_geom::cylinder::Generate(1, 64, 1.f, 0.3f, 0.3f);;
-        mesh&       Mesh        = m_Meshes[static_cast<int>(model::CYLINDER)];
-
-        Mesh.m_IndexCount = static_cast<int>(Primitive.m_Indices.size());
-
-        if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e19::draw_vert), .m_EntryCount = static_cast<int>(Primitive.m_Vertices.size()) }); Err)
-        {
-            assert(false);
-            exit(xgpu::getErrorInt(Err));
-        }
-
-        (void)Mesh.m_VertexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Vertices.size()), [&](void* pData)
-        {
-            auto pVertex = static_cast<e19::draw_vert*>(pData);
-            for (int i = 0; i < static_cast<int>(Primitive.m_Vertices.size()); ++i)
-            {
-                auto&       V = pVertex[i];
-                const auto& v = Primitive.m_Vertices[i];
-                V.m_X = v.m_Position.m_X;
-                V.m_Y = v.m_Position.m_Y;
-                V.m_Z = v.m_Position.m_Z;
-                V.m_U = v.m_Texcoord.m_X;
-                V.m_V = v.m_Texcoord.m_Y;
-                V.m_Color = ~0;
-            }
-        });
-
-        if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = static_cast<int>(Primitive.m_Indices.size()) }); Err)
-        {
-            assert(false);
-            exit(xgpu::getErrorInt(Err));
-        }
-
-        (void)Mesh.m_IndexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Indices.size()), [&](void* pData)
-        {
-            auto pIndex = static_cast<std::uint32_t*>(pData);
-            for (int i = 0; i < static_cast<int>(Primitive.m_Indices.size()); ++i)
-            {
-                pIndex[i] = Primitive.m_Indices[i];
-            }
-        });
-    }
-
-    void Create2DPlane(xgpu::device& Device)
-    {
-        mesh& Mesh = m_Meshes[static_cast<int>(model::PLANE2D)];
-        Mesh.m_IndexCount = 6;
-
-        if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e19::vert_2d), .m_EntryCount = 4 }); Err)
-        {
-            assert(false);
-            exit(xgpu::getErrorInt(Err));
-        }
-
-        (void)Mesh.m_VertexBuffer.MemoryMap(0, 4, [&](void* pData)
-        {
-            auto pVertex = static_cast<e19::vert_2d*>(pData);
-            pVertex[0] = { -100.0f, -100.0f,  0.0f, 0.0f, 0xffffffff };
-            pVertex[1] = {  100.0f, -100.0f,  1.0f, 0.0f, 0xffffffff };
-            pVertex[2] = {  100.0f,  100.0f,  1.0f, 1.0f, 0xffffffff };
-            pVertex[3] = { -100.0f,  100.0f,  0.0f, 1.0f, 0xffffffff };
-        });
-
-        if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = Mesh.m_IndexCount }); Err)
-        {
-            assert(false);
-            exit(xgpu::getErrorInt(Err));
-        }
-
-        (void)Mesh.m_IndexBuffer.MemoryMap(0, Mesh.m_IndexCount, [&](void* pData)
-        {
-            auto            pIndex = static_cast<std::uint32_t*>(pData);
-            constexpr auto  StaticIndex = std::array
-            {
-                2u,  1u,  0u,      3u,  2u,  0u,    // front
-            };
-            static_assert(StaticIndex.size() == 6);
-            for (auto i : StaticIndex)
-            {
-                *pIndex = i;
-                pIndex++;
-            }
-        });
-    }
-
-    std::array<mesh, static_cast<int>(mesh_manager::model::ENUM_COUNT)> m_Meshes;
-};
 
 ImColor e19::GetIconColor(const xmaterial_compiler::type_guid& type, const xmaterial_compiler::graph& g)
 {
@@ -1051,8 +773,6 @@ void PipelineReload(const xmaterial_compiler::graph& g, xgpu::device& Device, xg
     //
     if ( auto pRef = Mgr.getResource(SelcDesc.m_MaterialRef); pRef )
     {
-        g.m_shaderDetail.serializeShaderDetails(true, std::format(L"{}/shader_detail.txt", SelcDesc.m_LogPath));
-
         xgpu::shader VertexShader;
         {
             auto RawData = xgpu::shader::setup::raw_data
@@ -1364,7 +1084,7 @@ void ResourceBrowserPopup(const void* pUID, bool& Open, xresource::full_guid& Ou
     //
     if (Open && not g_AssetBrowserPopup.isVisible()) 
     {
-        g_AssetBrowserPopup.ShowAsPopup(e10::g_LibMgr, pUID, Filters);
+        g_AssetBrowserPopup.ShowAsPopup(e10::g_LibMgr, pUID, Filters, Output.m_Type);
     }
 
     //
@@ -1603,7 +1323,7 @@ int E19_Example()
     //
     // Create mesh mgr
     //
-    mesh_manager                MeshManager             = {};
+    e19::mesh_manager           MeshManager             = {};
     xgpu::pipeline              material                = {};
     xgpu::pipeline_instance     material_instance       = {};
     xgpu::texture               defaulttexture          = {};
@@ -1611,7 +1331,7 @@ int E19_Example()
 
     MeshManager.Init(Device);
 
-    mesh_manager::model CurrentModel = mesh_manager::model::CUBE;
+    e19::mesh_manager::model CurrentModel = e19::mesh_manager::model::CUBE;
 
     //
     // Create Background material
@@ -1937,7 +1657,7 @@ int E19_Example()
 
                     CmdBufferRef.setPipelineInstance(BackGroundMaterialInstance);
                     CmdBufferRef.setPushConstants(pc);
-                    MeshManager.Rendering(CmdBufferRef, mesh_manager::model::PLANE2D);
+                    MeshManager.Rendering(CmdBufferRef, e19::mesh_manager::model::PLANE2D);
                 }
             });
 
@@ -2014,7 +1734,7 @@ int E19_Example()
                     if (ImGui::Selectable(meshSelection[n], is_selected))
                     {
                         selected = n;
-                        CurrentModel = static_cast<mesh_manager::model>(n);
+                        CurrentModel = static_cast<e19::mesh_manager::model>(n);
                     }
                     if (is_selected)
                         ImGui::SetItemDefaultFocus();
@@ -2107,7 +1827,7 @@ int E19_Example()
         // We let the asset browser to decide if it needs to show or not
         g_AssetBrowserPopup.RenderAsPopup( e10::g_LibMgr, xresource::g_Mgr);
 
-        if (auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false && NewAsset.m_Type.m_Value == 0xC59E01444175409E )
+        if (auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false && NewAsset.m_Type == xrsc::material_type_guid_v)
         {
             g.m_PinToNode.clear();
             g.m_Connections.clear();
@@ -2119,7 +1839,7 @@ int E19_Example()
                 SelectedDescriptor.GeneratePaths(NodeInfo.m_Path);
             });
         }
-        else if (auto SelectedAsset = AsserBrowser.getSelectedAsset(); SelectedAsset.empty() == false && SelectedAsset.m_Type.m_Value == 0xC59E01444175409E)
+        else if (auto SelectedAsset = AsserBrowser.getSelectedAsset(); SelectedAsset.empty() == false && SelectedAsset.m_Type == xrsc::material_type_guid_v)
         {
             ed::SetCurrentEditor(g_pEditor);
             LastSelectedNode = { 0 };
