@@ -206,7 +206,7 @@ namespace e10
 
             ImGui::BeginChild("##child", ImVec2(0, expanded?275.0f:45.0f), true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
-            ImGui::Selectable("##selectable", false, ImGuiSelectableFlags_AllowItemOverlap, ImVec2(0, 45.0f));
+            ImGui::Selectable("##selectable", false, ImGuiSelectableFlags_AllowOverlap, ImVec2(0, 45.0f));
 
 
             // Draw content on top of the selectable
