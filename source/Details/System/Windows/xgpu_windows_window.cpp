@@ -236,6 +236,11 @@ namespace xgpu::windows
                 if (wParam != 0 && pWin->m_isFrameless)
                     return 0;
             break;
+        case WM_ERASEBKGND:
+            if (auto pWin = reinterpret_cast<windows::window*>(GetWindowLongPtr(hWnd, GWLP_USERDATA)); pWin)
+                if (wParam != 0 && pWin->m_isFrameless)
+                    return true;
+            break;
         case WM_WINDOWPOSCHANGED:
             if (auto pWin = reinterpret_cast<windows::window*>(GetWindowLongPtr(hWnd, GWLP_USERDATA)); pWin)
             {
