@@ -396,9 +396,13 @@ namespace xgpu::vulkan
     { 
         m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Pipeline.push_back(std::move(Pipeline)); 
     }
-    void device::Destroy(xgpu::buffer&& Buffer)                       noexcept 
-    { 
-        m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Buffer.push_back(std::move(Buffer)); 
+    void device::Destroy(xgpu::buffer&& Buffer)                       noexcept
+    {
+        m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Buffer.push_back(std::move(Buffer));
+    }
+    void device::Destroy(xgpu::window&& Window)                       noexcept
+    {
+        m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Window.push_back(std::move(Window));
     }
 
     //----------------------------------------------------------------------------------------------------------
@@ -458,6 +462,13 @@ namespace xgpu::vulkan
         {
             DeathMarch.m_Buffer.clear();
         }
+
+        if (false == DeathMarch.m_Window.empty())
+        {
+            DeathMarch.m_Window.clear();
+        }
+
+
     }
 
     void device::Shutdown(void) noexcept

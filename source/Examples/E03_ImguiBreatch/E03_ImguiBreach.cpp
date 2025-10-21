@@ -37,7 +37,7 @@ int E03_Example()
     //
     while (Instance.ProcessInputEvents())
     {
-        if( xgpu::tools::imgui::BeginRendering() )
+        if( xgpu::tools::imgui::BeginRendering(true) )
             continue;
 
         //

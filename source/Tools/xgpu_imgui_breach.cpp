@@ -657,8 +657,8 @@ struct window_info
     window_info( void ) noexcept
     : m_Shared{ share_resources::getOrCreate() }
     {
-        auto Err = m_Shared->m_Device.Create(m_Window, {});
-        assert( Err == nullptr );
+        //auto Err = m_Shared->m_Device.Create(m_Window, {});
+        //assert( Err == nullptr );
         InitializeBuffers();
     }
 
@@ -1102,7 +1102,7 @@ struct breach_instance : window_info
                         if ( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
                         {
                             auto [WindowX, WindowY] = Info.m_Window.getPosition();
-                            //printf("Mouse[%d  %d]  Win+Mouse(%d  %d)\n", int(MouseValues[0]), int(MouseValues[1]), int(WindowX + MouseValues[0]), int(WindowY + MouseValues[1]));
+                            printf("Mouse[%d  %d]  Win+Mouse(%d  %d)\n", int(MouseValues[0]), int(MouseValues[1]), int(WindowX + MouseValues[0]), int(WindowY + MouseValues[1]));
 
                             // Multi-viewport mode: mouse position in OS absolute coordinates (io.MousePos is (0,0) when the mouse is on the upper-left of the primary monitor)
                             //io.MousePos = ImVec2( (float)WindowX + MouseValues[0], (float)WindowY + MouseValues[1] );
@@ -1294,10 +1294,12 @@ void CreateChildWindow( ImGuiViewport* pViewport ) noexcept
     GETINSTANCE;
     auto pInfo = new window_info();
     xgpu::window::setup Setup;
-    Setup.m_Width   = static_cast<int>(pViewport->Size.x);
-    Setup.m_Height  = static_cast<int>(pViewport->Size.y);
-    Setup.m_X       = static_cast<int>(pViewport->Pos.x);
-    Setup.m_Y       = static_cast<int>(pViewport->Pos.y);
+    Setup.m_Width       = static_cast<int>(pViewport->Size.x);
+    Setup.m_Height      = static_cast<int>(pViewport->Size.y);
+    Setup.m_X           = static_cast<int>(pViewport->Pos.x);
+    Setup.m_Y           = static_cast<int>(pViewport->Pos.y);
+    Setup.m_bFrameless  = true;
+
     if (auto Err = Instance.m_Shared->m_Device.Create(pInfo->m_Window, Setup))
     {
         printf("Failed to create child window: %s\n", Err );
@@ -1393,6 +1395,7 @@ void RenderChildWindow(ImGuiViewport* pViewport, void*) noexcept
 {
     GETINSTANCE;
     auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
+    Info.m_Window.BeginRendering();
     Info.Render( io, pViewport->DrawData );
 }
 
@@ -1401,6 +1404,7 @@ void RenderChildWindow(ImGuiViewport* pViewport, void*) noexcept
 static
 void ChildSwapBuffers(ImGuiViewport* pViewport, void*) noexcept
 {
+    GETINSTANCE;
     auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
     Info.m_Window.PageFlip();
 }
@@ -1436,7 +1440,7 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;       // Enable Keyboard Controls
     io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;           // Enable Docking
-    io.ConfigFlags &= ~ImGuiConfigFlags_ViewportsEnable;         // Enable Multi-Viewport / Platform Windows
+    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;         // Enable Multi-Viewport / Platform Windows
     io.BackendRendererName = "xgpu_imgui_breach";
     io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;  // We can honor the ImDrawCmd::VtxOffset field, allowing for large meshes.
 
@@ -1446,8 +1450,8 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
     //ImGui::ClearIniSettings();
     //printf("SettingsIniData after clear: %s\n", ImGui::GetCurrentContext()->SettingsIniData.c_str());
 
-  //  io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;  // We can create multi-viewports on the Renderer side (optional)
- //   io.BackendFlags |= ImGuiBackendFlags_PlatformHasViewports;  // We can create multi-viewports on the Platform side (optional)
+    io.BackendFlags |= ImGuiBackendFlags_RendererHasViewports;  // We can create multi-viewports on the Renderer side (optional)
+    io.BackendFlags |= ImGuiBackendFlags_PlatformHasViewports;  // We can create multi-viewports on the Platform side (optional)
     //io.ConfigViewportsNoAutoMerge = true;
     //io.ConfigViewportsNoTaskBarIcon = true;
 
@@ -1505,8 +1509,8 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
     if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable)
     {
         ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
-        platform_io.Renderer_CreateWindow       = CreateChildWindow;
-        platform_io.Renderer_DestroyWindow      = DestroyChildWindow;
+        platform_io.Renderer_CreateWindow       = [](ImGuiViewport* pViewport) {}; //CreateChildWindow;
+        platform_io.Renderer_DestroyWindow      = [](ImGuiViewport* pViewport) {}; //DestroyChildWindow;
         platform_io.Renderer_SetWindowSize      = SetChildWindowSize;
         platform_io.Renderer_RenderWindow       = RenderChildWindow;
         platform_io.Renderer_SwapBuffers        = ChildSwapBuffers;
@@ -1519,8 +1523,8 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
         platform_io.Platform_SetWindowSize      = SetChildWindowSize;
         platform_io.Platform_GetWindowSize      = GetChildWindowSize;
         platform_io.Platform_SetWindowTitle     = [](ImGuiViewport* pViewport, const char*){};
-        platform_io.Platform_RenderWindow       = RenderChildWindow;
-        platform_io.Platform_SwapBuffers        = ChildSwapBuffers;
+        platform_io.Platform_RenderWindow       = [](ImGuiViewport* pViewport, void*) {}; // RenderChildWindow;
+        platform_io.Platform_SwapBuffers        = [](ImGuiViewport* pViewport, void*) {}; // ChildSwapBuffers;
 
 
         platform_io.Platform_SetWindowFocus = [](ImGuiViewport* pViewport)

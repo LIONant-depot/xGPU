@@ -114,6 +114,9 @@ namespace xgpu::vulkan
         xgpu::device                            getDevice                   ( void
                                                                             ) const noexcept override;
 
+        void                                    DeathMarch                  ( xgpu::window&& window 
+                                                                            ) noexcept override;
+
         std::shared_ptr<vulkan::device>         m_Device                {};
         VkSurfaceKHR                            m_VKSurface             {};
         std::array<VkClearValue,2>              m_VKClearValue          { VkClearValue{ .color = {.float32 = {0,0,0,1}} }, VkClearValue{ .depthStencil{ 1.0f, 0 } }};
