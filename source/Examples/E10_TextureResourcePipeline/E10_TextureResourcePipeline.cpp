@@ -1295,7 +1295,7 @@ int E10_Example()
             szFileName[I] = 0;
             std::wcout << L"Found xGPU at: " << szFileName << L"\n";
 
-            TCHAR LIONantProject[] = L"\\bin_dependencies\\xresource_pipeline_example.lion_project";
+            TCHAR LIONantProject[] = L"\\example.lionprj";
             for (int i = 0; szFileName[I++] = LIONantProject[i]; ++i);
 
             std::wcout << "Project Path: " << szFileName << "\n";
