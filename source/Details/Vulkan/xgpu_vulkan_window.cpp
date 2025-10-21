@@ -1516,4 +1516,11 @@ namespace xgpu::vulkan
         m_VKClearValue[0] = VkClearValue{ .color = {.float32 = {R,G,B,A}}};
     }
 
+    //------------------------------------------------------------------------------------------------------------------------
+    void window::DeathMarch(xgpu::window&& Window) noexcept
+    {
+        if (!m_Device) return;
+        m_Device->Destroy(std::move(Window));
+        m_Device.reset();
+    }
 }

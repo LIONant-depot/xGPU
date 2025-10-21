@@ -70,6 +70,7 @@ namespace xgpu::vulkan
         virtual void                    Destroy             ( xgpu::pipeline&& Pipeline )                   noexcept override;
         virtual void                    Destroy             ( xgpu::texture&& Texture )                     noexcept override;
         virtual void                    Destroy             ( xgpu::buffer&& Buffer )                       noexcept override;
+        virtual void                    Destroy             ( xgpu::window&& Window )                       noexcept override;
 
 
         struct death_march
@@ -78,6 +79,7 @@ namespace xgpu::vulkan
             std::vector<xgpu::pipeline_instance>  m_PipelineInstance;
             std::vector<xgpu::pipeline>           m_Pipeline;
             std::vector<xgpu::buffer>             m_Buffer;
+            std::vector<xgpu::window>             m_Window;
         };
 
         using mati_per_renderpass_map = std::unordered_map<std::uint64_t, pipeline_instance::per_renderpass>;

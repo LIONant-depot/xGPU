@@ -77,6 +77,13 @@ namespace xgpu::windows
             SetCursorPos(x, y);
         }
 
+        void                            setFrameless(bool frameless)                                        noexcept
+        {
+            m_isFrameless = frameless;
+        }
+
+        virtual                        ~window();
+
         HWND                                        m_hWindow   { 0 };
         std::shared_ptr<xgpu::windows::keyboard>    m_Keyboard;
         std::shared_ptr<xgpu::windows::mouse>       m_Mouse;
@@ -84,5 +91,8 @@ namespace xgpu::windows
         int                                         m_Height    { 0 };
         bool                                        m_isMinimize{ false };
         bool                                        m_isResized { false };
+        
+        bool                                        m_isFrameless{ false };
+        std::pair<int, int>                         m_TruePosition{};
     };
 }

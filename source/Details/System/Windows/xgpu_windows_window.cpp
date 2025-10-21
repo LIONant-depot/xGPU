@@ -7,7 +7,7 @@ namespace xgpu::windows
         switch( uMsg )
         {
         case WM_CLOSE:
-            PostMessage( hWnd, WM_QUIT, 0, 0 );
+            PostMessage( hWnd, WM_QUIT, 0, 0 ); 
             return 0;
 
         case WM_PAINT:
@@ -59,7 +59,7 @@ namespace xgpu::windows
         case WM_MOUSEMOVE:
             if( auto pWin = reinterpret_cast<windows::window*>( GetWindowLongPtr( hWnd, GWLP_USERDATA ) ); pWin )
             {
-                auto x = static_cast<const int>(lParam & 0xffff);
+                auto x = static_cast<const int>(static_cast<short>(lParam & 0xffff));
                 auto y = static_cast<const int>(lParam >> 16);
 
                 pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_REL)][0] = x - pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][0];
@@ -77,7 +77,7 @@ namespace xgpu::windows
             {
                 SetCapture(hWnd);
 
-                auto x = static_cast<const int>(lParam & 0xffff);
+                auto x = static_cast<const int>(static_cast<short>(lParam & 0xffff));
                 auto y = static_cast<const int>(lParam >> 16);
 
                 pWin->m_Mouse->m_ButtonIsDown[static_cast<int>(xgpu::mouse::digital::BTN_MIDDLE)] = 1;
@@ -102,7 +102,7 @@ namespace xgpu::windows
             {
                 SetCapture(hWnd);
 
-                auto x = static_cast<const int>(lParam & 0xffff);
+                auto x = static_cast<const int>(static_cast<short>(lParam & 0xffff));
                 auto y = static_cast<const int>(lParam >> 16);
 
                 pWin->m_Mouse->m_ButtonIsDown[static_cast<int>(xgpu::mouse::digital::BTN_LEFT)] = 1;
@@ -127,7 +127,7 @@ namespace xgpu::windows
             {
                 SetCapture(hWnd);
 
-                auto x = static_cast<const int>(lParam & 0xffff);
+                auto x = static_cast<const int>(static_cast<short>(lParam & 0xffff));
                 auto y = static_cast<const int>(lParam >> 16);
 
                 pWin->m_Mouse->m_ButtonIsDown[static_cast<int>(xgpu::mouse::digital::BTN_RIGHT)] = 1;
@@ -231,8 +231,25 @@ namespace xgpu::windows
             if ((wParam & 0xfff0) == SC_KEYMENU) // Disable ALT application menu
                 return 0;
             break;
+        case WM_NCCALCSIZE: 
+            if (auto pWin = reinterpret_cast<windows::window*>(GetWindowLongPtr(hWnd, GWLP_USERDATA)); pWin)
+                if (wParam != 0 && pWin->m_isFrameless)
+                    return 0;
+            break;
+        case WM_ERASEBKGND:
+            if (auto pWin = reinterpret_cast<windows::window*>(GetWindowLongPtr(hWnd, GWLP_USERDATA)); pWin)
+                if (wParam != 0 && pWin->m_isFrameless)
+                    return true;
+            break;
+        case WM_WINDOWPOSCHANGED:
+            if (auto pWin = reinterpret_cast<windows::window*>(GetWindowLongPtr(hWnd, GWLP_USERDATA)); pWin)
+            {
+                WINDOWPOS* wpos = (WINDOWPOS*) lParam;
 
-
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][0] += pWin->m_TruePosition.first - wpos->x;
+                pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][1] += pWin->m_TruePosition.second - wpos->y;
+                pWin->m_TruePosition = { wpos->x, wpos->y };
+            }
         }    // End switch
 
         // Pass Unhandled Messages To DefWindowProc
@@ -384,6 +401,7 @@ namespace xgpu::windows
         m_Height   = Setup.m_Height;
         m_Mouse    = Instance.m_Mouse;
         m_Keyboard = Instance.m_Keyboard;
+        m_isFrameless = Setup.m_bFrameless;
 
         //
         // Allow us to track the mouse outside the window (get WM_INPUT messages) for the mouse
@@ -406,5 +424,10 @@ namespace xgpu::windows
         }
 
         return nullptr;
+    }
+
+    window::~window()
+    {
+        DestroyWindow(m_hWindow);
     }
 }

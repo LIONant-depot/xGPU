@@ -11,11 +11,16 @@ namespace xgpu
             bool                m_bFullScreen   { false };
             bool                m_bClearOnRender{ true };
             bool                m_bSyncOn       { false };
+            bool                m_bFrameless    { false };
             float               m_ClearColorR   { 0.45f };
             float               m_ClearColorG   { 0.45f };
             float               m_ClearColorB   { 0.45f };
             float               m_ClearColorA   { 1.0f };
         };
+
+
+        XGPU_INLINE                                     window                  ( void ) = default;
+        XGPU_INLINE                                    ~window                  ( void ) noexcept;
 
         XGPU_INLINE [[nodiscard]]   bool                isValid                 ( void ) const noexcept;
         XGPU_INLINE [[nodiscard]]   int                 getWidth                ( void ) const noexcept;
