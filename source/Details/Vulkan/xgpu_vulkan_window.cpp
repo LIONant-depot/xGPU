@@ -1519,8 +1519,33 @@ namespace xgpu::vulkan
     //------------------------------------------------------------------------------------------------------------------------
     void window::DeathMarch(xgpu::window&& Window) noexcept
     {
-        if (!m_Device) return;
+        if (m_bDeathMarched) return;
         m_Device->Destroy(std::move(Window));
-        m_Device.reset();
+        m_bDeathMarched = true;
+    }
+
+    window::~window(void)
+    {
+        VkAllocationCallbacks* pAllocator = m_Device->m_Instance->m_pVKAllocator;
+        if (m_Frames.get())
+        {
+            for (std::uint32_t i = 0; i < m_ImageCount; i++)
+            {
+                MinimalDestroyFrame(m_Device->m_VKDevice, m_Frames[i], pAllocator);
+                MinimalDestroyFrameSemaphores(m_Device->m_VKDevice, m_FrameSemaphores[i], pAllocator);
+            }
+            m_Frames.reset();
+            m_FrameSemaphores.reset();
+
+            //
+            // Release the depth buffer as well
+            //
+            vkDestroyImageView(m_Device->m_VKDevice, m_VKDepthbufferView, m_Device->m_Instance->m_pVKAllocator);
+            vkDestroyImage(m_Device->m_VKDevice, m_VKDepthbuffer, m_Device->m_Instance->m_pVKAllocator);
+            vkFreeMemory(m_Device->m_VKDevice, m_VKDepthbufferMemory, m_Device->m_Instance->m_pVKAllocator);
+        }
+        vkDestroySwapchainKHR(m_Device->m_VKDevice, m_VKSwapchain, nullptr);
+        vkDestroyRenderPass(m_Device->m_VKDevice, m_VKRenderPass, nullptr);
+        vkDestroySurfaceKHR(m_Device->m_Instance->m_VKInstance, m_VKSurface, nullptr);
     }
 }
