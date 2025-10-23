@@ -1188,13 +1188,21 @@ struct breach_instance : window_info
         }
 
         // Focus events (check if window focus changed)
-        static bool was_focused = false;
-        bool is_focused = m_Window.isFocused(); // Assuming xGPU provides a focus check
-        if (is_focused != was_focused)
         {
-            io.AddFocusEvent(is_focused);
-            printf("Window Focus: %s\n", is_focused ? "Gained" : "Lost");
-            was_focused = is_focused;
+            ImGuiPlatformIO& PlatformIO = ImGui::GetPlatformIO();
+            static bool was_focused = false;
+            bool is_focused = false;
+            for (auto& vp : PlatformIO.Viewports)
+            {
+                auto& Info = *reinterpret_cast<window_info*>(vp->RendererUserData);
+                is_focused = is_focused || Info.m_Window.isFocused();
+            }
+            if (is_focused != was_focused)
+            {
+                io.AddFocusEvent(is_focused);
+                printf("Window Focus: %s\n", is_focused ? "Gained" : "Lost");
+                was_focused = is_focused;
+            }
         }
 
         // Start the frame
