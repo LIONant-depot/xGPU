@@ -12,6 +12,7 @@ namespace xgpu
             bool                m_bClearOnRender{ true };
             bool                m_bSyncOn       { false };
             bool                m_bFrameless    { false };
+            bool                m_bFocus        { true };
             float               m_ClearColorR   { 0.45f };
             float               m_ClearColorG   { 0.45f };
             float               m_ClearColorB   { 0.45f };
@@ -32,6 +33,7 @@ namespace xgpu
         XGPU_INLINE                 void                setClearColor           ( float R, float G, float B, float A ) noexcept;
         XGPU_INLINE [[nodiscard]]   std::size_t         getSystemWindowHandle   ( void ) const noexcept;
         XGPU_INLINE [[nodiscard]]   bool                isFocused               ( void ) const noexcept;
+        XGPU_INLINE [[nodiscard]]   bool                isCapturing             ( void ) const noexcept;
         XGPU_INLINE                 void                setFocus                ( void ) const noexcept;
         XGPU_INLINE [[nodiscard]]   bool                isMinimized             ( void ) const noexcept;
         XGPU_INLINE [[nodiscard]]   std::pair<int,int>  getPosition             ( void ) const noexcept;
