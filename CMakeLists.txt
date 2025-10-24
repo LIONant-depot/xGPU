@@ -299,12 +299,13 @@ add_executable(${TARGET_PROJECT}
   "source/Examples/E19_MaterialEditor/E19_Material_Editor.cpp"
   "source/Examples/E19_MaterialEditor/E19_Node_Core.h"
   "source/Examples/E19_MaterialEditor/E19_Node_Core.h"
-  "source/Examples/E20_MaterialInstanceEditor/E20_Material_Instance_Editor.cpp"
   "example.lionprj/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph.cpp"
   "example.lionprj/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph.h"
   "example.lionprj/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph_node.cpp"
   "example.lionprj/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph_node.h"
   "example.lionprj/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph_node_guid.h"
+  "source/Examples/E20_MaterialInstanceEditor/E20_Material_Instance_Editor.cpp"
+  "source/Examples/E21_StaticGeomEditor/E21_StaticGeom_Editor.cpp"
 
   
   "source/tools/xgpu_view.h"
@@ -533,10 +534,6 @@ source_group("Examples/E19_MaterialEditor" FILES
    "source/Examples/E19_MaterialEditor/E19_Node_Core.h"
 )
 
-source_group("Examples/E20_MaterialInstanceEditor" FILES
-   "source/Examples/E20_MaterialInstanceEditor/E20_Material_Instance_Editor.cpp"
-)
-
 # Include the material.plugin so it works
 include_directories( "${CMAKE_SOURCE_DIR}/dependencies/example.lionprj/Cache/Plugins/xmaterial.plugin" )
 
@@ -550,6 +547,16 @@ source_group("Examples/E19_MaterialEditor/graph" FILES
   "example.lionprj/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph_node.h"
   "example.lionprj/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph_node_guid.h"
 )
+
+source_group("Examples/E20_MaterialInstanceEditor" FILES
+   "source/Examples/E20_MaterialInstanceEditor/E20_Material_Instance_Editor.cpp"
+)
+
+source_group("Examples/E21_StaticGeomEditor" FILES
+   "source/Examples/E21_StaticGeomEditor/E21_StaticGeom_Editor.cpp"
+)
+
+
 
 
 source_group("" FILES
