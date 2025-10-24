@@ -117,6 +117,8 @@ namespace xgpu::vulkan
         void                                    DeathMarch                  ( xgpu::window&& window 
                                                                             ) noexcept override;
 
+                                               ~window                      ( void );
+
         std::shared_ptr<vulkan::device>         m_Device                {};
         VkSurfaceKHR                            m_VKSurface             {};
         std::array<VkClearValue,2>              m_VKClearValue          { VkClearValue{ .color = {.float32 = {0,0,0,1}} }, VkClearValue{ .depthStencil{ 1.0f, 0 } }};
@@ -140,5 +142,6 @@ namespace xgpu::vulkan
         int                                     m_nCmds                 {0};
         VkViewport                              m_DefaultViewport       {};
         VkRect2D                                m_DefaultScissor        {};
+        bool                                    m_bDeathMarched         {false};
     };
 }

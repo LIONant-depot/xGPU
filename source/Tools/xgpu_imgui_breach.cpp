@@ -1089,9 +1089,9 @@ struct breach_instance : window_info
                 const bool focused = true;
                 IM_ASSERT(platform_io.Viewports.Size == 1);
 #else
-                const bool bFocused = Info.m_Window.isFocused();
+                const bool bCapturing = Info.m_Window.isCapturing();
 #endif
-                if(bFocused)
+                if(bCapturing)
                 {
                     if (io.WantSetMousePos)
                     {
@@ -1188,13 +1188,21 @@ struct breach_instance : window_info
         }
 
         // Focus events (check if window focus changed)
-        static bool was_focused = false;
-        bool is_focused = m_Window.isFocused(); // Assuming xGPU provides a focus check
-        if (is_focused != was_focused)
         {
-            io.AddFocusEvent(is_focused);
-            printf("Window Focus: %s\n", is_focused ? "Gained" : "Lost");
-            was_focused = is_focused;
+            ImGuiPlatformIO& PlatformIO = ImGui::GetPlatformIO();
+            static bool was_focused = false;
+            bool is_focused = false;
+            for (auto& vp : PlatformIO.Viewports)
+            {
+                auto& Info = *reinterpret_cast<window_info*>(vp->RendererUserData);
+                is_focused = is_focused || Info.m_Window.isFocused();
+            }
+            if (is_focused != was_focused)
+            {
+                io.AddFocusEvent(is_focused);
+                printf("Window Focus: %s\n", is_focused ? "Gained" : "Lost");
+                was_focused = is_focused;
+            }
         }
 
         // Start the frame
@@ -1299,6 +1307,7 @@ void CreateChildWindow( ImGuiViewport* pViewport ) noexcept
     Setup.m_X           = static_cast<int>(pViewport->Pos.x);
     Setup.m_Y           = static_cast<int>(pViewport->Pos.y);
     Setup.m_bFrameless  = true;
+    Setup.m_bFocus      = false;
 
     if (auto Err = Instance.m_Shared->m_Device.Create(pInfo->m_Window, Setup))
     {
@@ -1511,7 +1520,7 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
         ImGuiPlatformIO& platform_io = ImGui::GetPlatformIO();
         platform_io.Renderer_CreateWindow       = [](ImGuiViewport* pViewport) {}; //CreateChildWindow;
         platform_io.Renderer_DestroyWindow      = [](ImGuiViewport* pViewport) {}; //DestroyChildWindow;
-        platform_io.Renderer_SetWindowSize      = SetChildWindowSize;
+        platform_io.Renderer_SetWindowSize      = [](ImGuiViewport* pViewport, ImVec2) {}; //SetChildWindowSize;
         platform_io.Renderer_RenderWindow       = RenderChildWindow;
         platform_io.Renderer_SwapBuffers        = ChildSwapBuffers;
 

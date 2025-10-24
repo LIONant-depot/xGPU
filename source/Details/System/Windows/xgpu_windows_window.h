@@ -30,7 +30,12 @@ namespace xgpu::windows
             return m_hWindow == GetFocus();
         }
 
-        virtual     void                            setFocus(void) const                                                noexcept override
+        virtual     bool                            isCapturing(void) const                                            noexcept override
+        {
+            return m_hWindow == GetCapture();
+        }
+
+        virtual     void                            setFocus(void) const                                               noexcept override
         {
             SetFocus(m_hWindow);
         }

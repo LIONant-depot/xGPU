@@ -59,6 +59,8 @@ namespace xgpu::windows
         case WM_MOUSEMOVE:
             if( auto pWin = reinterpret_cast<windows::window*>( GetWindowLongPtr( hWnd, GWLP_USERDATA ) ); pWin )
             {
+                SetCapture(hWnd);
+
                 auto x = static_cast<const int>(static_cast<short>(lParam & 0xffff));
                 auto y = static_cast<const int>(lParam >> 16);
 
@@ -244,8 +246,7 @@ namespace xgpu::windows
         case WM_WINDOWPOSCHANGED:
             if (auto pWin = reinterpret_cast<windows::window*>(GetWindowLongPtr(hWnd, GWLP_USERDATA)); pWin)
             {
-                WINDOWPOS* wpos = (WINDOWPOS*) lParam;
-
+                WINDOWPOS* wpos = (WINDOWPOS*)lParam;
                 pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][0] += pWin->m_TruePosition.first - wpos->x;
                 pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][1] += pWin->m_TruePosition.second - wpos->y;
                 pWin->m_TruePosition = { wpos->x, wpos->y };
@@ -302,7 +303,9 @@ namespace xgpu::windows
         int         x,
         int         y,
         int         width,
-        int         height)
+        int         height,
+        bool        bFrameless,
+        bool        bFocus)
     {
         //
         // Get Resolution
@@ -330,9 +333,8 @@ namespace xgpu::windows
         //
         // Compute windows flags
         //
-        const DWORD dwExStyle = bFullScreen ? WS_EX_APPWINDOW                               : WS_EX_APPWINDOW | WS_EX_WINDOWEDGE;
-        const DWORD dwStyle   = bFullScreen ? WS_POPUP | WS_CLIPSIBLINGS | WS_CLIPCHILDREN  : WS_OVERLAPPEDWINDOW | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
-
+        const DWORD dwExStyle = bFullScreen ? WS_EX_APPWINDOW                               : bFrameless ? WS_EX_APPWINDOW                              : WS_EX_APPWINDOW | WS_EX_WINDOWEDGE;
+        const DWORD dwStyle   = bFullScreen ? WS_POPUP | WS_CLIPSIBLINGS | WS_CLIPCHILDREN  : bFrameless ? WS_POPUP | WS_CLIPSIBLINGS | WS_CLIPCHILDREN : WS_OVERLAPPEDWINDOW | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
         //
         // Determine window rectangle
         //
@@ -377,9 +379,11 @@ namespace xgpu::windows
             return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a window!" );
 
         ShowWindow( hWnd, SW_SHOW );
-        SetForegroundWindow( hWnd );
-        SetFocus( hWnd );
-
+        if (bFocus)
+        {
+            SetForegroundWindow(hWnd);
+            SetFocus( hWnd );
+        }
         return nullptr;
     }
 
@@ -392,7 +396,7 @@ namespace xgpu::windows
         if (auto Err = CreateWindowClass(hInstance, WindowProc); Err )
             return Err;
       
-        if ( auto Err = CreateSytemWindow(hInstance, m_hWindow, Setup.m_bFullScreen, Setup.m_X, Setup.m_Y, Setup.m_Width, Setup.m_Height); Err )
+        if ( auto Err = CreateSytemWindow(hInstance, m_hWindow, Setup.m_bFullScreen, Setup.m_X, Setup.m_Y, Setup.m_Width, Setup.m_Height, Setup.m_bFrameless, Setup.m_bFocus); Err )
             return Err;
 
         if (m_hWindow) SetWindowLongPtr(m_hWindow, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
@@ -402,6 +406,7 @@ namespace xgpu::windows
         m_Mouse    = Instance.m_Mouse;
         m_Keyboard = Instance.m_Keyboard;
         m_isFrameless = Setup.m_bFrameless;
+        m_TruePosition = { Setup.m_X, Setup.m_Y };
 
         //
         // Allow us to track the mouse outside the window (get WM_INPUT messages) for the mouse
