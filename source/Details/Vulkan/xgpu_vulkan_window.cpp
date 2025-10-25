@@ -1526,6 +1526,12 @@ namespace xgpu::vulkan
 
     window::~window(void)
     {
+        if (auto VKErr = vkDeviceWaitIdle(m_Device->m_VKDevice); VKErr)
+        {
+            m_Device->m_Instance->ReportError(VKErr, "Fail to wait for device");
+            // We will pretend that there was actually no error since this function is used for run time...
+        }
+
         VkAllocationCallbacks* pAllocator = m_Device->m_Instance->m_pVKAllocator;
         if (m_Frames.get())
         {
