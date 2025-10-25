@@ -35,6 +35,11 @@ namespace xgpu::windows
             return m_hWindow == GetCapture();
         }
 
+        virtual     bool                            isHovered(void) const                                              noexcept override
+        {
+            return m_isHovered;
+        }
+
         virtual     void                            setFocus(void) const                                               noexcept override
         {
             SetFocus(m_hWindow);
@@ -98,6 +103,7 @@ namespace xgpu::windows
         bool                                        m_isResized { false };
         
         bool                                        m_isFrameless{ false };
+        bool                                        m_isHovered{ false };
         std::pair<int, int>                         m_TruePosition{};
     };
 }

@@ -34,6 +34,7 @@ namespace xgpu
         XGPU_INLINE [[nodiscard]]   std::size_t         getSystemWindowHandle   ( void ) const noexcept;
         XGPU_INLINE [[nodiscard]]   bool                isFocused               ( void ) const noexcept;
         XGPU_INLINE [[nodiscard]]   bool                isCapturing             ( void ) const noexcept;
+        XGPU_INLINE [[nodiscard]]   bool                isHovered               ( void ) const noexcept;
         XGPU_INLINE                 void                setFocus                ( void ) const noexcept;
         XGPU_INLINE [[nodiscard]]   bool                isMinimized             ( void ) const noexcept;
         XGPU_INLINE [[nodiscard]]   std::pair<int,int>  getPosition             ( void ) const noexcept;
