@@ -311,7 +311,7 @@ namespace e10
         };
     }
 
-    inline void CompilingThreatWorker(library_mgr& LibMgr, compilation::entry&& Entry);
+    inline void CompilingThreadWorker(library_mgr& LibMgr, compilation::entry&& Entry);
 
     namespace compilation
     {
@@ -663,7 +663,7 @@ namespace e10
                                 ++m_Instance.m_WorkersWorking;
                                 Compilation.Submit([JobEntry = std::move(Entry), this]() mutable
                                     {
-                                        CompilingThreatWorker(m_Instance.m_LibraryMgr, std::move(JobEntry));
+                                        CompilingThreadWorker(m_Instance.m_LibraryMgr, std::move(JobEntry));
                                         --m_Instance.m_WorkersWorking;
                                     });
 
@@ -2981,7 +2981,7 @@ namespace e10
     //------------------------------------------------------------------------------------------------
     //------------------------------------------------------------------------------------------------
 
-    inline void CompilingThreatWorker( library_mgr& LibMgr, compilation::entry&& Entry )
+    inline void CompilingThreadWorker( library_mgr& LibMgr, compilation::entry&& Entry )
     {
         auto& Compilation = LibMgr.m_Compilation;
 
