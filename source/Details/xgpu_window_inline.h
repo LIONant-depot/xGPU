@@ -27,6 +27,7 @@ namespace xgpu
             virtual     std::size_t                     getSystemWindowHandle   ( void ) const                                              noexcept = 0;
             virtual     bool                            isFocused               ( void ) const                                              noexcept = 0;
             virtual     bool                            isCapturing             ( void ) const                                              noexcept = 0;
+            virtual     bool                            isHovered               ( void ) const                                              noexcept = 0;
             virtual     void                            setFocus                ( void ) const                                              noexcept = 0;
             virtual     std::pair<int, int>             getPosition             ( void ) const                                              noexcept = 0;
             virtual     void                            setPosition             ( int x, int y )                                            noexcept = 0;
@@ -142,6 +143,14 @@ namespace xgpu
     window::isCapturing(void) const noexcept
     {
         return m_Private->isCapturing();
+    }
+
+    //--------------------------------------------------------------------------
+
+    XGPU_INLINE [[nodiscard]] bool
+    window::isHovered(void) const noexcept
+    {
+        return m_Private->isHovered();
     }
 
     //--------------------------------------------------------------------------

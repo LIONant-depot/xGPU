@@ -1089,9 +1089,9 @@ struct breach_instance : window_info
                 const bool focused = true;
                 IM_ASSERT(platform_io.Viewports.Size == 1);
 #else
-                const bool bCapturing = Info.m_Window.isCapturing();
+                const bool bHovered = Info.m_Window.isHovered();
 #endif
-                if(bCapturing)
+                if(bHovered)
                 {
                     if (io.WantSetMousePos)
                     {
@@ -1557,8 +1557,8 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
 
         platform_io.Monitors.resize(0);
         ImGuiPlatformMonitor monitor;
-        monitor.MainPos = monitor.WorkPos = ImVec2((float)0, (float)0);
-        monitor.MainSize = monitor.WorkSize = ImVec2((float)4000.0f, (float)4000.0f);
+        monitor.MainPos = monitor.WorkPos = ImVec2((float)-5000.0f, (float)-5000.0f);
+        monitor.MainSize = monitor.WorkSize = ImVec2((float)10000.0f, (float)10000.0f);
         platform_io.Monitors.push_back(monitor);
     }
 

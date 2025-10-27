@@ -7,7 +7,7 @@ namespace xgpu::windows
         switch( uMsg )
         {
         case WM_CLOSE:
-            PostMessage( hWnd, WM_QUIT, 0, 0 ); 
+            PostMessage( hWnd, WM_QUIT, 0, 0 );  // should this be a call to PostQuitMessage instead?
             return 0;
 
         case WM_PAINT:
@@ -59,8 +59,7 @@ namespace xgpu::windows
         case WM_MOUSEMOVE:
             if( auto pWin = reinterpret_cast<windows::window*>( GetWindowLongPtr( hWnd, GWLP_USERDATA ) ); pWin )
             {
-                SetCapture(hWnd);
-
+                
                 auto x = static_cast<const int>(static_cast<short>(lParam & 0xffff));
                 auto y = static_cast<const int>(lParam >> 16);
 
@@ -72,12 +71,30 @@ namespace xgpu::windows
 
                 pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::WHEEL_REL)][0] = 0;
                 pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::WHEEL_REL)][1] = 0;
+
+                if (false == pWin->m_isHovered)
+                {
+                    TRACKMOUSEEVENT trackMouseEvent{
+                        .cbSize = sizeof(TRACKMOUSEEVENT),
+                        .dwFlags = TME_LEAVE,
+                        .hwndTrack = hWnd
+                    };
+                    TrackMouseEvent(&trackMouseEvent);
+                    pWin->m_isHovered = true;
+                }
+            }
+            break;
+        case WM_MOUSELEAVE:
+            if (auto pWin = reinterpret_cast<windows::window*>(GetWindowLongPtr(hWnd, GWLP_USERDATA)); pWin)
+            {
+                pWin->m_isHovered = false;
             }
             break;
         case WM_MBUTTONDOWN:
             if( auto pWin = reinterpret_cast<windows::window*>( GetWindowLongPtr( hWnd, GWLP_USERDATA ) ); pWin )
             {
                 SetCapture(hWnd);
+                SetFocus(hWnd);
 
                 auto x = static_cast<const int>(static_cast<short>(lParam & 0xffff));
                 auto y = static_cast<const int>(lParam >> 16);
@@ -103,6 +120,7 @@ namespace xgpu::windows
             if( auto pWin = reinterpret_cast<windows::window*>( GetWindowLongPtr( hWnd, GWLP_USERDATA ) ); pWin )
             {
                 SetCapture(hWnd);
+                SetFocus(hWnd);
 
                 auto x = static_cast<const int>(static_cast<short>(lParam & 0xffff));
                 auto y = static_cast<const int>(lParam >> 16);
@@ -128,6 +146,7 @@ namespace xgpu::windows
             if( auto pWin = reinterpret_cast<windows::window*>( GetWindowLongPtr( hWnd, GWLP_USERDATA ) ); pWin )
             {
                 SetCapture(hWnd);
+                SetFocus(hWnd);
 
                 auto x = static_cast<const int>(static_cast<short>(lParam & 0xffff));
                 auto y = static_cast<const int>(lParam >> 16);
@@ -240,7 +259,7 @@ namespace xgpu::windows
             break;
         case WM_ERASEBKGND:
             if (auto pWin = reinterpret_cast<windows::window*>(GetWindowLongPtr(hWnd, GWLP_USERDATA)); pWin)
-                if (wParam != 0 && pWin->m_isFrameless)
+                if (wParam != 0)
                     return true;
             break;
         case WM_WINDOWPOSCHANGED:
