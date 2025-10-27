@@ -505,11 +505,14 @@ int E16_Example()
         // L"./../../dependencies/Assets/Animated/Sonic/source/chr_classicsonic.fbx"
         // L"./../../dependencies/Assets/Animated/Starwars/source/Catwalk Walk Forward.fbx" 
         // L"./../../dependencies/Assets/Animated/walking-while-listening/source/Walking.fbx"
-        // L"./../../dependencies/xgeom.plugin/dependencies/assimp/test/models/FBX/huesitos.fbx"
+        // L"./../../bin/huesitos.fbx"
         , &AnimCharacter.m_SkinGeom
         , &AnimCharacter.m_Skeleton
         , &AnimCharacter.m_AnimPackage
-        ) ) exit(1);
+        ) )
+        {
+            assert(false);
+        }
     }
 
     //

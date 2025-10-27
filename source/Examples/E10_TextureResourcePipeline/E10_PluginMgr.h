@@ -9,12 +9,18 @@
     #undef ERROR
 #endif
 
+#include <queue>
 #include <iostream>
 #include <filesystem>
 #include "dependencies/xstrtool/source/xstrtool.h"
 
 namespace e10
 {
+    enum class state : std::uint8_t
+    { OK
+    , FAILURE
+    };
+    
     //------------------------------------------------------------------------------------------------
     inline
     void GetFileTimestamp(const std::wstring& filePath, SYSTEMTIME& systemTime)
@@ -113,6 +119,7 @@ namespace e10
             SYSTEMTIME                          m_ReleaseCompilerTimeStamp;
             std::wstring                        m_PluginPath;
             std::wstring                        m_CompilationScript;
+            int                                 m_RunGroupIndex;
 
                              pipeline_plugin()                  = default;
                             ~pipeline_plugin()                  = default;
@@ -214,6 +221,160 @@ namespace e10
                 >>
             )
         };
+
+        //------------------------------------------------------------------------------------------------
+        // Helper to find and print one cycle using DFS.
+        static bool FindCycleDFS
+        ( std::size_t                                   u
+        , const std::vector<std::vector<size_t>>&       adj
+        , std::vector<int>& color, std::vector<size_t>& path
+        , const std::vector<pipeline_plugin>&           List
+        ) noexcept
+        {
+            color[u] = 1;  // Visiting (gray).
+            path.push_back(u);
+            for (size_t v : adj[u]) 
+            {
+                // Back edge to gray node: cycle.
+                if (color[v] == 1) 
+                {  
+                    // Print cycle: from cycle start to end, then back.
+                    std::cerr << "Cycle detected involving plugins (GUIDs in hex): ";
+
+                    auto it = std::find(path.begin(), path.end(), v);
+                    if (it != path.end()) 
+                    {
+                        for (auto jt = it; jt != path.end(); ++jt) 
+                        {
+                            std::cerr << "GUID: " << std::hex << List[*jt].m_TypeGUID.m_Value << " NAME: (" << List[*jt].m_TypeName << ") -> ";
+                        }
+                        std::cerr << "GUID: " << std::hex << List[v].m_TypeGUID.m_Value << " NAME: (" << List[v].m_TypeName << ")\n";  // Close loop.
+                    }
+
+                    std::cerr << std::endl;
+                    return true;
+                }
+                else if (color[v] == 0 && FindCycleDFS(v, adj, color, path, List)) 
+                {
+                    return true;
+                }
+            }
+
+            // Visited (black).
+            color[u] = 2;  
+            path.pop_back();
+            return false;
+        }
+
+        //------------------------------------------------------------------------------------------------
+        // Helper to detect and print one cycle in the graph.
+        static void DetectAndPrintCycle
+        ( const std::vector<std::vector<size_t>>&   adj
+        , const std::vector<pipeline_plugin>&       List
+        , const std::vector<int>&                   indegree
+        ) noexcept
+        {
+            size_t n = List.size();
+
+            // 0: white, 1: gray, 2: black.
+            std::vector<int>            color(n, 0);  
+            std::vector<std::size_t>    path;
+
+            // Start DFS from nodes with remaining indegree >0 (likely in cycle).
+            for (std::size_t i = 0; i < n; ++i)
+            {
+                if (indegree[i] > 0 && color[i] == 0) 
+                {
+                    if (FindCycleDFS(i, adj, color, path, List)) 
+                    {
+                        return;  // Found and printed one cycle; stop.
+                    }
+                }
+            }
+        }
+
+        //------------------------------------------------------------------------------------------------
+        // Assigns minimal run group indices to plugins in 'List' based on dependencies.
+        // - Plugins with the same group index can run in parallel.
+        // - Minimizes the number of groups by computing the earliest possible group for each plugin (longest path from roots).
+        // - Uses BFS topological sort (Kahn's algorithm variant) to process nodes level-by-level.
+        // - Group 0 is for roots (no dependencies); higher groups for dependents.
+        // - If cycle detected, sets all indices to -1.
+        // - Assumes no duplicate GUIDs; ignores missing dependencies.
+        // - Time: O(V + E), where V = |List|, E = total m_RunAfter entries.
+        // - Space: O(V + E).
+        static xerr AssignPluginGroups(std::vector<pipeline_plugin>& List) noexcept
+        {
+            if (List.empty()) return {};
+
+            // Map GUID to index for quick lookup.
+            std::unordered_map<xresource::type_guid, size_t>    GuidToIndex;
+            const size_t                                        n           = List.size();
+            for (size_t i = 0; i < n; ++i) 
+            {
+                GuidToIndex[List[i].m_TypeGUID] = i;
+
+                // Initialize
+                List[i].m_RunGroupIndex = 0;  
+            }
+
+            // Build adjacency list (u -> v: u must run before v) and indegrees.
+            std::vector<std::vector<std::size_t>>   adj(n);  // u -> v: u before v
+            std::vector<int>                        indegree(n, 0);
+            for (size_t i = 0; i < n; ++i) 
+            {
+                // For each dependency g of i (g before i).
+                for (auto g : List[i].m_RunAfter) 
+                {
+                    auto it = GuidToIndex.find(g);
+                    if (it != GuidToIndex.end()) 
+                    {
+                        std::size_t j = it->second;
+                        adj[j].push_back(i);  // Edge: j -> i.
+                        ++indegree[i];        // i depends on j.
+                    }
+                }
+            }
+
+            // Queue for BFS: start with nodes having no incoming edges (roots).
+            std::queue<std::size_t> q;
+            for (std::size_t i = 0; i < n; ++i)
+            {
+                if (indegree[i] == 0) q.push(i);
+            }
+
+            // Track processed nodes to detect cycles
+            std::size_t processed = 0;
+
+            // Process level-by-level.
+            while (!q.empty()) 
+            {
+                std::size_t u = q.front();
+                q.pop();
+                ++processed;
+
+                // For each dependent v of u:
+                for (std::size_t v : adj[u])
+                {
+                    // Update v's group to at least u's group + 1 (ensures order).
+                    List[v].m_RunGroupIndex = std::max(List[v].m_RunGroupIndex, List[u].m_RunGroupIndex + 1);
+
+                    // Decrease indegree; if zero, enqueue (all prereqs processed).
+                    if (--indegree[v] == 0) q.push(v);
+                }
+            }
+
+            // Cycle check: if not all processed, set error state.
+            if (processed != n) 
+            {
+                DetectAndPrintCycle(adj, List, indegree);
+                for (auto& p : List) p.m_RunGroupIndex = -1;
+                return xerr::create_f<state, "Found Plugin dependency cycle">();
+            }
+
+            return {};
+        }
+
         //------------------------------------------------------------------------------------------------
 
         void SetupProject( std::wstring_view ProjectPath )
@@ -240,7 +401,7 @@ namespace e10
                 //
                 // get the timestamp of the compilers
                 //
-                if( Plugin.m_ReleaseCompiler.empty() == false ) GetFileTimestamp(std::format(L"{}\\{}", ProjectPath, Plugin.m_ReleaseCompiler), Plugin.m_ReleaseCompilerTimeStamp);
+                if (Plugin.m_ReleaseCompiler.empty() == false ) GetFileTimestamp(std::format(L"{}\\{}", ProjectPath, Plugin.m_ReleaseCompiler), Plugin.m_ReleaseCompilerTimeStamp);
                 if (Plugin.m_DebugCompiler.empty() == false)    GetFileTimestamp(std::format(L"{}\\{}", ProjectPath, Plugin.m_DebugCompiler),   Plugin.m_DebugCompilerTimeStamp);
 
                 //
@@ -253,6 +414,28 @@ namespace e10
                 m_lPlugins.push_back(std::move(Plugin));
             }
         }
+
+        //------------------------------------------------------------------------------------------------
+
+        int RecomputePluginGroups()
+        {
+            //
+            // Assign the plugin (compiler execution) groups
+            //
+            if ( auto Err = AssignPluginGroups(m_lPlugins); Err )
+            {
+                assert(false);
+            }
+
+            int MaxQueue = 0;
+            for(auto& E : m_lPlugins)
+            {
+                MaxQueue = std::max(MaxQueue, E.m_RunGroupIndex);
+            }
+
+            return MaxQueue+1;
+        }
+
 
         //------------------------------------------------------------------------------------------------
 
@@ -279,6 +462,8 @@ namespace e10
             m_lPlugins.clear();
             m_mPluginsByTypeGUID.clear();
         }
+
+
 
         std::vector<pipeline_plugin>                    m_lPlugins;
         std::unordered_map<xresource::type_guid, int>   m_mPluginsByTypeGUID;

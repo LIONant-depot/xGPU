@@ -969,7 +969,7 @@ int E21_Example()
 
             ImGui::SameLine(410);
 
-            if (false == SelectedDescriptor.m_InfoGUID.empty() /*&& g.m_InstanceNodes.empty() == false*/ )
+            if (false == SelectedDescriptor.m_InfoGUID.empty() )
             {
                 ImGui::Separator();
                 xcontainer::lock::scope lk(*SelectedDescriptor.m_Log);
