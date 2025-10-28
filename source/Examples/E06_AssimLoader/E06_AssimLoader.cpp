@@ -27,9 +27,9 @@ struct static_geom
 {
     struct vertex
     {
-        xmath::fvec3 m_Position;
-        xmath::fvec2 m_Texcoord;
-        xcolori  m_Color;
+        xmath::fvec3    m_Position;
+        xmath::fvec2    m_Texcoord;
+        xcolori         m_Color;
     };
 
     struct mesh

@@ -29,6 +29,7 @@
 
 #include "plugins/xgeom.plugin/source/xgeom_rsc_descriptor.h"
 #include "plugins/xgeom.plugin/source/xgeom_xgpu_rsc_loader.h"
+#include "plugins/xgeom.plugin/source/xgeom_xgpu_rsc_loader.cpp"
 
 //-----------------------------------------------------------------------------------
 
@@ -149,6 +150,7 @@ namespace e21
             }
         }
 
+        xrsc::geom                                                  m_GeomRef               = {};
         xrsc::material_instance_ref                                 m_MaterialInstanceRef   = {};
         e10::library::guid                                          m_LibraryGUID           = {};
         xresource::full_guid                                        m_InfoGUID              = {};
@@ -163,6 +165,15 @@ namespace e21
 
     void PipelineReload( xgpu::device& Device, xgpu::vertex_descriptor& vd, xgpu::pipeline& material, xgpu::pipeline_instance& materialInst, selected_descriptor& SelcDesc, xresource::mgr& Mgr )
     {
+        /*
+        Mgr.ReleaseRef(SelcDesc.m_GeomRef);
+        SelcDesc.m_GeomRef.m_Instance = SelcDesc.m_InfoGUID.m_Instance;
+        if (auto pMatIRef = Mgr.getResource(SelcDesc.m_MaterialInstanceRef); pMatIRef)
+        {
+        }
+        */
+
+        /*
         //destroy old pipeline and pipeline instance
         //after compile a few time will cause error hence need to call destroy 
         Device.Destroy(std::move(material));
@@ -246,6 +257,7 @@ namespace e21
                 }
             }
         }
+        */
     }
 
     void RemapGUIDToString(std::string& Name, const xresource::full_guid& PreFullGuid)
@@ -1039,27 +1051,13 @@ int E21_Example()
                                 ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255));
                                 ImGui::TextUnformatted(std::string(line).c_str());
                                 ImGui::PopStyleColor();
-
-                                std::string nodeName = e21::ExtractNodeName(line);
-                                if (!nodeName.empty() && nodeName != "Final FragOut")
-                                {
-                                    /*
-                                    for (auto& [id, node] : g.m_InstanceNodes)
-                                    {
-                                        auto& n = *node;
-                                        if (std::to_string(n.m_Guid.m_Value) == nodeName)
-                                        {
-                                            n.m_HasErrMsg = true;
-                                            n.m_ErrMsg    = line;
-                                        }
-                                    }
-                                    */
-                                }
                             }
                             else
                             {
                                 ImGui::TextUnformatted(std::string(line).c_str());
                             }
+
+                            printf("%s", std::string(line).c_str() );
 
                             start = end + 1;
                         }

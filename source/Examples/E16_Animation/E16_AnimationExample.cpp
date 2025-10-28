@@ -646,39 +646,48 @@ int E16_Example()
             AnimCharacter.m_AnimPlayer.Update(DeltaTime);
             AnimCharacter.m_AnimPlayer.ComputeMatrices( FinalL2W, xmath::fmat4::fromIdentity() );
 
-            // Render the skeleton animated pose 
+            // Render the skeleton animated pose
+            int i = 0;
+            for (const auto& m : FinalL2W)
             {
-                int i = 0;
-                for (const auto& m : FinalL2W)
+                auto M = AnimCharacter.m_Skeleton.m_Bones[i++].m_InvBind;
+                M = M.Inverse();             // The debug bones are already in local space we need them to go to bone space so we need to have the inverse matrix
+                M.PreScale(ScaleBones);
+                M = m * M;
+                M.Scale(MeshScale);
+                M.Translate({ 0,-1.0f, -2 });
+
+                DebugBone.Render(CmdBuffer, W2C * M);
+            }
+
+            // Render bind skeleton
+            const bool xxx = (AnimCharacter.m_Skeleton.m_Bones[0].m_NeutalPose * AnimCharacter.m_Skeleton.m_Bones[0].m_InvBind.Inverse()).isIdentity();
+            if (xxx)
+            {
+                for (const auto& B : AnimCharacter.m_Skeleton.m_Bones)
                 {
-                    auto M = AnimCharacter.m_Skeleton.m_Bones[i++].m_InvBind;
+                    auto M = B.m_InvBind;
                     M = M.Inverse();             // The debug bones are already in local space we need them to go to bone space so we need to have the inverse matrix
                     M.PreScale(ScaleBones);
-                    M = m * M;
                     M.Scale(MeshScale);
-                    M.Translate({ 0,-1.0f, -2 });
+                    M.Translate({ -2,-1.0f,-2 });
 
                     DebugBone.Render(CmdBuffer, W2C * M);
                 }
             }
-
-            // Render bind skeleton
-            int ii=0;
-            for( const auto& B : AnimCharacter.m_Skeleton.m_Bones )
+            else
             {
-                if (ii == 6)
+                // Render the skeleton neutral pose
+                for (const auto& B : AnimCharacter.m_Skeleton.m_Bones)
                 {
-                    int a = 22;
+                    auto BInv = B.m_InvBind;
+                    auto M = B.m_NeutalPose * BInv.Inverse();
+                    M.PreScale(ScaleBones);
+                    M.Scale(MeshScale);
+                    M.Translate({ -2,-1.0f, -2 });
+
+                    DebugBone.Render(CmdBuffer, W2C * M);
                 }
-
-                auto M = B.m_InvBind;
-                M = M.Inverse();             // The debug bones are already in local space we need them to go to bone space so we need to have the inverse matrix
-                M.PreScale(ScaleBones);
-                M.Scale(MeshScale);
-                M.Translate( {-2,-1.0f,-2} );
-
-                DebugBone.Render(CmdBuffer, W2C * M );
-                ii++;
             }
 
             // Render the skeleton neutral pose
@@ -705,14 +714,30 @@ int E16_Example()
                 }
             });
 
-            // Check the skin bind pose
-            SkinRender.Render( CmdBuffer, [&]( e16::skin_render::shader_uniform_buffer& UBO )
+            if (xxx)
             {
-                UBO.m_W2C = W2C;
-                UBO.m_W2C.PreTranslate({-2,-1,0});
-                UBO.m_W2C.PreScale(MeshScale);
-                for( auto i=0u;i< FinalL2W.size(); ++i ) UBO.m_L2W[i] = xmath::fmat4::fromIdentity();
-            });
+                // Check the skin bind pose
+                SkinRender.Render( CmdBuffer, [&]( e16::skin_render::shader_uniform_buffer& UBO )
+                {
+                    UBO.m_W2C = W2C;
+                    UBO.m_W2C.PreTranslate({-2,-1,0});
+                    UBO.m_W2C.PreScale(MeshScale);
+                    for( auto i=0u;i< FinalL2W.size(); ++i ) UBO.m_L2W[i] = xmath::fmat4::fromIdentity();
+                });
+            }
+            else
+            {
+                SkinRender.Render( CmdBuffer, [&]( e16::skin_render::shader_uniform_buffer& UBO )
+                {
+                    UBO.m_W2C = W2C;
+                    UBO.m_W2C.PreTranslate({-2,-1,0});
+                    UBO.m_W2C.PreScale(MeshScale);
+                    for( auto i=0u;i< FinalL2W.size(); ++i )
+                    {
+                        UBO.m_L2W[i] = AnimCharacter.m_Skeleton.m_Bones[i].m_NeutalPose;
+                    }
+                });
+            }
 
             // animate the character
             SkinRender.Render( CmdBuffer, [&]( e16::skin_render::shader_uniform_buffer& UBO )

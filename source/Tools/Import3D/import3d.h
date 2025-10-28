@@ -640,262 +640,6 @@ namespace import3d
 
         //------------------------------------------------------------------------------------------------------
 
-        void ImportGeometrySkin(std::vector<myMeshPart>& MyNodes) noexcept
-        {
-            //
-            // Add bones base on bone associated by meshes
-            // 
-            MyNodes.resize(m_pScene->mNumMeshes);
-            for (auto iMesh = 0u; iMesh < m_pScene->mNumMeshes; ++iMesh)
-            {
-                const aiMesh& AssimpMesh = *m_pScene->mMeshes[iMesh];
-
-                int iTexCordinates;
-                if( ImportGeometryValidateMesh(AssimpMesh, iTexCordinates) ) continue;
-
-                //
-                // Copy mesh name and Material Index
-                //
-                MyNodes[iMesh].m_Name               = AssimpMesh.mName.C_Str();
-                MyNodes[iMesh].m_iMaterialInstance  = AssimpMesh.mMaterialIndex;
-
-                // get the rotation for the normals
-                aiQuaternion presentRotation;
-                {
-                    aiVector3D p;
-                    m_MeshReferences[iMesh].m_Nodes[0]->mTransformation.DecomposeNoScaling(presentRotation, p);
-                }
-
-                //
-                // Copy Vertices
-                //
-                MyNodes[iMesh].m_Vertices.resize(AssimpMesh.mNumVertices);
-                for (auto i = 0u; i < AssimpMesh.mNumVertices; ++i)
-                {
-                    import3d::vertex& Vertex = MyNodes[iMesh].m_Vertices[i];
-
-                    auto L = AssimpMesh.mVertices[i];
-                    L = m_MeshReferences[iMesh].m_Nodes[0]->mTransformation * L;
-
-                    Vertex.m_Position = xmath::fvec3d
-                    ( static_cast<float>(L.x)
-                    , static_cast<float>(L.y)
-                    , static_cast<float>(L.z)
-                    );
-
-                    if(iTexCordinates == -1)
-                    {
-                        Vertex.m_UV.setup(0,0);
-                    }
-                    else
-                    {
-                        Vertex.m_UV.setup(static_cast<float>(AssimpMesh.mTextureCoords[iTexCordinates][i].x)
-                                         ,static_cast<float>(AssimpMesh.mTextureCoords[iTexCordinates][i].y) );
-                    }
-
-                    /*
-                    if (iColors == -1)
-                    {
-                        Vertex.m_Color.setup(255,255,255,255);
-                    }
-                    else
-                    {
-                        xcore::vector4 RGBA(static_cast<float>(AssimpMesh.mColors[iColors][i].r)
-                                          , static_cast<float>(AssimpMesh.mColors[iColors][i].g)
-                                          , static_cast<float>(AssimpMesh.mColors[iColors][i].b)
-                                          , static_cast<float>(AssimpMesh.mColors[iColors][i].a)
-                        );
-
-                        Vertex.m_Color.setupFromRGBA(RGBA);
-                    }
-                    */
-
-                    if (AssimpMesh.HasTangentsAndBitangents())
-                    {
-                        assert(AssimpMesh.HasNormals());
-
-                        const auto T = presentRotation.Rotate( AssimpMesh.mTangents[i]);
-                        const auto B = presentRotation.Rotate(AssimpMesh.mBitangents[i]);
-                        const auto N = presentRotation.Rotate(AssimpMesh.mNormals[i]);
-
-                        Vertex.m_Normal.setup(N.x, N.y, N.z);
-                        Vertex.m_Tangent.setup(T.x, T.y, T.z);
-                        Vertex.m_Bitangent.setup(B.x, B.y, B.z);
-
-                        Vertex.m_Normal.NormalizeSafe();
-                        Vertex.m_Tangent.NormalizeSafe();
-                        Vertex.m_Bitangent.NormalizeSafe();
-                    }
-                    else
-                    {
-                        const auto N = presentRotation.Rotate(AssimpMesh.mNormals[i]);
-                        Vertex.m_Normal.setup(N.x, N.y, N.z);
-                        Vertex.m_Tangent.setup(1, 0, 0);
-                        Vertex.m_Bitangent.setup(1, 0, 0);
-
-                        Vertex.m_Normal.NormalizeSafe();
-                    }
-
-                    // Mark the weights as uninitialized we will be setting them later
-                    Vertex.m_BoneIndex.m_R   = Vertex.m_BoneIndex.m_G   = Vertex.m_BoneIndex.m_B   = Vertex.m_BoneIndex.m_A   = 0;
-                    Vertex.m_BoneWeights.m_R = Vertex.m_BoneWeights.m_G = Vertex.m_BoneWeights.m_B = Vertex.m_BoneWeights.m_A = 0;
-                }
-
-                //
-                // Copy the indices
-                //
-                for (auto i = 0u; i < AssimpMesh.mNumFaces; ++i)
-                {
-                    const auto& Face = AssimpMesh.mFaces[i];
-                    for (auto j = 0u; j < Face.mNumIndices; ++j)
-                        MyNodes[iMesh].m_Indices.push_back(Face.mIndices[j]);
-                }
-
-                //
-                // Add the bone weights
-                //
-                if (AssimpMesh.mNumBones > 0)
-                {
-                    struct tmp_weight
-                    {
-                        std::uint8_t m_iBone;
-                        float        m_Weight{0};
-                    };
-
-                    struct my_weights
-                    {
-                        int                         m_Count {0};
-                        std::array<tmp_weight,4>    m_Weights;
-                    };
-
-                    std::vector<my_weights> MyWeights;
-                    MyWeights.resize(AssimpMesh.mNumVertices);
-
-                    //
-                    // Collect bones indices and weights
-                    // 
-                    assert(m_MeshReferences[iMesh].m_Nodes.size() == 1);
-
-                    MyNodes[iMesh].m_MeshName = GetMeshNameFromNode( *m_MeshReferences[iMesh].m_Nodes[0] );
-                    for( auto iBone = 0u; iBone< AssimpMesh.mNumBones; iBone++ )
-                    {
-                        const auto&          AssimpBone    = *AssimpMesh.mBones[iBone];
-                        const std::uint8_t   iSkeletonBone = m_pSkeleton->findBone(AssimpBone.mName.C_Str());
-                        assert( m_pSkeleton->findBone(AssimpBone.mName.C_Str()) != -1 );
-
-                        for( auto iWeight = 0u; iWeight < AssimpBone.mNumWeights; ++iWeight )
-                        {
-                            const auto& AssimpWeight = AssimpBone.mWeights[iWeight];
-                            auto&       MyWeight     = MyWeights[AssimpWeight.mVertexId];
-
-                            MyWeight.m_Weights[MyWeight.m_Count].m_iBone  = iSkeletonBone;
-                            MyWeight.m_Weights[MyWeight.m_Count].m_Weight = AssimpWeight.mWeight;
-
-                            // get ready for the next one
-                            MyWeight.m_Count++;
-                        }
-                    }
-
-                    //
-                    // Sort weights, normalize and set to the final vert
-                    //
-                    for( int iVertex=0u; iVertex< MyWeights.size(); ++iVertex )
-                    {
-                        auto& E = MyWeights[iVertex];
-
-                        // Short from bigger to smaller
-                        std::qsort( E.m_Weights.data(), E.m_Weights.size(), sizeof(tmp_weight), []( const void* pA, const void* pB ) ->int
-                        {
-                            auto& A = *reinterpret_cast<const tmp_weight*>(pA);
-                            auto& B = *reinterpret_cast<const tmp_weight*>(pB);
-                            if( B.m_Weight < A.m_Weight ) return -1;
-                            return B.m_Weight > A.m_Weight;
-                        });
-
-                        assert(E.m_Weights[0].m_Weight >= E.m_Weights[1].m_Weight);
-
-                        // Normalize the weights
-                        float Total=0;
-                        for (int i = 0; i < E.m_Count; ++i)
-                        {
-                            Total += E.m_Weights[i].m_Weight;
-                        }
-
-                        for (int i = 0; i < E.m_Count; ++i)
-                        {
-                            E.m_Weights[i].m_Weight /= Total;
-                        }
-
-                        // Copy Weight To the Vert
-                        auto& V = MyNodes[iMesh].m_Vertices[iVertex];
-                        for (int i = 0; i < E.m_Count; ++i)
-                        {
-                            const auto& BW = E.m_Weights[i];
-
-                            switch (i)
-                            {
-                            case 0: V.m_BoneIndex.m_R   = static_cast<std::uint8_t>(BW.m_iBone);
-                                    V.m_BoneWeights.m_R = static_cast<std::uint8_t>(BW.m_Weight * 0xff);
-                                    break;
-                            case 1: V.m_BoneIndex.m_G   = static_cast<std::uint8_t>(BW.m_iBone);
-                                    V.m_BoneWeights.m_G = static_cast<std::uint8_t>(BW.m_Weight * 0xff);
-                                    break;
-                            case 2: V.m_BoneIndex.m_B   = static_cast<std::uint8_t>(BW.m_iBone);
-                                    V.m_BoneWeights.m_B = static_cast<std::uint8_t>(BW.m_Weight * 0xff);
-                                    break;
-                            case 3: V.m_BoneIndex.m_A   = static_cast<std::uint8_t>(BW.m_iBone);
-                                    V.m_BoneWeights.m_A = static_cast<std::uint8_t>(BW.m_Weight * 0xff);
-                                    break;
-                            }
-                        }
-                    }
-
-                    //
-                    // Sanity check (make sure that all the vertices have bone and weights
-                    //
-                    for( auto& V : MyNodes[iMesh].m_Vertices )
-                    {
-                        assert( V.m_BoneWeights.m_R > 0 );
-                    }
-                }
-                else
-                {
-                    //
-                    // Set the weights and duplicate mesh if needed
-                    //
-
-                    // Remember where was the base
-                    int iBase = static_cast<int>(m_MeshReferences[iMesh].m_Nodes.size());
-
-                    // Grow the total number of meshes if we have to...
-                    if(iBase > 1 ) MyNodes.resize(MyNodes.size() + m_MeshReferences[iMesh].m_Nodes.size() - 1 );
-
-                    auto pMyNode = &MyNodes[iMesh];                    
-                    for (const auto pN : m_MeshReferences[iMesh].m_Nodes)
-                    {
-                        pMyNode->m_MeshName = GetMeshNameFromNode(*pN);
-                        const std::uint8_t   iSkeletonBone = m_pSkeleton->findBone(pN->mName.C_Str());
-                        for (auto iVertex = 0u; iVertex < AssimpMesh.mNumVertices; ++iVertex)
-                        {
-                            auto& V = pMyNode->m_Vertices[iVertex];
-                            V.m_BoneIndex.m_R   = iSkeletonBone;
-                            V.m_BoneWeights.m_R = 0xff;
-                        }
-
-                        if (iBase < MyNodes.size())
-                        {
-                            pMyNode = &MyNodes[iBase++];
-
-                            // Deep copy the mesh...
-                            *pMyNode = MyNodes[iMesh];
-                        }
-                    }
-                }
-            }
-        }
-
-        //------------------------------------------------------------------------------------------------------
-
         void ImportGeometry()
         {
             std::vector<myMeshPart> MyNodes;
@@ -1164,33 +908,79 @@ namespace import3d
 
         //------------------------------------------------------------------------------------------------------
 
-        void ImportSkeleton( void ) noexcept
+        aiMatrix4x4 GetGlobalTransform(const aiNode* pNode) const noexcept
         {
-            std::unordered_map<std::string, const aiNode*> NameToNode;
-            std::unordered_map<std::string, const aiBone*> NameToBone;
+            aiMatrix4x4 mat = pNode->mTransformation;
+            for (pNode = pNode->mParent; pNode; pNode = pNode->mParent)
+            {
+                mat = pNode->mTransformation * mat;
+            }
+            return mat;
+        }
+
+        //------------------------------------------------------------------------------------------------------
+
+        bool MatricesEqual(const aiMatrix4x4& a, const aiMatrix4x4& b, float epsilon = 1e-5f) noexcept
+        {
+            for (int i = 0; i < 4; ++i)
+                for (int j = 0; j < 4; ++j)
+                    if (std::abs(a[i][j] - b[i][j]) > epsilon) return false;
+            return true;
+        }
+
+        //------------------------------------------------------------------------------------------------------
+
+        void ImportSkeleton() noexcept
+        {
+            std::unordered_map<std::string, const aiNode*>  NameToNode;
+            std::unordered_map<std::string, const aiBone*>  NameToBone;
+            std::unordered_map<std::string, aiMatrix4x4>    NameToMeshGlobal;
+            std::unordered_map<std::string, const aiNode*>  NameToMeshNode;  // For reference if needed
 
             //
-            // Add bones base on bone associated by meshes
-            // 
+            // Add bones based on bone associated by meshes
+            //
             for (auto iMesh = 0u; iMesh < m_pScene->mNumMeshes; ++iMesh)
             {
                 const aiMesh& Mesh = *m_pScene->mMeshes[iMesh];
+                if (!Mesh.HasBones()) continue;
+
+                const aiNode*     pMeshNode  = m_MeshReferences[iMesh].m_Nodes[0];
+                const aiMatrix4x4 MeshGlobal = GetGlobalTransform(pMeshNode);
+
                 for (auto iBone = 0u; iBone < Mesh.mNumBones; ++iBone)
                 {
-                    const aiBone& Bone = *Mesh.mBones[iBone];
-                    if (auto E = NameToBone.find(Bone.mName.data); E == NameToBone.end())
+                    const aiBone&     Bone = *Mesh.mBones[iBone];
+                    const std::string Name = Bone.mName.C_Str();
+
+                    if (NameToBone.count(Name))
                     {
+                        // Check consistency
+                        if (!MatricesEqual(NameToBone[Name]->mOffsetMatrix, Bone.mOffsetMatrix))
+                        {
+                            printf("WARNING: Bone %s has different offset matrices in different meshes\n", Name.c_str());
+                        }
+
+                        if (!MatricesEqual(NameToMeshGlobal[Name], MeshGlobal))
+                        {
+                            printf("WARNING: Bone %s has different mesh global transforms in different meshes\n", Name.c_str());
+                        }
+                    }
+                    else
+                    {
+                        NameToBone[Name]        = &Bone;
+                        NameToMeshGlobal[Name]  = MeshGlobal;
+                        NameToMeshNode[Name]    = pMeshNode;
+
                         auto pNode = m_pScene->mRootNode->FindNode(Bone.mName);
-                        NameToBone[Bone.mName.data] = &Bone;
-                        NameToNode[Bone.mName.data] = pNode;
+                        NameToNode[Name]        = pNode;
                     }
                 }
             }
 
             //
-            // Add bones base on the animation streams
-            // This should be an option really...
-            // We can throw away any node that is animated but not used by any mesh and it is not a parent to a nodes containing meshes
+            // Add bones based on the animation streams
+            //
             if (false)
             {
                 for (auto iAnim = 0u; iAnim < m_pScene->mNumAnimations; ++iAnim)
@@ -1210,7 +1000,6 @@ namespace import3d
 
             //
             // Make sure all the parent nodes are inserted in the hash table
-            // This algotithum is a bit overkill but is ok... 
             //
             for (auto itr1 : NameToNode)
             {
@@ -1238,10 +1027,10 @@ namespace import3d
             //
             struct proto
             {
-                const aiNode*   m_pAssimpNode   { nullptr };
-                int             m_Depth         { 0 };
+                const aiNode* m_pAssimpNode{ nullptr };
+                int             m_Depth{ 0 };
                 int             m_nTotalChildren{ 0 };
-                int             m_nChildren     { 0 };
+                int             m_nChildren{ 0 };
             };
             std::vector<proto> Proto;
 
@@ -1259,8 +1048,8 @@ namespace import3d
             // Set the Depth, m_nTotalChildren and nChildren
             for (auto i = 0u; i < Proto.size(); ++i)
             {
-                auto& P = Proto[i];
-                bool  bFoundParent = false;
+                auto& P             = Proto[i];
+                bool  bFoundParent  = false;
 
                 for (aiNode* pNode = P.m_pAssimpNode->mParent; pNode; pNode = pNode->mParent)
                 {
@@ -1283,15 +1072,15 @@ namespace import3d
 
             // Put all the Proto bones in the right order
             std::qsort(Proto.data(), Proto.size(), sizeof(proto), [](const void* pA, const void* pB) -> int
-            {
-                const auto& A = *reinterpret_cast<const proto*>(pA);
-                const auto& B = *reinterpret_cast<const proto*>(pB);
+                {
+                    const auto& A = *reinterpret_cast<const proto*>(pA);
+                    const auto& B = *reinterpret_cast<const proto*>(pB);
 
-                if (A.m_Depth < B.m_Depth) return -1;
-                if (A.m_Depth > B.m_Depth) return  1;
-                if (A.m_nTotalChildren < B.m_nTotalChildren) return  -1;
-                return (A.m_nTotalChildren > B.m_nTotalChildren);
-            });
+                    if (A.m_Depth < B.m_Depth) return -1;
+                    if (A.m_Depth > B.m_Depth) return  1;
+                    if (A.m_nTotalChildren < B.m_nTotalChildren) return  -1;
+                    return (A.m_nTotalChildren > B.m_nTotalChildren);
+                });
 
             //
             // Create all the real bones
@@ -1299,15 +1088,16 @@ namespace import3d
             m_pSkeleton->m_Bones.resize(Proto.size());
             {
                 int i = 0;
-                for( auto& ACBone : m_pSkeleton->m_Bones )
+                for (auto& ACBone : m_pSkeleton->m_Bones)
                 {
-                    auto& ProtoBone     = Proto[i++];
+                    auto& ProtoBone = Proto[i++];
+
                     ACBone.m_Name       = ProtoBone.m_pAssimpNode->mName.data;
                     ACBone.m_iParent    = -1;
 
                     // Potentially we may not have all parent nodes in our skeleton
                     // so we must search by each of the potential assimp nodes
-                    for( aiNode* pNode = ProtoBone.m_pAssimpNode->mParent; ACBone.m_iParent == -1 && pNode; pNode = pNode->mParent)
+                    for (aiNode* pNode = ProtoBone.m_pAssimpNode->mParent; ACBone.m_iParent == -1 && pNode; pNode = pNode->mParent)
                     {
                         for (auto j = 0; j < i; ++j)
                         {
@@ -1320,14 +1110,13 @@ namespace import3d
                     }
 
                     // Check if we have a binding matrix
-                    if( auto B = NameToBone.find(ProtoBone.m_pAssimpNode->mName.data); B != NameToBone.end() )
+                    if (auto B = NameToBone.find(ProtoBone.m_pAssimpNode->mName.data); B != NameToBone.end())
                     {
-                        // Inverse bind matrix
-                        auto OffsetMatrix = B->second->mOffsetMatrix;
-                        auto NodeMatrix   = m_MeshReferences[0].m_Nodes[0]->mTransformation;
-                        NodeMatrix = OffsetMatrix * NodeMatrix.Inverse();
+                        auto OffsetMatrix   = B->second->mOffsetMatrix;
+                        auto NodeMatrix     = NameToMeshGlobal[ProtoBone.m_pAssimpNode->mName.data];
+                        auto Adjusted       = OffsetMatrix * NodeMatrix.Inverse();
 
-                        std::memcpy(&ACBone.m_InvBind, &NodeMatrix, sizeof(xmath::fmat4));
+                        std::memcpy(&ACBone.m_InvBind, &Adjusted, sizeof(xmath::fmat4));
                         ACBone.m_InvBind = ACBone.m_InvBind.Transpose();
                     }
                     else
@@ -1337,15 +1126,254 @@ namespace import3d
 
                     // Neutral pose
                     {
-                        const auto  C = NameToNode.find(ProtoBone.m_pAssimpNode->mName.data);
-                        auto        NodeMatrix = C->second->mTransformation;
-                        for (auto p = C->second->mParent; p; p = p->mParent) NodeMatrix = p->mTransformation * NodeMatrix;
-                        std::memcpy(&ACBone.m_NeutalPose, &NodeMatrix, sizeof(xmath::fmat4));
-                        ACBone.m_NeutalPose = ACBone.m_NeutalPose.Transpose();
+                        const auto  C           = NameToNode.find(ProtoBone.m_pAssimpNode->mName.data);
+                        auto        NodeMatrix  = C->second->mTransformation;
 
+                        for (auto p = C->second->mParent; p; p = p->mParent) NodeMatrix = p->mTransformation * NodeMatrix;
+
+                        std::memcpy(&ACBone.m_NeutalPose, &NodeMatrix, sizeof(xmath::fmat4));
+
+                        ACBone.m_NeutalPose  = ACBone.m_NeutalPose.Transpose();
                         ACBone.m_NeutalPose *= ACBone.m_InvBind;
                     }
 
+                }
+            }
+        }
+
+        //------------------------------------------------------------------------------------------------------
+
+        void ImportGeometrySkin(std::vector<myMeshPart>& MyNodes) noexcept
+        {
+            //
+            // Add bones based on bone associated by meshes
+            //
+            MyNodes.resize(m_pScene->mNumMeshes);
+            for (auto iMesh = 0u; iMesh < m_pScene->mNumMeshes; ++iMesh)
+            {
+                const aiMesh&   AssimpMesh = *m_pScene->mMeshes[iMesh];
+                int             iTexCordinates;
+
+                if (ImportGeometryValidateMesh(AssimpMesh, iTexCordinates)) continue;
+
+                //
+                // Copy mesh name and Material Index
+                //
+                MyNodes[iMesh].m_Name               = AssimpMesh.mName.C_Str();
+                MyNodes[iMesh].m_iMaterialInstance  = AssimpMesh.mMaterialIndex;
+
+                // Get the global transform for the mesh node
+                const aiNode*       pMeshNode       = m_MeshReferences[iMesh].m_Nodes[0];
+                const aiMatrix4x4   MeshGlobal      = GetGlobalTransform(pMeshNode);
+
+                // Decompose for rotation (ignore scale for normals/tangents)
+                aiQuaternion presentRotation;
+                aiVector3D scale, position;
+                MeshGlobal.Decompose(scale, presentRotation, position);
+
+                //
+                // Copy Vertices
+                //
+                MyNodes[iMesh].m_Vertices.resize(AssimpMesh.mNumVertices);
+                for (auto i = 0u; i < AssimpMesh.mNumVertices; ++i)
+                {
+                    import3d::vertex&   Vertex  = MyNodes[iMesh].m_Vertices[i];
+                    auto                L       = AssimpMesh.mVertices[i];
+
+                    L = MeshGlobal * L;
+
+                    Vertex.m_Position = xmath::fvec3d
+                    ( static_cast<float>(L.x)
+                    , static_cast<float>(L.y)
+                    , static_cast<float>(L.z)
+                    );
+
+                    if (iTexCordinates == -1)
+                    {
+                        Vertex.m_UV.setup(0, 0);
+                    }
+                    else
+                    {
+                        Vertex.m_UV.setup(static_cast<float>(AssimpMesh.mTextureCoords[iTexCordinates][i].x)
+                                        , static_cast<float>(AssimpMesh.mTextureCoords[iTexCordinates][i].y));
+                    }
+
+                    if (AssimpMesh.HasTangentsAndBitangents())
+                    {
+                        assert(AssimpMesh.HasNormals());
+
+                        const auto T = presentRotation.Rotate(AssimpMesh.mTangents[i]);
+                        const auto B = presentRotation.Rotate(AssimpMesh.mBitangents[i]);
+                        const auto N = presentRotation.Rotate(AssimpMesh.mNormals[i]);
+                        Vertex.m_Normal.setup(N.x, N.y, N.z);
+                        Vertex.m_Tangent.setup(T.x, T.y, T.z);
+                        Vertex.m_Bitangent.setup(B.x, B.y, B.z);
+                        Vertex.m_Normal.NormalizeSafe();
+                        Vertex.m_Tangent.NormalizeSafe();
+                        Vertex.m_Bitangent.NormalizeSafe();
+                    }
+                    else
+                    {
+                        const auto N = presentRotation.Rotate(AssimpMesh.mNormals[i]);
+
+                        Vertex.m_Normal.setup(N.x, N.y, N.z);
+                        Vertex.m_Tangent.setup(1, 0, 0);
+                        Vertex.m_Bitangent.setup(1, 0, 0);
+                        Vertex.m_Normal.NormalizeSafe();
+                    }
+
+                    // Mark the weights as uninitialized we will be setting them later
+                    Vertex.m_BoneIndex.m_R   = Vertex.m_BoneIndex.m_G   = Vertex.m_BoneIndex.m_B   = Vertex.m_BoneIndex.m_A   = 0;
+                    Vertex.m_BoneWeights.m_R = Vertex.m_BoneWeights.m_G = Vertex.m_BoneWeights.m_B = Vertex.m_BoneWeights.m_A = 0;
+                }
+
+                //
+                // Copy the indices
+                //
+                for (auto i = 0u; i < AssimpMesh.mNumFaces; ++i)
+                {
+                    const auto& Face = AssimpMesh.mFaces[i];
+                    for (auto j = 0u; j < Face.mNumIndices; ++j)
+                        MyNodes[iMesh].m_Indices.push_back(Face.mIndices[j]);
+                }
+
+                //
+                // Add the bone weights
+                //
+                if (AssimpMesh.mNumBones > 0)
+                {
+                    struct tmp_weight
+                    {
+                        std::uint8_t    m_iBone;
+                        float           m_Weight{ 0 };
+                    };
+                    struct my_weights
+                    {
+                        int                         m_Count{ 0 };
+                        std::array<tmp_weight, 4>   m_Weights;
+                    };
+
+                    std::vector<my_weights> MyWeights;
+                    MyWeights.resize(AssimpMesh.mNumVertices);
+
+                    //
+                    // Collect bones indices and weights
+                    //
+                    assert(m_MeshReferences[iMesh].m_Nodes.size() == 1);
+                    MyNodes[iMesh].m_MeshName = GetMeshNameFromNode(*m_MeshReferences[iMesh].m_Nodes[0]);
+                    for (auto iBone = 0u; iBone < AssimpMesh.mNumBones; iBone++)
+                    {
+                        const auto&         AssimpBone      = *AssimpMesh.mBones[iBone];
+                        const std::uint8_t  iSkeletonBone   = m_pSkeleton->findBone(AssimpBone.mName.C_Str());
+
+                        assert(m_pSkeleton->findBone(AssimpBone.mName.C_Str()) != -1);
+
+                        for (auto iWeight = 0u; iWeight < AssimpBone.mNumWeights; ++iWeight)
+                        {
+                            const auto& AssimpWeight    = AssimpBone.mWeights[iWeight];
+                            auto& MyWeight              = MyWeights[AssimpWeight.mVertexId];
+
+                            MyWeight.m_Weights[MyWeight.m_Count].m_iBone = iSkeletonBone;
+                            MyWeight.m_Weights[MyWeight.m_Count].m_Weight = AssimpWeight.mWeight;
+
+                            // get ready for the next one
+                            MyWeight.m_Count++;
+                        }
+                    }
+
+                    //
+                    // Sort weights, normalize and set to the final vert
+                    //
+                    for (int iVertex = 0u; iVertex < MyWeights.size(); ++iVertex)
+                    {
+                        auto& E = MyWeights[iVertex];
+
+                        // Sort from bigger to smaller
+                        std::sort(E.m_Weights.begin(), E.m_Weights.begin() + E.m_Count, [](const tmp_weight& a, const tmp_weight& b) 
+                        {
+                            return a.m_Weight > b.m_Weight;
+                        });
+
+                        // Normalize the weights
+                        float Total = 0;
+                        for (int i = 0; i < E.m_Count; ++i)
+                        {
+                            Total += E.m_Weights[i].m_Weight;
+                        }
+
+                        if (Total > 0)
+                        {
+                            for (int i = 0; i < E.m_Count; ++i)
+                            {
+                                E.m_Weights[i].m_Weight /= Total;
+                            }
+                        }
+
+                        // Copy Weight To the Vert
+                        auto& V = MyNodes[iMesh].m_Vertices[iVertex];
+                        for (int i = 0; i < E.m_Count && i < 4; ++i)
+                        {
+                            const auto& BW = E.m_Weights[i];
+                            switch (i)
+                            {
+                            case 0: V.m_BoneIndex.m_R   = static_cast<std::uint8_t>(BW.m_iBone);
+                                    V.m_BoneWeights.m_R = static_cast<std::uint8_t>(BW.m_Weight * 0xff);
+                                    break;
+                            case 1: V.m_BoneIndex.m_G   = static_cast<std::uint8_t>(BW.m_iBone);
+                                    V.m_BoneWeights.m_G = static_cast<std::uint8_t>(BW.m_Weight * 0xff);
+                                    break;
+                            case 2: V.m_BoneIndex.m_B   = static_cast<std::uint8_t>(BW.m_iBone);
+                                    V.m_BoneWeights.m_B = static_cast<std::uint8_t>(BW.m_Weight * 0xff);
+                                    break;
+                            case 3: V.m_BoneIndex.m_A   = static_cast<std::uint8_t>(BW.m_iBone);
+                                    V.m_BoneWeights.m_A = static_cast<std::uint8_t>(BW.m_Weight * 0xff);
+                                    break;
+                            }
+                        }
+                    }
+                    //
+                    // Sanity check (make sure that all the vertices have bone and weights
+                    //
+                    for (auto& V : MyNodes[iMesh].m_Vertices)
+                    {
+                        assert(V.m_BoneWeights.m_R > 0);
+                    }
+                }
+                else
+                {
+                    //
+                    // Set the weights and duplicate mesh if needed
+                    //
+
+                    // Remember where was the base
+                    int iBase = static_cast<int>(MyNodes.size());
+
+                    // Grow the total number of meshes if we have to...
+                    if (m_MeshReferences[iMesh].m_Nodes.size() > 1) MyNodes.resize(MyNodes.size() + m_MeshReferences[iMesh].m_Nodes.size() - 1);
+
+                    auto pMyNode = &MyNodes[iMesh];
+
+                    for( auto k = 0u; k < m_MeshReferences[iMesh].m_Nodes.size(); ++k )
+                    {
+                        const auto pN = m_MeshReferences[iMesh].m_Nodes[k];
+
+                        pMyNode->m_MeshName = GetMeshNameFromNode(*pN);
+
+                        const std::uint8_t iSkeletonBone = m_pSkeleton->findBone(pN->mName.C_Str());
+                        for (auto iVertex = 0u; iVertex < AssimpMesh.mNumVertices; ++iVertex)
+                        {
+                            auto& V = pMyNode->m_Vertices[iVertex];
+
+                            V.m_BoneIndex.m_R   = iSkeletonBone;
+                            V.m_BoneWeights.m_R = 0xff;
+                        }
+
+                        if (k + 1 < m_MeshReferences[iMesh].m_Nodes.size())
+                        {
+                             pMyNode = &MyNodes[iBase++];
+                            *pMyNode = MyNodes[iMesh]; // Deep copy
+                        }
+                    }
                 }
             }
         }
