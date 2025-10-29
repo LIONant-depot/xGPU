@@ -501,11 +501,11 @@ int E16_Example()
         if( Importer.Import( 
         // L"./../../dependencies/Assets/Animated/ImperialWalker/source/AT-AT.fbx"
          L"./../../dependencies/Assets/Animated/catwalk/scene.gltf"
-        // L"./../../dependencies/Assets/Animated/supersoldier/source/Idle.fbx"
-        // L"./../../dependencies/Assets/Animated/Sonic/source/chr_classicsonic.fbx"
-        // L"./../../dependencies/Assets/Animated/Starwars/source/Catwalk Walk Forward.fbx" 
-        // L"./../../dependencies/Assets/Animated/walking-while-listening/source/Walking.fbx"
-        // L"./../../bin/huesitos.fbx"
+       //  L"./../../dependencies/Assets/Animated/supersoldier/source/Idle.fbx"
+       //  L"./../../dependencies/Assets/Animated/Sonic/source/chr_classicsonic.fbx"
+       //  L"./../../dependencies/Assets/Animated/Starwars/source/Catwalk Walk Forward.fbx" 
+       //  L"./../../dependencies/Assets/Animated/walking-while-listening/source/Walking.fbx"
+       //  L"./../../bin/huesitos.fbx"
         , &AnimCharacter.m_SkinGeom
         , &AnimCharacter.m_Skeleton
         , &AnimCharacter.m_AnimPackage
@@ -526,18 +526,34 @@ int E16_Example()
     //
     xmath::fbbox MeshBBox;
     MeshBBox.setupIdentity();
-    for( auto& M : AnimCharacter.m_SkinGeom.m_Mesh )
-    for (auto& S : M.m_Submeshes)
-    for (auto& V : S.m_Vertices)
+    for (auto& M : AnimCharacter.m_SkinGeom.m_Mesh) 
+    for (auto& S : M.m_Submeshes) 
+    for (auto& V : S.m_Vertices) 
     {
-        auto p = AnimCharacter.m_Skeleton.m_Bones[V.m_BoneIndex.m_A].m_NeutalPose * V.m_Position;
-        MeshBBox.AddVerts( {&p, 1} );
+        std::array<float, 4> weights = {
+            V.m_BoneWeights.m_R / 255.f,
+            V.m_BoneWeights.m_G / 255.f,
+            V.m_BoneWeights.m_B / 255.f,
+            V.m_BoneWeights.m_A / 255.f
+        };
+        std::array<int, 4> indices = {
+            V.m_BoneIndex.m_R,
+            V.m_BoneIndex.m_G,
+            V.m_BoneIndex.m_B,
+            V.m_BoneIndex.m_A
+        };
+
+        xmath::fvec3 skinned(0, 0, 0);
+        for (int k = 0; k < 4; ++k)
+            skinned += weights[k] * (AnimCharacter.m_Skeleton.m_Bones[indices[k]].m_NeutralPose * V.m_Position);
+        
+        MeshBBox.AddVerts({ &skinned, 1 });
     }
 
     //
     // Mesh Scale
     //
-    const float MeshScale = 1.5f / MeshBBox.getSize().m_Y;
+    const float MeshScale = 1.5f / (MeshBBox.getRadius()*2);
 
     //
     // Get Average Bone Length
@@ -661,7 +677,7 @@ int E16_Example()
             }
 
             // Render bind skeleton
-            const bool xxx = (AnimCharacter.m_Skeleton.m_Bones[0].m_NeutalPose * AnimCharacter.m_Skeleton.m_Bones[0].m_InvBind.Inverse()).isIdentity();
+            const bool xxx = AnimCharacter.m_Skeleton.m_Bones[0].m_NeutralPose.isIdentity();
             if (xxx)
             {
                 for (const auto& B : AnimCharacter.m_Skeleton.m_Bones)
@@ -681,7 +697,7 @@ int E16_Example()
                 for (const auto& B : AnimCharacter.m_Skeleton.m_Bones)
                 {
                     auto BInv = B.m_InvBind;
-                    auto M = B.m_NeutalPose * BInv.Inverse();
+                    auto M = B.m_NeutralPose * BInv.Inverse();
                     M.PreScale(ScaleBones);
                     M.Scale(MeshScale);
                     M.Translate({ -2,-1.0f, -2 });
@@ -694,7 +710,7 @@ int E16_Example()
             for (const auto& B : AnimCharacter.m_Skeleton.m_Bones)
             {
                 auto BInv = B.m_InvBind;
-                auto M    = B.m_NeutalPose * BInv.Inverse();
+                auto M    = B.m_NeutralPose * BInv.Inverse();
                 M.PreScale(ScaleBones);
                 M.Scale(MeshScale);
                 M.Translate({ 2,-1.0f, -2 });
@@ -710,7 +726,7 @@ int E16_Example()
                 UBO.m_W2C.PreScale(MeshScale);
                 for( auto i=0u;i< FinalL2W.size(); ++i )
                 {
-                    UBO.m_L2W[i] = AnimCharacter.m_Skeleton.m_Bones[i].m_NeutalPose;
+                    UBO.m_L2W[i] = AnimCharacter.m_Skeleton.m_Bones[i].m_NeutralPose;
                 }
             });
 
@@ -734,7 +750,7 @@ int E16_Example()
                     UBO.m_W2C.PreScale(MeshScale);
                     for( auto i=0u;i< FinalL2W.size(); ++i )
                     {
-                        UBO.m_L2W[i] = AnimCharacter.m_Skeleton.m_Bones[i].m_NeutalPose;
+                        UBO.m_L2W[i] = AnimCharacter.m_Skeleton.m_Bones[i].m_NeutralPose;
                     }
                 });
             }
