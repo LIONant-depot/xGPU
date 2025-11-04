@@ -65,6 +65,19 @@ if(result)
   message(FATAL_ERROR "Failed to create symlink: ${result}")
 endif()
 
+#
+# Create a worm hole to unify all the dependencies
+#
+file(CREATE_LINK
+  "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/plugins"
+  "${CMAKE_SOURCE_DIR}/plugins"
+  SYMBOLIC
+  RESULT result
+)
+if(result)
+  message(FATAL_ERROR "Failed to create symlink: ${result}")
+endif()
+
 
 #
 # Get all the dependencies
@@ -125,7 +138,7 @@ DefineInterfaceComponent(imgui-node-editor "dependencies"
 # Define source and destination paths
 set(ASSIMP_DEST "${CMAKE_CURRENT_SOURCE_DIR}/Build/xGPUExamples.vs2022")
 if(NOT EXISTS "${ASSIMP_DEST}/assimp-vc143-mt.dll")
-    set(ASSIMP_SRC "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/Plugins/xgeom.plugin/dependencies/assimp/BINARIES/Win32/bin/Release/assimp-vc143-mt.dll")
+    set(ASSIMP_SRC "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/Plugins/xgeom_static.plugin/dependencies/assimp/BINARIES/Win32/bin/Release/assimp-vc143-mt.dll")
 
     # Copy the DLL file
     message(STATUS "Copying assimp-vc143-mt.dll...")
@@ -202,6 +215,8 @@ set(FRAG_SHADER_SOURCES
   "source/Examples/E15_Shadowmap/E15_ShadowmapGeneration_frag.glsl"
   "source/Examples/E15_Shadowmap/E15_ShadowmapLighting_frag.glsl"
   "source/Examples/E17_FullSkin/E17_skingeom_frag.glsl"
+  "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_frag.glsl"
+  "source/Examples/E21_StaticGeomEditor/GridShader_frag.glsl"
   )
 
 # List vertex shader sources 
@@ -221,6 +236,8 @@ set(VERT_SHADER_SOURCES
   "source/Examples/E16_Animation/E16_skingeom_vert.glsl"
   "source/Examples/E17_FullSkin/E17_skingeom_vert.glsl"
   "source/Examples/E18_QuantizeSkinVertex/E18_quantize_skingeom_vert.glsl"
+  "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_vert.glsl"
+  "source/Examples/E21_StaticGeomEditor/GridShader_vert.glsl"
   )
 
 # Generate headers
@@ -333,10 +350,10 @@ add_executable(${TARGET_PROJECT}
 source_group("Shaders" FILES ${SHADER_SOURCES} ${GENERATED_HEADERS} )
 
 # Add support for assimp paths...
-include_directories(${TARGET_PROJECT} PRIVATE "example.lionprj/Cache/Plugins/xgeom.plugin/dependencies/assimp/include"
-                                              "example.lionprj/Cache/Plugins/xgeom.plugin/dependencies/assimp/BINARIES/Win32/include"
+include_directories(${TARGET_PROJECT} PRIVATE "example.lionprj/Cache/Plugins/xgeom_static.plugin/dependencies/assimp/include"
+                                              "example.lionprj/Cache/Plugins/xgeom_static.plugin/dependencies/assimp/BINARIES/Win32/include"
                                               "example.lionprj/Cache") 
-target_link_directories(${TARGET_PROJECT} PRIVATE "example.lionprj/Cache/Plugins/xgeom.plugin")
+target_link_directories(${TARGET_PROJECT} PRIVATE "example.lionprj/Cache/Plugins/xgeom_static.plugin")
 
 
 source_group("Tools" FILES
@@ -393,8 +410,8 @@ source_group("Examples/E07_PrimitiveGeoms" FILES
    "source/Examples/E07_PrimitiveGeoms/E07_PrimitiveGeoms.cpp"
 )
 
-# Include the xgeom.plugin so it works
-include_directories( "${CMAKE_SOURCE_DIR}/dependencies/example.lionprj/Cache/Plugins/xgeom.plugin" )
+# Include the xgeom_static.plugin so it works
+include_directories( "${CMAKE_SOURCE_DIR}/dependencies/example.lionprj/Cache/Plugins/xgeom_static.plugin" )
 
 source_group("Examples/E08_AsyncTextureLoading" FILES
    "source/Examples/E08_AsyncTextureLoading/E08_AsyncTextureLoading.cpp"
@@ -554,6 +571,18 @@ source_group("Examples/E20_MaterialInstanceEditor" FILES
 
 source_group("Examples/E21_StaticGeomEditor" FILES
    "source/Examples/E21_StaticGeomEditor/E21_StaticGeom_Editor.cpp"
+)
+
+source_group("Examples/E21_StaticGeomEditor/Shaders" FILES
+  "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_vert.glsl"
+  "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_frag.glsl"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/GeomStaticBasicShader_vert.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/GeomStaticBasicShader_frag.h"
+  "source/Examples/E21_StaticGeomEditor/GridShader_frag.glsl"
+  "source/Examples/E21_StaticGeomEditor/GridShader_vert.glsl"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/GridShader_vert.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/GridShader_frag.h"
+
 )
 
 

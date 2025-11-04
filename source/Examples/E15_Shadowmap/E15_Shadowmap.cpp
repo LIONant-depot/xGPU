@@ -150,7 +150,7 @@ int E15_Example()
     {
         xgpu::shader MyFragmentShader;
         {
-            const std::uint32_t RawDataArray[] = {
+            static const std::uint32_t RawDataArray[] = {
                 #include "E15_ShadowmapLighting_frag.h" 
             };
             auto RawData = xgpu::shader::setup::raw_data
@@ -197,7 +197,7 @@ int E15_Example()
                 return xgpu::getErrorInt(Err);
         }
 
-        auto UBuffersUsage  = std::array{ xgpu::shader::type{xgpu::shader::type::bit::VERTEX} };
+        auto UBuffersUsage  = std::array{ xgpu::shader::type{xgpu::shader::type::bit::VERTEX }};
         auto Shaders        = std::array<const xgpu::shader*,2>{ &MyVertexShader, &MyFragmentShader };
         auto Samplers       = std::array
         {   xgpu::pipeline::sampler

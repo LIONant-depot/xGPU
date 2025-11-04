@@ -457,7 +457,7 @@ struct e18::quantized_skin_render
                     return xgpu::getErrorInt(Err);
             }
 
-            auto UBuffersUsage = std::array{ xgpu::shader::type{xgpu::shader::type::bit::VERTEX} };
+            auto UBuffersUsage = std::array{ xgpu::shader::type{xgpu::shader::type::bit::VERTEX } };
             auto Shaders       = std::array<const xgpu::shader*, 2>{ &MyFragmentShader, &MyVertexShader };
             auto Samplers      = std::array
                                 { xgpu::pipeline::sampler{} // [INPUT_TEXTURE_NORMAL]

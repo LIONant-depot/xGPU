@@ -137,32 +137,7 @@ namespace e10
 #include "E10_asset_browser_virtual_tree_tab.h"
 #include "E10_asset_browser_compiler_tab.h"
 #include "E10_asset_browser_search_tab.h"
-
-//------------------------------------------------------------------------------------------------
-// Give properties for xmath::fvec2 and xmath::fvec3
-//------------------------------------------------------------------------------------------------
-struct vec2_friend : xmath::fvec2
-{
-    XPROPERTY_DEF
-    ("vector2", xmath::fvec2, xproperty::settings::vector2_group
-    , obj_member<"X", &xmath::fvec2::m_X >
-    , obj_member<"Y", &xmath::fvec2::m_Y >
-    )
-};
-XPROPERTY_REG(vec2_friend)
-
-//------------------------------------------------------------------------------------------------
-
-struct vec3_friend : xmath::fvec3
-{
-    XPROPERTY_DEF
-    ("vector3", xmath::fvec3, xproperty::settings::vector3_group
-    , obj_member<"X", &xmath::fvec3::m_X >
-    , obj_member<"Y", &xmath::fvec3::m_Y >
-    , obj_member<"Z", &xmath::fvec3::m_Z >
-    )
-};
-XPROPERTY_REG(vec3_friend)
+#include "dependencies/xmath/source/bridge/xmath_to_xproperty.h"
 
 //------------------------------------------------------------------------------------------------
 
