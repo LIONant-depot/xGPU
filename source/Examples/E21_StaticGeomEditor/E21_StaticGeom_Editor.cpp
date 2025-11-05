@@ -1507,7 +1507,7 @@ int E21_Example()
 
                 push_constants3D PushConst;
 
-                PushConst.m_L2w = xmath::fmat4::fromTranslation(-View.getPosition());
+                PushConst.m_L2w = xmath::fmat4::fromTranslation(-View.getPosition()) * xmath::fmat4::fromTranslation({0, 0, 0});
                 PushConst.m_w2C = View.getW2C() * xmath::fmat4::fromTranslation(View.getPosition());
 
                 // Set pipeline and push constants
@@ -1538,10 +1538,9 @@ int E21_Example()
                     CmdBufferRef.setPipelineInstance(Grid3dMaterialInstance);
                     grid_push_constants Push;
 
-                    Push.m_L2W                  = xmath::fmat4( xmath::fvec3(1000.f, 1000.0f, 1.f), xmath::radian3( -90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, maxY,0));
-                    Push.m_W2C                  = View.getW2C();
                     Push.m_WorldSpaceCameraPos  = View.getPosition();
-
+                    Push.m_L2W                  = xmath::fmat4( xmath::fvec3(1000.f, 1000.0f, 1.f), xmath::radian3( -90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(Push.m_WorldSpaceCameraPos.m_X, maxY, Push.m_WorldSpaceCameraPos.m_Y));
+                    Push.m_W2C                  = View.getW2C();
                     CmdBufferRef.setPushConstants(Push);
                     MeshManager.Rendering(CmdBufferRef, e19::mesh_manager::model::PLANE3D);
                 }
