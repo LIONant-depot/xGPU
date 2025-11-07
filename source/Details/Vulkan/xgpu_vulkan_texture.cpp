@@ -9,9 +9,6 @@ namespace xgpu::vulkan
     //---------------------------------------------------------------------------------------
     texture::~texture(void) noexcept
     {
-
-        printf("Deleted texture %p\n", this);
-
         if (m_VKView)         vkDestroyImageView    (m_Device->m_VKDevice, m_VKView, m_Device->m_Instance->m_pVKAllocator);
         if (m_VKImage)        vkDestroyImage        (m_Device->m_VKDevice, m_VKImage, m_Device->m_Instance->m_pVKAllocator);
         if (m_VKDeviceMemory) vkFreeMemory          (m_Device->m_VKDevice, m_VKDeviceMemory, m_Device->m_Instance->m_pVKAllocator );
