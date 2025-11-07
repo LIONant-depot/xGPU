@@ -265,6 +265,7 @@ int E22_Example()
     xmath::fvec3 EyePosition = { 0, 1, 2 };
     bool bShouldResizeFramebuffer = true;
     bool bSpin = false;
+    float SpinSpeed = 0;
     std::chrono::high_resolution_clock::time_point Now = std::chrono::high_resolution_clock::now();
     float DeltaTime = 0;
     //
@@ -281,7 +282,7 @@ int E22_Example()
 
         if (bSpin)
         {
-            angle = angle + xmath::radian(1.25f * DeltaTime);
+            angle = angle + xmath::radian(SpinSpeed * DeltaTime);
             EyePosition = xmath::fvec3( xmath::Cos(angle), 0.5, xmath::Sin(angle) ) * 2.f;
         }
 
@@ -319,10 +320,11 @@ int E22_Example()
 
             ImGui::Begin("Controls");
             {
-                if(ImGui::Button(bSpin ? "Stop Spinning" : "Spin"))
+                if(ImGui::Button(bSpin ? "Stop" : "Spin"))
                 {
                     bSpin = !bSpin;
                 }
+                ImGui::SliderFloat("Spin Speed (rad/s)", &SpinSpeed, -3.60f, 3.60f);
             }
             ImGui::End();
             //
