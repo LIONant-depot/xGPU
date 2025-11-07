@@ -10,7 +10,7 @@
 namespace e19 
 {
     // -------- Helpers Functions--------
-    inline bool IsPinCompatible(const xmaterial_compiler::pin& outPin, const xmaterial_compiler::pin& inPin, const xmaterial_compiler::graph& g)
+    inline bool IsPinCompatible(const xmaterial_graph::pin& outPin, const xmaterial_graph::pin& inPin, const xmaterial_graph::graph& g)
     {
         if(g.FindNodeByPin(inPin.m_PinGUID) == g.FindNodeByPin(outPin.m_PinGUID)) return false;
 
@@ -23,20 +23,20 @@ namespace e19
     }
 
     //---check if a pin is connected---
-    bool IsPinConnected(const xmaterial_compiler::pin_guid& pinId, const xmaterial_compiler::graph& g);
+    bool IsPinConnected(const xmaterial_graph::pin_guid& pinId, const xmaterial_graph::graph& g);
 }
 
 //UI related
 namespace e19
 {
-    inline ImColor ToImColor(const xmaterial_compiler::ColorRGBA& c)
+    inline ImColor ToImColor(const xmaterial_graph::ColorRGBA& c)
     {
         return ImColor(c.r, c.g, c.b, c.a);
     }
 
     //color of the pin icon
-    ImColor GetIconColor(const xmaterial_compiler::type_guid& type, const xmaterial_compiler::graph& g);
+    ImColor GetIconColor(const xmaterial_graph::type_guid& type, const xmaterial_graph::graph& g);
 
     // --- draw a pin circle (hollow/filled) ---
-    void DrawPinCircle(const xmaterial_compiler::type_guid& type, const xmaterial_compiler::pin_guid& pinId, const xmaterial_compiler::graph& g, ImVec2 size = ImVec2{ 10,10 });
+    void DrawPinCircle(const xmaterial_graph::type_guid& type, const xmaterial_graph::pin_guid& pinId, const xmaterial_graph::graph& g, ImVec2 size = ImVec2{ 10,10 });
 }
