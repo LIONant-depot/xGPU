@@ -87,7 +87,7 @@ namespace e19
     }
 }
 
-void NodeFillColor(xmaterial_compiler::node& n, ImVec2 pos, ImVec2 size, ImU32 color, float rounding = 0, ImDrawFlags flags = ImDrawFlags_None, bool borderonly = false, ImU32 borderColor = IM_COL32(200,200,200,200))
+void NodeFillColor(xmaterial_graph::node& n, ImVec2 pos, ImVec2 size, ImU32 color, float rounding = 0, ImDrawFlags flags = ImDrawFlags_None, bool borderonly = false, ImU32 borderColor = IM_COL32(200,200,200,200))
 {
     auto drawList = ed::GetNodeBackgroundDrawList(n.m_Guid.m_Value);
 
@@ -100,7 +100,7 @@ void NodeFillColor(xmaterial_compiler::node& n, ImVec2 pos, ImVec2 size, ImU32 c
     
 }
 
-ImColor e19::GetIconColor(const xmaterial_compiler::type_guid& type, const xmaterial_compiler::graph& g)
+ImColor e19::GetIconColor(const xmaterial_graph::type_guid& type, const xmaterial_graph::graph& g)
 {
     const auto* t = g.GetType(type);
     if (!t) return ImColor(255, 255, 255); // fallback white
@@ -108,7 +108,7 @@ ImColor e19::GetIconColor(const xmaterial_compiler::type_guid& type, const xmate
     return ToImColor(t->m_Color);
 }
 
-void e19::DrawPinCircle(const xmaterial_compiler::type_guid& type, const xmaterial_compiler::pin_guid& pinId, const xmaterial_compiler::graph& g, ImVec2 size)
+void e19::DrawPinCircle(const xmaterial_graph::type_guid& type, const xmaterial_graph::pin_guid& pinId, const xmaterial_graph::graph& g, ImVec2 size)
 {
     const bool    connected   = IsPinConnected(pinId, g);
     const ImColor iconColor   = GetIconColor(type, g);
@@ -124,7 +124,7 @@ void e19::DrawPinCircle(const xmaterial_compiler::type_guid& type, const xmateri
     ImGui::Dummy(size); 
 }
 
-bool e19::IsPinConnected(const xmaterial_compiler::pin_guid& pinId, const xmaterial_compiler::graph& g)
+bool e19::IsPinConnected(const xmaterial_graph::pin_guid& pinId, const xmaterial_graph::graph& g)
 {
     for (auto& [cid, conn] : g.m_Connections)
     {
@@ -135,9 +135,22 @@ bool e19::IsPinConnected(const xmaterial_compiler::pin_guid& pinId, const xmater
 }
 
 //draw ui
-void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
+void DrawGraphUI(xmaterial_graph::graph& g, ed::NodeId& lastSelectedNode)
 {
     ed::Begin("Material Graph Editor");
+
+    const auto borderoutlineClr = IM_COL32(40, 40, 40, 255);
+    ed::PushStyleVar(ed::StyleVar_NodeRounding, 3.5f);
+    ed::PushStyleColor(ed::StyleColor_NodeBorder, ImColor(borderoutlineClr));
+
+
+    ImVec2 size = ImGui::GetFont()->CalcTextSizeA(
+        ImGui::GetFontSize(),     // font size
+        FLT_MAX,                  // max width (no wrapping)
+        -1.0f,                    // wrap width
+        "A"                       // the character or string to measure
+    );
+    float characterWidth = size.x;
 
     // Draw nodes
     for (auto& [id, nPtr] : g.m_InstanceNodes)
@@ -149,82 +162,126 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
         {
             ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 0.75f);
             ed::PushStyleColor(ed::StyleColor_NodeBg, ImColor(255, 255, 255, 64));
-            ed::PushStyleColor(ed::StyleColor_NodeBorder, ImColor(255, 255, 255, 64));
         }
 
         ed::BeginNode(n.m_Guid.m_Value);
+
 
         // Draw node header
         ImGui::TextUnformatted(n.m_Name.c_str());
         ImGui::Dummy({ 0.f, 5.f }); //adding spacing between the header and content
 
+        const float LineWidth1 = [&]
+            {
+                if (n.m_OutputPins.empty())
+                {
+                    return std::max(n.m_Name.length(), n.m_MaxInputChars + 4ull) * characterWidth;
+                }
+                else
+                {
+                    return (n.m_MaxInputChars + 6ull) * characterWidth;
+                }
+            }();
+        const float LineWidth2 = [&]
+            {
+                if (n.m_InputPins.empty())
+                {
+                    return std::max(n.m_Name.length()-3ull, n.m_MaxOutputChars + 4ull) * characterWidth;
+                }
+                else
+                {
+                    auto L = (n.m_MaxOutputChars + 6ull) * characterWidth;
+                    auto s = n.m_Name.length() * characterWidth - LineWidth1;
+
+                    return  s > 0 ? (L - s + (0.5f * characterWidth)) : LineWidth1 > L ? L + (1 * characterWidth) : L - (2.5f* characterWidth);
+                }
+            }();
+
+
+
         if (n.isCommentNode())
         {
             ed::Group(ImVec2(n.m_Params[1].m_Value.get<float>(), n.m_Params[2].m_Value.get<float>()));
         }
-        ImGui::BeginGroup();
 
-        // INPUTS pins
-        for (auto& ip : n.m_InputPins)
+
+        if (n.m_InputPins.size())
         {
-            ed::BeginPin(ip.m_PinGUID.m_Value, ed::PinKind::Input);
-            ed::PinPivotAlignment(ImVec2(0.f, 0.5f));
-            e19::DrawPinCircle(ip.m_TypeGUID, ip.m_PinGUID, g);
+            ImGui::BeginGroup();
 
-            ImGui::SameLine();
-            ImGui::Text("%s",ip.m_Name.c_str());
-            
-            ed::EndPin();
-            ImGui::Dummy({ 0.f, 1.f });
+            // INPUTS pins
+            for (auto& ip : n.m_InputPins)
+            {
+                ed::BeginPin(ip.m_PinGUID.m_Value, ed::PinKind::Input);
+                ed::PinPivotAlignment(ImVec2(0.f, 0.5f));
+                e19::DrawPinCircle(ip.m_TypeGUID, ip.m_PinGUID, g);
+
+                ImGui::SameLine();
+                ImGui::Text("%s",ip.m_Name.c_str());
+                
+                ed::EndPin();
+                ImGui::Dummy({ 0.f, 1.f });
+            }
+
+            ImGui::EndGroup();
         }
 
-        ImGui::EndGroup();
-        if (n.m_Name == "Sampler2D")
-            ImGui::SameLine(100);
-        else
-            ImGui::SameLine(70);
-        ImGui::BeginGroup();
-
-        // OUTPUTS
-        for (auto& op : n.m_OutputPins)
+        if (n.m_OutputPins.size())
         {
-            ed::BeginPin(op.m_PinGUID.m_Value, ed::PinKind::Output);
-
-            ImGui::TextUnformatted(op.m_Name.c_str());
-            if (op.m_Name == "Texture(2D)")
-                ImGui::SameLine(78);
-            else
-                ImGui::SameLine(40);
-
-            ed::PinPivotAlignment(ImVec2(1.f, 0.5f));
-            e19::DrawPinCircle(op.m_TypeGUID, op.m_PinGUID, g);
-
-            ed::EndPin();
-            ImGui::Dummy({ 0.f, 1.f });
-
-            if (!op.m_SubElements.empty())
+            if (!n.m_InputPins.empty())
             {
-                for (auto& sub : op.m_SubElements)
-                {
-                    ed::BeginPin(sub.m_PinGUID.m_Value, ed::PinKind::Output);
-                    ImGui::TextUnformatted(sub.m_Name.c_str());
-                    ImGui::SameLine(40);
-                    
-                    ed::PinPivotAlignment(ImVec2(1.f, 0.5f));
-                    e19::DrawPinCircle(sub.m_TypeGUID, sub.m_PinGUID, g);
+                ImGui::SameLine(LineWidth2);
+            }
 
-                    ed::EndPin();
-                    ImGui::Dummy({ 0.f, 1.f });
+            ImGui::BeginGroup();
+
+            // OUTPUTS
+            for (auto& op : n.m_OutputPins)
+            {
+                ImVec2 screenPos = ImGui::GetCursorScreenPos();
+                ImGui::SetCursorScreenPos({ screenPos.x + LineWidth2 - (op.m_Name.length()) * characterWidth, screenPos.y });
+
+                ed::BeginPin(op.m_PinGUID.m_Value, ed::PinKind::Output);
+
+                ImGui::TextUnformatted(op.m_Name.c_str());
+
+                ImGui::SameLine();
+
+                ed::PinPivotAlignment(ImVec2(1.f, 0.5f));
+                e19::DrawPinCircle(op.m_TypeGUID, op.m_PinGUID, g);
+
+                ed::EndPin();
+                ImGui::Dummy({ 0.f, 1.f });
+
+                if (!op.m_SubElements.empty())
+                {
+                    for (auto& sub : op.m_SubElements)
+                    {
+                        ImVec2 screenPos = ImGui::GetCursorScreenPos();
+                        ImGui::SetCursorScreenPos({ screenPos.x + LineWidth2 - (sub.m_Name.length()) * characterWidth, screenPos.y });
+
+                        ed::BeginPin(sub.m_PinGUID.m_Value, ed::PinKind::Output);
+
+                        ImGui::TextUnformatted(sub.m_Name.c_str());
+
+                        ImGui::SameLine();
+
+                        ed::PinPivotAlignment(ImVec2(1.f, 0.5f));
+                        e19::DrawPinCircle(sub.m_TypeGUID, sub.m_PinGUID, g);
+
+                        ed::EndPin();
+                        ImGui::Dummy({ 0.f, 1.f });
+                    }
                 }
             }
+            ImGui::EndGroup();
         }
-        ImGui::EndGroup();
 
         ed::EndNode();
         if (n.isCommentNode())
         {
-            ed::PopStyleColor(2);
-            ImGui::PopStyleVar();
+            ed::PopStyleVar();
+            ed::PopStyleColor(1);
         }
         //for sampler node only with texture selection in the node
         
@@ -235,24 +292,41 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
         // design for node
         //
         const float nysize = 26.f;
-        const auto borderoutlineClr = IM_COL32(100, 100, 100, 255);
         {
             // add color to header
             auto nsize = ed::GetNodeSize(n.m_Guid.m_Value);
             if (n.isFunctionNode())
             {
-                NodeFillColor(n, ed::GetNodePosition(n.m_Guid.m_Value), { nsize.x , nysize + 1 },
-                    IM_COL32(64, 64, 64, 255), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersTop, true , borderoutlineClr);
+                bool bExpose = false;
+                for ( auto& E : n.m_Params )
+                {
+                    if (E.m_bExpose)
+                    {
+                        bExpose = true;
+                        break;
+                    }
+                }
+
+                if (bExpose)
+                {
+                    NodeFillColor(n, ed::GetNodePosition(n.m_Guid.m_Value), { nsize.x , nysize + 1 },
+                        IM_COL32(200, 200, 96, 128), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersTop, true, borderoutlineClr);
+                }
+                else
+                {
+                    NodeFillColor(n, ed::GetNodePosition(n.m_Guid.m_Value), { nsize.x , nysize + 1 },
+                        IM_COL32(100, 100, 100, 128), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersTop, true, borderoutlineClr);
+                }
             }
             else if(n.isInputNode())
             {
                 NodeFillColor(n, ed::GetNodePosition(n.m_Guid.m_Value), { nsize.x , nysize + 1 },
-                    IM_COL32(22, 128, 22, 255), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersTop, true , borderoutlineClr);
+                    IM_COL32(22, 128, 22, 128), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersTop, true , borderoutlineClr);
             }
             else if (n.isOutputNode())
             {
                 NodeFillColor(n, ed::GetNodePosition(n.m_Guid.m_Value), { nsize.x , nysize + 1 },
-                    IM_COL32(60, 60, 128, 255), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersTop, true , borderoutlineClr);
+                    IM_COL32(148, 48, 148, 128), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersTop, true , borderoutlineClr);
             }
             else if (n.isCommentNode())
             {
@@ -317,7 +391,6 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
                         hintFrameBounds.GetTL(),
                         hintFrameBounds.GetBR(),
                         IM_COL32(255, 255, 255, 128 * bgAlpha / 255), 4.0f);
-
                 }
                 ed::EndGroupHint();
             }
@@ -331,7 +404,7 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
                     auto nsize = ed::GetNodeSize(n.m_Guid.m_Value);
                     nposition.y += nysize;
                     NodeFillColor(n, { nposition.x, nposition.y }, { nsize.x , nsize.y - nysize },
-                        IM_COL32(64, 64, 64, 255), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersBottom, true, borderoutlineClr);
+                        IM_COL32(96, 96, 96, 128), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersBottom, true, borderoutlineClr);
                 }
                 else if (n.m_InputPins.empty())
                 {
@@ -339,17 +412,19 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
                     auto nsize = ed::GetNodeSize(n.m_Guid.m_Value);
                     nposition.y += nysize;
                     NodeFillColor(n, { nposition.x, nposition.y }, { nsize.x , nsize.y - nysize },
-                        IM_COL32(32, 32, 32, 255), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersBottom, true, borderoutlineClr);
+                        IM_COL32(32, 32, 32, 128), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersBottom, true, borderoutlineClr);
                 }
                 else if (n.isFunctionNode())
                 {
                     auto nposition = ed::GetNodePosition(n.m_Guid.m_Value);
                     auto nsize = ed::GetNodeSize(n.m_Guid.m_Value);
                     nposition.y += nysize;
-                    NodeFillColor(n, { nposition.x, nposition.y }, { (nsize.x / 2) + 1 , nsize.y - nysize },
-                        IM_COL32(64, 64, 64, 255), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersBottomLeft, true, borderoutlineClr);
-                    NodeFillColor(n, { nposition.x + (nsize.x / 2), nposition.y }, { nsize.x / 2 , nsize.y - nysize },
-                        IM_COL32(32, 32, 32, 255), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersBottomRight, true, borderoutlineClr);
+                    float End = LineWidth1 ;//std::max(LineWidth2, LineWidth1);
+
+                    NodeFillColor(n, { nposition.x, nposition.y }, { End + 1 , nsize.y - nysize },
+                        IM_COL32(96, 96, 96, 128), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersBottomLeft, true, borderoutlineClr);
+                    NodeFillColor(n, { nposition.x + End, nposition.y }, { nsize.x- End , nsize.y - nysize },
+                        IM_COL32(32, 32, 32, 128), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersBottomRight, true, borderoutlineClr);
                 }
             }
         }
@@ -386,13 +461,13 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
                     assert(type);
                     assert(n.m_Params.empty() == false);
 
-                    if (n.m_Params[ip.m_ParamIndex].m_Type == node_prop::type::FLOAT ||
-                        n.m_Params[ip.m_ParamIndex].m_Type == node_prop::type::INT )
+                    if (n.m_Params[ip.m_ParamIndex].m_Type == xmaterial_graph::node_param::type::FLOAT ||
+                        n.m_Params[ip.m_ParamIndex].m_Type == xmaterial_graph::node_param::type::INT )
                     {
                         auto& prop = n.m_Params[ip.m_ParamIndex];
                         
                         NodeFillColor(n, { widgetPos.x - 23.f ,widgetPos.y + 1.3f }, { 85,18 },
-                            IM_COL32(64, 64, 64, 255), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersNone, true, borderoutlineClr);
+                            IM_COL32(96, 96, 96, 200), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersNone, true, borderoutlineClr);
                         
                         float textHeight = ImGui::GetTextLineHeight();
                         float dragHeight = ImGui::GetFrameHeight(); 
@@ -411,12 +486,12 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
                         //somehow when using multiple same nodes drag float cause issue so the id make it more unique
                         std::string addons = std::to_string(n.m_Guid.m_Value);
 
-                        if (n.m_Params[ip.m_ParamIndex].m_Type == node_prop::type::FLOAT)
+                        if (n.m_Params[ip.m_ParamIndex].m_Type == xmaterial_graph::node_param::type::FLOAT)
                         {
                             float& value = prop.m_Value.get<float>();
                             ImGui::DragFloat(("##" + ip.m_Name + addons).c_str(), &value, 0.01f);
                         }
-                        else if (n.m_Params[ip.m_ParamIndex].m_Type == node_prop::type::INT)
+                        else if (n.m_Params[ip.m_ParamIndex].m_Type == xmaterial_graph::node_param::type::INT)
                         {
                             int& value = prop.m_Value.get<int>();
                             ImGui::DragInt(("##" + ip.m_Name + addons).c_str(), &value, 0.01f);
@@ -440,15 +515,20 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
                         draw_list->AddLine(ImVec2(center.x + rad, center.y), line_end, IM_COL32(64, 200, 64, 255), 2.0f);
 
                     }
-                    else if (n.m_Params[ip.m_ParamIndex].m_Type == node_prop::type::TEXTURE_RESOURCE)
+                    else if (n.m_Params[ip.m_ParamIndex].m_Type == xmaterial_graph::node_param::type::TEXTURE_RESOURCE
+                          || n.m_Params[ip.m_ParamIndex].m_Type == xmaterial_graph::node_param::type::FILE )
                     {
-                        NodeFillColor(n, { widgetPos.x - 23.f ,widgetPos.y + 1.3f }, { 85,18 },
-                            IM_COL32(64, 64, 64, 255), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersNone, true, borderoutlineClr);
+                        NodeFillColor(n, { widgetPos.x - 63.f ,widgetPos.y + 0.3f }, { 125,19 },
+                            IM_COL32(96, 96, 96, 255), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersNone, true, borderoutlineClr);
 
                         xproperty::settings::context Context;
 
                         // texturemgr.m_Names
-                        if (n.m_pCustomInput) n.m_pCustomInput(n, n.m_Params[ip.m_ParamIndex].m_Value.get<xresource::full_guid>(), e10::g_LibMgr, Context);
+                        if (n.m_pCustomInput)
+                        {
+                            n.m_pCustomInput(n, n.m_Params[ip.m_ParamIndex].m_Value, e10::g_LibMgr, Context);
+                            //n.m_pCustomInput(n, n.m_Params[ip.m_ParamIndex].m_Value.get<xresource::full_guid>(), e10::g_LibMgr, Context);
+                        }
 
                         auto* draw_list = ImGui::GetWindowDrawList();
                         //center of the circle
@@ -463,8 +543,11 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
             }
             offsetY += 21.f;
         }
-        
     }
+
+    ed::PopStyleVar();
+    ed::PopStyleColor(1);
+
 
     // Draw existing links
     for (auto& [cid, cPtr] : g.m_Connections)
@@ -485,7 +568,7 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
         bool highlight = false;
         if (lastSelectedNode.Get() != 0)
         {
-            xmaterial_compiler::node* selectedNode = g.m_InstanceNodes[xmaterial_compiler::node_guid{ lastSelectedNode.Get() }].get();
+            xmaterial_graph::node* selectedNode = g.m_InstanceNodes[xmaterial_graph::node_guid{ lastSelectedNode.Get() }].get();
             if (selectedNode &&
                 (selectedNode == g.FindNodeByPin(c.m_InputPinGuid) ||
                     selectedNode == g.FindNodeByPin(c.m_OutputPinGuid)))
@@ -510,22 +593,22 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
         if (ed::QueryNewLink(&a, &b))
         {
             // Determine which side is input/output
-            xmaterial_compiler::pin_guid A{ a.Get() };
-            xmaterial_compiler::pin_guid B{ b.Get() };
+            xmaterial_graph::pin_guid A{ a.Get() };
+            xmaterial_graph::pin_guid B{ b.Get() };
 
-            xmaterial_compiler::node* nA = g.FindNodeByPin(A);
-            xmaterial_compiler::node* nB = g.FindNodeByPin(B);
+            xmaterial_graph::node* nA = g.FindNodeByPin(A);
+            xmaterial_graph::node* nB = g.FindNodeByPin(B);
 
             bool aIsInput = false, bIsInput = false; 
             int idx = -1, sub = -1;
 
-            const xmaterial_compiler::pin* pA = nA ? g.FindPinConst(*nA, A, aIsInput, idx, sub) : nullptr;
-            const xmaterial_compiler::pin* pB = nB ? g.FindPinConst(*nB, B, bIsInput, idx, sub) : nullptr;
+            const xmaterial_graph::pin* pA = nA ? g.FindPinConst(*nA, A, aIsInput, idx, sub) : nullptr;
+            const xmaterial_graph::pin* pB = nB ? g.FindPinConst(*nB, B, bIsInput, idx, sub) : nullptr;
 
             // Normalize so have (outPin, inPin)
-            const xmaterial_compiler::pin* outP = nullptr;
-            const xmaterial_compiler::pin* inP = nullptr;
-            xmaterial_compiler::pin_guid outId{}, inId{};
+            const xmaterial_graph::pin* outP = nullptr;
+            const xmaterial_graph::pin* inP = nullptr;
+            xmaterial_graph::pin_guid outId{}, inId{};
 
             //handle output and input pins
             if (pA && pB)
@@ -553,8 +636,8 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
 
                 //check if input has already been connect by another link
                 //if yes replace it act same as unity or unreal
-                xmaterial_compiler::connection* existingConn = nullptr;
-                xmaterial_compiler::connection_guid existingConnId{};
+                xmaterial_graph::connection* existingConn = nullptr;
+                xmaterial_graph::connection_guid existingConnId{};
 
                 for (const auto& [connid, conn] : g.m_Connections)
                 {
@@ -609,7 +692,7 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
         {
             if (ed::AcceptDeletedItem())
             {
-                xmaterial_compiler::connection_guid cg{ lid.Get() };
+                xmaterial_graph::connection_guid cg{ lid.Get() };
                 g.RemoveConnection(cg);
             }
         }
@@ -639,7 +722,7 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
     ed::Suspend();
     if (ImGui::BeginPopup("Node Context Menu"))
     {
-        xmaterial_compiler::node_guid nodeGuidcontext{ nodecontext.Get() };
+        xmaterial_graph::node_guid nodeGuidcontext{ nodecontext.Get() };
         auto it = g.m_InstanceNodes.find(nodeGuidcontext);
 
         if (it != g.m_InstanceNodes.end())
@@ -652,7 +735,7 @@ void DrawGraphUI(xmaterial_compiler::graph& g, ed::NodeId& lastSelectedNode)
             if (ImGui::MenuItem("Delete Node"))
             {
                 //remove all connections linked to this deleting node
-                std::vector<xmaterial_compiler::connection_guid> ctoRemove;
+                std::vector<xmaterial_graph::connection_guid> ctoRemove;
                 for (auto& [cid, cptr] : g.m_Connections)
                 {
                     if (g.FindNodeByPin(cptr->m_InputPinGuid) == nodeinfo ||
@@ -760,7 +843,7 @@ struct selected_descriptor
     bool                                                        m_bErrors           = {};
 };
 
-void PipelineReload(const xmaterial_compiler::graph& g, xgpu::device& Device, xgpu::vertex_descriptor& vd, xgpu::pipeline& material, xgpu::pipeline_instance& materialInst, selected_descriptor& SelcDesc, xresource::mgr& Mgr )
+void PipelineReload(const xmaterial_graph::graph& g, xgpu::device& Device, xgpu::vertex_descriptor& vd, xgpu::pipeline& material, xgpu::pipeline_instance& materialInst, selected_descriptor& SelcDesc, xresource::mgr& Mgr )
 {
     //destroy old pipeline and pipeline instance
     //after compile a few time will cause error hence need to call destroy 
@@ -1297,7 +1380,7 @@ int E19_Example()
             szFileName[I] = 0;
             std::wcout << L"Found xGPU at: " << szFileName << L"\n";
 
-            TCHAR LIONantProject[] = L"\\bin_dependencies\\xresource_pipeline_example.lion_project";
+            TCHAR LIONantProject[] = L"\\example.lionprj";
             for (int i = 0; szFileName[I++] = LIONantProject[i]; ++i);
 
             std::wcout << "Project Path: " << szFileName << "\n";
@@ -1327,7 +1410,7 @@ int E19_Example()
     xgpu::pipeline              material                = {};
     xgpu::pipeline_instance     material_instance       = {};
     xgpu::texture               defaulttexture          = {};
-    xmaterial_compiler::graph   g                       = {};
+    xmaterial_graph::graph   g                       = {};
 
     MeshManager.Init(Device);
 
@@ -1423,6 +1506,7 @@ int E19_Example()
         ImGui::PopStyleVar();
     }>();
 
+
     //
     // Main Loop
     //
@@ -1430,6 +1514,7 @@ int E19_Example()
     {
         if (xgpu::tools::imgui::BeginRendering(true)) continue;
         ed::SetCurrentEditor(g_pEditor);
+
         ImGui::Begin("Material Graph");
         DrawGraphUI(g, LastSelectedNode );
 
@@ -1807,11 +1892,11 @@ int E19_Example()
             Inspector.clear();
             Inspector.AppendEntity();
             
-            auto& Entry = *g.m_InstanceNodes[xmaterial_compiler::node_guid{ LastSelectedNode.Get() }];
+            auto& Entry = *g.m_InstanceNodes[xmaterial_graph::node_guid{ LastSelectedNode.Get() }];
             
             Inspector.AppendEntityComponent(*xproperty::getObject(Entry), &Entry);
         }
-        else if(g.m_InstanceNodes.find(xmaterial_compiler::node_guid{ LastSelectedNode.Get() }) == g.m_InstanceNodes.end())
+        else if(g.m_InstanceNodes.find(xmaterial_graph::node_guid{ LastSelectedNode.Get() }) == g.m_InstanceNodes.end())
         {
             Inspector.clear();
         }

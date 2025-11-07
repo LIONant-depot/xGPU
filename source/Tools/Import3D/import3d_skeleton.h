@@ -6,7 +6,7 @@ namespace import3d
         {
             std::string     m_Name;               // Bone name used for debugging
             xmath::fmat4    m_InvBind;            // Skin/Bind Pose to Local Space of the bone
-            xmath::fmat4    m_NeutalPose;         // The neutral pose given by the Nodes
+            xmath::fmat4    m_NeutralPose;        // The neutral pose given by the Nodes
             int             m_iParent;            // Parent used to to concadenate the matrices
         };
 
@@ -18,5 +18,6 @@ namespace import3d
         }
 
         std::vector<bone>   m_Bones;              // Bones are shorted (Parents go first)
+//        xmath::fmat4        m_GlobalInverse;
     };
 }

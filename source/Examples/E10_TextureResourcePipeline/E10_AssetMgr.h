@@ -301,22 +301,20 @@ namespace e10
     struct library_mgr;
 
     //================================================================================================
-
     namespace compilation
     {
         struct entry
         {
-            int                     m_Priority;         // Priority for this resource to compile...
-            xresource::full_guid    m_FullGuid;         // Asset to compile
-            library::guid           m_gLibrary;         // Guid to which library it belongs...
-
-            // Optional: define operator< for default comparison
-            bool operator < (const entry& other) const
-            {
-                return m_Priority < other.m_Priority;
-            }
+            xresource::full_guid    m_FullGuid = {};
+            library::guid           m_gLibrary = {};
+            int                     m_Priority = {};
         };
+    }
 
+    inline void CompilingThreadWorker(library_mgr& LibMgr, compilation::entry&& Entry);
+
+    namespace compilation
+    {
         struct historical_entry
         {
             enum class result : std::uint8_t
@@ -344,56 +342,226 @@ namespace e10
             std::shared_ptr<log>    m_Log       = {};
         };
 
-        template<typename T, typename T_CONTAINER = std::vector<T> >
-        struct exposed_priority_queue : std::priority_queue<T, T_CONTAINER>
+        namespace lockless
         {
-            const T_CONTAINER& getContainer() const
+            template<typename T_NODE>
+            struct tagged_ptr
             {
-                return this->c;
-            }
-        };
+                std::size_t m_Tag=0;
 
-        struct queue
-        {
-            exposed_priority_queue<entry>           m_Queue;
-            mutable std::mutex                      m_Mutex;
-            std::condition_variable                 m_CV;
+                inline constexpr static std::size_t shift_v         = 48;
+                inline constexpr static std::size_t one_shift_v     = 1ULL << shift_v;
+                inline constexpr static std::size_t bitmask_v       = 0xFFFFULL << shift_v;
+                inline constexpr static std::size_t ptrmask_v       = ~bitmask_v;
 
-            inline const auto& getContainer() const { return m_Queue.getContainer(); }
+                tagged_ptr(void)                          noexcept = default;
+                tagged_ptr(T_NODE* ptr, std::size_t tag)  noexcept { assert(!(tag & ptrmask_v)); m_Tag = (reinterpret_cast<std::size_t>(ptr) & ptrmask_v) | tag; }
+                tagged_ptr(T_NODE* ptr)                   noexcept : m_Tag{ reinterpret_cast<std::size_t>(ptr) } { m_Tag &= ptrmask_v; }
 
-            void push( const entry& Entry )
+                void        IncTag      (void)            noexcept { m_Tag = IncTagCopy() | (m_Tag & ptrmask_v); }
+                std::size_t IncTagCopy  (void)    const   noexcept { return (m_Tag + one_shift_v) & bitmask_v; }
+                T_NODE*     data        (void)    const   noexcept { return reinterpret_cast<T_NODE*>(m_Tag & ptrmask_v); }
+                std::size_t getTag      (void)    const   noexcept { return m_Tag & bitmask_v; }
+            };
+
+            template< typename T_USER_DATA >
+            struct entry
             {
+                using user_data     = T_USER_DATA;
+                using tagged_ptr    = tagged_ptr<entry>;
+
+                user_data                m_UserData;
+                std::atomic<tagged_ptr>  m_pNext;
+            };
+
+            // (Michael-Scott algorithm queue (lockless queue) with ABA)
+            template< typename T_ENTRY, typename T_MEMORY_POOL >
+            struct queue
+            {
+                using entry         = T_ENTRY;
+                using user_data     = typename entry::user_data;
+                using tagged_ptr    = typename entry::tagged_ptr;
+
+                queue(T_MEMORY_POOL& Pool) noexcept : m_Pool{ Pool }
                 {
-                    std::lock_guard lock(m_Mutex);
-                    m_Queue.push(Entry);
+                    auto pDummy = m_Pool.pop();
+                    assert(pDummy != nullptr);
+                    pDummy->m_pNext.store({ nullptr }, std::memory_order_relaxed);
+                    m_Head.store({ pDummy }, std::memory_order_relaxed);
+                    m_Tail.store({ pDummy }, std::memory_order_relaxed);
                 }
-                m_CV.notify_all();
-            }
 
-            entry wait_and_pop( void )
-            {
-                std::unique_lock lock(m_Mutex);
-                m_CV.wait(lock, [this] { return !m_Queue.empty(); });
-                entry top = m_Queue.top();
-                m_Queue.pop();
-                return top;
-            }
+                // transfer ownership by exchanging to null
+                queue(queue&& other) noexcept
+                    : m_Pool{other.m_Pool}, m_Head(nullptr), m_Tail(nullptr) {
+                    m_Head.store(other.m_Head.exchange(tagged_ptr{nullptr}, std::memory_order_relaxed),std::memory_order_relaxed);
+                    m_Tail.store(other.m_Tail.exchange(tagged_ptr{nullptr}, std::memory_order_relaxed),std::memory_order_relaxed);
+                }
 
-            std::optional<entry> pop( void )
-            {
-                std::unique_lock lock(m_Mutex);
-                if ( m_Queue.empty() ) return {};
-                entry top = m_Queue.top();
-                m_Queue.pop();
-                return top;
-            }
+                // move assignment
+                queue& operator=(queue&& other) noexcept
+                {
+                    if (this != &other)
+                    {
+                        assert(&m_Pool == &other.m_Pool); // Pools must match
+                        auto old_head = m_Head.exchange(other.m_Head.exchange(tagged_ptr{ nullptr }, std::memory_order_relaxed),std::memory_order_relaxed);
+                        auto old_tail = m_Tail.exchange(other.m_Tail.exchange(tagged_ptr{ nullptr }, std::memory_order_relaxed),std::memory_order_relaxed);
 
-            bool empty(void) const
-            {
-                std::lock_guard lock(m_Mutex);
-                return m_Queue.empty();
-            }
-        };
+                        // Drain old queue
+                        for (entry* pCurrent = old_head.data(); pCurrent; pCurrent = pCurrent->m_pNext.load(std::memory_order_relaxed).data())
+                        {
+                            m_Pool.push(*pCurrent);
+                        }
+                    }
+                    return *this;
+                }
+
+                ~queue(void) noexcept
+                {
+                    tagged_ptr LocalHead = m_Head.load(std::memory_order_relaxed);
+                    for (entry* pCurrent = LocalHead.data(); pCurrent; pCurrent = pCurrent->m_pNext.load(std::memory_order_relaxed).data())
+                    {
+                        m_Pool.push(*pCurrent);
+                    }
+                }
+
+                void push(user_data&& UserData ) noexcept
+                {
+                    auto pNode = m_Pool.pop();
+                    assert(pNode != nullptr); // Ensure allocation succeeded
+                    pNode->m_UserData = std::move(UserData);
+                    pNode->m_pNext.store({nullptr}, std::memory_order_relaxed);
+
+                    do
+                    {
+                        tagged_ptr  LocalTail           = m_Tail.load(std::memory_order_relaxed);
+                        entry*      pLocalTail          = LocalTail.data();
+                        tagged_ptr  LocalNext           = pLocalTail->m_pNext.load(std::memory_order_relaxed);
+                        entry*      pLocalNext          = LocalNext.data();
+                        tagged_ptr  LocalCurrentTail    = m_Tail.load(std::memory_order_relaxed);
+
+                        if (LocalTail.m_Tag == LocalCurrentTail.m_Tag)
+                        {
+                            if (pLocalNext == nullptr)
+                            {
+                                tagged_ptr NewNext{ pNode, LocalNext.IncTagCopy() };
+                                if (pLocalTail->m_pNext.compare_exchange_weak(LocalNext, NewNext, std::memory_order_release))
+                                {
+                                    tagged_ptr NewTail{ pNode, LocalTail.IncTagCopy() };
+                                    m_Tail.compare_exchange_weak(LocalTail, NewTail, std::memory_order_release);
+                                    ++m_Count;
+                                    return;
+                                }
+                            }
+                            else
+                            {
+                                tagged_ptr NewTail{ pLocalNext, LocalTail.IncTagCopy() };
+                                m_Tail.compare_exchange_weak(LocalTail, NewTail, std::memory_order_release);
+                            }
+                        }
+                    } while (true);
+                }
+
+                bool pop(user_data& UserData) noexcept
+                {
+                    do
+                    {
+                        tagged_ptr  LocalHead   = m_Head.load(std::memory_order_relaxed);
+                        entry*      pLocalHead  = LocalHead.data();
+                        assert(pLocalHead != nullptr); // Head should always be valid
+
+                        tagged_ptr  LocalTail   = m_Tail.load(std::memory_order_relaxed);
+                        entry*      pLocalTail  = LocalTail.data();
+                        assert(pLocalTail != nullptr); // Tail should always be valid
+
+                        tagged_ptr  LocalNext   = pLocalHead->m_pNext.load(std::memory_order_acquire);
+                        entry*      pLocalNext  = LocalNext.data();
+                        if(LocalHead.m_Tag != m_Head.load(std::memory_order_relaxed).m_Tag)
+                            continue;
+
+                        if (pLocalHead == pLocalTail)
+                        {
+                            if (pLocalNext == nullptr) return false;
+
+                            tagged_ptr NewTail{ pLocalNext, LocalTail.IncTagCopy() };
+                            m_Tail.compare_exchange_weak(LocalTail, NewTail, std::memory_order_release);
+                        }
+                        else
+                        {
+                            if (pLocalNext == nullptr) continue; // Rare race safeguard
+
+                            tagged_ptr NewHead{ pLocalNext, LocalHead.IncTagCopy() };
+                            if (m_Head.compare_exchange_weak(LocalHead, NewHead, std::memory_order_release))
+                            {
+                                UserData = std::move(pLocalNext->m_UserData);
+                                m_Pool.push(*pLocalHead);
+                                --m_Count;
+                                return true;
+                            }
+                        }
+                    } while (true);
+                }
+
+                std::size_t size(void) const noexcept
+                {
+                    return m_Count.load(std::memory_order_relaxed);
+                }
+
+                // Iterator support (const, forward-only; assumes no concurrent modifications)
+                struct const_iterator
+                {
+                    using value_type        = const user_data;
+                    using pointer           = value_type*;
+                    using reference         = value_type&;
+                    using difference_type   = std::ptrdiff_t;
+                    using iterator_category = std::forward_iterator_tag;
+
+                    const_iterator() noexcept : m_current(nullptr) {}
+                    explicit const_iterator(entry* node) noexcept : m_current(node) {}
+
+                    reference   operator*()     const noexcept { return m_current->m_UserData; }
+                    pointer     operator->()    const noexcept { return &m_current->m_UserData; }
+
+                    const_iterator& operator++() noexcept
+                    {
+                        m_current = m_current->m_pNext.load(std::memory_order_acquire).data();
+                        return *this;
+                    }
+
+                    const_iterator operator++(int) noexcept
+                    {
+                        const_iterator tmp = *this;
+                        ++(*this);
+                        return tmp;
+                    }
+
+                    bool operator==(const const_iterator& other) const noexcept { return m_current == other.m_current; }
+                    bool operator!=(const const_iterator& other) const noexcept { return !(*this == other); }
+
+                    entry* m_current;
+                };
+
+                const_iterator begin() const noexcept
+                {
+                    tagged_ptr local_head = m_Head.load(std::memory_order_acquire);
+                    return const_iterator{ local_head.data()->m_pNext.load(std::memory_order_acquire).data() };
+                }
+
+                const_iterator end() const noexcept
+                {
+                    return const_iterator{};
+                }
+
+                const_iterator cbegin() const noexcept { return begin(); }
+                const_iterator cend() const noexcept { return end(); }
+
+
+                T_MEMORY_POOL&          m_Pool;
+                std::atomic<tagged_ptr> m_Head;
+                std::atomic<tagged_ptr> m_Tail;
+                std::atomic_int         m_Count;
+            };
+        }
 
         struct failed_container
         {
@@ -440,64 +608,166 @@ namespace e10
 
         struct instance
         {
+            struct compilation_job : xscheduler::job<0>
+            {
+                compilation_job(instance& Instance)
+                    : xscheduler::job<0>{ xscheduler::universal_string{"COMPILATION_JOB"}, xscheduler::job_definition{ .m_WhenDone = xscheduler::when_done::DO_NOTHING}}
+                    , m_Instance{ Instance }
+                    {}
+
+                bool ContinueCompiling() const
+                {
+                    return (m_Instance.m_ManualCompilationTemp.load(std::memory_order_relaxed) ^ m_Instance.m_AutoCompilation.load(std::memory_order_relaxed))
+                        && (m_Instance.m_bRunning.load(std::memory_order_relaxed))
+                        && !m_Instance.m_PauseCompilation.load(std::memory_order_relaxed);
+                }
+
+                void OnRun() noexcept override
+                {
+                    xscheduler::task_group Compilation({ "COMPILATION" });
+
+                    // I may need to wait a little bit so that lower priority jobs and fill themselves....
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+                    // Water level help us know until what level we can do jobs
+                    std::size_t WaterLevel = 0;
+                    std::as_const(m_Instance.m_Queue).lock();
+                    const int nWorkers = xscheduler::g_System.getWorkerCount();
+                    entry Entry;
+                    do
+                    {
+                        for (auto& Q : m_Instance.m_Queue.get())
+                        {
+                            const auto iCurIndex = static_cast<std::size_t>( &Q - m_Instance.m_Queue.get().data() );
+
+                            if (not ContinueCompiling())
+                            {
+                                std::as_const(m_Instance.m_Queue).unlock();
+                                return;
+                            }
+
+                            // Let's not saturate the workers that way the editor can do other things...
+                            if (Compilation.getJobsInQueue() > nWorkers)
+                            {
+                                std::as_const(m_Instance.m_Queue).unlock();
+                                xscheduler::g_System.WorkerStartWorking([&]()
+                                    {
+                                        return Compilation.getJobsInQueue();
+                                    });
+                                std::as_const(m_Instance.m_Queue).lock();
+                            }
+
+                            // Try to pull a new job
+                            if (Q.pop(Entry))
+                            {
+                                ++m_Instance.m_WorkersWorking;
+                                Compilation.Submit([JobEntry = std::move(Entry), this]() mutable
+                                    {
+                                        CompilingThreadWorker(m_Instance.m_LibraryMgr, std::move(JobEntry));
+                                        --m_Instance.m_WorkersWorking;
+                                    });
+
+                                break;
+                            }
+
+                            // Let us wait until all workers are done for this level
+                            if (m_Instance.m_WorkersWorking)
+                            {
+                                std::as_const(m_Instance.m_Queue).unlock();
+                                do
+                                {
+                                    std::this_thread::yield();
+                                } while (m_Instance.m_WorkersWorking);
+                                std::as_const(m_Instance.m_Queue).lock();
+                            }
+
+                            // We have up our level
+                            WaterLevel = std::max(WaterLevel, iCurIndex);
+                        }
+
+                    } while (WaterLevel < (m_Instance.m_Queue.get().size()-1));
+
+                    std::as_const(m_Instance.m_Queue).unlock();
+                }
+
+                void OnReset(void) noexcept override
+                {
+                    //Let the job reset itself first
+                    xscheduler::job<0>::OnReset();
+
+                    // Now we can let the system know we are done
+                    m_Instance.m_isCompiling = false;
+                }
+
+                instance& m_Instance;
+            };
+
+
+            using entry_pool = xcontainer::pool::mpmc_bounded_dynamic_jitc<lockless::entry<entry>>;
+            using queue      = lockless::queue<lockless::entry<entry>, entry_pool>;
+            using lock_queue = xcontainer::lock::object<std::vector<queue>, xcontainer::lock::semaphore_reentrant >;
+
+            library_mgr&                                    m_LibraryMgr;
             settings                                        m_Settings              = {};
-            mutable std::mutex                              m_RunningMasterMutex    = {};
-            std::condition_variable                         m_RunningMasterCV       = {};
             std::atomic_bool                                m_bRunning              = { true  };
             std::atomic_bool                                m_AutoCompilation       = { true  };
             std::atomic_bool                                m_ManualCompilationTemp = { false };
             std::atomic_bool                                m_PauseCompilation      = { false };
+            std::atomic_bool                                m_isCompiling           = { false };
             std::atomic_int                                 m_WorkersWorking        = { 0 };
-            queue                                           m_Queue                 = {};
+            entry_pool                                      m_EntryPool             = {};
+            lock_queue                                      m_Queue                 = {};
             failed_container                                m_Failed                = {};
             compiling_list                                  m_Compiling             = {};
             historical                                      m_Historical            = {};
-            std::vector<std::thread>                        m_CompilationThreads    = {};
+            compilation_job                                 m_CompilationJob        = {*this};
 
-            static void CompilationThread( instance& Instance );
+
+            instance(library_mgr& LibMgr ) : m_LibraryMgr{ LibMgr }
+            {
+                m_EntryPool.Init( 10000 );
+            }
+
+            void AllocateQueues( int Count )
+            {
+                xcontainer::lock::scope Lk(m_Queue);
+
+                auto& QueueList = m_Queue.get();
+                QueueList.reserve(Count);
+
+                for (int i = 0; i < Count; ++i)
+                {
+                    QueueList.emplace_back(m_EntryPool);
+                }
+            }
 
             void PauseCompilation( bool bPause )
             {
                 m_PauseCompilation.store(bPause);
-                if (bPause == false) m_RunningMasterCV.notify_all();
             }
 
-            bool MasterCheckExitOrWait()
+            bool ContinueCompiling() const
             {
-                // If they signal us to stop working because we are existing the let us exit
-                if (false == m_bRunning.load(std::memory_order_relaxed))
-                    return false;
-
-                // if there is work to do and we are not paused then continue to work
-                if( !m_Queue.empty() && !m_PauseCompilation.load(std::memory_order_relaxed) )
-                    return true;
-
-                std::unique_lock lock(m_RunningMasterMutex);
-                if (--m_WorkersWorking == 0 ) 
-                {
-                    m_ManualCompilationTemp.store(false);
-                }
-                m_RunningMasterCV.wait
-                    ( lock
-                    , [this]
-                    {   // true exists the wait
-                        return (m_ManualCompilationTemp.load(std::memory_order_relaxed) ^ m_AutoCompilation.load(std::memory_order_relaxed))
-                                && !(m_Queue.empty() && m_bRunning.load(std::memory_order_relaxed))
-                                && !m_PauseCompilation.load(std::memory_order_relaxed);
-                                
-                    });
-                ++m_WorkersWorking;
-                return m_bRunning.load(std::memory_order_relaxed);
+                return (m_ManualCompilationTemp.load(std::memory_order_relaxed) ^ m_AutoCompilation.load(std::memory_order_relaxed))
+                    && (m_bRunning.load(std::memory_order_relaxed))
+                    && !m_PauseCompilation.load(std::memory_order_relaxed);
             }
 
             void StartCompilation()
             {
-                // Ok let us wake up the master (may or may not be sleeping)
-                if (m_AutoCompilation.load(std::memory_order_relaxed) ) m_ManualCompilationTemp.store(false); 
-                else m_ManualCompilationTemp.store(true);
+                if (not m_isCompiling)
+                {
+                    if ( not ContinueCompiling())
+                        return;
 
-                m_RunningMasterCV.notify_all();
-                m_Queue.m_CV.notify_all();
+                    m_isCompiling = true;
+
+                    // Ok let us wake up the master (may or may not be sleeping)
+                    if (m_AutoCompilation.load(std::memory_order_relaxed) ) m_ManualCompilationTemp.store(false); 
+                    else m_ManualCompilationTemp.store(true);
+
+                    xscheduler::g_System.SubmitJob(m_CompilationJob);
+                }
             }
         };
 
@@ -778,7 +1048,6 @@ namespace e10
             using map = xcontainer::unordered_lockless_map<xresource::instance_guid, library_db::info_node>;
             xresource::type_guid    m_TypeGUID              = {};
             map                     m_InfoDataBase          = {};
-            int                     m_CompilationPriority   = {};
         };
 
         void clear()
@@ -790,6 +1059,8 @@ namespace e10
             : m_CompilationInstance{ Compilation }
             {}
 
+        inline int getQueueIndexFromType(xresource::type_guid Type) const;
+        
         bool AddToCompilationQueueIfNeeded( const info_db& InfoTypeDB, info_node& InfoNode) const
         {
             //NOTE: If a node is "deleted" should we let it compile???
@@ -804,9 +1075,15 @@ namespace e10
                     compilation::entry QueueEntry;
                     QueueEntry.m_FullGuid = InfoNode.m_Info.m_Guid;
                     QueueEntry.m_gLibrary = m_Library.m_GUID;
-                    QueueEntry.m_Priority = InfoTypeDB.m_CompilationPriority;
-                    m_CompilationInstance.m_Queue.push(QueueEntry);
-                    m_CompilationInstance.m_RunningMasterCV.notify_all();
+                    QueueEntry.m_Priority = getQueueIndexFromType(InfoNode.m_Info.m_Guid.m_Type);
+
+                    // Insert the entry in the queue
+                    {
+                        xcontainer::lock::scope Lk(std::as_const(m_CompilationInstance.m_Queue));
+                        m_CompilationInstance.m_Queue.get()[QueueEntry.m_Priority].push(std::move(QueueEntry));
+                    }
+                    m_CompilationInstance.StartCompilation();
+
                     return true;
                 }
             }
@@ -831,16 +1108,27 @@ namespace e10
     {
         asset_plugins_db&                                       m_AssetPluginsDB;
         library_db&                                             m_LibraryDB;
-        std::atomic_bool                                        m_bRunning                  = true;
-        std::unique_ptr<std::thread>                            m_MonitorAssetsThread       = {};
-        std::unique_ptr<std::thread>                            m_MonitorDescriptorsThread  = {};
+        std::atomic_bool                                        m_bRunning                   = true;
+        std::vector<std::unique_ptr<std::thread>>               m_lMonitorAssetsThreads      = {};
+        std::vector<std::unique_ptr<std::thread>>               m_lMonitorDescriptorsThreads = {};
         
         file_monitor_changes(asset_plugins_db& PlugInDB, library_db& LibDB )
             : m_AssetPluginsDB{ PlugInDB }
             , m_LibraryDB{ LibDB }
         {
-            m_MonitorAssetsThread       = std::make_unique<std::thread>(MonitorAssetFileChanges, std::ref(*this));
-            m_MonitorDescriptorsThread  = std::make_unique<std::thread>(MonitorResourceFileChanges, std::ref(*this));
+            // NOTE: all paths for AssetFileChanges should be lower case because we do string compares, and it assumes all lower case
+            // These are all the paths that an asset it allowed to be, from an asset perspective all other paths will be ignored.
+            m_lMonitorAssetsThreads.emplace_back(std::make_unique<std::thread>(MonitorAssetFileChangesPerPath, std::ref(*this), std::wstring(L"cache/resources/logs")));
+            m_lMonitorAssetsThreads.emplace_back(std::make_unique<std::thread>(MonitorAssetFileChangesPerPath, std::ref(*this), std::wstring(L"descriptors")));
+            m_lMonitorAssetsThreads.emplace_back(std::make_unique<std::thread>(MonitorAssetFileChangesPerPath, std::ref(*this), std::wstring(L"cache/descriptors")));
+
+            // This is the only asset path that users control all other ones are control by the system
+            m_lMonitorAssetsThreads.emplace_back(std::make_unique<std::thread>(MonitorAssetFileChangesPerPath, std::ref(*this), std::wstring(L"assets")));
+
+            // NOTE: Here casing does not matter...
+            // These are all the paths where a descriptor can exist, all other paths will be ignored.
+            m_lMonitorDescriptorsThreads.emplace_back(std::make_unique<std::thread>(MonitorResourceFileChangesPerPath, std::ref(*this), std::wstring(L"descriptors")));
+            m_lMonitorDescriptorsThreads.emplace_back(std::make_unique<std::thread>(MonitorResourceFileChangesPerPath, std::ref(*this), std::wstring(L"cache/descriptors")));
         }
 
         ~file_monitor_changes()
@@ -848,29 +1136,33 @@ namespace e10
             if (m_bRunning)
             {
                 m_bRunning.store(false);
-                if( m_MonitorAssetsThread )
+
+                for( auto& E : m_lMonitorAssetsThreads)
                 {
-                    if (BOOL cancel_result = CancelSynchronousIo(m_MonitorAssetsThread->native_handle()); !cancel_result)
+                    if( E )
                     {
-                        std::cerr << "Error canceling I/O: " << GetLastError() << '\n';
+                        if (BOOL cancel_result = CancelSynchronousIo(E->native_handle()); !cancel_result)
+                        {
+                            std::cerr << "Error canceling Asset watcher I/O: " << GetLastError() << '\n';
+                        }
+                        E->join();
                     }
-                    m_MonitorAssetsThread->join();
                 }
 
-                if( m_MonitorDescriptorsThread )
+                for (auto& E : m_lMonitorDescriptorsThreads)
                 {
-                    if (BOOL cancel_result = CancelSynchronousIo(m_MonitorDescriptorsThread->native_handle()); !cancel_result)
+                    if (BOOL cancel_result = CancelSynchronousIo(E->native_handle()); !cancel_result)
                     {
-                        std::cerr << "Error canceling I/O: " << GetLastError() << '\n';
+                        std::cerr << "Error canceling Resource Watcher I/O: " << GetLastError() << '\n';
                     }
-                    m_MonitorDescriptorsThread->join();
+                    E->join();
                 }
             }
         }
 
-        static void MonitorAssetFileChanges( file_monitor_changes& FileMonitorChanges )
+        static void MonitorAssetFileChangesPerPath( file_monitor_changes& FileMonitorChanges, std::wstring_view AssetsPath )
         {
-            const std::wstring Path = std::format( L"{}/assets", FileMonitorChanges.m_LibraryDB.m_Library.m_Path );
+            const std::wstring Path = xstrtool::PathNormalizeCopy(std::format( L"{}/{}", FileMonitorChanges.m_LibraryDB.m_Library.m_Path, AssetsPath));
 
             const HANDLE dir_handle = CreateFileW
                 ( Path.c_str()
@@ -924,7 +1216,7 @@ namespace e10
                 while( notify_info && FileMonitorChanges.m_bRunning.load() )
                 {
                     // Extract filename from notification
-                    std::wstring file_path = std::format( L"assets/{}", std::wstring_view( notify_info->FileName, notify_info->FileNameLength / sizeof(wchar_t)) );
+                    std::wstring file_path = std::format( L"{}/{}", AssetsPath, std::wstring_view( notify_info->FileName, notify_info->FileNameLength / sizeof(wchar_t)) );
 
                     // Make it lower case
                     std::ranges::transform(file_path, file_path.begin(), std::towlower);
@@ -1012,9 +1304,9 @@ namespace e10
             CloseHandle(dir_handle);
         }
 
-        static void MonitorResourceFileChanges(file_monitor_changes& FileMonitorChanges)
+        static void MonitorResourceFileChangesPerPath(file_monitor_changes& FileMonitorChanges, std::wstring_view GivenPath )
         {
-            const std::wstring Path = std::format(L"{}/Descriptors", FileMonitorChanges.m_LibraryDB.m_Library.m_Path);
+            const std::wstring Path = std::format(L"{}/{}", FileMonitorChanges.m_LibraryDB.m_Library.m_Path, GivenPath);
 
             const HANDLE dir_handle = CreateFileW
             ( Path.c_str()
@@ -1114,7 +1406,7 @@ namespace e10
                                     //
                                     // Wait until we have access to read
                                     //
-                                    const std::wstring FullPath = std::format(L"{}/Descriptors/{}", FileMonitorChanges.m_LibraryDB.m_Library.m_Path, FilePath);
+                                    const std::wstring FullPath = std::format(L"{}/{}/{}", FileMonitorChanges.m_LibraryDB.m_Library.m_Path, GivenPath, FilePath);
                                     do
                                     {
                                         HANDLE file_handle = CreateFileW(
@@ -2450,6 +2742,11 @@ namespace e10
             m_AssetPluginsDB.SetupProject(m_ProjectPath);
 
             //
+            // Prepare compilation queues 
+            //
+            m_Compilation.AllocateQueues(m_AssetPluginsDB.RecomputePluginGroups());
+
+            //
             // Load the config file for the project
             // TODO: Need to add the code load also libraries...
             library Library;
@@ -2507,16 +2804,6 @@ namespace e10
                 // Make sure to monitor the asset folder...
                 //
                 ProjectDB->m_FileMonitorChanges = std::make_unique<file_monitor_changes>( m_AssetPluginsDB, *ProjectDB);
-
-                //
-                // Setup the compilation thread
-                //
-                m_Compilation.m_CompilationThreads.resize(std::thread::hardware_concurrency());
-                for( auto& E : m_Compilation.m_CompilationThreads )
-                {
-                    E = std::thread(CompilingThreatWorker, std::ref(*this));
-                }
-                
             });
 
             //
@@ -2673,326 +2960,6 @@ namespace e10
 
         //------------------------------------------------------------------------------------------------
 
-        static void CompilingThreatWorker( library_mgr& LibMgr )
-        {
-            auto& Compilation = LibMgr.m_Compilation;
-
-            // Let us start counting when they are awake and when they are sleeping
-            ++Compilation.m_WorkersWorking;
-
-            compilation::historical_entry   NewEntry;
-            std::wstring                    DescriptorPath;
-            while( Compilation.MasterCheckExitOrWait() )
-            {
-                // Try to pull an entry from the queue
-                if ( auto QueueRet = Compilation.m_Queue.pop(); QueueRet.has_value() )
-                {
-                    NewEntry.m_Entry  = std::move(QueueRet.value());
-                    NewEntry.m_Log    = std::make_shared<compilation::historical_entry::log>();
-                }
-                else
-                {
-                    continue;
-                }
-
-                // Change the entry state
-                if ( false == LibMgr.getNodeInfo(NewEntry.m_Entry.m_gLibrary, NewEntry.m_Entry.m_FullGuid, [&](library_db::info_node& Node )
-                {
-                    if ( static_cast<std::uint8_t>(Node.m_State)&1) Node.m_State = library_db::info_node::state::BEEN_EDITED_COMPILING;
-                    else                                            Node.m_State = library_db::info_node::state::COMPILING;
-
-                    // Set the actual string of the descriptor
-                    auto Skip = LibMgr.m_ProjectPath.size() + 1;
-                    DescriptorPath = Node.m_Path.substr(Skip, Node.m_Path.find_last_of(L'\\') - Skip);
-
-                })) continue;
-
-
-                // Add the entry into the compilation list
-                {
-                    std::scoped_lock lock(Compilation.m_Compiling.m_Mutex);
-                    Compilation.m_Compiling.m_List.push_back(NewEntry);
-                }
-
-                //
-                // Now we can call the compiler
-                //
-                auto pPlugin = LibMgr.m_AssetPluginsDB.find(NewEntry.m_Entry.m_FullGuid.m_Type);
-
-                // Make sure the path for the compiler is clean for the command line
-                std::wstring CommandLine            = {};
-                bool         OutputToConsole        = {};
-                int          MaxHistoricalEntries   = {};
-                {
-                    std::wstring        CompilerPath = {};
-                    std::scoped_lock    lk(Compilation.m_Settings.m_Mutex);
-
-                    OutputToConsole         = Compilation.m_Settings.m_bOutputToConsole;
-                    MaxHistoricalEntries    = Compilation.m_Settings.m_MaxHistoricalEntries;
-
-                    if (Compilation.m_Settings.m_bUseDebugCompiler)
-                    {
-                        if ( pPlugin->m_DebugCompiler.empty() == false ) CompilerPath = std::format(L"{}\\{}", LibMgr.m_ProjectPath, pPlugin->m_DebugCompiler );
-                        else
-                        {
-                            if (pPlugin->m_ReleaseCompiler.empty() == false) 
-                            {
-                                printf("ERROR: user requested the debug compiler but we have not path for it... will try the release compiler\n");
-                                CompilerPath = std::format(L"{}\\{}", LibMgr.m_ProjectPath, pPlugin->m_ReleaseCompiler);
-                            }
-                            else
-                            {
-                                printf("ERROR: Both the release compiler and debug compiler has not paths\n");
-                            }
-                        }
-                    }
-                    else if (pPlugin->m_ReleaseCompiler.empty() == false)
-                    {
-                        CompilerPath = std::format(L"{}\\{}", LibMgr.m_ProjectPath, pPlugin->m_ReleaseCompiler);
-                    }
-                    else
-                    {
-                        if (pPlugin->m_DebugCompiler.empty() == false)
-                        {
-                            printf("ERROR: user requested the release compiler but we have not path for it... will try the debug compiler\n");
-                            CompilerPath = std::format(L"{}\\{}", LibMgr.m_ProjectPath, pPlugin->m_DebugCompiler);
-                        }
-                        else
-                        {
-                            printf("ERROR: Both the release compiler and debug compiler has not paths\n");
-                        }
-                    }
-
-                    if (CompilerPath.empty() == false)
-                    {
-                        std::filesystem::path p(std::move(CompilerPath));
-                        CompilerPath = p.lexically_normal();
-                    }
-
-                    // Generate the command line
-                    CommandLine = std::format(LR"("{}" -PROJECT "{}" -OPTIMIZATION {} -DEBUG {} -DESCRIPTOR "{}" -OUTPUT "{}\Cache\Resources\Platforms\WINDOWS")"
-                        , CompilerPath
-                        , LibMgr.m_ProjectPath
-                        , LibMgr.m_Compilation.m_Settings.getOptimizationLevelString()
-                        , LibMgr.m_Compilation.m_Settings.getDebugLevelString()
-                        , DescriptorPath
-                        , LibMgr.m_ProjectPath
-                    );
-                }
-
-                //
-                // Start the actual compilation
-                //
-                {
-                    LibMgr.m_OnCompilationState.NotifyAll(LibMgr, NewEntry.m_Entry.m_gLibrary, NewEntry.m_Entry.m_FullGuid, NewEntry.m_Log );
-
-                    // Run the actual compiler
-                    try
-                    {
-                        compilation::RunCommandLine
-                        ( CommandLine
-                        , *NewEntry.m_Log
-                        , Compilation.m_Settings.m_bOutputToConsole
-                        );
-                    }
-                    catch (const std::exception& e)
-                    {
-                        std::cerr << "Error: " << e.what() << std::endl;
-                    }
-
-                    //
-                    // Put it in the final lists
-                    //
-
-                    // Remove our entry from the list and add it into the history
-                    {
-                        std::scoped_lock lock(Compilation.m_Compiling.m_Mutex);
-                        std::erase_if(Compilation.m_Compiling.m_List, [&](auto& E) { return E.m_Entry.m_FullGuid == NewEntry.m_Entry.m_FullGuid; });
-                    }
-
-                    // Let's collect the result of our entry...
-                    compilation::historical_entry::result Result;
-                    {
-                        xcontainer::lock::scope lock( *NewEntry.m_Log );
-                        Result = NewEntry.m_Log->get().m_Result;
-                        if (Result == compilation::historical_entry::result::FAILURE ) NewEntry.m_Log->get().m_Log = xstrtool::To(CommandLine) + "\n==============================\n" + NewEntry.m_Log->get().m_Log;
-                    }
-
-                    // Added to the failure list if we failed
-                    if (Result == compilation::historical_entry::result::FAILURE )
-                    {
-                        std::scoped_lock lock(Compilation.m_Failed.m_Mutex);
-                        Compilation.m_Failed.m_Map[NewEntry.m_Entry.m_FullGuid] = NewEntry;
-                    }
-
-                    // move the NewEntry into the historical list
-                    {
-                        std::scoped_lock lock(Compilation.m_Historical.m_Mutex);
-                        Compilation.m_Historical.m_List.emplace_back(NewEntry);
-
-                        if( Compilation.m_Historical.m_List.size() >= static_cast<std::size_t>(MaxHistoricalEntries+50))
-                        {
-                            Compilation.m_Historical.m_List.erase(Compilation.m_Historical.m_List.begin(), Compilation.m_Historical.m_List.begin() + 50);
-                        }
-                    }
-
-                    //
-                    // Finally let us update our node_info state
-                    //
-                    if (LibMgr.m_mLibraryDB.FindAsReadOnly( NewEntry.m_Entry.m_gLibrary, [&]( const std::unique_ptr<library_db>& LibraryDB )
-                    {
-                        if (LibraryDB->m_InfoByTypeDataBase.FindAsReadOnly(NewEntry.m_Entry.m_FullGuid.m_Type, [&]( const std::unique_ptr<library_db::info_db>& InfoDB )
-                        {
-                            if ( InfoDB->m_InfoDataBase.FindAsWrite(NewEntry.m_Entry.m_FullGuid.m_Instance, [&](library_db::info_node& Node )
-                            {
-                                if (static_cast<std::uint8_t>(Node.m_State) & 1) Node.m_State = Result == compilation::historical_entry::result::FAILURE ? library_db::info_node::state::BEEN_EDITED_ERRORS : library_db::info_node::state::BEEN_EDITED;
-                                else                                             Node.m_State = Result == compilation::historical_entry::result::FAILURE ? library_db::info_node::state::ERRORS : library_db::info_node::state::IDLE;
-
-                                if (Result != compilation::historical_entry::result::FAILURE)
-                                {
-                                    // Update the basic dates
-                                    // Get the relative path of the resource from the descriptor
-                                    std::error_code     Ec                  = {};
-                                    auto                ResourceSubPath     = std::wstring_view(Node.m_Path.data() + 1 + LibMgr.m_ProjectPath.length() + sizeof("Descriptors"), Node.m_Path.find_last_of(L'\\') - sizeof("Descriptors\\.desc") - LibMgr.m_ProjectPath.length());
-                                    const std::wstring  ResourcePath        = std::format(L"{}\\Cache//Resources\\Platforms\\WINDOWS\\{}", LibMgr.m_ProjectPath, ResourceSubPath);
-                                    const std::wstring  DescriptorPath      = std::wstring{ Node.m_Path.substr(0, Node.m_Path.find_last_of(L'\\') + 1) } + L"Descriptor.txt";
-                                    const std::wstring  DependencyPath      = std::format(L"{}/Cache/Resources/Logs/{}.log/dependencies.txt", LibMgr.m_ProjectPath, ResourceSubPath);
-                                    const bool          bInfoFileExists     = std::filesystem::exists(Node.m_Path, Ec) ? !Ec : false;
-
-                                    Node.m_bHasDescriptor       = std::filesystem::exists(DescriptorPath, Ec) ? !Ec : false;
-                                    Node.m_bHasResource         = std::filesystem::exists(ResourcePath, Ec) ? !Ec : false;
-                                    Node.m_bHasDependencies     = Node.m_bHasResource && std::filesystem::exists(DependencyPath, Ec) ? !Ec : false;
-                                    Node.m_DescriptorTime       = Node.m_bHasDescriptor ? std::filesystem::last_write_time(DescriptorPath) : std::filesystem::file_time_type{};
-                                    Node.m_InfoTime             = bInfoFileExists ? std::filesystem::last_write_time(Node.m_Path) : std::filesystem::file_time_type{};
-                                    Node.m_ResourceTime         = Node.m_bHasResource ? std::filesystem::last_write_time(ResourcePath) : std::filesystem::file_time_type{};
-
-                                    //TODO: Update the dependencies of the info just in case they have changed....
-                                    if (Node.m_bHasDependencies)
-                                    {
-                                        xproperty::settings::context        Context;
-                                        xresource_pipeline::dependencies    Dependencies;
-
-                                        if (auto Err = Dependencies.Serialize(true, DependencyPath, Context); Err)
-                                        {
-                                            //std::lock_guard Lk(m_lErrors);
-                                            //m_lErrors.get().push_back(std::format(L"Fail to read the dependency file [{}] with error[{}]", DependencyPath.data(), strXstr(Err.getCode().m_pString).c_str()));
-                                            //bDependencyExists = false;
-                                            Node.m_bHasDependencies = false;
-                                        }
-                                        else
-                                        {
-                                            // Check to see if there is entries in our dependency list that we no longer care about
-                                            for (auto& E : Node.m_Dependencies.m_Assets)
-                                            {
-                                                // Do we still have this old dependency? If not we need to remove it!
-                                                if (auto it = std::find(Dependencies.m_Assets.begin(), Dependencies.m_Assets.end(), E); it == Dependencies.m_Assets.end())
-                                                {
-                                                    // We no longer has this dependency
-                                                    bool bRemoveEntry = false;
-                                                    if( false == LibraryDB->m_AssetDataBase.FindAsWrite( E, [&](library_db::asset& Asset)
-                                                    {
-                                                        // Remove our reference
-                                                        for ( auto& G : Asset.m_lChildLinks )
-                                                        {
-                                                            if ( G == Node.m_Info.m_Guid )
-                                                            {
-                                                                // Remove Entry Here
-                                                                Asset.m_lChildLinks.erase(Asset.m_lChildLinks.begin() + static_cast<int>(&G - Asset.m_lChildLinks.data() ));
-                                                                break;
-                                                            }
-                                                        }
-
-                                                        // if there are not more entries we should delete ours
-                                                        if (Asset.m_lChildLinks.empty())
-                                                        {
-                                                            bRemoveEntry = true;
-                                                        }
-                                                    }))
-                                                    {
-                                                        // we should always find our entry...
-                                                        assert(false);
-                                                    }
-
-                                                    if (bRemoveEntry)
-                                                    {
-                                                        //NOTE: There is a race condition here... From the moment we removed our entry someone else could have added a new one...
-                                                        LibraryDB->m_AssetDataBase.FindForDelete(E, [&](library_db::asset&){} );
-                                                    }
-                                                }
-                                                else
-                                                {
-                                                    // We still have the same asset
-                                                    int a = 0;
-                                                }
-                                            }
-
-                                            // See if there are new dependencies that we now care about...
-                                            for (auto& E : Dependencies.m_Assets)
-                                            {
-                                                // Is this a new dependency for us?
-                                                if (auto it = std::find(Node.m_Dependencies.m_Assets.begin(), Node.m_Dependencies.m_Assets.end(), E); it == Node.m_Dependencies.m_Assets.end())
-                                                {
-                                                    LibraryDB->m_AssetDataBase.FindAsWriteOrCreate
-                                                    ( E
-                                                    , [&](library_db::asset& Asset)
-                                                    {
-                                                        Asset.m_Path          = E;
-                                                        Asset.m_LastWriteTime = std::filesystem::last_write_time( std::format( L"{}//{}", LibraryDB->m_Library.m_Path, Asset.m_Path) );
-                                                    }
-                                                    , [&](library_db::asset& Asset)
-                                                    {
-                                                        Asset.m_lChildLinks.push_back(Node.m_Info.m_Guid);
-                                                    }
-                                                    );
-                                                }
-                                                else
-                                                {
-                                                    // We still have this asset
-                                                    int a = 0;
-                                                }
-                                            }
-
-                                            //TODO: We should check more types of dependencies...
-
-                                            // Set the new dependencies
-                                            Node.m_Dependencies = std::move(Dependencies);
-                                        }
-                                    }
-
-                                    //
-                                    // Check and see if this entry needs to be recompile for some reason...
-                                    //
-                                    if ( LibraryDB->AddToCompilationQueueIfNeeded(*InfoDB, Node) == false )
-                                    {
-                                        LibMgr.m_OnCompilationState.NotifyAll( LibMgr, LibraryDB->m_Library.m_GUID, Node.m_Info.m_Guid, NewEntry.m_Log);
-                                    }
-                                }
-                                else
-                                {
-                                    // Fail to compile... nonetheless is the end of the compilation process...
-                                    LibMgr.m_OnCompilationState.NotifyAll(LibMgr, LibraryDB->m_Library.m_GUID, Node.m_Info.m_Guid, NewEntry.m_Log);
-                                }
-                            }))
-                            {
-                                //TODO: ERROR unable to find the library
-                            }
-                        }))
-                        {
-                            //TODO: ERROR unable to find the library
-                        }
-                    }))
-                    {
-                        //TODO: ERROR unable to find the library
-                    }
-                }
-            }
-
-            // Say good bye to the worker
-            --Compilation.m_WorkersWorking;
-        }
-
-        //------------------------------------------------------------------------------------------------
-
         xdelegate::thread_safe<library_mgr&> m_OnOpenProjectEvent;
         xdelegate::thread_safe<library_mgr&> m_OnCloseProjectEvent;
         xdelegate::thread_safe<library_mgr&, library::guid, xresource::full_guid, std::shared_ptr<compilation::historical_entry::log>&> m_OnCompilationState;
@@ -3007,8 +2974,337 @@ namespace e10
         map                     m_mLibraryDB;
         asset_plugins_db        m_AssetPluginsDB;
         map_rsc_to_library      m_RscToLibraryMap;
-        compilation::instance   m_Compilation;
+        compilation::instance   m_Compilation       = {*this};
     };
+
+    //------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------
+
+    inline void CompilingThreadWorker( library_mgr& LibMgr, compilation::entry&& Entry )
+    {
+        auto& Compilation = LibMgr.m_Compilation;
+
+        // Let us start counting when they are awake and when they are sleeping
+        ++Compilation.m_WorkersWorking;
+
+        compilation::historical_entry   NewEntry;
+        std::wstring                    DescriptorPath;
+        {
+            NewEntry.m_Entry  = std::move(Entry);
+            NewEntry.m_Log    = std::make_shared<compilation::historical_entry::log>();
+
+            // Change the entry state
+            if ( false == LibMgr.getNodeInfo(NewEntry.m_Entry.m_gLibrary, NewEntry.m_Entry.m_FullGuid, [&](library_db::info_node& Node )
+            {
+                if ( static_cast<std::uint8_t>(Node.m_State)&1) Node.m_State = library_db::info_node::state::BEEN_EDITED_COMPILING;
+                else                                            Node.m_State = library_db::info_node::state::COMPILING;
+
+                // Set the actual string of the descriptor
+                auto Skip = LibMgr.m_ProjectPath.size() + 1;
+                DescriptorPath = Node.m_Path.substr(Skip, Node.m_Path.find_last_of(L'\\') - Skip);
+
+            })) return;
+
+
+            // Add the entry into the compilation list
+            {
+                std::scoped_lock lock(Compilation.m_Compiling.m_Mutex);
+                Compilation.m_Compiling.m_List.push_back(NewEntry);
+            }
+
+            //
+            // Now we can call the compiler
+            //
+            auto pPlugin = LibMgr.m_AssetPluginsDB.find(NewEntry.m_Entry.m_FullGuid.m_Type);
+
+            // Make sure the path for the compiler is clean for the command line
+            std::wstring CommandLine            = {};
+            bool         OutputToConsole        = {};
+            int          MaxHistoricalEntries   = {};
+            {
+                std::wstring        CompilerPath = {};
+                std::scoped_lock    lk(Compilation.m_Settings.m_Mutex);
+
+                OutputToConsole         = Compilation.m_Settings.m_bOutputToConsole;
+                MaxHistoricalEntries    = Compilation.m_Settings.m_MaxHistoricalEntries;
+
+                if (Compilation.m_Settings.m_bUseDebugCompiler)
+                {
+                    if ( pPlugin->m_DebugCompiler.empty() == false ) CompilerPath = std::format(L"{}\\{}", LibMgr.m_ProjectPath, pPlugin->m_DebugCompiler );
+                    else
+                    {
+                        if (pPlugin->m_ReleaseCompiler.empty() == false) 
+                        {
+                            printf("ERROR: user requested the debug compiler but we have not path for it... will try the release compiler\n");
+                            CompilerPath = std::format(L"{}\\{}", LibMgr.m_ProjectPath, pPlugin->m_ReleaseCompiler);
+                        }
+                        else
+                        {
+                            printf("ERROR: Both the release compiler and debug compiler has not paths\n");
+                        }
+                    }
+                }
+                else if (pPlugin->m_ReleaseCompiler.empty() == false)
+                {
+                    CompilerPath = std::format(L"{}\\{}", LibMgr.m_ProjectPath, pPlugin->m_ReleaseCompiler);
+                }
+                else
+                {
+                    if (pPlugin->m_DebugCompiler.empty() == false)
+                    {
+                        printf("ERROR: user requested the release compiler but we have not path for it... will try the debug compiler\n");
+                        CompilerPath = std::format(L"{}\\{}", LibMgr.m_ProjectPath, pPlugin->m_DebugCompiler);
+                    }
+                    else
+                    {
+                        printf("ERROR: Both the release compiler and debug compiler has not paths\n");
+                    }
+                }
+
+                if (CompilerPath.empty() == false)
+                {
+                    std::filesystem::path p(std::move(CompilerPath));
+                    CompilerPath = p.lexically_normal();
+                }
+
+                // Generate the command line
+                CommandLine = std::format(LR"("{}" -PROJECT "{}" -OPTIMIZATION {} -DEBUG {} -DESCRIPTOR "{}" -OUTPUT "{}\Cache\Resources\Platforms\WINDOWS")"
+                    , CompilerPath
+                    , LibMgr.m_ProjectPath
+                    , LibMgr.m_Compilation.m_Settings.getOptimizationLevelString()
+                    , LibMgr.m_Compilation.m_Settings.getDebugLevelString()
+                    , DescriptorPath
+                    , LibMgr.m_ProjectPath
+                );
+            }
+
+            //
+            // Start the actual compilation
+            //
+            {
+                LibMgr.m_OnCompilationState.NotifyAll(LibMgr, NewEntry.m_Entry.m_gLibrary, NewEntry.m_Entry.m_FullGuid, NewEntry.m_Log );
+
+                // Run the actual compiler
+                try
+                {
+                    compilation::RunCommandLine
+                    ( CommandLine
+                    , *NewEntry.m_Log
+                    , Compilation.m_Settings.m_bOutputToConsole
+                    );
+                }
+                catch (const std::exception& e)
+                {
+                    std::cerr << "Error: " << e.what() << "\n" << xstrtool::To(CommandLine) << std::endl;
+                }
+
+                //
+                // Put it in the final lists
+                //
+
+                // Remove our entry from the list and add it into the history
+                {
+                    std::scoped_lock lock(Compilation.m_Compiling.m_Mutex);
+                    std::erase_if(Compilation.m_Compiling.m_List, [&](auto& E) { return E.m_Entry.m_FullGuid == NewEntry.m_Entry.m_FullGuid; });
+                }
+
+                // Let's collect the result of our entry...
+                compilation::historical_entry::result Result;
+                {
+                    xcontainer::lock::scope lock( *NewEntry.m_Log );
+                    Result = NewEntry.m_Log->get().m_Result;
+                    if (Result == compilation::historical_entry::result::FAILURE ) NewEntry.m_Log->get().m_Log = xstrtool::To(CommandLine) + "\n==============================\n" + NewEntry.m_Log->get().m_Log;
+                }
+
+                // Added to the failure list if we failed
+                if (Result == compilation::historical_entry::result::FAILURE )
+                {
+                    std::scoped_lock lock(Compilation.m_Failed.m_Mutex);
+                    Compilation.m_Failed.m_Map[NewEntry.m_Entry.m_FullGuid] = NewEntry;
+                }
+
+                // move the NewEntry into the historical list
+                {
+                    std::scoped_lock lock(Compilation.m_Historical.m_Mutex);
+                    Compilation.m_Historical.m_List.emplace_back(NewEntry);
+
+                    if( Compilation.m_Historical.m_List.size() >= static_cast<std::size_t>(MaxHistoricalEntries+50))
+                    {
+                        Compilation.m_Historical.m_List.erase(Compilation.m_Historical.m_List.begin(), Compilation.m_Historical.m_List.begin() + 50);
+                    }
+                }
+
+                //
+                // Finally let us update our node_info state
+                //
+                if (LibMgr.m_mLibraryDB.FindAsReadOnly( NewEntry.m_Entry.m_gLibrary, [&]( const std::unique_ptr<library_db>& LibraryDB )
+                {
+                    if (LibraryDB->m_InfoByTypeDataBase.FindAsReadOnly(NewEntry.m_Entry.m_FullGuid.m_Type, [&]( const std::unique_ptr<library_db::info_db>& InfoDB )
+                    {
+                        if ( InfoDB->m_InfoDataBase.FindAsWrite(NewEntry.m_Entry.m_FullGuid.m_Instance, [&](library_db::info_node& Node )
+                        {
+                            if (static_cast<std::uint8_t>(Node.m_State) & 1) Node.m_State = Result == compilation::historical_entry::result::FAILURE ? library_db::info_node::state::BEEN_EDITED_ERRORS : library_db::info_node::state::BEEN_EDITED;
+                            else                                             Node.m_State = Result == compilation::historical_entry::result::FAILURE ? library_db::info_node::state::ERRORS : library_db::info_node::state::IDLE;
+
+                            if (Result != compilation::historical_entry::result::FAILURE)
+                            {
+                                // Update the basic dates
+                                // Get the relative path of the resource from the descriptor
+                                std::error_code     Ec                  = {};
+                                auto                ResourceSubPath     = std::wstring_view(Node.m_Path.data() + 1 + LibMgr.m_ProjectPath.length() + sizeof("Descriptors"), Node.m_Path.find_last_of(L'\\') - sizeof("Descriptors\\.desc") - LibMgr.m_ProjectPath.length());
+                                const std::wstring  ResourcePath        = std::format(L"{}\\Cache//Resources\\Platforms\\WINDOWS\\{}", LibMgr.m_ProjectPath, ResourceSubPath);
+                                const std::wstring  DescriptorPath      = std::wstring{ Node.m_Path.substr(0, Node.m_Path.find_last_of(L'\\') + 1) } + L"Descriptor.txt";
+                                const std::wstring  DependencyPath      = std::format(L"{}/Cache/Resources/Logs/{}.log/dependencies.txt", LibMgr.m_ProjectPath, ResourceSubPath);
+                                const bool          bInfoFileExists     = std::filesystem::exists(Node.m_Path, Ec) ? !Ec : false;
+
+                                Node.m_bHasDescriptor       = std::filesystem::exists(DescriptorPath, Ec) ? !Ec : false;
+                                Node.m_bHasResource         = std::filesystem::exists(ResourcePath, Ec) ? !Ec : false;
+                                Node.m_bHasDependencies     = Node.m_bHasResource && std::filesystem::exists(DependencyPath, Ec) ? !Ec : false;
+                                Node.m_DescriptorTime       = Node.m_bHasDescriptor ? std::filesystem::last_write_time(DescriptorPath) : std::filesystem::file_time_type{};
+                                Node.m_InfoTime             = bInfoFileExists ? std::filesystem::last_write_time(Node.m_Path) : std::filesystem::file_time_type{};
+                                Node.m_ResourceTime         = Node.m_bHasResource ? std::filesystem::last_write_time(ResourcePath) : std::filesystem::file_time_type{};
+
+                                //TODO: Update the dependencies of the info just in case they have changed....
+                                if (Node.m_bHasDependencies)
+                                {
+                                    xproperty::settings::context        Context;
+                                    xresource_pipeline::dependencies    Dependencies;
+
+                                    if (auto Err = Dependencies.Serialize(true, DependencyPath, Context); Err)
+                                    {
+                                        //std::lock_guard Lk(m_lErrors);
+                                        //m_lErrors.get().push_back(std::format(L"Fail to read the dependency file [{}] with error[{}]", DependencyPath.data(), strXstr(Err.getCode().m_pString).c_str()));
+                                        //bDependencyExists = false;
+                                        Node.m_bHasDependencies = false;
+                                    }
+                                    else
+                                    {
+                                        // Check to see if there is entries in our dependency list that we no longer care about
+                                        for (auto& E : Node.m_Dependencies.m_Assets)
+                                        {
+                                            // Do we still have this old dependency? If not we need to remove it!
+                                            if (auto it = std::find(Dependencies.m_Assets.begin(), Dependencies.m_Assets.end(), E); it == Dependencies.m_Assets.end())
+                                            {
+                                                // We no longer has this dependency
+                                                bool bRemoveEntry = false;
+                                                if( false == LibraryDB->m_AssetDataBase.FindAsWrite( E, [&](library_db::asset& Asset)
+                                                {
+                                                    // Remove our reference
+                                                    for ( auto& G : Asset.m_lChildLinks )
+                                                    {
+                                                        if ( G == Node.m_Info.m_Guid )
+                                                        {
+                                                            // Remove Entry Here
+                                                            Asset.m_lChildLinks.erase(Asset.m_lChildLinks.begin() + static_cast<int>(&G - Asset.m_lChildLinks.data() ));
+                                                            break;
+                                                        }
+                                                    }
+
+                                                    // if there are not more entries we should delete ours
+                                                    if (Asset.m_lChildLinks.empty())
+                                                    {
+                                                        bRemoveEntry = true;
+                                                    }
+                                                }))
+                                                {
+                                                    // we should always find our entry...
+                                                    assert(false);
+                                                }
+
+                                                if (bRemoveEntry)
+                                                {
+                                                    //NOTE: There is a race condition here... From the moment we removed our entry someone else could have added a new one...
+                                                    LibraryDB->m_AssetDataBase.FindForDelete(E, [&](library_db::asset&){} );
+                                                }
+                                            }
+                                            else
+                                            {
+                                                // We still have the same asset
+                                                int a = 0;
+                                            }
+                                        }
+
+                                        // See if there are new dependencies that we now care about...
+                                        for (auto& E : Dependencies.m_Assets)
+                                        {
+                                            // Is this a new dependency for us?
+                                            if (auto it = std::find(Node.m_Dependencies.m_Assets.begin(), Node.m_Dependencies.m_Assets.end(), E); it == Node.m_Dependencies.m_Assets.end())
+                                            {
+                                                LibraryDB->m_AssetDataBase.FindAsWriteOrCreate
+                                                ( E
+                                                , [&](library_db::asset& Asset)
+                                                {
+                                                    Asset.m_Path          = E;
+                                                    Asset.m_LastWriteTime = std::filesystem::last_write_time( std::format( L"{}//{}", LibraryDB->m_Library.m_Path, Asset.m_Path) );
+                                                }
+                                                , [&](library_db::asset& Asset)
+                                                {
+                                                    Asset.m_lChildLinks.push_back(Node.m_Info.m_Guid);
+                                                }
+                                                );
+                                            }
+                                            else
+                                            {
+                                                // We still have this asset
+                                                int a = 0;
+                                            }
+                                        }
+
+                                        //TODO: We should check more types of dependencies...
+
+                                        // Set the new dependencies
+                                        Node.m_Dependencies = std::move(Dependencies);
+                                    }
+                                }
+
+                                //
+                                // Check and see if this entry needs to be recompile for some reason...
+                                //
+                                if ( LibraryDB->AddToCompilationQueueIfNeeded(*InfoDB, Node) == false )
+                                {
+                                    LibMgr.m_OnCompilationState.NotifyAll( LibMgr, LibraryDB->m_Library.m_GUID, Node.m_Info.m_Guid, NewEntry.m_Log);
+                                }
+                            }
+                            else
+                            {
+                                // Fail to compile... nonetheless is the end of the compilation process...
+                                LibMgr.m_OnCompilationState.NotifyAll(LibMgr, LibraryDB->m_Library.m_GUID, Node.m_Info.m_Guid, NewEntry.m_Log);
+                            }
+                        }))
+                        {
+                            //TODO: ERROR unable to find the library
+                        }
+                    }))
+                    {
+                        //TODO: ERROR unable to find the library
+                    }
+                }))
+                {
+                    //TODO: ERROR unable to find the library
+                }
+            }
+        }
+
+        // Say good bye to the worker
+        --Compilation.m_WorkersWorking;
+    }
+
+    //------------------------------------------------------------------------------------------------
+
+    int library_db::getQueueIndexFromType(xresource::type_guid Type) const
+    {
+        if ( auto pPlugin = m_CompilationInstance.m_LibraryMgr.m_AssetPluginsDB.find(Type); pPlugin)
+            return pPlugin->m_RunGroupIndex;
+
+        assert(false);
+        return 0;
+    }
+
+
+    //------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------
 
     inline library_mgr g_LibMgr;
 }

@@ -1,5 +1,4 @@
 ﻿#include "dependencies/xproperty/source/xcore/my_properties.h"
-#include "dependencies/xproperty/source/xcore/my_properties.cpp"
 #include "dependencies/xstrtool/source/xstrtool.h"
 
 #include "source/Examples/E05_Textures/E05_BitmapInspector.h"
@@ -24,13 +23,18 @@
 
 #include "Plugins/xmaterial_instance.plugin/source/xmaterial_intance_descriptor.h"
 #include "Plugins/xmaterial_instance.plugin/source/xmaterial_instance_xgpu_rsc_loader.h"
-#include "Plugins/xmaterial_instance.plugin/source/xmaterial_instance_xgpu_rsc_loader.cpp"
+#include "Plugins/xmaterial_instance.plugin/source/xmaterial_instance_runtime.h"
 
 #include "../E19_MaterialEditor/E19_mesh_manager.h"
 
+#include "plugins/xgeom_static.plugin/source/xgeom_static_details.h"
+#include "plugins/xgeom_static.plugin/source/xgeom_static_descriptor.h"
+#include "plugins/xgeom_static.plugin/source/xgeom_static_xgpu_rsc_loader.h"
+#include "plugins/xgeom_static.plugin/source/xgeom_static_xgpu_rsc_loader.cpp"
+
 //-----------------------------------------------------------------------------------
 
-namespace e20
+namespace e21
 {
     static int                  g_SelectedTexture = 0;
     constexpr auto              g_2DVertShader = std::array
@@ -41,6 +45,27 @@ namespace e20
     {
         #include "draw_frag.h"
     };
+
+    constexpr auto              g_GeomStaticFragShader = std::array
+    {
+        #include "GeomStaticBasicShader_frag.h"
+    };
+
+    constexpr static std::uint32_t g_GeomStaticVertShader[] =
+    {
+        #include "GeomStaticBasicShader_vert.h"
+    };
+
+    constexpr static std::uint32_t g_GridVertShader[] = 
+    {
+        #include "GridShader_vert.h"
+    };
+
+    constexpr static std::uint32_t g_GridFragShader[] =
+    {
+        #include "GridShader_frag.h"
+    };
+
 
     static void Debugger(std::string_view view)
     {
@@ -74,7 +99,7 @@ namespace e20
     }
 }
 
-namespace e20
+namespace e21
 {
     void MeshPreviewStyle(void)
     {
@@ -147,6 +172,7 @@ namespace e20
             }
         }
 
+        xrsc::geom_static                                           m_GeomRef               = {};
         xrsc::material_instance_ref                                 m_MaterialInstanceRef   = {};
         e10::library::guid                                          m_LibraryGUID           = {};
         xresource::full_guid                                        m_InfoGUID              = {};
@@ -159,8 +185,21 @@ namespace e20
         bool                                                        m_bErrors               = {};
     };
 
-    void PipelineReload( xgpu::device& Device, xgpu::vertex_descriptor& vd, xgpu::pipeline& material, xgpu::pipeline_instance& materialInst, selected_descriptor& SelcDesc, xresource::mgr& Mgr )
+    void PipelineReload( xgpu::device& Device, xgpu::pipeline& material, xgpu::pipeline_instance& materialInst, selected_descriptor& SelcDesc, xresource::mgr& Mgr )
     {
+        Mgr.ReleaseRef(SelcDesc.m_GeomRef);
+        SelcDesc.m_GeomRef.m_Instance = SelcDesc.m_InfoGUID.m_Instance;
+        if (auto pGeomStatic = Mgr.getResource(SelcDesc.m_GeomRef); pGeomStatic)
+        {
+            int a = 0;
+
+        }
+        else
+        {
+            assert(false);
+        }
+
+        /*
         //destroy old pipeline and pipeline instance
         //after compile a few time will cause error hence need to call destroy 
         Device.Destroy(std::move(material));
@@ -203,7 +242,7 @@ namespace e20
                 auto Setup    = xgpu::pipeline::setup
                 { .m_VertexDescriptor  = vd
                 , .m_Shaders           = Shaders
-                , .m_PushConstantsSize = sizeof(e20::push_constants)
+                , .m_PushConstantsSize = sizeof(e21::push_constants)
                 , .m_Samplers          = SL
                 };
 
@@ -244,6 +283,7 @@ namespace e20
                 }
             }
         }
+        */
     }
 
     void RemapGUIDToString(std::string& Name, const xresource::full_guid& PreFullGuid)
@@ -563,7 +603,7 @@ namespace e20
         if (auto Err = xgpu::tools::bitmap::Create(*Texture, Device, Bitmap); Err)
         {
             assert(false);
-            e20::Debugger(xgpu::getErrorMsg(Err));
+            e21::Debugger(xgpu::getErrorMsg(Err));
             std::exit(xgpu::getErrorInt(Err));
         }
 
@@ -574,11 +614,11 @@ namespace e20
     }
 }
 
-int E20_Example()
+int E21_Example()
 {
     //create vulkan instance
     xgpu::instance Instance;
-    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = e20::Debugger }); Err)
+    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = e21::Debugger }); Err)
         return xgpu::getErrorInt(Err);
 
     //create device
@@ -590,10 +630,28 @@ int E20_Example()
     xgpu::window MainWindow;
     if (auto Err = Device.Create(MainWindow, {}); Err)
         return xgpu::getErrorInt(Err);
+
+
     //
     //setup vertex descriptor for mesh
     //
-    xgpu::vertex_descriptor VertexDescriptor;
+    struct push_constants3D
+    {
+        xmath::fvec4  m_posScaleAndUScale;         // .xyz = position scale, .w = U scale
+        xmath::fvec4  m_posTranslationAndVScale;   // .xyz = position translation, .w = V scale
+        xmath::fvec2  m_uvTranslation;             // .xy = UV translation
+        xmath::fmat4  m_L2w;
+        xmath::fmat4  m_w2C;
+        xmath::fvec4  m_LightColor;
+        xmath::fvec4  m_AmbientLightColor;
+        xmath::fvec4  m_wSpaceLightPos;
+        xmath::fvec4  m_wSpaceEyePos;
+    };
+
+    //
+    //setup vertex descriptor for mesh
+    //
+    xgpu::vertex_descriptor Primitive3DVertexDescriptor;
     {
         auto Attributes = std::array
         { xgpu::vertex_descriptor::attribute
@@ -614,10 +672,148 @@ int E20_Example()
         , .m_Attributes = Attributes
         };
 
-        if (auto Err = Device.Create(VertexDescriptor, Setup); Err)
+        if (auto Err = Device.Create(Primitive3DVertexDescriptor, Setup); Err)
             return xgpu::getErrorInt(Err);
     }
-    
+
+    //
+    // Material for primitives
+    //
+    struct grid_push_constants
+    {
+        xmath::fmat4    m_L2W;                                                              // Identity matrix for local-to-world
+        xmath::fmat4    m_W2C;                                                              // Identity matrix for world-to-clip (adjust based on camera projection)
+        xmath::fvec3d   m_WorldSpaceCameraPos   = xmath::fvec3(0.0f, 10.0f, 0.0f);          // Typical overhead camera position
+        float           m_MajorGridDiv          = 10.0f;                                    // 10 major divisions
+    };
+
+    xgpu::pipeline          Grid3dMaterial;
+    xgpu::pipeline_instance Grid3dMaterialInstance;
+    {
+        xgpu::shader VertexShader;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type   = xgpu::shader::type::bit::VERTEX
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e21::g_GridVertShader, sizeof(e21::g_GridVertShader) / sizeof(int)}}
+            };
+            if (auto Err = Device.Create(VertexShader, Setup); Err)
+            {
+                assert(false);
+                exit(xgpu::getErrorInt(Err));
+            }
+        }
+
+        xgpu::shader FragShader;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type   = xgpu::shader::type::bit::FRAGMENT
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e21::g_GridFragShader, sizeof(e21::g_GridFragShader) / sizeof(int)}}
+            };
+            if (auto Err = Device.Create(FragShader, Setup); Err)
+            {
+                assert(false);
+                exit(xgpu::getErrorInt(Err));
+            }
+        }
+
+        auto Shaders    = std::array<const xgpu::shader*, 2>{ &FragShader, &VertexShader };
+        auto Setup      = xgpu::pipeline::setup
+        { .m_VertexDescriptor   = Primitive3DVertexDescriptor
+        , .m_Shaders            = Shaders
+        , .m_PushConstantsSize  = sizeof(grid_push_constants)
+        , .m_Blend              = xgpu::pipeline::blend::getAlphaOriginal()
+        };
+
+        if (auto Err = Device.Create(Grid3dMaterial, Setup); Err)
+        {
+            assert(false);
+            exit(xgpu::getErrorInt(Err));
+        }
+
+        auto setup      = xgpu::pipeline_instance::setup
+        { .m_PipeLine           = Grid3dMaterial
+        };
+
+        if (auto Err = Device.Create(Grid3dMaterialInstance, setup); Err)
+        {
+            e21::Debugger(xgpu::getErrorMsg(Err));
+            assert(false);
+            std::exit(xgpu::getErrorInt(Err));
+        }
+    }
+
+
+    xgpu::pipeline Pipeline3D;
+    {
+        //
+        // These registration should be factor-out
+        // 
+        xgpu::vertex_descriptor GeomStaticVertexDescriptor;
+        {
+            auto Attributes = std::array
+            {
+                xgpu::vertex_descriptor::attribute
+                { .m_Offset  = offsetof(xgeom_static::geom::vertex, m_XPos)
+                , .m_Format  = xgpu::vertex_descriptor::format::SINT16_4D           // Position + extras
+                , .m_iStream = 0
+                }
+                , xgpu::vertex_descriptor::attribute
+                { .m_Offset  = offsetof(xgeom_static::geom::vertex_extras, m_UV)
+                , .m_Format  = xgpu::vertex_descriptor::format::UINT16_2D           // UV
+                , .m_iStream = 1
+                }
+                , xgpu::vertex_descriptor::attribute
+                { .m_Offset  = offsetof(xgeom_static::geom::vertex_extras, m_OctNormal)
+                , .m_Format  = xgpu::vertex_descriptor::format::UINT8_4D           // oct normal + tangent
+                , .m_iStream = 1
+                }
+            };
+            if (auto Err = Device.Create(GeomStaticVertexDescriptor
+            , xgpu::vertex_descriptor::setup
+            { .m_bUseStreaming  = true
+            , .m_Topology       = xgpu::vertex_descriptor::topology::TRIANGLE_LIST
+            , .m_VertexSize     = 0
+            , .m_Attributes     = Attributes
+            }); Err )
+            {
+                assert(false);
+            }
+        }
+
+        xgpu::shader FragmentShader3D;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type   = xgpu::shader::type::bit::FRAGMENT
+            , .m_Sharer = xgpu::shader::setup::raw_data{e21::g_GeomStaticFragShader }
+            };
+            if (auto Err = Device.Create(FragmentShader3D, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        xgpu::shader VertexShader3D;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type   = xgpu::shader::type::bit::VERTEX
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e21::g_GeomStaticVertShader, sizeof(e21::g_GeomStaticVertShader) / sizeof(int)}}
+            };
+
+            if (auto Err = Device.Create(VertexShader3D, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        auto Shaders    = std::array<const xgpu::shader*, 2>{ &FragmentShader3D, &VertexShader3D };
+        auto Samplers   = std::array{ xgpu::pipeline::sampler{} };
+        auto Setup      = xgpu::pipeline::setup
+        { .m_VertexDescriptor   = GeomStaticVertexDescriptor
+        , .m_Shaders            = Shaders
+        , .m_PushConstantsSize  = sizeof(push_constants3D)
+        , .m_Samplers           = Samplers
+        };
+
+        if (auto Err = Device.Create(Pipeline3D, Setup); Err)
+            return xgpu::getErrorInt(Err);
+    }
+
     //
     //setup 2D vertex descriptor for background
     //
@@ -653,7 +849,7 @@ int E20_Example()
         {
             xgpu::shader::setup Setup
             { .m_Type   = xgpu::shader::type::bit::FRAGMENT
-            , .m_Sharer = xgpu::shader::setup::raw_data{ e20::g_2DFragShader }
+            , .m_Sharer = xgpu::shader::setup::raw_data{ e21::g_2DFragShader }
             };
             if (auto Err = Device.Create(FragmentShader2D, Setup); Err)
                 return xgpu::getErrorInt(Err);
@@ -663,7 +859,7 @@ int E20_Example()
         {
             xgpu::shader::setup Setup
             { .m_Type   = xgpu::shader::type::bit::VERTEX
-            , .m_Sharer = xgpu::shader::setup::raw_data{e20::g_2DVertShader}
+            , .m_Sharer = xgpu::shader::setup::raw_data{e21::g_2DVertShader}
             };
 
             if (auto Err = Device.Create(VertexShader2D, Setup); Err)
@@ -675,7 +871,7 @@ int E20_Example()
         auto Setup      = xgpu::pipeline::setup
         { .m_VertexDescriptor     = VertexDescriptor2D
         , .m_Shaders              = Shaders
-        , .m_PushConstantsSize    = sizeof(e20::push_const2D)
+        , .m_PushConstantsSize    = sizeof(e21::push_const2D)
         , .m_Samplers             = Samplers
         , .m_DepthStencil         = {.m_bDepthTestEnable = false }
         };
@@ -690,9 +886,10 @@ int E20_Example()
     resource_mgr_user_data  ResourceMgrUserData;
     xresource::g_Mgr.Initiallize();
     xmaterial_instance::descriptor Descriptor;
+    xgeom_static::details           GeomStaticDetails;
 
     e10::assert_browser         AsserBrowser;
-    e20::selected_descriptor    SelectedDescriptor;
+    e21::selected_descriptor    SelectedDescriptor;
     auto                        CallBackForCompilation = [&](e10::library_mgr& LibMgr, e10::library::guid gLibrary, xresource::full_guid gCompilingEntry, std::shared_ptr<e10::compilation::historical_entry::log>& LogInformation)
     {
         // Filter by our entry...
@@ -752,7 +949,7 @@ int E20_Example()
             //
             if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
             {
-                e20::Debugger(Err.getMessage());
+                e21::Debugger(Err.getMessage());
                 return 1;
             }
 
@@ -780,10 +977,9 @@ int E20_Example()
     //
     // Create Background material
     //
-
-    xrsc::texture_ref BgTexture = e20::CreateBackgroundTexture(Device, xbitmap::getDefaultBitmap());
     xgpu::pipeline_instance BackGroundMaterialInstance;
-    if( auto p = xresource::g_Mgr.getResource(BgTexture); p )
+    xrsc::texture_ref       DefaultTextureRef = e21::CreateBackgroundTexture(Device, xbitmap::getDefaultBitmap());
+    if( auto p = xresource::g_Mgr.getResource(DefaultTextureRef); p )
     {
         auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{*p} };
         auto setup = xgpu::pipeline_instance::setup
@@ -794,11 +990,34 @@ int E20_Example()
 
         if (auto Err = Device.Create(BackGroundMaterialInstance, setup); Err)
         {
-            e20::Debugger(xgpu::getErrorMsg(Err));
+            e21::Debugger(xgpu::getErrorMsg(Err));
             assert(false);
             std::exit(xgpu::getErrorInt(Err));
         }
     }
+
+
+    xgpu::pipeline_instance     Mesh3D_Mat_instance = {};
+    if (auto p = xresource::g_Mgr.getResource(DefaultTextureRef); p)
+    {
+        if ( auto pGeom = xresource::g_Mgr.getResource(SelectedDescriptor.m_GeomRef); pGeom )
+        {
+            auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{*p} };
+            auto setup    = xgpu::pipeline_instance::setup
+            {
+                .m_PipeLine                 = Pipeline3D
+            ,	.m_SamplersBindings         = Bindings
+            };
+
+            if (auto Err = Device.Create(Mesh3D_Mat_instance, setup); Err)
+            {
+                e21::Debugger(xgpu::getErrorMsg(Err));
+                assert(false);
+                std::exit(xgpu::getErrorInt(Err));
+            }
+        }
+    }
+
 
     //
     // setup Imgui interface
@@ -808,6 +1027,8 @@ int E20_Example()
     xgpu::tools::view   View        = {};
     xmath::radian3      Angles      = {};
     float               Distance    = 2;
+    xmath::fvec3        CameraTarget(0, 0, 0);
+
 
     View.setFov(60_xdeg);
 
@@ -822,16 +1043,19 @@ int E20_Example()
     //
     // Create the inspector window
     //
-    e20::texture_cache_rlu TextureLRU( 100, [&](const xresource::full_guid&, xrsc::texture_ref& Ref)
+    e21::texture_cache_rlu TextureLRU( 100, [&](const xresource::full_guid&, xrsc::texture_ref& Ref)
     {
         xresource::g_Mgr.ReleaseRef(Ref);
     });
 
-    xproperty::inspector    Inspector("Material Instance Properties");
+    xproperty::inspector    Inspector("Static Geom Properties");
     auto                    RenderResourceWigzmosCallBack = [&TextureLRU](xproperty::inspector&, bool& bOpen, const xresource::full_guid& PreFullGuid) { RenderResourceWigzmos(TextureLRU, bOpen, PreFullGuid); };
     Inspector.m_OnResourceWigzmos.m_Delegates.clear();
     Inspector.m_OnResourceBrowser.m_Delegates.clear();
     Inspector.m_OnResourceLeftSize.m_Delegates.clear();
+
+    xproperty::inspector    InspectorDetails("Static Geom Details");
+    
 
     auto CallbackWhenPropsChanges = [&](xproperty::inspector& Inspector, const xproperty::ui::undo::cmd& Cmd)
     {
@@ -861,7 +1085,14 @@ int E20_Example()
                 else
                 {
                     xmaterial_instance::descriptor* pDesc = static_cast<xmaterial_instance::descriptor*>(Pair.second);
-                    pDesc->setupDefaults();
+                    pDesc->m_lTextures.resize(pDesc->m_lTextureDefaults.size());
+
+                    // set all the textures to the default values
+                    int Index=0;
+                    for( auto& E : pDesc->m_lTextureDefaults )
+                    {
+                        pDesc->m_lTextures[Index++] = pDesc->m_lFinalTextures[ E.m_Index ].m_TextureRef;
+                    }
                 }
             }
         }
@@ -870,7 +1101,7 @@ int E20_Example()
     Inspector.m_OnResourceWigzmos.Register(RenderResourceWigzmosCallBack);
     Inspector.m_OnResourceBrowser.Register<[](xproperty::inspector&, const void* pUID, bool& bOpen, xresource::full_guid& Out, std::span<const xresource::type_guid> Filters)
     {
-        e20::ResourceBrowserPopup(pUID, bOpen, Out, Filters);
+        e21::ResourceBrowserPopup(pUID, bOpen, Out, Filters);
     }>();
     Inspector.m_OnResourceLeftSize.Register<[](xproperty::inspector& Inspector, void* pID, ImGuiTreeNodeFlags flags, const char* pName, bool& Open)
     {
@@ -881,62 +1112,42 @@ int E20_Example()
         // Get the bounding box of the last item (the tree node)
         ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0.2f));
 
-        bool bOverride = false;
-        int Index;
-        auto                            Pair = Inspector.getComponent(0, 0);
-
         std::string NewName;
         if (pName[0] == '[')
         {
-            auto                            View    = std::string_view(pName);
-            xmaterial_instance::descriptor* pDesc   = static_cast<xmaterial_instance::descriptor*>(Pair.second);
+            auto Pair    = Inspector.getComponent(0, 0);
+            auto View    = std::string_view(pName);
+            auto pDesc   = static_cast<xgeom_static::descriptor*>(Pair.second);
 
             // Change the name to point to the texture...
-            if (not pDesc->m_lTextureDefaults.empty())
+            if (not pDesc->m_MaterialInstNamesList.empty())
             {
                 // Remove the [ and ]
                 View = View.substr(1, View.size() - 2);
 
                 // get index
+                int Index;
                 auto result = std::from_chars(View.data(), View.data() + View.size(), Index);
                 assert(result.ec == std::errc());
 
-                NewName = std::format("{} {}", pName, pDesc->m_lTextureDefaults[Index].m_Name);
+                NewName = std::format("{} {}", pName, pDesc->m_MaterialInstNamesList[Index]);
                 pName = NewName.c_str();
-
-                bOverride = pDesc->m_lFinalTextures[pDesc->m_lTextureDefaults[Index].m_Index].m_TextureRef != pDesc->m_lTextures[Index];
             }
         }
 
-        if (bOverride) 
-        {
-            ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(170, 170, 255, 255));
-
-            if (ImGui::Button(">"))
-            {
-                xmaterial_instance::descriptor* pDesc = static_cast<xmaterial_instance::descriptor*>(Pair.second);
-                pDesc->m_lTextures[Index] = pDesc->m_lFinalTextures[pDesc->m_lTextureDefaults[Index].m_Index].m_TextureRef;
-            }
-
-            ImGui::SameLine();
-        }
         if (pID)
         {
-            if (bOverride) Open = ImGui::TreeNodeEx(pID, ImGuiTreeNodeFlags_Framed | flags, " %s", pName);
-            else           Open = ImGui::TreeNodeEx(pID, ImGuiTreeNodeFlags_Framed | flags, "  %s", pName);
+            Open = ImGui::TreeNodeEx(pID, ImGuiTreeNodeFlags_Framed | flags, "  %s", pName);
         }
         else
         {
             Open = ImGui::TreeNodeEx(pName, flags);
         }
-        if (bOverride) 
-        {
-            ImGui::PopStyleColor();
-        }
 
         ImGui::PopStyleColor();
         ImGui::PopStyleVar();
     }>();
+
 
     //
     // Main Loop
@@ -980,7 +1191,7 @@ int E20_Example()
 
             ImGui::SameLine(410);
 
-            if (false == SelectedDescriptor.m_InfoGUID.empty() /*&& g.m_InstanceNodes.empty() == false*/ )
+            if (false == SelectedDescriptor.m_InfoGUID.empty() )
             {
                 ImGui::Separator();
                 xcontainer::lock::scope lk(*SelectedDescriptor.m_Log);
@@ -1056,6 +1267,8 @@ int E20_Example()
                                 ImGui::TextUnformatted(std::string(line).c_str());
                             }
 
+                            printf("%s", std::string(line).c_str() );
+
                             start = end + 1;
                         }
                     }
@@ -1080,7 +1293,132 @@ int E20_Example()
         if (SelectedDescriptor.m_bReload)
         {
             SelectedDescriptor.m_bReload = false;
-            PipelineReload( Device, VertexDescriptor, material, material_instance, SelectedDescriptor, xresource::g_Mgr);
+            PipelineReload( Device, material, material_instance, SelectedDescriptor, xresource::g_Mgr);
+
+            // Destory the current Mat Instance
+            if (Mesh3D_Mat_instance.m_Private) Device.Destroy( std::move(Mesh3D_Mat_instance));
+
+            // Recreate it here
+            if (auto p = xresource::g_Mgr.getResource(DefaultTextureRef); p)
+            {
+                if (auto pGeom = xresource::g_Mgr.getResource(SelectedDescriptor.m_GeomRef); pGeom)
+                {
+                    auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{*p} };
+                    auto setup = xgpu::pipeline_instance::setup
+                    { .m_PipeLine               = Pipeline3D
+                    , .m_SamplersBindings       = Bindings
+                    };
+
+                    if (auto Err = Device.Create(Mesh3D_Mat_instance, setup); Err)
+                    {
+                        e21::Debugger(xgpu::getErrorMsg(Err));
+                        assert(false);
+                        std::exit(xgpu::getErrorInt(Err));
+                    }
+                }
+            }
+
+            {
+                std::wstring DetailsFilePath = std::format(L"{}//Details.txt", SelectedDescriptor.m_LogPath);
+
+                if (std::filesystem::exists(SelectedDescriptor.m_DescriptorPath))
+                {
+                    xtextfile::stream File;
+                    if (auto Err = File.Open(true, DetailsFilePath, {}); Err)
+                    {
+                        printf("Error Loading the details file...");
+                    }
+                    else
+                    {
+                        xproperty::settings::context Context;
+                        if (auto Err = xproperty::sprop::serializer::Stream(File, GeomStaticDetails, Context); Err)
+                        {
+                            printf("Error Loading the details file...");
+                        }
+                        else
+                        {
+                            auto pDesc = static_cast<xgeom_static::descriptor*>(SelectedDescriptor.m_pDescriptor.get());
+
+                            //
+                            // Update the mesh list to make sure it matches with details (latest info)
+                            //
+
+                            // First remove any meshes not longer found in details from the descriptor
+                            pDesc->m_MeshList.erase
+                            (
+                                std::remove_if
+                                (
+                                    pDesc->m_MeshList.begin(), pDesc->m_MeshList.end()
+                                    , [&](const auto& Mesh)
+                                    {
+                                        return GeomStaticDetails.findMesh(Mesh.m_OriginalName) == -1;
+                                    }
+                                )
+                                ,pDesc->m_MeshList.end()
+                            );
+
+                            // Add all new meshes from the details into the descriptor
+                            for ( auto& E : GeomStaticDetails.m_Meshes )
+                            {
+                                if ( auto Index = pDesc->findMesh(E.m_Name); Index == -1 )
+                                {
+                                    auto& Mesh = pDesc->m_MeshList.emplace_back();
+                                    Mesh.m_OriginalName = E.m_Name;
+                                }
+                            }
+
+                            // Update general information about the meshes from the details
+                            for (auto& E : GeomStaticDetails.m_Meshes)
+                            {
+                                auto Index = pDesc->findMesh(E.m_Name);
+                                assert(Index != -1);
+
+                                auto& Mesh = pDesc->m_MeshList[Index];
+                                Mesh.m_MaterialList = E.m_MaterialList;
+                            }
+
+                            pDesc->m_MeshNoncollapseVisibleList.clear();
+                            for (auto& E : pDesc->m_MeshList)
+                            {
+                                if (E.m_bMerge == false) pDesc->m_MeshNoncollapseVisibleList.push_back(&E);
+                            }
+
+                            //
+                            // Check if it should have the merge mesh or not
+                            //
+                            if (pDesc->m_bMergeMeshes && pDesc->hasMergedMesh() == false)
+                            {
+                                pDesc->AddMergedMesh();
+                            }
+
+                            //
+                            // Update the materials if we have to...
+                            //
+
+                            // First remove any materials no longer in used
+                            for ( int i=0; i< pDesc->m_MaterialInstNamesList.size(); ++i)
+                            {
+                                if (GeomStaticDetails.findMaterial(pDesc->m_MaterialInstNamesList[i]) == -1)
+                                {
+                                    pDesc->m_MaterialInstNamesList.erase(pDesc->m_MaterialInstNamesList.begin() + i);
+                                    pDesc->m_MaterialInstRefList.erase(pDesc->m_MaterialInstRefList.begin() + i);
+                                    --i;
+                                }
+                            }
+
+                            // Add all new Materials if we have to...
+                            for (auto& E : GeomStaticDetails.m_MaterialList)
+                            {
+                                if (auto Index = pDesc->findMaterial(E); Index == -1)
+                                {
+                                    pDesc->m_MaterialInstNamesList.emplace_back(E);
+                                    pDesc->m_MaterialInstRefList.emplace_back();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         //
@@ -1097,7 +1435,7 @@ int E20_Example()
                 auto CmdBufferRef = MainWindow.getCmdBuffer();
 
                 {
-                    e20::push_const2D pc;
+                    e21::push_const2D pc;
                     pc.m_Scale =
                     { (150 * 2.0f) / windowSize.x
                     , (150 * 2.0f) / windowSize.y
@@ -1123,14 +1461,30 @@ int E20_Example()
                     Angles.m_Yaw.m_Value   -= 0.01f * MousePos[0];
                 }
 
+                if (Mouse.isPressed(xgpu::mouse::digital::BTN_MIDDLE))
+                {
+                    auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
+                    CameraTarget += View.getWorldYVector() * (0.005f * MousePos[1]);
+                    CameraTarget += View.getWorldXVector() * (0.005f * MousePos[0]);
+                }
+
+                Distance += Distance * -0.2f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
+                if (Distance < 0.5f)
+                {
+                    CameraTarget += View.getWorldZVector() * (0.5f * (0.5f - Distance));
+                    Distance = 0.5f;
+                }
+
+
+
                 // zoom
-                Distance += Distance * -0.02f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
+                //Distance += Distance * -0.02f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
             }
 
             //
             // Render mesh
             //
-            if (material_instance.m_Private) xgpu::tools::imgui::AddCustomRenderCallback([&](const ImVec2& windowPos, const ImVec2& windowSize)
+            if (Mesh3D_Mat_instance.m_Private) xgpu::tools::imgui::AddCustomRenderCallback([&](const ImVec2& windowPos, const ImVec2& windowSize)
             {
                 auto CmdBufferRef = MainWindow.getCmdBuffer();
 
@@ -1149,17 +1503,49 @@ int E20_Example()
                 const float distance        = radius / std::tan(min_fov / 2.0f);
 
                 // Update the camera
-                View.LookAt(Distance + distance - 1, Angles, { 0,0,0 });
+                //View.LookAt(Distance + distance - 1, Angles, { 0,0,0 });
+                View.LookAt(Distance, Angles, CameraTarget);
 
-                e20::push_constants pushConst;
-                pushConst.m_L2C = (View.getW2C() * xmath::fmat4::fromScale({ 2.f }));
+                push_constants3D PushConst;
+
+                PushConst.m_L2w = xmath::fmat4::fromTranslation(-View.getPosition()) * xmath::fmat4::fromTranslation({0, 0, 0});
+                PushConst.m_w2C = View.getW2C() * xmath::fmat4::fromTranslation(View.getPosition());
 
                 // Set pipeline and push constants
-                CmdBufferRef.setPipelineInstance(material_instance);
-                CmdBufferRef.setPushConstants(pushConst);
+                CmdBufferRef.setPipelineInstance(Mesh3D_Mat_instance);
 
+
+                float maxY;
                 // Render the mesh
-                MeshManager.Rendering(CmdBufferRef, CurrentModel);
+                if ( auto p = xresource::g_Mgr.getResource(SelectedDescriptor.m_GeomRef); p )
+                {
+                    CmdBufferRef.setStreamingBuffers({&p->IndexBuffer(),3});
+
+                    maxY = p->m_BBox.m_Min.m_Y;
+                    for ( auto& E : p->getClusters() )
+                    {
+                        std::memcpy( &PushConst.m_posScaleAndUScale, &E.m_PosScaleAndUScale, sizeof(xmath::fvec4)*2 + sizeof(xmath::fvec2));
+                        CmdBufferRef.setPushConstants(PushConst);
+
+                        CmdBufferRef.Draw(E.m_nIndices, E.m_iIndex, E.m_iVertex);
+                    }
+                }
+
+
+                //
+                // Render plane
+                //
+                {
+                    CmdBufferRef.setPipelineInstance(Grid3dMaterialInstance);
+                    grid_push_constants Push;
+
+                    Push.m_WorldSpaceCameraPos  = View.getPosition();
+                    Push.m_L2W                  = xmath::fmat4( xmath::fvec3(1000.f, 1000.0f, 1.f), xmath::radian3( -90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(Push.m_WorldSpaceCameraPos.m_X, maxY, Push.m_WorldSpaceCameraPos.m_Y));
+                    Push.m_W2C                  = View.getW2C();
+                    CmdBufferRef.setPushConstants(Push);
+                    MeshManager.Rendering(CmdBufferRef, e19::mesh_manager::model::PLANE3D);
+                }
+
             });
 
             //
@@ -1167,7 +1553,7 @@ int E20_Example()
             //
             static int selected = 0;
             const char* meshSelection[] = { "Cube", "Sphere","Capsule","Cylinder" };
-            e20::MeshPreviewStyle();
+            e21::MeshPreviewStyle();
             if (ImGui::Button("\xEE\xAF\x92 Meshes"))
             {
                 ImVec2 button_pos = ImGui::GetItemRectMin();
@@ -1197,7 +1583,7 @@ int E20_Example()
             //
             // Background texture selection
             //
-            e20::MeshPreviewStyle();
+            e21::MeshPreviewStyle();
             ImGui::SameLine();
             if (ImGui::Button("\xEE\xBC\x9F BackGround"))
             {
@@ -1244,10 +1630,32 @@ int E20_Example()
         }
         
         //
-        // Render the Inspector
+        // Render the Inspector when node is selected
         //
+        /*
+        if (nSelected != 1)
+        {
+            Inspector.clear();
+        }
+        else if (LastSelectedNode != SelectedNodes[0])
+        {
+            LastSelectedNode = SelectedNodes[0];
+            Inspector.clear();
+            Inspector.AppendEntity();
+            
+            auto& Entry = *g.m_InstanceNodes[xmaterial_compiler::node_guid{ LastSelectedNode.Get() }];
+            
+            Inspector.AppendEntityComponent(*xproperty::getObject(Entry), &Entry);
+        }
+        else if(g.m_InstanceNodes.find(xmaterial_compiler::node_guid{ LastSelectedNode.Get() }) == g.m_InstanceNodes.end())
+        {
+            Inspector.clear();
+        }
+        */
+
         xproperty::settings::context Context;
         Inspector.Show(Context, [&] {});
+        InspectorDetails.Show(Context, [&] {});
 
         //
         // Show a texture selector in IMGUI
@@ -1255,9 +1663,9 @@ int E20_Example()
         AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
 
         // We let the asset browser to decide if it needs to show or not
-        e20::g_AssetBrowserPopup.RenderAsPopup( e10::g_LibMgr, xresource::g_Mgr);
+        e21::g_AssetBrowserPopup.RenderAsPopup( e10::g_LibMgr, xresource::g_Mgr);
 
-        if (auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false && NewAsset.m_Type == xrsc::material_instance_type_guid_v)
+        if (auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false && NewAsset.m_Type == xrsc::geom_static_type_guid_v)
         {
             // Generate the paths
             e10::g_LibMgr.getNodeInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
@@ -1265,12 +1673,12 @@ int E20_Example()
                 SelectedDescriptor.GeneratePaths(NodeInfo.m_Path);
             });
         }
-        else if (auto SelectedAsset = AsserBrowser.getSelectedAsset(); SelectedAsset.empty() == false && SelectedAsset.m_Type == xrsc::material_instance_type_guid_v )
+        else if (auto SelectedAsset = AsserBrowser.getSelectedAsset(); SelectedAsset.empty() == false && SelectedAsset.m_Type == xrsc::geom_static_type_guid_v)
         {
             auto xxx = xrsc::material_instance_type_guid_v;
 
             SelectedDescriptor.clear();
-            SelectedDescriptor.m_pDescriptor = xresource_pipeline::factory_base::Find(std::string_view{ "Material Instance" })->CreateDescriptor();
+            SelectedDescriptor.m_pDescriptor = xresource_pipeline::factory_base::Find(std::string_view{ "GeomStatic" })->CreateDescriptor();
             SelectedDescriptor.m_LibraryGUID = AsserBrowser.getSelectedLibrary();
             SelectedDescriptor.m_InfoGUID    = SelectedAsset;
 
@@ -1294,6 +1702,10 @@ int E20_Example()
             Inspector.clear();
             Inspector.AppendEntity();
             Inspector.AppendEntityComponent(*SelectedDescriptor.m_pDescriptor->getProperties(), SelectedDescriptor.m_pDescriptor.get());
+
+            InspectorDetails.clear();
+            InspectorDetails.AppendEntity();
+            InspectorDetails.AppendEntityComponent(*xproperty::getObject(GeomStaticDetails), &GeomStaticDetails);
 
             // Tell the system if we should be loading the sprv
             SelectedDescriptor.m_bReload = std::filesystem::exists(SelectedDescriptor.m_ResourcePath);

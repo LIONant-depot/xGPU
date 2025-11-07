@@ -7,14 +7,23 @@ namespace xgpu
         ,   FLOAT_2D
         ,   FLOAT_3D
         ,   FLOAT_4D
+        ,   UINT8_4D
+        ,   SINT8_4D
         ,   UINT8_1D_NORMALIZED
         ,   UINT8_4D_NORMALIZED
         ,   UINT8_1D
         ,   UINT16_1D
+        ,   SINT16_1D
         ,   UINT32_1D
         ,   SINT8_3D_NORMALIZED
         ,   SINT8_4D_NORMALIZED
         ,   UINT8_4D_UINT
+        ,   SINT16_2D
+        ,   UINT16_2D
+        ,   UINT16_3D
+        ,   SINT16_3D
+        ,   UINT16_4D
+        ,   SINT16_4D
         ,   UINT16_4D_NORMALIZED
         ,   SINT16_4D_NORMALIZED
         ,   UINT16_3D_NORMALIZED

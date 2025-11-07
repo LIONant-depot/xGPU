@@ -34,6 +34,7 @@ namespace e19
         , SPHERE
         , CAPSULE
         , CYLINDER
+        , PLANE3D
         , PLANE2D
         , ENUM_COUNT
         };
@@ -44,6 +45,7 @@ namespace e19
             CreateSphere(Device);
             CreateCapsule(Device);
             CreateCylinder(Device);
+            Create3DPlane(Device);
             Create2DPlane(Device);
         }
 
@@ -251,13 +253,13 @@ namespace e19
             }
 
             (void)Mesh.m_VertexBuffer.MemoryMap(0, 4, [&](void* pData)
-            {
-                auto pVertex = static_cast<vert_2d*>(pData);
-                pVertex[0] = { -100.0f, -100.0f,  0.0f, 0.0f, 0xffffffff };
-                pVertex[1] = {  100.0f, -100.0f,  1.0f, 0.0f, 0xffffffff };
-                pVertex[2] = {  100.0f,  100.0f,  1.0f, 1.0f, 0xffffffff };
-                pVertex[3] = { -100.0f,  100.0f,  0.0f, 1.0f, 0xffffffff };
-            });
+                {
+                    auto pVertex = static_cast<vert_2d*>(pData);
+                    pVertex[0] = { -100.0f, -100.0f,  0.0f, 0.0f, 0xffffffff };
+                    pVertex[1] = {  100.0f, -100.0f,  1.0f, 0.0f, 0xffffffff };
+                    pVertex[2] = {  100.0f,  100.0f,  1.0f, 1.0f, 0xffffffff };
+                    pVertex[3] = { -100.0f,  100.0f,  0.0f, 1.0f, 0xffffffff };
+                });
 
             if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = Mesh.m_IndexCount }); Err)
             {
@@ -271,6 +273,48 @@ namespace e19
                 constexpr auto  StaticIndex = std::array
                 {
                     2u,  1u,  0u,      3u,  2u,  0u,    // front
+                };
+                static_assert(StaticIndex.size() == 6);
+                for (auto i : StaticIndex)
+                {
+                    *pIndex = i;
+                    pIndex++;
+                }
+            });
+        }
+
+        void Create3DPlane(xgpu::device& Device)
+        {
+            mesh& Mesh = m_Meshes[static_cast<int>(model::PLANE3D)];
+            Mesh.m_IndexCount = 6;
+
+            if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(draw_vert), .m_EntryCount = 4 }); Err)
+            {
+                assert(false);
+                exit(xgpu::getErrorInt(Err));
+            }
+
+            (void)Mesh.m_VertexBuffer.MemoryMap(0, 4, [&](void* pData)
+            {
+                auto pVertex = static_cast<draw_vert*>(pData);
+                    pVertex[0] = { -1.0f, -1.0f, 0.0f,  0.0f, 0.0f, 0xffffffff };
+                    pVertex[1] = {  1.0f, -1.0f, 0.0f,  1.0f, 0.0f, 0xffffffff };
+                    pVertex[2] = {  1.0f,  1.0f, 0.0f,  1.0f, 1.0f, 0xffffffff };
+                    pVertex[3] = { -1.0f,  1.0f, 0.0f,  0.0f, 1.0f, 0xffffffff };
+            });
+
+            if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = Mesh.m_IndexCount }); Err)
+            {
+                assert(false);
+                exit(xgpu::getErrorInt(Err));
+            }
+
+            (void)Mesh.m_IndexBuffer.MemoryMap(0, Mesh.m_IndexCount, [&](void* pData)
+            {
+                auto            pIndex = static_cast<std::uint32_t*>(pData);
+                constexpr auto  StaticIndex = std::array
+                {
+                    0u,  1u,  2u,      0u,  2u,  3u,    // front
                 };
                 static_assert(StaticIndex.size() == 6);
                 for (auto i : StaticIndex)

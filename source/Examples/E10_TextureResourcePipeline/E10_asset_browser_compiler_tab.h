@@ -206,7 +206,7 @@ namespace e10
 
             ImGui::BeginChild("##child", ImVec2(0, expanded?275.0f:45.0f), true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
 
-            ImGui::Selectable("##selectable", false, ImGuiSelectableFlags_AllowItemOverlap, ImVec2(0, 45.0f));
+            ImGui::Selectable("##selectable", false, ImGuiSelectableFlags_AllowOverlap, ImVec2(0, 45.0f));
 
 
             // Draw content on top of the selectable
@@ -375,7 +375,22 @@ namespace e10
                     {
                         if (ImGui::MenuItem("  All Resources"))
                         {
-
+                            std::wstring FullPath = std::format(L"{}//Cache/Resources/Platforms", m_AssetMgr.m_ProjectPath);
+                            try
+                            {
+                                if (std::filesystem::exists(FullPath)) {
+                                    std::filesystem::remove_all(FullPath);
+                                    std::cout << "Folder and all contents deleted successfully. " << xstrtool::To(FullPath) << "\n";
+                                }
+                                else 
+                                {
+                                    std::cout << "Folder does not exist." << xstrtool::To(FullPath) << "\n";
+                                }
+                            }
+                            catch (const std::filesystem::filesystem_error& e) 
+                            {
+                                std::cerr << "Filesystem error: " << e.what() << " While trying to delete folder " << xstrtool::To(FullPath) << "\n";
+                            }
                         }
 
                         if (ImGui::MenuItem("  Errors Resources"))
@@ -540,12 +555,16 @@ namespace e10
             //
             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 255, 255, 255));
             {
-                std::lock_guard lock(m_AssetMgr.m_Compilation.m_Queue.m_Mutex);
-                for (auto& E : m_AssetMgr.m_Compilation.m_Queue.getContainer())
+                // Write lock so in case the workers are trying to compile don't fight with me
+                xcontainer::lock::scope Lk(m_AssetMgr.m_Compilation.m_Queue);
+                for (auto& QE : m_AssetMgr.m_Compilation.m_Queue.get())
                 {
-                    compilation::historical_entry I;
-                    I.m_Entry = E;
-                    RenderEntry(I);
+                    for ( auto&E : QE )
+                    {
+                        compilation::historical_entry I;
+                        I.m_Entry = E;
+                        RenderEntry(I);
+                    }
                 }
             }
             ImGui::PopStyleColor();
