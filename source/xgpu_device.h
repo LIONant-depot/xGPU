@@ -68,7 +68,7 @@ namespace xgpu
         XGPU_INLINE void                         Destroy        ( texture&&                         Texture )          noexcept;
         XGPU_INLINE void                         Destroy        ( buffer&&                          Buffer )           noexcept;
         XGPU_INLINE void                         Destroy        ( window&&                          Window )           noexcept;
-
+        XGPU_INLINE void                         Destroy        ( renderpass&&                      Renderpass )       noexcept;
         XGPU_INLINE void                         Shutdown       ( void ) noexcept;
 
         std::shared_ptr<details::device_handle>   m_Private;

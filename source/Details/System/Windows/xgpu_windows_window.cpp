@@ -270,6 +270,7 @@ namespace xgpu::windows
                 pWin->m_Mouse->m_Analog[static_cast<int>(xgpu::mouse::analog::POS_ABS)][1] += pWin->m_TruePosition.second - wpos->y;
                 pWin->m_TruePosition = { wpos->x, wpos->y };
             }
+            break;
         }    // End switch
 
         // Pass Unhandled Messages To DefWindowProc
@@ -352,11 +353,17 @@ namespace xgpu::windows
         //
         // Compute windows flags
         //
-        const DWORD dwExStyle = bFullScreen ? WS_EX_APPWINDOW                               : bFrameless ? WS_EX_APPWINDOW                              : WS_EX_APPWINDOW | WS_EX_WINDOWEDGE;
-        const DWORD dwStyle   = bFullScreen ? WS_POPUP | WS_CLIPSIBLINGS | WS_CLIPCHILDREN  : bFrameless ? WS_POPUP | WS_CLIPSIBLINGS | WS_CLIPCHILDREN : WS_OVERLAPPEDWINDOW | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
+        DWORD dwExStyle =  bFullScreen ? WS_EX_APPWINDOW : bFrameless ? WS_EX_APPWINDOW : WS_EX_APPWINDOW | WS_EX_WINDOWEDGE;
+        DWORD dwStyle   = (bFullScreen ? WS_POPUP        : bFrameless ? WS_POPUP        : WS_OVERLAPPEDWINDOW)                | WS_CLIPSIBLINGS | WS_CLIPCHILDREN;
         //
         // Determine window rectangle
         //
+
+        if (!bFocus) 
+        {
+            dwExStyle |= WS_EX_NOACTIVATE;
+        }
+
         RECT windowRect;
         if (bFullScreen)
         {
@@ -378,12 +385,12 @@ namespace xgpu::windows
         //
         // Create Window
         //
-        hWnd = CreateWindowEx
+        hWnd = CreateWindowExW
         (
-            0
+            dwExStyle
         ,   TEXT("LIONClass")
         ,   TEXT("LION")
-        ,   dwStyle | WS_CLIPSIBLINGS | WS_CLIPCHILDREN
+        ,   dwStyle
         ,   windowRect.left
         ,   windowRect.top
         ,   windowRect.right
@@ -397,7 +404,7 @@ namespace xgpu::windows
         if (!hWnd)
             return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a window!" );
 
-        ShowWindow( hWnd, SW_SHOW );
+        ShowWindow(hWnd, SW_SHOWNA);
         if (bFocus)
         {
             SetForegroundWindow(hWnd);
