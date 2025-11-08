@@ -12,10 +12,10 @@ namespace e19
     // -------- Helpers Functions--------
     inline bool IsPinCompatible(const xmaterial_graph::pin& outPin, const xmaterial_graph::pin& inPin, const xmaterial_graph::graph& g)
     {
-        if(g.FindNodeByPin(inPin.m_PinGUID) == g.FindNodeByPin(outPin.m_PinGUID)) return false;
+        if(g.findNodeByPin(inPin.m_PinGUID) == g.findNodeByPin(outPin.m_PinGUID)) return false;
 
-        auto* tOut	= g.GetType(outPin.m_TypeGUID);
-        auto* tIn	= g.GetType(inPin.m_TypeGUID);
+        auto* tOut	= g.findType(outPin.m_TypeGUID);
+        auto* tIn	= g.findType(inPin.m_TypeGUID);
         if (!tOut || !tIn) return false;
 
         // strict type match; extend here to allow implicit casts

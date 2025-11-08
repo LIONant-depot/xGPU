@@ -316,6 +316,8 @@ add_executable(${TARGET_PROJECT}
   "source/Examples/E19_MaterialEditor/E19_Material_Editor.cpp"
   "source/Examples/E19_MaterialEditor/E19_Node_Core.h"
   "source/Examples/E19_MaterialEditor/E19_Node_Core.h"
+  "source/Examples/E19_MaterialEditor/E19_TextEditor.h"
+  "source/Examples/E19_MaterialEditor/E19_TextEditor.cpp"
   "example.lionprj/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph.cpp"
   "example.lionprj/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph.h"
   "example.lionprj/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph_node.cpp"
@@ -549,6 +551,8 @@ source_group("Examples/E18_QuantizeSkinVertex/Shaders" FILES
 source_group("Examples/E19_MaterialEditor" FILES
    "source/Examples/E19_MaterialEditor/E19_Material_Editor.cpp"
    "source/Examples/E19_MaterialEditor/E19_Node_Core.h"
+   "source/Examples/E19_MaterialEditor/E19_TextEditor.h"
+   "source/Examples/E19_MaterialEditor/E19_TextEditor.cpp"
 )
 
 # Include the material.plugin so it works

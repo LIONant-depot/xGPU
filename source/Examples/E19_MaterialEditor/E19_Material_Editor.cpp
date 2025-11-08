@@ -25,6 +25,8 @@
 
 #include "E19_mesh_manager.h"
 
+#include "E19_TextEditor.h"
+
 namespace                   ed                  = ax::NodeEditor;
 static ed::EditorContext*   g_pEditor           = nullptr;
 static int                  g_SelectedTexture   = 0;
@@ -102,7 +104,7 @@ void NodeFillColor(xmaterial_graph::node& n, ImVec2 pos, ImVec2 size, ImU32 colo
 
 ImColor e19::GetIconColor(const xmaterial_graph::type_guid& type, const xmaterial_graph::graph& g)
 {
-    const auto* t = g.GetType(type);
+    const auto* t = g.findType(type);
     if (!t) return ImColor(255, 255, 255); // fallback white
 
     return ToImColor(t->m_Color);
@@ -457,7 +459,7 @@ void DrawGraphUI(xmaterial_graph::graph& g, ed::NodeId& lastSelectedNode)
                 ImGui::SetCursorScreenPos(widgetPos);
                 if (ip.m_ParamIndex != -1)
                 {
-                    auto* type = g.GetType(ip.m_TypeGUID);
+                    auto* type = g.findType(ip.m_TypeGUID);
                     assert(type);
                     assert(n.m_Params.empty() == false);
 
@@ -555,12 +557,12 @@ void DrawGraphUI(xmaterial_graph::graph& g, ed::NodeId& lastSelectedNode)
         const auto& c = *cPtr;
         
         //fill with color for link by type(eg. float is blue etc)
-        auto* outNode = g.FindNodeByPin(c.m_OutputPinGuid);
+        auto* outNode = g.findNodeByPin(c.m_OutputPinGuid);
         if (!outNode) continue; //no node found
 
         int idx, sub;
         bool dummy;
-        const auto* outPin = g.FindPinConst(*outNode, c.m_OutputPinGuid, dummy, idx, sub);
+        const auto* outPin = g.findPinConst(*outNode, c.m_OutputPinGuid, dummy, idx, sub);
         ImColor color = (outPin) ? e19::GetIconColor(outPin->m_TypeGUID, g)
             : ImColor(200, 200, 200);//default color
         
@@ -570,8 +572,8 @@ void DrawGraphUI(xmaterial_graph::graph& g, ed::NodeId& lastSelectedNode)
         {
             xmaterial_graph::node* selectedNode = g.m_InstanceNodes[xmaterial_graph::node_guid{ lastSelectedNode.Get() }].get();
             if (selectedNode &&
-                (selectedNode == g.FindNodeByPin(c.m_InputPinGuid) ||
-                    selectedNode == g.FindNodeByPin(c.m_OutputPinGuid)))
+                (selectedNode == g.findNodeByPin(c.m_InputPinGuid) ||
+                    selectedNode == g.findNodeByPin(c.m_OutputPinGuid)))
             {
                 highlight = true;
             }
@@ -596,14 +598,14 @@ void DrawGraphUI(xmaterial_graph::graph& g, ed::NodeId& lastSelectedNode)
             xmaterial_graph::pin_guid A{ a.Get() };
             xmaterial_graph::pin_guid B{ b.Get() };
 
-            xmaterial_graph::node* nA = g.FindNodeByPin(A);
-            xmaterial_graph::node* nB = g.FindNodeByPin(B);
+            xmaterial_graph::node* nA = g.findNodeByPin(A);
+            xmaterial_graph::node* nB = g.findNodeByPin(B);
 
             bool aIsInput = false, bIsInput = false; 
             int idx = -1, sub = -1;
 
-            const xmaterial_graph::pin* pA = nA ? g.FindPinConst(*nA, A, aIsInput, idx, sub) : nullptr;
-            const xmaterial_graph::pin* pB = nB ? g.FindPinConst(*nB, B, bIsInput, idx, sub) : nullptr;
+            const xmaterial_graph::pin* pA = nA ? g.findPinConst(*nA, A, aIsInput, idx, sub) : nullptr;
+            const xmaterial_graph::pin* pB = nB ? g.findPinConst(*nB, B, bIsInput, idx, sub) : nullptr;
 
             // Normalize so have (outPin, inPin)
             const xmaterial_graph::pin* outP = nullptr;
@@ -664,7 +666,7 @@ void DrawGraphUI(xmaterial_graph::graph& g, ed::NodeId& lastSelectedNode)
                         auto& link = g.createConnection();
                         link.m_OutputPinGuid = outId;
                         link.m_InputPinGuid = inId;
-                        if (auto* inNode = g.FindNodeByPin(inId))
+                        if (auto* inNode = g.findNodeByPin(inId))
                         {
                             int idx = inNode->getInputPinIndex(inId);
                             if (idx >= 0)
@@ -738,8 +740,8 @@ void DrawGraphUI(xmaterial_graph::graph& g, ed::NodeId& lastSelectedNode)
                 std::vector<xmaterial_graph::connection_guid> ctoRemove;
                 for (auto& [cid, cptr] : g.m_Connections)
                 {
-                    if (g.FindNodeByPin(cptr->m_InputPinGuid) == nodeinfo ||
-                        g.FindNodeByPin(cptr->m_OutputPinGuid) == nodeinfo)
+                    if (g.findNodeByPin(cptr->m_InputPinGuid) == nodeinfo ||
+                        g.findNodeByPin(cptr->m_OutputPinGuid) == nodeinfo)
 
                         ctoRemove.push_back(cid);
                 }
@@ -1507,6 +1509,9 @@ int E19_Example()
     }>();
 
 
+    TextEditor GLSLEditor;
+    GLSLEditor.SetLanguageDefinition(TextEditor::LanguageDefinition::GLSL());
+    
     //
     // Main Loop
     //
@@ -1670,6 +1675,32 @@ int E19_Example()
             ImGui::EndMainMenuBar();
         }
 
+        GLSLEditor.Render("Shader Editor##shader321", ImVec2(0, 0), true
+        , [&]
+        {
+            if (ImGui::BeginMenuBar())
+            {
+                if (ImGui::BeginMenu("File"))
+                {
+                    if (ImGui::MenuItem("ReOpen...")) { /* your LoadFile() */ }
+                    ImGui::EndMenu();
+                }
+                if (ImGui::BeginMenu("Edit"))
+                {
+                    if (ImGui::MenuItem("Undo", "Ctrl+Z")) GLSLEditor.Undo();
+                    if (ImGui::MenuItem("Redo", "Ctrl+Y")) GLSLEditor.Redo();
+                    ImGui::Separator();
+                    if (ImGui::MenuItem("Cut", "Ctrl+X")) GLSLEditor.Cut();
+                    if (ImGui::MenuItem("Copy", "Ctrl+C")) GLSLEditor.Copy();
+                    if (ImGui::MenuItem("Paste", "Ctrl+V")) GLSLEditor.Paste();
+                    ImGui::EndMenu();
+                }
+                // Add more menus: View (whitespaces, line numbers), etc.
+                ImGui::EndMenuBar();
+            }
+
+        });
+
 
         std::array<ed::NodeId, 2> SelectedNodes;
         int nSelected = ed::GetSelectedNodes(SelectedNodes.data(), static_cast<int>(SelectedNodes.size()));
@@ -1714,6 +1745,20 @@ int E19_Example()
                         assert(false);
                         exit(xgpu::getErrorInt(Err));
                     }
+                }
+            }
+
+            // Load the shader if that makes sense...
+            if (auto pNode = g.findFullShaderNode(); pNode == nullptr)
+            {
+                std::wstring FileName = std::format(L"{}/shader.txt", SelectedDescriptor.m_LogPath);
+                std::ifstream file(FileName);
+                if (file.is_open())
+                {
+                    std::stringstream buffer;
+                    buffer << file.rdbuf();
+                    file.close();
+                    GLSLEditor.SetText(buffer.str());
                 }
             }
         }
