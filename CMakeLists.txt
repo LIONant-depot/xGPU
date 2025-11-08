@@ -325,6 +325,7 @@ add_executable(${TARGET_PROJECT}
   "example.lionprj/Cache/Plugins/xmaterial.plugin/source/Graph/xmaterial_graph_node_guid.h"
   "source/Examples/E20_MaterialInstanceEditor/E20_Material_Instance_Editor.cpp"
   "source/Examples/E21_StaticGeomEditor/E21_StaticGeom_Editor.cpp"
+  "source/Examples/E22_FramebufferTarget/E22_FramebufferTarget.cpp"
 
   
   "source/tools/xgpu_view.h"
@@ -587,6 +588,10 @@ source_group("Examples/E21_StaticGeomEditor/Shaders" FILES
   "${CMAKE_BINARY_DIR}/sprv_shaders_h/GridShader_vert.h"
   "${CMAKE_BINARY_DIR}/sprv_shaders_h/GridShader_frag.h"
 
+)
+
+source_group("Examples/E22_FramebufferTarget" FILES
+   "source/Examples/E22_FramebufferTarget/E22_FramebufferTarget.cpp"
 )
 
 

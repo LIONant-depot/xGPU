@@ -2000,6 +2000,22 @@ int E19_Example()
                     ed::SetNodePosition(nid.m_Value, ImVec2(pNode->m_Pos.m_X, pNode->m_Pos.m_Y));
                 }
 
+                if ( auto pNode = g.findFullShaderNode(); pNode )
+                {
+                    if (not pNode->m_Params[0].m_Value.get<std::wstring>().empty())
+                    {
+                        std::wstring FileName = std::format(L"{}/{}", e10::g_LibMgr.m_ProjectPath, pNode->m_Params[0].m_Value.get<std::wstring>());
+                        std::ifstream file(FileName);
+                        if (file.is_open())
+                        {
+                            std::stringstream buffer;
+                            buffer << file.rdbuf();
+                            file.close();
+                            GLSLEditor.SetText(buffer.str());
+                        }
+                    }
+                }
+
                 // Tell the system if we should be loading the sprv
                 SelectedDescriptor.m_bReload = std::filesystem::exists(SelectedDescriptor.m_ResourcePath);
             }
