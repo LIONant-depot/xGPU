@@ -617,7 +617,7 @@ struct share_resources
 
         return nullptr;
     }
-    
+
     std::unordered_map<void*,xgpu::pipeline_instance> m_TextureToPipeline       = {};
     xgpu::pipeline                                    m_PipeLine                = {};
     xgpu::pipeline_instance                           m_DefaultPipelineInstance = {};
@@ -1102,7 +1102,6 @@ struct breach_instance : window_info
                         if ( io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable )
                         {
                             auto [WindowX, WindowY] = Info.m_Window.getPosition();
-                            //printf("Mouse[%d  %d]  Win+Mouse(%d  %d)\n", int(MouseValues[0]), int(MouseValues[1]), int(WindowX + MouseValues[0]), int(WindowY + MouseValues[1]));
 
                             // Multi-viewport mode: mouse position in OS absolute coordinates (io.MousePos is (0,0) when the mouse is on the upper-left of the primary monitor)
                             //io.MousePos = ImVec2( (float)WindowX + MouseValues[0], (float)WindowY + MouseValues[1] );
@@ -1629,6 +1628,13 @@ bool isInputSleeping(void) noexcept
     return true;
 }
 
+//------------------------------------------------------------------------------------------------------------
+
+// removes a texture from the cache; call if the texture will never be used again
+void ClearTexture(xgpu::texture& Texture)
+{
+    share_resources::s_SharePointer->m_TextureToPipeline.erase(Texture.m_Private.get());
+}
 
 //------------------------------------------------------------------------------------------------------------
 } //END (xgpu::tools::imgui)

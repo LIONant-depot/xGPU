@@ -6,7 +6,7 @@ namespace xgpu::vulkan
                                         , const xgpu::renderpass::setup&    Setup
                                         ) noexcept;
 
-
+        virtual void DeathMarch(xgpu::renderpass&& RenderPass) noexcept override;
         virtual ~renderpass(void) noexcept override;
 
         using clear_values_array = std::array<VkClearValue, xgpu::renderpass::max_attachments_v>;
@@ -18,5 +18,6 @@ namespace xgpu::vulkan
         VkFramebuffer                                       m_VKFrameBuffer         {};
         std::shared_ptr<vulkan::device>                     m_Device                {};
         std::array< std::shared_ptr<vulkan::texture>, 16>   m_TextureAttachments    {};
+                                            
     };
 }

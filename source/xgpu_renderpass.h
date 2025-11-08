@@ -22,5 +22,7 @@ namespace xgpu
         };
 
         std::shared_ptr<details::renderpass_handle> m_Private;
+
+        ~renderpass(void) noexcept;
     };
 }

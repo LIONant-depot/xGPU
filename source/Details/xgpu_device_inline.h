@@ -46,6 +46,7 @@ namespace xgpu
             virtual void Destroy(texture&& Texture)                     noexcept = 0;
             virtual void Destroy(buffer&& Buffer)                       noexcept = 0;
             virtual void Destroy(window&& Window)                       noexcept = 0;
+            virtual void Destroy(renderpass&& RenderPass)               noexcept = 0;
 
             virtual void Shutdown(void)                                 noexcept = 0;
         };
@@ -177,6 +178,10 @@ namespace xgpu
     void device::Destroy(window&& Window)                       noexcept
     {
         m_Private->Destroy( std::move(Window) ); 
+    }
+    void device::Destroy(renderpass&& Renderpass)               noexcept
+    {
+        m_Private->Destroy( std::move(Renderpass) ); 
     }
 
     void device::Shutdown( void ) noexcept

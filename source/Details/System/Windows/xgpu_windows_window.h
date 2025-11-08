@@ -62,12 +62,12 @@ namespace xgpu::windows
             // x, y : New X and Y coordinates.
             // 0, 0 : Width and height(ignored because of SWP_NOSIZE).
             // SWP_NOSIZE | SWP_NOZORDER : Keeps the current size and Z - order.
-            SetWindowPos(m_hWindow, HWND_TOP, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+            SetWindowPos(m_hWindow, HWND_TOP, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
 
         virtual     void                            setSize(int Width, int Height)                                   noexcept
         {
-            SetWindowPos(m_hWindow, NULL, 0, 0, Width, Height, SWP_NOMOVE | SWP_NOZORDER);
+            SetWindowPos(m_hWindow, NULL, 0, 0, Width, Height, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
 
         bool                            getResizedAndReset( void ) noexcept

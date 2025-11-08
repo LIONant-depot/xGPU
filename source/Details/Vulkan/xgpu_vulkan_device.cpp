@@ -396,6 +396,10 @@ namespace xgpu::vulkan
     { 
         m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Pipeline.push_back(std::move(Pipeline)); 
     }
+    void device::Destroy(xgpu::renderpass&& RenderPass)               noexcept
+    {
+        m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_RenderPass.push_back(std::move(RenderPass));
+    }
     void device::Destroy(xgpu::buffer&& Buffer)                       noexcept
     {
         m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Buffer.push_back(std::move(Buffer));
@@ -414,26 +418,24 @@ namespace xgpu::vulkan
 
         auto& DeathMarch = m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()];
 
-        if (false == DeathMarch.m_Texture.empty())
-        {
-            for (auto& E : DeathMarch.m_Texture)
-                E.m_Private.reset();
-            DeathMarch.m_Texture.clear();
-        }
-
         if (false == DeathMarch.m_PipelineInstance.empty())
         {
             for (auto& E : DeathMarch.m_PipelineInstance)
             {
                 if (E.m_Private.use_count() == 1)
                 {
-                    if (auto It = m_PipeLineInstanceMap.find(reinterpret_cast<std::uint64_t>(E.m_Private.get())); It != m_PipeLineInstanceMap.end())
                     {
-                        m_PipeLineInstanceMap.erase(It);
+                        std::lock_guard Lk(m_LockedVKDescriptorPool);
+                        if (auto It = m_PipeLineInstanceMap.find(reinterpret_cast<std::uint64_t>(E.m_Private.get())); It != m_PipeLineInstanceMap.end())
+                        {
+                            vkFreeDescriptorSets(m_VKDevice, m_LockedVKDescriptorPool.get(), static_cast<std::uint32_t>(static_cast<xgpu::vulkan::pipeline_instance*>(E.m_Private.get())->m_Pipeline->m_nVKDescriptorSetLayout), It->second.m_VKDescriptorSet.data());
+                            m_PipeLineInstanceMap.erase(It);
+                        }
                     }
                 }
                 E.m_Private.reset();
             }
+            DeathMarch.m_PipelineInstance.clear();
         }
 
         if (false == DeathMarch.m_Pipeline.empty())
@@ -456,6 +458,7 @@ namespace xgpu::vulkan
                 }
                 E.m_Private.reset();
             }
+            DeathMarch.m_Pipeline.clear();
         }
 
         if (false == DeathMarch.m_Buffer.empty())
@@ -468,6 +471,23 @@ namespace xgpu::vulkan
             DeathMarch.m_Window.clear();
         }
 
+        if (false == DeathMarch.m_RenderPass.empty())
+        {
+            for (auto& E : DeathMarch.m_RenderPass)
+            {
+                E.m_Private.reset();
+            }
+            DeathMarch.m_RenderPass.clear();
+        }
+
+        if (false == DeathMarch.m_Texture.empty())
+        {
+            for (auto& E : DeathMarch.m_Texture)
+            {
+                E.m_Private.reset();
+            }
+            DeathMarch.m_Texture.clear();
+        }
 
     }
 

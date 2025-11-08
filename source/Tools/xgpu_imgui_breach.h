@@ -44,5 +44,8 @@ namespace xgpu::tools::imgui
     void                    Render          ( void ) noexcept;
     void                    Shutdown        ( void ) noexcept;
     ImFont*&                getFont         ( int Index=0) noexcept;
+
+
+    void                    ClearTexture(xgpu::texture& Texture);
 }
 #endif // XGPU_IMGUI_BREACH_H

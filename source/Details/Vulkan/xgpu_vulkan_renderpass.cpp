@@ -186,8 +186,18 @@ namespace xgpu::vulkan
 
     //---------------------------------------------------------------------------------------
 
+    void renderpass::DeathMarch(xgpu::renderpass&& RenderPass) noexcept
+    {
+        if (!m_Device) return;
+        m_Device->Destroy(std::move(RenderPass));
+        m_Device.reset();
+    }
+
+    //---------------------------------------------------------------------------------------
+
     renderpass::~renderpass(void) noexcept
     {
-    
+        vkDestroyRenderPass(m_Device->m_VKDevice, m_VKRenderPass, nullptr);
+        vkDestroyFramebuffer(m_Device->m_VKDevice, m_VKFrameBuffer, nullptr);
     }
 }
