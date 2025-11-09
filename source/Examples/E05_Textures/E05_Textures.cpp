@@ -298,7 +298,7 @@ int E05_Example()
                 NewMouseWheel = io.MouseWheel;
             }
 
-            xgpu::tools::imgui::AddCustomRenderCallback([&]( const ImVec2& windowPos, const ImVec2& windowSize )
+            xgpu::tools::imgui::AddCustomRenderCallback([&](xgpu::cmd_buffer& CmdBuffer, const ImVec2& windowPos, const ImVec2& windowSize )
             {
                 //
                 // Handle Input
@@ -342,8 +342,6 @@ int E05_Example()
                     MouseTranslate.m_X = std::min(1.0f + BorderX, std::max(-1.0f - BorderX, MouseTranslate.m_X));
                     MouseTranslate.m_Y = std::min(1.0f + BorderY, std::max(-1.0f - BorderY, MouseTranslate.m_Y));
                 }
-
-                auto CmdBuffer = MainWindow.getCmdBuffer();
 
                 //
                 // Set the view port to match the actual window size

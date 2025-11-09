@@ -1430,10 +1430,8 @@ int E21_Example()
             //
             // render background
             //
-            xgpu::tools::imgui::AddCustomRenderCallback([&](const ImVec2& windowPos, const ImVec2& windowSize)
+            xgpu::tools::imgui::AddCustomRenderCallback([&](xgpu::cmd_buffer& CmdBuffer, const ImVec2& windowPos, const ImVec2& windowSize)
             {
-                auto CmdBufferRef = MainWindow.getCmdBuffer();
-
                 {
                     e21::push_const2D pc;
                     pc.m_Scale =
@@ -1443,9 +1441,9 @@ int E21_Example()
                     pc.m_Translation.setup(0);
                     pc.m_UVScale = { 100.0f,100.0f };
 
-                    CmdBufferRef.setPipelineInstance(BackGroundMaterialInstance);
-                    CmdBufferRef.setPushConstants(pc);
-                    MeshManager.Rendering(CmdBufferRef, e19::mesh_manager::model::PLANE2D);
+                    CmdBuffer.setPipelineInstance(BackGroundMaterialInstance);
+                    CmdBuffer.setPushConstants(pc);
+                    MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE2D);
                 }
             });
 
@@ -1484,10 +1482,8 @@ int E21_Example()
             //
             // Render mesh
             //
-            if (Mesh3D_Mat_instance.m_Private) xgpu::tools::imgui::AddCustomRenderCallback([&](const ImVec2& windowPos, const ImVec2& windowSize)
+            if (Mesh3D_Mat_instance.m_Private) xgpu::tools::imgui::AddCustomRenderCallback([&](xgpu::cmd_buffer& CmdBuffer, const ImVec2& windowPos, const ImVec2& windowSize)
             {
-                auto CmdBufferRef = MainWindow.getCmdBuffer();
-
                 View.setViewport({ static_cast<int>(windowPos.x)
                                  , static_cast<int>(windowPos.y)
                                  , static_cast<int>(windowPos.x + windowSize.x)
@@ -1512,22 +1508,22 @@ int E21_Example()
                 PushConst.m_w2C = View.getW2C() * xmath::fmat4::fromTranslation(View.getPosition());
 
                 // Set pipeline and push constants
-                CmdBufferRef.setPipelineInstance(Mesh3D_Mat_instance);
+                CmdBuffer.setPipelineInstance(Mesh3D_Mat_instance);
 
 
                 float maxY;
                 // Render the mesh
                 if ( auto p = xresource::g_Mgr.getResource(SelectedDescriptor.m_GeomRef); p )
                 {
-                    CmdBufferRef.setStreamingBuffers({&p->IndexBuffer(),3});
+                    CmdBuffer.setStreamingBuffers({&p->IndexBuffer(),3});
 
                     maxY = p->m_BBox.m_Min.m_Y;
                     for ( auto& E : p->getClusters() )
                     {
                         std::memcpy( &PushConst.m_posScaleAndUScale, &E.m_PosScaleAndUScale, sizeof(xmath::fvec4)*2 + sizeof(xmath::fvec2));
-                        CmdBufferRef.setPushConstants(PushConst);
+                        CmdBuffer.setPushConstants(PushConst);
 
-                        CmdBufferRef.Draw(E.m_nIndices, E.m_iIndex, E.m_iVertex);
+                        CmdBuffer.Draw(E.m_nIndices, E.m_iIndex, E.m_iVertex);
                     }
                 }
 
@@ -1536,14 +1532,14 @@ int E21_Example()
                 // Render plane
                 //
                 {
-                    CmdBufferRef.setPipelineInstance(Grid3dMaterialInstance);
+                    CmdBuffer.setPipelineInstance(Grid3dMaterialInstance);
                     grid_push_constants Push;
 
                     Push.m_WorldSpaceCameraPos  = View.getPosition();
                     Push.m_L2W                  = xmath::fmat4( xmath::fvec3(1000.f, 1000.0f, 1.f), xmath::radian3( -90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(Push.m_WorldSpaceCameraPos.m_X, maxY, Push.m_WorldSpaceCameraPos.m_Y));
                     Push.m_W2C                  = View.getW2C();
-                    CmdBufferRef.setPushConstants(Push);
-                    MeshManager.Rendering(CmdBufferRef, e19::mesh_manager::model::PLANE3D);
+                    CmdBuffer.setPushConstants(Push);
+                    MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE3D);
                 }
 
             });

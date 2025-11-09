@@ -7,6 +7,7 @@
 #include <memory>
 
 #include "imgui_internal.h"
+#include "xgpu_imgui_breach.h"
 
 namespace xgpu::tools::imgui {
 
@@ -861,7 +862,16 @@ struct window_info
                             );
                         }
 
-                        pcmd->UserCallback(cmd_list, pcmd);
+                        if (pcmd->UserCallbackData)
+                        {
+                            auto pAccess = static_cast<xgpu::tools::imgui::details::call_back_public_access*>(const_cast<ImDrawCmd*>(pcmd)->UserCallbackData);
+                            pAccess->m_pCmdBuffer = &CmdBuffer;
+                            pcmd->UserCallback(cmd_list, pcmd);
+                        }
+                        else
+                        {
+                            pcmd->UserCallback(cmd_list, pcmd);
+                        }
 
                         // Restore full window view port
                         CmdBuffer.setViewport

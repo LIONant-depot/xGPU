@@ -5,6 +5,14 @@
 
 namespace xgpu::tools::imgui
 {
+    namespace details
+    {
+        struct call_back_public_access
+        {
+            cmd_buffer* m_pCmdBuffer{ nullptr };
+        };
+    }
+
     // Templated function to wrap a lambda for ImGui callback
     // BE CAREFULL ABOUT HOW YOU CAPTURE VARIABLES!!!
     // If you do not know how this works make sure you do not capture by reference
@@ -12,12 +20,12 @@ namespace xgpu::tools::imgui
     void AddCustomRenderCallback(T_CALLBACK&& callback)
     {
         // Note: Lambda should use [=] or [] to avoid dangling reference captures
-        struct CallbackWrapper
+        struct CallbackWrapper : details::call_back_public_access
         {
-            static void Render(const ImDrawList* parent_list, const ImDrawCmd* pCmd)
+            inline static void Render(const ImDrawList* parent_list, const ImDrawCmd* pCmd)
             {
                 auto& Wrapper = *static_cast<CallbackWrapper*>(pCmd->UserCallbackData);
-                (Wrapper.m_Callback)(Wrapper.m_Pos, Wrapper.m_Size); //pCmd->ClipRect
+                (Wrapper.m_Callback)(*Wrapper.m_pCmdBuffer, Wrapper.m_Pos, Wrapper.m_Size);
                 delete &Wrapper;
             }
 
@@ -26,13 +34,10 @@ namespace xgpu::tools::imgui
             ImVec2      m_Size;
         };
 
-        auto p = new CallbackWrapper( std::forward<T_CALLBACK>(callback)
-                                    , ImGui::GetWindowPos()
-                                    , ImGui::GetWindowSize()
-                                    );
-
+         CallbackWrapper* pWrapper = new CallbackWrapper{ {}, std::forward<T_CALLBACK>(callback), ImGui::GetWindowPos(), ImGui::GetWindowSize() };
+ 
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
-        draw_list->AddCallback(CallbackWrapper::Render, p);
+        draw_list->AddCallback(CallbackWrapper::Render, pWrapper);
         draw_list->AddCallback(ImDrawCallback_ResetRenderState, nullptr);
     }
 

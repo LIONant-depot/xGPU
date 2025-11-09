@@ -1772,10 +1772,8 @@ int E19_Example()
             //
             // render background
             //
-            xgpu::tools::imgui::AddCustomRenderCallback([&](const ImVec2& windowPos, const ImVec2& windowSize)
+            xgpu::tools::imgui::AddCustomRenderCallback([&](xgpu::cmd_buffer& CmdBuffer, const ImVec2& windowPos, const ImVec2& windowSize)
             {
-                auto CmdBufferRef = MainWindow.getCmdBuffer();
-
                 {
                     e19::push_const2D pc;
                     pc.m_Scale =
@@ -1785,9 +1783,9 @@ int E19_Example()
                     pc.m_Translation.setup(0);
                     pc.m_UVScale = { 100.0f,100.0f };
 
-                    CmdBufferRef.setPipelineInstance(BackGroundMaterialInstance);
-                    CmdBufferRef.setPushConstants(pc);
-                    MeshManager.Rendering(CmdBufferRef, e19::mesh_manager::model::PLANE2D);
+                    CmdBuffer.setPipelineInstance(BackGroundMaterialInstance);
+                    CmdBuffer.setPushConstants(pc);
+                    MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE2D);
                 }
             });
 
@@ -1810,10 +1808,8 @@ int E19_Example()
             //
             // Render mesh
             //
-            if (material_instance.m_Private) xgpu::tools::imgui::AddCustomRenderCallback([&](const ImVec2& windowPos, const ImVec2& windowSize)
+            if (material_instance.m_Private) xgpu::tools::imgui::AddCustomRenderCallback([&](xgpu::cmd_buffer& CmdBuffer, const ImVec2& windowPos, const ImVec2& windowSize)
             {
-                auto CmdBufferRef = MainWindow.getCmdBuffer();
-
                 View.setViewport({ static_cast<int>(windowPos.x)
                                  , static_cast<int>(windowPos.y)
                                  , static_cast<int>(windowPos.x + windowSize.x)
@@ -1835,11 +1831,11 @@ int E19_Example()
                 pushConst.m_L2C = (View.getW2C() * xmath::fmat4::fromScale({ 2.f }));
 
                 // Set pipeline and push constants
-                CmdBufferRef.setPipelineInstance(material_instance);
-                CmdBufferRef.setPushConstants(pushConst);
+                CmdBuffer.setPipelineInstance(material_instance);
+                CmdBuffer.setPushConstants(pushConst);
 
                 // Render the mesh
-                MeshManager.Rendering(CmdBufferRef, CurrentModel);
+                MeshManager.Rendering(CmdBuffer, CurrentModel);
             });
 
             //
