@@ -996,7 +996,10 @@ int E21_Example()
         }
     }
 
+    std::vector<xrsc::material_instance_ref>    Mesh3DRscRefMaterialInstance;
+    std::vector<xgpu::pipeline_instance>        Mesh3DMatInstance;
 
+    /*
     xgpu::pipeline_instance     Mesh3D_Mat_instance = {};
     if (auto p = xresource::g_Mgr.getResource(DefaultTextureRef); p)
     {
@@ -1017,7 +1020,7 @@ int E21_Example()
             }
         }
     }
-
+    */
 
     //
     // setup Imgui interface
@@ -1295,9 +1298,73 @@ int E21_Example()
             SelectedDescriptor.m_bReload = false;
             PipelineReload( Device, material, material_instance, SelectedDescriptor, xresource::g_Mgr);
 
-            // Destory the current Mat Instance
-            if (Mesh3D_Mat_instance.m_Private) Device.Destroy( std::move(Mesh3D_Mat_instance));
+            // Destroy all the material instances
+            for(auto& E : Mesh3DMatInstance) Device.Destroy(std::move(E));
+            for(auto& E : Mesh3DRscRefMaterialInstance) xresource::g_Mgr.ReleaseRef(E);
 
+            // Destory the current Mat Instance
+            //if (Mesh3D_Mat_instance.m_Private) Device.Destroy( std::move(Mesh3D_Mat_instance));
+
+            //
+            // Set
+            //
+            if (auto pGeom = xresource::g_Mgr.getResource(SelectedDescriptor.m_GeomRef); pGeom)
+            {
+                Mesh3DMatInstance.resize( pGeom->m_nDefaultMaterialInstances );
+                Mesh3DRscRefMaterialInstance.resize(pGeom->m_nDefaultMaterialInstances);
+
+                auto pDesc = static_cast<xgeom_static::descriptor*>(SelectedDescriptor.m_pDescriptor.get());
+
+                for( auto& MI : pGeom->getDefaultMaterialInstances() )
+                {
+                    auto Index = static_cast<int>(&MI - pGeom->getDefaultMaterialInstances().data());
+
+                    if (not pDesc->m_MaterialInstRefList.empty())
+                        Mesh3DRscRefMaterialInstance[Index] = pDesc->m_MaterialInstRefList[Index];
+                    else if ( not MI.empty())
+                        Mesh3DRscRefMaterialInstance[Index] = MI;
+
+
+                    if (Mesh3DRscRefMaterialInstance[Index].empty())
+                    {
+                        if (auto p = xresource::g_Mgr.getResource(DefaultTextureRef); p)
+                        {
+                            auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{*p} };
+                            auto setup = xgpu::pipeline_instance::setup
+                            { .m_PipeLine = Pipeline3D
+                            , .m_SamplersBindings = Bindings
+                            };
+
+                            if (auto Err = Device.Create(Mesh3DMatInstance[Index], setup); Err)
+                            {
+                                e21::Debugger(xgpu::getErrorMsg(Err));
+                                assert(false);
+                                std::exit(xgpu::getErrorInt(Err));
+                            }
+                        }
+                    }
+                    else if ( auto pMI = xresource::g_Mgr.getResource(Mesh3DRscRefMaterialInstance[Index]); pMI )
+                    {
+                        if ( auto pT = xresource::g_Mgr.getResource(pMI->m_pTextureList[0].m_TexureRef); pT )
+                        {
+                            auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{*pT} };
+                            auto setup = xgpu::pipeline_instance::setup
+                            { .m_PipeLine         = Pipeline3D
+                            , .m_SamplersBindings = Bindings
+                            };
+
+                            if (auto Err = Device.Create(Mesh3DMatInstance[Index], setup); Err)
+                            {
+                                e21::Debugger(xgpu::getErrorMsg(Err));
+                                assert(false);
+                                std::exit(xgpu::getErrorInt(Err));
+                            }
+                        }
+                    }
+                }
+            }
+
+            /*
             // Recreate it here
             if (auto p = xresource::g_Mgr.getResource(DefaultTextureRef); p)
             {
@@ -1317,6 +1384,7 @@ int E21_Example()
                     }
                 }
             }
+            */
 
             {
                 std::wstring DetailsFilePath = std::format(L"{}//Details.txt", SelectedDescriptor.m_LogPath);
@@ -1482,7 +1550,7 @@ int E21_Example()
             //
             // Render mesh
             //
-            if (Mesh3D_Mat_instance.m_Private) xgpu::tools::imgui::AddCustomRenderCallback([&](xgpu::cmd_buffer& CmdBuffer, const ImVec2& windowPos, const ImVec2& windowSize)
+            if (not Mesh3DMatInstance.empty()) xgpu::tools::imgui::AddCustomRenderCallback([&](xgpu::cmd_buffer& CmdBuffer, const ImVec2& windowPos, const ImVec2& windowSize)
             {
                 View.setViewport({ static_cast<int>(windowPos.x)
                                  , static_cast<int>(windowPos.y)
@@ -1507,10 +1575,6 @@ int E21_Example()
                 PushConst.m_L2w = xmath::fmat4::fromTranslation(-View.getPosition()) * xmath::fmat4::fromTranslation({0, 0, 0});
                 PushConst.m_w2C = View.getW2C() * xmath::fmat4::fromTranslation(View.getPosition());
 
-                // Set pipeline and push constants
-                CmdBuffer.setPipelineInstance(Mesh3D_Mat_instance);
-
-
                 float maxY;
                 // Render the mesh
                 if ( auto p = xresource::g_Mgr.getResource(SelectedDescriptor.m_GeomRef); p )
@@ -1518,6 +1582,26 @@ int E21_Example()
                     CmdBuffer.setStreamingBuffers({&p->IndexBuffer(),3});
 
                     maxY = p->m_BBox.m_Min.m_Y;
+
+                    for ( auto& M : p->getMeshes() )
+                    {
+                        for ( auto& S : p->getSubmeshes().subspan( M.m_iLOD, M.m_nLODs))
+                        {
+                            //auto& MI = p->getDefaultMaterialInstances()[S.m_iMaterial];
+                            CmdBuffer.setPipelineInstance(Mesh3DMatInstance[S.m_iMaterial]);
+
+                            for ( auto& C : p->getClusters().subspan( S.m_iCluster, S.m_nCluster))
+                            {
+                                std::memcpy(&PushConst.m_posScaleAndUScale, &C.m_PosScaleAndUScale, sizeof(xmath::fvec4) * 2 + sizeof(xmath::fvec2));
+                                CmdBuffer.setPushConstants(PushConst);
+
+                                CmdBuffer.Draw(C.m_nIndices, C.m_iIndex, C.m_iVertex);
+                            }
+                        }
+                    }
+
+                    // Spam all the clusters to the renderer
+                    if (0)
                     for ( auto& E : p->getClusters() )
                     {
                         std::memcpy( &PushConst.m_posScaleAndUScale, &E.m_PosScaleAndUScale, sizeof(xmath::fvec4)*2 + sizeof(xmath::fvec2));
