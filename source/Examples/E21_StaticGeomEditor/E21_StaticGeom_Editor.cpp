@@ -1319,19 +1319,15 @@ int E21_Example()
                 {
                     auto Index = static_cast<int>(&MI - pGeom->getDefaultMaterialInstances().data());
 
-                    if (not pDesc->m_MaterialInstRefList.empty())
-                        Mesh3DRscRefMaterialInstance[Index] = pDesc->m_MaterialInstRefList[Index];
-                    else if ( not MI.empty())
-                        Mesh3DRscRefMaterialInstance[Index] = MI;
+                    xresource::g_Mgr.CloneRef(Mesh3DRscRefMaterialInstance[Index], MI);
 
-
-                    if (Mesh3DRscRefMaterialInstance[Index].empty())
+                    if (MI.empty())
                     {
                         if (auto p = xresource::g_Mgr.getResource(DefaultTextureRef); p)
                         {
                             auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{*p} };
                             auto setup = xgpu::pipeline_instance::setup
-                            { .m_PipeLine = Pipeline3D
+                            { .m_PipeLine         = Pipeline3D
                             , .m_SamplersBindings = Bindings
                             };
 
