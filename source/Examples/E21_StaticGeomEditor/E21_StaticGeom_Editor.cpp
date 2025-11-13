@@ -32,6 +32,8 @@
 #include "plugins/xgeom_static.plugin/source/xgeom_static_xgpu_rsc_loader.h"
 #include "plugins/xgeom_static.plugin/source/xgeom_static_xgpu_rsc_loader.cpp"
 
+#include "imgui_internal.h"
+
 //-----------------------------------------------------------------------------------
 
 namespace e21
@@ -999,29 +1001,6 @@ int E21_Example()
     std::vector<xrsc::material_instance_ref>    Mesh3DRscRefMaterialInstance;
     std::vector<xgpu::pipeline_instance>        Mesh3DMatInstance;
 
-    /*
-    xgpu::pipeline_instance     Mesh3D_Mat_instance = {};
-    if (auto p = xresource::g_Mgr.getResource(DefaultTextureRef); p)
-    {
-        if ( auto pGeom = xresource::g_Mgr.getResource(SelectedDescriptor.m_GeomRef); pGeom )
-        {
-            auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{*p} };
-            auto setup    = xgpu::pipeline_instance::setup
-            {
-                .m_PipeLine                 = Pipeline3D
-            ,	.m_SamplersBindings         = Bindings
-            };
-
-            if (auto Err = Device.Create(Mesh3D_Mat_instance, setup); Err)
-            {
-                e21::Debugger(xgpu::getErrorMsg(Err));
-                assert(false);
-                std::exit(xgpu::getErrorInt(Err));
-            }
-        }
-    }
-    */
-
     //
     // setup Imgui interface
     //
@@ -1058,7 +1037,15 @@ int E21_Example()
     Inspector.m_OnResourceLeftSize.m_Delegates.clear();
 
     xproperty::inspector    InspectorDetails("Static Geom Details");
-    
+
+    // Theme the property dialogs to be more readable
+    for (auto& E : std::array{ &Inspector, &InspectorDetails })
+    {
+        E->m_Settings.m_ColorVScalar1 = 0.270f * 1.4f;
+        E->m_Settings.m_ColorVScalar2 = 0.305f * 1.4f;
+        E->m_Settings.m_ColorSScalar = 0.26f * 1.4f;
+    }
+    ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.5f;
 
     auto CallbackWhenPropsChanges = [&](xproperty::inspector& Inspector, const xproperty::ui::undo::cmd& Cmd)
     {
@@ -1158,6 +1145,113 @@ int E21_Example()
     while (Instance.ProcessInputEvents())
     {
         if (xgpu::tools::imgui::BeginRendering(true)) continue;
+
+
+        const float MainWindowWidth = static_cast<float>(MainWindow.getWidth());
+        const float MainWindowHeight = static_cast<float>(MainWindow.getHeight());
+
+        if (auto ctx = ImGui::GetCurrentContext(); ctx->HoveredWindow == nullptr || ctx->HoveredWindow->ID == ImGui::GetID("MainDockSpace"))
+        {
+            //
+            // Camera controls
+            //
+            if (Mouse.isPressed(xgpu::mouse::digital::BTN_RIGHT))
+            {
+                auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
+                Angles.m_Pitch.m_Value -= 0.01f * MousePos[1];
+                Angles.m_Yaw.m_Value -= 0.01f * MousePos[0];
+            }
+
+            if (Mouse.isPressed(xgpu::mouse::digital::BTN_MIDDLE))
+            {
+                auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
+                CameraTarget += View.getWorldYVector() * (0.005f * MousePos[1]);
+                CameraTarget += View.getWorldXVector() * (0.005f * MousePos[0]);
+            }
+
+            Distance += Distance * -0.2f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
+            if (Distance < 0.5f)
+            {
+                CameraTarget += View.getWorldZVector() * (0.5f * (0.5f - Distance));
+                Distance = 0.5f;
+            }
+        }
+
+        if (not Mesh3DMatInstance.empty())
+        {
+            auto CmdBuffer = MainWindow.getCmdBuffer();
+
+            View.setViewport({ 0, 0, static_cast<int>(MainWindowWidth), static_cast<int>(MainWindowHeight) });
+
+            // Help compute the distance to keep the object inside the view port
+            const float vertical_fov    = View.getFov().m_Value;
+            const float aspect          = View.getAspect();
+            const float radius          = 0.5f;
+            const float hfov            = 2.0f * std::atan(aspect * std::tan(vertical_fov / 2.0f));
+            const float min_fov         = std::min(vertical_fov, hfov);
+            const float distance        = radius / std::tan(min_fov / 2.0f);
+
+            // Update the camera
+            //View.LookAt(Distance + distance - 1, Angles, { 0,0,0 });
+            View.LookAt(Distance, Angles, CameraTarget);
+
+            push_constants3D PushConst;
+
+            PushConst.m_L2w = xmath::fmat4::fromTranslation(-View.getPosition()) * xmath::fmat4::fromTranslation({ 0, 0, 0 });
+            PushConst.m_w2C = View.getW2C() * xmath::fmat4::fromTranslation(View.getPosition());
+
+            float maxY;
+            // Render the mesh
+            if (auto p = xresource::g_Mgr.getResource(SelectedDescriptor.m_GeomRef); p)
+            {
+                CmdBuffer.setStreamingBuffers({ &p->IndexBuffer(),3 });
+
+                maxY = p->m_BBox.m_Min.m_Y;
+
+                for (auto& M : p->getMeshes())
+                {
+                    for (auto& S : p->getSubmeshes().subspan(M.m_iLOD, M.m_nLODs))
+                    {
+                        //auto& MI = p->getDefaultMaterialInstances()[S.m_iMaterial];
+                        CmdBuffer.setPipelineInstance(Mesh3DMatInstance[S.m_iMaterial]);
+
+                        for (auto& C : p->getClusters().subspan(S.m_iCluster, S.m_nCluster))
+                        {
+                            std::memcpy(&PushConst.m_posScaleAndUScale, &C.m_PosScaleAndUScale, sizeof(xmath::fvec4) * 2 + sizeof(xmath::fvec2));
+                            CmdBuffer.setPushConstants(PushConst);
+
+                            CmdBuffer.Draw(C.m_nIndices, C.m_iIndex, C.m_iVertex);
+                        }
+                    }
+                }
+
+                // Spam all the clusters to the renderer
+                if (0)
+                    for (auto& E : p->getClusters())
+                    {
+                        std::memcpy(&PushConst.m_posScaleAndUScale, &E.m_PosScaleAndUScale, sizeof(xmath::fvec4) * 2 + sizeof(xmath::fvec2));
+                        CmdBuffer.setPushConstants(PushConst);
+
+                        CmdBuffer.Draw(E.m_nIndices, E.m_iIndex, E.m_iVertex);
+                    }
+            }
+
+
+            //
+            // Render plane
+            //
+            {
+                CmdBuffer.setPipelineInstance(Grid3dMaterialInstance);
+                grid_push_constants Push;
+
+                Push.m_WorldSpaceCameraPos = View.getPosition();
+                Push.m_L2W = xmath::fmat4(xmath::fvec3(1000.f, 1000.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(Push.m_WorldSpaceCameraPos.m_X, maxY, Push.m_WorldSpaceCameraPos.m_Y));
+                Push.m_W2C = View.getW2C();
+                CmdBuffer.setPushConstants(Push);
+                MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE3D);
+            }
+        }
+
 
         if (ImGui::BeginMainMenuBar())
         {
@@ -1302,9 +1396,6 @@ int E21_Example()
             for(auto& E : Mesh3DMatInstance) Device.Destroy(std::move(E));
             for(auto& E : Mesh3DRscRefMaterialInstance) xresource::g_Mgr.ReleaseRef(E);
 
-            // Destory the current Mat Instance
-            //if (Mesh3D_Mat_instance.m_Private) Device.Destroy( std::move(Mesh3D_Mat_instance));
-
             //
             // Set
             //
@@ -1360,27 +1451,6 @@ int E21_Example()
                 }
             }
 
-            /*
-            // Recreate it here
-            if (auto p = xresource::g_Mgr.getResource(DefaultTextureRef); p)
-            {
-                if (auto pGeom = xresource::g_Mgr.getResource(SelectedDescriptor.m_GeomRef); pGeom)
-                {
-                    auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{*p} };
-                    auto setup = xgpu::pipeline_instance::setup
-                    { .m_PipeLine               = Pipeline3D
-                    , .m_SamplersBindings       = Bindings
-                    };
-
-                    if (auto Err = Device.Create(Mesh3D_Mat_instance, setup); Err)
-                    {
-                        e21::Debugger(xgpu::getErrorMsg(Err));
-                        assert(false);
-                        std::exit(xgpu::getErrorInt(Err));
-                    }
-                }
-            }
-            */
 
             {
                 std::wstring DetailsFilePath = std::format(L"{}//Details.txt", SelectedDescriptor.m_LogPath);
@@ -1422,7 +1492,7 @@ int E21_Example()
                             );
 
                             // Add all new meshes from the details into the descriptor
-                            for ( auto& E : GeomStaticDetails.m_Meshes )
+                            for ( auto& E : GeomStaticDetails.m_MeshList )
                             {
                                 if ( auto Index = pDesc->findMesh(E.m_Name); Index == -1 )
                                 {
@@ -1432,13 +1502,15 @@ int E21_Example()
                             }
 
                             // Update general information about the meshes from the details
-                            for (auto& E : GeomStaticDetails.m_Meshes)
+                            for (auto& E : GeomStaticDetails.m_MeshList)
                             {
                                 auto Index = pDesc->findMesh(E.m_Name);
                                 assert(Index != -1);
 
                                 auto& Mesh = pDesc->m_MeshList[Index];
-                                Mesh.m_MaterialList = E.m_MaterialList;
+
+                                Mesh.m_MaterialList.clear();
+                                for ( auto& M : E.m_MaterialList ) Mesh.m_MaterialList.push_back(GeomStaticDetails.m_MaterialList[M]);
                             }
 
                             pDesc->m_MeshNoncollapseVisibleList.clear();
@@ -1484,250 +1556,6 @@ int E21_Example()
                 }
             }
         }
-
-        //
-        // Preview window
-        //
-        {
-            ImGui::Begin("Material Instance Preview");
-
-            //
-            // render background
-            //
-            xgpu::tools::imgui::AddCustomRenderCallback([&](xgpu::cmd_buffer& CmdBuffer, const ImVec2& windowPos, const ImVec2& windowSize)
-            {
-                {
-                    e21::push_const2D pc;
-                    pc.m_Scale =
-                    { (150 * 2.0f) / windowSize.x
-                    , (150 * 2.0f) / windowSize.y
-                    };
-                    pc.m_Translation.setup(0);
-                    pc.m_UVScale = { 100.0f,100.0f };
-
-                    CmdBuffer.setPipelineInstance(BackGroundMaterialInstance);
-                    CmdBuffer.setPushConstants(pc);
-                    MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE2D);
-                }
-            });
-
-            //
-            // Camera controls
-            //
-            if (ImGui::IsWindowHovered())
-            {
-                if (Mouse.isPressed(xgpu::mouse::digital::BTN_RIGHT))
-                {
-                    auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
-                    Angles.m_Pitch.m_Value -= 0.01f * MousePos[1];
-                    Angles.m_Yaw.m_Value   -= 0.01f * MousePos[0];
-                }
-
-                if (Mouse.isPressed(xgpu::mouse::digital::BTN_MIDDLE))
-                {
-                    auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
-                    CameraTarget += View.getWorldYVector() * (0.005f * MousePos[1]);
-                    CameraTarget += View.getWorldXVector() * (0.005f * MousePos[0]);
-                }
-
-                Distance += Distance * -0.2f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
-                if (Distance < 0.5f)
-                {
-                    CameraTarget += View.getWorldZVector() * (0.5f * (0.5f - Distance));
-                    Distance = 0.5f;
-                }
-
-
-
-                // zoom
-                //Distance += Distance * -0.02f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
-            }
-
-            //
-            // Render mesh
-            //
-            if (not Mesh3DMatInstance.empty()) xgpu::tools::imgui::AddCustomRenderCallback([&](xgpu::cmd_buffer& CmdBuffer, const ImVec2& windowPos, const ImVec2& windowSize)
-            {
-                View.setViewport({ static_cast<int>(windowPos.x)
-                                 , static_cast<int>(windowPos.y)
-                                 , static_cast<int>(windowPos.x + windowSize.x)
-                                 , static_cast<int>(windowPos.y + windowSize.y)
-                                });
-
-                // Help compute the distance to keep the object inside the view port
-                const float vertical_fov    = View.getFov().m_Value;
-                const float aspect          = View.getAspect();
-                const float radius          = 0.5f;
-                const float hfov            = 2.0f * std::atan(aspect * std::tan(vertical_fov / 2.0f));
-                const float min_fov         = std::min(vertical_fov, hfov);
-                const float distance        = radius / std::tan(min_fov / 2.0f);
-
-                // Update the camera
-                //View.LookAt(Distance + distance - 1, Angles, { 0,0,0 });
-                View.LookAt(Distance, Angles, CameraTarget);
-
-                push_constants3D PushConst;
-
-                PushConst.m_L2w = xmath::fmat4::fromTranslation(-View.getPosition()) * xmath::fmat4::fromTranslation({0, 0, 0});
-                PushConst.m_w2C = View.getW2C() * xmath::fmat4::fromTranslation(View.getPosition());
-
-                float maxY;
-                // Render the mesh
-                if ( auto p = xresource::g_Mgr.getResource(SelectedDescriptor.m_GeomRef); p )
-                {
-                    CmdBuffer.setStreamingBuffers({&p->IndexBuffer(),3});
-
-                    maxY = p->m_BBox.m_Min.m_Y;
-
-                    for ( auto& M : p->getMeshes() )
-                    {
-                        for ( auto& S : p->getSubmeshes().subspan( M.m_iLOD, M.m_nLODs))
-                        {
-                            //auto& MI = p->getDefaultMaterialInstances()[S.m_iMaterial];
-                            CmdBuffer.setPipelineInstance(Mesh3DMatInstance[S.m_iMaterial]);
-
-                            for ( auto& C : p->getClusters().subspan( S.m_iCluster, S.m_nCluster))
-                            {
-                                std::memcpy(&PushConst.m_posScaleAndUScale, &C.m_PosScaleAndUScale, sizeof(xmath::fvec4) * 2 + sizeof(xmath::fvec2));
-                                CmdBuffer.setPushConstants(PushConst);
-
-                                CmdBuffer.Draw(C.m_nIndices, C.m_iIndex, C.m_iVertex);
-                            }
-                        }
-                    }
-
-                    // Spam all the clusters to the renderer
-                    if (0)
-                    for ( auto& E : p->getClusters() )
-                    {
-                        std::memcpy( &PushConst.m_posScaleAndUScale, &E.m_PosScaleAndUScale, sizeof(xmath::fvec4)*2 + sizeof(xmath::fvec2));
-                        CmdBuffer.setPushConstants(PushConst);
-
-                        CmdBuffer.Draw(E.m_nIndices, E.m_iIndex, E.m_iVertex);
-                    }
-                }
-
-
-                //
-                // Render plane
-                //
-                {
-                    CmdBuffer.setPipelineInstance(Grid3dMaterialInstance);
-                    grid_push_constants Push;
-
-                    Push.m_WorldSpaceCameraPos  = View.getPosition();
-                    Push.m_L2W                  = xmath::fmat4( xmath::fvec3(1000.f, 1000.0f, 1.f), xmath::radian3( -90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(Push.m_WorldSpaceCameraPos.m_X, maxY, Push.m_WorldSpaceCameraPos.m_Y));
-                    Push.m_W2C                  = View.getW2C();
-                    CmdBuffer.setPushConstants(Push);
-                    MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE3D);
-                }
-
-            });
-
-            //
-            // mesh selection
-            //
-            static int selected = 0;
-            const char* meshSelection[] = { "Cube", "Sphere","Capsule","Cylinder" };
-            e21::MeshPreviewStyle();
-            if (ImGui::Button("\xEE\xAF\x92 Meshes"))
-            {
-                ImVec2 button_pos = ImGui::GetItemRectMin();
-                ImVec2 button_size = ImGui::GetItemRectSize();
-                ImGui::SetNextWindowPos(ImVec2(button_pos.x, button_pos.y + button_size.y));
-                ImGui::OpenPopup("Meshes");
-            }
-
-            if (ImGui::BeginPopup("Meshes"))
-            {
-                for (int n = 0; n < IM_ARRAYSIZE(meshSelection); n++)
-                {
-                    bool is_selected = (selected == n);
-                    if (ImGui::Selectable(meshSelection[n], is_selected))
-                    {
-                        selected = n;
-                        CurrentModel = static_cast<e19::mesh_manager::model>(n);
-                    }
-                    if (is_selected)
-                        ImGui::SetItemDefaultFocus();
-                }
-                ImGui::EndPopup();
-            }
-            ImGui::PopStyleVar();
-            ImGui::PopStyleColor(6);
-
-            //
-            // Background texture selection
-            //
-            e21::MeshPreviewStyle();
-            ImGui::SameLine();
-            if (ImGui::Button("\xEE\xBC\x9F BackGround"))
-            {
-                ImVec2 button_pos = ImGui::GetItemRectMin();
-                ImVec2 button_size = ImGui::GetItemRectSize();
-                ImGui::SetNextWindowPos(ImVec2(button_pos.x, button_pos.y + button_size.y));
-                ImGui::OpenPopup("BackGround");
-            }
-
-            if (ImGui::BeginPopup("BackGround"))
-            {
-                /*
-                for (int i = 0; i < texturemgr.m_Names.size(); ++i)
-                {
-                    bool selected = (texturemgr.m_CurrentBGIndex == i);
-                    if (ImGui::Selectable(texturemgr.m_Names[i].c_str(), selected))
-                    {
-                        texturemgr.m_CurrentBGIndex = i;
-
-                        // Update binding immediately
-                        xgpu::texture* curTex = texturemgr.GetCurrentBGTexture();
-                        auto Bindings = (curTex)
-                            ? std::array{ xgpu::pipeline_instance::sampler_binding{*curTex} }
-                        : std::array{ xgpu::pipeline_instance::sampler_binding{BgTexture} }; // fallback default checkerboard
-
-                        //need to destroy material_instance if not complain
-                        Device.Destroy(std::move(BackGroundMaterialInstance));
-                        if (auto Err = Device.Create(BackGroundMaterialInstance, { .m_PipeLine = Pipeline2D, .m_SamplersBindings = Bindings }); Err)
-                        {
-                            assert(false);
-                            exit(xgpu::getErrorInt(Err));
-                        }
-                    }
-                    if (selected) ImGui::SetItemDefaultFocus();
-                }
-                */
-                ImGui::EndPopup();
-            }
-            ImGui::PopStyleVar();
-            ImGui::PopStyleColor(6);
-
-
-            ImGui::End();
-        }
-        
-        //
-        // Render the Inspector when node is selected
-        //
-        /*
-        if (nSelected != 1)
-        {
-            Inspector.clear();
-        }
-        else if (LastSelectedNode != SelectedNodes[0])
-        {
-            LastSelectedNode = SelectedNodes[0];
-            Inspector.clear();
-            Inspector.AppendEntity();
-            
-            auto& Entry = *g.m_InstanceNodes[xmaterial_compiler::node_guid{ LastSelectedNode.Get() }];
-            
-            Inspector.AppendEntityComponent(*xproperty::getObject(Entry), &Entry);
-        }
-        else if(g.m_InstanceNodes.find(xmaterial_compiler::node_guid{ LastSelectedNode.Get() }) == g.m_InstanceNodes.end())
-        {
-            Inspector.clear();
-        }
-        */
 
         xproperty::settings::context Context;
         Inspector.Show(Context, [&] {});
