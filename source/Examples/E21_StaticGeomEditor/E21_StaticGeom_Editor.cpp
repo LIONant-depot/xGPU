@@ -1245,7 +1245,7 @@ int E21_Example()
                 grid_push_constants Push;
 
                 Push.m_WorldSpaceCameraPos = View.getPosition();
-                Push.m_L2W = xmath::fmat4(xmath::fvec3(1000.f, 1000.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(Push.m_WorldSpaceCameraPos.m_X, maxY, Push.m_WorldSpaceCameraPos.m_Y));
+                Push.m_L2W = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, maxY, 0));
                 Push.m_W2C = View.getW2C();
                 CmdBuffer.setPushConstants(Push);
                 MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE3D);

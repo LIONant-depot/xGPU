@@ -5,13 +5,13 @@
 #extension GL_ARB_gpu_shader_fp64 : enable
 
 // Constants
-const float GridScale = 1.0;
-const float GridBias = 0.8;
-const vec4  BaseColor = vec4(0.5, 0.5, 0.5, 1.0);
-const vec4  LineColor = vec4(0.3, 0.3, 0.3, 1.0);
-const float LineWidth = 2.00;
-const float MajorLineWidth = 4.0;
-const float fade_power = 0.5f;
+const float GridScale       = 1.0;
+const float GridBias        = 1.0;
+const vec4  BaseColor       = vec4(0.61, 0.63, 0.7, 1.0);
+const vec4  LineColor       = vec4(0.31, 0.33, 0.4, 1.0);
+const float LineWidth       = 1.00;
+const float MajorLineWidth  = 2.5;
+const float fade_power      = 0.7f;
 
 const float ArrowSpacing = 10.0;
 const float ArrowStemLength = 4.0;
