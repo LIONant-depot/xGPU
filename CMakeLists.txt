@@ -215,8 +215,9 @@ set(FRAG_SHADER_SOURCES
   "source/Examples/E15_Shadowmap/E15_ShadowmapGeneration_frag.glsl"
   "source/Examples/E15_Shadowmap/E15_ShadowmapLighting_frag.glsl"
   "source/Examples/E17_FullSkin/E17_skingeom_frag.glsl"
+  "plugins/xgeom_static.plugin/source/runtime/GeomStaticShadowMapCreation_frag.glsl"
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_frag.glsl"
-  "source/Examples/E21_StaticGeomEditor/GridShader_frag.glsl"
+  "source/Examples/E21_StaticGeomEditor/E21_GridShader_frag.glsl"
   )
 
 # List vertex shader sources 
@@ -236,8 +237,9 @@ set(VERT_SHADER_SOURCES
   "source/Examples/E16_Animation/E16_skingeom_vert.glsl"
   "source/Examples/E17_FullSkin/E17_skingeom_vert.glsl"
   "source/Examples/E18_QuantizeSkinVertex/E18_quantize_skingeom_vert.glsl"
+  "plugins/xgeom_static.plugin/source/runtime/GeomStaticShadowMapCreation_vert.glsl"
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_vert.glsl"
-  "source/Examples/E21_StaticGeomEditor/GridShader_vert.glsl"
+  "source/Examples/E21_StaticGeomEditor/E21_GridShader_vert.glsl"
   )
 
 # Generate headers
@@ -579,16 +581,23 @@ source_group("Examples/E21_StaticGeomEditor" FILES
 )
 
 source_group("Examples/E21_StaticGeomEditor/Shaders" FILES
+  "plugins/xgeom_static.plugin/source/runtime/GeomStaticShadowMapCreation_vert.glsl"
+  "plugins/xgeom_static.plugin/source/runtime/GeomStaticShadowMapCreation_frag.glsl"
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_vert.glsl"
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_frag.glsl"
+  "source/Examples/E21_StaticGeomEditor/E21_GridShader_frag.glsl"
+  "source/Examples/E21_StaticGeomEditor/E21_GridShader_vert.glsl"
+)
+
+source_group("Examples/E21_StaticGeomEditor/Shaders/Headers" FILES
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/GeomStaticShadowMapCreation_vert.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/GeomStaticShadowMapCreation_frag.h"
   "${CMAKE_BINARY_DIR}/sprv_shaders_h/GeomStaticBasicShader_vert.h"
   "${CMAKE_BINARY_DIR}/sprv_shaders_h/GeomStaticBasicShader_frag.h"
-  "source/Examples/E21_StaticGeomEditor/GridShader_frag.glsl"
-  "source/Examples/E21_StaticGeomEditor/GridShader_vert.glsl"
-  "${CMAKE_BINARY_DIR}/sprv_shaders_h/GridShader_vert.h"
-  "${CMAKE_BINARY_DIR}/sprv_shaders_h/GridShader_frag.h"
-
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_GridShader_vert.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_GridShader_frag.h"
 )
+
 
 source_group("Examples/E22_FramebufferTarget" FILES
    "source/Examples/E22_FramebufferTarget/E22_FramebufferTarget.cpp"

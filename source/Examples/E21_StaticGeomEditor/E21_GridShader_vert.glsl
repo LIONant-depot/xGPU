@@ -11,6 +11,7 @@ layout(push_constant) uniform PushConsts
 {
     mat4 L2W;
     mat4 W2C;
+    mat4 ShadowL2C;
     vec3 WorldSpaceCameraPos;
     float MajorGridDiv;
 } pushConsts;
@@ -21,12 +22,14 @@ layout(location = 2) in vec4 inColor;   //[INPUT_COLOR]
 
 layout(location = 0) out vec2 outUV;
 layout(location = 1) out vec3 outCameraPos;
+layout(location = 2) out vec4 outShadowPos;
 
 void main() 
 {
     vec4 worldPos4 = pushConsts.L2W * vec4(inPosition, 1.0);
     vec3 worldPos = worldPos4.xyz;
-    gl_Position = pushConsts.W2C * worldPos4;
+    gl_Position  = pushConsts.W2C * worldPos4;
+    outShadowPos = pushConsts.ShadowL2C * vec4(inPosition, 1.0);
 
     // Assume WorldUV = true
     outUV = worldPos.xz * GridScale;

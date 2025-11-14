@@ -21,17 +21,22 @@ const float ArrowHeadWidth = 1.5;
 const vec4 XAxisColor = vec4(1.0, 0.0, 0.0, 1.0);
 const vec4 ZAxisColor = vec4(0.0, 0.0, 1.0, 1.0);
 
+layout(binding = 0) uniform sampler2D SamplerShadowMap;        // [INPUT_TEXTURE_SHADOW]
+
 // Push constants
 layout(push_constant) uniform PushConsts {
     mat4 L2W;
     mat4 W2C;
+    mat4 ShadowL2C;
     vec3 WorldSpaceCameraPos;
     float MajorGridDiv;
 } pushConsts;
 
 layout(location = 0) in vec2 inUV;
 layout(location = 1) in vec3 inCameraPos;
-layout(location = 0) out vec4 outColor;
+layout(location = 2) in vec4 inShadowPos;
+
+layout(location = 0) out vec4 out_Color;
 
 // SDF functions from Inigo Quilez
 float sdOrientedBox(in vec2 p, in vec2 a, in vec2 b, float th) {
@@ -65,7 +70,8 @@ float sdArrow(in vec2 p) {
     return min(d1, d2);
 }
 
-void main() {
+vec4 Grid() 
+{
     // Compute projection properties
     vec4 projRow3 = vec4(pushConsts.W2C[0][3], pushConsts.W2C[1][3], pushConsts.W2C[2][3], pushConsts.W2C[3][3]);
     float row3xyzLen = length(projRow3.xyz);
@@ -225,13 +231,64 @@ void main() {
 
     // Combine
     cos_theta = pow(cos_theta, fade_power);
-    outColor = mix(BaseColor, LineColor, grid * cos_theta * LineColor.a);
-    outColor = mix(outColor, XAxisColor, axis_x_alpha * cos_theta * XAxisColor.a);
-    outColor = mix(outColor, ZAxisColor, axis_z_alpha * cos_theta * ZAxisColor.a);
-    outColor = mix(outColor, XAxisColor, arrow_x * cos_theta * XAxisColor.a);
-    outColor = mix(outColor, ZAxisColor, arrow_z * cos_theta * ZAxisColor.a);
+    vec4 oColor = vec4(0);
+    oColor = mix(BaseColor, LineColor, grid * cos_theta * LineColor.a);
+    oColor = mix(oColor, XAxisColor, axis_x_alpha * cos_theta * XAxisColor.a);
+    oColor = mix(oColor, ZAxisColor, axis_z_alpha * cos_theta * ZAxisColor.a);
+    oColor = mix(oColor, XAxisColor, arrow_x * cos_theta * XAxisColor.a);
+    oColor = mix(oColor, ZAxisColor, arrow_z * cos_theta * ZAxisColor.a);
+
+    return oColor;
 }
 
+//----------------------------------------------------------------------------------------
+
+int isqr(int a) { return a * a; }
+
+//----------------------------------------------------------------------------------------
+
+float SampleShadowTexture(in const vec4 Coord, in const vec2 off)
+{
+    float dist = texture(SamplerShadowMap, Coord.xy + off).r;
+    return (Coord.w > 0.0 && dist < Coord.z) ? 0.0f : 1.0f;
+}
+
+//----------------------------------------------------------------------------------------
+
+float ShadowPCF(in const vec4 UVProjection)
+{
+    float Shadow = 1.0;
+    if (UVProjection.z > -1.0 && UVProjection.z < 1.0)
+    {
+        const float scale = 1.5;
+        const vec2  TexelSize = scale / textureSize(SamplerShadowMap, 0);
+        const int	SampleRange = 1;
+        const int	SampleTotal = isqr(1 + 2 * SampleRange);
+
+        float		ShadowAcc = 0;
+        for (int x = -SampleRange; x <= SampleRange; x++)
+        {
+            for (int y = -SampleRange; y <= SampleRange; y++)
+            {
+                ShadowAcc += SampleShadowTexture(UVProjection, vec2(TexelSize.x * x, TexelSize.y * y));
+            }
+        }
+
+        Shadow = ShadowAcc / SampleTotal;
+    }
+
+    return Shadow;
+}
+
+void main()
+{
+    const vec4  DiffuseColor    = Grid();
+    const float Shadow          = ShadowPCF(inShadowPos / inShadowPos.w);
+    const vec3  FinalColor      = (DiffuseColor.xyz - DiffuseColor.xyz * 0.5) * Shadow + DiffuseColor.xyz * 0.5;
+
+
+    out_Color = vec4(FinalColor.xyz, 1.0f);
+}
 
 
 

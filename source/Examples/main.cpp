@@ -28,7 +28,7 @@ int main()
     if constexpr (false) if (auto err = E19_Example(); err) return err;
     if constexpr (false) if (auto err = E20_Example(); err) return err;
     if constexpr (!false) if (auto err = E21_Example(); err) return err;
-    if constexpr (!false) if (auto err = E22_Example(); err) return err;
+    if constexpr (false) if (auto err = E22_Example(); err) return err;
 
     return 0;
 }

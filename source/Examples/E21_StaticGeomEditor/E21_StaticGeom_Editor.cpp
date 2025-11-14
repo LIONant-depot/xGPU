@@ -48,7 +48,7 @@ namespace e21
         #include "draw_frag.h"
     };
 
-    constexpr auto              g_GeomStaticFragShader = std::array
+    constexpr static std::uint32_t g_GeomStaticFragShader[] =
     {
         #include "GeomStaticBasicShader_frag.h"
     };
@@ -60,12 +60,12 @@ namespace e21
 
     constexpr static std::uint32_t g_GridVertShader[] = 
     {
-        #include "GridShader_vert.h"
+        #include "E21_GridShader_vert.h"
     };
 
     constexpr static std::uint32_t g_GridFragShader[] =
     {
-        #include "GridShader_frag.h"
+        #include "E21_GridShader_frag.h"
     };
 
 
@@ -644,10 +644,11 @@ int E21_Example()
         xmath::fvec2  m_uvTranslation;             // .xy = UV translation
         xmath::fmat4  m_L2w;
         xmath::fmat4  m_w2C;
-        xmath::fvec4  m_LightColor;
-        xmath::fvec4  m_AmbientLightColor;
-        xmath::fvec4  m_wSpaceLightPos;
-        xmath::fvec4  m_wSpaceEyePos;
+        xmath::fmat4  m_L2CShadow;
+        //xmath::fvec4  m_LightColor;
+        //xmath::fvec4  m_AmbientLightColor;
+        //xmath::fvec4  m_wSpaceLightPos;
+        //xmath::fvec4  m_wSpaceEyePos;
     };
 
     //
@@ -678,73 +679,10 @@ int E21_Example()
             return xgpu::getErrorInt(Err);
     }
 
+
     //
-    // Material for primitives
+    // Material of all static geometry
     //
-    struct grid_push_constants
-    {
-        xmath::fmat4    m_L2W;                                                              // Identity matrix for local-to-world
-        xmath::fmat4    m_W2C;                                                              // Identity matrix for world-to-clip (adjust based on camera projection)
-        xmath::fvec3d   m_WorldSpaceCameraPos   = xmath::fvec3(0.0f, 10.0f, 0.0f);          // Typical overhead camera position
-        float           m_MajorGridDiv          = 10.0f;                                    // 10 major divisions
-    };
-
-    xgpu::pipeline          Grid3dMaterial;
-    xgpu::pipeline_instance Grid3dMaterialInstance;
-    {
-        xgpu::shader VertexShader;
-        {
-            xgpu::shader::setup Setup
-            { .m_Type   = xgpu::shader::type::bit::VERTEX
-            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e21::g_GridVertShader, sizeof(e21::g_GridVertShader) / sizeof(int)}}
-            };
-            if (auto Err = Device.Create(VertexShader, Setup); Err)
-            {
-                assert(false);
-                exit(xgpu::getErrorInt(Err));
-            }
-        }
-
-        xgpu::shader FragShader;
-        {
-            xgpu::shader::setup Setup
-            { .m_Type   = xgpu::shader::type::bit::FRAGMENT
-            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e21::g_GridFragShader, sizeof(e21::g_GridFragShader) / sizeof(int)}}
-            };
-            if (auto Err = Device.Create(FragShader, Setup); Err)
-            {
-                assert(false);
-                exit(xgpu::getErrorInt(Err));
-            }
-        }
-
-        auto Shaders    = std::array<const xgpu::shader*, 2>{ &FragShader, &VertexShader };
-        auto Setup      = xgpu::pipeline::setup
-        { .m_VertexDescriptor   = Primitive3DVertexDescriptor
-        , .m_Shaders            = Shaders
-        , .m_PushConstantsSize  = sizeof(grid_push_constants)
-        , .m_Blend              = xgpu::pipeline::blend::getAlphaOriginal()
-        };
-
-        if (auto Err = Device.Create(Grid3dMaterial, Setup); Err)
-        {
-            assert(false);
-            exit(xgpu::getErrorInt(Err));
-        }
-
-        auto setup      = xgpu::pipeline_instance::setup
-        { .m_PipeLine           = Grid3dMaterial
-        };
-
-        if (auto Err = Device.Create(Grid3dMaterialInstance, setup); Err)
-        {
-            e21::Debugger(xgpu::getErrorMsg(Err));
-            assert(false);
-            std::exit(xgpu::getErrorInt(Err));
-        }
-    }
-
-
     xgpu::pipeline Pipeline3D;
     {
         //
@@ -786,7 +724,7 @@ int E21_Example()
         {
             xgpu::shader::setup Setup
             { .m_Type   = xgpu::shader::type::bit::FRAGMENT
-            , .m_Sharer = xgpu::shader::setup::raw_data{e21::g_GeomStaticFragShader }
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e21::g_GeomStaticFragShader, sizeof(e21::g_GeomStaticFragShader) / sizeof(int)}}
             };
             if (auto Err = Device.Create(FragmentShader3D, Setup); Err)
                 return xgpu::getErrorInt(Err);
@@ -804,7 +742,9 @@ int E21_Example()
         }
 
         auto Shaders    = std::array<const xgpu::shader*, 2>{ &FragmentShader3D, &VertexShader3D };
-        auto Samplers   = std::array{ xgpu::pipeline::sampler{} };
+        auto Samplers   = std::array{ xgpu::pipeline::sampler{.m_AddressMode = std::array{ xgpu::pipeline::sampler::address_mode::CLAMP, xgpu::pipeline::sampler::address_mode::CLAMP, xgpu::pipeline::sampler::address_mode::CLAMP}}         // Shadowmap
+                                    , xgpu::pipeline::sampler{}         // Albedo
+                                    };
         auto Setup      = xgpu::pipeline::setup
         { .m_VertexDescriptor   = GeomStaticVertexDescriptor
         , .m_Shaders            = Shaders
@@ -815,6 +755,181 @@ int E21_Example()
         if (auto Err = Device.Create(Pipeline3D, Setup); Err)
             return xgpu::getErrorInt(Err);
     }
+
+    //
+    // Shadow map creation vertex descriptor
+    //
+    xgpu::vertex_descriptor ShadowmapCreationVertexDescriptor;
+    auto Attributes = std::array
+    {
+        xgpu::vertex_descriptor::attribute
+        { .m_Offset = offsetof(xgeom_static::geom::vertex, m_XPos)
+        , .m_Format = xgpu::vertex_descriptor::format::SINT16_4D           // Position + extras
+        }
+    };
+    if (auto Err = Device.Create(ShadowmapCreationVertexDescriptor
+        , xgpu::vertex_descriptor::setup
+        { .m_Topology   = xgpu::vertex_descriptor::topology::TRIANGLE_LIST
+        , .m_VertexSize = sizeof(xgeom_static::geom::vertex)
+        , .m_Attributes = Attributes
+        }); Err)
+    {
+        assert(false);
+    }
+
+    //
+    // Shadow Generation Pipeline Instance
+    //  
+    struct shadow_generation_push_constants
+    {
+        xmath::fvec4    m_posScaleAndUScale;        // .xyz = position scale, .w = U scale
+        xmath::fvec4    m_posTranslationAndVScale;  // .xyz = position translation, .w = V scale
+        xmath::fmat4    m_L2C;                      // To Shadow Space
+    };
+
+    xgpu::pipeline_instance ShadowGenerationPipeLineInstance;
+    {
+        xgpu::shader FragmentShader;
+        {
+            auto RawData = xgpu::shader::setup::raw_data
+            { std::array {
+                #include "GeomStaticShadowMapCreation_frag.h" 
+            } };
+
+            if (auto Err = Device.Create(FragmentShader, { .m_Type = xgpu::shader::type::bit::FRAGMENT, .m_Sharer = RawData }); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        xgpu::shader VertexShader;
+        {
+            auto RawData = xgpu::shader::setup::raw_data
+            { std::array {
+                #include "GeomStaticShadowMapCreation_vert.h"
+            } };
+
+            if (auto Err = Device.Create(VertexShader, { .m_Type = xgpu::shader::type::bit::VERTEX, .m_Sharer = RawData }); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        auto Shaders = std::array<const xgpu::shader*, 2>{ &VertexShader, &FragmentShader };
+        auto Setup   = xgpu::pipeline::setup
+        { .m_VertexDescriptor   = ShadowmapCreationVertexDescriptor
+        , .m_Shaders            = Shaders
+        , .m_PushConstantsSize  = sizeof(shadow_generation_push_constants)
+        , .m_Primitive          = {} //{ .m_FrontFace = xgpu::pipeline::primitive::front_face::CLOCKWISE } // When rendering shadows we don't want the front faces we want the back faces (Light leaking can happen)
+        , .m_DepthStencil       = { .m_DepthBiasConstantFactor  = 2.00f       // Depth bias (and slope) are used to avoid shadowing artifacts (always applied)
+                                  , .m_DepthBiasSlopeFactor     = 4.0f        // Slope depth bias factor, applied depending on polygon's slope
+                                  , .m_bDepthBiasEnable         = true        // Enable the depth bias
+                                  , .m_bDepthClampEnable        = true        // Depth clamp to avoid near plane clipping
+                                  }
+        };
+
+        xgpu::pipeline ShadowGenerationPipeLine;
+        if (auto Err = Device.Create(ShadowGenerationPipeLine, Setup); Err)
+            return xgpu::getErrorInt(Err);
+
+        if (auto Err = Device.Create(ShadowGenerationPipeLineInstance, { .m_PipeLine = ShadowGenerationPipeLine }); Err)
+            return xgpu::getErrorInt(Err);
+    }
+
+    //
+    // Generate Shadow map render pass
+    //
+    xgpu::renderpass RenderPass;
+    xgpu::texture    ShadowMapTexture;
+    {
+        if (auto Err = Device.Create(ShadowMapTexture, { .m_Format = xgpu::texture::format::DEPTH_U16, .m_Width = 1024, .m_Height = 1024, .m_isGamma = false }); Err)
+            return xgpu::getErrorInt(Err);
+
+        std::array<xgpu::renderpass::attachment, 1> Attachments
+        {
+            ShadowMapTexture
+        };
+
+        if (auto Err = Device.Create(RenderPass, { .m_Attachments = Attachments }); Err)
+            return xgpu::getErrorInt(Err);
+    }
+
+
+    //
+    // Grid Materials
+    //
+    struct grid_push_constants
+    {
+        xmath::fmat4    m_L2W;                                                              // Identity matrix for local-to-world
+        xmath::fmat4    m_W2C;                                                              // Identity matrix for world-to-clip (adjust based on camera projection)
+        xmath::fmat4    m_L2CTShadow;                                                       // Local to shadow texture
+        xmath::fvec3d   m_WorldSpaceCameraPos = xmath::fvec3(0.0f, 10.0f, 0.0f);            // Typical overhead camera position
+        float           m_MajorGridDiv = 10.0f;                                             // 10 major divisions
+    };
+
+    xgpu::pipeline          Grid3dMaterial;
+    xgpu::pipeline_instance Grid3dMaterialInstance;
+    {
+        xgpu::shader VertexShader;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type   = xgpu::shader::type::bit::VERTEX
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e21::g_GridVertShader, sizeof(e21::g_GridVertShader) / sizeof(int)}}
+            };
+            if (auto Err = Device.Create(VertexShader, Setup); Err)
+            {
+                assert(false);
+                exit(xgpu::getErrorInt(Err));
+            }
+        }
+
+        xgpu::shader FragShader;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type   = xgpu::shader::type::bit::FRAGMENT
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e21::g_GridFragShader, sizeof(e21::g_GridFragShader) / sizeof(int)}}
+            };
+            if (auto Err = Device.Create(FragShader, Setup); Err)
+            {
+                assert(false);
+                exit(xgpu::getErrorInt(Err));
+            }
+        }
+
+        // grid mat
+        {
+            auto Samplers = std::array{ xgpu::pipeline::sampler{.m_AddressMode = std::array{ xgpu::pipeline::sampler::address_mode::CLAMP, xgpu::pipeline::sampler::address_mode::CLAMP, xgpu::pipeline::sampler::address_mode::CLAMP}}         // Shadowmap
+            };
+
+            auto Shaders = std::array<const xgpu::shader*, 2>{ &FragShader, &VertexShader };
+            auto Setup = xgpu::pipeline::setup
+            { .m_VertexDescriptor   = Primitive3DVertexDescriptor
+            , .m_Shaders            = Shaders
+            , .m_PushConstantsSize  = sizeof(grid_push_constants)
+            , .m_Samplers           = Samplers
+            , .m_Blend              = xgpu::pipeline::blend::getAlphaOriginal()
+            };
+
+            if (auto Err = Device.Create(Grid3dMaterial, Setup); Err)
+            {
+                assert(false);
+                exit(xgpu::getErrorInt(Err));
+            }
+        }
+
+        // grid mat instance
+        {
+            auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ShadowMapTexture} };
+            auto setup = xgpu::pipeline_instance::setup
+            { .m_PipeLine           = Grid3dMaterial
+            , .m_SamplersBindings   = Bindings
+            };
+
+            if (auto Err = Device.Create(Grid3dMaterialInstance, setup); Err)
+            {
+                e21::Debugger(xgpu::getErrorMsg(Err));
+                assert(false);
+                std::exit(xgpu::getErrorInt(Err));
+            }
+        }
+    }
+
 
     //
     //setup 2D vertex descriptor for background
@@ -925,45 +1040,6 @@ int E21_Example()
     };
     e10::g_LibMgr.m_OnCompilationState.Register(CallBackForCompilation);
 
-
-
-    //
-    // Set the project path
-    //
-    {
-        TCHAR szFileName[MAX_PATH];
-        GetModuleFileName(NULL, szFileName, MAX_PATH);
-
-        std::wcout << L"Full path: " << szFileName << L"\n";
-        if (auto I = xstrtool::findI(std::wstring{ szFileName }, { L"xGPU" }); I != std::string::npos)
-        {
-            I += 4; // Skip the xGPU part
-            szFileName[I] = 0;
-            std::wcout << L"Found xGPU at: " << szFileName << L"\n";
-
-            TCHAR LIONantProject[] = L"\\example.lionprj";
-            for (int i = 0; szFileName[I++] = LIONantProject[i]; ++i);
-
-            std::wcout << "Project Path: " << szFileName << "\n";
-
-            //
-            // Open the project
-            //
-            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
-            {
-                e21::Debugger(Err.getMessage());
-                return 1;
-            }
-
-            //
-            // Set the path for the resources
-            //
-            ResourceMgrUserData.m_Device = Device;
-            xresource::g_Mgr.setUserData(&ResourceMgrUserData, false);
-            xresource::g_Mgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", e10::g_LibMgr.m_ProjectPath));
-        }
-    }
-
     //
     // Create mesh mgr
     //
@@ -998,6 +1074,9 @@ int E21_Example()
         }
     }
 
+    //
+    // Mesh render pipelines
+    //
     std::vector<xrsc::material_instance_ref>    Mesh3DRscRefMaterialInstance;
     std::vector<xgpu::pipeline_instance>        Mesh3DMatInstance;
 
@@ -1006,13 +1085,66 @@ int E21_Example()
     //
     xgpu::tools::imgui::CreateInstance(MainWindow);
 
+
+    //
+    // Set the project path
+    //
+    {
+        TCHAR szFileName[MAX_PATH];
+        GetModuleFileName(NULL, szFileName, MAX_PATH);
+
+        std::wcout << L"Full path: " << szFileName << L"\n";
+        if (auto I = xstrtool::findI(std::wstring{ szFileName }, { L"xGPU" }); I != std::string::npos)
+        {
+            I += 4; // Skip the xGPU part
+            szFileName[I] = 0;
+            std::wcout << L"Found xGPU at: " << szFileName << L"\n";
+
+            TCHAR LIONantProject[] = L"\\example.lionprj";
+            for (int i = 0; szFileName[I++] = LIONantProject[i]; ++i);
+
+            std::wcout << "Project Path: " << szFileName << "\n";
+
+            //
+            // Open the project
+            //
+            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
+            {
+                e21::Debugger(Err.getMessage());
+                return 1;
+            }
+
+
+            ImGuiIO& io = ImGui::GetIO();
+            static std::string IniSave = std::format("{}/Assets/imgui.ini", xstrtool::To(szFileName));
+            io.IniFilename = IniSave.c_str();
+
+            //
+            // Set the path for the resources
+            //
+            ResourceMgrUserData.m_Device = Device;
+            xresource::g_Mgr.setUserData(&ResourceMgrUserData, false);
+            xresource::g_Mgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", e10::g_LibMgr.m_ProjectPath));
+        }
+    }
+
+    //
+    // Setup all the views...
+    //
     xgpu::tools::view   View        = {};
     xmath::radian3      Angles      = {};
-    float               Distance    = 2;
+    float               Distance    = -1;   // Let it to automatically compute it
     xmath::fvec3        CameraTarget(0, 0, 0);
-
-
     View.setFov(60_xdeg);
+
+    xgpu::tools::view LightingView;
+    LightingView.setFov(46_xdeg);
+    LightingView.setViewport({ 0,0,ShadowMapTexture.getTextureDimensions()[0], ShadowMapTexture.getTextureDimensions()[1] });
+    //LightingView.setNearZ(0.5f);
+
+    xmath::fvec3 LightDirection (-1, -2, 0);
+
+    LightDirection.NormalizeSafe();
 
     //
     //create input devices
@@ -1138,7 +1270,6 @@ int E21_Example()
         ImGui::PopStyleVar();
     }>();
 
-
     //
     // Main Loop
     //
@@ -1169,89 +1300,149 @@ int E21_Example()
                 CameraTarget += View.getWorldXVector() * (0.005f * MousePos[0]);
             }
 
-            Distance += Distance * -0.2f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
-            if (Distance < 0.5f)
+            if (Distance != -1)
             {
-                CameraTarget += View.getWorldZVector() * (0.5f * (0.5f - Distance));
-                Distance = 0.5f;
+                Distance += Distance * -0.2f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
+                if (Distance < 0.5f)
+                {
+                    CameraTarget += View.getWorldZVector() * (0.5f * (0.5f - Distance));
+                    Distance = 0.5f;
+                }
             }
         }
 
         if (not Mesh3DMatInstance.empty())
         {
-            auto CmdBuffer = MainWindow.getCmdBuffer();
+            shadow_generation_push_constants    ShadowGenerationPushC;
 
+            LightingView.setViewport({ 0, 0, static_cast<int>(1024), static_cast<int>(1024) });
             View.setViewport({ 0, 0, static_cast<int>(MainWindowWidth), static_cast<int>(MainWindowHeight) });
 
-            // Help compute the distance to keep the object inside the view port
-            const float vertical_fov    = View.getFov().m_Value;
-            const float aspect          = View.getAspect();
-            const float radius          = 0.5f;
-            const float hfov            = 2.0f * std::atan(aspect * std::tan(vertical_fov / 2.0f));
-            const float min_fov         = std::min(vertical_fov, hfov);
-            const float distance        = radius / std::tan(min_fov / 2.0f);
 
-            // Update the camera
-            //View.LookAt(Distance + distance - 1, Angles, { 0,0,0 });
-            View.LookAt(Distance, Angles, CameraTarget);
-
-            push_constants3D PushConst;
-
-            PushConst.m_L2w = xmath::fmat4::fromTranslation(-View.getPosition()) * xmath::fmat4::fromTranslation({ 0, 0, 0 });
-            PushConst.m_w2C = View.getW2C() * xmath::fmat4::fromTranslation(View.getPosition());
-
-            float maxY;
-            // Render the mesh
+            //
+            // Render the shadow scene
+            //
             if (auto p = xresource::g_Mgr.getResource(SelectedDescriptor.m_GeomRef); p)
             {
-                CmdBuffer.setStreamingBuffers({ &p->IndexBuffer(),3 });
+                //
+                // Make the shadow view look at the object
+                //
+                {
+                    // Help compute the distance to keep the object inside the view port
+                    const float vertical_fov    = LightingView.getFov().m_Value;
+                    const float aspect          = LightingView.getAspect();
+                    const float radius          = p->m_BBox.getRadius();
+                    const float hfov            = 2.0f * std::atan(aspect * std::tan(vertical_fov / 2.0f));
+                    const float min_fov         = std::min(vertical_fov, hfov);
+                    const float distance        = radius / std::tan(min_fov / 2.0f);
 
-                maxY = p->m_BBox.m_Min.m_Y;
+                    auto L = -LightDirection;
+
+                    // Set the view correctly
+                    LightingView.LookAt(distance, xmath::radian3(L.Pitch(), L.Yaw(), 0_xdeg), p->m_BBox.getCenter());
+                }
+                
+                
+                auto                                CmdBuffer               = MainWindow.StartRenderPass(RenderPass);
+
+                CmdBuffer.setPipelineInstance(ShadowGenerationPipeLineInstance);
+
+                ShadowGenerationPushC.m_L2C = LightingView.getW2C();
+                CmdBuffer.setBuffer(p->IndexBuffer());
+                CmdBuffer.setBuffer(p->VertexBuffer());
 
                 for (auto& M : p->getMeshes())
                 {
                     for (auto& S : p->getSubmeshes().subspan(M.m_iLOD, M.m_nLODs))
                     {
-                        //auto& MI = p->getDefaultMaterialInstances()[S.m_iMaterial];
-                        CmdBuffer.setPipelineInstance(Mesh3DMatInstance[S.m_iMaterial]);
-
                         for (auto& C : p->getClusters().subspan(S.m_iCluster, S.m_nCluster))
                         {
-                            std::memcpy(&PushConst.m_posScaleAndUScale, &C.m_PosScaleAndUScale, sizeof(xmath::fvec4) * 2 + sizeof(xmath::fvec2));
-                            CmdBuffer.setPushConstants(PushConst);
+                            std::memcpy(&ShadowGenerationPushC.m_posScaleAndUScale, &C.m_PosScaleAndUScale, sizeof(xmath::fvec4) * 2 );
+                            CmdBuffer.setPushConstants(ShadowGenerationPushC);
 
                             CmdBuffer.Draw(C.m_nIndices, C.m_iIndex, C.m_iVertex);
                         }
                     }
                 }
-
-                // Spam all the clusters to the renderer
-                if (0)
-                    for (auto& E : p->getClusters())
-                    {
-                        std::memcpy(&PushConst.m_posScaleAndUScale, &E.m_PosScaleAndUScale, sizeof(xmath::fvec4) * 2 + sizeof(xmath::fvec2));
-                        CmdBuffer.setPushConstants(PushConst);
-
-                        CmdBuffer.Draw(E.m_nIndices, E.m_iIndex, E.m_iVertex);
-                    }
             }
 
-
-            //
-            // Render plane
-            //
+            static const xmath::fmat4 C2T = []
             {
-                CmdBuffer.setPipelineInstance(Grid3dMaterialInstance);
-                grid_push_constants Push;
+                xmath::fmat4 ClipSpaceToTextureSpaceMatrix;
+                ClipSpaceToTextureSpaceMatrix.setupSRT({ 0.5f, 0.5f, 1.0f }, { 0_xdeg }, { 0.5f, 0.5f, 0.0f });
+                return ClipSpaceToTextureSpaceMatrix;
+            }();
 
-                Push.m_WorldSpaceCameraPos = View.getPosition();
-                Push.m_L2W = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, maxY, 0));
-                Push.m_W2C = View.getW2C();
-                CmdBuffer.setPushConstants(Push);
-                MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE3D);
+
+            //
+            // Render the normal color scene
+            //
+            if (auto p = xresource::g_Mgr.getResource(SelectedDescriptor.m_GeomRef); p)
+            {
+                auto CmdBuffer = MainWindow.getCmdBuffer();
+
+                if( Distance == -1 )
+                {
+                    // Help compute the distance to keep the object inside the view port
+                    const float vertical_fov    = View.getFov().m_Value;
+                    const float aspect          = View.getAspect();
+                    const float radius          = p->m_BBox.getRadius();
+                    const float hfov            = 2.0f * std::atan(aspect * std::tan(vertical_fov / 2.0f));
+                    const float min_fov         = std::min(vertical_fov, hfov);
+                    Distance     = radius / std::tan(min_fov / 2.0f);
+                    CameraTarget = p->m_BBox.getCenter();
+                }
+
+                // Update the camera
+                View.LookAt(Distance, Angles, CameraTarget);
+
+                push_constants3D PushConst;
+
+                PushConst.m_L2w         = xmath::fmat4::fromTranslation(-View.getPosition()) * xmath::fmat4::fromTranslation({ 0, 0, 0 });
+                PushConst.m_w2C         = View.getW2C() * xmath::fmat4::fromTranslation(View.getPosition());
+                PushConst.m_L2CShadow   = C2T * ShadowGenerationPushC.m_L2C;
+
+                float maxY;
+            
+                // Render the mesh
+                {
+                    CmdBuffer.setStreamingBuffers({ &p->IndexBuffer(),3 });
+
+                    maxY = p->m_BBox.m_Min.m_Y;
+
+                    for (auto& M : p->getMeshes())
+                    {
+                        for (auto& S : p->getSubmeshes().subspan(M.m_iLOD, M.m_nLODs))
+                        {
+                            CmdBuffer.setPipelineInstance(Mesh3DMatInstance[S.m_iMaterial]);
+
+                            for (auto& C : p->getClusters().subspan(S.m_iCluster, S.m_nCluster))
+                            {
+                                std::memcpy(&PushConst.m_posScaleAndUScale, &C.m_PosScaleAndUScale, sizeof(xmath::fvec4) * 2 + sizeof(xmath::fvec2));
+                                CmdBuffer.setPushConstants(PushConst);
+
+                                CmdBuffer.Draw(C.m_nIndices, C.m_iIndex, C.m_iVertex);
+                            }
+                        }
+                    }
+                }
+
+                //
+                // Render plane
+                //
+                {
+                    CmdBuffer.setPipelineInstance(Grid3dMaterialInstance);
+                    grid_push_constants Push;
+
+                    Push.m_WorldSpaceCameraPos = View.getPosition();
+                    Push.m_L2W          = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, maxY, 0));
+                    Push.m_W2C          = View.getW2C();
+                    Push.m_L2CTShadow   = C2T * ShadowGenerationPushC.m_L2C * Push.m_L2W;
+                    CmdBuffer.setPushConstants(Push);
+                    MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE3D);
+                }
             }
         }
-
 
         if (ImGui::BeginMainMenuBar())
         {
@@ -1416,7 +1607,7 @@ int E21_Example()
                     {
                         if (auto p = xresource::g_Mgr.getResource(DefaultTextureRef); p)
                         {
-                            auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{*p} };
+                            auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ShadowMapTexture}, xgpu::pipeline_instance::sampler_binding{*p} };
                             auto setup = xgpu::pipeline_instance::setup
                             { .m_PipeLine         = Pipeline3D
                             , .m_SamplersBindings = Bindings
@@ -1434,7 +1625,7 @@ int E21_Example()
                     {
                         if ( auto pT = xresource::g_Mgr.getResource(pMI->m_pTextureList[0].m_TexureRef); pT )
                         {
-                            auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{*pT} };
+                            auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ShadowMapTexture}, xgpu::pipeline_instance::sampler_binding{*pT} };
                             auto setup = xgpu::pipeline_instance::setup
                             { .m_PipeLine         = Pipeline3D
                             , .m_SamplersBindings = Bindings
@@ -1613,6 +1804,9 @@ int E21_Example()
 
             // Tell the system if we should be loading the sprv
             SelectedDescriptor.m_bReload = std::filesystem::exists(SelectedDescriptor.m_ResourcePath);
+
+            // Let the system recenter base on the object 
+            Distance = -1;
         }
 
         xgpu::tools::imgui::Render();

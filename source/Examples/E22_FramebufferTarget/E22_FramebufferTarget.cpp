@@ -99,14 +99,13 @@ int E22_Example()
                 return xgpu::getErrorInt(Err);
         }
 
-        auto Shaders = std::array<const xgpu::shader*, 2>{ &MyFragmentShader, &MyVertexShader };
-        auto Samplers = std::array{ xgpu::pipeline::sampler{} };
-        auto Setup = xgpu::pipeline::setup
-        {
-            .m_VertexDescriptor = VertexDescriptor
-        ,   .m_Shaders = Shaders
-        ,   .m_PushConstantsSize = sizeof(float) * 4 * 4
-        ,   .m_Samplers = Samplers
+        auto Shaders    = std::array<const xgpu::shader*, 2>{ &MyFragmentShader, &MyVertexShader };
+        auto Samplers   = std::array{ xgpu::pipeline::sampler{} };
+        auto Setup      = xgpu::pipeline::setup
+        { .m_VertexDescriptor   = VertexDescriptor
+        , .m_Shaders            = Shaders
+        , .m_PushConstantsSize  = sizeof(float) * 4 * 4
+        , .m_Samplers           = Samplers
         };
 
         if (auto Err = Device.Create(PipeLine, Setup); Err)
@@ -138,10 +137,10 @@ int E22_Example()
             return xgpu::getErrorInt(Err);
 
         {
-            auto  Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ SceneTexture } };
-            auto  Setup = xgpu::pipeline_instance::setup
-            { .m_PipeLine = PipeLine
-            ,   .m_SamplersBindings = Bindings
+            auto  Bindings  = std::array{ xgpu::pipeline_instance::sampler_binding{ SceneTexture } };
+            auto  Setup     = xgpu::pipeline_instance::setup
+            { .m_PipeLine           = PipeLine
+            , .m_SamplersBindings   = Bindings
             };
 
             if (auto Err = Device.Create(ViewportPipeLineInstance, Setup); Err)
@@ -164,9 +163,9 @@ int E22_Example()
             xgpu::texture::setup    Setup;
             const auto              Mips = std::array{ xgpu::texture::setup::mip_size{ size_v * size_v * sizeof(std::uint32_t) } };
 
-            Setup.m_Height = size_v;
-            Setup.m_Width = size_v;
-            Setup.m_MipSizes = Mips;
+            Setup.m_Height      = size_v;
+            Setup.m_Width       = size_v;
+            Setup.m_MipSizes    = Mips;
 
             auto TextureData = std::make_unique< std::array<std::uint32_t, size_v* size_v> >();
             std::fill(TextureData->begin(), TextureData->end(), 0xffffffffu);
@@ -177,10 +176,10 @@ int E22_Example()
                 return xgpu::getErrorInt(Err);
         }
 
-        auto  Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
-        auto  Setup = xgpu::pipeline_instance::setup
+        auto  Bindings  = std::array{ xgpu::pipeline_instance::sampler_binding{ Texture } };
+        auto  Setup     = xgpu::pipeline_instance::setup
         { .m_PipeLine = PipeLine
-        ,   .m_SamplersBindings = Bindings
+        , .m_SamplersBindings = Bindings
         };
 
         if (auto Err = Device.Create(MainPipeLineInstance, Setup); Err)
@@ -292,10 +291,10 @@ int E22_Example()
         // Render
         {
 
-            auto CmdBuffer = MainWindow.StartRenderPass(RenderPass);
-            auto Perspective = xmath::fmat4::fromPerspective(xmath::radian(1.2f), FramebufferSize.x() / FramebufferSize.y(), 0.1f, 100).Transpose();
-            auto View = xmath::fmat4::fromLookAt(EyePosition, xmath::fvec3{ 0, 0, 0 }, xmath::fvec3::fromUp());
-            auto FinalMatrix = Perspective * View;
+            auto CmdBuffer      = MainWindow.StartRenderPass(RenderPass);
+            auto Perspective    = xmath::fmat4::fromPerspective(xmath::radian(1.2f), FramebufferSize.x() / FramebufferSize.y(), 0.1f, 100);
+            auto View           = xmath::fmat4::fromLookAt(EyePosition, xmath::fvec3{ 0, 0, 0 }, xmath::fvec3::fromUp());
+            auto FinalMatrix    = Perspective * View;
 
             CmdBuffer.setPipelineInstance(MainPipeLineInstance);
             CmdBuffer.setBuffer(VertexBuffer);
