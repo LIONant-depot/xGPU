@@ -1236,7 +1236,6 @@ namespace xgpu::vulkan
 
                 const_cast<VkPipelineColorBlendStateCreateInfo*>(VKPipelineCreateInfo.pColorBlendState)->attachmentCount = CB.m_pActiveRenderPass ? CB.m_pActiveRenderPass->m_nColorAttachments : 1u;
 
-
                 // Create rendering pipeline
                 if (auto VKErr = vkCreateGraphicsPipelines
                         ( m_Device->m_VKDevice
@@ -1283,6 +1282,9 @@ namespace xgpu::vulkan
         //
         {
             vkCmdBindPipeline( CB.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, PerRenderPass.m_VKPipeline );
+
+
+
 
             // if we have textures then we must have set zero define for them
             if( PerRenderPass.m_pPipelineInstance->m_TexturesBinds[0].get() )
@@ -1441,6 +1443,9 @@ namespace xgpu::vulkan
     {
         auto& CB    = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
 
+        // Last minute to set the uniform buffers...
+        applyDynamicOffsets(CmdBuffer);
+
         //
         // Issue the draw call
         //
@@ -1471,30 +1476,50 @@ namespace xgpu::vulkan
     }
 
     //------------------------------------------------------------------------------------------------------------------------
+    // In window::getUniformBufferVMem – rebuild full offset array every time
 
-    void* window::getUniformBufferVMem(xgpu::cmd_buffer& CmdBuffer, xgpu::shader::type::bit ShaderType, std::size_t Size ) noexcept
+    // 1. Only allocates space + advances the specific binding (very fast, no Vulkan calls
+    void* window::getDynamicUniformBuffer
+    ( xgpu::cmd_buffer&         CmdBuffer
+    , xgpu::shader::type::bit   ShaderType
+    , std::size_t               Size
+    , int                       iBind 
+    ) noexcept
     {
-        auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
-        
-        std::uint32_t DynamicOffset;
-        void* pData = CB.m_ActivePipelineInstance.m_pPipelineInstance->getUniformBufferVMem(DynamicOffset, ShaderType, Size);
+        auto& CB    = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
+        auto& Inst  = *CB.m_ActivePipelineInstance.m_pPipelineInstance;
 
-        // Uniform Buffers are always in the last descriptor set
-        auto DescriptorSet      = std::array{ CB.m_ActivePipelineInstance.m_VKDescriptorSet[1] ? CB.m_ActivePipelineInstance.m_VKDescriptorSet[1] : CB.m_ActivePipelineInstance.m_VKDescriptorSet[0] };
-        auto DynamicOffsetList  = std::array<std::uint32_t,1>{DynamicOffset};
+        uint32_t offset = 0;
+        void* ptr = Inst.getUniformBufferVMem(offset, ShaderType, Size, iBind);
 
-        vkCmdBindDescriptorSets
-        ( CB.m_VKCommandBuffer
-        , VK_PIPELINE_BIND_POINT_GRAPHICS
-        , CB.m_VKPipelineLayout
-        , 1
-        , static_cast<std::uint32_t>(DescriptorSet.size())
-        , DescriptorSet.data()
-        , static_cast<std::uint32_t>(DynamicOffsetList.size())
-        , DynamicOffsetList.data()
-        );
+        return ptr;          // caller can now fill the memory
+    }
 
-        return pData;
+    //------------------------------------------------------------------------------------------------------------------------
+
+    // 2. Call this once before vkCmdDraw...() if you used mapUniformBuffer this frame
+    void window::applyDynamicOffsets(xgpu::cmd_buffer& CmdBuffer) noexcept
+    {
+        auto& CB    = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
+        auto& Inst  = *CB.m_ActivePipelineInstance.m_pPipelineInstance;
+        auto& Pipe  = *Inst.m_Pipeline;
+
+        if (Pipe.m_nUniformBuffers == 0) return;
+
+        // Set all the offsets here
+        std::array<uint32_t, 8> offsets;
+
+        for (int i = 0; i < Pipe.m_nUniformBuffers; ++i)
+            offsets[i] = Inst.m_UniformBinds[i]->m_LastOffset;
+
+        vkCmdBindDescriptorSets(
+            CB.m_VKCommandBuffer,
+            VK_PIPELINE_BIND_POINT_GRAPHICS,
+            CB.m_VKPipelineLayout,
+            1, 1,
+            &CB.m_ActivePipelineInstance.m_VKDescriptorSet[1],
+            Pipe.m_nUniformBuffers,
+            offsets.data());
     }
 
     //------------------------------------------------------------------------------------------------------------------------

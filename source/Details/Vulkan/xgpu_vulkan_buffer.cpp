@@ -288,7 +288,7 @@ namespace xgpu::vulkan
             }
         }
 
-        DynamicOffset = V * m_EntrySizeBytes;
+        m_LastOffset = DynamicOffset = V * m_EntrySizeBytes;
 
         //
         // Make sure the memory is mapped

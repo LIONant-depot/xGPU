@@ -20,6 +20,7 @@ namespace xgpu::vulkan
         std::byte*                  m_pVMapMemory       {};
         VkBuffer                    m_VKBuffer          {};
         VkDeviceMemory              m_VKBufferMemory    {};
+        int                         m_LastOffset        {};
         int                         m_ByteSize          {};
         int                         m_nEntries          {};
         int                         m_EntrySizeBytes    {};

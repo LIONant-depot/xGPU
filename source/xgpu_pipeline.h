@@ -179,12 +179,18 @@ namespace xgpu
             mipmap_mode                 m_MipmapMode            { mipmap_mode::LINEAR    };
         };
 
+        struct uniform_binds
+        {
+            int                         m_BindIndex = 0;
+            xgpu::shader::type          m_Usage;
+        };
+
         struct setup
         {
             xgpu::vertex_descriptor&            m_VertexDescriptor;
             std::span<const shader*>            m_Shaders           {};
             std::size_t                         m_PushConstantsSize {};
-            std::span<xgpu::shader::type>       m_UniformBufferUsage{};
+            std::span<uniform_binds>            m_UniformBinds      {};
             std::span<const pipeline::sampler>  m_Samplers          {};
             pipeline::primitive                 m_Primitive         {};
             pipeline::depth_stencil             m_DepthStencil      {};

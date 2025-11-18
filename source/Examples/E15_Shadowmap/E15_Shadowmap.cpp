@@ -197,7 +197,7 @@ int E15_Example()
                 return xgpu::getErrorInt(Err);
         }
 
-        auto UBuffersUsage  = std::array{ xgpu::shader::type{xgpu::shader::type::bit::VERTEX }};
+        auto UBuffersUsage  = std::array{ xgpu::pipeline::uniform_binds{ .m_BindIndex = 0, .m_Usage = xgpu::shader::type{xgpu::shader::type::bit::VERTEX }}};
         auto Shaders        = std::array<const xgpu::shader*,2>{ &MyVertexShader, &MyFragmentShader };
         auto Samplers       = std::array
         {   xgpu::pipeline::sampler
@@ -214,7 +214,7 @@ int E15_Example()
         { .m_VertexDescriptor   = VertexDescriptor
         , .m_Shaders            = Shaders
         , .m_PushConstantsSize  = sizeof(e15::push_constants)
-        , .m_UniformBufferUsage = UBuffersUsage
+        , .m_UniformBinds       = UBuffersUsage
         , .m_Samplers           = Samplers
         };
 
@@ -471,7 +471,7 @@ int E15_Example()
                 xmath::fmat4 LightMatrixPlus;
                 LightMatrixPlus = C2T * LightingView.getW2C() * L2W;
 
-                auto& LightUniforms = CmdBuffer.getUniformBufferVMem<e15::lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
+                auto& LightUniforms = CmdBuffer.getUniformBufferVMem<e15::lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX, 0);
                 LightUniforms.m_ShadowL2CPlus       = LightMatrixPlus;
                 LightUniforms.m_L2C                 = W2C * L2W;
                 LightUniforms.m_LocalSpaceLightPos  = (W2L * LightPosition).xyzz();
@@ -493,7 +493,7 @@ int E15_Example()
                 xmath::fmat4 LightMatrixPlus;
                 LightMatrixPlus = C2T * LightingView.getW2C() * L2W;
 
-                auto& LightUniforms = CmdBuffer.getUniformBufferVMem<e15::lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
+                auto& LightUniforms = CmdBuffer.getUniformBufferVMem<e15::lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX, 0);
                 LightUniforms.m_ShadowL2CPlus       = LightMatrixPlus;
                 LightUniforms.m_L2C                 = W2C * L2W;
                 LightUniforms.m_LocalSpaceLightPos  = (W2L * LightPosition).xyzz();

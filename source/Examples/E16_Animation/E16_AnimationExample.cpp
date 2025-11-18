@@ -352,13 +352,13 @@ struct e16::skin_render
                     return xgpu::getErrorInt(Err);
             }
 
-            auto UBuffersUsage = std::array{ xgpu::shader::type{xgpu::shader::type::bit::VERTEX } }; 
+            auto UBuffersUsage = std::array{ xgpu::pipeline::uniform_binds{.m_BindIndex = 0, .m_Usage = xgpu::shader::type{xgpu::shader::type::bit::VERTEX }} };
             auto Shaders  = std::array<const xgpu::shader*, 2>{ &MyFragmentShader, &MyVertexShader };
             auto Samplers = std::array{ xgpu::pipeline::sampler{} };
             auto Setup    = xgpu::pipeline::setup
             { .m_VertexDescriptor   = VertexDescriptor
             , .m_Shaders            = Shaders
-            , .m_UniformBufferUsage = UBuffersUsage
+            , .m_UniformBinds       = UBuffersUsage
             , .m_Samplers           = Samplers
             };
 
@@ -448,7 +448,7 @@ struct e16::skin_render
                 if (bComputedMatrices == false)
                 {
                     bComputedMatrices = true;
-                    auto& UBO = CmdBuffer.getUniformBufferVMem<shader_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
+                    auto& UBO = CmdBuffer.getUniformBufferVMem<shader_uniform_buffer>(xgpu::shader::type::bit::VERTEX, 0);
                     Callback(UBO);
                 }
                 CmdBuffer.Draw( Submesh.m_nIndices, Submesh.m_iIndex, Submesh.m_iVertex );

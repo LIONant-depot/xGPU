@@ -637,11 +637,8 @@ int E21_Example()
     //
     //setup vertex descriptor for mesh
     //
-    struct push_constants3D
+    struct alignas(64) ubo_geom_static_mesh
     {
-        xmath::fvec4  m_posScaleAndUScale;         // .xyz = position scale, .w = U scale
-        xmath::fvec4  m_posTranslationAndVScale;   // .xyz = position translation, .w = V scale
-        xmath::fvec2  m_uvTranslation;             // .xy = UV translation
         xmath::fmat4  m_L2w;
         xmath::fmat4  m_w2C;
         xmath::fmat4  m_L2CShadow;
@@ -649,6 +646,14 @@ int E21_Example()
         //xmath::fvec4  m_AmbientLightColor;
         //xmath::fvec4  m_wSpaceLightPos;
         //xmath::fvec4  m_wSpaceEyePos;
+    };
+
+    struct alignas(64) ubo_geom_static_cluster 
+    {
+        xmath::fvec4  m_posScaleAndUScale;         // .xyz = position scale, .w = U scale
+        xmath::fvec4  m_posTranslationAndVScale;   // .xyz = position translation, .w = V scale
+        xmath::fvec2  m_uvTranslation;             // .xy = UV translation
+        float           _pad[2];                   // std140 alignment padding
     };
 
     //
@@ -683,6 +688,14 @@ int E21_Example()
     //
     // Material of all static geometry
     //
+    xgpu::buffer StaticGeomUBOMesh;
+    if (auto Err = Device.Create(StaticGeomUBOMesh, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(ubo_geom_static_mesh), .m_EntryCount = 100 }); Err)
+        return xgpu::getErrorInt(Err);
+
+    xgpu::buffer StaticGeomUBOCluster;
+    if (auto Err = Device.Create(StaticGeomUBOCluster, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(ubo_geom_static_cluster), .m_EntryCount = 100 }); Err)
+        return xgpu::getErrorInt(Err);
+
     xgpu::pipeline Pipeline3D;
     {
         //
@@ -745,10 +758,14 @@ int E21_Example()
         auto Samplers   = std::array{ xgpu::pipeline::sampler{.m_AddressMode = std::array{ xgpu::pipeline::sampler::address_mode::CLAMP, xgpu::pipeline::sampler::address_mode::CLAMP, xgpu::pipeline::sampler::address_mode::CLAMP}}         // Shadowmap
                                     , xgpu::pipeline::sampler{}         // Albedo
                                     };
+        auto UBuffersUsage = std::array { xgpu::pipeline::uniform_binds{.m_BindIndex = 0, .m_Usage = xgpu::shader::type{xgpu::shader::type::bit::VERTEX }}      // Mesh, bind 0 set 1
+                                        , xgpu::pipeline::uniform_binds{.m_BindIndex = 1, .m_Usage = xgpu::shader::type{xgpu::shader::type::bit::VERTEX }}      // Cluster, bind 1 set 1
+                                        };
         auto Setup      = xgpu::pipeline::setup
         { .m_VertexDescriptor   = GeomStaticVertexDescriptor
         , .m_Shaders            = Shaders
-        , .m_PushConstantsSize  = sizeof(push_constants3D)
+        //, .m_PushConstantsSize  = sizeof(push_constants3D)
+        , .m_UniformBinds       = UBuffersUsage
         , .m_Samplers           = Samplers
         };
 
@@ -1002,7 +1019,7 @@ int E21_Example()
     //
     resource_mgr_user_data  ResourceMgrUserData;
     xresource::g_Mgr.Initiallize();
-    xmaterial_instance::descriptor Descriptor;
+    xmaterial_instance::descriptor  Descriptor;
     xgeom_static::details           GeomStaticDetails;
 
     e10::assert_browser         AsserBrowser;
@@ -1094,9 +1111,9 @@ int E21_Example()
         GetModuleFileName(NULL, szFileName, MAX_PATH);
 
         std::wcout << L"Full path: " << szFileName << L"\n";
-        if (auto I = xstrtool::findI(std::wstring{ szFileName }, { L"xGPU" }); I != std::string::npos)
+        if (auto I = xstrtool::findI(std::wstring{ szFileName }, { L"\\xGPU\\" }); I != std::string::npos)
         {
-            I += 4; // Skip the xGPU part
+            I += 5; // Skip the xGPU part
             szFileName[I] = 0;
             std::wcout << L"Found xGPU at: " << szFileName << L"\n";
 
@@ -1396,12 +1413,6 @@ int E21_Example()
                 // Update the camera
                 View.LookAt(Distance, Angles, CameraTarget);
 
-                push_constants3D PushConst;
-
-                PushConst.m_L2w         = xmath::fmat4::fromTranslation(-View.getPosition()) * xmath::fmat4::fromTranslation({ 0, 0, 0 });
-                PushConst.m_w2C         = View.getW2C() * xmath::fmat4::fromTranslation(View.getPosition());
-                PushConst.m_L2CShadow   = C2T * ShadowGenerationPushC.m_L2C;
-
                 float maxY;
             
                 // Render the mesh
@@ -1416,11 +1427,16 @@ int E21_Example()
                         {
                             CmdBuffer.setPipelineInstance(Mesh3DMatInstance[S.m_iMaterial]);
 
+                            auto& MeshUBO = CmdBuffer.getUniformBufferVMem<ubo_geom_static_mesh>(xgpu::shader::type::bit::VERTEX, 0);
+
+                            MeshUBO.m_L2w = xmath::fmat4::fromTranslation(-View.getPosition()) * xmath::fmat4::fromTranslation({ 0, 0, 0 });
+                            MeshUBO.m_w2C = View.getW2C() * xmath::fmat4::fromTranslation(View.getPosition());
+                            MeshUBO.m_L2CShadow = C2T * ShadowGenerationPushC.m_L2C;
+
                             for (auto& C : p->getClusters().subspan(S.m_iCluster, S.m_nCluster))
                             {
-                                std::memcpy(&PushConst.m_posScaleAndUScale, &C.m_PosScaleAndUScale, sizeof(xmath::fvec4) * 2 + sizeof(xmath::fvec2));
-                                CmdBuffer.setPushConstants(PushConst);
-
+                                auto& ClusterUBO = CmdBuffer.getUniformBufferVMem<ubo_geom_static_cluster>(xgpu::shader::type::bit::VERTEX, 1);
+                                std::memcpy(&ClusterUBO, &C.m_PosScaleAndUScale, sizeof(xmath::fvec4) * 2 + sizeof(xmath::fvec2));
                                 CmdBuffer.Draw(C.m_nIndices, C.m_iIndex, C.m_iVertex);
                             }
                         }
@@ -1597,6 +1613,9 @@ int E21_Example()
 
                 auto pDesc = static_cast<xgeom_static::descriptor*>(SelectedDescriptor.m_pDescriptor.get());
 
+                auto UniformBuffers = std::array{ xgpu::pipeline_instance::uniform_buffer{StaticGeomUBOMesh}
+                                                , xgpu::pipeline_instance::uniform_buffer{StaticGeomUBOCluster} };
+
                 for( auto& MI : pGeom->getDefaultMaterialInstances() )
                 {
                     auto Index = static_cast<int>(&MI - pGeom->getDefaultMaterialInstances().data());
@@ -1609,8 +1628,9 @@ int E21_Example()
                         {
                             auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ShadowMapTexture}, xgpu::pipeline_instance::sampler_binding{*p} };
                             auto setup = xgpu::pipeline_instance::setup
-                            { .m_PipeLine         = Pipeline3D
-                            , .m_SamplersBindings = Bindings
+                            { .m_PipeLine               = Pipeline3D
+                            , .m_UniformBuffersBindings = UniformBuffers
+                            , .m_SamplersBindings       = Bindings
                             };
 
                             if (auto Err = Device.Create(Mesh3DMatInstance[Index], setup); Err)
@@ -1627,8 +1647,9 @@ int E21_Example()
                         {
                             auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ShadowMapTexture}, xgpu::pipeline_instance::sampler_binding{*pT} };
                             auto setup = xgpu::pipeline_instance::setup
-                            { .m_PipeLine         = Pipeline3D
-                            , .m_SamplersBindings = Bindings
+                            { .m_PipeLine               = Pipeline3D
+                            , .m_UniformBuffersBindings = UniformBuffers
+                            , .m_SamplersBindings       = Bindings
                             };
 
                             if (auto Err = Device.Create(Mesh3DMatInstance[Index], setup); Err)

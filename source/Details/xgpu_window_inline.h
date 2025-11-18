@@ -20,7 +20,9 @@ namespace xgpu
             virtual     void                            setViewport             ( xgpu::cmd_buffer& CmdBuffer, float x, float y, float w, float h, float minDepth, float maxDepth ) noexcept = 0;
             virtual     void                            setScissor              ( xgpu::cmd_buffer& CmdBuffer, int x, int y, int w, int h )                              noexcept = 0;
             virtual     void                            setPushConstants        ( xgpu::cmd_buffer& CmdBuffer, const void* pData, std::size_t Size )                     noexcept = 0;
-            virtual     void*                           getUniformBufferVMem    ( xgpu::cmd_buffer& CmdBuffer, xgpu::shader::type::bit ShaderType, std::size_t Size )    noexcept = 0;
+            virtual      void*                          getDynamicUniformBuffer ( xgpu::cmd_buffer& CmdBuffer, xgpu::shader::type::bit ShaderType, std::size_t Size, int iBind) noexcept = 0;
+
+
             virtual     void                            setDepthBias            ( xgpu::cmd_buffer& CmdBuffer, float ConstantFactor, float DepthBiasClamp, float DepthBiasSlope) noexcept = 0;
             virtual     bool                            isMinimized             ( void ) const                                              noexcept = 0;
             virtual     void                            setClearColor           ( float R, float G, float B, float A )                      noexcept = 0;

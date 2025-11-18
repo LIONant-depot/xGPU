@@ -68,35 +68,41 @@ namespace xgpu::vulkan
         //
         // Collect some basic information from the uniform buffers
         //
-        m_nUniformBuffers = (int)Setup.m_UniformBufferUsage.size();
-        for( auto& E : m_UniformBufferFastRemap ) E = 0xff;
+        m_nUniformBuffers = (int)Setup.m_UniformBinds.size();
+
+        // Clear all entries to the null value
+        memset( &m_UniformBufferFastRemap, 0xff, sizeof(m_UniformBufferFastRemap));
+
         for( int i = 0; i<m_nUniformBuffers; ++i)
         {
-            // copy over the bits
-            m_UniformBufferBits[i] = Setup.m_UniformBufferUsage[i];
+            auto& Entry = Setup.m_UniformBinds[i];
 
-            const std::uint8_t Value = static_cast<std::uint8_t>(Setup.m_UniformBufferUsage[i].m_Value);
+            // back up all entries
+            m_UniformsBinds[i] = Entry;
 
+            const std::uint8_t Value = static_cast<std::uint8_t>(Entry.m_Usage.m_Value);
             if( Value == 0 )
             {
                 m_Device->m_Instance->ReportError("Fail to create a pipeline due to having a uniform buffer without any shader usage");
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a pipeline due to having a uniform buffer without any shader usage");
             }
 
+            // Not sure if we still need this...
             for( int j=0; j<xgpu::shader::type::count_v; ++j)
             {
-                const int bit  = (Value>>i)&1;
+                const int bit  = (Value>>j)&1;
 
                 if(bit)
                 {
-                    if( m_UniformBufferFastRemap[bit] != 0xff )
+                    // Find the right set
+                    if( m_UniformBufferFastRemap[Entry.m_BindIndex][bit] != 0xff )
                     {
-                        m_Device->m_Instance->ReportError("Fail to create a pipeline due to having multiple uniform buffer trying to use the same shader bit");
-                        return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a pipeline due to having multiple uniform buffer trying to use the same shader bit");
+                        m_Device->m_Instance->ReportError(std::format("A uniform is overlapping the same bind location. Make sure the uniforms have unique binds. See entry {}", i));
+                        return VGPU_ERROR(xgpu::device::error::FAILURE, "A uniform is overlapping the same bind location. Make sure the uniforms have unique binds.");
                     }
 
                     // Set the actual remap
-                    m_UniformBufferFastRemap[bit] = i;
+                    m_UniformBufferFastRemap[Entry.m_BindIndex][bit] = i;
 
                     // do we have any other bit to set? if not then just break
                     if( const std::uint8_t Mask = ~((1 << (j + 1)) - 1); (Value & Mask ) == 0 ) 
@@ -380,26 +386,26 @@ namespace xgpu::vulkan
             // Add all the set one bindings
             if(m_nUniformBuffers)
             {
-                auto ConvertFlagsToVulkan = [&](int Index) noexcept
+                auto ConvertFlagsToVulkan = [](const xgpu::shader::type& UsageType) noexcept
                 {
                     VkShaderStageFlags  V       = 0;
-                    const auto&         UBBit   = m_UniformBufferBits[Index];
-                    if (UBBit.m_bVertex)                   V |= VK_SHADER_STAGE_VERTEX_BIT;
-                    if (UBBit.m_bCompute)                  V |= VK_SHADER_STAGE_COMPUTE_BIT;
-                    if (UBBit.m_bFragment)                 V |= VK_SHADER_STAGE_FRAGMENT_BIT;
-                    if (UBBit.m_bGeometry)                 V |= VK_SHADER_STAGE_GEOMETRY_BIT;
-                    if (UBBit.m_bTessellationControl)      V |= VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
-                    if (UBBit.m_bTessellationEvaluator)    V |= VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+                    if (UsageType.m_bVertex)                   V |= VK_SHADER_STAGE_VERTEX_BIT;
+                    if (UsageType.m_bCompute)                  V |= VK_SHADER_STAGE_COMPUTE_BIT;
+                    if (UsageType.m_bFragment)                 V |= VK_SHADER_STAGE_FRAGMENT_BIT;
+                    if (UsageType.m_bGeometry)                 V |= VK_SHADER_STAGE_GEOMETRY_BIT;
+                    if (UsageType.m_bTessellationControl)      V |= VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
+                    if (UsageType.m_bTessellationEvaluator)    V |= VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
                     return V;
                 };
 
                 std::array<VkDescriptorSetLayoutBinding, 4>    layoutBinding = {};
                 for (int i = 0; i < m_nUniformBuffers; ++i)
                 {
-                    layoutBinding[i].binding            = i;
+                    auto& UniformBind = m_UniformsBinds[i];
+                    layoutBinding[i].binding            = UniformBind.m_BindIndex;
                     layoutBinding[i].descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
                     layoutBinding[i].descriptorCount    = 1;
-                    layoutBinding[i].stageFlags         = ConvertFlagsToVulkan(i);
+                    layoutBinding[i].stageFlags         = ConvertFlagsToVulkan(UniformBind.m_Usage);
                     layoutBinding[i].pImmutableSamplers = nullptr;
                 }
 

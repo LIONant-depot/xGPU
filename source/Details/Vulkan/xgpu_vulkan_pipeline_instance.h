@@ -11,6 +11,7 @@ namespace xgpu::vulkan
         void*                   getUniformBufferVMem        ( std::uint32_t&            DynamicOffset
                                                             , xgpu::shader::type::bit   ShaderType
                                                             , std::size_t               Size
+                                                            , int                       iBind = -1
                                                             ) noexcept;
 
         virtual void            DeathMarch                  ( xgpu::pipeline_instance && buffer) noexcept override;

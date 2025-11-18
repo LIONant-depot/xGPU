@@ -18,7 +18,7 @@ namespace xgpu
         XGPU_INLINE     cmd_buffer&     setDepthBias                ( float ConstantFactor, float DepthBiasClamp, float DepthBiasSlope) noexcept;
 
         template<typename T>
-        XGPU_INLINE     T&              getUniformBufferVMem        ( xgpu::shader::type::bit ShaderType ) noexcept;
+        XGPU_INLINE     T&              getUniformBufferVMem        ( xgpu::shader::type::bit ShaderType, int iBind ) noexcept;
 
         XGPU_INLINE     void            Release                     ( void )                                noexcept;
 

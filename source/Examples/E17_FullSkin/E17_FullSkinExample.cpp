@@ -189,7 +189,7 @@ struct e17::skin_render
                     return xgpu::getErrorInt(Err);
             }
 
-            auto UBuffersUsage = std::array{ xgpu::shader::type{xgpu::shader::type::bit::VERTEX } };
+            auto UBuffersUsage = std::array{ xgpu::pipeline::uniform_binds{ .m_BindIndex = 0, .m_Usage = xgpu::shader::type{xgpu::shader::type::bit::VERTEX }}};
             auto Shaders       = std::array<const xgpu::shader*, 2>{ &MyFragmentShader, &MyVertexShader };
             auto Samplers      = std::array
                                 { xgpu::pipeline::sampler{} // [INPUT_TEXTURE_NORMAL]
@@ -202,7 +202,7 @@ struct e17::skin_render
             { .m_VertexDescriptor   = VertexDescriptor
             , .m_Shaders            = Shaders
             , .m_PushConstantsSize  = sizeof(push_constants)
-            , .m_UniformBufferUsage = UBuffersUsage
+            , .m_UniformBinds       = UBuffersUsage
             , .m_Samplers           = Samplers
             };
 
@@ -299,7 +299,7 @@ struct e17::skin_render
                 if (bComputedMatrices == false)
                 {
                     bComputedMatrices = true;
-                    auto& UBO = CmdBuffer.getUniformBufferVMem<shader_uniform_buffer>(xgpu::shader::type::bit::VERTEX);
+                    auto& UBO = CmdBuffer.getUniformBufferVMem<shader_uniform_buffer>(xgpu::shader::type::bit::VERTEX, 0);
                     Callback(UBO);
                     CmdBuffer.setPushConstants(m_PushConstants);
                 }

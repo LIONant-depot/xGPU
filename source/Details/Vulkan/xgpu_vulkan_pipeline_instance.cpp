@@ -67,9 +67,9 @@ namespace xgpu::vulkan
 
     //-------------------------------------------------------------------------------
 
-    void* pipeline_instance::getUniformBufferVMem(std::uint32_t& DynamicOffset, xgpu::shader::type::bit ShaderType, std::size_t Size) noexcept
+    void* pipeline_instance::getUniformBufferVMem(std::uint32_t& DynamicOffset, xgpu::shader::type::bit ShaderType, std::size_t Size, int iBind ) noexcept
     {
-        const auto Index = m_Pipeline->m_UniformBufferFastRemap[(int)ShaderType];
+        const auto Index = m_Pipeline->m_UniformBufferFastRemap[iBind][(int)ShaderType];
 
         // if this is true then the user did not defined a uniform for this type of shader in the pipeline definition
         assert(Index != 0xff);

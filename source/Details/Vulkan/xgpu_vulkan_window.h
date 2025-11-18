@@ -90,11 +90,17 @@ namespace xgpu::vulkan
                                                                             , const void*       pData
                                                                             , std::size_t       Size 
                                                                             ) noexcept override;
-        virtual     
-        void*                                   getUniformBufferVMem        ( xgpu::cmd_buffer&         CmdBuffer
+        virtual
+        void*                                   getDynamicUniformBuffer     ( xgpu::cmd_buffer&         CmdBuffer
                                                                             , xgpu::shader::type::bit   ShaderType
                                                                             , std::size_t               Size
+                                                                            , int                       iBind
                                                                             ) noexcept override;
+
+        void                                    applyDynamicOffsets         (xgpu::cmd_buffer& CmdBuffer) noexcept;
+
+
+
         virtual     
         void                                    setDepthBias                ( xgpu::cmd_buffer& CmdBuffer
                                                                             , float             ConstantFactor

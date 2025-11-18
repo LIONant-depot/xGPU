@@ -98,9 +98,9 @@ namespace xgpu
     //--------------------------------------------------------------------------------------
 
     template<typename T>
-    T& cmd_buffer::getUniformBufferVMem(xgpu::shader::type::bit ShaderType) noexcept
+    T& cmd_buffer::getUniformBufferVMem(xgpu::shader::type::bit ShaderType, int iBind ) noexcept
     {
-        return *reinterpret_cast<T*>(m_pWindow->getUniformBufferVMem( *this, ShaderType, sizeof(T) ));
+        return *reinterpret_cast<T*>(m_pWindow->getDynamicUniformBuffer( *this, ShaderType, sizeof(T), iBind));
     }
 
     //--------------------------------------------------------------------------------------

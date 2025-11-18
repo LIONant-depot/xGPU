@@ -41,8 +41,9 @@ namespace xgpu::vulkan
         samples_array                                       m_VKSamplers                    {};
         stages_createinfo_array                             m_ShaderStagesCreateInfo        {};
         std::atomic_int                                     m_nPipelineInstances            {0};
-        std::array<xgpu::shader::type,5>                    m_UniformBufferBits             {};
+        std::array<xgpu::pipeline::uniform_binds,10>        m_UniformsBinds                 {};
+//        std::array<xgpu::shader::type,5>                    m_UniformBufferBits             {};
         int                                                 m_nUniformBuffers               {0};
-        std::array<std::uint8_t, xgpu::shader::type::count_v> m_UniformBufferFastRemap      {};
+        std::array<std::array<std::uint8_t, xgpu::shader::type::count_v> ,3> m_UniformBufferFastRemap      {};
     };
 }
