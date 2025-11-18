@@ -1137,10 +1137,10 @@ struct breach_instance : window_info
             const bool KeyShift = m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_LSHIFT   ) || m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_RSHIFT   );
             const bool KeyAlt   = m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_LALT     ) || m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_RALT     );
             const bool KeySuper = m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_LWIN     ) || m_Keyboard.isPressed(xgpu::keyboard::digital::KEY_RWIN     );
-            io.AddKeyEvent(ImGuiKey_ModCtrl,    KeyCtrl);
-            io.AddKeyEvent(ImGuiKey_ModShift,   KeyShift);
-            io.AddKeyEvent(ImGuiKey_ModAlt,     KeyAlt);
-            io.AddKeyEvent(ImGuiKey_ModSuper,   KeySuper);
+            io.AddKeyEvent(ImGuiMod_Ctrl,    KeyCtrl);
+            io.AddKeyEvent(ImGuiMod_Shift,   KeyShift);
+            io.AddKeyEvent(ImGuiMod_Alt,     KeyAlt);
+            io.AddKeyEvent(ImGuiMod_Super,   KeySuper);
 
             bool bPresses = false;
             for( int i = 1; i < static_cast<int>(xgpu::keyboard::digital::ENUM_COUNT); i++ )
