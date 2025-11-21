@@ -10,7 +10,7 @@ layout (location = 3) in vec4  inTangent;    //[INPUT_TANGENT]
 layout (location = 4) in vec4  inWeights;    //[INPUT_WEIGHTS]
 layout (location = 5) in uvec4 inBones;      //[INPUT_BONES]
 
-layout (set = 1, binding = 0) uniform _u
+layout (set = 2, binding = 0) uniform _u
 {
     mat4  W2C;
     mat4  L2W[256];

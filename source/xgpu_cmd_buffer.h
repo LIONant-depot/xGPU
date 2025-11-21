@@ -5,7 +5,10 @@ namespace xgpu
                                         cmd_buffer                  ( void )                                noexcept = default;
         XGPU_INLINE                     cmd_buffer                  ( cmd_buffer&& CmdBuffer )              noexcept;
         XGPU_INLINE                    ~cmd_buffer                  ( void )                                noexcept;
-        XGPU_INLINE     cmd_buffer&     setPipelineInstance         ( xgpu::pipeline_instance& Instance )   noexcept;
+        XGPU_INLINE     cmd_buffer&     setPipelineInstance         ( xgpu::pipeline_instance& Instance, std::span<xgpu::buffer*> StaticBuffers = {})   noexcept;
+
+        XGPU_INLINE     cmd_buffer&     setDynamicUBO               ( xgpu::buffer& Buffer, int BindIndex) noexcept;
+
         XGPU_INLINE     cmd_buffer&     setStreamingBuffers         ( std::span<xgpu::buffer> Buffers, int StartingElementIndex=0) noexcept;
         XGPU_INLINE     cmd_buffer&     setBuffer                   ( xgpu::buffer& Buffer, int StartingElementIndex=0) noexcept;
         XGPU_INLINE     cmd_buffer&     setViewport                 ( float x, float y, float w, float h, float minDepth = 0.0f, float maxDepth = 1.0f) noexcept;
@@ -16,13 +19,10 @@ namespace xgpu
         XGPU_INLINE     cmd_buffer&     Draw                        ( int IndexCount, int FirstIndex = 0, int VertexOffset=0 ) noexcept;
         XGPU_INLINE     cmd_buffer&     DrawInstance                ( int InstanceCount, int IndexCount, int FirstInstance=0, int FirstIndex=0, int VertexOffset=0 ) noexcept;
         XGPU_INLINE     cmd_buffer&     setDepthBias                ( float ConstantFactor, float DepthBiasClamp, float DepthBiasSlope) noexcept;
-
-        template<typename T>
-        XGPU_INLINE     T&              getUniformBufferVMem        ( xgpu::shader::type::bit ShaderType, int iBind ) noexcept;
-
         XGPU_INLINE     void            Release                     ( void )                                noexcept;
 
         details::window_handle*         m_pWindow { nullptr };
-        std::array<std::size_t, 8>      m_Memory;
+
+        std::array<std::byte, 192>      m_Memory;
     };
 }

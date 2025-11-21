@@ -61,7 +61,7 @@ struct e17::skin_render
         std::array<xmath::fmat4,256>  m_L2W;
     };
 
-    int Initialize(xgpu::device& Device, const import3d::geom& SkinGeom)
+    int Initialize(xgpu::device& Device, xgpu::buffer& SkinUBO, const import3d::geom& SkinGeom)
     {
         auto nVertices  = 0ull;
         auto nIndices   = 0ull;
@@ -247,8 +247,7 @@ struct e17::skin_render
         //
         // Setup the material instance
         //
-        xgpu::buffer UBO;
-        if (auto Err = Device.Create(UBO, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(shader_uniform_buffer), .m_EntryCount = 2 }); Err)
+        if (auto Err = Device.Create(SkinUBO, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(shader_uniform_buffer), .m_EntryCount = 2 }); Err)
             return xgpu::getErrorInt(Err);
 
         m_PipeLineInstance.resize( SkinGeom.m_MaterialInstance.size() );
@@ -263,11 +262,8 @@ struct e17::skin_render
                                 , xgpu::pipeline_instance::sampler_binding{ iDiffuse == -1 ? m_LoadedTextures.m_DefaultTexture : m_LoadedTextures.m_Textures[iDiffuse] } // [INPUT_TEXTURE_GLOSSINESS]
                                 , xgpu::pipeline_instance::sampler_binding{ iDiffuse == -1 ? m_LoadedTextures.m_DefaultTexture : m_LoadedTextures.m_Textures[iDiffuse] } // [INPUT_TEXTURE_ROUGHNESS]
                                 };
-            auto UniformBuffers = std::array{ xgpu::pipeline_instance::uniform_buffer{ UBO } };
-
             auto  Setup    = xgpu::pipeline_instance::setup
             { .m_PipeLine               = PipeLine
-            , .m_UniformBuffersBindings = UniformBuffers
             , .m_SamplersBindings       = Bindings
             };
 
@@ -279,14 +275,16 @@ struct e17::skin_render
     }
 
     template< typename T_CALLBACK>
-    void Render( xgpu::cmd_buffer& CmdBuffer, T_CALLBACK&& Callback, std::uint64_t MeshMask = ~0ull )
+    void Render( xgpu::cmd_buffer& CmdBuffer, xgpu::buffer& SkinUBO, T_CALLBACK&& Callback, std::uint64_t MeshMask = ~0ull )
     {
         if(!MeshMask) return;
 
         CmdBuffer.setBuffer(m_VertexBuffer);
         CmdBuffer.setBuffer(m_IndexBuffer);
 
-        bool bComputedMatrices = false;
+        // Compute matrices and ready up the UBO
+        Callback(SkinUBO.allocEntry<shader_uniform_buffer>());
+
         for (int i = 0; i < m_Meshes.size(); ++i, MeshMask >>= 1 )
         {
             if((1 & MeshMask) == 0) continue;
@@ -294,16 +292,10 @@ struct e17::skin_render
             for (auto j = 0u; j < Mesh.m_nSubmeshes; ++j)
             {
                 auto& Submesh = m_Submeshes[Mesh.m_iSubmesh + j];
+
                 CmdBuffer.setPipelineInstance(m_PipeLineInstance[Submesh.m_iMaterialInstance]);
-
-                if (bComputedMatrices == false)
-                {
-                    bComputedMatrices = true;
-                    auto& UBO = CmdBuffer.getUniformBufferVMem<shader_uniform_buffer>(xgpu::shader::type::bit::VERTEX, 0);
-                    Callback(UBO);
-                    CmdBuffer.setPushConstants(m_PushConstants);
-                }
-
+                CmdBuffer.setDynamicUBO(SkinUBO, 0);
+                CmdBuffer.setPushConstants(m_PushConstants);
                 CmdBuffer.Draw( Submesh.m_nIndices, Submesh.m_iIndex, Submesh.m_iVertex );
             }
         }
@@ -358,7 +350,8 @@ int E17_Example()
     // Initialize the skin render
     //
     e17::skin_render SkinRender;
-    SkinRender.Initialize( Device, AnimCharacter.m_SkinGeom );
+    xgpu::buffer     SkinUBO;
+    SkinRender.Initialize( Device, SkinUBO, AnimCharacter.m_SkinGeom );
 
     //
     // Compute the BBOX of the mesh
@@ -466,7 +459,7 @@ int E17_Example()
             SkinRender.m_PushConstants.m_WorldSpaceLightPos.m_W = 2.2f;
 
             // animate the character
-            SkinRender.Render( CmdBuffer, [&]( e17::skin_render::shader_uniform_buffer& UBO )
+            SkinRender.Render( CmdBuffer, SkinUBO, [&]( e17::skin_render::shader_uniform_buffer& UBO )
             {
                 UBO.m_W2C = W2C;
 

@@ -8,10 +8,10 @@ namespace xgpu
         };
 
         enum class type : std::uint8_t
-        {
-            VERTEX
-        ,   INDEX
-        ,   UNIFORM
+        { VERTEX            // Primitive Vertex array
+        , INDEX             // Primitive Index array
+        , UNIFORM           // Maximum of 64K
+        , STORAGE           // Read only or read/write... unlimited size
         };
 
         struct setup
@@ -36,6 +36,11 @@ namespace xgpu
         XGPU_INLINE
         [[nodiscard]] 
         int                 getEntryCount           ( void ) const noexcept;
+
+        template< typename T >
+        [[nodiscard]]
+        T&                  allocEntry              ( void ) noexcept;
+
 
         XGPU_INLINE
         [[nodiscard]] 

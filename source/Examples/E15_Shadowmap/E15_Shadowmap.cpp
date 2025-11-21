@@ -226,6 +226,7 @@ int E15_Example()
     // Setup the material instance
     //
     xgpu::pipeline_instance PipeLineInstance;
+    xgpu::buffer            LightingUBO;
     {
         xgpu::texture DiffuseTexture;
         
@@ -258,7 +259,6 @@ int E15_Example()
         //
         // Create the Lighting Uniform Buffer
         //
-        xgpu::buffer LightingUBO;
         if (auto Err = Device.Create(LightingUBO, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(e15::lighting_uniform_buffer), .m_EntryCount = 100 }); Err)
             return xgpu::getErrorInt(Err);
 
@@ -270,12 +270,8 @@ int E15_Example()
         , xgpu::pipeline_instance::sampler_binding{DiffuseTexture} 
         };
 
-        auto UniformBuffers = std::array
-        { xgpu::pipeline_instance::uniform_buffer{ LightingUBO }
-        };
         auto Setup    = xgpu::pipeline_instance::setup
         { .m_PipeLine               = PipeLine
-        , .m_UniformBuffersBindings = UniformBuffers
         , .m_SamplersBindings       = Textures
         };
 
@@ -471,13 +467,14 @@ int E15_Example()
                 xmath::fmat4 LightMatrixPlus;
                 LightMatrixPlus = C2T * LightingView.getW2C() * L2W;
 
-                auto& LightUniforms = CmdBuffer.getUniformBufferVMem<e15::lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX, 0);
+                auto& LightUniforms = LightingUBO.allocEntry<e15::lighting_uniform_buffer>();
                 LightUniforms.m_ShadowL2CPlus       = LightMatrixPlus;
                 LightUniforms.m_L2C                 = W2C * L2W;
                 LightUniforms.m_LocalSpaceLightPos  = (W2L * LightPosition).xyzz();
 
                 CmdBuffer.setBuffer(VertexBuffer);
                 CmdBuffer.setBuffer(IndexBuffer);
+                CmdBuffer.setDynamicUBO(LightingUBO, 0);
                 CmdBuffer.Draw(IndexBuffer.getEntryCount());
             }
 
@@ -493,13 +490,14 @@ int E15_Example()
                 xmath::fmat4 LightMatrixPlus;
                 LightMatrixPlus = C2T * LightingView.getW2C() * L2W;
 
-                auto& LightUniforms = CmdBuffer.getUniformBufferVMem<e15::lighting_uniform_buffer>(xgpu::shader::type::bit::VERTEX, 0);
+                auto& LightUniforms = LightingUBO.allocEntry<e15::lighting_uniform_buffer>();
                 LightUniforms.m_ShadowL2CPlus       = LightMatrixPlus;
                 LightUniforms.m_L2C                 = W2C * L2W;
                 LightUniforms.m_LocalSpaceLightPos  = (W2L * LightPosition).xyzz();
 
                 CmdBuffer.setBuffer(VertexBuffer);
                 CmdBuffer.setBuffer(IndexBuffer);
+                CmdBuffer.setDynamicUBO(LightingUBO, 0);
                 CmdBuffer.Draw(IndexBuffer.getEntryCount());
             }    
         }

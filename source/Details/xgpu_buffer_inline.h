@@ -8,8 +8,10 @@ namespace xgpu
             virtual xgpu::device::error*                MapLock         ( void*& pMemory, int StartIndex, int Count )   noexcept = 0;
             virtual xgpu::device::error*                MapUnlock       ( int StartIndex, int Count )                   noexcept = 0;
             virtual int                                 getEntryCount   ( void )                                  const noexcept = 0;
+            virtual int                                 getEntrySize    (void)                                    const noexcept = 0;
             virtual xgpu::buffer::error*                Resize          ( int NewEntryCount )                           noexcept = 0;
             virtual void                                DeathMarch      ( xgpu::buffer&& )                              noexcept = 0;
+            virtual void*                               allocEntry      (void)                                          noexcept = 0;
         };
     }
 
@@ -41,6 +43,15 @@ namespace xgpu
     int buffer::getEntryCount(void) const noexcept
     {
         return m_Private->getEntryCount();
+    }
+
+    //--------------------------------------------------------------------------------------------------------
+
+    template< typename T >
+    T& buffer::allocEntry(void) noexcept
+    {
+        assert(sizeof(T) == m_Private->getEntrySize());
+        return *static_cast<T*>(m_Private->allocEntry());
     }
 
     //--------------------------------------------------------------------------------------------------------

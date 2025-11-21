@@ -2,6 +2,12 @@ namespace xgpu::vulkan
 {
     //----------------------------------------------------------------------------------------------------------
 
+    device::~device(void) noexcept
+    {
+    }
+
+    //----------------------------------------------------------------------------------------------------------
+
     xgpu::device::error* CreateGraphicsDevice
     ( device&                                       Device
     , const bool                                    enableValidation
@@ -61,8 +67,8 @@ namespace xgpu::vulkan
         Features.samplerAnisotropy  = true;
 
         static constexpr auto       enabledExtensions   = std::array
-        { 
-            VK_KHR_SWAPCHAIN_EXTENSION_NAME
+        { VK_KHR_SWAPCHAIN_EXTENSION_NAME
+        , VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME
 //        ,   VK_NV_GLSL_SHADER_EXTENSION_NAME  // nVidia useful extension to be able to load GLSL shaders
         };
         VkDeviceCreateInfo          deviceCreateInfo
@@ -167,7 +173,7 @@ namespace xgpu::vulkan
         // When doing multi-thread this could be a contention point
         //
         {
-            constexpr auto max_descriptors_per_pool_v = 1000u;
+            constexpr auto max_descriptors_per_pool_v = 1024u;
             
             const auto PoolSizes = std::array
             {   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER,                   max_descriptors_per_pool_v }
@@ -181,12 +187,18 @@ namespace xgpu::vulkan
             ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,    max_descriptors_per_pool_v }
             ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,    max_descriptors_per_pool_v }
             ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT,          max_descriptors_per_pool_v }
+            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,    max_descriptors_per_pool_v }
             };
+
+            
+            for (auto t : PoolSizes)
+                m_DescriptorRings[t.type].Init(m_VKDevice, t.type, m_Instance->m_pVKAllocator );
+
 
             VkDescriptorPoolCreateInfo PoolCreateInfo = 
             { .sType            = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO
             , .flags            = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT
-            , .maxSets          = static_cast<uint32_t>(max_descriptors_per_pool_v)
+            , .maxSets          = static_cast<uint32_t>(1024)
             , .poolSizeCount    = static_cast<uint32_t>(PoolSizes.size())
             , .pPoolSizes       = PoolSizes.data()
             };
@@ -493,7 +505,21 @@ namespace xgpu::vulkan
 
     void device::Shutdown(void) noexcept
     {
+        vkDeviceWaitIdle(m_VKDevice);
+
         DeathMarch();
+
+        // Wait for everything to finish - safest possible shutdown
+        assert(m_VKDevice != VK_NULL_HANDLE);
+
+        // Destroy all descriptor pools owned by every ring
+        for (auto& [type, ring] : m_DescriptorRings)
+        {
+            ring.Destroy(m_VKDevice);
+        }
+
+        // Optional: clear the map
+        m_DescriptorRings.clear();
     }
 }
 

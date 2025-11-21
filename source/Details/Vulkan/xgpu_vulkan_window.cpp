@@ -999,6 +999,7 @@ namespace xgpu::vulkan
             //
             // Make sure that the previous frame has finish rendering
             // Loop idle while we wait...
+            if (0)
             for (;;)
             {
                 if( auto VKErr = vkWaitForFences( m_Device->m_VKDevice, 1, &Frame.m_VKFence, VK_TRUE, 100 ); VKErr )
@@ -1015,6 +1016,7 @@ namespace xgpu::vulkan
                 }
             }
 
+
             if( auto VKErr = vkAcquireNextImageKHR( m_Device->m_VKDevice, m_VKSwapchain, UINT64_MAX, Semaphore.m_VKImageAcquiredSemaphore, VK_NULL_HANDLE, &m_FrameIndex ); VKErr )
             {
                 //if( VKErr == VK_ERROR_OUT_OF_DATE_KHR )
@@ -1023,6 +1025,7 @@ namespace xgpu::vulkan
                 assert(false);
             }
         }
+
 
         //
         // Reset the command buffer
@@ -1048,6 +1051,7 @@ namespace xgpu::vulkan
                 assert(false);
             }
         }
+
         
         return false;
     }
@@ -1073,7 +1077,7 @@ namespace xgpu::vulkan
     {
         auto& Frame     = m_Frames[m_FrameIndex];
         auto& Semaphore = m_FrameSemaphores[m_SemaphoreIndex];
-        
+
         // End the render pass 
         if(m_BeginState == 2)
         {
@@ -1121,135 +1125,88 @@ namespace xgpu::vulkan
             assert(false);
         }
 
+        // Wait for completion before freeing
+        vkWaitForFences(m_Device->m_VKDevice, 1, &Frame.m_VKFence, VK_TRUE, UINT64_MAX);
+        vkResetFences(m_Device->m_VKDevice, 1, &Frame.m_VKFence);
+
+        // Free the ring buffers
+        for (auto& [type, ring] : m_Device->m_DescriptorRings)
+        {
+            ring.AdvanceAndReset(m_Device->m_VKDevice);
+        }
+
         return nullptr;
     }
 
     //------------------------------------------------------------------------------------------------------------------------
 
-    void window::setPipelineInstance( xgpu::cmd_buffer& CmdBuffer, xgpu::pipeline_instance& Instance ) noexcept
+    void window::setDynamicUBO(xgpu::cmd_buffer& CmdBuffer, xgpu::buffer& Buffer, int BindIndex) noexcept
     {
-        auto& CB                = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
-        auto& PipelineInstance  = static_cast<xgpu::vulkan::pipeline_instance&>( *Instance.m_Private );
+        auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
+        auto& Pipe = *CB.m_ActivePipelineInstance.m_pPipelineInstance->m_Pipeline;
+        int index = -1;
+
+        // Validation code
+        for (int i = 0; i < Pipe.m_DynamicView.size(); ++i) if (Pipe.m_DynamicView[i].m_BindIndex == BindIndex) { index = i; break; }
+        assert(index != -1);
+
+        auto pBuffer = std::reinterpret_pointer_cast<vulkan::buffer>(Buffer.m_Private);
+        std::uint32_t Offset = pBuffer->m_LastOffset;
+        CB.m_CurrentDynamicVKBuffers[index] = &Buffer;
+        CB.m_CurrentDynamicOffsets[index] = Offset;
+        CB.m_DynamicDirty = true;
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+
+    void window::setPipelineInstance(xgpu::cmd_buffer& CmdBuffer, xgpu::pipeline_instance& Instance, std::span<xgpu::buffer*> StaticBuffers) noexcept
+    {
+        auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
+        auto& PipelineInstance = static_cast<xgpu::vulkan::pipeline_instance&>(*Instance.m_Private);
         pipeline_instance::per_renderpass PerRenderPass{};
 
         //
         // Create the render pipeline if we have not done so yet
         //
-        if( auto It = m_Device->m_PipeLineInstanceMap.find(reinterpret_cast<std::uint64_t>(&PipelineInstance) ); It == m_Device->m_PipeLineInstanceMap.end() )
+        auto It = m_Device->m_PipeLineInstanceMap.find(reinterpret_cast<std::uint64_t>(&PipelineInstance));
+        if (It == m_Device->m_PipeLineInstanceMap.end())
         {
-            const auto& Pipeline           = *PipelineInstance.m_Pipeline;
-            auto        PipelineCreateInfo = Pipeline.m_VkPipelineCreateInfo;
+            const auto& Pipe               = *PipelineInstance.m_Pipeline;
+            auto        PipelineCreateInfo = Pipe.m_VkPipelineCreateInfo;
 
             PerRenderPass.m_pPipelineInstance = &PipelineInstance;
-
-            if(Pipeline.m_nVKDescriptorSetLayout)
-            {
-                //
-                // Create Descriptor Set:
-                //
-                {
-                    std::lock_guard Lk(m_Device->m_LockedVKDescriptorPool);
-
-                    VkDescriptorSetAllocateInfo AllocInfo
-                    { .sType                = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO
-                    , .descriptorPool       = m_Device->m_LockedVKDescriptorPool.get()
-                    , .descriptorSetCount   = static_cast<std::uint32_t>(Pipeline.m_nVKDescriptorSetLayout)
-                    , .pSetLayouts          = Pipeline.m_VKDescriptorSetLayout.data()
-                    };
-
-                    if( auto VKErr = vkAllocateDescriptorSets(m_Device->m_VKDevice, &AllocInfo, PerRenderPass.m_VKDescriptorSet.data() ); VKErr)
-                    {
-                        m_Device->m_Instance->ReportError(VKErr, "vkAllocateDescriptorSets");
-                        assert(false);
-                    }
-                }
-
-                //
-                // Setup the textures
-                //
-                std::array< VkWriteDescriptorSet,  16> WriteDes {};
-
-                //
-                // Setup the textures
-                //
-                std::array< VkDescriptorImageInfo, 16> DescImage;
-                int Index = 0;
-                for( int i=0; i< PerRenderPass.m_pPipelineInstance->m_Pipeline->m_nSamplers; ++i )
-                {
-                    DescImage[i]             = PerRenderPass.m_pPipelineInstance->m_TexturesBinds[i]->m_VKDescriptorImageInfo;
-                    DescImage[i].sampler     = PerRenderPass.m_pPipelineInstance->m_Pipeline->m_VKSamplers[i];
-
-                    WriteDes[Index].sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                    WriteDes[Index].pNext            = nullptr;
-                    WriteDes[Index].dstSet           = PerRenderPass.m_VKDescriptorSet[0];      // Not matter how many sets we have textures always is in set 0
-                    WriteDes[Index].descriptorCount  = 1;
-                    WriteDes[Index].descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                    WriteDes[Index].dstArrayElement  = 0;
-                    WriteDes[Index].pImageInfo       = &DescImage[i];
-                    WriteDes[Index].dstBinding       = i;
-                    WriteDes[Index].pBufferInfo      = nullptr;
-                    WriteDes[Index].pTexelBufferView = nullptr;
-                    Index++;
-                }
-
-                //
-                // Setup the UniformBuffers
-                //
-                std::array< VkDescriptorBufferInfo, 5> DescUniformBuffer;
-                for (int i = 0; i < PerRenderPass.m_pPipelineInstance->m_Pipeline->m_nUniformBuffers; ++i)
-                {
-                    DescUniformBuffer[i].offset = 0;
-                    DescUniformBuffer[i].buffer = PerRenderPass.m_pPipelineInstance->m_UniformBinds[i]->m_VKBuffer;
-                    DescUniformBuffer[i].range  = PerRenderPass.m_pPipelineInstance->m_UniformBinds[i]->m_EntrySizeBytes;
-
-                    WriteDes[Index].sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-                    WriteDes[Index].pNext            = nullptr;
-                    WriteDes[Index].dstSet           = PerRenderPass.m_VKDescriptorSet[Pipeline.m_nVKDescriptorSetLayout-1];    // Not matter how many sets we have Uniforms always are the last set
-                    WriteDes[Index].descriptorCount  = 1;
-                    WriteDes[Index].descriptorType   = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-                    WriteDes[Index].dstArrayElement  = 0;
-                    WriteDes[Index].pImageInfo       = nullptr;
-                    WriteDes[Index].dstBinding       = i;
-                    WriteDes[Index].pBufferInfo      = &DescUniformBuffer[i];
-                    WriteDes[Index].pTexelBufferView = nullptr;
-                    Index++;
-                }
-
-                vkUpdateDescriptorSets  ( m_Device->m_VKDevice
-                                        , Index
-                                        , WriteDes.data()
-                                        , 0
-                                        , nullptr 
-                                        );
-            }
 
             //
             // See if we have already created this material
             //
-            if (auto ItPipeline = m_Device->m_PipeLineMap.find(reinterpret_cast<std::uint64_t>(CB.m_VKActiveRenderPass) ^ reinterpret_cast<std::uint64_t>(PipelineInstance.m_Pipeline.get())); ItPipeline == m_Device->m_PipeLineMap.end())
+            std::uint64_t pipelineKey = reinterpret_cast<std::uint64_t>(CB.m_VKActiveRenderPass) ^ reinterpret_cast<std::uint64_t>(PipelineInstance.m_Pipeline.get());
+            auto itPipeline = m_Device->m_PipeLineMap.find(pipelineKey);
+            if (itPipeline == m_Device->m_PipeLineMap.end())
             {
                 //
                 // Create the pipeline info
                 //
-                auto VKPipelineCreateInfo = Pipeline.m_VkPipelineCreateInfo;
+                auto VKPipelineCreateInfo = Pipe.m_VkPipelineCreateInfo;
                 VKPipelineCreateInfo.renderPass = CB.m_VKActiveRenderPass;
 
                 const_cast<VkPipelineColorBlendStateCreateInfo*>(VKPipelineCreateInfo.pColorBlendState)->attachmentCount = CB.m_pActiveRenderPass ? CB.m_pActiveRenderPass->m_nColorAttachments : 1u;
 
                 // Create rendering pipeline
+                VkPipeline vkPipeline = VK_NULL_HANDLE;
                 if (auto VKErr = vkCreateGraphicsPipelines
-                        ( m_Device->m_VKDevice
-                        , m_Device->m_VKPipelineCache
-                        , 1
-                        , &VKPipelineCreateInfo
-                        , m_Device->m_Instance->m_pVKAllocator
-                        , &PerRenderPass.m_VKPipeline
-                        )
+                    ( m_Device->m_VKDevice
+                    , m_Device->m_VKPipelineCache
+                    , 1
+                    , &VKPipelineCreateInfo
+                    , m_Device->m_Instance->m_pVKAllocator
+                    , &vkPipeline
+                    )
                     ; VKErr
                     )
                 {
                     m_Device->m_Instance->ReportError(VKErr, "vkCreateGraphicsPipelines");
                     assert(false);
+                    return;
                 }
 
                 //
@@ -1257,20 +1214,26 @@ namespace xgpu::vulkan
                 //
                 pipeline::per_renderpass PipelinePerRP
                 { .m_pPipeline  = PipelineInstance.m_Pipeline.get()
-                , .m_VKPipeline = PerRenderPass.m_VKPipeline
+                , .m_VKPipeline = vkPipeline
                 };
-                m_Device->m_PipeLineMap.emplace(std::pair{ reinterpret_cast<std::uint64_t>(PipelineInstance.m_Pipeline.get()), PipelinePerRP });
+                m_Device->m_PipeLineMap.emplace(std::pair{ pipelineKey, PipelinePerRP });
+                PerRenderPass.m_VKPipeline = vkPipeline;
             }
             else
             {
                 // Set the pipeline
-                PerRenderPass.m_VKPipeline = ItPipeline->second.m_VKPipeline;
+                PerRenderPass.m_VKPipeline = itPipeline->second.m_VKPipeline;
             }
+
+            //
+            // Assign descriptor sets from instance (sets 0 and 2)
+            //
+            PerRenderPass.m_VKDescriptorSet[0] = PipelineInstance.m_VKSamplerSet;
 
             //
             // Cache this instance
             //
-            m_Device->m_PipeLineInstanceMap.emplace( std::pair{ reinterpret_cast<std::uint64_t>(&PipelineInstance), PerRenderPass } );
+            m_Device->m_PipeLineInstanceMap.emplace(std::pair{ reinterpret_cast<std::uint64_t>(&PipelineInstance), PerRenderPass });
         }
         else
         {
@@ -1278,35 +1241,99 @@ namespace xgpu::vulkan
         }
 
         //
-        // Bind pipeline and descriptor set
+        // Bind pipeline
         //
+        vkCmdBindPipeline(CB.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, PerRenderPass.m_VKPipeline);
+
+        const auto& Pipe = *PerRenderPass.m_pPipelineInstance->m_Pipeline;
+        CB.m_VKPipelineLayout = Pipe.m_VKPipelineLayout;
+
+        //
+        // Bind descriptor set: set 0 (samplers), if present
+        //
+        assert (PerRenderPass.m_VKDescriptorSet[0] != VK_NULL_HANDLE);
         {
-            vkCmdBindPipeline( CB.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, PerRenderPass.m_VKPipeline );
+            vkCmdBindDescriptorSets
+            ( CB.m_VKCommandBuffer
+            , VK_PIPELINE_BIND_POINT_GRAPHICS
+            , CB.m_VKPipelineLayout
+            , 0
+            , 1
+            , &PerRenderPass.m_VKDescriptorSet[0]
+            , 0
+            , nullptr
+            );
+        }
 
+        //
+        // Handle static bindings for set 1, if provided
+        //
+        if (!StaticBuffers.empty())
+        {
+            // Count static binds in pipeline
+            int nStatic = Pipe.getNStaticUBOs();  // Assume method or static_cast<int>(Pipe.m_StaticView.size())
 
+            // Mismatch
+            assert(nStatic > 0 && StaticBuffers.size() == static_cast<std::size_t>(nStatic));  
+            auto&                   firstBuffer = *std::reinterpret_pointer_cast<vulkan::buffer>(StaticBuffers[0]->m_Private);
+            VkDescriptorType        descType    = (firstBuffer.m_Type == xgpu::buffer::type::STORAGE)
+                                                    ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
+                                                    : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            VkDescriptorSetLayout   layout      = Pipe.m_VKDescriptorSetLayout[Pipe.static_set_index_v];
+            VkDescriptorSet         staticSet   = m_Device->m_DescriptorRings[descType].alloc(m_Device->m_VKDevice, layout);
 
-
-            // if we have textures then we must have set zero define for them
-            if( PerRenderPass.m_pPipelineInstance->m_TexturesBinds[0].get() )
+            // Prepare writes
+            std::array<VkWriteDescriptorSet, 8>    writes{};
+            std::array<VkDescriptorBufferInfo, 8>  bufInfos{};
+            int writeCount = 0;
+            int bindIdx = 0;
+            for (const auto& pipeBind : Pipe.m_StaticView) 
             {
-                // Textures are always in the descriptor set zero
-                auto DescriptorSet = std::array{ PerRenderPass.m_VKDescriptorSet[0] };
+                auto& userBuffer    = *StaticBuffers[bindIdx];
+                auto& Buffer        = *std::reinterpret_pointer_cast<vulkan::buffer>(userBuffer.m_Private);
+                assert(Buffer.m_Type > xgpu::buffer::type::INDEX);
 
-                vkCmdBindDescriptorSets
-                ( CB.m_VKCommandBuffer
-                , VK_PIPELINE_BIND_POINT_GRAPHICS
-                , PerRenderPass.m_pPipelineInstance->m_Pipeline->m_VKPipelineLayout
-                , 0
-                , static_cast<std::uint32_t>(DescriptorSet.size())
-                , DescriptorSet.data()
-                , 0
-                , nullptr
-                );
+                bufInfos[bindIdx] = 
+                { .buffer           = Buffer.m_VKBuffer
+                , .offset           = 0
+                , .range            = VK_WHOLE_SIZE
+                };
+                writes[writeCount] = 
+                { .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET
+                , .dstSet           = staticSet
+                , .dstBinding       = static_cast<uint32_t>(pipeBind.m_BindIndex)
+                , .descriptorCount  = 1
+                , .descriptorType   = Buffer.m_Type == xgpu::buffer::type::STORAGE ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
+                                                                                   : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+                , .pBufferInfo      = &bufInfos[bindIdx]
+                };
+                ++writeCount;
+                ++bindIdx;
             }
+
+            vkUpdateDescriptorSets(m_Device->m_VKDevice, static_cast<uint32_t>(writeCount), writes.data(), 0, nullptr);
+
+            // Bind set 1
+            vkCmdBindDescriptorSets(CB.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, CB.m_VKPipelineLayout, Pipe.static_set_index_v, 1, &staticSet, 0, nullptr);
+        }
+
+        //
+        // Handle dynamic set 2 if present
+        //
+        int nDynamic = Pipe.getNDynamicUBOs();  // Assume method or m_DynamicView.size()
+        if (nDynamic > 0)
+        {
+            // Force fresh dynamic set allocation on pipeline/layout change
+            if (CB.m_CurrentPipelineLayout != CB.m_VKPipelineLayout)
+            {
+                CB.m_CurrentPipelineLayout = CB.m_VKPipelineLayout;
+                CB.m_DynamicDirty = true;
+            }
+
+            CB.m_nDynamicOffsets = nDynamic;
         }
 
         CB.m_ActivePipelineInstance = PerRenderPass;
-        CB.m_VKPipelineLayout       = PerRenderPass.m_pPipelineInstance->m_Pipeline->m_VKPipelineLayout;
     }
 
     //------------------------------------------------------------------------------------------------------------------------
@@ -1457,6 +1484,9 @@ namespace xgpu::vulkan
         , VertexOffset
         , FirstInstance 
         );
+
+        CB.m_nDynamicOffsets = 0;
+        CB.m_DynamicDirty = false;
     }
 
     //------------------------------------------------------------------------------------------------------------------------
@@ -1476,50 +1506,70 @@ namespace xgpu::vulkan
     }
 
     //------------------------------------------------------------------------------------------------------------------------
-    // In window::getUniformBufferVMem – rebuild full offset array every time
 
-    // 1. Only allocates space + advances the specific binding (very fast, no Vulkan calls
-    void* window::getDynamicUniformBuffer
-    ( xgpu::cmd_buffer&         CmdBuffer
-    , xgpu::shader::type::bit   ShaderType
-    , std::size_t               Size
-    , int                       iBind 
-    ) noexcept
-    {
-        auto& CB    = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
-        auto& Inst  = *CB.m_ActivePipelineInstance.m_pPipelineInstance;
-
-        uint32_t offset = 0;
-        void* ptr = Inst.getUniformBufferVMem(offset, ShaderType, Size, iBind);
-
-        return ptr;          // caller can now fill the memory
-    }
-
-    //------------------------------------------------------------------------------------------------------------------------
-
-    // 2. Call this once before vkCmdDraw...() if you used mapUniformBuffer this frame
     void window::applyDynamicOffsets(xgpu::cmd_buffer& CmdBuffer) noexcept
     {
-        auto& CB    = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
-        auto& Inst  = *CB.m_ActivePipelineInstance.m_pPipelineInstance;
-        auto& Pipe  = *Inst.m_Pipeline;
+        auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
 
-        if (Pipe.m_nUniformBuffers == 0) return;
+        if (!CB.m_DynamicDirty || !CB.m_ActivePipelineInstance.m_pPipelineInstance)
+            return;
 
-        // Set all the offsets here
-        std::array<uint32_t, 8> offsets;
+        auto& Pipe = *CB.m_ActivePipelineInstance.m_pPipelineInstance->m_Pipeline;
 
-        for (int i = 0; i < Pipe.m_nUniformBuffers; ++i)
-            offsets[i] = Inst.m_UniformBinds[i]->m_LastOffset;
+        int nDynamic = Pipe.getNDynamicUBOs();
+        if (nDynamic == 0) return;
 
-        vkCmdBindDescriptorSets(
-            CB.m_VKCommandBuffer,
-            VK_PIPELINE_BIND_POINT_GRAPHICS,
-            CB.m_VKPipelineLayout,
-            1, 1,
-            &CB.m_ActivePipelineInstance.m_VKDescriptorSet[1],
-            Pipe.m_nUniformBuffers,
-            offsets.data());
+        // Determine set type from first buffer (all bindings in one set must match)
+        auto& firstBuffer = *std::reinterpret_pointer_cast<vulkan::buffer>(CB.m_CurrentDynamicVKBuffers[0]->m_Private);
+        VkDescriptorType setType = (firstBuffer.m_Type == xgpu::buffer::type::STORAGE)
+            ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC
+            : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
+
+        // Allocate fresh set from correct ring
+        VkDescriptorSetLayout layout = Pipe.m_VKDescriptorSetLayout[Pipe.dynamic_set_index_v];
+        VkDescriptorSet newSet = m_Device->m_DescriptorRings[setType].alloc(m_Device->m_VKDevice, layout);
+
+        // Update all bindings
+        std::array<VkWriteDescriptorSet,   16> writes{};
+        std::array<VkDescriptorBufferInfo, 16> infos{};
+
+        for (int i = 0; i < nDynamic; ++i)
+        {
+            auto& CurrBuffer = *std::reinterpret_pointer_cast<vulkan::buffer>(CB.m_CurrentDynamicVKBuffers[i]->m_Private);
+
+            infos[i] = VkDescriptorBufferInfo
+            { .buffer = CurrBuffer.m_VKBuffer
+            , .offset = 0
+            , .range  = static_cast<VkDeviceSize>(CurrBuffer.m_EntrySizeBytes)
+            };
+
+            writes[i] = VkWriteDescriptorSet
+            { .sType           = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET
+            , .dstSet          = newSet
+            , .dstBinding      = static_cast<uint32_t>(Pipe.m_DynamicView[i].m_BindIndex)
+            , .descriptorCount = 1
+            , .descriptorType  = (CurrBuffer.m_Type == xgpu::buffer::type::STORAGE)
+                                    ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC
+                                    : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC
+            , .pBufferInfo     = &infos[i]
+            };
+        }
+
+        vkUpdateDescriptorSets(m_Device->m_VKDevice, nDynamic, writes.data(), 0, nullptr);
+
+        // Bind with current offsets
+        vkCmdBindDescriptorSets
+        ( CB.m_VKCommandBuffer
+        , VK_PIPELINE_BIND_POINT_GRAPHICS
+        , CB.m_VKPipelineLayout
+        , Pipe.dynamic_set_index_v
+        , 1
+        , &newSet
+        , static_cast<uint32_t>(nDynamic)
+        , CB.m_CurrentDynamicOffsets.data()
+        );
+
+        CB.m_DynamicDirty = false;
     }
 
     //------------------------------------------------------------------------------------------------------------------------
@@ -1548,6 +1598,8 @@ namespace xgpu::vulkan
         m_Device->Destroy(std::move(Window));
         m_bDeathMarched = true;
     }
+
+    //------------------------------------------------------------------------------------------------------------------------
 
     window::~window(void)
     {

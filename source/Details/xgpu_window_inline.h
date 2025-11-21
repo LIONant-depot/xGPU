@@ -13,14 +13,14 @@ namespace xgpu
             virtual     void                            CmdRenderBegin          ( xgpu::cmd_buffer& CmdBuffer, const xgpu::renderpass& Renderpass )                      noexcept = 0;
             virtual     void                            CmdRenderEnd            ( xgpu::cmd_buffer& CmdBuffer )                             noexcept = 0;
             virtual     bool                            BegingRendering         ( void )                                                    noexcept = 0;
-            virtual     void                            setPipelineInstance     ( xgpu::cmd_buffer& CmdBuffer, xgpu::pipeline_instance& Instance )                       noexcept = 0;
+            virtual     void                            setDynamicUBO           ( xgpu::cmd_buffer& CmdBuffer, xgpu::buffer& Buffer, int BindIndex) noexcept=0;
+            virtual     void                            setPipelineInstance     ( xgpu::cmd_buffer& CmdBuffer, xgpu::pipeline_instance& Instance, std::span<xgpu::buffer*> StaticBuffers)                       noexcept = 0;
             virtual     void                            setBuffer               ( xgpu::cmd_buffer& CmdBuffer, xgpu::buffer& Buffer, int StartingElementIndex )          noexcept = 0;
             virtual     void                            setStreamingBuffers     ( xgpu::cmd_buffer& CmdBuffer, std::span<xgpu::buffer> Buffers, int StartingElementIndex)noexcept = 0;
             virtual     void                            DrawInstance            ( xgpu::cmd_buffer& CmdBuffer, int InstanceCount, int IndexCount, int FirstInstance, int FirstIndex, int VertexOffset ) noexcept = 0;
             virtual     void                            setViewport             ( xgpu::cmd_buffer& CmdBuffer, float x, float y, float w, float h, float minDepth, float maxDepth ) noexcept = 0;
             virtual     void                            setScissor              ( xgpu::cmd_buffer& CmdBuffer, int x, int y, int w, int h )                              noexcept = 0;
             virtual     void                            setPushConstants        ( xgpu::cmd_buffer& CmdBuffer, const void* pData, std::size_t Size )                     noexcept = 0;
-            virtual      void*                          getDynamicUniformBuffer ( xgpu::cmd_buffer& CmdBuffer, xgpu::shader::type::bit ShaderType, std::size_t Size, int iBind) noexcept = 0;
 
 
             virtual     void                            setDepthBias            ( xgpu::cmd_buffer& CmdBuffer, float ConstantFactor, float DepthBiasClamp, float DepthBiasSlope) noexcept = 0;

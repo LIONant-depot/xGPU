@@ -10,80 +10,82 @@ namespace xgpu::vulkan
     //-------------------------------------------------------------------------------
 
     xgpu::device::error* pipeline_instance::Initialize
-    ( std::shared_ptr<vulkan::device>&&     Device
-    , const xgpu::pipeline_instance::setup& Setup
+    ( std::shared_ptr<vulkan::device>&&         Device
+    , const xgpu::pipeline_instance::setup&     Setup
     ) noexcept
     {
         m_Device   = Device;
         m_Pipeline = std::reinterpret_pointer_cast<vulkan::pipeline>(Setup.m_PipeLine.m_Private);
 
-        if constexpr( true )
+        if (Setup.m_SamplersBindings.size() != m_Pipeline->m_nSamplers)
         {
-            if( Setup.m_SamplersBindings.size() != m_Pipeline->m_nSamplers )
-            {
-                m_Device->m_Instance->ReportError( "You did not give the expected number of textures bindings as required by the pipeline");
-                return VGPU_ERROR(xgpu::device::error::FAILURE, "You did not give the expected number of textures bindings as required by the pipeline");
-            }
-
-            if (Setup.m_UniformBuffersBindings.size() != m_Pipeline->m_nUniformBuffers)
-            {
-                m_Device->m_Instance->ReportError("You did not give the expected number of uniform buffers as required by the pipeline");
-                return VGPU_ERROR(xgpu::device::error::FAILURE, "You did not give the expected number of uniform buffers as required by the pipeline");
-            }
-
-            for (int i = 0; i < m_Pipeline->m_nUniformBuffers; ++i)
-            {
-                Setup.m_UniformBuffersBindings[i].m_Value.getEntryCount();
-
-                std::shared_ptr<vulkan::buffer> Pointer = std::reinterpret_pointer_cast<vulkan::buffer>(Setup.m_UniformBuffersBindings[i].m_Value.m_Private);
-                if( Pointer->m_Type != xgpu::buffer::type::UNIFORM ) 
-                {
-                    m_Device->m_Instance->ReportError("Trying to create a pipeline instance with a non-uniform-buffer");
-                    return VGPU_ERROR(xgpu::device::error::FAILURE, "Trying to create a pipeline instance with a non-uniform-buffer");
-                }
-            }
+            m_Device->m_Instance->ReportError("You did not give the expected number of textures bindings as required by the pipeline");
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "You did not give the expected number of textures bindings as required by the pipeline");
         }
 
         //
-        // Create all the samplers
+        // Back up all the sampler bindings
         //
-        for(int i=0; i< m_Pipeline->m_nSamplers; ++i )
+        for (int i = 0; i < m_Pipeline->m_nSamplers; ++i)
         {
             auto& TextureBinds = m_TexturesBinds[i];
-            TextureBinds = std::reinterpret_pointer_cast<vulkan::texture>( Setup.m_SamplersBindings[i].m_Value.m_Private );
+            TextureBinds = std::reinterpret_pointer_cast<vulkan::texture>(Setup.m_SamplersBindings[i].m_Value.m_Private);
+        }
+
+        if (true)
+        {
+            std::lock_guard Lk(m_Device->m_LockedVKDescriptorPool);
+            VkDescriptorSet allocatedSet = VK_NULL_HANDLE;
+            VkDescriptorSetAllocateInfo alloc{
+                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+                .descriptorPool = m_Device->m_LockedVKDescriptorPool.get(),
+                .descriptorSetCount = 1,
+                .pSetLayouts = &m_Pipeline->m_VKDescriptorSetLayout[pipeline::sampler_set_index_v]
+            };
+            if (auto err = vkAllocateDescriptorSets(m_Device->m_VKDevice, &alloc, &allocatedSet)) {
+                m_Device->m_Instance->ReportError(err, "vkAllocateDescriptorSets");
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to allocate sampler descriptor set");
+            }
+            m_VKSamplerSet = allocatedSet;
+        }
+        else
+        {
+            m_VKSamplerSet = m_Device->m_DescriptorRings[VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER].alloc(m_Device->m_VKDevice, m_Pipeline->m_VKDescriptorSetLayout[pipeline::sampler_set_index_v]);
+            assert(m_VKSamplerSet != VK_NULL_HANDLE);  // Add this assert
         }
 
         //
-        // Back up all the Uniform Buffers
+        // Allocate/update descriptor set for samplers (set 0) if present
         //
-        for(int i=0; i<m_Pipeline->m_nUniformBuffers; ++i )
+        if (m_Pipeline->m_nSamplers > 0)
         {
-            auto& Uniform = m_UniformBinds[i];
-            Uniform = std::reinterpret_pointer_cast<vulkan::buffer>(Setup.m_UniformBuffersBindings[i].m_Value.m_Private);
+            // Update the set
+            std::array<VkWriteDescriptorSet, 16>   writes{};
+            std::array<VkDescriptorImageInfo, 16>  imageInfos{};
+
+            for (int i = 0; i < m_Pipeline->m_nSamplers; ++i)
+            {
+                imageInfos[i]         = m_TexturesBinds[i]->m_VKDescriptorImageInfo;
+                imageInfos[i].sampler = m_Pipeline->m_VKSamplers[i];
+
+                writes[i] = VkWriteDescriptorSet
+                { .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET
+                , .dstSet           = m_VKSamplerSet
+                , .dstBinding       = static_cast<uint32_t>(i)
+                , .descriptorCount  = 1
+                , .descriptorType   = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+                , .pImageInfo       = &imageInfos[i]
+                };
+            }
+
+            vkUpdateDescriptorSets(m_Device->m_VKDevice, m_Pipeline->m_nSamplers, writes.data(), 0, nullptr);
         }
+
 
         return nullptr;
     }
 
     //-------------------------------------------------------------------------------
-
-    void* pipeline_instance::getUniformBufferVMem(std::uint32_t& DynamicOffset, xgpu::shader::type::bit ShaderType, std::size_t Size, int iBind ) noexcept
-    {
-        const auto Index = m_Pipeline->m_UniformBufferFastRemap[iBind][(int)ShaderType];
-
-        // if this is true then the user did not defined a uniform for this type of shader in the pipeline definition
-        assert(Index != 0xff);
-
-        // get the reference to the right uniform buffer entry
-        auto& Uniform = *m_UniformBinds[Index];
-
-        // The user must have specified the wrong type to cast 
-        assert(Uniform.m_EntrySizeBytes == Size);
-
-        return Uniform.getUniformBufferVMem(DynamicOffset);
-    }
-
-
 
     void pipeline_instance::DeathMarch(xgpu::pipeline_instance&& PipelineInstance) noexcept
     {

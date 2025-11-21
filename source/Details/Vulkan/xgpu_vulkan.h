@@ -28,6 +28,7 @@ namespace xgpu::vulkan
 #include "xgpu_vulkan_pipeline.h"
 #include "xgpu_vulkan_pipeline_instance.h"
 #include "xgpu_vulkan_renderpass.h"
+#include "xgpu_vulkan_descriptor_pool_ring.h"
 #include "xgpu_vulkan_device.h"
 #include "xgpu_vulkan_window.h"
 

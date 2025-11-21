@@ -30,17 +30,20 @@ namespace xgpu::vulkan
         VkDeviceSize ByteSize = Setup.m_EntryByteSize * Setup.m_EntryCount;
         ByteSize = ((ByteSize - 1) / m_Device->m_BufferMemoryAlignment + 1) * m_Device->m_BufferMemoryAlignment;
         VkBufferCreateInfo BufferInfo
-        {    .sType         = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
-         ,   .size          = ByteSize
-         ,   .usage         = m_Usage == xgpu::buffer::setup::usage::GPU_READ
-                              ? VK_BUFFER_USAGE_TRANSFER_SRC_BIT        // Use as staging buffer
-                              : static_cast<VkBufferUsageFlags>(Setup.m_Type == xgpu::buffer::type::INDEX 
-                                                                ? VK_BUFFER_USAGE_INDEX_BUFFER_BIT
-                                                                : Setup.m_Type == xgpu::buffer::type::VERTEX 
-                                                                    ? VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
-                                                                    : VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT 
-                                                               )
-         ,   .sharingMode   = VK_SHARING_MODE_EXCLUSIVE
+        { .sType         = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
+        , .size          = ByteSize
+        , .usage         = m_Usage == xgpu::buffer::setup::usage::GPU_READ
+                            ? VK_BUFFER_USAGE_TRANSFER_SRC_BIT        // Use as staging buffer
+                            : static_cast<VkBufferUsageFlags>
+                                ( Setup.m_Type == xgpu::buffer::type::INDEX 
+                                ? VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+                                : Setup.m_Type == xgpu::buffer::type::VERTEX 
+                                    ? VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+                                    : Setup.m_Type == xgpu::buffer::type::UNIFORM 
+                                        ? VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
+                                        : VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                                )
+         , .sharingMode   = VK_SHARING_MODE_EXCLUSIVE
         };
 
         if( auto VKErr = vkCreateBuffer(m_Device->m_VKDevice, &BufferInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKBuffer ); VKErr )
@@ -122,17 +125,19 @@ namespace xgpu::vulkan
         VkDeviceSize ByteSize = m_EntrySizeBytes * m_nEntries;
         ByteSize = ((ByteSize - 1) / m_Device->m_BufferMemoryAlignment + 1) * m_Device->m_BufferMemoryAlignment;
         VkBufferCreateInfo BufferInfo
-        {    .sType         = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
-         ,   .size          = ByteSize
-         ,   .usage         = static_cast<VkBufferUsageFlags>( ( m_Type == xgpu::buffer::type::INDEX 
-                                                                    ? VK_BUFFER_USAGE_INDEX_BUFFER_BIT 
-                                                                    : m_Type == xgpu::buffer::type::VERTEX 
-                                                                        ? VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
-                                                                        : VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
+        { .sType        = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
+        , .size         = ByteSize
+        , .usage        = static_cast<VkBufferUsageFlags>( ( m_Type == xgpu::buffer::type::INDEX 
+                                                            ? VK_BUFFER_USAGE_INDEX_BUFFER_BIT 
+                                                            : m_Type == xgpu::buffer::type::VERTEX 
+                                                                ? VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+                                                                : m_Type == xgpu::buffer::type::UNIFORM 
+                                                                    ? VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
+                                                                    : VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
                                                                )
                                                                | VK_BUFFER_USAGE_TRANSFER_DST_BIT
                                                              )
-         ,   .sharingMode   = VK_SHARING_MODE_EXCLUSIVE
+        , .sharingMode  = VK_SHARING_MODE_EXCLUSIVE
         };
 
         VkBuffer VKFinalBuffer;
@@ -174,9 +179,9 @@ namespace xgpu::vulkan
         {
             auto CopyRegions = std::array
             {   VkBufferCopy
-                {   .srcOffset  = 0
-                ,   .dstOffset  = 0
-                ,   .size       = ByteSize
+                { .srcOffset  = 0
+                , .dstOffset  = 0
+                , .size       = ByteSize
                 }
             };
 
@@ -208,7 +213,7 @@ namespace xgpu::vulkan
 
     //----------------------------------------------------------------------------------
 
-    xgpu::device::error* buffer::MapUnlock( int StartIndex, int Count ) noexcept
+    xgpu::device::error* buffer::MapUnlock(int StartIndex, int Count) noexcept
     {
         assert(StartIndex < m_nEntries);
         assert((StartIndex + Count) <= m_nEntries);
@@ -216,22 +221,22 @@ namespace xgpu::vulkan
         auto Ranges = std::array
         {
             VkMappedMemoryRange
-            {   .sType      = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE
-            ,   .memory     = m_VKBufferMemory
-            ,   .offset     = static_cast<VkDeviceSize>(StartIndex * m_EntrySizeBytes)
-            ,   .size       = Count == m_nEntries ? VK_WHOLE_SIZE : static_cast<VkDeviceSize>(m_EntrySizeBytes * Count)
+            {.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE
+            ,   .memory = m_VKBufferMemory
+            ,   .offset = static_cast<VkDeviceSize>(StartIndex * m_EntrySizeBytes)
+            ,   .size = Count == m_nEntries ? VK_WHOLE_SIZE : static_cast<VkDeviceSize>(m_EntrySizeBytes * Count)
             }
         };
 
-        if (auto VKErr = vkFlushMappedMemoryRanges(m_Device->m_VKDevice, static_cast<std::uint32_t>(Ranges.size()), Ranges.data() ); VKErr )
+        if (auto VKErr = vkFlushMappedMemoryRanges(m_Device->m_VKDevice, static_cast<std::uint32_t>(Ranges.size()), Ranges.data()); VKErr)
         {
             m_Device->m_Instance->ReportError(VKErr, "Fail to Map Memory from Buffer");
             return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to Map Memory from Buffer");
         }
 
-        vkUnmapMemory( m_Device->m_VKDevice, m_VKBufferMemory);
+        vkUnmapMemory(m_Device->m_VKDevice, m_VKBufferMemory);
 
-        if( m_Usage == xgpu::buffer::setup::usage::GPU_READ && m_ByteSize )
+        if (m_Usage == xgpu::buffer::setup::usage::GPU_READ && m_ByteSize)
         {
             return TransferToDestination();
         }
@@ -271,10 +276,19 @@ namespace xgpu::vulkan
 
     }
 
-    //-------------------------------------------------------------------------------
+    //----------------------------------------------------------------------------------
 
-    void* buffer::getUniformBufferVMem(std::uint32_t& DynamicOffset) noexcept
+    int buffer::getEntrySize(void) const noexcept
     {
+        return m_EntrySizeBytes;
+    }
+
+    //----------------------------------------------------------------------------------
+
+    void* buffer::allocEntry(void) noexcept
+    {
+        assert(m_Type == xgpu::buffer::type::UNIFORM);  // Only for dynamic UBOs
+
         // get the next value in our circular queue
         auto V = m_CurrentOffset.load();
         while (true)
@@ -288,31 +302,29 @@ namespace xgpu::vulkan
             }
         }
 
-        m_LastOffset = DynamicOffset = V * m_EntrySizeBytes;
+        m_LastOffset = V * m_EntrySizeBytes;
 
         //
         // Make sure the memory is mapped
         //
-        if(m_pVMapMemory==nullptr)
+        if (m_pVMapMemory == nullptr)
         {
             assert(m_Usage == xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ);
 
             void* pData;
             if (auto Err = MapLock(pData, 0, m_nEntries); Err)
-                return Err;
-            
+                return nullptr;
+
             m_pVMapMemory = reinterpret_cast<std::byte*>(pData);
         }
 
-        return &m_pVMapMemory[DynamicOffset];
+        return &m_pVMapMemory[m_LastOffset];
     }
-
 
     //----------------------------------------------------------------------------------
 
     void buffer::Destroy( void ) noexcept
     {
-
         if(m_pVMapMemory)
         {
             vkUnmapMemory(m_Device->m_VKDevice, m_VKBufferMemory);
@@ -331,6 +343,8 @@ namespace xgpu::vulkan
             m_VKBufferMemory = VK_NULL_HANDLE;
         }
     }
+
+    //----------------------------------------------------------------------------------
 
     void buffer::DeathMarch(xgpu::buffer&& Buffer) noexcept
     {

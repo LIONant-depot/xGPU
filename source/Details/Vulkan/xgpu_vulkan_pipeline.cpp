@@ -55,10 +55,9 @@ namespace xgpu::vulkan
     }
 
     //----------------------------------------------------------------------------------------
-
     xgpu::device::error* pipeline::Initialize
-    ( std::shared_ptr<device>&&     Device
-    , const xgpu::pipeline::setup&  Setup 
+    (std::shared_ptr<device>&& Device
+        , const xgpu::pipeline::setup& Setup
     ) noexcept
     {
         m_Device = Device;
@@ -70,358 +69,374 @@ namespace xgpu::vulkan
         //
         m_nUniformBuffers = (int)Setup.m_UniformBinds.size();
 
-        // Clear all entries to the null value
-        memset( &m_UniformBufferFastRemap, 0xff, sizeof(m_UniformBufferFastRemap));
-
-        for( int i = 0; i<m_nUniformBuffers; ++i)
+        // -------------------------------------------------------------------------
+        // Validate + backup + build fast remap for ALL uniform buffers (static & dynamic)
+        // -------------------------------------------------------------------------
+        for (int i = 0; i < m_nUniformBuffers; ++i)
         {
             auto& Entry = Setup.m_UniformBinds[i];
-
-            // back up all entries
             m_UniformsBinds[i] = Entry;
-
-            const std::uint8_t Value = static_cast<std::uint8_t>(Entry.m_Usage.m_Value);
-            if( Value == 0 )
-            {
-                m_Device->m_Instance->ReportError("Fail to create a pipeline due to having a uniform buffer without any shader usage");
-                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a pipeline due to having a uniform buffer without any shader usage");
-            }
-
-            // Not sure if we still need this...
-            for( int j=0; j<xgpu::shader::type::count_v; ++j)
-            {
-                const int bit  = (Value>>j)&1;
-
-                if(bit)
-                {
-                    // Find the right set
-                    if( m_UniformBufferFastRemap[Entry.m_BindIndex][bit] != 0xff )
-                    {
-                        m_Device->m_Instance->ReportError(std::format("A uniform is overlapping the same bind location. Make sure the uniforms have unique binds. See entry {}", i));
-                        return VGPU_ERROR(xgpu::device::error::FAILURE, "A uniform is overlapping the same bind location. Make sure the uniforms have unique binds.");
-                    }
-
-                    // Set the actual remap
-                    m_UniformBufferFastRemap[Entry.m_BindIndex][bit] = i;
-
-                    // do we have any other bit to set? if not then just break
-                    if( const std::uint8_t Mask = ~((1 << (j + 1)) - 1); (Value & Mask ) == 0 ) 
-                    {
-                        break;
-                    }
-                }
-            }
         }
+
+        //
+        // Sort m_UniformsBinds: static first (by bindIndex asc), then dynamic (by bindIndex asc)
+        //
+        std::sort(m_UniformsBinds.begin(), m_UniformsBinds.begin() + m_nUniformBuffers,
+            [](const auto& a, const auto& b) 
+            {
+                if (a.isTypeDynamic() == b.isTypeDynamic()) return a.m_BindIndex < b.m_BindIndex;
+                return !a.isTypeDynamic();
+            });
+
+        // Count static/dynamic and set views
+        int nStatic = 0;
+        for (int i = 0; i < m_nUniformBuffers; ++i)
+            if (!m_UniformsBinds[i].isTypeDynamic()) nStatic++;
+        int nDynamic = m_nUniformBuffers - nStatic;
+        m_StaticView = { m_UniformsBinds.data(), static_cast<std::size_t>(nStatic) };
+        m_DynamicView = { m_UniformsBinds.data() + nStatic, static_cast<std::size_t>(nDynamic) };
 
         //
         // Rasterization state
         //
         static constexpr auto PolygonModeTable = []() consteval
-        {
-            std::array< VkPolygonMode, (int)xgpu::pipeline::primitive::raster::ENUM_COUNT > PolygonModeTable {};
-            PolygonModeTable[(int)xgpu::pipeline::primitive::raster::FILL]      = VK_POLYGON_MODE_FILL;
-            PolygonModeTable[(int)xgpu::pipeline::primitive::raster::WIRELINE]  = VK_POLYGON_MODE_LINE;
-            PolygonModeTable[(int)xgpu::pipeline::primitive::raster::POINT]     = VK_POLYGON_MODE_POINT;
-            return PolygonModeTable;
-        }();
+            {
+                std::array< VkPolygonMode, (int)xgpu::pipeline::primitive::raster::ENUM_COUNT > PolygonModeTable{};
+                PolygonModeTable[(int)xgpu::pipeline::primitive::raster::FILL]      = VK_POLYGON_MODE_FILL;
+                PolygonModeTable[(int)xgpu::pipeline::primitive::raster::WIRELINE]  = VK_POLYGON_MODE_LINE;
+                PolygonModeTable[(int)xgpu::pipeline::primitive::raster::POINT]     = VK_POLYGON_MODE_POINT;
+                return PolygonModeTable;
+            }();
 
         static constexpr auto CullModeFlagsBitsTable = []() consteval
-        {
-            std::array< VkCullModeFlagBits, (int)xgpu::pipeline::primitive::cull::ENUM_COUNT> CullModeFlagsBitsTable {};
-            CullModeFlagsBitsTable[(int)xgpu::pipeline::primitive::cull::BACK]  = VK_CULL_MODE_BACK_BIT;
-            CullModeFlagsBitsTable[(int)xgpu::pipeline::primitive::cull::FRONT] = VK_CULL_MODE_FRONT_BIT;
-            CullModeFlagsBitsTable[(int)xgpu::pipeline::primitive::cull::ALL]   = VK_CULL_MODE_FRONT_AND_BACK;
-            CullModeFlagsBitsTable[(int)xgpu::pipeline::primitive::cull::NONE]  = VK_CULL_MODE_NONE;
-            return CullModeFlagsBitsTable;
-        }();
+            {
+                std::array< VkCullModeFlagBits, (int)xgpu::pipeline::primitive::cull::ENUM_COUNT> CullModeFlagsBitsTable{};
+                CullModeFlagsBitsTable[(int)xgpu::pipeline::primitive::cull::BACK] = VK_CULL_MODE_BACK_BIT;
+                CullModeFlagsBitsTable[(int)xgpu::pipeline::primitive::cull::FRONT] = VK_CULL_MODE_FRONT_BIT;
+                CullModeFlagsBitsTable[(int)xgpu::pipeline::primitive::cull::ALL] = VK_CULL_MODE_FRONT_AND_BACK;
+                CullModeFlagsBitsTable[(int)xgpu::pipeline::primitive::cull::NONE] = VK_CULL_MODE_NONE;
+                return CullModeFlagsBitsTable;
+            }();
 
         static constexpr auto FrontFaceTable = []() consteval
-        {
-            std::array< VkFrontFace, (int)xgpu::pipeline::primitive::front_face::ENUM_COUNT> FrontFaceTable {};
-            FrontFaceTable[(int)xgpu::pipeline::primitive::front_face::CLOCKWISE]          = VK_FRONT_FACE_CLOCKWISE;
-            FrontFaceTable[(int)xgpu::pipeline::primitive::front_face::COUNTER_CLOCKWISE]  = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-            return FrontFaceTable;
-        }();
+            {
+                std::array< VkFrontFace, (int)xgpu::pipeline::primitive::front_face::ENUM_COUNT> FrontFaceTable{};
+                FrontFaceTable[(int)xgpu::pipeline::primitive::front_face::CLOCKWISE] = VK_FRONT_FACE_CLOCKWISE;
+                FrontFaceTable[(int)xgpu::pipeline::primitive::front_face::COUNTER_CLOCKWISE] = VK_FRONT_FACE_COUNTER_CLOCKWISE;
+                return FrontFaceTable;
+            }();
 
-        m_VkRasterizationState.sType                        = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-        m_VkRasterizationState.flags                        = 0;
-        m_VkRasterizationState.pNext                        = nullptr;
-        m_VkRasterizationState.lineWidth                    = Setup.m_Primitive.m_LineWidth;
-        m_VkRasterizationState.polygonMode                  = PolygonModeTable[(int)Setup.m_Primitive.m_Raster ];
-        m_VkRasterizationState.cullMode                     = CullModeFlagsBitsTable[(int)Setup.m_Primitive.m_Cull ];
-        m_VkRasterizationState.frontFace                    = FrontFaceTable[(int)Setup.m_Primitive.m_FrontFace];
-        m_VkRasterizationState.depthClampEnable             = Setup.m_DepthStencil.m_bDepthClampEnable;
-        m_VkRasterizationState.rasterizerDiscardEnable      = Setup.m_Primitive.m_bRasterizerDiscardEnable;
-        m_VkRasterizationState.depthBiasEnable              = Setup.m_DepthStencil.m_bDepthBiasEnable;
-        m_VkRasterizationState.depthBiasConstantFactor      = Setup.m_DepthStencil.m_DepthBiasConstantFactor;
-        m_VkRasterizationState.depthBiasSlopeFactor         = Setup.m_DepthStencil.m_DepthBiasSlopeFactor;
-        m_VkRasterizationState.depthBiasClamp               = Setup.m_DepthStencil.m_DepthBiasClamp;
+        m_VkRasterizationState.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+        m_VkRasterizationState.flags = 0;
+        m_VkRasterizationState.pNext = nullptr;
+        m_VkRasterizationState.lineWidth = Setup.m_Primitive.m_LineWidth;
+        m_VkRasterizationState.polygonMode = PolygonModeTable[(int)Setup.m_Primitive.m_Raster];
+        m_VkRasterizationState.cullMode = CullModeFlagsBitsTable[(int)Setup.m_Primitive.m_Cull];
+        m_VkRasterizationState.frontFace = FrontFaceTable[(int)Setup.m_Primitive.m_FrontFace];
+        m_VkRasterizationState.depthClampEnable = Setup.m_DepthStencil.m_bDepthClampEnable;
+        m_VkRasterizationState.rasterizerDiscardEnable = Setup.m_Primitive.m_bRasterizerDiscardEnable;
+        m_VkRasterizationState.depthBiasEnable = Setup.m_DepthStencil.m_bDepthBiasEnable;
+        m_VkRasterizationState.depthBiasConstantFactor = Setup.m_DepthStencil.m_DepthBiasConstantFactor;
+        m_VkRasterizationState.depthBiasSlopeFactor = Setup.m_DepthStencil.m_DepthBiasSlopeFactor;
+        m_VkRasterizationState.depthBiasClamp = Setup.m_DepthStencil.m_DepthBiasClamp;
 
         //
         // VkPipelineInputAssemblyStateCreateInfo
-        //      Vertex input state
-        //      Describes the topoloy used with this pipeline
-        //      This pipeline renders vertex data as triangle lists
-        m_VkInputAssemblyState.sType                        = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
-        m_VkInputAssemblyState.pNext                        = nullptr;
-        m_VkInputAssemblyState.flags                        = 0;
-        m_VkInputAssemblyState.primitiveRestartEnable       = false;
-        m_VkInputAssemblyState.topology                     = static_cast<const xgpu::vulkan::vertex_descriptor*>(Setup.m_VertexDescriptor.m_Private.get())->m_VKTopology;
+        //
+        m_VkInputAssemblyState.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
+        m_VkInputAssemblyState.pNext = nullptr;
+        m_VkInputAssemblyState.flags = 0;
+        m_VkInputAssemblyState.primitiveRestartEnable = false;
+        m_VkInputAssemblyState.topology = static_cast<const xgpu::vulkan::vertex_descriptor*>(Setup.m_VertexDescriptor.m_Private.get())->m_VKTopology;
 
         //
         // Blend Attachments
         //
         static constexpr auto BlendOperationTable = []() consteval
-        {
-            std::array< VkBlendOp, (int)xgpu::pipeline::blend::op::ENUM_COUNT > BlendOperationTable {};
-            BlendOperationTable[(int)xgpu::pipeline::blend::op::ADD]                   = VK_BLEND_OP_ADD;
-            BlendOperationTable[(int)xgpu::pipeline::blend::op::SUBTRACT]              = VK_BLEND_OP_SUBTRACT;
-            BlendOperationTable[(int)xgpu::pipeline::blend::op::REVERSE_SUBTRACT]      = VK_BLEND_OP_REVERSE_SUBTRACT;
-            BlendOperationTable[(int)xgpu::pipeline::blend::op::MIN]                   = VK_BLEND_OP_MIN;
-            BlendOperationTable[(int)xgpu::pipeline::blend::op::MAX]                   = VK_BLEND_OP_MAX;
-            return BlendOperationTable;
-        }();
+            {
+                std::array< VkBlendOp, (int)xgpu::pipeline::blend::op::ENUM_COUNT > BlendOperationTable{};
+                BlendOperationTable[(int)xgpu::pipeline::blend::op::ADD] = VK_BLEND_OP_ADD;
+                BlendOperationTable[(int)xgpu::pipeline::blend::op::SUBTRACT] = VK_BLEND_OP_SUBTRACT;
+                BlendOperationTable[(int)xgpu::pipeline::blend::op::REVERSE_SUBTRACT] = VK_BLEND_OP_REVERSE_SUBTRACT;
+                BlendOperationTable[(int)xgpu::pipeline::blend::op::MIN] = VK_BLEND_OP_MIN;
+                BlendOperationTable[(int)xgpu::pipeline::blend::op::MAX] = VK_BLEND_OP_MAX;
+                return BlendOperationTable;
+            }();
 
         static constexpr auto BlendFactorTable = []() consteval
-        {
-            std::array< VkBlendFactor, (int)xgpu::pipeline::blend::factor::ENUM_COUNT > BlendFactorTable {};
-            BlendFactorTable[(int)xgpu::pipeline::blend::factor::ZERO]                     = VK_BLEND_FACTOR_ZERO;
-            BlendFactorTable[(int)xgpu::pipeline::blend::factor::ONE]                      = VK_BLEND_FACTOR_ONE;
-            BlendFactorTable[(int)xgpu::pipeline::blend::factor::SRC_COLOR]                = VK_BLEND_FACTOR_SRC_COLOR;
-            BlendFactorTable[(int)xgpu::pipeline::blend::factor::ONE_MINUS_SRC_COLOR]      = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
-            BlendFactorTable[(int)xgpu::pipeline::blend::factor::DST_COLOR]                = VK_BLEND_FACTOR_DST_COLOR;
-            BlendFactorTable[(int)xgpu::pipeline::blend::factor::ONE_MINUS_DST_COLOR]      = VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
-            BlendFactorTable[(int)xgpu::pipeline::blend::factor::SRC_ALPHA]                = VK_BLEND_FACTOR_SRC_ALPHA;
-            BlendFactorTable[(int)xgpu::pipeline::blend::factor::ONE_MINUS_SRC_ALPHA]      = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-            BlendFactorTable[(int)xgpu::pipeline::blend::factor::DST_ALPHA]                = VK_BLEND_FACTOR_DST_ALPHA;
-            BlendFactorTable[(int)xgpu::pipeline::blend::factor::ONE_MINUS_DST_ALPHA]      = VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
-            BlendFactorTable[(int)xgpu::pipeline::blend::factor::CONSTANT_COLOR]           = VK_BLEND_FACTOR_CONSTANT_COLOR;
-            BlendFactorTable[(int)xgpu::pipeline::blend::factor::ONE_MINUS_CONSTANT_COLOR] = VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;
-            BlendFactorTable[(int)xgpu::pipeline::blend::factor::CONSTANT_ALPHA]           = VK_BLEND_FACTOR_CONSTANT_ALPHA;
-            BlendFactorTable[(int)xgpu::pipeline::blend::factor::ONE_MINUS_CONSTANT_ALPHA] = VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA;
-            BlendFactorTable[(int)xgpu::pipeline::blend::factor::SRC_ALPHA_SATURATE]       = VK_BLEND_FACTOR_SRC_ALPHA_SATURATE;
-            BlendFactorTable[(int)xgpu::pipeline::blend::factor::SRC1_COLOR]               = VK_BLEND_FACTOR_SRC1_COLOR;
-            BlendFactorTable[(int)xgpu::pipeline::blend::factor::ONE_MINUS_SRC1_COLOR]     = VK_BLEND_FACTOR_ONE_MINUS_SRC1_COLOR;
-            BlendFactorTable[(int)xgpu::pipeline::blend::factor::SRC1_ALPHA]               = VK_BLEND_FACTOR_SRC1_ALPHA;
-            BlendFactorTable[(int)xgpu::pipeline::blend::factor::ONE_MINUS_SRC1_ALPHA]     = VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA;
-            return BlendFactorTable;
-        }();
+            {
+                std::array< VkBlendFactor, (int)xgpu::pipeline::blend::factor::ENUM_COUNT > BlendFactorTable{};
+                BlendFactorTable[(int)xgpu::pipeline::blend::factor::ZERO] = VK_BLEND_FACTOR_ZERO;
+                BlendFactorTable[(int)xgpu::pipeline::blend::factor::ONE] = VK_BLEND_FACTOR_ONE;
+                BlendFactorTable[(int)xgpu::pipeline::blend::factor::SRC_COLOR] = VK_BLEND_FACTOR_SRC_COLOR;
+                BlendFactorTable[(int)xgpu::pipeline::blend::factor::ONE_MINUS_SRC_COLOR] = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+                BlendFactorTable[(int)xgpu::pipeline::blend::factor::DST_COLOR] = VK_BLEND_FACTOR_DST_COLOR;
+                BlendFactorTable[(int)xgpu::pipeline::blend::factor::ONE_MINUS_DST_COLOR] = VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
+                BlendFactorTable[(int)xgpu::pipeline::blend::factor::SRC_ALPHA] = VK_BLEND_FACTOR_SRC_ALPHA;
+                BlendFactorTable[(int)xgpu::pipeline::blend::factor::ONE_MINUS_SRC_ALPHA] = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+                BlendFactorTable[(int)xgpu::pipeline::blend::factor::DST_ALPHA] = VK_BLEND_FACTOR_DST_ALPHA;
+                BlendFactorTable[(int)xgpu::pipeline::blend::factor::ONE_MINUS_DST_ALPHA] = VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
+                BlendFactorTable[(int)xgpu::pipeline::blend::factor::CONSTANT_COLOR] = VK_BLEND_FACTOR_CONSTANT_COLOR;
+                BlendFactorTable[(int)xgpu::pipeline::blend::factor::ONE_MINUS_CONSTANT_COLOR] = VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_COLOR;
+                BlendFactorTable[(int)xgpu::pipeline::blend::factor::CONSTANT_ALPHA] = VK_BLEND_FACTOR_CONSTANT_ALPHA;
+                BlendFactorTable[(int)xgpu::pipeline::blend::factor::ONE_MINUS_CONSTANT_ALPHA] = VK_BLEND_FACTOR_ONE_MINUS_CONSTANT_ALPHA;
+                BlendFactorTable[(int)xgpu::pipeline::blend::factor::SRC_ALPHA_SATURATE] = VK_BLEND_FACTOR_SRC_ALPHA_SATURATE;
+                BlendFactorTable[(int)xgpu::pipeline::blend::factor::SRC1_COLOR] = VK_BLEND_FACTOR_SRC1_COLOR;
+                BlendFactorTable[(int)xgpu::pipeline::blend::factor::ONE_MINUS_SRC1_COLOR] = VK_BLEND_FACTOR_ONE_MINUS_SRC1_COLOR;
+                BlendFactorTable[(int)xgpu::pipeline::blend::factor::SRC1_ALPHA] = VK_BLEND_FACTOR_SRC1_ALPHA;
+                BlendFactorTable[(int)xgpu::pipeline::blend::factor::ONE_MINUS_SRC1_ALPHA] = VK_BLEND_FACTOR_ONE_MINUS_SRC1_ALPHA;
+                return BlendFactorTable;
+            }();
 
-        // When doing mutipass rendering you may have more than just one destination buffer and we should know how 
-        // that to do with each one of them
-        for( auto& BA : m_lVkBlendAttachmentState )
+        for (auto& BA : m_lVkBlendAttachmentState)
         {
-            BA.colorWriteMask         = Setup.m_Blend.m_ColorWriteMask;
-            BA.blendEnable            = Setup.m_Blend.m_bEnable;
-            BA.srcColorBlendFactor    = BlendFactorTable[(int)Setup.m_Blend.m_ColorSrcFactor];
-            BA.dstColorBlendFactor    = BlendFactorTable[(int)Setup.m_Blend.m_ColorDstFactor];
-            BA.colorBlendOp           = BlendOperationTable[(int)Setup.m_Blend.m_ColorOperation];
-            BA.srcAlphaBlendFactor    = BlendFactorTable[(int)Setup.m_Blend.m_AlphaSrcFactor];
-            BA.dstAlphaBlendFactor    = BlendFactorTable[(int)Setup.m_Blend.m_AlphaDstFactor];
-            BA.alphaBlendOp           = BlendOperationTable[(int)Setup.m_Blend.m_AlphaOperation];
+            BA.colorWriteMask = Setup.m_Blend.m_ColorWriteMask;
+            BA.blendEnable = Setup.m_Blend.m_bEnable;
+            BA.srcColorBlendFactor = BlendFactorTable[(int)Setup.m_Blend.m_ColorSrcFactor];
+            BA.dstColorBlendFactor = BlendFactorTable[(int)Setup.m_Blend.m_ColorDstFactor];
+            BA.colorBlendOp = BlendOperationTable[(int)Setup.m_Blend.m_ColorOperation];
+            BA.srcAlphaBlendFactor = BlendFactorTable[(int)Setup.m_Blend.m_AlphaSrcFactor];
+            BA.dstAlphaBlendFactor = BlendFactorTable[(int)Setup.m_Blend.m_AlphaDstFactor];
+            BA.alphaBlendOp = BlendOperationTable[(int)Setup.m_Blend.m_AlphaOperation];
         }
 
-        m_VkColorBlendState.sType                           = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-        m_VkColorBlendState.attachmentCount                 = static_cast<std::uint32_t>(m_lVkBlendAttachmentState.size());
-        m_VkColorBlendState.pAttachments                    = m_lVkBlendAttachmentState.data();
+        m_VkColorBlendState.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
+        m_VkColorBlendState.attachmentCount = static_cast<std::uint32_t>(m_lVkBlendAttachmentState.size());
+        m_VkColorBlendState.pAttachments = m_lVkBlendAttachmentState.data();
 
         //
-        // VkPipelineMultisampleStateCreateInfo
-        //      Multi sampling state
-        //      No multi sampling
+        // Multisample state
         //
-        m_VkMultisampleState.sType                          = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-        m_VkMultisampleState.pNext                          = nullptr;
-        m_VkMultisampleState.flags                          = 0;
-        m_VkMultisampleState.pSampleMask                    = nullptr;
-        m_VkMultisampleState.rasterizationSamples           = VK_SAMPLE_COUNT_1_BIT;
-        m_VkMultisampleState.sampleShadingEnable            = false;
-        m_VkMultisampleState.minSampleShading               = 0;
-        m_VkMultisampleState.alphaToCoverageEnable          = false;
-        m_VkMultisampleState.alphaToOneEnable               = false;
+        m_VkMultisampleState.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
+        m_VkMultisampleState.pNext = nullptr;
+        m_VkMultisampleState.flags = 0;
+        m_VkMultisampleState.pSampleMask = nullptr;
+        m_VkMultisampleState.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+        m_VkMultisampleState.sampleShadingEnable = false;
+        m_VkMultisampleState.minSampleShading = 0;
+        m_VkMultisampleState.alphaToCoverageEnable = false;
+        m_VkMultisampleState.alphaToOneEnable = false;
 
         //
-        // VkPipelineDepthStencilStateCreateInfo
-        //      Depth and stencil state
-        //      Describes depth and stenctil test and compare ops
-        //      Basic depth compare setup with depth writes and depth test enabled
-        //      No stencil used 
+        // Depth stencil state
+        //
         static constexpr auto StencilOperationsTable = []() consteval
-        {
-            std::array< VkStencilOp, (int)xgpu::pipeline::depth_stencil::stencil_op::ENUM_COUNT > StencilOperationsTable {};
-            StencilOperationsTable[(int)xgpu::pipeline::depth_stencil::stencil_op::KEEP]                   =  VK_STENCIL_OP_KEEP;
-            StencilOperationsTable[(int)xgpu::pipeline::depth_stencil::stencil_op::ZERO]                   =  VK_STENCIL_OP_ZERO;
-            StencilOperationsTable[(int)xgpu::pipeline::depth_stencil::stencil_op::REPLACE]                =  VK_STENCIL_OP_REPLACE;
-            StencilOperationsTable[(int)xgpu::pipeline::depth_stencil::stencil_op::INCREMENT_AND_CLAMP]    =  VK_STENCIL_OP_INCREMENT_AND_CLAMP;
-            StencilOperationsTable[(int)xgpu::pipeline::depth_stencil::stencil_op::DECREMENT_AND_CLAMP]    =  VK_STENCIL_OP_DECREMENT_AND_CLAMP;
-            StencilOperationsTable[(int)xgpu::pipeline::depth_stencil::stencil_op::INVERT]                 =  VK_STENCIL_OP_INVERT;
-            StencilOperationsTable[(int)xgpu::pipeline::depth_stencil::stencil_op::INCREMENT_AND_WRAP]     =  VK_STENCIL_OP_INCREMENT_AND_WRAP;
-            StencilOperationsTable[(int)xgpu::pipeline::depth_stencil::stencil_op::DECREMENT_AND_WRAP]     =  VK_STENCIL_OP_DECREMENT_AND_WRAP;
-            return StencilOperationsTable;
-        }();
+            {
+                std::array< VkStencilOp, (int)xgpu::pipeline::depth_stencil::stencil_op::ENUM_COUNT > StencilOperationsTable{};
+                StencilOperationsTable[(int)xgpu::pipeline::depth_stencil::stencil_op::KEEP] = VK_STENCIL_OP_KEEP;
+                StencilOperationsTable[(int)xgpu::pipeline::depth_stencil::stencil_op::ZERO] = VK_STENCIL_OP_ZERO;
+                StencilOperationsTable[(int)xgpu::pipeline::depth_stencil::stencil_op::REPLACE] = VK_STENCIL_OP_REPLACE;
+                StencilOperationsTable[(int)xgpu::pipeline::depth_stencil::stencil_op::INCREMENT_AND_CLAMP] = VK_STENCIL_OP_INCREMENT_AND_CLAMP;
+                StencilOperationsTable[(int)xgpu::pipeline::depth_stencil::stencil_op::DECREMENT_AND_CLAMP] = VK_STENCIL_OP_DECREMENT_AND_CLAMP;
+                StencilOperationsTable[(int)xgpu::pipeline::depth_stencil::stencil_op::INVERT] = VK_STENCIL_OP_INVERT;
+                StencilOperationsTable[(int)xgpu::pipeline::depth_stencil::stencil_op::INCREMENT_AND_WRAP] = VK_STENCIL_OP_INCREMENT_AND_WRAP;
+                StencilOperationsTable[(int)xgpu::pipeline::depth_stencil::stencil_op::DECREMENT_AND_WRAP] = VK_STENCIL_OP_DECREMENT_AND_WRAP;
+                return StencilOperationsTable;
+            }();
 
         static constexpr auto DepthCompareTable = []() consteval
-        {
-            std::array< VkCompareOp, (int)xgpu::pipeline::depth_stencil::depth_compare::ENUM_COUNT> DepthCompareTable {};
-            DepthCompareTable[(int)xgpu::pipeline::depth_stencil::depth_compare::LESS]                 =  VK_COMPARE_OP_LESS;
-            DepthCompareTable[(int)xgpu::pipeline::depth_stencil::depth_compare::LESS_OR_EQUAL]        =  VK_COMPARE_OP_LESS_OR_EQUAL;
-            DepthCompareTable[(int)xgpu::pipeline::depth_stencil::depth_compare::GREATER]              =  VK_COMPARE_OP_GREATER;
-            DepthCompareTable[(int)xgpu::pipeline::depth_stencil::depth_compare::NOT_EQUAL]            =  VK_COMPARE_OP_NOT_EQUAL;
-            DepthCompareTable[(int)xgpu::pipeline::depth_stencil::depth_compare::GREATER_OR_EQUAL]     =  VK_COMPARE_OP_GREATER_OR_EQUAL;
-            DepthCompareTable[(int)xgpu::pipeline::depth_stencil::depth_compare::EQUAL]                =  VK_COMPARE_OP_EQUAL;
-            DepthCompareTable[(int)xgpu::pipeline::depth_stencil::depth_compare::NEVER]                =  VK_COMPARE_OP_NEVER;
-            DepthCompareTable[(int)xgpu::pipeline::depth_stencil::depth_compare::ALWAYS]               =  VK_COMPARE_OP_ALWAYS;
-            return DepthCompareTable;
-        }();
+            {
+                std::array< VkCompareOp, (int)xgpu::pipeline::depth_stencil::depth_compare::ENUM_COUNT> DepthCompareTable{};
+                DepthCompareTable[(int)xgpu::pipeline::depth_stencil::depth_compare::LESS] = VK_COMPARE_OP_LESS;
+                DepthCompareTable[(int)xgpu::pipeline::depth_stencil::depth_compare::LESS_OR_EQUAL] = VK_COMPARE_OP_LESS_OR_EQUAL;
+                DepthCompareTable[(int)xgpu::pipeline::depth_stencil::depth_compare::GREATER] = VK_COMPARE_OP_GREATER;
+                DepthCompareTable[(int)xgpu::pipeline::depth_stencil::depth_compare::NOT_EQUAL] = VK_COMPARE_OP_NOT_EQUAL;
+                DepthCompareTable[(int)xgpu::pipeline::depth_stencil::depth_compare::GREATER_OR_EQUAL] = VK_COMPARE_OP_GREATER_OR_EQUAL;
+                DepthCompareTable[(int)xgpu::pipeline::depth_stencil::depth_compare::EQUAL] = VK_COMPARE_OP_EQUAL;
+                DepthCompareTable[(int)xgpu::pipeline::depth_stencil::depth_compare::NEVER] = VK_COMPARE_OP_NEVER;
+                DepthCompareTable[(int)xgpu::pipeline::depth_stencil::depth_compare::ALWAYS] = VK_COMPARE_OP_ALWAYS;
+                return DepthCompareTable;
+            }();
 
-        m_VkDepthStencilState.sType                         = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-        m_VkDepthStencilState.pNext                         = nullptr;
-        m_VkDepthStencilState.flags                         = 0;
-        m_VkDepthStencilState.depthTestEnable               = Setup.m_DepthStencil.m_bDepthTestEnable;
-        m_VkDepthStencilState.depthWriteEnable              = Setup.m_DepthStencil.m_bDepthWriteEnable;
-        m_VkDepthStencilState.depthCompareOp                = DepthCompareTable[(int)Setup.m_DepthStencil.m_DepthCompare ];
-        m_VkDepthStencilState.depthBoundsTestEnable         = Setup.m_DepthStencil.m_bDepthBoundsTestEnable;
-        m_VkDepthStencilState.stencilTestEnable             = Setup.m_DepthStencil.m_StencilTestEnable;
-
-        m_VkDepthStencilState.front.compareOp               = DepthCompareTable[(int)Setup.m_DepthStencil.m_StencilFrontFace.m_CompareOp ];
-        m_VkDepthStencilState.front.depthFailOp             = StencilOperationsTable[(int)Setup.m_DepthStencil.m_StencilFrontFace.m_DepthFailOp ];
-        m_VkDepthStencilState.front.failOp                  = StencilOperationsTable[(int)Setup.m_DepthStencil.m_StencilFrontFace.m_FailOp ];
-        m_VkDepthStencilState.front.passOp                  = StencilOperationsTable[(int)Setup.m_DepthStencil.m_StencilFrontFace.m_PassOp ];
-        m_VkDepthStencilState.front.reference               = Setup.m_DepthStencil.m_StencilFrontFace.m_Reference;
-        m_VkDepthStencilState.front.compareMask             = Setup.m_DepthStencil.m_StencilFrontFace.m_CompareMask;
-
-        m_VkDepthStencilState.back.compareOp                = DepthCompareTable[(int)Setup.m_DepthStencil.m_StencilBackFace.m_CompareOp ];
-        m_VkDepthStencilState.back.depthFailOp              = StencilOperationsTable[(int)Setup.m_DepthStencil.m_StencilBackFace.m_DepthFailOp ];
-        m_VkDepthStencilState.back.failOp                   = StencilOperationsTable[(int)Setup.m_DepthStencil.m_StencilBackFace.m_FailOp ];
-        m_VkDepthStencilState.back.passOp                   = StencilOperationsTable[(int)Setup.m_DepthStencil.m_StencilBackFace.m_PassOp ];
-        m_VkDepthStencilState.back.reference                = Setup.m_DepthStencil.m_StencilBackFace.m_Reference;
-        m_VkDepthStencilState.back.compareMask              = Setup.m_DepthStencil.m_StencilBackFace.m_CompareMask;
-
-        m_VkDepthStencilState.minDepthBounds                = Setup.m_DepthStencil.m_DepthMinBounds;
-        m_VkDepthStencilState.maxDepthBounds                = Setup.m_DepthStencil.m_DepthMaxBounds;
+        m_VkDepthStencilState.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
+        m_VkDepthStencilState.pNext = nullptr;
+        m_VkDepthStencilState.flags = 0;
+        m_VkDepthStencilState.depthTestEnable = Setup.m_DepthStencil.m_bDepthTestEnable;
+        m_VkDepthStencilState.depthWriteEnable = Setup.m_DepthStencil.m_bDepthWriteEnable;
+        m_VkDepthStencilState.depthCompareOp = DepthCompareTable[(int)Setup.m_DepthStencil.m_DepthCompare];
+        m_VkDepthStencilState.depthBoundsTestEnable = Setup.m_DepthStencil.m_bDepthBoundsTestEnable;
+        m_VkDepthStencilState.stencilTestEnable = Setup.m_DepthStencil.m_StencilTestEnable;
+        m_VkDepthStencilState.front.compareOp = DepthCompareTable[(int)Setup.m_DepthStencil.m_StencilFrontFace.m_CompareOp];
+        m_VkDepthStencilState.front.depthFailOp = StencilOperationsTable[(int)Setup.m_DepthStencil.m_StencilFrontFace.m_DepthFailOp];
+        m_VkDepthStencilState.front.failOp = StencilOperationsTable[(int)Setup.m_DepthStencil.m_StencilFrontFace.m_FailOp];
+        m_VkDepthStencilState.front.passOp = StencilOperationsTable[(int)Setup.m_DepthStencil.m_StencilFrontFace.m_PassOp];
+        m_VkDepthStencilState.front.reference = Setup.m_DepthStencil.m_StencilFrontFace.m_Reference;
+        m_VkDepthStencilState.front.compareMask = Setup.m_DepthStencil.m_StencilFrontFace.m_CompareMask;
+        m_VkDepthStencilState.back.compareOp = DepthCompareTable[(int)Setup.m_DepthStencil.m_StencilBackFace.m_CompareOp];
+        m_VkDepthStencilState.back.depthFailOp = StencilOperationsTable[(int)Setup.m_DepthStencil.m_StencilBackFace.m_DepthFailOp];
+        m_VkDepthStencilState.back.failOp = StencilOperationsTable[(int)Setup.m_DepthStencil.m_StencilBackFace.m_FailOp];
+        m_VkDepthStencilState.back.passOp = StencilOperationsTable[(int)Setup.m_DepthStencil.m_StencilBackFace.m_PassOp];
+        m_VkDepthStencilState.back.reference = Setup.m_DepthStencil.m_StencilBackFace.m_Reference;
+        m_VkDepthStencilState.back.compareMask = Setup.m_DepthStencil.m_StencilBackFace.m_CompareMask;
+        m_VkDepthStencilState.minDepthBounds = Setup.m_DepthStencil.m_DepthMinBounds;
+        m_VkDepthStencilState.maxDepthBounds = Setup.m_DepthStencil.m_DepthMaxBounds;
 
         //
-        // Copy some of the setup data
+        // Copy the shaders and create the samplers
         //
-        for( auto& S : Setup.m_Shaders )
+        //
+        // Shaders
+        //
+        m_nShaderStages = 0;
+        for (auto& S : Setup.m_Shaders)
         {
             auto F = const_cast<std::remove_const_t<decltype(S->m_Private)>&>(S->m_Private);
-
-            m_ShaderStages[m_nShaderStages]             = std::reinterpret_pointer_cast<xgpu::vulkan::shader>(std::move(F));
-            m_ShaderStagesCreateInfo[m_nShaderStages]   = m_ShaderStages[m_nShaderStages]->m_ShaderStageCreateInfo;
-            m_nShaderStages++;
+            m_ShaderStages[m_nShaderStages] = std::reinterpret_pointer_cast<xgpu::vulkan::shader>(std::move(F));
+            m_ShaderStagesCreateInfo[m_nShaderStages] = m_ShaderStages[m_nShaderStages]->m_ShaderStageCreateInfo;
+            m_ShaderStagesCreateInfo[m_nShaderStages].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+            ++m_nShaderStages;
         }
 
-        // In Vulkan textures are accessed by samplers
-        // This separates all the sampling information from the 
-        // texture data
-        // This means you could have multiple sampler objects
-        // for the same texture with different settings
-        // Similar to the samplers available with OpenGL 3.3
-        // Here we just backup the information for our sampler since
-        // Untill we don't create the instance of the pipeline we don't
-        // have enough information of create the actual sampler
-        for( auto& S : Setup.m_Samplers )
+        m_nSamplers = static_cast<int>(Setup.m_Samplers.size());
+        for (int i = 0; i < m_nSamplers; ++i)
         {
-            VkSamplerCreateInfo SamplerCreateInfo
-            {
-                .sType              = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO
-            ,   .pNext              = nullptr
-            ,   .magFilter          = ConvertSampler(S.m_MipmapMag)
-            ,   .minFilter          = ConvertSampler(S.m_MipmapMin)
-            ,   .mipmapMode         = ConvertMipmapMode(S.m_MipmapMode)
-            ,   .addressModeU       = ConvertAddressMode(S.m_AddressMode[0])
-            ,   .addressModeV       = ConvertAddressMode(S.m_AddressMode[1])
-            ,   .addressModeW       = ConvertAddressMode(S.m_AddressMode[2])
-            ,   .mipLodBias         = 0.0f
-            ,   .anisotropyEnable   = !S.m_bDisableAnisotropy
-            ,   .maxAnisotropy      = S.m_MaxAnisotropy
-            ,   .compareOp          = VK_COMPARE_OP_NEVER
-            ,   .minLod             = 0.0f
-            ,   .maxLod             = VK_LOD_CLAMP_NONE
-            ,   .borderColor        = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE
+            auto& Sampler = Setup.m_Samplers[i];
+
+            VkSamplerCreateInfo SamplerInfo
+            { .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO
+            , .magFilter = ConvertSampler(Sampler.m_MipmapMag)
+            , .minFilter = ConvertSampler(Sampler.m_MipmapMin)
+            , .mipmapMode = ConvertMipmapMode(Sampler.m_MipmapMode)
+            , .addressModeU = ConvertAddressMode(Sampler.m_AddressMode[0])
+            , .addressModeV = ConvertAddressMode(Sampler.m_AddressMode[1])
+            , .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT
+            , .mipLodBias = 0.0f
+            , .anisotropyEnable = Sampler.m_MaxAnisotropy > 0 ? VK_TRUE : VK_FALSE
+            , .maxAnisotropy = static_cast<float>(Sampler.m_MaxAnisotropy)
+            , .compareEnable = VK_FALSE
+            , .compareOp = VK_COMPARE_OP_NEVER
+            , .minLod = 0.0f
+            , .maxLod = VK_LOD_CLAMP_NONE
+            , .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE
+            , .unnormalizedCoordinates = VK_FALSE
             };
 
-            if( auto VKErr = vkCreateSampler( m_Device->m_VKDevice
-                                            , &SamplerCreateInfo
-                                            , m_Device->m_Instance->m_pVKAllocator
-                                            , &m_VKSamplers[m_nSamplers++]
-                                            ); VKErr )
+            if (auto VKErr = vkCreateSampler(m_Device->m_VKDevice, &SamplerInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKSamplers[i]); VKErr)
             {
-                m_Device->m_Instance->ReportError( VKErr, "Fail to create a texture Sampler" );
-                return VGPU_ERROR( xgpu::device::error::FAILURE, "Fail to create a texture Sampler" );
+                m_Device->m_Instance->ReportError(VKErr, "Fail to create a Sampler in the pipeline");
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a Sampler in the pipeline");
             }
         }
 
         //
-        // Set the descriptors
+        // Descriptor Set Layouts
         //
+
+        // Always create 3 layouts, empty if no content
+        std::array<VkDescriptorSetLayoutBinding, 16> samplerBindings{}; // Max samplers
+        VkDescriptorSetLayoutCreateInfo samplerLayoutInfo = { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        if (m_nSamplers > 0) 
         {
-            // Add all the set zero bindings 
-            if(m_nSamplers)
+            for (int i = 0; i < m_nSamplers; ++i) 
             {
-                std::array<VkDescriptorSetLayoutBinding, 16>    layoutBinding = {};
-                for( int i = 0; i < m_nSamplers; ++i)
-                {
-                    layoutBinding[i].binding            = i;
-                    layoutBinding[i].descriptorType     = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-                    layoutBinding[i].descriptorCount    = 1;
-                    layoutBinding[i].stageFlags         = VK_SHADER_STAGE_FRAGMENT_BIT;
-                    layoutBinding[i].pImmutableSamplers = &m_VKSamplers[i];
-                }
-
-                VkDescriptorSetLayoutCreateInfo DescriptorLayout = {};
-                DescriptorLayout.sType          = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-                DescriptorLayout.pNext          = nullptr;
-                DescriptorLayout.bindingCount   = static_cast<uint32_t>(m_nSamplers);
-                DescriptorLayout.pBindings      = layoutBinding.data();
-
-                if (auto VKErr = vkCreateDescriptorSetLayout(m_Device->m_VKDevice, &DescriptorLayout, m_Device->m_Instance->m_pVKAllocator, &m_VKDescriptorSetLayout[m_nVKDescriptorSetLayout++]); VKErr)
-                {
-                    m_Device->m_Instance->ReportError(VKErr, "Fail to create the samplers Descriptor Set Layout in the pipeline");
-                    return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create the samplers Descriptor Set Layout in the pipeline");
-                }
+                samplerBindings[i].binding              = static_cast<uint32_t>(i);
+                samplerBindings[i].descriptorType       = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+                samplerBindings[i].descriptorCount      = 1;
+                samplerBindings[i].stageFlags           = VK_SHADER_STAGE_FRAGMENT_BIT; // Adjust as needed
+                samplerBindings[i].pImmutableSamplers   = nullptr;
             }
-
-            // Add all the set one bindings
-            if(m_nUniformBuffers)
-            {
-                auto ConvertFlagsToVulkan = [](const xgpu::shader::type& UsageType) noexcept
-                {
-                    VkShaderStageFlags  V       = 0;
-                    if (UsageType.m_bVertex)                   V |= VK_SHADER_STAGE_VERTEX_BIT;
-                    if (UsageType.m_bCompute)                  V |= VK_SHADER_STAGE_COMPUTE_BIT;
-                    if (UsageType.m_bFragment)                 V |= VK_SHADER_STAGE_FRAGMENT_BIT;
-                    if (UsageType.m_bGeometry)                 V |= VK_SHADER_STAGE_GEOMETRY_BIT;
-                    if (UsageType.m_bTessellationControl)      V |= VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
-                    if (UsageType.m_bTessellationEvaluator)    V |= VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
-                    return V;
-                };
-
-                std::array<VkDescriptorSetLayoutBinding, 4>    layoutBinding = {};
-                for (int i = 0; i < m_nUniformBuffers; ++i)
-                {
-                    auto& UniformBind = m_UniformsBinds[i];
-                    layoutBinding[i].binding            = UniformBind.m_BindIndex;
-                    layoutBinding[i].descriptorType     = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-                    layoutBinding[i].descriptorCount    = 1;
-                    layoutBinding[i].stageFlags         = ConvertFlagsToVulkan(UniformBind.m_Usage);
-                    layoutBinding[i].pImmutableSamplers = nullptr;
-                }
-
-                VkDescriptorSetLayoutCreateInfo DescriptorLayout = {};
-                DescriptorLayout.sType          = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
-                DescriptorLayout.pNext          = nullptr;
-                DescriptorLayout.bindingCount   = static_cast<uint32_t>(m_nUniformBuffers);
-                DescriptorLayout.pBindings      = layoutBinding.data();
-
-                if (auto VKErr = vkCreateDescriptorSetLayout(m_Device->m_VKDevice, &DescriptorLayout, m_Device->m_Instance->m_pVKAllocator, &m_VKDescriptorSetLayout[m_nVKDescriptorSetLayout++]); VKErr)
-                {
-                    m_Device->m_Instance->ReportError(VKErr, "Fail to create a Descriptor Set Layout in the pipeline");
-                    return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a Descriptor Set Layout in the pipeline");
-                }
-            }
+            samplerLayoutInfo.bindingCount      = static_cast<uint32_t>(m_nSamplers);
+            samplerLayoutInfo.pBindings         = samplerBindings.data();
         }
+        else
+        {
+            samplerLayoutInfo.bindingCount = 0;
+            samplerLayoutInfo.pBindings = nullptr;
+        }
+
+        if (auto VKErr = vkCreateDescriptorSetLayout(m_Device->m_VKDevice, &samplerLayoutInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKDescriptorSetLayout[pipeline::sampler_set_index_v]); VKErr) {
+            m_Device->m_Instance->ReportError(VKErr, "Fail to create samplers Descriptor Set Layout");
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create samplers Descriptor Set Layout");
+        }
+
+        //
+        // Similar for static (set 1), using m_StaticView for bindings if nStatic > 0, else bindingCount=0, descriptorType= STATIC
+        //
+        constexpr auto ConvertFlagsToVulkan = [](const xgpu::shader::type t) noexcept -> VkShaderStageFlags
+            {
+                VkShaderStageFlags f = 0;
+                if (t.m_bVertex)                f |= VK_SHADER_STAGE_VERTEX_BIT;
+                if (t.m_bCompute)               f |= VK_SHADER_STAGE_COMPUTE_BIT;
+                if (t.m_bFragment)              f |= VK_SHADER_STAGE_FRAGMENT_BIT;
+                if (t.m_bGeometry)              f |= VK_SHADER_STAGE_GEOMETRY_BIT;
+                if (t.m_bTessellationControl)   f |= VK_SHADER_STAGE_TESSELLATION_CONTROL_BIT;
+                if (t.m_bTessellationEvaluator) f |= VK_SHADER_STAGE_TESSELLATION_EVALUATION_BIT;
+                return f;
+            };
+
+        std::array<VkDescriptorSetLayoutBinding, 10> staticBindings{}; // Max UBOs
+        VkDescriptorSetLayoutCreateInfo staticLayoutInfo = { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+        nStatic = static_cast<int>(m_StaticView.size());
+        if (nStatic > 0) 
+        {
+            for (int i = 0; i < nStatic; ++i) 
+            {
+                staticBindings[i] =
+                { .binding               = static_cast<std::uint32_t>(m_StaticView[i].m_BindIndex)
+                , .descriptorType        = m_StaticView[i].m_Type == xgpu::pipeline::uniform_binds::type::SSBO_STATIC ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
+                                                                                                                      : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+                , .descriptorCount       = 1
+                , .stageFlags            = ConvertFlagsToVulkan(m_StaticView[i].m_Usage)
+                };
+            }
+            staticLayoutInfo.bindingCount   = static_cast<uint32_t>(nStatic);
+            staticLayoutInfo.pBindings      = staticBindings.data();
+        }
+        else 
+        {
+            staticLayoutInfo.bindingCount   = 0;
+            staticLayoutInfo.pBindings      = nullptr;
+        }
+
+        if (auto VKErr = vkCreateDescriptorSetLayout(m_Device->m_VKDevice, &staticLayoutInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKDescriptorSetLayout[pipeline::static_set_index_v]); VKErr) 
+        {
+            m_Device->m_Instance->ReportError(VKErr, "Fail to create static UBO Descriptor Set Layout");
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create static UBO Descriptor Set Layout");
+        }
+
+        //
+        // Similar for dynamic (set 2), using m_DynamicView, descriptorType= DYNAMIC
+        //
+        std::array<VkDescriptorSetLayoutBinding, 10> dynamicBindings{};
+        VkDescriptorSetLayoutCreateInfo dynamicLayoutInfo = { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, .pNext = nullptr };
+        nDynamic = static_cast<int>(m_DynamicView.size());
+        if (nDynamic > 0) 
+        {
+            for (int i = 0; i < nDynamic; ++i) 
+            {
+                dynamicBindings[i] = 
+                { .binding              = static_cast<uint32_t>(m_DynamicView[i].m_BindIndex)
+                , .descriptorType       = m_DynamicView[i].m_Type == xgpu::pipeline::uniform_binds::type::SSBO_DYNAMIC ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC
+                                                                                                                       : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC
+                , .descriptorCount      = 1
+                , .stageFlags           = ConvertFlagsToVulkan(m_DynamicView[i].m_Usage)
+                };
+            }
+            dynamicLayoutInfo.bindingCount  = static_cast<uint32_t>(nDynamic);
+            dynamicLayoutInfo.pBindings     = dynamicBindings.data();
+
+            // No UPDATE_AFTER_BIND needed for dynamic UBOs (and it's invalid anyway)
+            std::array<VkDescriptorBindingFlags, 10> bindingFlags{};  // All zero/default
+            VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo = 
+            { .sType            = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO
+            , .bindingCount     = static_cast<uint32_t>(nDynamic)
+            , .pBindingFlags    = bindingFlags.data()
+            };
+            dynamicLayoutInfo.pNext = &bindingFlagsInfo;
+        }
+        else 
+        {
+            dynamicLayoutInfo.bindingCount = 0;
+            dynamicLayoutInfo.pBindings = nullptr;
+        }
+
+        if (auto VKErr = vkCreateDescriptorSetLayout(m_Device->m_VKDevice, &dynamicLayoutInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKDescriptorSetLayout[pipeline::dynamic_set_index_v]); VKErr) 
+        {
+            m_Device->m_Instance->ReportError(VKErr, "Fail to create dynamic UBO Descriptor Set Layout");
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create dynamic UBO Descriptor Set Layout");
+        }
+
+        m_nVKDescriptorSetLayout = 3;
 
         //
         // Set the push constants for this pipeline
@@ -429,10 +444,10 @@ namespace xgpu::vulkan
         {
             std::array<VkPushConstantRange, 1> pushConstantRange;
 
-            if(Setup.m_PushConstantsSize)
+            if (Setup.m_PushConstantsSize)
             {
-                pushConstantRange[0].offset     = 0;
-                pushConstantRange[0].size       = static_cast<std::uint32_t>(Setup.m_PushConstantsSize);
+                pushConstantRange[0].offset = 0;
+                pushConstantRange[0].size = static_cast<std::uint32_t>(Setup.m_PushConstantsSize);
                 pushConstantRange[0].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_VERTEX_BIT;
             }
 
@@ -441,19 +456,19 @@ namespace xgpu::vulkan
             //
             auto PipelineLayoutCreateInfo = VkPipelineLayoutCreateInfo
             {
-                .sType                  = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO
-            ,   .pNext                  = nullptr
+                .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO
+            ,   .pNext = nullptr
 
                 // Set the descriptors
-            ,   .setLayoutCount         = static_cast<uint32_t>(m_nVKDescriptorSetLayout)
-            ,   .pSetLayouts            = m_VKDescriptorSetLayout.data()
+            ,   .setLayoutCount = static_cast<uint32_t>(m_nVKDescriptorSetLayout)
+            ,   .pSetLayouts = m_VKDescriptorSetLayout.data()
 
                 // Push constant ranges are part of the pipeline layout
             ,   .pushConstantRangeCount = Setup.m_PushConstantsSize ? 1u : 0u
-            ,   .pPushConstantRanges    = pushConstantRange.data()
+            ,   .pPushConstantRanges = pushConstantRange.data()
             };
 
-            if( auto VKErr = vkCreatePipelineLayout(m_Device->m_VKDevice, &PipelineLayoutCreateInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKPipelineLayout); VKErr )
+            if (auto VKErr = vkCreatePipelineLayout(m_Device->m_VKDevice, &PipelineLayoutCreateInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKPipelineLayout); VKErr)
             {
                 m_Device->m_Instance->ReportError(VKErr, "Fail to create a Pipeline Layout");
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a Pipeline Layout");
@@ -464,42 +479,44 @@ namespace xgpu::vulkan
         // Viewport & Clip (Dynamic states)
         //
         m_VKViewportInfo = VkPipelineViewportStateCreateInfo
-        { .sType            = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO
-        , .viewportCount    = 1
-        , .scissorCount     = 1
+        { .sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO
+        , .viewportCount = 1
+        , .scissorCount = 1
         };
 
         m_VKDyanmicStates[0] = VK_DYNAMIC_STATE_VIEWPORT;
         m_VKDyanmicStates[1] = VK_DYNAMIC_STATE_SCISSOR;
         m_VKDynamicStateCreateInfo = VkPipelineDynamicStateCreateInfo
-        { .sType                = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
-        , .dynamicStateCount    = static_cast<std::uint32_t>(m_VKDyanmicStates.size())
-        , .pDynamicStates       = m_VKDyanmicStates.data()
+        { .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
+        , .dynamicStateCount = static_cast<std::uint32_t>(m_VKDyanmicStates.size())
+        , .pDynamicStates = m_VKDyanmicStates.data()
         };
 
         //
         //  VkGraphicsPipelineCreateInfo
         //
-        m_VkPipelineCreateInfo.sType                        = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-        m_VkPipelineCreateInfo.layout                       = m_VKPipelineLayout;
-        m_VkPipelineCreateInfo.pVertexInputState            = &static_cast<const xgpu::vulkan::vertex_descriptor*>(Setup.m_VertexDescriptor.m_Private.get())->m_VKInputStageCreateInfo;
-        m_VkPipelineCreateInfo.pInputAssemblyState          = &m_VkInputAssemblyState;
-        m_VkPipelineCreateInfo.pRasterizationState          = &m_VkRasterizationState;
-        m_VkPipelineCreateInfo.pColorBlendState             = &m_VkColorBlendState;
-        m_VkPipelineCreateInfo.pMultisampleState            = &m_VkMultisampleState;
-        m_VkPipelineCreateInfo.pDepthStencilState           = &m_VkDepthStencilState;
-        m_VkPipelineCreateInfo.stageCount                   = static_cast<std::uint32_t>(m_nShaderStages);
-        m_VkPipelineCreateInfo.pStages                      = m_ShaderStagesCreateInfo.data();
-        m_VkPipelineCreateInfo.pViewportState               = &m_VKViewportInfo;
-        m_VkPipelineCreateInfo.pDynamicState                = &m_VKDynamicStateCreateInfo;
+        m_VkPipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+        m_VkPipelineCreateInfo.layout = m_VKPipelineLayout;
+        m_VkPipelineCreateInfo.pVertexInputState = &static_cast<const xgpu::vulkan::vertex_descriptor*>(Setup.m_VertexDescriptor.m_Private.get())->m_VKInputStageCreateInfo;
+        m_VkPipelineCreateInfo.pInputAssemblyState = &m_VkInputAssemblyState;
+        m_VkPipelineCreateInfo.pRasterizationState = &m_VkRasterizationState;
+        m_VkPipelineCreateInfo.pColorBlendState = &m_VkColorBlendState;
+        m_VkPipelineCreateInfo.pMultisampleState = &m_VkMultisampleState;
+        m_VkPipelineCreateInfo.pDepthStencilState = &m_VkDepthStencilState;
+        m_VkPipelineCreateInfo.stageCount = static_cast<std::uint32_t>(m_nShaderStages);
+        m_VkPipelineCreateInfo.pStages = m_ShaderStagesCreateInfo.data();
+        m_VkPipelineCreateInfo.pViewportState = &m_VKViewportInfo;
+        m_VkPipelineCreateInfo.pDynamicState = &m_VKDynamicStateCreateInfo;
 
         //
         // All these will be set at the instance of creation
         //
-        m_VkPipelineCreateInfo.renderPass       = 0;
+        m_VkPipelineCreateInfo.renderPass = 0;
 
         return nullptr;
     }
+
+    //-------------------------------------------------------------------------------------
 
     void pipeline::DeathMarch(xgpu::pipeline&& Pipeline) noexcept
     {

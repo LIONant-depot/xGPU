@@ -10,6 +10,7 @@ namespace xgpu::vulkan
         ,   std::vector<VkQueueFamilyProperties>        Properties 
         ) noexcept;
 
+                                       ~device              (void) noexcept override;
                 bool                    getMemoryType       ( std::uint32_t     TypeBits
                                                             , VkFlags           Properties
                                                             , std::uint32_t&    TypeIndex 
@@ -104,5 +105,6 @@ namespace xgpu::vulkan
         std::array<death_march,2>                       m_DeathMarchList            {};
         mati_per_renderpass_map                         m_PipeLineInstanceMap       {};
         mat_per_renderpass_map                          m_PipeLineMap               {};
+        std::unordered_map<VkDescriptorType, descriptor_pool_ring> m_DescriptorRings{};
     };
 }

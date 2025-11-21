@@ -637,7 +637,7 @@ int E21_Example()
     //
     //setup vertex descriptor for mesh
     //
-    struct alignas(64) ubo_geom_static_mesh
+    struct alignas(256) ubo_geom_static_mesh
     {
         xmath::fmat4  m_L2w;
         xmath::fmat4  m_w2C;
@@ -646,14 +646,6 @@ int E21_Example()
         //xmath::fvec4  m_AmbientLightColor;
         //xmath::fvec4  m_wSpaceLightPos;
         //xmath::fvec4  m_wSpaceEyePos;
-    };
-
-    struct alignas(64) ubo_geom_static_cluster 
-    {
-        xmath::fvec4  m_posScaleAndUScale;         // .xyz = position scale, .w = U scale
-        xmath::fvec4  m_posTranslationAndVScale;   // .xyz = position translation, .w = V scale
-        xmath::fvec2  m_uvTranslation;             // .xy = UV translation
-        float           _pad[2];                   // std140 alignment padding
     };
 
     //
@@ -688,13 +680,14 @@ int E21_Example()
     //
     // Material of all static geometry
     //
-    xgpu::buffer StaticGeomUBOMesh;
-    if (auto Err = Device.Create(StaticGeomUBOMesh, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(ubo_geom_static_mesh), .m_EntryCount = 100 }); Err)
+    xgpu::buffer StaticGeomDynamicUBOMesh;
+    if (auto Err = Device.Create(StaticGeomDynamicUBOMesh, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(ubo_geom_static_mesh), .m_EntryCount = 100 }); Err)
         return xgpu::getErrorInt(Err);
 
-    xgpu::buffer StaticGeomUBOCluster;
-    if (auto Err = Device.Create(StaticGeomUBOCluster, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(ubo_geom_static_cluster), .m_EntryCount = 100 }); Err)
-        return xgpu::getErrorInt(Err);
+    struct static_geom_push_const
+    {
+        std::uint32_t       m_ClusterIndex;         // Which cluster we are going to be using
+    };
 
     xgpu::pipeline Pipeline3D;
     {
@@ -755,22 +748,35 @@ int E21_Example()
         }
 
         auto Shaders    = std::array<const xgpu::shader*, 2>{ &FragmentShader3D, &VertexShader3D };
-        auto Samplers   = std::array{ xgpu::pipeline::sampler{.m_AddressMode = std::array{ xgpu::pipeline::sampler::address_mode::CLAMP, xgpu::pipeline::sampler::address_mode::CLAMP, xgpu::pipeline::sampler::address_mode::CLAMP}}         // Shadowmap
+        auto Samplers   = std::array{ xgpu::pipeline::sampler{.m_AddressMode = std::array{ xgpu::pipeline::sampler::address_mode::CLAMP // Shadowmap
+                                                                                         , xgpu::pipeline::sampler::address_mode::CLAMP
+                                                                                         , xgpu::pipeline::sampler::address_mode::CLAMP
+                                                                                         }}         
                                     , xgpu::pipeline::sampler{}         // Albedo
                                     };
-        auto UBuffersUsage = std::array { xgpu::pipeline::uniform_binds{.m_BindIndex = 0, .m_Usage = xgpu::shader::type{xgpu::shader::type::bit::VERTEX }}      // Mesh, bind 0 set 1
-                                        , xgpu::pipeline::uniform_binds{.m_BindIndex = 1, .m_Usage = xgpu::shader::type{xgpu::shader::type::bit::VERTEX }}      // Cluster, bind 1 set 1
+        auto UBuffersUsage = std::array { xgpu::pipeline::uniform_binds { .m_BindIndex  = 0         // MeshUniforms, bind 0 set 2, changes per mesh/draw call
+                                                                        , .m_Usage      = xgpu::shader::type{xgpu::shader::type::bit::VERTEX}
+                                                                        , .m_Type       = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC      // MUST be dynamic (per object)
+                                                                        }      
+                                        , xgpu::pipeline::uniform_binds { .m_BindIndex  = 0         // ClusterUniforms clusters[], bind 0 set 1, never changes
+                                                                        , .m_Usage      = xgpu::shader::type{xgpu::shader::type::bit::VERTEX}
+                                                                        , .m_Type       = xgpu::pipeline::uniform_binds::type::SSBO_STATIC     // Static = big array + push_constant index
+                                                                        }      
                                         };
         auto Setup      = xgpu::pipeline::setup
         { .m_VertexDescriptor   = GeomStaticVertexDescriptor
         , .m_Shaders            = Shaders
-        //, .m_PushConstantsSize  = sizeof(push_constants3D)
+        , .m_PushConstantsSize  = sizeof(static_geom_push_const)
         , .m_UniformBinds       = UBuffersUsage
         , .m_Samplers           = Samplers
         };
 
         if (auto Err = Device.Create(Pipeline3D, Setup); Err)
+        {
+            assert(false);
             return xgpu::getErrorInt(Err);
+        }
+            
     }
 
     //
@@ -799,9 +805,8 @@ int E21_Example()
     //  
     struct shadow_generation_push_constants
     {
-        xmath::fvec4    m_posScaleAndUScale;        // .xyz = position scale, .w = U scale
-        xmath::fvec4    m_posTranslationAndVScale;  // .xyz = position translation, .w = V scale
         xmath::fmat4    m_L2C;                      // To Shadow Space
+        std::uint32_t   m_ClusterIndex;
     };
 
     xgpu::pipeline_instance ShadowGenerationPipeLineInstance;
@@ -828,11 +833,18 @@ int E21_Example()
                 return xgpu::getErrorInt(Err);
         }
 
+        auto UBuffersUsage = std::array { xgpu::pipeline::uniform_binds { .m_BindIndex  = 0         // ClusterUniforms clusters[], bind 0 set 1, never changes
+                                                                        , .m_Usage      = xgpu::shader::type{xgpu::shader::type::bit::VERTEX}
+                                                                        , .m_Type       = xgpu::pipeline::uniform_binds::type::SSBO_STATIC  // Static = big array + push_constant index
+                                                                        }      
+                                        };
+
         auto Shaders = std::array<const xgpu::shader*, 2>{ &VertexShader, &FragmentShader };
         auto Setup   = xgpu::pipeline::setup
         { .m_VertexDescriptor   = ShadowmapCreationVertexDescriptor
         , .m_Shaders            = Shaders
         , .m_PushConstantsSize  = sizeof(shadow_generation_push_constants)
+        , .m_UniformBinds       = UBuffersUsage
         , .m_Primitive          = {} //{ .m_FrontFace = xgpu::pipeline::primitive::front_face::CLOCKWISE } // When rendering shadows we don't want the front faces we want the back faces (Light leaking can happen)
         , .m_DepthStencil       = { .m_DepthBiasConstantFactor  = 2.00f       // Depth bias (and slope) are used to avoid shadowing artifacts (always applied)
                                   , .m_DepthBiasSlopeFactor     = 4.0f        // Slope depth bias factor, applied depending on polygon's slope
@@ -1362,7 +1374,8 @@ int E21_Example()
                 
                 auto                                CmdBuffer               = MainWindow.StartRenderPass(RenderPass);
 
-                CmdBuffer.setPipelineInstance(ShadowGenerationPipeLineInstance);
+                std::array StaticUBO{ &p->ClusterBuffer() };
+                CmdBuffer.setPipelineInstance(ShadowGenerationPipeLineInstance, StaticUBO);
 
                 ShadowGenerationPushC.m_L2C = LightingView.getW2C();
                 CmdBuffer.setBuffer(p->IndexBuffer());
@@ -1372,12 +1385,14 @@ int E21_Example()
                 {
                     for (auto& S : p->getSubmeshes().subspan(M.m_iLOD, M.m_nLODs))
                     {
+                        ShadowGenerationPushC.m_ClusterIndex = S.m_iCluster;
                         for (auto& C : p->getClusters().subspan(S.m_iCluster, S.m_nCluster))
                         {
-                            std::memcpy(&ShadowGenerationPushC.m_posScaleAndUScale, &C.m_PosScaleAndUScale, sizeof(xmath::fvec4) * 2 );
                             CmdBuffer.setPushConstants(ShadowGenerationPushC);
-
                             CmdBuffer.Draw(C.m_nIndices, C.m_iIndex, C.m_iVertex);
+
+                            // Prepare for the next cluster
+                            ShadowGenerationPushC.m_ClusterIndex++;
                         }
                     }
                 }
@@ -1413,31 +1428,33 @@ int E21_Example()
                 // Update the camera
                 View.LookAt(Distance, Angles, CameraTarget);
 
-                float maxY;
+                const float maxY = p->m_BBox.m_Min.m_Y;
             
                 // Render the mesh
                 {
                     CmdBuffer.setStreamingBuffers({ &p->IndexBuffer(),3 });
 
-                    maxY = p->m_BBox.m_Min.m_Y;
+                    {
+                        auto& MeshUBO = StaticGeomDynamicUBOMesh.allocEntry<ubo_geom_static_mesh>();
+                        MeshUBO.m_L2w = xmath::fmat4::fromTranslation(-View.getPosition()) * xmath::fmat4::fromTranslation({ 0, 0, 0 });
+                        MeshUBO.m_w2C = View.getW2C() * xmath::fmat4::fromTranslation(View.getPosition());
+                        MeshUBO.m_L2CShadow = C2T * ShadowGenerationPushC.m_L2C;
+                    }
 
                     for (auto& M : p->getMeshes())
                     {
                         for (auto& S : p->getSubmeshes().subspan(M.m_iLOD, M.m_nLODs))
                         {
-                            CmdBuffer.setPipelineInstance(Mesh3DMatInstance[S.m_iMaterial]);
+                            std::array StaticUBO{ &p->ClusterBuffer() };
+                            CmdBuffer.setPipelineInstance(Mesh3DMatInstance[S.m_iMaterial], StaticUBO);
+                            CmdBuffer.setDynamicUBO(StaticGeomDynamicUBOMesh, 0);
 
-                            auto& MeshUBO = CmdBuffer.getUniformBufferVMem<ubo_geom_static_mesh>(xgpu::shader::type::bit::VERTEX, 0);
-
-                            MeshUBO.m_L2w = xmath::fmat4::fromTranslation(-View.getPosition()) * xmath::fmat4::fromTranslation({ 0, 0, 0 });
-                            MeshUBO.m_w2C = View.getW2C() * xmath::fmat4::fromTranslation(View.getPosition());
-                            MeshUBO.m_L2CShadow = C2T * ShadowGenerationPushC.m_L2C;
-
+                            static_geom_push_const PustConst{ .m_ClusterIndex = S.m_iCluster };
                             for (auto& C : p->getClusters().subspan(S.m_iCluster, S.m_nCluster))
                             {
-                                auto& ClusterUBO = CmdBuffer.getUniformBufferVMem<ubo_geom_static_cluster>(xgpu::shader::type::bit::VERTEX, 1);
-                                std::memcpy(&ClusterUBO, &C.m_PosScaleAndUScale, sizeof(xmath::fvec4) * 2 + sizeof(xmath::fvec2));
+                                CmdBuffer.setPushConstants(PustConst);
                                 CmdBuffer.Draw(C.m_nIndices, C.m_iIndex, C.m_iVertex);
+                                PustConst.m_ClusterIndex++;
                             }
                         }
                     }
@@ -1613,9 +1630,6 @@ int E21_Example()
 
                 auto pDesc = static_cast<xgeom_static::descriptor*>(SelectedDescriptor.m_pDescriptor.get());
 
-                auto UniformBuffers = std::array{ xgpu::pipeline_instance::uniform_buffer{StaticGeomUBOMesh}
-                                                , xgpu::pipeline_instance::uniform_buffer{StaticGeomUBOCluster} };
-
                 for( auto& MI : pGeom->getDefaultMaterialInstances() )
                 {
                     auto Index = static_cast<int>(&MI - pGeom->getDefaultMaterialInstances().data());
@@ -1629,7 +1643,6 @@ int E21_Example()
                             auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ShadowMapTexture}, xgpu::pipeline_instance::sampler_binding{*p} };
                             auto setup = xgpu::pipeline_instance::setup
                             { .m_PipeLine               = Pipeline3D
-                            , .m_UniformBuffersBindings = UniformBuffers
                             , .m_SamplersBindings       = Bindings
                             };
 
@@ -1648,7 +1661,6 @@ int E21_Example()
                             auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ShadowMapTexture}, xgpu::pipeline_instance::sampler_binding{*pT} };
                             auto setup = xgpu::pipeline_instance::setup
                             { .m_PipeLine               = Pipeline3D
-                            , .m_UniformBuffersBindings = UniformBuffers
                             , .m_SamplersBindings       = Bindings
                             };
 

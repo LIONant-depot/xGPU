@@ -18,9 +18,17 @@ namespace xgpu
 
     //--------------------------------------------------------------------------------------
 
-    cmd_buffer& cmd_buffer::setPipelineInstance( xgpu::pipeline_instance& Instance ) noexcept
+    cmd_buffer& cmd_buffer::setPipelineInstance( xgpu::pipeline_instance& Instance, std::span<xgpu::buffer*> StaticBuffers) noexcept
     {
-        m_pWindow->setPipelineInstance(*this, Instance);
+        m_pWindow->setPipelineInstance(*this, Instance, StaticBuffers);
+        return *this;
+    }
+
+    //--------------------------------------------------------------------------------------
+
+    cmd_buffer& cmd_buffer::setDynamicUBO(xgpu::buffer& Buffer, int BindIndex) noexcept
+    {
+        m_pWindow->setDynamicUBO(*this, Buffer, BindIndex);
         return *this;
     }
 
@@ -93,14 +101,6 @@ namespace xgpu
     {
         if (m_pWindow) m_pWindow->CmdRenderEnd(*this);
         m_pWindow = nullptr;
-    }
-
-    //--------------------------------------------------------------------------------------
-
-    template<typename T>
-    T& cmd_buffer::getUniformBufferVMem(xgpu::shader::type::bit ShaderType, int iBind ) noexcept
-    {
-        return *reinterpret_cast<T*>(m_pWindow->getDynamicUniformBuffer( *this, ShaderType, sizeof(T), iBind));
     }
 
     //--------------------------------------------------------------------------------------

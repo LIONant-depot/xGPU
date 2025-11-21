@@ -311,7 +311,7 @@ struct e18::quantized_skin_render
 
     //-----------------------------------------------------------------------------------
 
-    int Initialize(xgpu::device& Device, const import3d::geom& SkinGeom)
+    int Initialize(xgpu::device& Device, xgpu::buffer& SkinUBO, const import3d::geom& SkinGeom)
     {
         auto nVertices  = 0ull;
         auto nIndices   = 0ull;
@@ -487,8 +487,7 @@ struct e18::quantized_skin_render
         //
         // Setup the material instance
         //
-        xgpu::buffer UBO;
-        if (auto Err = Device.Create(UBO, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(shader_uniform_buffer), .m_EntryCount = 2 }); Err)
+        if (auto Err = Device.Create(SkinUBO, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(shader_uniform_buffer), .m_EntryCount = 2 }); Err)
             return xgpu::getErrorInt(Err);
 
         m_PipeLineInstance.resize( SkinGeom.m_MaterialInstance.size() );
@@ -503,11 +502,9 @@ struct e18::quantized_skin_render
                                 , xgpu::pipeline_instance::sampler_binding{ iDiffuse == -1 ? m_LoadedTextures.m_DefaultTexture : m_LoadedTextures.m_Textures[iDiffuse] } // [INPUT_TEXTURE_GLOSSINESS]
                                 , xgpu::pipeline_instance::sampler_binding{ iDiffuse == -1 ? m_LoadedTextures.m_DefaultTexture : m_LoadedTextures.m_Textures[iDiffuse] } // [INPUT_TEXTURE_ROUGHNESS]
                                 };
-            auto UniformBuffers = std::array{ xgpu::pipeline_instance::uniform_buffer{ UBO } };
 
             auto  Setup    = xgpu::pipeline_instance::setup
             { .m_PipeLine               = PipeLine
-            , .m_UniformBuffersBindings = UniformBuffers
             , .m_SamplersBindings       = Bindings
             };
 
@@ -521,13 +518,15 @@ struct e18::quantized_skin_render
     //------------------------------------------------------------------------------------------
 
     template< typename T_CALLBACK>
-    void Render( xgpu::cmd_buffer& CmdBuffer, T_CALLBACK&& Callback, std::uint64_t MeshMask = ~0ull )
+    void Render( xgpu::cmd_buffer& CmdBuffer, xgpu::buffer& SkinUBO, T_CALLBACK&& Callback, std::uint64_t MeshMask = ~0ull )
     {
         if(!MeshMask) return;
 
         CmdBuffer.setStreamingBuffers(m_Buffer);
 
-        bool bComputedMatrices = false;
+        // Compute matrices and ready up the UBO
+        Callback(SkinUBO.allocEntry<shader_uniform_buffer>());
+
         for (int i = 0; i < m_Meshes.size(); ++i, MeshMask >>= 1 )
         {
             if((1 & MeshMask) == 0) continue;
@@ -537,18 +536,11 @@ struct e18::quantized_skin_render
                 auto& Submesh = m_Submeshes[Mesh.m_iSubmesh + j];
                 CmdBuffer.setPipelineInstance(m_PipeLineInstance[Submesh.m_iMaterialInstance]);
 
-                if (bComputedMatrices == false)
-                {
-                    bComputedMatrices = true;
-                    auto& UBO = CmdBuffer.getUniformBufferVMem<shader_uniform_buffer>(xgpu::shader::type::bit::VERTEX, 0);
-                    Callback(UBO);
-                }
-
                 m_PushConstants.m_PosCompressionScale  = m_PosCompressionScale;
                 m_PushConstants.m_PosCompressionOffset = Submesh.m_PosCompressionOffset;
                 m_PushConstants.m_UVDecompression.setup(m_UVCompressionScale.m_X, m_UVCompressionScale.m_Y, Submesh.m_UVCompressionOffset.m_X, Submesh.m_UVCompressionOffset.m_Y );
                 CmdBuffer.setPushConstants(m_PushConstants);
-
+                CmdBuffer.setDynamicUBO(SkinUBO, 0);
                 CmdBuffer.Draw( Submesh.m_nIndices, Submesh.m_iIndex, Submesh.m_iVertex );
             }
         }
@@ -603,8 +595,9 @@ int E18_Example()
     //
     // Initialize the skin render
     //
-    e18::quantized_skin_render SkinRender;
-    SkinRender.Initialize( Device, AnimCharacter.m_SkinGeom );
+    e18::quantized_skin_render  SkinRender;
+    xgpu::buffer                SkinUBO;
+    SkinRender.Initialize( Device, SkinUBO, AnimCharacter.m_SkinGeom );
 
     //
     // Compute the BBOX of the mesh
@@ -712,7 +705,7 @@ int E18_Example()
             SkinRender.m_PushConstants.m_WorldSpaceLightPos.m_W = 2.2f;
 
             // animate the character
-            SkinRender.Render( CmdBuffer, [&]( e18::quantized_skin_render::shader_uniform_buffer& UBO )
+            SkinRender.Render( CmdBuffer, SkinUBO, [&]( e18::quantized_skin_render::shader_uniform_buffer& UBO )
             {
                 UBO.m_W2C = W2C;
 

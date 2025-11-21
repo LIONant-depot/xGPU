@@ -10,7 +10,7 @@ layout (location = 2) in uvec4 inBones;         //[INPUT_BONES]
 layout (location = 3) in vec4  inQNormTangent;  //[INPUT_TANGENT]
 layout (location = 4) in vec2  inQUV;           //[INPUT_UVS]
 
-layout (set = 1, binding = 0) uniform _u
+layout (set = 2, binding = 0) uniform _u
 {
     mat4  W2C;
     mat4  L2W[256];

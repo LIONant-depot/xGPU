@@ -8,6 +8,16 @@ namespace xgpu::vulkan
         pipeline_instance::per_renderpass   m_ActivePipelineInstance;
         VkPipelineLayout                    m_VKPipelineLayout;
 
+        // ---- dynamic UBO state -------------------------------------------------
+        std::array<uint32_t, 8>             m_CurrentDynamicOffsets {};
+        int                                 m_nDynamicOffsets       {0};
+        bool                                m_DynamicDirty          {false};
+        bool                                m_DynamicSetUpdated     {false};
+
+        VkDescriptorSet                     m_VKStaticSet           {VK_NULL_HANDLE};
+        VkPipelineLayout                    m_CurrentPipelineLayout{};
+
+        std::array<xgpu::buffer*, 8>       m_CurrentDynamicVKBuffers{};
     };
 
     static_assert( sizeof(xgpu::cmd_buffer) == (sizeof(cmdbuffer) + sizeof(std::size_t)) );
@@ -48,8 +58,14 @@ namespace xgpu::vulkan
         void                                    CmdRenderEnd                ( xgpu::cmd_buffer& CmdBuffer
                                                                             ) noexcept override;
         virtual
-        void                                    setPipelineInstance         ( xgpu::cmd_buffer&        CmdBuffer
-                                                                            , xgpu::pipeline_instance& Instance 
+        void                                    setDynamicUBO               ( xgpu::cmd_buffer& CmdBuffer
+                                                                            , xgpu::buffer&     Buffer
+                                                                            , int               BindIndex
+                                                                            ) noexcept;
+        virtual
+        void                                    setPipelineInstance         ( xgpu::cmd_buffer&         CmdBuffer
+                                                                            , xgpu::pipeline_instance&  Instance
+                                                                            , std::span<xgpu::buffer*>   StaticBuffers
                                                                             ) noexcept override;
         virtual
         void                                    setBuffer                   ( xgpu::cmd_buffer& CmdBuffer
@@ -89,12 +105,6 @@ namespace xgpu::vulkan
         void                                    setPushConstants            ( xgpu::cmd_buffer& CmdBuffer
                                                                             , const void*       pData
                                                                             , std::size_t       Size 
-                                                                            ) noexcept override;
-        virtual
-        void*                                   getDynamicUniformBuffer     ( xgpu::cmd_buffer&         CmdBuffer
-                                                                            , xgpu::shader::type::bit   ShaderType
-                                                                            , std::size_t               Size
-                                                                            , int                       iBind
                                                                             ) noexcept override;
 
         void                                    applyDynamicOffsets         (xgpu::cmd_buffer& CmdBuffer) noexcept;

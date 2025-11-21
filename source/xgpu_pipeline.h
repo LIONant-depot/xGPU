@@ -181,8 +181,16 @@ namespace xgpu
 
         struct uniform_binds
         {
-            int                         m_BindIndex = 0;
+            enum class type : std::uint8_t
+            { UBO_DYNAMIC       // UNIFORM BUFFER OBJECT    (Writable)
+            , SSBO_DYNAMIC      // STORAGE BUFFER OBJECT    (Writable)
+            , UBO_STATIC        // UNIFORM_BUFFER_OBJECT    (Read Only)
+            , SSBO_STATIC       // STORAGE BUFFER OBJECT    (Read Only)
+            };
+            bool isTypeDynamic() const { return m_Type <= type::SSBO_DYNAMIC; }
+            int                         m_BindIndex;
             xgpu::shader::type          m_Usage;
+            type                        m_Type       = type::UBO_DYNAMIC;
         };
 
         struct setup
