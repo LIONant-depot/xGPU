@@ -99,6 +99,7 @@ namespace xgpu
             VkDescriptorPoolSize PoolSize{ m_VKDescriptorType, Capacity };
             VkDescriptorPoolCreateInfo Info
             { .sType            = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO
+            //, .flags            = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT
             , .maxSets          = Capacity
             , .poolSizeCount    = 1
             , .pPoolSizes       = &PoolSize

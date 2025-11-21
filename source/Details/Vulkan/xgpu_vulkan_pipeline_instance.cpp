@@ -50,7 +50,8 @@ namespace xgpu::vulkan
         }
         else
         {
-            m_VKSamplerSet = m_Device->m_DescriptorRings[VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER].alloc(m_Device->m_VKDevice, m_Pipeline->m_VKDescriptorSetLayout[pipeline::sampler_set_index_v]);
+            m_VKSamplerSet = m_Device->m_DescriptorRings[VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER].alloc
+                (m_Device->m_VKDevice, m_Pipeline->m_VKDescriptorSetLayout[pipeline::sampler_set_index_v]);
             assert(m_VKSamplerSet != VK_NULL_HANDLE);  // Add this assert
         }
 
