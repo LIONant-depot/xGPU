@@ -3,12 +3,12 @@ namespace xgpu
     struct descriptor_pool_ring
     {
         inline
-        void Init(VkDevice VKDevice, VkDescriptorType VKType, const VkAllocationCallbacks* pCallbacks, uint32_t InitialSize = 1024)
+        void Init(VkDevice VKDevice, VkDescriptorType VKType, const VkAllocationCallbacks* pCallbacks, uint32_t InitialSize = 1024) noexcept
         {
             m_VKDescriptorType  = VKType;
             m_MaxCapacity       = InitialSize;
             m_pCallBacks        = pCallbacks;
-            m_Pools.push_back(createPool(VKDevice, InitialSize));
+            m_Pools.push_back(createPool(VKDevice));
         }
 
         inline
@@ -30,7 +30,7 @@ namespace xgpu
 
             // Grow 1.5× instead of 2×
             m_MaxCapacity += m_MaxCapacity / 2;   // 1.5× growth
-            m_Pools.push_back(createPool(VKDevice, m_MaxCapacity));
+            m_Pools.push_back(createPool(VKDevice));
             m_CurrentIndex = static_cast<int>(m_Pools.size() - 1);
 
             // Retry on the new larger pool
@@ -45,7 +45,6 @@ namespace xgpu
         {
             vkResetDescriptorPool(VKDevice, m_Pools[m_CurrentIndex].m_VKPool, 0);
             m_Pools[m_CurrentIndex].m_Used = 0;
-
             m_CurrentIndex = (m_CurrentIndex + 1) % static_cast<int>(m_Pools.size());
 
             // Shrink old empty small m_Pools while we have >=3 total
@@ -62,15 +61,15 @@ namespace xgpu
             }
 
             // Keep at least 3 m_Pools
-            while (m_Pools.size() < 3)
+            if (m_Pools.size() < 3)
             {
                 int insertPos = (m_CurrentIndex + 1) % static_cast<int>(m_Pools.size() + 1);
-                m_Pools.insert(m_Pools.begin() + insertPos, createPool(VKDevice, m_MaxCapacity));
+                do{ m_Pools.insert(m_Pools.begin() + insertPos, createPool(VKDevice)); } while (m_Pools.size() < 3);
             }
         }
 
         inline
-        void Destroy(VkDevice VKDevice)
+        void Destroy(VkDevice VKDevice) noexcept
         {
             for (auto& Entry : m_Pools)
             {
@@ -94,13 +93,13 @@ namespace xgpu
 
     //protected:
 
-        entry createPool(VkDevice VKDevice, std::uint32_t Capacity)
+        entry createPool(VkDevice VKDevice) noexcept
         {
-            VkDescriptorPoolSize PoolSize{ m_VKDescriptorType, Capacity };
+            VkDescriptorPoolSize PoolSize{ m_VKDescriptorType, m_MaxCapacity };
             VkDescriptorPoolCreateInfo Info
             { .sType            = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO
             //, .flags            = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT
-            , .maxSets          = Capacity
+            , .maxSets          = m_MaxCapacity
             , .poolSizeCount    = 1
             , .pPoolSizes       = &PoolSize
             };
@@ -108,15 +107,15 @@ namespace xgpu
             VkDescriptorPool pool = VK_NULL_HANDLE;
             vkCreateDescriptorPool(VKDevice, &Info, m_pCallBacks, &pool);
 
-            return { pool, 0, Capacity };
+            return { pool, 0, m_MaxCapacity };
         }
 
     //protected:
 
         std::vector<entry>              m_Pools;
+        const VkAllocationCallbacks*    m_pCallBacks     = nullptr;
+        VkDescriptorType                m_VKDescriptorType;
         int                             m_CurrentIndex   = 0;
         std::uint32_t                   m_MaxCapacity    = 1024;
-        VkDescriptorType                m_VKDescriptorType;
-        const VkAllocationCallbacks*    m_pCallBacks     = nullptr;
     };
 }
