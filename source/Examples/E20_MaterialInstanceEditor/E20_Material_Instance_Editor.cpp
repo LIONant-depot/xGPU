@@ -736,9 +736,9 @@ int E20_Example()
         GetModuleFileName(NULL, szFileName, MAX_PATH);
 
         std::wcout << L"Full path: " << szFileName << L"\n";
-        if (auto I = xstrtool::findI(std::wstring{ szFileName }, { L"xGPU" }); I != std::string::npos)
+        if (auto I = xstrtool::findI(std::wstring{ szFileName }, { L"\\xGPU\\" }); I != std::string::npos)
         {
-            I += 4; // Skip the xGPU part
+            I += 5; // Skip the xGPU part
             szFileName[I] = 0;
             std::wcout << L"Found xGPU at: " << szFileName << L"\n";
 
