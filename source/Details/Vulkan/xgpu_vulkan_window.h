@@ -159,5 +159,7 @@ namespace xgpu::vulkan
         VkViewport                              m_DefaultViewport       {};
         VkRect2D                                m_DefaultScissor        {};
         bool                                    m_bDeathMarched         {false};
+        std::unordered_map<VkDescriptorType, descriptor_pool_ring> m_DescriptorRings{};
+
     };
 }

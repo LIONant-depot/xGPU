@@ -191,8 +191,8 @@ namespace xgpu::vulkan
             };
 
             
-            for (auto t : PoolSizes)
-                m_DescriptorRings[t.type].Init(m_VKDevice, t.type, m_Instance->m_pVKAllocator );
+//            for (auto t : PoolSizes)
+//                m_DescriptorRings[t.type].Init(m_VKDevice, t.type, m_Instance->m_pVKAllocator );
 
 
             VkDescriptorPoolCreateInfo PoolCreateInfo = 
@@ -508,18 +508,6 @@ namespace xgpu::vulkan
         vkDeviceWaitIdle(m_VKDevice);
 
         DeathMarch();
-
-        // Wait for everything to finish - safest possible shutdown
-        assert(m_VKDevice != VK_NULL_HANDLE);
-
-        // Destroy all descriptor pools owned by every ring
-        for (auto& [type, ring] : m_DescriptorRings)
-        {
-            ring.Destroy(m_VKDevice);
-        }
-
-        // Optional: clear the map
-        m_DescriptorRings.clear();
     }
 }
 

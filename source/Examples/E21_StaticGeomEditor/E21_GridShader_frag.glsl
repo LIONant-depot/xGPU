@@ -238,7 +238,7 @@ vec4 Grid()
     oColor = mix(oColor, XAxisColor, arrow_x * cos_theta * XAxisColor.a);
     oColor = mix(oColor, ZAxisColor, arrow_z * cos_theta * ZAxisColor.a);
 
-    return oColor;
+    return oColor * oColor ;//* 0.8;
 }
 
 //----------------------------------------------------------------------------------------
@@ -284,10 +284,11 @@ void main()
 {
     const vec4  DiffuseColor    = Grid();
     const float Shadow          = ShadowPCF(inShadowPos / inShadowPos.w);
-    const vec3  FinalColor      = (DiffuseColor.xyz - DiffuseColor.xyz * 0.5) * Shadow + DiffuseColor.xyz * 0.5;
+    const float t               = 0.3;
+    const vec3  FinalColor      = (DiffuseColor.xyz - DiffuseColor.xyz * t) * Shadow + DiffuseColor.xyz * t;
 
-
-    out_Color = vec4(FinalColor.xyz, 1.0f);
+    out_Color.rgb = pow(FinalColor.rgb, vec3(1.0f / 2.2));
+    out_Color.a = 1;
 }
 
 

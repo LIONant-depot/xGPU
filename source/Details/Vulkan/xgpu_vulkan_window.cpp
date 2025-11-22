@@ -772,6 +772,25 @@ namespace xgpu::vulkan
         // TODO: Not sure what to do with this...
         // data->WindowOwned = true;
 
+        const auto PoolSizes = std::array
+        {   VK_DESCRIPTOR_TYPE_SAMPLER
+        ,   VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER
+        ,   VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE
+        ,   VK_DESCRIPTOR_TYPE_STORAGE_IMAGE
+        ,   VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER
+        ,   VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER
+        ,   VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER
+        ,   VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
+        ,   VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC
+        ,   VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC
+        ,   VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT
+        ,   VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC
+        };
+
+
+        for (auto t : PoolSizes)
+            m_DescriptorRings[t].Init(m_Device->m_VKDevice, t, m_Device->m_Instance->m_pVKAllocator);
+
 
         return nullptr;
     }
@@ -1130,7 +1149,7 @@ namespace xgpu::vulkan
         vkResetFences(m_Device->m_VKDevice, 1, &Frame.m_VKFence);
 
         // Free the ring buffers
-        for (auto& [type, ring] : m_Device->m_DescriptorRings)
+        for (auto& [type, ring] : m_DescriptorRings)
         {
             ring.AdvanceAndReset(m_Device->m_VKDevice);
         }
@@ -1280,7 +1299,7 @@ namespace xgpu::vulkan
                                                     ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
                                                     : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             VkDescriptorSetLayout   layout      = Pipe.m_VKDescriptorSetLayout[Pipe.static_set_index_v];
-            VkDescriptorSet         staticSet   = m_Device->m_DescriptorRings[descType].alloc(m_Device->m_VKDevice, layout);
+            VkDescriptorSet         staticSet   = m_DescriptorRings[descType].alloc(m_Device->m_VKDevice, layout);
 
             // Prepare writes
             std::array<VkWriteDescriptorSet, 8>    writes{};
@@ -1527,7 +1546,7 @@ namespace xgpu::vulkan
 
         // Allocate fresh set from correct ring
         VkDescriptorSetLayout layout = Pipe.m_VKDescriptorSetLayout[Pipe.dynamic_set_index_v];
-        VkDescriptorSet newSet = m_Device->m_DescriptorRings[setType].alloc(m_Device->m_VKDevice, layout);
+        VkDescriptorSet newSet = m_DescriptorRings[setType].alloc(m_Device->m_VKDevice, layout);
 
         // Update all bindings
         std::array<VkWriteDescriptorSet,   16> writes{};
@@ -1608,6 +1627,15 @@ namespace xgpu::vulkan
             m_Device->m_Instance->ReportError(VKErr, "Fail to wait for device");
             // We will pretend that there was actually no error since this function is used for run time...
         }
+
+        // Destroy all descriptor pools owned by every ring
+        for (auto& [type, ring] : m_DescriptorRings)
+        {
+            ring.Destroy(m_Device->m_VKDevice);
+        }
+        // Optional: clear the map
+        m_DescriptorRings.clear();
+
 
         VkAllocationCallbacks* pAllocator = m_Device->m_Instance->m_pVKAllocator;
         if (m_Frames.get())
