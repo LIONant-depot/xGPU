@@ -51,7 +51,7 @@ namespace xgpu
     T& buffer::allocEntry(void) noexcept
     {
         assert(sizeof(T) == m_Private->getEntrySize());
-        return *static_cast<T*>(m_Private->allocEntry());
+        return *std::construct_at(static_cast<T*>(m_Private->allocEntry()));
     }
 
     //--------------------------------------------------------------------------------------------------------

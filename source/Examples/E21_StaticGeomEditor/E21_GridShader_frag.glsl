@@ -13,24 +13,25 @@ const float LineWidth       = 1.00;
 const float MajorLineWidth  = 2.5;
 const float fade_power      = 0.7f;
 
-const float ArrowSpacing = 10.0;
+const float ArrowSpacing    = 10.0;
 const float ArrowStemLength = 4.0;
 const float ArrowHeadLength = 1.0;
-const float ArrowStemWidth = 0.5;
-const float ArrowHeadWidth = 1.5;
-const vec4 XAxisColor = vec4(1.0, 0.0, 0.0, 1.0);
-const vec4 ZAxisColor = vec4(0.0, 0.0, 1.0, 1.0);
+const float ArrowStemWidth  = 0.5;
+const float ArrowHeadWidth  = 1.5;
+const vec4 XAxisColor       = vec4(1.0, 0.0, 0.0, 1.0);
+const vec4 ZAxisColor       = vec4(0.0, 0.0, 1.0, 1.0);
 
 layout(binding = 0) uniform sampler2D SamplerShadowMap;        // [INPUT_TEXTURE_SHADOW]
 
 // Push constants
-layout(push_constant) uniform PushConsts {
-    mat4 L2W;
-    mat4 W2C;
-    mat4 ShadowL2C;
-    vec3 WorldSpaceCameraPos;
-    float MajorGridDiv;
-} pushConsts;
+layout(set = 2, binding = 0) uniform Uniforms
+{
+    mat4    L2W;
+    mat4    W2C;
+    mat4    ShadowL2C;
+    vec4    WorldSpaceCameraPos;
+    float   MajorGridDiv;
+} uniforms;
 
 layout(location = 0) in vec2 inUV;
 layout(location = 1) in vec3 inCameraPos;
@@ -73,21 +74,21 @@ float sdArrow(in vec2 p) {
 vec4 Grid() 
 {
     // Compute projection properties
-    vec4 projRow3 = vec4(pushConsts.W2C[0][3], pushConsts.W2C[1][3], pushConsts.W2C[2][3], pushConsts.W2C[3][3]);
+    vec4 projRow3 = vec4(uniforms.W2C[0][3], uniforms.W2C[1][3], uniforms.W2C[2][3], uniforms.W2C[3][3]);
     float row3xyzLen = length(projRow3.xyz);
     bool isOrtho = (row3xyzLen < 0.0001) && (abs(projRow3.w - 1.0) < 0.0001);
 
-    vec3 projRow0xyz = vec3(pushConsts.W2C[0][0], pushConsts.W2C[1][0], pushConsts.W2C[2][0]);
+    vec3 projRow0xyz = vec3(uniforms.W2C[0][0], uniforms.W2C[1][0], uniforms.W2C[2][0]);
     float px = length(projRow0xyz);
     if (px < 0.0001) px = 0.0001;
     vec3 rotRow0 = projRow0xyz / px;
 
-    vec3 projRow1xyz = vec3(pushConsts.W2C[0][1], pushConsts.W2C[1][1], pushConsts.W2C[2][1]);
+    vec3 projRow1xyz = vec3(uniforms.W2C[0][1], uniforms.W2C[1][1], uniforms.W2C[2][1]);
     float py = length(projRow1xyz);
     if (py < 0.0001) py = 0.0001;
     vec3 rotRow1 = projRow1xyz / py;
 
-    vec3 projRow2xyz = vec3(pushConsts.W2C[0][2], pushConsts.W2C[1][2], pushConsts.W2C[2][2]);
+    vec3 projRow2xyz = vec3(uniforms.W2C[0][2], uniforms.W2C[1][2], uniforms.W2C[2][2]);
     float pzLen = length(projRow2xyz);
     if (pzLen < 0.0001) pzLen = 0.0001;
 
@@ -119,7 +120,7 @@ vec4 Grid()
     float cos_theta = abs(diff.y / diffLen);
 
     // Grid computation
-    float gridDiv = max(round(pushConsts.MajorGridDiv), 2.0);
+    float gridDiv = max(round(uniforms.MajorGridDiv), 2.0);
 
     float logLength = (0.5 * log(dot(inCameraPos, inCameraPos))) / log(gridDiv) - GridBias;
 
@@ -318,12 +319,12 @@ const vec4 XAxisColor       = vec4(1.0, 0.0, 0.0, 1.0);
 const vec4 ZAxisColor       = vec4(0.0, 0.0, 1.0, 1.0);
 
 // Push constants
-layout(push_constant) uniform PushConsts {
+layout(push_constant) uniform Uniforms {
     mat4 L2W;
     mat4 W2C;
     vec3 WorldSpaceCameraPos;
     float MajorGridDiv;
-} pushConsts;
+} uniforms;
 
 layout(location = 0) in vec2 inUV;
 layout(location = 1) in vec3 inCameraPos;
@@ -363,21 +364,21 @@ float sdArrow(in vec2 p) {
 
 void main() {
     // Compute projection properties
-    vec4 projRow3 = vec4(pushConsts.W2C[0][3], pushConsts.W2C[1][3], pushConsts.W2C[2][3], pushConsts.W2C[3][3]);
+    vec4 projRow3 = vec4(uniforms.W2C[0][3], uniforms.W2C[1][3], uniforms.W2C[2][3], uniforms.W2C[3][3]);
     float row3xyzLen = length(projRow3.xyz);
     bool isOrtho = (row3xyzLen < 0.0001) && (abs(projRow3.w - 1.0) < 0.0001);
 
-    vec3 projRow0xyz = vec3(pushConsts.W2C[0][0], pushConsts.W2C[1][0], pushConsts.W2C[2][0]);
+    vec3 projRow0xyz = vec3(uniforms.W2C[0][0], uniforms.W2C[1][0], uniforms.W2C[2][0]);
     float px = length(projRow0xyz);
     if (px < 0.0001) px = 0.0001;
     vec3 rotRow0 = projRow0xyz / px;
 
-    vec3 projRow1xyz = vec3(pushConsts.W2C[0][1], pushConsts.W2C[1][1], pushConsts.W2C[2][1]);
+    vec3 projRow1xyz = vec3(uniforms.W2C[0][1], uniforms.W2C[1][1], uniforms.W2C[2][1]);
     float py = length(projRow1xyz);
     if (py < 0.0001) py = 0.0001;
     vec3 rotRow1 = projRow1xyz / py;
 
-    vec3 projRow2xyz = vec3(pushConsts.W2C[0][2], pushConsts.W2C[1][2], pushConsts.W2C[2][2]);
+    vec3 projRow2xyz = vec3(uniforms.W2C[0][2], uniforms.W2C[1][2], uniforms.W2C[2][2]);
     float pzLen = length(projRow2xyz);
     if (pzLen < 0.0001) pzLen = 0.0001;
 
@@ -409,7 +410,7 @@ void main() {
     float cos_theta = abs(diff.y / diffLen);
 
     // Grid computation
-    float gridDiv = max(round(pushConsts.MajorGridDiv), 2.0);
+    float gridDiv = max(round(uniforms.MajorGridDiv), 2.0);
 
     float logLength = (0.5 * log(dot(inCameraPos, inCameraPos))) / log(gridDiv) - GridBias;
 
@@ -547,12 +548,12 @@ const float MajorLineWidth = 4.0;
 const float fade_power  = 0.5f;
 
 // Push constants
-layout(push_constant) uniform PushConsts {
+layout(push_constant) uniform Uniforms {
     mat4 L2W;
     mat4 W2C;
     vec3 WorldSpaceCameraPos;
     float MajorGridDiv;
-} pushConsts;
+} uniforms;
 
 layout(location = 0) in vec2 inUV;
 layout(location = 1) in vec3 inCameraPos;
@@ -560,21 +561,21 @@ layout(location = 0) out vec4 outColor;
 
 void main() {
     // Compute projection properties
-    vec4 projRow3 = vec4(pushConsts.W2C[0][3], pushConsts.W2C[1][3], pushConsts.W2C[2][3], pushConsts.W2C[3][3]);
+    vec4 projRow3 = vec4(uniforms.W2C[0][3], uniforms.W2C[1][3], uniforms.W2C[2][3], uniforms.W2C[3][3]);
     float row3xyzLen = length(projRow3.xyz);
     bool isOrtho = (row3xyzLen < 0.0001) && (abs(projRow3.w - 1.0) < 0.0001);
 
-    vec3 projRow0xyz = vec3(pushConsts.W2C[0][0], pushConsts.W2C[1][0], pushConsts.W2C[2][0]);
+    vec3 projRow0xyz = vec3(uniforms.W2C[0][0], uniforms.W2C[1][0], uniforms.W2C[2][0]);
     float px = length(projRow0xyz);
     if (px < 0.0001) px = 0.0001;
     vec3 rotRow0 = projRow0xyz / px;
 
-    vec3 projRow1xyz = vec3(pushConsts.W2C[0][1], pushConsts.W2C[1][1], pushConsts.W2C[2][1]);
+    vec3 projRow1xyz = vec3(uniforms.W2C[0][1], uniforms.W2C[1][1], uniforms.W2C[2][1]);
     float py = length(projRow1xyz);
     if (py < 0.0001) py = 0.0001;
     vec3 rotRow1 = projRow1xyz / py;
 
-    vec3 projRow2xyz = vec3(pushConsts.W2C[0][2], pushConsts.W2C[1][2], pushConsts.W2C[2][2]);
+    vec3 projRow2xyz = vec3(uniforms.W2C[0][2], uniforms.W2C[1][2], uniforms.W2C[2][2]);
     float pzLen = length(projRow2xyz);
     if (pzLen < 0.0001) pzLen = 0.0001;
 
@@ -606,7 +607,7 @@ void main() {
     float cos_theta = abs(diff.y / diffLen);
 
     // Grid computation
-    float gridDiv = max(round(pushConsts.MajorGridDiv), 2.0);
+    float gridDiv = max(round(uniforms.MajorGridDiv), 2.0);
 
     float logLength = (0.5 * log(dot(inCameraPos, inCameraPos))) / log(gridDiv) - GridBias;
 
@@ -680,14 +681,14 @@ void main() {
 #extension GL_ARB_shading_language_420pack : enable
 
 // Push constants uniform block containing data for both vertex and fragment shaders
-layout(push_constant) uniform PushConsts
+layout(push_constant) uniform Uniforms
 {
     // Vertex shader parameters
     mat4    L2W;                   // Local to World transformation matrix
     mat4    W2C;                   // World to Clip transformation matrix
     vec3    WorldSpaceCameraPos;   // World space position of the camera
     float   MajorGridDiv;          // Number of major grid divisions (clamped between 2 and 25)
-} pushConsts;
+} uniforms;
 
 // Fragment shader parameters
 const vec4    MajorLineColor = vec4(0.7f, 0.7f, 0.7f, 1.0f);

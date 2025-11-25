@@ -7,14 +7,14 @@
 const float GridScale = 1.0;
 
 // Push constants
-layout(push_constant) uniform PushConsts 
+layout(set = 2, binding = 0) uniform Uniforms
 {
-    mat4 L2W;
-    mat4 W2C;
-    mat4 ShadowL2C;
-    vec3 WorldSpaceCameraPos;
-    float MajorGridDiv;
-} pushConsts;
+    mat4    L2W;
+    mat4    W2C;
+    mat4    ShadowL2C;
+    vec4    WorldSpaceCameraPos;
+    float   MajorGridDiv;
+} uniforms;
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 1) in vec2 inUV;
@@ -26,21 +26,21 @@ layout(location = 2) out vec4 outShadowPos;
 
 void main() 
 {
-    vec4 worldPos4 = pushConsts.L2W * vec4(inPosition, 1.0);
+    vec4 worldPos4 = uniforms.L2W * vec4(inPosition, 1.0);
     vec3 worldPos = worldPos4.xyz;
-    gl_Position  = pushConsts.W2C * worldPos4;
-    outShadowPos = pushConsts.ShadowL2C * vec4(inPosition, 1.0);
+    gl_Position  = uniforms.W2C * worldPos4;
+    outShadowPos = uniforms.ShadowL2C * vec4(inPosition, 1.0);
 
     // Assume WorldUV = true
     outUV = worldPos.xz * GridScale;
 
     // Detect if orthographic
-    vec4 projRow3 = vec4(pushConsts.W2C[0][3], pushConsts.W2C[1][3], pushConsts.W2C[2][3], pushConsts.W2C[3][3]);
+    vec4 projRow3 = vec4(uniforms.W2C[0][3], uniforms.W2C[1][3], uniforms.W2C[2][3], uniforms.W2C[3][3]);
     float row3xyzLen = length(projRow3.xyz);
     bool isOrtho = (row3xyzLen < 0.0001) && (abs(projRow3.w - 1.0) < 0.0001);
 
     // Compute py = P[1][1]
-    vec3 projRow1xyz = vec3(pushConsts.W2C[0][1], pushConsts.W2C[1][1], pushConsts.W2C[2][1]);
+    vec3 projRow1xyz = vec3(uniforms.W2C[0][1], uniforms.W2C[1][1], uniforms.W2C[2][1]);
     float py = length(projRow1xyz);
     if (py < 0.0001) py = 0.0001; // Avoid division by zero
 
@@ -51,12 +51,12 @@ void main()
     else 
     {
         // Compute px = P[0][0]
-        vec3 projRow0xyz = vec3(pushConsts.W2C[0][0], pushConsts.W2C[1][0], pushConsts.W2C[2][0]);
+        vec3 projRow0xyz = vec3(uniforms.W2C[0][0], uniforms.W2C[1][0], uniforms.W2C[2][0]);
         float px = length(projRow0xyz);
         if (px < 0.0001) px = 0.0001;
 
         // Compute pz length
-        vec3 projRow2xyz = vec3(pushConsts.W2C[0][2], pushConsts.W2C[1][2], pushConsts.W2C[2][2]);
+        vec3 projRow2xyz = vec3(uniforms.W2C[0][2], uniforms.W2C[1][2], uniforms.W2C[2][2]);
         float pzLen = length(projRow2xyz);
         if (pzLen < 0.0001) pzLen = 0.0001;
 
@@ -79,7 +79,7 @@ void main()
         mat3 rot = mat3(rotRow0, rotRow1, rotRow2);
 
         // Compute view position
-        dvec3 diff = dvec3(worldPos) - pushConsts.WorldSpaceCameraPos;
+        dvec3 diff = dvec3(worldPos) - uniforms.WorldSpaceCameraPos.xyz;
         vec3 viewPos = rot * vec3(diff);
 
         // Adjust
@@ -98,7 +98,7 @@ layout(location = 0) in vec3 inPos;     //[INPUT_POSITION]
 layout(location = 1) in vec2 inUV;      //[INPUT_UVS]
 layout(location = 2) in vec4 inColor;   //[INPUT_COLOR]
 
-layout(std140, push_constant) uniform PushConsts
+layout(std140, push_constant) uniform Uniforms
 {
     // Vertex shader
     mat4    L2W;
@@ -106,7 +106,7 @@ layout(std140, push_constant) uniform PushConsts
     vec3    WorldSpaceCameraPos;
     float   MajorGridDiv;
 
-} pushConsts;
+} uniforms;
 
 #if defined(_AXIS_X)
     #define AXIS_COMPONENTS yz
@@ -124,10 +124,10 @@ layout(location = 0) out struct
 
 void main() 
 {
-    gl_Position = pushConsts.W2C * (pushConsts.L2W * vec4(inPos, 1.0));
-    float   div                     = max(2.0, floor(pushConsts.MajorGridDiv + 0.5));
-    vec3    worldPos                = (pushConsts.L2W * vec4(inPos.xyz, 1.0)).xyz;
-    vec3    cameraCenteringOffset   = floor(pushConsts.WorldSpaceCameraPos / div) * div;
+    gl_Position = uniforms.W2C * (uniforms.L2W * vec4(inPos, 1.0));
+    float   div                     = max(2.0, floor(uniforms.MajorGridDiv + 0.5));
+    vec3    worldPos                = (uniforms.L2W * vec4(inPos.xyz, 1.0)).xyz;
+    vec3    cameraCenteringOffset   = floor(uniforms.WorldSpaceCameraPos / div) * div;
 
     Out.UV.yx = (worldPos - cameraCenteringOffset).AXIS_COMPONENTS;
     Out.UV.wz = worldPos.AXIS_COMPONENTS;

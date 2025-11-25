@@ -642,10 +642,10 @@ int E21_Example()
         xmath::fmat4  m_L2w;
         xmath::fmat4  m_w2C;
         xmath::fmat4  m_L2CShadow;
-        //xmath::fvec4  m_LightColor;
-        //xmath::fvec4  m_AmbientLightColor;
-        //xmath::fvec4  m_wSpaceLightPos;
-        //xmath::fvec4  m_wSpaceEyePos;
+        xmath::fvec4  m_LightColor;
+        xmath::fvec4  m_AmbientLightColor;
+        xmath::fvec4  m_wSpaceLightPos;
+        xmath::fvec4  m_wSpaceEyePos;
     };
 
     //
@@ -755,7 +755,7 @@ int E21_Example()
                                     , xgpu::pipeline::sampler{}         // Albedo
                                     };
         auto UBuffersUsage = std::array { xgpu::pipeline::uniform_binds { .m_BindIndex  = 0         // MeshUniforms, bind 0 set 2, changes per mesh/draw call
-                                                                        , .m_Usage      = xgpu::shader::type{xgpu::shader::type::bit::VERTEX}
+                                                                        , .m_Usage      = { .m_bVertex = true, .m_bFragment = true }
                                                                         , .m_Type       = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC      // MUST be dynamic (per object)
                                                                         }      
                                         , xgpu::pipeline::uniform_binds { .m_BindIndex  = 0         // ClusterUniforms clusters[], bind 0 set 1, never changes
@@ -883,14 +883,18 @@ int E21_Example()
     //
     // Grid Materials
     //
-    struct grid_push_constants
+    struct alignas(256) grid_uniform
     {
         xmath::fmat4    m_L2W;                                                              // Identity matrix for local-to-world
         xmath::fmat4    m_W2C;                                                              // Identity matrix for world-to-clip (adjust based on camera projection)
         xmath::fmat4    m_L2CTShadow;                                                       // Local to shadow texture
-        xmath::fvec3d   m_WorldSpaceCameraPos = xmath::fvec3(0.0f, 10.0f, 0.0f);            // Typical overhead camera position
+        xmath::fvec3    m_WorldSpaceCameraPos = xmath::fvec3(0.0f, 10.0f, 0.0f);            // Typical overhead camera position
         float           m_MajorGridDiv = 10.0f;                                             // 10 major divisions
     };
+
+    xgpu::buffer GridDynamicUBO;
+    if (auto Err = Device.Create(GridDynamicUBO, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(grid_uniform), .m_EntryCount = 10 }); Err)
+        return xgpu::getErrorInt(Err);
 
     xgpu::pipeline          Grid3dMaterial;
     xgpu::pipeline_instance Grid3dMaterialInstance;
@@ -921,6 +925,12 @@ int E21_Example()
             }
         }
 
+        auto UBuffersUsage = std::array{ xgpu::pipeline::uniform_binds {  .m_BindIndex  = 0         // ClusterUniforms clusters[], bind 0 set 2, never changes
+                                                                        , .m_Usage      = { .m_bVertex = true, .m_bFragment = true }
+                                                                        , .m_Type       = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC  
+                                                                       }
+                                       };
+
         // grid mat
         {
             auto Samplers = std::array{ xgpu::pipeline::sampler{.m_AddressMode = std::array{ xgpu::pipeline::sampler::address_mode::CLAMP, xgpu::pipeline::sampler::address_mode::CLAMP, xgpu::pipeline::sampler::address_mode::CLAMP}}         // Shadowmap
@@ -930,7 +940,7 @@ int E21_Example()
             auto Setup = xgpu::pipeline::setup
             { .m_VertexDescriptor   = Primitive3DVertexDescriptor
             , .m_Shaders            = Shaders
-            , .m_PushConstantsSize  = sizeof(grid_push_constants)
+            , .m_UniformBinds       = UBuffersUsage
             , .m_Samplers           = Samplers
             , .m_Blend              = xgpu::pipeline::blend::getAlphaOriginal()
             };
@@ -1264,6 +1274,7 @@ int E21_Example()
         ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0.2f));
 
         std::string NewName;
+        bool bDisable = false;
         if (pName[0] == '[')
         {
             auto Pair    = Inspector.getComponent(0, 0);
@@ -1271,7 +1282,7 @@ int E21_Example()
             auto pDesc   = static_cast<xgeom_static::descriptor*>(Pair.second);
 
             // Change the name to point to the texture...
-            if (not pDesc->m_MaterialInstNamesList.empty())
+            if (not pDesc->m_MaterialDetailsList.empty())
             {
                 // Remove the [ and ]
                 View = View.substr(1, View.size() - 2);
@@ -1281,11 +1292,13 @@ int E21_Example()
                 auto result = std::from_chars(View.data(), View.data() + View.size(), Index);
                 assert(result.ec == std::errc());
 
-                NewName = std::format("{} {}", pName, pDesc->m_MaterialInstNamesList[Index]);
+                NewName = std::format("{} {}", pName, pDesc->m_MaterialDetailsList[Index].m_Name);
                 pName = NewName.c_str();
+                bDisable = pDesc->m_MaterialDetailsList[Index].m_RefCount <= 0;
             }
         }
 
+        if (bDisable) ImGui::BeginDisabled(true);
         if (pID)
         {
             Open = ImGui::TreeNodeEx(pID, ImGuiTreeNodeFlags_Framed | flags, "  %s", pName);
@@ -1294,6 +1307,7 @@ int E21_Example()
         {
             Open = ImGui::TreeNodeEx(pName, flags);
         }
+        if (bDisable) ImGui::EndDisabled();
 
         ImGui::PopStyleColor();
         ImGui::PopStyleVar();
@@ -1383,16 +1397,19 @@ int E21_Example()
 
                 for (auto& M : p->getMeshes())
                 {
-                    for (auto& S : p->getSubmeshes().subspan(M.m_iLOD, M.m_nLODs))
+                    for (auto& L : p->getLODs().subspan(M.m_iLOD, M.m_nLODs))
                     {
-                        ShadowGenerationPushC.m_ClusterIndex = S.m_iCluster;
-                        for (auto& C : p->getClusters().subspan(S.m_iCluster, S.m_nCluster))
+                        for ( auto& S : p->getSubmeshes().subspan(L.m_iSubmesh, L.m_nSubmesh))
                         {
-                            CmdBuffer.setPushConstants(ShadowGenerationPushC);
-                            CmdBuffer.Draw(C.m_nIndices, C.m_iIndex, C.m_iVertex);
+                            ShadowGenerationPushC.m_ClusterIndex = S.m_iCluster;
+                            for (auto& C : p->getClusters().subspan(S.m_iCluster, S.m_nCluster))
+                            {
+                                CmdBuffer.setPushConstants(ShadowGenerationPushC);
+                                CmdBuffer.Draw(C.m_nIndices, C.m_iIndex, C.m_iVertex);
 
-                            // Prepare for the next cluster
-                            ShadowGenerationPushC.m_ClusterIndex++;
+                                // Prepare for the next cluster
+                                ShadowGenerationPushC.m_ClusterIndex++;
+                            }
                         }
                     }
                 }
@@ -1439,22 +1456,30 @@ int E21_Example()
                         MeshUBO.m_L2w = xmath::fmat4::fromTranslation(-View.getPosition()) * xmath::fmat4::fromTranslation({ 0, 0, 0 });
                         MeshUBO.m_w2C = View.getW2C() * xmath::fmat4::fromTranslation(View.getPosition());
                         MeshUBO.m_L2CShadow = C2T * ShadowGenerationPushC.m_L2C;
+
+                        MeshUBO.m_LightColor        = xmath::fvec4(1);
+                        MeshUBO.m_AmbientLightColor = xmath::fvec4(0.5f);
+                        MeshUBO.m_wSpaceLightPos    = xmath::fvec4(LightingView.getPosition() - View.getPosition(), 1.0f);
+                        MeshUBO.m_wSpaceEyePos      = xmath::fvec4(0);
                     }
 
                     for (auto& M : p->getMeshes())
                     {
-                        for (auto& S : p->getSubmeshes().subspan(M.m_iLOD, M.m_nLODs))
+                        for (auto& L : p->getLODs().subspan(M.m_iLOD, M.m_nLODs))
                         {
-                            std::array StaticUBO{ &p->ClusterBuffer() };
-                            CmdBuffer.setPipelineInstance(Mesh3DMatInstance[S.m_iMaterial], StaticUBO);
-                            CmdBuffer.setDynamicUBO(StaticGeomDynamicUBOMesh, 0);
-
-                            static_geom_push_const PustConst{ .m_ClusterIndex = S.m_iCluster };
-                            for (auto& C : p->getClusters().subspan(S.m_iCluster, S.m_nCluster))
+                            for (auto& S : p->getSubmeshes().subspan(L.m_iSubmesh, L.m_nSubmesh))
                             {
-                                CmdBuffer.setPushConstants(PustConst);
-                                CmdBuffer.Draw(C.m_nIndices, C.m_iIndex, C.m_iVertex);
-                                PustConst.m_ClusterIndex++;
+                                std::array StaticUBO{ &p->ClusterBuffer() };
+                                CmdBuffer.setPipelineInstance(Mesh3DMatInstance[S.m_iMaterial], StaticUBO);
+                                CmdBuffer.setDynamicUBO(StaticGeomDynamicUBOMesh, 0);
+
+                                static_geom_push_const PustConst{ .m_ClusterIndex = S.m_iCluster };
+                                for (auto& C : p->getClusters().subspan(S.m_iCluster, S.m_nCluster))
+                                {
+                                    CmdBuffer.setPushConstants(PustConst);
+                                    CmdBuffer.Draw(C.m_nIndices, C.m_iIndex, C.m_iVertex);
+                                    PustConst.m_ClusterIndex++;
+                                }
                             }
                         }
                     }
@@ -1465,13 +1490,14 @@ int E21_Example()
                 //
                 {
                     CmdBuffer.setPipelineInstance(Grid3dMaterialInstance);
-                    grid_push_constants Push;
 
-                    Push.m_WorldSpaceCameraPos = View.getPosition();
-                    Push.m_L2W          = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, maxY, 0));
-                    Push.m_W2C          = View.getW2C();
-                    Push.m_L2CTShadow   = C2T * ShadowGenerationPushC.m_L2C * Push.m_L2W;
-                    CmdBuffer.setPushConstants(Push);
+
+                    auto& Uniform = GridDynamicUBO.allocEntry<grid_uniform>();
+                    Uniform.m_WorldSpaceCameraPos = View.getPosition();
+                    Uniform.m_L2W          = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, maxY, 0));
+                    Uniform.m_W2C          = View.getW2C();
+                    Uniform.m_L2CTShadow   = C2T * ShadowGenerationPushC.m_L2C * Uniform.m_L2W;
+                    CmdBuffer.setDynamicUBO(GridDynamicUBO, 0);
                     MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE3D);
                 }
             }
@@ -1567,36 +1593,48 @@ int E21_Example()
                     ImGui::BeginChild("###Feedback-Child", ImVec2(600, 300));
                     ImGui::PushTextWrapPos(600);
 
-                    if (Log.m_Log.empty() == false)
+                    if (!Log.m_Log.empty())
                     {
-                        size_t start = 0;
-                        while (start < Log.m_Log.length()) 
+                        // Precompute line start offsets (efficient scan)
+                        std::vector<size_t> line_offsets;
+                        line_offsets.reserve(100);  // Optional: rough estimate to reduce reallocs
+                        line_offsets.push_back(0);
+                        size_t pos = 0;
+                        while ((pos = Log.m_Log.find('\n', pos)) != std::string::npos)
                         {
-                            const std::string_view view{ Log.m_Log };
-                            size_t end = view.find('\n', start);
-                            if (end == std::string_view::npos) end = view.size();
-                            std::string_view line = view.substr(start, end - start);
+                            line_offsets.push_back(pos + 1);
+                            ++pos;
+                        }
+                        int num_lines = (int)line_offsets.size();
 
-                            if (xstrtool::findI( line, "ERROR:") != std::string::npos)
+                        ImGuiListClipper clipper;
+                        clipper.Begin(num_lines);
+                        while (clipper.Step())
+                        {
+                            for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; ++row)
                             {
-                                ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255));
-                                ImGui::TextUnformatted(std::string(line).c_str());
-                                ImGui::PopStyleColor();
-                            }
-                            else
-                            {
-                                ImGui::TextUnformatted(std::string(line).c_str());
-                            }
+                                size_t start = line_offsets[row];
+                                size_t end = (row + 1 < num_lines) ? line_offsets[row + 1] - 1 : Log.m_Log.size();
+                                std::string_view line(Log.m_Log.data() + start, end - start);
 
-                            printf("%s", std::string(line).c_str() );
-
-                            start = end + 1;
+                                if (xstrtool::findI(line, "ERROR:") != std::string::npos)
+                                {
+                                    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255));
+                                    ImGui::TextUnformatted(line.data(), line.data() + line.size());
+                                    ImGui::PopStyleColor();
+                                }
+                                else
+                                {
+                                    ImGui::TextUnformatted(line.data(), line.data() + line.size());
+                                }
+                            }
                         }
                     }
                     ImGui::PopTextWrapPos();
                     ImGui::EndChild();
                     ImGui::EndPopup();
                 }
+
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("Gives information about the compilation process");
 
                 if (Log.m_Log.empty() == false)
@@ -1697,10 +1735,21 @@ int E21_Example()
                         {
                             auto pDesc = static_cast<xgeom_static::descriptor*>(SelectedDescriptor.m_pDescriptor.get());
 
+                            if (auto Messages = pDesc->MergeWithDetails(GeomStaticDetails); not Messages.empty())
+                            {
+                                for( auto& S : Messages)
+                                {
+                                    xstrtool::print("{}\n", S);
+                                }
+                            }
+
+
+
+
                             //
                             // Update the mesh list to make sure it matches with details (latest info)
                             //
-
+/*
                             // First remove any meshes not longer found in details from the descriptor
                             pDesc->m_MeshList.erase
                             (
@@ -1775,6 +1824,8 @@ int E21_Example()
                                     pDesc->m_MaterialInstRefList.emplace_back();
                                 }
                             }
+
+*/
                         }
                     }
                 }
@@ -1782,7 +1833,255 @@ int E21_Example()
         }
 
         xproperty::settings::context Context;
-        Inspector.Show(Context, [&] {});
+        Inspector.Show(Context, [&]
+        {
+            if (not GeomStaticDetails.m_RootNode.m_Children.empty() || not GeomStaticDetails.m_RootNode.m_MeshList.empty() && SelectedDescriptor.m_pDescriptor)
+            {
+                if (ImGui::CollapsingHeader("Scene Hierarchy", ImGuiTreeNodeFlags_DefaultOpen))
+                {
+                    ImGui::Separator();
+                    ImGui::Dummy(ImVec2(0, 12)); // extra breathing room after header
+
+                    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 7));       // default is (8,4) more vertical
+                    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8, 2));      // taller tree nodes
+                    ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, 12.0f);            // nicer indent
+                    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 8));
+                    std::function<bool(const xgeom_static::details::node&)> WorthRendering = [&](const xgeom_static::details::node& n)
+                    {
+                        if (n.m_Children.empty() && n.m_MeshList.empty())
+                            return false;
+
+                        if (not n.m_Children.empty() && n.m_MeshList.empty())
+                        {
+                            for (auto& x : n.m_Children)
+                            {
+                                if ( WorthRendering( x ) )
+                                {
+                                    return true;
+                                }
+                            }
+
+                            return false;
+                        }
+
+                        return true;
+                    };
+
+                    constexpr static ImGuiTreeNodeFlags flags               = ImGuiTreeNodeFlags_AllowOverlap | ImGuiTreeNodeFlags_SpanAvailWidth;
+                    auto                                pDesc               = static_cast<xgeom_static::descriptor*>(SelectedDescriptor.m_pDescriptor.get());
+                    auto                                DefaultTextColor    = ImGui::GetStyle().Colors[ImGuiCol_Text];
+                    auto                                GroupColor          = ImVec4(0.5f, 1.0f, 0.5f, 1.0f);
+                    auto                                DeletedColor        = ImVec4(0.8f, 0.3f, 0.3f, 1.0f);
+                    xgeom_static::node_path             CurrectNodePath;
+
+                    std::function<void(const xgeom_static::details::node&, const xgeom_static::details&, bool, bool)> DisplayNode = [&](const xgeom_static::details::node& n, const xgeom_static::details& d, bool bIncluded, bool isDeletedParent )
+                    {
+                        if (n.m_Children.empty() && n.m_MeshList.empty())
+                            return;
+
+                        if (not n.m_Children.empty() && n.m_MeshList.empty() )
+                        {
+                            if (WorthRendering(n) == false ) return;
+                        }
+
+                        // Update the path to the current state of things
+                        CurrectNodePath.push_back(n.m_Name);
+
+                        const bool  isInDeletedList = pDesc->isNodeInDeleteList(CurrectNodePath);
+                        bool        isDeleted       = isDeletedParent || isInDeletedList;
+                        auto        Pair            = pDesc->findMergeGroupFromNode(CurrectNodePath);
+                        if (isDeleted) ImGui::PushStyleColor(ImGuiCol_Text, DeletedColor);
+                        const bool node_open = [&]
+                        {
+                            if (isInDeletedList)    return ImGui::TreeNodeEx(&n, flags, "\xEE\x9D\x8D (%s) %s", Pair.first? Pair.first->m_Name.c_str() : "", n.m_Name.c_str());
+                            else if (Pair.first)    return ImGui::TreeNodeEx(&n, flags, "\xEE\xAF\x92 (%s) %s", Pair.first->m_Name.c_str(), n.m_Name.c_str());
+                            else                    return ImGui::TreeNodeEx(&n, flags, "%s", n.m_Name.c_str());
+                        }();
+                        if (isDeleted) ImGui::PopStyleColor();
+
+                        {
+                            ImGui::PushID(&n);
+                            if (ImGui::BeginPopupContextItem("NodeContextMenu"))   // triggered by right-click on the node above
+                            {
+                                ImGui::PushStyleColor(ImGuiCol_Text, DefaultTextColor);
+                                if (not bIncluded)
+                                {
+                                    if (Pair.first)
+                                    {
+                                        if (ImGui::MenuItem("Remove from Group"))
+                                        {
+                                            pDesc->RemoveNodeFromGroup(*Pair.first, Pair.second, GeomStaticDetails );
+                                            Pair.first = nullptr;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        if (ImGui::MenuItem("Add to New Group"))
+                                        {
+                                            for ( int i=0; i<100; i++ )
+                                            {
+                                                std::string NewName = std::format("Group #{}",i);
+
+                                                for (int j = 0; j < pDesc->m_MergeGroupList.size(); ++j)
+                                                {
+                                                    if (NewName == pDesc->m_MergeGroupList[j].m_Name)
+                                                    {
+                                                        NewName.clear();
+                                                        break;
+                                                    }
+                                                }
+
+                                                if (not NewName.empty())
+                                                {
+                                                    Pair.first = &pDesc->m_MergeGroupList.emplace_back();
+                                                    Pair.first->m_Name = std::move(NewName);
+
+                                                    pDesc->AddNodeInGroupList(*Pair.first, CurrectNodePath);
+                                                    Pair.second = 0;
+                                                    break;
+                                                }
+                                            }
+                                        }
+
+                                        if (not pDesc->m_MergeGroupList.empty())
+                                        {
+                                            if (ImGui::BeginMenu("Add to Merge Group"))
+                                            {
+                                                for(int i=0; i< pDesc->m_MergeGroupList.size(); ++i)
+                                                {
+                                                   // ImGui::PushID(&pDesc->m_MergeGroupList[i]);
+                                                    if (ImGui::MenuItem(pDesc->m_MergeGroupList[i].m_Name.c_str()))
+                                                    {
+                                                        pDesc->AddNodeInGroupList(pDesc->m_MergeGroupList[i], CurrectNodePath);
+                                                        Pair.first  = &pDesc->m_MergeGroupList[i];
+                                                        Pair.second = (int)pDesc->m_MergeGroupList[i].m_NodePathList.size()-1;
+                                                        break;
+                                                    }
+                                                    //ImGui::PopID();
+                                                }
+
+                                                ImGui::EndMenu();
+                                            }
+                                        }
+                                    }
+                                }
+
+
+
+                                if (isDeleted == false)
+                                {
+                                    if (ImGui::MenuItem("\xEE\x9D\x8D Delete Node"))
+                                    {
+                                        pDesc->AddNodeInDeleteList(CurrectNodePath, GeomStaticDetails);
+                                        isDeleted = true;
+                                    }
+                                }
+                                else if (isInDeletedList)
+                                {
+                                    if (ImGui::MenuItem("\xEE\x9D\x8D UnDelete Node"))
+                                    {
+                                        pDesc->RemoveNodeFromDeleteList(CurrectNodePath, GeomStaticDetails);
+                                        isDeleted = true;
+                                    }
+                                }
+
+                                ImGui::PopStyleColor();
+                                ImGui::EndPopup();
+                            }
+                            ImGui::PopID();
+                        }
+
+                        if (node_open)
+                        {
+                                 if (isDeleted) ImGui::PushStyleColor(ImGuiCol_Text, DeletedColor );
+                            else if(Pair.first) ImGui::PushStyleColor(ImGuiCol_Text, GroupColor);
+
+                            for (int idx : n.m_MeshList) 
+                            {
+                                ImGuiTreeNodeFlags mesh_flags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+
+                                const auto& m = d.m_MeshList[idx];
+
+                                ImGui::TreeNodeEx((void*)(intptr_t)idx, mesh_flags, "\xEE\xAF\x92 %s", m.m_Name.c_str());
+
+                                // Tooltip on hover
+                                if (ImGui::IsItemHovered())
+                                {
+                                    ImGui::BeginTooltip();
+                                    ImGui::PushStyleColor(ImGuiCol_Text, DefaultTextColor);
+
+                                    ImGui::Text("nFaces    : %d\n"
+                                                "nUVs      : %d\n"
+                                                "nColors   : %d\n"
+                                                "nMaterials: %d\n"
+                                                , m.m_NumFaces
+                                                , m.m_NumUVs
+                                                , m.m_NumColors
+                                                , m.m_MaterialList.size()
+                                                );
+                                    for ( auto& mat : m.m_MaterialList )
+                                    {
+                                        ImGui::Text( "%2d.%s\n", 1+static_cast<int>(&mat - m.m_MaterialList.data()), d.m_MaterialList[mat].c_str() );
+                                    }
+
+                                    ImGui::PopStyleColor();
+                                    ImGui::EndTooltip();
+                                }
+                            }
+                            for (const auto& child : n.m_Children) 
+                            {
+                                DisplayNode(child, d, !!Pair.first || bIncluded, isDeleted);
+                            }
+                            ImGui::TreePop();
+
+                                 if (isDeleted)  ImGui::PopStyleColor();
+                            else if (Pair.first) ImGui::PopStyleColor();
+                        }
+
+                        // Pop the last entry
+                        CurrectNodePath.pop_back();
+                    };
+
+                    // Display tree
+                    const bool node_open = [&]
+                    {
+                        if (pDesc->m_bMergeAllMeshes) return ImGui::TreeNodeEx(&GeomStaticDetails.m_RootNode, flags, "\xEE\xAF\x92 Root");
+                        else                          return ImGui::TreeNodeEx(&GeomStaticDetails.m_RootNode, flags, "Root");
+                    }();
+
+                    if (ImGui::BeginPopupContextItem("NodeContextMenu"))   // triggered by right-click on the node above
+                    {
+                        if (ImGui::MenuItem("Merge All as single mesh"))
+                        {
+                            // TODO: your merge logic here
+                            //ImGui::LogText("Merge all children of '%s'", n.m_Name.c_str());
+                        }
+                        ImGui::EndPopup();
+                    }
+
+                    if (node_open)
+                    {
+                        if (pDesc->m_bMergeAllMeshes)  ImGui::PushStyleColor(ImGuiCol_Text, GroupColor);
+
+                        CurrectNodePath.push_back(GeomStaticDetails.m_RootNode.m_Name);
+                        for (const auto& child : GeomStaticDetails.m_RootNode.m_Children)
+                        {
+                            DisplayNode(child, GeomStaticDetails, pDesc->m_bMergeAllMeshes, false);
+                        }
+                        CurrectNodePath.pop_back();
+
+                        ImGui::TreePop();
+                        if (pDesc->m_bMergeAllMeshes) ImGui::PopStyleColor();
+                    }
+
+                    // pop styles
+                    ImGui::PopStyleVar(4);
+                }
+            }
+        });
+
+
+
         InspectorDetails.Show(Context, [&] {});
 
         //
