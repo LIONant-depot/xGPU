@@ -1832,6 +1832,258 @@ int E21_Example()
             }
         }
 
+
+        xproperty::settings::context Context;
+        Inspector.Show(Context, [&]
+            {
+                if (not GeomStaticDetails.m_RootNode.m_Children.empty() || not GeomStaticDetails.m_RootNode.m_MeshList.empty() && SelectedDescriptor.m_pDescriptor)
+                {
+                    if (ImGui::CollapsingHeader("Scene Hierarchy", ImGuiTreeNodeFlags_DefaultOpen))
+                    {
+                        ImGui::Separator();
+                        ImGui::Dummy(ImVec2(0, 12)); // extra breathing room after header
+
+                        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 7));       // default is (8,4) more vertical
+                        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8, 2));      // taller tree nodes
+                        ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, 12.0f);            // nicer indent
+                        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 8));
+                        std::function<bool(const xgeom_static::details::node&)> WorthRendering = [&](const xgeom_static::details::node& n)
+                            {
+                                if (n.m_Children.empty() && n.m_MeshList.empty())
+                                    return false;
+
+                                if (not n.m_Children.empty() && n.m_MeshList.empty())
+                                {
+                                    for (auto& x : n.m_Children)
+                                    {
+                                        if (WorthRendering(x))
+                                        {
+                                            return true;
+                                        }
+                                    }
+
+                                    return false;
+                                }
+
+                                return true;
+                            };
+
+                        constexpr static ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_AllowOverlap | ImGuiTreeNodeFlags_SpanAvailWidth;
+                        auto                                pDesc = static_cast<xgeom_static::descriptor*>(SelectedDescriptor.m_pDescriptor.get());
+                        auto                                DefaultTextColor = ImGui::GetStyle().Colors[ImGuiCol_Text];
+                        auto                                GroupColor = ImVec4(0.5f, 1.0f, 0.5f, 1.0f);
+                        auto                                DeletedColor = ImVec4(0.8f, 0.3f, 0.3f, 1.0f);
+                        xgeom_static::node_path             CurrectNodePath;
+
+                        std::function<void(const xgeom_static::details::node&, const xgeom_static::details&, bool, bool)> DisplayNode = [&](const xgeom_static::details::node& n, const xgeom_static::details& d, bool bIncluded, bool isDeletedParent)
+                            {
+                                if (n.m_Children.empty() && n.m_MeshList.empty())
+                                    return;
+
+                                if (not n.m_Children.empty() && n.m_MeshList.empty())
+                                {
+                                    if (WorthRendering(n) == false) return;
+                                }
+
+                                // Update the path to the current state of things
+                                size_t prev_len = CurrectNodePath.size();
+                                if (!CurrectNodePath.empty()) CurrectNodePath += "/";
+                                CurrectNodePath += n.m_Name;
+
+                                const bool  isInDeletedList = pDesc->isNodeInDeleteList(CurrectNodePath);
+                                bool        isDeleted = isDeletedParent || isInDeletedList;
+                                auto        Pair = pDesc->findMergeGroupFromNode(CurrectNodePath);
+                                if (isDeleted) ImGui::PushStyleColor(ImGuiCol_Text, DeletedColor);
+                                const bool node_open = [&]
+                                    {
+                                        if (isInDeletedList)    return ImGui::TreeNodeEx(&n, flags, "\xEE\x9D\x8D (%s) %s", Pair.first ? Pair.first->m_Name.c_str() : "", n.m_Name.c_str());
+                                        else if (Pair.first)    return ImGui::TreeNodeEx(&n, flags, "\xEE\xAF\x92 (%s) %s", Pair.first->m_Name.c_str(), n.m_Name.c_str());
+                                        else                    return ImGui::TreeNodeEx(&n, flags, "%s", n.m_Name.c_str());
+                                    }();
+                                if (isDeleted) ImGui::PopStyleColor();
+
+                                {
+                                    ImGui::PushID(&n);
+                                    if (ImGui::BeginPopupContextItem("NodeContextMenu"))   // triggered by right-click on the node above
+                                    {
+                                        ImGui::PushStyleColor(ImGuiCol_Text, DefaultTextColor);
+                                        if (not bIncluded)
+                                        {
+                                            if (Pair.first)
+                                            {
+                                                if (ImGui::MenuItem("Remove from Group"))
+                                                {
+                                                    pDesc->RemoveNodeFromGroup(*Pair.first, Pair.second, GeomStaticDetails);
+                                                    Pair.first = nullptr;
+                                                }
+                                            }
+                                            else
+                                            {
+                                                if (ImGui::MenuItem("Add to New Group"))
+                                                {
+                                                    for (int i = 0; i < 100; i++)
+                                                    {
+                                                        std::string NewName = std::format("Group #{}", i);
+
+                                                        for (int j = 0; j < pDesc->m_MergeGroupList.size(); ++j)
+                                                        {
+                                                            if (NewName == pDesc->m_MergeGroupList[j].m_Name)
+                                                            {
+                                                                NewName.clear();
+                                                                break;
+                                                            }
+                                                        }
+
+                                                        if (not NewName.empty())
+                                                        {
+                                                            Pair.first = &pDesc->m_MergeGroupList.emplace_back();
+                                                            Pair.first->m_Name = std::move(NewName);
+
+                                                            pDesc->AddNodeInGroupList(*Pair.first, CurrectNodePath);
+                                                            Pair.second = 0;
+                                                            break;
+                                                        }
+                                                    }
+                                                }
+
+                                                if (not pDesc->m_MergeGroupList.empty())
+                                                {
+                                                    if (ImGui::BeginMenu("Add to Merge Group"))
+                                                    {
+                                                        for (int i = 0; i < pDesc->m_MergeGroupList.size(); ++i)
+                                                        {
+                                                            // ImGui::PushID(&pDesc->m_MergeGroupList[i]);
+                                                            if (ImGui::MenuItem(pDesc->m_MergeGroupList[i].m_Name.c_str()))
+                                                            {
+                                                                pDesc->AddNodeInGroupList(pDesc->m_MergeGroupList[i], CurrectNodePath);
+                                                                Pair.first = &pDesc->m_MergeGroupList[i];
+                                                                Pair.second = (int)pDesc->m_MergeGroupList[i].m_NodePathList.size() - 1;
+                                                                break;
+                                                            }
+                                                            //ImGui::PopID();
+                                                        }
+
+                                                        ImGui::EndMenu();
+                                                    }
+                                                }
+                                            }
+                                        }
+
+
+
+                                        if (isDeleted == false)
+                                        {
+                                            if (ImGui::MenuItem("\xEE\x9D\x8D Delete Node"))
+                                            {
+                                                pDesc->AddNodeInDeleteList(CurrectNodePath, GeomStaticDetails);
+                                                isDeleted = true;
+                                            }
+                                        }
+                                        else if (isInDeletedList)
+                                        {
+                                            if (ImGui::MenuItem("\xEE\x9D\x8D UnDelete Node"))
+                                            {
+                                                pDesc->RemoveNodeFromDeleteList(CurrectNodePath, GeomStaticDetails);
+                                                isDeleted = true;
+                                            }
+                                        }
+
+                                        ImGui::PopStyleColor();
+                                        ImGui::EndPopup();
+                                    }
+                                    ImGui::PopID();
+                                }
+
+                                if (node_open)
+                                {
+                                    if (isDeleted) ImGui::PushStyleColor(ImGuiCol_Text, DeletedColor);
+                                    else if (Pair.first) ImGui::PushStyleColor(ImGuiCol_Text, GroupColor);
+
+                                    for (int idx : n.m_MeshList)
+                                    {
+                                        ImGuiTreeNodeFlags mesh_flags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+
+                                        const auto& m = d.m_MeshList[idx];
+
+                                        ImGui::TreeNodeEx((void*)(intptr_t)idx, mesh_flags, "\xEE\xAF\x92 %s", m.m_Name.c_str());
+
+                                        // Tooltip on hover
+                                        if (ImGui::IsItemHovered())
+                                        {
+                                            ImGui::BeginTooltip();
+                                            ImGui::PushStyleColor(ImGuiCol_Text, DefaultTextColor);
+
+                                            ImGui::Text("nFaces    : %d\n"
+                                                "nUVs      : %d\n"
+                                                "nColors   : %d\n"
+                                                "nMaterials: %d\n"
+                                                , m.m_NumFaces
+                                                , m.m_NumUVs
+                                                , m.m_NumColors
+                                                , m.m_MaterialList.size()
+                                            );
+                                            for (auto& mat : m.m_MaterialList)
+                                            {
+                                                ImGui::Text("%2d.%s\n", 1 + static_cast<int>(&mat - m.m_MaterialList.data()), d.m_MaterialList[mat].c_str());
+                                            }
+
+                                            ImGui::PopStyleColor();
+                                            ImGui::EndTooltip();
+                                        }
+                                    }
+                                    for (const auto& child : n.m_Children)
+                                    {
+                                        DisplayNode(child, d, !!Pair.first || bIncluded, isDeleted);
+                                    }
+                                    ImGui::TreePop();
+
+                                    if (isDeleted)  ImGui::PopStyleColor();
+                                    else if (Pair.first) ImGui::PopStyleColor();
+                                }
+
+                                // Restore the path
+                                CurrectNodePath.resize(prev_len);
+                            };
+
+                        // Display tree
+                        const bool node_open = [&]
+                            {
+                                if (pDesc->m_bMergeAllMeshes) return ImGui::TreeNodeEx(&GeomStaticDetails.m_RootNode, flags, "\xEE\xAF\x92 Root");
+                                else                          return ImGui::TreeNodeEx(&GeomStaticDetails.m_RootNode, flags, "Root");
+                            }();
+
+                        if (ImGui::BeginPopupContextItem("NodeContextMenu"))   // triggered by right-click on the node above
+                        {
+                            if (ImGui::MenuItem("Merge All as single mesh"))
+                            {
+                                // TODO: your merge logic here
+                                //ImGui::LogText("Merge all children of '%s'", n.m_Name.c_str());
+                            }
+                            ImGui::EndPopup();
+                        }
+
+                        if (node_open)
+                        {
+                            if (pDesc->m_bMergeAllMeshes)  ImGui::PushStyleColor(ImGuiCol_Text, GroupColor);
+
+                            CurrectNodePath = GeomStaticDetails.m_RootNode.m_Name;
+                            for (const auto& child : GeomStaticDetails.m_RootNode.m_Children)
+                            {
+                                DisplayNode(child, GeomStaticDetails, pDesc->m_bMergeAllMeshes, false);
+                            }
+
+                            ImGui::TreePop();
+                            if (pDesc->m_bMergeAllMeshes) ImGui::PopStyleColor();
+                        }
+
+                        // pop styles
+                        ImGui::PopStyleVar(4);
+                    }
+                }
+            });
+
+
+/*
         xproperty::settings::context Context;
         Inspector.Show(Context, [&]
         {
@@ -2079,7 +2331,7 @@ int E21_Example()
                 }
             }
         });
-
+*/
 
 
         InspectorDetails.Show(Context, [&] {});
