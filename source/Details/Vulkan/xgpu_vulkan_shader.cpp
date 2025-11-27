@@ -58,8 +58,7 @@ namespace xgpu::vulkan
         {
             case xgpu::shader::type::bit::VERTEX:
                 m_ShaderStageCreateInfo = VkPipelineShaderStageCreateInfo
-                {
-                  .sType    = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
+                { .sType    = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
                 , .stage    = VK_SHADER_STAGE_VERTEX_BIT
                 , .module   = m_VKShaderModule
                 , .pName    = Setup.m_EntryPoint
@@ -67,16 +66,21 @@ namespace xgpu::vulkan
             break;
             case xgpu::shader::type::bit::FRAGMENT:
                 m_ShaderStageCreateInfo = VkPipelineShaderStageCreateInfo
-                {
-                  .sType    = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
+                { .sType    = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
                 , .stage    = VK_SHADER_STAGE_FRAGMENT_BIT
                 , .module   = m_VKShaderModule
                 , .pName    = Setup.m_EntryPoint
                 };
             break;
-            default:
-                // TODO: Implement these too
-                assert(false);
+            case xgpu::shader::type::bit::GEOMETRY:
+                m_ShaderStageCreateInfo = VkPipelineShaderStageCreateInfo
+                { .sType    = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
+                , .stage    = VK_SHADER_STAGE_GEOMETRY_BIT
+                , .module   = m_VKShaderModule
+                , .pName    = Setup.m_EntryPoint
+                };
+                break;
+            default: assert(false);
         }
 
         return nullptr;

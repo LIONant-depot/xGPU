@@ -218,6 +218,8 @@ set(FRAG_SHADER_SOURCES
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticShadowMapCreation_frag.glsl"
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_frag.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_GridShader_frag.glsl"
+  "source/Examples/E21_StaticGeomEditor/E21_WireFrame_frag.glsl"
+
   )
 
 # List vertex shader sources 
@@ -240,6 +242,12 @@ set(VERT_SHADER_SOURCES
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticShadowMapCreation_vert.glsl"
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_vert.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_GridShader_vert.glsl"
+  "source/Examples/E21_StaticGeomEditor/E21_WireFrame_vert.glsl"
+  )
+
+# List geometry shader sources 
+set(GEOM_SHADER_SOURCES 
+  "source/Examples/E21_StaticGeomEditor/E21_WireFrame_geom.glsl"
   )
 
 # Generate headers
@@ -268,11 +276,23 @@ foreach(SHADER ${VERT_SHADER_SOURCES})
     list(APPEND GENERATED_HEADERS ${OUTPUT_FILE})
 endforeach()
 
+foreach(SHADER ${GEOM_SHADER_SOURCES})
+    get_filename_component(FILENAME ${SHADER} NAME_WE)
+    set(OUTPUT_FILE "${CMAKE_BINARY_DIR}/sprv_shaders_h/${FILENAME}.h")
+    add_custom_command(
+        OUTPUT ${OUTPUT_FILE}
+        COMMAND ${GLSLC} -fshader-stage=geom "${CMAKE_CURRENT_SOURCE_DIR}/${SHADER}" -mfmt=num -o ${OUTPUT_FILE}
+        DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${SHADER}"
+        COMMENT "Compiling geometry shader ${SHADER}"
+    )
+    list(APPEND GENERATED_HEADERS ${OUTPUT_FILE})
+endforeach()
+
 # Include the output directory for headers
 include_directories("${CMAKE_BINARY_DIR}/sprv_shaders_h")
 
 # Create a single collection for all shaders
-set(SHADER_SOURCES ${FRAG_SHADER_SOURCES} ${VERT_SHADER_SOURCES})
+set(SHADER_SOURCES ${FRAG_SHADER_SOURCES} ${VERT_SHADER_SOURCES} ${GEOM_SHADER_SOURCES})
 
 # Treat shaders as header files so that we can add them as part of the sources
 set_source_files_properties(${SHADER_SOURCES} PROPERTIES HEADER_FILE_ONLY TRUE)
@@ -587,6 +607,9 @@ source_group("Examples/E21_StaticGeomEditor/Shaders" FILES
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_frag.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_GridShader_frag.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_GridShader_vert.glsl"
+  "source/Examples/E21_StaticGeomEditor/E21_WireFrame_frag.glsl"
+  "source/Examples/E21_StaticGeomEditor/E21_WireFrame_vert.glsl"
+  "source/Examples/E21_StaticGeomEditor/E21_WireFrame_geom.glsl"
 )
 
 source_group("Examples/E21_StaticGeomEditor/Shaders/Headers" FILES
@@ -596,6 +619,9 @@ source_group("Examples/E21_StaticGeomEditor/Shaders/Headers" FILES
   "${CMAKE_BINARY_DIR}/sprv_shaders_h/GeomStaticBasicShader_frag.h"
   "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_GridShader_vert.h"
   "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_GridShader_frag.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_WireFrame_frag.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_WireFrame_vert.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_WireFrame_geom.h"
 )
 
 

@@ -68,6 +68,22 @@ namespace e21
         #include "E21_GridShader_frag.h"
     };
 
+    constexpr static std::uint32_t g_WireframeFragShader[] =
+    {
+        #include "E21_WireFrame_frag.h"
+    };
+
+    constexpr static std::uint32_t g_WireframeVertShader[] =
+    {
+        #include "E21_WireFrame_vert.h"
+    };
+
+    constexpr static std::uint32_t g_WireframeGeomShader[] =
+    {
+        #include "E21_WireFrame_geom.h"
+    };
+
+
 
     static void Debugger(std::string_view view)
     {
@@ -835,7 +851,7 @@ int E21_Example()
 
         auto UBuffersUsage = std::array { xgpu::pipeline::uniform_binds { .m_BindIndex  = 0         // ClusterUniforms clusters[], bind 0 set 1, never changes
                                                                         , .m_Usage      = xgpu::shader::type{xgpu::shader::type::bit::VERTEX}
-                                                                        , .m_Type       = xgpu::pipeline::uniform_binds::type::SSBO_STATIC  // Static = big array + push_constant index
+                                                                        , .m_Type       = xgpu::pipeline::uniform_binds::type::SSBO_STATIC     // Static = big array + push_constant index
                                                                         }      
                                         };
 
@@ -855,10 +871,16 @@ int E21_Example()
 
         xgpu::pipeline ShadowGenerationPipeLine;
         if (auto Err = Device.Create(ShadowGenerationPipeLine, Setup); Err)
+        {
+            assert(false);
             return xgpu::getErrorInt(Err);
+        }
 
         if (auto Err = Device.Create(ShadowGenerationPipeLineInstance, { .m_PipeLine = ShadowGenerationPipeLine }); Err)
+        {
+            assert(false);
             return xgpu::getErrorInt(Err);
+        }
     }
 
     //
@@ -868,7 +890,10 @@ int E21_Example()
     xgpu::texture    ShadowMapTexture;
     {
         if (auto Err = Device.Create(ShadowMapTexture, { .m_Format = xgpu::texture::format::DEPTH_U16, .m_Width = 1024, .m_Height = 1024, .m_isGamma = false }); Err)
+        {
+            assert(false);
             return xgpu::getErrorInt(Err);
+        }
 
         std::array<xgpu::renderpass::attachment, 1> Attachments
         {
@@ -876,8 +901,100 @@ int E21_Example()
         };
 
         if (auto Err = Device.Create(RenderPass, { .m_Attachments = Attachments }); Err)
+        {
+            assert(false);
             return xgpu::getErrorInt(Err);
+        }
     }
+
+    //
+    // Wire frame material
+    //
+    struct alignas(256) wireframe_UBO_geom_static_mesh
+    {
+        xmath::fmat4  m_L2w;
+        xmath::fmat4  m_w2C;
+    };
+
+    xgpu::buffer WireFrameDynamicUBOMesh;
+    if (auto Err = Device.Create(WireFrameDynamicUBOMesh, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(wireframe_UBO_geom_static_mesh), .m_EntryCount = 100 }); Err)
+        return xgpu::getErrorInt(Err);
+
+    xgpu::pipeline_instance WireFramePipeLineInstance3D;
+    xgpu::pipeline          WireFramePipeline3D;
+    {
+        xgpu::shader FragmentShader3D;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type   = xgpu::shader::type::bit::FRAGMENT
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e21::g_WireframeFragShader, sizeof(e21::g_WireframeFragShader) / sizeof(int)}}
+            };
+            if (auto Err = Device.Create(FragmentShader3D, Setup); Err)
+            {
+                assert(false);
+                return xgpu::getErrorInt(Err);
+            }
+        }
+
+        xgpu::shader VertexShader3D;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type   = xgpu::shader::type::bit::VERTEX
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e21::g_WireframeVertShader, sizeof(e21::g_WireframeVertShader) / sizeof(int)}}
+            };
+
+            if (auto Err = Device.Create(VertexShader3D, Setup); Err)
+            {
+                assert(false);
+                return xgpu::getErrorInt(Err);
+            }
+        }
+
+        xgpu::shader GeomShader3D;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type   = xgpu::shader::type::bit::GEOMETRY
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e21::g_WireframeGeomShader, sizeof(e21::g_WireframeGeomShader) / sizeof(int)}}
+            };
+
+            if (auto Err = Device.Create(GeomShader3D, Setup); Err)
+            {
+                assert(false);
+                return xgpu::getErrorInt(Err);
+            }
+        }
+
+        auto Shaders       = std::array<const xgpu::shader*, 3>{ &FragmentShader3D, &GeomShader3D, &VertexShader3D };
+        auto UBuffersUsage = std::array { xgpu::pipeline::uniform_binds { .m_BindIndex  = 0         // MeshUniforms, bind 0 set 2, changes per mesh/draw call
+                                                                        , .m_Usage      = { .m_bVertex = true }
+                                                                        , .m_Type       = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC      // MUST be dynamic (per object)
+                                                                        }      
+                                        , xgpu::pipeline::uniform_binds { .m_BindIndex  = 0         // ClusterUniforms clusters[], bind 0 set 1, never changes
+                                                                        , .m_Usage      = xgpu::shader::type{xgpu::shader::type::bit::VERTEX}
+                                                                        , .m_Type       = xgpu::pipeline::uniform_binds::type::SSBO_STATIC     // Static = big array + push_constant index
+                                                                        }      
+                                        };
+        auto Setup      = xgpu::pipeline::setup
+        { .m_VertexDescriptor   = ShadowmapCreationVertexDescriptor
+        , .m_Shaders            = Shaders
+        , .m_PushConstantsSize  = sizeof(static_geom_push_const)
+        , .m_UniformBinds       = UBuffersUsage
+        , .m_Blend              = xgpu::pipeline::blend::getAlphaOriginal()
+        };
+
+        if (auto Err = Device.Create(WireFramePipeline3D, Setup); Err)
+        {
+            assert(false);
+            return xgpu::getErrorInt(Err);
+        }
+
+        if (auto Err = Device.Create(WireFramePipeLineInstance3D, { .m_PipeLine = WireFramePipeline3D }); Err)
+        {
+            assert(false);
+            return xgpu::getErrorInt(Err);
+        }
+    }
+
 
 
     //
@@ -1362,7 +1479,6 @@ int E21_Example()
             LightingView.setViewport({ 0, 0, static_cast<int>(1024), static_cast<int>(1024) });
             View.setViewport({ 0, 0, static_cast<int>(MainWindowWidth), static_cast<int>(MainWindowHeight) });
 
-
             //
             // Render the shadow scene
             //
@@ -1386,8 +1502,8 @@ int E21_Example()
                     LightingView.LookAt(distance, xmath::radian3(L.Pitch(), L.Yaw(), 0_xdeg), p->m_BBox.getCenter());
                 }
                 
-                
-                auto                                CmdBuffer               = MainWindow.StartRenderPass(RenderPass);
+
+                auto CmdBuffer = MainWindow.StartRenderPass(RenderPass);
 
                 std::array StaticUBO{ &p->ClusterBuffer() };
                 CmdBuffer.setPipelineInstance(ShadowGenerationPipeLineInstance, StaticUBO);
@@ -1447,15 +1563,17 @@ int E21_Example()
                 View.LookAt(Distance, Angles, CameraTarget);
 
                 const float maxY = p->m_BBox.m_Min.m_Y;
-            
+                const auto L2w   = xmath::fmat4::fromTranslation(-View.getPosition()) * xmath::fmat4::fromTranslation({ 0, 0, 0 });
+                const auto w2C   = View.getW2C() * xmath::fmat4::fromTranslation(View.getPosition());
+
                 // Render the mesh
                 {
                     CmdBuffer.setStreamingBuffers({ &p->IndexBuffer(),3 });
 
                     {
-                        auto& MeshUBO = StaticGeomDynamicUBOMesh.allocEntry<ubo_geom_static_mesh>();
-                        MeshUBO.m_L2w = xmath::fmat4::fromTranslation(-View.getPosition()) * xmath::fmat4::fromTranslation({ 0, 0, 0 });
-                        MeshUBO.m_w2C = View.getW2C() * xmath::fmat4::fromTranslation(View.getPosition());
+                        auto& MeshUBO       = StaticGeomDynamicUBOMesh.allocEntry<ubo_geom_static_mesh>();
+                        MeshUBO.m_L2w       = L2w;
+                        MeshUBO.m_w2C       = w2C;
                         MeshUBO.m_L2CShadow = C2T * ShadowGenerationPushC.m_L2C;
 
                         MeshUBO.m_LightColor        = xmath::fvec4(1);
@@ -1474,6 +1592,39 @@ int E21_Example()
                                 CmdBuffer.setPipelineInstance(Mesh3DMatInstance[S.m_iMaterial], StaticUBO);
                                 CmdBuffer.setDynamicUBO(StaticGeomDynamicUBOMesh, 0);
 
+                                static_geom_push_const PustConst{ .m_ClusterIndex = S.m_iCluster };
+                                for (auto& C : p->getClusters().subspan(S.m_iCluster, S.m_nCluster))
+                                {
+                                    CmdBuffer.setPushConstants(PustConst);
+                                    CmdBuffer.Draw(C.m_nIndices, C.m_iIndex, C.m_iVertex);
+                                    PustConst.m_ClusterIndex++;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                //
+                // Render wireframe
+                //
+                {
+                    std::array StaticUBO{ &p->ClusterBuffer() };
+                    CmdBuffer.setPipelineInstance(WireFramePipeLineInstance3D, StaticUBO);
+
+                    {
+                        auto& MeshUBO = WireFrameDynamicUBOMesh.allocEntry<wireframe_UBO_geom_static_mesh>();
+                        MeshUBO.m_w2C = w2C;
+                        MeshUBO.m_L2w = L2w;
+                    }
+
+                    CmdBuffer.setDynamicUBO(WireFrameDynamicUBOMesh, 0);
+
+                    for (auto& M : p->getMeshes())
+                    {
+                        for (auto& L : p->getLODs().subspan(M.m_iLOD, M.m_nLODs))
+                        {
+                            for (auto& S : p->getSubmeshes().subspan(L.m_iSubmesh, L.m_nSubmesh))
+                            {
                                 static_geom_push_const PustConst{ .m_ClusterIndex = S.m_iCluster };
                                 for (auto& C : p->getClusters().subspan(S.m_iCluster, S.m_nCluster))
                                 {
