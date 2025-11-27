@@ -47,8 +47,8 @@ namespace xgpu::windows
     ,   xgpu::keyboard::digital::KEY_DOWN                      // 40
     ,   xgpu::keyboard::digital::KEY_NULL                      // 41
     ,   xgpu::keyboard::digital::KEY_NULL                      // 42
-    ,   xgpu::keyboard::digital::KEY_PLUS                      // 43
-    ,   xgpu::keyboard::digital::KEY_COMMA                     // 44
+    ,   xgpu::keyboard::digital::KEY_NULL                      // 43
+    ,   xgpu::keyboard::digital::KEY_NULL                      // 44
     ,   xgpu::keyboard::digital::KEY_INSERT                    // 45
     ,   xgpu::keyboard::digital::KEY_DELETE                    // 46
     ,   xgpu::keyboard::digital::KEY_SLASH                     // 47
@@ -190,10 +190,10 @@ namespace xgpu::windows
     ,   xgpu::keyboard::digital::KEY_NULL                      // 183
     ,   xgpu::keyboard::digital::KEY_NULL                      // 184
     ,   xgpu::keyboard::digital::KEY_NULL                      // 185
-    ,   xgpu::keyboard::digital::KEY_NULL                      // 186
-    ,   xgpu::keyboard::digital::KEY_NULL                      // 187
-    ,   xgpu::keyboard::digital::KEY_NULL                      // 188
-    ,   xgpu::keyboard::digital::KEY_COMMA                     // 189
+    ,   xgpu::keyboard::digital::KEY_SEMICOLON                 // 186
+    ,   xgpu::keyboard::digital::KEY_EQUALS                    // 187
+    ,   xgpu::keyboard::digital::KEY_COMMA                     // 188
+    ,   xgpu::keyboard::digital::KEY_MINUS                     // 189
     ,   xgpu::keyboard::digital::KEY_PERIOD                    // 190
     ,   xgpu::keyboard::digital::KEY_SLASH                     // 191
     ,   xgpu::keyboard::digital::KEY_TILDE                     // 192
@@ -223,10 +223,10 @@ namespace xgpu::windows
     ,   xgpu::keyboard::digital::KEY_NULL                      // 216
     ,   xgpu::keyboard::digital::KEY_NULL                      // 217
     ,   xgpu::keyboard::digital::KEY_NULL                      // 218
-    ,   xgpu::keyboard::digital::KEY_NULL                      // 219
-    ,   xgpu::keyboard::digital::KEY_NULL                      // 220
-    ,   xgpu::keyboard::digital::KEY_NULL                      // 221
-    ,   xgpu::keyboard::digital::KEY_NULL                      // 222
+    ,   xgpu::keyboard::digital::KEY_LBRACKET                  // 219
+    ,   xgpu::keyboard::digital::KEY_BACKSLASH                 // 220
+    ,   xgpu::keyboard::digital::KEY_RBRACKET                  // 221
+    ,   xgpu::keyboard::digital::KEY_APOSTROPHE                // 222
     ,   xgpu::keyboard::digital::KEY_NULL                      // 223
     ,   xgpu::keyboard::digital::KEY_NULL                      // 224
     ,   xgpu::keyboard::digital::KEY_NULL                      // 225
