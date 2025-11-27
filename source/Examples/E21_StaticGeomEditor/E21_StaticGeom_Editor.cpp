@@ -83,6 +83,20 @@ namespace e21
         #include "E21_WireFrame_geom.h"
     };
 
+    constexpr static std::uint32_t g_DebugNormalFragShader[] =
+    {
+        #include "E21_DebugNormalRender_frag.h"
+    };
+
+    constexpr static std::uint32_t g_DebugNormalVertShader[] =
+    {
+        #include "E21_DebugNormalRender_vert.h"
+    };
+
+    constexpr static std::uint32_t g_DebugNormalGeomShader[] =
+    {
+        #include "E21_DebugNormalRender_geom.h"
+    };
 
 
     static void Debugger(std::string_view view)
@@ -792,8 +806,136 @@ int E21_Example()
             assert(false);
             return xgpu::getErrorInt(Err);
         }
-            
     }
+
+    //
+    // Material of all static geometry
+    //
+    struct alignas(256) debug_normal_ubo_entry
+    {
+        xmath::fmat4 m_L2C;       
+        xmath::fvec4 m_ScaleFactor;
+    };
+
+    xgpu::buffer DebugNormalDynamicUBOMesh;
+    if (auto Err = Device.Create(DebugNormalDynamicUBOMesh, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(debug_normal_ubo_entry), .m_EntryCount = 100 }); Err)
+        return xgpu::getErrorInt(Err);
+
+    struct debug_normal_push_const
+    {
+        std::uint32_t       m_ClusterIndex;         // Which cluster we are going to be using
+    };
+
+    xgpu::pipeline_instance DebugNormalPipeLineInstance;
+    {
+        //
+        // These registration should be factor-out
+        // 
+        xgpu::vertex_descriptor GeomStaticVertexDescriptor;
+        {
+            auto Attributes = std::array
+            {
+                xgpu::vertex_descriptor::attribute
+                { .m_Offset  = offsetof(xgeom_static::geom::vertex, m_XPos)
+                , .m_Format  = xgpu::vertex_descriptor::format::SINT16_4D           // Position + extras
+                , .m_iStream = 0
+                }
+                , xgpu::vertex_descriptor::attribute
+                { .m_Offset  = offsetof(xgeom_static::geom::vertex_extras, m_UV)
+                , .m_Format  = xgpu::vertex_descriptor::format::UINT16_2D           // UV
+                , .m_iStream = 1
+                }
+                , xgpu::vertex_descriptor::attribute
+                { .m_Offset  = offsetof(xgeom_static::geom::vertex_extras, m_OctNormal)
+                , .m_Format  = xgpu::vertex_descriptor::format::UINT8_4D           // oct normal + tangent
+                , .m_iStream = 1
+                }
+            };
+            if (auto Err = Device.Create(GeomStaticVertexDescriptor
+            , xgpu::vertex_descriptor::setup
+            { .m_bUseStreaming  = true
+            , .m_Topology       = xgpu::vertex_descriptor::topology::TRIANGLE_LIST
+            , .m_VertexSize     = 0
+            , .m_Attributes     = Attributes
+            }); Err )
+            {
+                assert(false);
+            }
+        }
+
+        xgpu::shader FragmentShader3D;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type   = xgpu::shader::type::bit::FRAGMENT
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e21::g_DebugNormalFragShader, sizeof(e21::g_DebugNormalFragShader) / sizeof(int)}}
+            };
+            if (auto Err = Device.Create(FragmentShader3D, Setup); Err)
+            {
+                assert(false);
+                return xgpu::getErrorInt(Err);
+            }
+        }
+
+        xgpu::shader VertexShader3D;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type   = xgpu::shader::type::bit::VERTEX
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e21::g_DebugNormalVertShader, sizeof(e21::g_DebugNormalVertShader) / sizeof(int)}}
+            };
+
+            if (auto Err = Device.Create(VertexShader3D, Setup); Err)
+            {
+                assert(false);
+                return xgpu::getErrorInt(Err);
+            }
+        }
+
+        xgpu::shader GeomShader3D;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type = xgpu::shader::type::bit::GEOMETRY
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e21::g_DebugNormalGeomShader, sizeof(e21::g_DebugNormalGeomShader) / sizeof(int)}}
+            };
+
+            if (auto Err = Device.Create(GeomShader3D, Setup); Err)
+            {
+                assert(false);
+                return xgpu::getErrorInt(Err);
+            }
+        }
+
+        auto Shaders    = std::array<const xgpu::shader*, 3>{ &FragmentShader3D, &VertexShader3D, &GeomShader3D };
+        auto UBuffersUsage = std::array { xgpu::pipeline::uniform_binds { .m_BindIndex  = 0         // MeshUniforms, bind 0 set 2, changes per mesh/draw call
+                                                                        , .m_Usage      = { .m_bVertex = true }
+                                                                        , .m_Type       = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC      // MUST be dynamic (per object)
+                                                                        }      
+                                        , xgpu::pipeline::uniform_binds { .m_BindIndex  = 0         // ClusterUniforms clusters[], bind 0 set 1, never changes
+                                                                        , .m_Usage      = xgpu::shader::type{xgpu::shader::type::bit::VERTEX}
+                                                                        , .m_Type       = xgpu::pipeline::uniform_binds::type::SSBO_STATIC     // Static = big array + push_constant index
+                                                                        }      
+                                        };
+        auto Setup      = xgpu::pipeline::setup
+        { .m_VertexDescriptor   = GeomStaticVertexDescriptor
+        , .m_Shaders            = Shaders
+        , .m_PushConstantsSize  = sizeof(debug_normal_push_const)
+        , .m_UniformBinds       = UBuffersUsage
+        , .m_Blend              = xgpu::pipeline::blend::getAlphaOriginal()
+        };
+
+        xgpu::pipeline DebugNormalPipeline3D;
+        if (auto Err = Device.Create(DebugNormalPipeline3D, Setup); Err)
+        {
+            assert(false);
+            return xgpu::getErrorInt(Err);
+        }
+
+        if (auto Err = Device.Create(DebugNormalPipeLineInstance, { .m_PipeLine = DebugNormalPipeline3D }); Err)
+        {
+            assert(false);
+            return xgpu::getErrorInt(Err);
+        }
+    }
+
 
     //
     // Shadow map creation vertex descriptor
@@ -1430,6 +1572,7 @@ int E21_Example()
     }>();
 
     bool ResetAssetBroswerPosiotion = false;
+    bool LightFollowsCamera = false;
 
     //
     // Main Loop
@@ -1470,6 +1613,11 @@ int E21_Example()
                     Distance = 0.5f;
                 }
             }
+
+            if (Keyboard.wasPressed(xgpu::keyboard::digital::KEY_SPACE))
+            {
+                LightFollowsCamera = !LightFollowsCamera;
+            }
         }
 
         if (not Mesh3DMatInstance.empty())
@@ -1484,6 +1632,12 @@ int E21_Example()
             //
             if (auto p = xresource::g_Mgr.getResource(SelectedDescriptor.m_GeomRef); p)
             {
+                if (LightFollowsCamera)
+                {
+                    LightDirection = -View.getPosition();
+                    LightDirection.NormalizeSafeCopy();
+                }
+
                 //
                 // Make the shadow view look at the object
                 //
@@ -1578,7 +1732,7 @@ int E21_Example()
 
                         MeshUBO.m_LightColor        = xmath::fvec4(1);
                         MeshUBO.m_AmbientLightColor = xmath::fvec4(0.5f);
-                        MeshUBO.m_wSpaceLightPos    = xmath::fvec4(LightingView.getPosition() - View.getPosition(), 1.0f);
+                        MeshUBO.m_wSpaceLightPos    = xmath::fvec4(LightingView.getPosition() - View.getPosition(), p->m_BBox.getRadius());
                         MeshUBO.m_wSpaceEyePos      = xmath::fvec4(0);
                     }
 
@@ -1607,6 +1761,7 @@ int E21_Example()
                 //
                 // Render wireframe
                 //
+                if (0)
                 {
                     std::array StaticUBO{ &p->ClusterBuffer() };
                     CmdBuffer.setPipelineInstance(WireFramePipeLineInstance3D, StaticUBO);
@@ -1652,6 +1807,42 @@ int E21_Example()
                     CmdBuffer.setDynamicUBO(GridDynamicUBO, 0);
                     MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE3D);
                 }
+
+
+                //
+                // Render Normal
+                //
+                {
+                    std::array StaticUBO{ &p->ClusterBuffer() };
+                    CmdBuffer.setPipelineInstance(DebugNormalPipeLineInstance, StaticUBO);
+
+                    {
+                        auto& MeshUBO = DebugNormalDynamicUBOMesh.allocEntry<debug_normal_ubo_entry>();
+                        MeshUBO.m_L2C = w2C * L2w;
+                        MeshUBO.m_ScaleFactor = xmath::fvec4(1,0,0,0.05f);
+                    }
+
+                    CmdBuffer.setDynamicUBO(DebugNormalDynamicUBOMesh, 0);
+                    CmdBuffer.setStreamingBuffers({ &p->IndexBuffer(),3 });
+
+                    for (auto& M : p->getMeshes())
+                    {
+                        for (auto& L : p->getLODs().subspan(M.m_iLOD, M.m_nLODs))
+                        {
+                            for (auto& S : p->getSubmeshes().subspan(L.m_iSubmesh, L.m_nSubmesh))
+                            {
+                                debug_normal_push_const PustConst{ .m_ClusterIndex = S.m_iCluster };
+                                for (auto& C : p->getClusters().subspan(S.m_iCluster, S.m_nCluster))
+                                {
+                                    CmdBuffer.setPushConstants(PustConst);
+                                    CmdBuffer.Draw(C.m_nIndices, C.m_iIndex, C.m_iVertex);
+                                    PustConst.m_ClusterIndex++;
+                                }
+                            }
+                        }
+                    }
+                }
+
             }
         }
 

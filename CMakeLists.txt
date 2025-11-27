@@ -219,6 +219,7 @@ set(FRAG_SHADER_SOURCES
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_frag.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_GridShader_frag.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_WireFrame_frag.glsl"
+  "source/Examples/E21_StaticGeomEditor/E21_DebugNormalRender_frag.glsl"
 
   )
 
@@ -243,11 +244,13 @@ set(VERT_SHADER_SOURCES
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_vert.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_GridShader_vert.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_WireFrame_vert.glsl"
+  "source/Examples/E21_StaticGeomEditor/E21_DebugNormalRender_vert.glsl"
   )
 
 # List geometry shader sources 
 set(GEOM_SHADER_SOURCES 
   "source/Examples/E21_StaticGeomEditor/E21_WireFrame_geom.glsl"
+  "source/Examples/E21_StaticGeomEditor/E21_DebugNormalRender_geom.glsl"
   )
 
 # Generate headers
@@ -610,6 +613,9 @@ source_group("Examples/E21_StaticGeomEditor/Shaders" FILES
   "source/Examples/E21_StaticGeomEditor/E21_WireFrame_frag.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_WireFrame_vert.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_WireFrame_geom.glsl"
+  "source/Examples/E21_StaticGeomEditor/E21_DebugNormalRender_vert.glsl"
+  "source/Examples/E21_StaticGeomEditor/E21_DebugNormalRender_geom.glsl"
+  "source/Examples/E21_StaticGeomEditor/E21_DebugNormalRender_frag.glsl"
 )
 
 source_group("Examples/E21_StaticGeomEditor/Shaders/Headers" FILES
@@ -622,6 +628,9 @@ source_group("Examples/E21_StaticGeomEditor/Shaders/Headers" FILES
   "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_WireFrame_frag.h"
   "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_WireFrame_vert.h"
   "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_WireFrame_geom.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_DebugNormalRender_vert.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_DebugNormalRender_geom.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_DebugNormalRender_frag.h"
 )
 
 
