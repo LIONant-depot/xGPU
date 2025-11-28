@@ -17,6 +17,7 @@ layout(set = 2, binding = 0) uniform MeshUniforms
 {
     mat4 L2C;          // Small world -> clip space (projection * view)
     vec4 ScaleFactor;
+    vec4 Color;
 } mesh;
 
 // Cluster struct
@@ -47,6 +48,7 @@ layout(location = 2) in uvec4 in_OctNormTan;    // high 8 bits of oct normal/tan
 // Fragment shader inputs
 layout(location = 0) out vec4 out_A;
 layout(location = 1) out vec4 out_B;
+layout(location = 2) out vec4 out_Color;
 
 void main()
 {
@@ -83,18 +85,23 @@ void main()
     const vec3 Binormal    = cross(Normal, Tangent) * binormal_sign;
 
     // Transform to all needed spaces
-    out_A  = mesh.L2C * local_pos;
-    out_B =  mesh.L2C * vec4(local_pos.xyz + Normal * mesh.ScaleFactor.www, 1.0);
+   // out_A  = mesh.L2C * local_pos;
+   // out_B =  mesh.L2C * vec4(local_pos.xyz + Normal * mesh.ScaleFactor.www, 1.0);
 
 
-    float uMaxDepth = mesh.ScaleFactor.w*32;
+    float uMaxDepth = mesh.ScaleFactor.w;
 
     // Try to keep the normal the same size in the screen
-    out_A = mesh.L2C * local_pos;
-    vec4 normal_dir_clip = mesh.L2C * vec4(Normal, 0.0);
-    float depth_scale = min(out_A.w, uMaxDepth);
-    out_B = out_A + normalize(normal_dir_clip) * ( 30 * depth_scale * 0.001);
+    vec3 Axis = Tangent  * mesh.ScaleFactor.xxx
+              + Binormal * mesh.ScaleFactor.yyy
+              + Normal   * mesh.ScaleFactor.zzz;
 
+    out_A = mesh.L2C * local_pos;
+    vec4 dir_clip = mesh.L2C * vec4(Axis, 0.0);
+    float depth_scale = min(out_A.w, uMaxDepth);
+    out_B = out_A + normalize(dir_clip) * ( 30 * depth_scale * 0.001);
+
+    out_Color = mesh.Color;
 
     // Render the normal always the same size...
     //vec4 normal_dir_clip = mesh.L2C * vec4(Normal, 0.0);  // Direction in clip space

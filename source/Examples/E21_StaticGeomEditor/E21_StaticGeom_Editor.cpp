@@ -644,7 +644,68 @@ namespace e21
 
         return Ref;
     }
+
+
+    struct render_settings
+    {
+        render_settings()
+        {
+            clear();
+        }
+
+        void clear()
+        {
+            m_View = {};
+            m_View.setFov(60_xdeg);
+            m_CameraTarget = { 0, 0, 0 };
+            m_Angles = {};
+            m_Distance = -1;    // Let it to automatically compute it
+
+            m_LightingView = {};
+            m_LightingView.setFov(46_xdeg);
+            m_LightDirection = { -1, -2, 0 };
+            m_LightDirection.NormalizeSafe();
+
+            m_bWireFrame            = false;
+            m_bTangents             = false;
+            m_bBinormals            = false;
+            m_bNormals              = false;
+            m_LightFollowsCamera    = false;
+        }
+
+        xgpu::tools::view   m_View;
+        xmath::radian3      m_Angles;
+        float               m_Distance;   
+        xmath::fvec3        m_CameraTarget;
+        xgpu::tools::view   m_LightingView;
+        xmath::fvec3        m_LightDirection;
+        bool                m_bWireFrame;
+        bool                m_bTangents;
+        bool                m_bBinormals;
+        bool                m_bNormals;
+        bool                m_LightFollowsCamera;
+
+        XPROPERTY_DEF
+        ( "Render Settings", render_settings
+        , obj_scope < "Camera Info"
+            , obj_member<"Position", +[](render_settings& O)->auto& { static xmath::fvec3 Pos; Pos = O.m_View.getPosition(); return Pos; }>
+            , obj_member<"Target",   &render_settings::m_CameraTarget >
+            >
+        , obj_scope< "Lighting Info"
+            , obj_member<"Direction",           &render_settings::m_LightDirection >
+            , obj_member<"LightFollowsCamera",  &render_settings::m_LightFollowsCamera >
+            >
+        , obj_scope< "Debug Geometry"
+            , obj_member<"WireFrame",    &render_settings::m_bWireFrame >
+            , obj_member<"Tangents",     &render_settings::m_bTangents >
+            , obj_member<"Binormals",    &render_settings::m_bBinormals >
+            , obj_member<"Normals",      &render_settings::m_bNormals >
+            >
+        )
+    };
+    XPROPERTY_REG(render_settings)
 }
+
 
 int E21_Example()
 {
@@ -815,6 +876,7 @@ int E21_Example()
     {
         xmath::fmat4 m_L2C;       
         xmath::fvec4 m_ScaleFactor;
+        xmath::fvec4 m_Color;
     };
 
     xgpu::buffer DebugNormalDynamicUBOMesh;
@@ -1429,20 +1491,7 @@ int E21_Example()
     //
     // Setup all the views...
     //
-    xgpu::tools::view   View        = {};
-    xmath::radian3      Angles      = {};
-    float               Distance    = -1;   // Let it to automatically compute it
-    xmath::fvec3        CameraTarget(0, 0, 0);
-    View.setFov(60_xdeg);
-
-    xgpu::tools::view LightingView;
-    LightingView.setFov(46_xdeg);
-    LightingView.setViewport({ 0,0,ShadowMapTexture.getTextureDimensions()[0], ShadowMapTexture.getTextureDimensions()[1] });
-    //LightingView.setNearZ(0.5f);
-
-    xmath::fvec3 LightDirection (-1, -2, 0);
-
-    LightDirection.NormalizeSafe();
+    e21::render_settings     Settings;
 
     //
     //create input devices
@@ -1460,6 +1509,7 @@ int E21_Example()
         xresource::g_Mgr.ReleaseRef(Ref);
     });
 
+    xproperty::inspector    InspectorSettings("Rendering Settings");
     xproperty::inspector    Inspector("Static Geom Properties");
     auto                    RenderResourceWigzmosCallBack = [&TextureLRU](xproperty::inspector&, bool& bOpen, const xresource::full_guid& PreFullGuid) { RenderResourceWigzmos(TextureLRU, bOpen, PreFullGuid); };
     Inspector.m_OnResourceWigzmos.m_Delegates.clear();
@@ -1468,7 +1518,7 @@ int E21_Example()
 
 
     // Theme the property dialogs to be more readable
-    for (auto& E : std::array{ &Inspector })
+    for (auto& E : std::array{ &Inspector, &InspectorSettings })
     {
         E->m_Settings.m_ColorVScalar1 = 0.270f * 1.4f;
         E->m_Settings.m_ColorVScalar2 = 0.305f * 1.4f;
@@ -1572,7 +1622,6 @@ int E21_Example()
     }>();
 
     bool ResetAssetBroswerPosiotion = false;
-    bool LightFollowsCamera = false;
 
     //
     // Main Loop
@@ -1593,30 +1642,30 @@ int E21_Example()
             if (Mouse.isPressed(xgpu::mouse::digital::BTN_RIGHT))
             {
                 auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
-                Angles.m_Pitch.m_Value -= 0.01f * MousePos[1];
-                Angles.m_Yaw.m_Value -= 0.01f * MousePos[0];
+                Settings.m_Angles.m_Pitch.m_Value -= 0.01f * MousePos[1];
+                Settings.m_Angles.m_Yaw.m_Value -= 0.01f * MousePos[0];
             }
 
             if (Mouse.isPressed(xgpu::mouse::digital::BTN_MIDDLE))
             {
                 auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
-                CameraTarget += View.getWorldYVector() * (0.005f * MousePos[1]);
-                CameraTarget += View.getWorldXVector() * (0.005f * MousePos[0]);
+                Settings.m_CameraTarget += Settings.m_View.getWorldYVector() * (0.005f * MousePos[1]);
+                Settings.m_CameraTarget += Settings.m_View.getWorldXVector() * (0.005f * MousePos[0]);
             }
 
-            if (Distance != -1)
+            if (Settings.m_Distance != -1)
             {
-                Distance += Distance * -0.2f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
-                if (Distance < 0.5f)
+                Settings.m_Distance += Settings.m_Distance * -0.2f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
+                if (Settings.m_Distance < 0.5f)
                 {
-                    CameraTarget += View.getWorldZVector() * (0.5f * (0.5f - Distance));
-                    Distance = 0.5f;
+                    Settings.m_CameraTarget += Settings.m_View.getWorldZVector() * (0.5f * (0.5f - Settings.m_Distance));
+                    Settings.m_Distance = 0.5f;
                 }
             }
 
             if (Keyboard.wasPressed(xgpu::keyboard::digital::KEY_SPACE))
             {
-                LightFollowsCamera = !LightFollowsCamera;
+                Settings.m_LightFollowsCamera = !Settings.m_LightFollowsCamera;
             }
         }
 
@@ -1624,18 +1673,19 @@ int E21_Example()
         {
             shadow_generation_push_constants    ShadowGenerationPushC;
 
-            LightingView.setViewport({ 0, 0, static_cast<int>(1024), static_cast<int>(1024) });
-            View.setViewport({ 0, 0, static_cast<int>(MainWindowWidth), static_cast<int>(MainWindowHeight) });
+            // Update view ports in case something has changed.
+            Settings.m_LightingView.setViewport({ 0,0,ShadowMapTexture.getTextureDimensions()[0], ShadowMapTexture.getTextureDimensions()[1] });
+            Settings.m_View.setViewport({ 0, 0, static_cast<int>(MainWindowWidth), static_cast<int>(MainWindowHeight) });
 
             //
             // Render the shadow scene
             //
             if (auto p = xresource::g_Mgr.getResource(SelectedDescriptor.m_GeomRef); p)
             {
-                if (LightFollowsCamera)
+                if (Settings.m_LightFollowsCamera)
                 {
-                    LightDirection = -View.getPosition();
-                    LightDirection.NormalizeSafeCopy();
+                    Settings.m_LightDirection = -Settings.m_View.getPosition();
+                    Settings.m_LightDirection.NormalizeSafeCopy();
                 }
 
                 //
@@ -1643,17 +1693,17 @@ int E21_Example()
                 //
                 {
                     // Help compute the distance to keep the object inside the view port
-                    const float vertical_fov    = LightingView.getFov().m_Value;
-                    const float aspect          = LightingView.getAspect();
+                    const float vertical_fov    = Settings.m_LightingView.getFov().m_Value;
+                    const float aspect          = Settings.m_LightingView.getAspect();
                     const float radius          = p->m_BBox.getRadius();
                     const float hfov            = 2.0f * std::atan(aspect * std::tan(vertical_fov / 2.0f));
                     const float min_fov         = std::min(vertical_fov, hfov);
                     const float distance        = radius / std::tan(min_fov / 2.0f);
 
-                    auto L = -LightDirection;
+                    auto L = -Settings.m_LightDirection;
 
                     // Set the view correctly
-                    LightingView.LookAt(distance, xmath::radian3(L.Pitch(), L.Yaw(), 0_xdeg), p->m_BBox.getCenter());
+                    Settings.m_LightingView.LookAt(distance, xmath::radian3(L.Pitch(), L.Yaw(), 0_xdeg), p->m_BBox.getCenter());
                 }
                 
 
@@ -1662,7 +1712,7 @@ int E21_Example()
                 std::array StaticUBO{ &p->ClusterBuffer() };
                 CmdBuffer.setPipelineInstance(ShadowGenerationPipeLineInstance, StaticUBO);
 
-                ShadowGenerationPushC.m_L2C = LightingView.getW2C();
+                ShadowGenerationPushC.m_L2C = Settings.m_LightingView.getW2C();
                 CmdBuffer.setBuffer(p->IndexBuffer());
                 CmdBuffer.setBuffer(p->VertexBuffer());
 
@@ -1701,24 +1751,24 @@ int E21_Example()
             {
                 auto CmdBuffer = MainWindow.getCmdBuffer();
 
-                if( Distance == -1 )
+                if(Settings.m_Distance == -1 )
                 {
                     // Help compute the distance to keep the object inside the view port
-                    const float vertical_fov    = View.getFov().m_Value;
-                    const float aspect          = View.getAspect();
+                    const float vertical_fov    = Settings.m_View.getFov().m_Value;
+                    const float aspect          = Settings.m_View.getAspect();
                     const float radius          = p->m_BBox.getRadius();
                     const float hfov            = 2.0f * std::atan(aspect * std::tan(vertical_fov / 2.0f));
                     const float min_fov         = std::min(vertical_fov, hfov);
-                    Distance     = radius / std::tan(min_fov / 2.0f);
-                    CameraTarget = p->m_BBox.getCenter();
+                    Settings.m_Distance     = radius / std::tan(min_fov / 2.0f);
+                    Settings.m_CameraTarget = p->m_BBox.getCenter();
                 }
 
                 // Update the camera
-                View.LookAt(Distance, Angles, CameraTarget);
+                Settings.m_View.LookAt(Settings.m_Distance, Settings.m_Angles, Settings.m_CameraTarget);
 
                 const float maxY = p->m_BBox.m_Min.m_Y;
-                const auto L2w   = xmath::fmat4::fromTranslation(-View.getPosition()) * xmath::fmat4::fromTranslation({ 0, 0, 0 });
-                const auto w2C   = View.getW2C() * xmath::fmat4::fromTranslation(View.getPosition());
+                const auto L2w   = xmath::fmat4::fromTranslation(-Settings.m_View.getPosition()) * xmath::fmat4::fromTranslation({ 0, 0, 0 });
+                const auto w2C   = Settings.m_View.getW2C() * xmath::fmat4::fromTranslation(Settings.m_View.getPosition());
 
                 // Render the mesh
                 {
@@ -1732,7 +1782,7 @@ int E21_Example()
 
                         MeshUBO.m_LightColor        = xmath::fvec4(1);
                         MeshUBO.m_AmbientLightColor = xmath::fvec4(0.5f);
-                        MeshUBO.m_wSpaceLightPos    = xmath::fvec4(LightingView.getPosition() - View.getPosition(), p->m_BBox.getRadius());
+                        MeshUBO.m_wSpaceLightPos    = xmath::fvec4(Settings.m_LightingView.getPosition() - Settings.m_View.getPosition(), p->m_BBox.getRadius());
                         MeshUBO.m_wSpaceEyePos      = xmath::fvec4(0);
                     }
 
@@ -1761,7 +1811,7 @@ int E21_Example()
                 //
                 // Render wireframe
                 //
-                if (0)
+                if (Settings.m_bWireFrame )
                 {
                     std::array StaticUBO{ &p->ClusterBuffer() };
                     CmdBuffer.setPipelineInstance(WireFramePipeLineInstance3D, StaticUBO);
@@ -1800,9 +1850,9 @@ int E21_Example()
 
 
                     auto& Uniform = GridDynamicUBO.allocEntry<grid_uniform>();
-                    Uniform.m_WorldSpaceCameraPos = View.getPosition();
+                    Uniform.m_WorldSpaceCameraPos = Settings.m_View.getPosition();
                     Uniform.m_L2W          = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, maxY, 0));
-                    Uniform.m_W2C          = View.getW2C();
+                    Uniform.m_W2C          = Settings.m_View.getW2C();
                     Uniform.m_L2CTShadow   = C2T * ShadowGenerationPushC.m_L2C * Uniform.m_L2W;
                     CmdBuffer.setDynamicUBO(GridDynamicUBO, 0);
                     MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE3D);
@@ -1813,36 +1863,50 @@ int E21_Example()
                 // Render Normal
                 //
                 {
-                    std::array StaticUBO{ &p->ClusterBuffer() };
-                    CmdBuffer.setPipelineInstance(DebugNormalPipeLineInstance, StaticUBO);
-
+                    auto List = std::array{ Settings.m_bTangents, Settings.m_bBinormals, Settings.m_bNormals };
+                    for ( auto& b : List )
                     {
-                        auto& MeshUBO = DebugNormalDynamicUBOMesh.allocEntry<debug_normal_ubo_entry>();
-                        MeshUBO.m_L2C = w2C * L2w;
-                        MeshUBO.m_ScaleFactor = xmath::fvec4(1,0,0,0.05f);
-                    }
+                        static constexpr auto Colors = std::array{ xmath::fvec4{1,0,0,1}, xmath::fvec4{0,1,0,1},xmath::fvec4{0,0,1,1} };
+                        static constexpr auto Axis   = std::array{ xmath::fvec4{1,0,0,0}, xmath::fvec4{0,1,0,1},xmath::fvec4{0,0,1,1} };
+                        const int index = static_cast<int>(&b - List.data());
 
-                    CmdBuffer.setDynamicUBO(DebugNormalDynamicUBOMesh, 0);
-                    CmdBuffer.setStreamingBuffers({ &p->IndexBuffer(),3 });
-
-                    for (auto& M : p->getMeshes())
-                    {
-                        for (auto& L : p->getLODs().subspan(M.m_iLOD, M.m_nLODs))
+                        if (b)
                         {
-                            for (auto& S : p->getSubmeshes().subspan(L.m_iSubmesh, L.m_nSubmesh))
+                            std::array StaticUBO{ &p->ClusterBuffer() };
+                            CmdBuffer.setPipelineInstance(DebugNormalPipeLineInstance, StaticUBO);
+
                             {
-                                debug_normal_push_const PustConst{ .m_ClusterIndex = S.m_iCluster };
-                                for (auto& C : p->getClusters().subspan(S.m_iCluster, S.m_nCluster))
+                                auto& MeshUBO = DebugNormalDynamicUBOMesh.allocEntry<debug_normal_ubo_entry>();
+                                MeshUBO.m_L2C               = w2C * L2w;
+                                MeshUBO.m_ScaleFactor       = Axis[index];
+                                MeshUBO.m_ScaleFactor.m_W   = p->m_BBox.getRadius();
+                                MeshUBO.m_Color             = Colors[index];
+
+                                int a = 22;
+                            }
+
+                            CmdBuffer.setDynamicUBO(DebugNormalDynamicUBOMesh, 0);
+                            CmdBuffer.setStreamingBuffers({ &p->IndexBuffer(),3 });
+
+                            for (auto& M : p->getMeshes())
+                            {
+                                for (auto& L : p->getLODs().subspan(M.m_iLOD, M.m_nLODs))
                                 {
-                                    CmdBuffer.setPushConstants(PustConst);
-                                    CmdBuffer.Draw(C.m_nIndices, C.m_iIndex, C.m_iVertex);
-                                    PustConst.m_ClusterIndex++;
+                                    for (auto& S : p->getSubmeshes().subspan(L.m_iSubmesh, L.m_nSubmesh))
+                                    {
+                                        debug_normal_push_const PustConst{ .m_ClusterIndex = S.m_iCluster };
+                                        for (auto& C : p->getClusters().subspan(S.m_iCluster, S.m_nCluster))
+                                        {
+                                            CmdBuffer.setPushConstants(PustConst);
+                                            CmdBuffer.Draw(C.m_nIndices, C.m_iIndex, C.m_iVertex);
+                                            PustConst.m_ClusterIndex++;
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
                 }
-
             }
         }
 
@@ -2182,6 +2246,7 @@ int E21_Example()
 
 
         xproperty::settings::context Context;
+        InspectorSettings.Show(Context, []{});
         Inspector.Show(Context, [&]
         {
             if (not GeomStaticDetails.m_RootNode.m_Children.empty() || not GeomStaticDetails.m_RootNode.m_MeshList.empty() && SelectedDescriptor.m_pDescriptor)
@@ -2485,11 +2550,16 @@ int E21_Example()
             Inspector.AppendEntity();
             Inspector.AppendEntityComponent(*SelectedDescriptor.m_pDescriptor->getProperties(), SelectedDescriptor.m_pDescriptor.get());
 
+            InspectorSettings.clear();
+            InspectorSettings.AppendEntity();
+            InspectorSettings.AppendEntityComponent( *xproperty::getObject(Settings), &Settings);
+            Settings.clear();
+
             // Tell the system if we should be loading the sprv
             SelectedDescriptor.m_bReload = std::filesystem::exists(SelectedDescriptor.m_ResourcePath);
 
             // Let the system recenter base on the object 
-            Distance = -1;
+            Settings.m_Distance = -1;
         }
 
         xgpu::tools::imgui::Render();
