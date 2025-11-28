@@ -698,7 +698,10 @@ namespace e21
             >
         , obj_scope< "Lighting Info"
             , obj_member<"Direction",           &render_settings::m_LightDirection >
-            , obj_member<"LightFollowsCamera",  &render_settings::m_LightFollowsCamera >
+            , obj_member<"LightFollowsCamera",  &render_settings::m_LightFollowsCamera, member_help<"Hotkey: SPACE\n"
+                                                                                                    "By using this function the user can move the light in any direction by making the light be the camera"
+                                                                                                    "After the user is satisfy it can press SPACE again to freeze the light location."
+            >>
             >
         , obj_scope< "Debug Geometry"
             , obj_member<"WireFrame",    &render_settings::m_bWireFrame >
@@ -713,8 +716,241 @@ namespace e21
         )
     };
     XPROPERTY_REG(render_settings)
-}
 
+    struct static_geom_inspector
+    {
+        struct cluster
+        {
+            int                         m_nVertices;
+            int                         m_nFaces;
+            xmath::fbbox                m_BBox;
+
+            XPROPERTY_DEF
+            ( "Cluster", cluster
+            , obj_member<"nVertices", &cluster::m_nVertices >
+            , obj_member<"nFaces",    &cluster::m_nFaces >
+            , obj_member<"BBox",      &cluster::m_BBox >
+            )
+        };
+
+        struct submesh
+        {
+            int                         m_nVertices;
+            int                         m_nFaces;
+            xrsc::material_instance_ref m_Material;
+            std::vector<cluster>        m_Cluster;
+
+            XPROPERTY_DEF
+            ( "Submesh", submesh
+            , obj_member<"nVertices", &submesh::m_nVertices >
+            , obj_member<"nFaces",    &submesh::m_nFaces >
+            , obj_member<"Material",  &submesh::m_Material >
+            , obj_member<"Cluster",   &submesh::m_Cluster >
+            )
+        };
+
+        struct lod
+        {
+            int                         m_nClusters;
+            int                         m_nVertices;
+            int                         m_nFaces;
+            float                       m_ScreenArea;
+            std::vector<submesh>        m_Submesh;
+
+            XPROPERTY_DEF
+            ( "lod", lod
+            , obj_member<"nClusters",   &lod::m_nClusters >
+            , obj_member<"nVertices",   &lod::m_nVertices >
+            , obj_member<"nFaces",      &lod::m_nFaces >
+            , obj_member<"ScreenArea",  &lod::m_ScreenArea >
+            , obj_member<"Submesh",     &lod::m_Submesh >
+            )
+        };
+
+        struct mesh
+        {
+            std::string                 m_Name;
+            int                         m_nClusters;
+            int                         m_nVertices;
+            int                         m_nFaces;
+            int                         m_nMaterials;
+            std::vector<lod>            m_LODs;
+            xmath::fbbox                m_BBox;
+
+            XPROPERTY_DEF
+            ( "mesh", mesh
+            , obj_member<"Name",        &mesh::m_Name >
+            , obj_member<"BBox",        &mesh::m_BBox >
+            , obj_member<"nClusters",   &mesh::m_nClusters >
+            , obj_member<"nVertices",   &mesh::m_nVertices >
+            , obj_member<"nFaces",      &mesh::m_nFaces >
+            , obj_member<"nMaterials",  &mesh::m_nMaterials >
+            , obj_member<"LODs",        &mesh::m_LODs >
+            )
+        };
+
+        struct stream_element
+        {
+            std::string     m_Type;
+            std::string     m_Desciption;
+
+            XPROPERTY_DEF
+            ( "stream_element", stream_element
+            , obj_member<"Type",        &stream_element::m_Type >
+            , obj_member<"Desciption",  &stream_element::m_Desciption >
+            )
+        };
+
+        struct stream
+        {
+            std::string                 m_Name;
+            std::vector<stream_element> m_Elements;
+
+            XPROPERTY_DEF
+            ( "stream", stream
+            , obj_member<"Name",        &stream::m_Name >
+            , obj_member<"Elements",    &stream::m_Elements >
+            )
+        };
+
+        void Update( xrsc::geom_static& GeomRef, std::wstring ResourcePath )
+        {
+            clear();
+
+            auto& Geom = *xresource::g_Mgr.getResource( GeomRef );
+            m_RscGeom.m_Instance = xresource::g_Mgr.getFullGuid(GeomRef).m_Instance;
+
+            std::uintmax_t fileSize = std::filesystem::file_size(ResourcePath);
+            m_FileSize = static_cast<int>(fileSize);
+
+            m_nClusters  = static_cast<int>(Geom.m_nClusters);
+            m_nVertices  = static_cast<int>(Geom.m_nVertices);
+            m_nFaces     = static_cast<int>(Geom.m_nIndices/3);
+
+            {
+                m_VertexStreams.resize(2);
+                m_VertexStreams[0].m_Name = "Position";
+                m_VertexStreams[0].m_Elements.resize(2);
+                m_VertexStreams[0].m_Elements[0].m_Type         = "SINT16_3D";
+                m_VertexStreams[0].m_Elements[0].m_Desciption   = "(X,Y,Z) 16 bit normalize positions";
+                m_VertexStreams[0].m_Elements[1].m_Type         = "SINT16_1D";
+                m_VertexStreams[0].m_Elements[1].m_Desciption   = "~4bit of extra precisions for TBN encoded in 16bits. bit 15 is the sign of the Binormal";
+
+                m_VertexStreams[1].m_Name = "Extras";
+                m_VertexStreams[1].m_Elements.resize(3);
+                m_VertexStreams[1].m_Elements[0].m_Type         = "UINT16_2D";
+                m_VertexStreams[1].m_Elements[0].m_Desciption   = "(U,V) 16 bit normalize, texture coordinates packed as 16bits (they can tiled)";
+                m_VertexStreams[1].m_Elements[1].m_Type         = "UINT8_2D";
+                m_VertexStreams[1].m_Elements[1].m_Desciption   = "normal oct compress with 8 bit precision + 4bits from extras in position == 12bits of precision";
+                m_VertexStreams[1].m_Elements[2].m_Type         = "UINT8_2D";
+                m_VertexStreams[1].m_Elements[2].m_Desciption   = "tangent oct compress with 8 bit precision + 3bits from extras in position == 11bits of precision";
+            }
+
+            for( auto& m : Geom.getDefaultMaterialInstances())
+            {
+                m_Materials.emplace_back( xresource::g_Mgr.getFullGuid(m).m_Instance);
+            }
+
+
+            m_Mesh.resize(Geom.m_nMeshes);
+            for(auto& m : Geom.getMeshes())
+            {
+                auto& Mesh = m_Mesh[static_cast<int>(&m - Geom.getMeshes().data())];
+
+                Mesh.m_nClusters = 0;
+                Mesh.m_nFaces    = 0;
+                Mesh.m_nVertices = 0;
+                Mesh.m_BBox      = m.m_BBox;
+                Mesh.m_Name      = m.m_Name.data();
+                Mesh.m_LODs.resize( m.m_nLODs);
+
+                auto LODSpan = Geom.getLODs().subspan(m.m_iLOD, m.m_nLODs);
+                for ( auto& lod : LODSpan)
+                {
+                    auto& LOD = Mesh.m_LODs[static_cast<int>(&lod - LODSpan.data())];
+
+                    LOD.m_ScreenArea    = lod.m_ScreenArea;
+                    LOD.m_nClusters     = 0;
+                    LOD.m_nFaces        = 0;
+                    LOD.m_nVertices     = 0;
+                    LOD.m_Submesh.resize( lod.m_nSubmesh );
+
+                    auto SUDMESHSpan = Geom.getSubmeshes().subspan(lod.m_iSubmesh, lod.m_nSubmesh);
+                    for (auto& sub : SUDMESHSpan)
+                    {
+                        auto& SubM = LOD.m_Submesh[static_cast<int>(&sub - SUDMESHSpan.data())];
+
+
+                        SubM.m_nFaces       = 0;
+                        SubM.m_nVertices    = 0;
+                        SubM.m_Material.m_Instance = xresource::g_Mgr.getFullGuid(Geom.getDefaultMaterialInstances().subspan(sub.m_iMaterial,1)[0]).m_Instance;
+                        SubM.m_Cluster.resize(sub.m_nCluster);
+
+                        auto CLUSTERSpan = Geom.getClusters().subspan( sub.m_iCluster, sub.m_nCluster);
+                        for (auto& iclus : CLUSTERSpan )
+                        {
+                            auto& Cluster = SubM.m_Cluster[static_cast<int>(&iclus - CLUSTERSpan.data())];
+
+                            Cluster.m_nFaces     = iclus.m_nIndices / 3;
+                            Cluster.m_nVertices  = iclus.m_nVertices;
+                            Cluster.m_BBox       = iclus.m_BBox;
+
+                            SubM.m_nFaces    += Cluster.m_nFaces;
+                            SubM.m_nVertices += Cluster.m_nVertices;
+                        }
+
+                        LOD.m_nFaces    += SubM.m_nFaces;
+                        LOD.m_nVertices += SubM.m_nVertices;
+                        LOD.m_nClusters += static_cast<int>(SubM.m_Cluster.size());
+                    }
+
+                    Mesh.m_nFaces     += LOD.m_nFaces;
+                    Mesh.m_nVertices  += LOD.m_nVertices;
+                    Mesh.m_nClusters  += LOD.m_nClusters;
+                    Mesh.m_nMaterials += static_cast<int>(LOD.m_Submesh.size());
+                }
+            }
+        }
+
+        void clear()
+        {
+            m_Mesh.clear();
+            m_nClusters     = 0;
+            m_nVertices     = 0;
+            m_nFaces        = 0;
+            m_Materials.clear();
+        }
+
+        xrsc::geom_static                           m_RscGeom;
+        std::vector<mesh>                           m_Mesh;
+        int                                         m_nClusters;
+        int                                         m_nVertices;
+        int                                         m_nFaces;
+        std::vector<xrsc::material_instance_ref>    m_Materials;
+        xmath::fbbox                                m_BBox;
+        int                                         m_FileSize;
+        std::vector<stream>                         m_VertexStreams;
+
+        XPROPERTY_DEF
+        ( "StaticGeom Inspector", static_geom_inspector
+        , obj_member<"RscGeom",         &static_geom_inspector::m_RscGeom, member_flags<flags::SHOW_READONLY> >
+        , obj_member<"nClusters",       &static_geom_inspector::m_nClusters, member_flags<flags::SHOW_READONLY> >
+        , obj_member<"nVertices",       &static_geom_inspector::m_nVertices, member_flags<flags::SHOW_READONLY> >
+        , obj_member<"nFaces",          &static_geom_inspector::m_nFaces, member_flags<flags::SHOW_READONLY> >
+        , obj_member<"FileSize",        &static_geom_inspector::m_FileSize, member_flags<flags::SHOW_READONLY> >
+        , obj_member<"Meshes",          &static_geom_inspector::m_Mesh, member_flags<flags::SHOW_READONLY> >
+        , obj_member<"VertexStreams",   &static_geom_inspector::m_VertexStreams, member_flags<flags::SHOW_READONLY> >
+        , obj_member<"Materials",       &static_geom_inspector::m_Materials, member_flags<flags::SHOW_READONLY> >
+        );
+    };
+    XPROPERTY_REG2(prop_cluster,            static_geom_inspector::cluster)
+    XPROPERTY_REG2(prop_submesh,            static_geom_inspector::submesh)
+    XPROPERTY_REG2(prop_lod,                static_geom_inspector::lod)
+    XPROPERTY_REG2(prop_mesh,               static_geom_inspector::mesh)
+    XPROPERTY_REG2(prop_stream_element,     static_geom_inspector::stream_element)
+    XPROPERTY_REG2(prop_stream,             static_geom_inspector::stream)
+    XPROPERTY_REG(static_geom_inspector)
+}
 
 int E21_Example()
 {
@@ -1518,17 +1754,18 @@ int E21_Example()
         xresource::g_Mgr.ReleaseRef(Ref);
     });
 
+    e21::static_geom_inspector   StaticGeomInspector;
     xproperty::inspector    InspectorSettings("Rendering Settings");
     xproperty::inspector    Inspector("Static Geom Properties");
     auto                    RenderResourceWigzmosCallBack = [&TextureLRU](xproperty::inspector&, bool& bOpen, const xresource::full_guid& PreFullGuid) { RenderResourceWigzmos(TextureLRU, bOpen, PreFullGuid); };
-    Inspector.m_OnResourceWigzmos.m_Delegates.clear();
-    Inspector.m_OnResourceBrowser.m_Delegates.clear();
-    Inspector.m_OnResourceLeftSize.m_Delegates.clear();
-
 
     // Theme the property dialogs to be more readable
     for (auto& E : std::array{ &Inspector, &InspectorSettings })
     {
+        E->m_OnResourceWigzmos.m_Delegates.clear();
+        E->m_OnResourceBrowser.m_Delegates.clear();
+        E->m_OnResourceLeftSize.m_Delegates.clear();
+
         E->m_Settings.m_ColorVScalar1 = 0.270f * 1.4f;
         E->m_Settings.m_ColorVScalar2 = 0.305f * 1.4f;
         E->m_Settings.m_ColorSScalar = 0.26f * 1.4f;
@@ -1575,60 +1812,64 @@ int E21_Example()
             }
         }
     };
-    Inspector.m_OnChangeEvent.Register(CallbackWhenPropsChanges);
-    Inspector.m_OnResourceWigzmos.Register(RenderResourceWigzmosCallBack);
-    Inspector.m_OnResourceBrowser.Register<[](xproperty::inspector&, const void* pUID, bool& bOpen, xresource::full_guid& Out, std::span<const xresource::type_guid> Filters)
-    {
-        e21::ResourceBrowserPopup(pUID, bOpen, Out, Filters);
-    }>();
-    Inspector.m_OnResourceLeftSize.Register<[](xproperty::inspector& Inspector, void* pID, ImGuiTreeNodeFlags flags, const char* pName, bool& Open)
-    {
-        ImGuiStyle& style = ImGui::GetStyle();
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x, 18.0f));
-        Inspector.RenderBackground();
 
-        // Get the bounding box of the last item (the tree node)
-        ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0.2f));
-
-        std::string NewName;
-        bool bDisable = false;
-        if (pName[0] == '[')
+    for (auto& E : std::array{ &Inspector, &InspectorSettings })
+    {
+        E->m_OnChangeEvent.Register(CallbackWhenPropsChanges);
+        E->m_OnResourceWigzmos.Register(RenderResourceWigzmosCallBack);
+        E->m_OnResourceBrowser.Register<[](xproperty::inspector&, const void* pUID, bool& bOpen, xresource::full_guid& Out, std::span<const xresource::type_guid> Filters)
         {
-            auto Pair    = Inspector.getComponent(0, 0);
-            auto View    = std::string_view(pName);
-            auto pDesc   = static_cast<xgeom_static::descriptor*>(Pair.second);
+            e21::ResourceBrowserPopup(pUID, bOpen, Out, Filters);
+        }>();
+        E->m_OnResourceLeftSize.Register<[](xproperty::inspector& Inspector, void* pID, ImGuiTreeNodeFlags flags, const char* pName, bool& Open)
+        {
+            ImGuiStyle& style = ImGui::GetStyle();
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x, 18.0f));
+            Inspector.RenderBackground();
 
-            // Change the name to point to the texture...
-            if (not pDesc->m_MaterialDetailsList.empty())
+            // Get the bounding box of the last item (the tree node)
+            ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0.2f));
+
+            std::string NewName;
+            bool bDisable = false;
+            if (pName[0] == '[')
             {
-                // Remove the [ and ]
-                View = View.substr(1, View.size() - 2);
+                auto Pair    = strcmp(Inspector.getName(), "Rendering Settings") == 0 ? Inspector.getComponent(0, 1) : Inspector.getComponent(0, 0);
+                auto View    = std::string_view(pName);
+                auto pDesc   = static_cast<xgeom_static::descriptor*>(Pair.second);
 
-                // get index
-                int Index;
-                auto result = std::from_chars(View.data(), View.data() + View.size(), Index);
-                assert(result.ec == std::errc());
+                // Change the name to point to the texture...
+                if (not pDesc->m_MaterialDetailsList.empty())
+                {
+                    // Remove the [ and ]
+                    View = View.substr(1, View.size() - 2);
 
-                NewName = std::format("{} {}", pName, pDesc->m_MaterialDetailsList[Index].m_Name);
-                pName = NewName.c_str();
-                bDisable = pDesc->m_MaterialDetailsList[Index].m_RefCount <= 0;
+                    // get index
+                    int Index;
+                    auto result = std::from_chars(View.data(), View.data() + View.size(), Index);
+                    assert(result.ec == std::errc());
+
+                    NewName = std::format("{} {}", pName, pDesc->m_MaterialDetailsList[Index].m_Name);
+                    pName = NewName.c_str();
+                    bDisable = pDesc->m_MaterialDetailsList[Index].m_RefCount <= 0;
+                }
             }
-        }
 
-        if (bDisable) ImGui::BeginDisabled(true);
-        if (pID)
-        {
-            Open = ImGui::TreeNodeEx(pID, ImGuiTreeNodeFlags_Framed | flags, "  %s", pName);
-        }
-        else
-        {
-            Open = ImGui::TreeNodeEx(pName, flags);
-        }
-        if (bDisable) ImGui::EndDisabled();
+            if (bDisable) ImGui::BeginDisabled(true);
+            if (pID)
+            {
+                Open = ImGui::TreeNodeEx(pID, ImGuiTreeNodeFlags_Framed | flags, "  %s", pName);
+            }
+            else
+            {
+                Open = ImGui::TreeNodeEx(pName, flags);
+            }
+            if (bDisable) ImGui::EndDisabled();
 
-        ImGui::PopStyleColor();
-        ImGui::PopStyleVar();
-    }>();
+            ImGui::PopStyleColor();
+            ImGui::PopStyleVar();
+        }>();
+    }
 
     bool ResetAssetBroswerPosiotion = false;
 
@@ -1872,7 +2113,7 @@ int E21_Example()
 
 
                 //
-                // Render Normal
+                // Render Tangent Binormal Normal
                 //
                 {
                     auto List = std::array{ Settings.m_bTangents, Settings.m_bBinormals, Settings.m_bNormals };
@@ -2077,6 +2318,9 @@ int E21_Example()
         {
             SelectedDescriptor.m_bReload = false;
             PipelineReload( Device, material, material_instance, SelectedDescriptor, xresource::g_Mgr);
+
+            StaticGeomInspector.Update(SelectedDescriptor.m_GeomRef, SelectedDescriptor.m_ResourcePath);
+
 
             // Destroy all the material instances
             for(auto& E : Mesh3DMatInstance) Device.Destroy(std::move(E));
@@ -2565,6 +2809,8 @@ int E21_Example()
             InspectorSettings.clear();
             InspectorSettings.AppendEntity();
             InspectorSettings.AppendEntityComponent( *xproperty::getObject(Settings), &Settings);
+            InspectorSettings.AppendEntityComponent(*xproperty::getObject(StaticGeomInspector), &StaticGeomInspector);
+
             Settings.clear();
 
             // Tell the system if we should be loading the sprv
