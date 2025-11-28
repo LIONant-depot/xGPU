@@ -671,6 +671,9 @@ namespace e21
             m_bBinormals            = false;
             m_bNormals              = false;
             m_LightFollowsCamera    = false;
+
+            m_bGridToYMin           = true;
+            m_GridYMin              = {};
         }
 
         xgpu::tools::view   m_View;
@@ -684,6 +687,8 @@ namespace e21
         bool                m_bBinormals;
         bool                m_bNormals;
         bool                m_LightFollowsCamera;
+        bool                m_bGridToYMin;
+        float               m_GridYMin;
 
         XPROPERTY_DEF
         ( "Render Settings", render_settings
@@ -700,6 +705,10 @@ namespace e21
             , obj_member<"Tangents",     &render_settings::m_bTangents >
             , obj_member<"Binormals",    &render_settings::m_bBinormals >
             , obj_member<"Normals",      &render_settings::m_bNormals >
+            >
+        , obj_scope < "Grid"
+            , obj_member<"SetToGeomYMin", &render_settings::m_bGridToYMin >
+            , obj_member<"GeomYMin",      &render_settings::m_GridYMin, member_flags<flags::SHOW_READONLY> >
             >
         )
     };
@@ -1766,7 +1775,6 @@ int E21_Example()
                 // Update the camera
                 Settings.m_View.LookAt(Settings.m_Distance, Settings.m_Angles, Settings.m_CameraTarget);
 
-                const float maxY = p->m_BBox.m_Min.m_Y;
                 const auto L2w   = xmath::fmat4::fromTranslation(-Settings.m_View.getPosition()) * xmath::fmat4::fromTranslation({ 0, 0, 0 });
                 const auto w2C   = Settings.m_View.getW2C() * xmath::fmat4::fromTranslation(Settings.m_View.getPosition());
 
@@ -1843,19 +1851,23 @@ int E21_Example()
                 }
 
                 //
-                // Render plane
+                // Render Grid
                 //
                 {
                     CmdBuffer.setPipelineInstance(Grid3dMaterialInstance);
 
-
+                    if (Settings.m_bGridToYMin) Settings.m_GridYMin = p->m_BBox.m_Min.m_Y;
+                    else                        Settings.m_GridYMin = 0;
                     auto& Uniform = GridDynamicUBO.allocEntry<grid_uniform>();
                     Uniform.m_WorldSpaceCameraPos = Settings.m_View.getPosition();
-                    Uniform.m_L2W          = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, maxY, 0));
+                    Uniform.m_L2W          = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, Settings.m_GridYMin, 0));
                     Uniform.m_W2C          = Settings.m_View.getW2C();
                     Uniform.m_L2CTShadow   = C2T * ShadowGenerationPushC.m_L2C * Uniform.m_L2W;
                     CmdBuffer.setDynamicUBO(GridDynamicUBO, 0);
                     MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE3D);
+
+                    // Leave it as the default value
+                    Settings.m_GridYMin = p->m_BBox.m_Min.m_Y;
                 }
 
 
