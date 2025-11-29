@@ -978,6 +978,10 @@ int E21_Example()
         xmath::fmat4  m_L2w;
         xmath::fmat4  m_w2C;
         xmath::fmat4  m_w2ShadowT;
+    };
+
+    struct alignas(256) ubo_bm_lighting
+    {
         xmath::fvec4  m_LightColor;
         xmath::fvec4  m_AmbientLightColor;
         xmath::fvec4  m_wSpaceLightPos;
@@ -1018,6 +1022,10 @@ int E21_Example()
     //
     xgpu::buffer StaticGeomDynamicUBOMesh;
     if (auto Err = Device.Create(StaticGeomDynamicUBOMesh, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(ubo_geom_static_mesh), .m_EntryCount = 100 }); Err)
+        return xgpu::getErrorInt(Err);
+
+    xgpu::buffer UBOLighting;
+    if (auto Err = Device.Create(UBOLighting, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(ubo_bm_lighting), .m_EntryCount = 100 }); Err)
         return xgpu::getErrorInt(Err);
 
     struct static_geom_push_const
@@ -1091,7 +1099,11 @@ int E21_Example()
                                     , xgpu::pipeline::sampler{}         // Albedo
                                     };
         auto UBuffersUsage = std::array { xgpu::pipeline::uniform_binds { .m_BindIndex  = 0         // MeshUniforms, bind 0 set 2, changes per mesh/draw call
-                                                                        , .m_Usage      = { .m_bVertex = true, .m_bFragment = true }
+                                                                        , .m_Usage      = { .m_bVertex = true }
+                                                                        , .m_Type       = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC      // MUST be dynamic (per object)
+                                                                        }
+                                        , xgpu::pipeline::uniform_binds { .m_BindIndex  = 1         // MeshUniforms, bind 0 set 2, changes per mesh/draw call
+                                                                        , .m_Usage      = { .m_bFragment = true }
                                                                         , .m_Type       = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC      // MUST be dynamic (per object)
                                                                         }      
                                         , xgpu::pipeline::uniform_binds { .m_BindIndex  = 0         // ClusterUniforms clusters[], bind 0 set 1, never changes
@@ -2038,10 +2050,11 @@ int E21_Example()
                         MeshUBO.m_w2C       = w2C;
                         MeshUBO.m_w2ShadowT = C2T * ShadowGenerationL2C;
 
-                        MeshUBO.m_LightColor        = xmath::fvec4(1);
-                        MeshUBO.m_AmbientLightColor = xmath::fvec4(0.5f);
-                        MeshUBO.m_wSpaceLightPos    = xmath::fvec4(Settings.m_LightingView.getPosition() - Settings.m_View.getPosition(), p->m_BBox.getRadius());
-                        MeshUBO.m_wSpaceEyePos      = xmath::fvec4(0);
+                        auto& Lighting      =  UBOLighting.allocEntry<ubo_bm_lighting>();
+                        Lighting.m_LightColor        = xmath::fvec4(1);
+                        Lighting.m_AmbientLightColor = xmath::fvec4(0.5f);
+                        Lighting.m_wSpaceLightPos    = xmath::fvec4(Settings.m_LightingView.getPosition() - Settings.m_View.getPosition(), p->m_BBox.getRadius());
+                        Lighting.m_wSpaceEyePos      = xmath::fvec4(0);
                     }
 
                     for (auto& M : p->getMeshes())
@@ -2053,6 +2066,7 @@ int E21_Example()
                                 std::array StaticUBO{ &p->ClusterBuffer() };
                                 CmdBuffer.setPipelineInstance(Mesh3DMatInstance[S.m_iMaterial], StaticUBO);
                                 CmdBuffer.setDynamicUBO(StaticGeomDynamicUBOMesh, 0);
+                                CmdBuffer.setDynamicUBO(UBOLighting, 1);
 
                                 static_geom_push_const PustConst{ .m_ClusterIndex = S.m_iCluster };
                                 for (auto& C : p->getClusters().subspan(S.m_iCluster, S.m_nCluster))
