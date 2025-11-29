@@ -988,6 +988,7 @@ int E21_Example()
         xmath::fvec4  m_AmbientLightColor;
         xmath::fvec4  m_wSpaceLightPos;
         xmath::fvec4  m_wSpaceEyePos;
+        xmath::fvec4  m_LightParams;            // .x=area radius (spec/soft shadow approx), .y=temperature (Kelvin), .z=intensity mult, .w=spare
     };
 
     //
@@ -2061,8 +2062,12 @@ int E21_Example()
                         auto& Lighting      =  UBOLighting.allocEntry<ubo_bm_lighting>();
                         Lighting.m_LightColor        = xmath::fvec4(1) * 7;
                         Lighting.m_AmbientLightColor = xmath::fvec4(1) * 0.8f;
-                        Lighting.m_wSpaceLightPos    = xmath::fvec4(Settings.m_LightPosition - Settings.m_View.getPosition(), p->m_BBox.getRadius());
+                        Lighting.m_wSpaceLightPos    = xmath::fvec4(Settings.m_LightPosition - Settings.m_View.getPosition(), p->m_BBox.getRadius()*5 );
                         Lighting.m_wSpaceEyePos      = xmath::fvec4(0);
+                        Lighting.m_LightParams.m_X   = Lighting.m_wSpaceLightPos.m_W * 0.1f;
+                        Lighting.m_LightParams.m_Y   = 6500;         // Temperature
+                        Lighting.m_LightParams.m_Z   = 1;            // Intensity boost
+                        Lighting.m_LightParams.m_W   = 0;            // No used
                     }
 
                     for (auto& M : p->getMeshes())
