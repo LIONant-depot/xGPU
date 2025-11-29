@@ -977,7 +977,7 @@ int E21_Example()
     {
         xmath::fmat4  m_L2w;
         xmath::fmat4  m_w2C;
-        xmath::fmat4  m_L2CShadow;
+        xmath::fmat4  m_w2ShadowT;
         xmath::fvec4  m_LightColor;
         xmath::fvec4  m_AmbientLightColor;
         xmath::fvec4  m_wSpaceLightPos;
@@ -2036,7 +2036,7 @@ int E21_Example()
                         auto& MeshUBO       = StaticGeomDynamicUBOMesh.allocEntry<ubo_geom_static_mesh>();
                         MeshUBO.m_L2w       = L2w;
                         MeshUBO.m_w2C       = w2C;
-                        MeshUBO.m_L2CShadow = C2T * ShadowGenerationL2C;
+                        MeshUBO.m_w2ShadowT = C2T * ShadowGenerationL2C;
 
                         MeshUBO.m_LightColor        = xmath::fvec4(1);
                         MeshUBO.m_AmbientLightColor = xmath::fvec4(0.5f);
