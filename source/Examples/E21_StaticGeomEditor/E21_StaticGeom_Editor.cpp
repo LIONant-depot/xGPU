@@ -1128,11 +1128,6 @@ int E21_Example()
     if (auto Err = Device.Create(DebugNormalDynamicUBOMesh, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(debug_normal_ubo_entry), .m_EntryCount = 100 }); Err)
         return xgpu::getErrorInt(Err);
 
-    struct debug_normal_push_const
-    {
-        std::uint32_t       m_ClusterIndex;         // Which cluster we are going to be using
-    };
-
     xgpu::pipeline_instance DebugNormalPipeLineInstance;
     {
         //
@@ -1224,7 +1219,7 @@ int E21_Example()
         auto Setup      = xgpu::pipeline::setup
         { .m_VertexDescriptor   = GeomStaticVertexDescriptor
         , .m_Shaders            = Shaders
-        , .m_PushConstantsSize  = sizeof(debug_normal_push_const)
+        , .m_PushConstantsSize  = sizeof(static_geom_push_const)
         , .m_UniformBinds       = UBuffersUsage
         , .m_Blend              = xgpu::pipeline::blend::getAlphaOriginal()
         };
@@ -1268,11 +1263,14 @@ int E21_Example()
     //
     // Shadow Generation Pipeline Instance
     //  
-    struct shadow_generation_push_constants
+    struct shadow_generation_ubo_entry
     {
         xmath::fmat4    m_L2C;                      // To Shadow Space
-        std::uint32_t   m_ClusterIndex;
     };
+
+    xgpu::buffer ShadowGenerationDynamicUBOMesh;
+    if (auto Err = Device.Create(ShadowGenerationDynamicUBOMesh, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(shadow_generation_ubo_entry), .m_EntryCount = 100 }); Err)
+        return xgpu::getErrorInt(Err);
 
     xgpu::pipeline_instance ShadowGenerationPipeLineInstance;
     {
@@ -1298,7 +1296,11 @@ int E21_Example()
                 return xgpu::getErrorInt(Err);
         }
 
-        auto UBuffersUsage = std::array { xgpu::pipeline::uniform_binds { .m_BindIndex  = 0         // ClusterUniforms clusters[], bind 0 set 1, never changes
+        auto UBuffersUsage = std::array { xgpu::pipeline::uniform_binds { .m_BindIndex  = 0         // MeshUniforms, bind 0 set 2, changes per mesh/draw call
+                                                                        , .m_Usage      = { .m_bVertex = true }
+                                                                        , .m_Type       = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC      // MUST be dynamic (per object)
+                                                                        }      
+                                        , xgpu::pipeline::uniform_binds { .m_BindIndex  = 0         // ClusterUniforms clusters[], bind 0 set 1, never changes
                                                                         , .m_Usage      = xgpu::shader::type{xgpu::shader::type::bit::VERTEX}
                                                                         , .m_Type       = xgpu::pipeline::uniform_binds::type::SSBO_STATIC     // Static = big array + push_constant index
                                                                         }      
@@ -1308,7 +1310,7 @@ int E21_Example()
         auto Setup   = xgpu::pipeline::setup
         { .m_VertexDescriptor   = ShadowmapCreationVertexDescriptor
         , .m_Shaders            = Shaders
-        , .m_PushConstantsSize  = sizeof(shadow_generation_push_constants)
+        , .m_PushConstantsSize  = sizeof(static_geom_push_const)
         , .m_UniformBinds       = UBuffersUsage
         , .m_Primitive          = {} //{ .m_FrontFace = xgpu::pipeline::primitive::front_face::CLOCKWISE } // When rendering shadows we don't want the front faces we want the back faces (Light leaking can happen)
         , .m_DepthStencil       = { .m_DepthBiasConstantFactor  = 2.00f       // Depth bias (and slope) are used to avoid shadowing artifacts (always applied)
@@ -1921,11 +1923,11 @@ int E21_Example()
 
         if (not Mesh3DMatInstance.empty())
         {
-            shadow_generation_push_constants    ShadowGenerationPushC;
-
             // Update view ports in case something has changed.
             Settings.m_LightingView.setViewport({ 0,0,ShadowMapTexture.getTextureDimensions()[0], ShadowMapTexture.getTextureDimensions()[1] });
             Settings.m_View.setViewport({ 0, 0, static_cast<int>(MainWindowWidth), static_cast<int>(MainWindowHeight) });
+
+            xmath::fmat4 ShadowGenerationL2C;
 
             //
             // Render the shadow scene
@@ -1962,9 +1964,16 @@ int E21_Example()
                 std::array StaticUBO{ &p->ClusterBuffer() };
                 CmdBuffer.setPipelineInstance(ShadowGenerationPipeLineInstance, StaticUBO);
 
-                ShadowGenerationPushC.m_L2C = Settings.m_LightingView.getW2C();
+                // Set the local to clip matrix
+                {
+                    auto& ShadowEntry = ShadowGenerationDynamicUBOMesh.allocEntry<shadow_generation_ubo_entry>();
+                    ShadowEntry.m_L2C = Settings.m_LightingView.getW2C();
+                    ShadowGenerationL2C = ShadowEntry.m_L2C;
+                }
+
                 CmdBuffer.setBuffer(p->IndexBuffer());
                 CmdBuffer.setBuffer(p->VertexBuffer());
+                CmdBuffer.setDynamicUBO(ShadowGenerationDynamicUBOMesh, 0);
 
                 for (auto& M : p->getMeshes())
                 {
@@ -1972,14 +1981,14 @@ int E21_Example()
                     {
                         for ( auto& S : p->getSubmeshes().subspan(L.m_iSubmesh, L.m_nSubmesh))
                         {
-                            ShadowGenerationPushC.m_ClusterIndex = S.m_iCluster;
+                            auto PushConstant = static_geom_push_const { S.m_iCluster };
                             for (auto& C : p->getClusters().subspan(S.m_iCluster, S.m_nCluster))
                             {
-                                CmdBuffer.setPushConstants(ShadowGenerationPushC);
+                                CmdBuffer.setPushConstants(PushConstant);
                                 CmdBuffer.Draw(C.m_nIndices, C.m_iIndex, C.m_iVertex);
 
                                 // Prepare for the next cluster
-                                ShadowGenerationPushC.m_ClusterIndex++;
+                                PushConstant.m_ClusterIndex++;
                             }
                         }
                     }
@@ -2027,7 +2036,7 @@ int E21_Example()
                         auto& MeshUBO       = StaticGeomDynamicUBOMesh.allocEntry<ubo_geom_static_mesh>();
                         MeshUBO.m_L2w       = L2w;
                         MeshUBO.m_w2C       = w2C;
-                        MeshUBO.m_L2CShadow = C2T * ShadowGenerationPushC.m_L2C;
+                        MeshUBO.m_L2CShadow = C2T * ShadowGenerationL2C;
 
                         MeshUBO.m_LightColor        = xmath::fvec4(1);
                         MeshUBO.m_AmbientLightColor = xmath::fvec4(0.5f);
@@ -2103,7 +2112,7 @@ int E21_Example()
                     Uniform.m_WorldSpaceCameraPos = Settings.m_View.getPosition();
                     Uniform.m_L2W          = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, Settings.m_GridYMin, 0));
                     Uniform.m_W2C          = Settings.m_View.getW2C();
-                    Uniform.m_L2CTShadow   = C2T * ShadowGenerationPushC.m_L2C * Uniform.m_L2W;
+                    Uniform.m_L2CTShadow   = C2T * ShadowGenerationL2C * Uniform.m_L2W;
                     CmdBuffer.setDynamicUBO(GridDynamicUBO, 0);
                     MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE3D);
 
@@ -2147,12 +2156,12 @@ int E21_Example()
                                 {
                                     for (auto& S : p->getSubmeshes().subspan(L.m_iSubmesh, L.m_nSubmesh))
                                     {
-                                        debug_normal_push_const PustConst{ .m_ClusterIndex = S.m_iCluster };
+                                        auto PushConst = static_geom_push_const{ .m_ClusterIndex = S.m_iCluster };
                                         for (auto& C : p->getClusters().subspan(S.m_iCluster, S.m_nCluster))
                                         {
-                                            CmdBuffer.setPushConstants(PustConst);
+                                            CmdBuffer.setPushConstants(PushConst);
                                             CmdBuffer.Draw(C.m_nIndices, C.m_iIndex, C.m_iVertex);
-                                            PustConst.m_ClusterIndex++;
+                                            PushConst.m_ClusterIndex++;
                                         }
                                     }
                                 }
