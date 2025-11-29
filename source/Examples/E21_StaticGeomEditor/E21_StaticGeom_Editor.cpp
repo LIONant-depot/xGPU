@@ -682,6 +682,7 @@ namespace e21
         xmath::fvec3        m_CameraTarget;
         xgpu::tools::view   m_LightingView;
         xmath::fvec3        m_LightDirection;
+        xmath::fvec3        m_LightPosition;
         bool                m_bWireFrame;
         bool                m_bTangents;
         bool                m_bBinormals;
@@ -698,6 +699,7 @@ namespace e21
             >
         , obj_scope< "Lighting Info"
             , obj_member<"Direction",           &render_settings::m_LightDirection >
+            , obj_member<"Position",            &render_settings::m_LightPosition >
             , obj_member<"LightFollowsCamera",  &render_settings::m_LightFollowsCamera, member_help<"Hotkey: SPACE\n"
                                                                                                     "By using this function the user can move the light in any direction by making the light be the camera"
                                                                                                     "After the user is satisfy it can press SPACE again to freeze the light location."
@@ -1949,6 +1951,7 @@ int E21_Example()
                 if (Settings.m_LightFollowsCamera)
                 {
                     Settings.m_LightDirection = -Settings.m_View.getPosition();
+                    Settings.m_LightPosition  = Settings.m_View.getPosition();
                     Settings.m_LightDirection.NormalizeSafeCopy();
                 }
 
@@ -1968,6 +1971,11 @@ int E21_Example()
 
                     // Set the view correctly
                     Settings.m_LightingView.LookAt(distance, xmath::radian3(L.Pitch(), L.Yaw(), 0_xdeg), p->m_BBox.getCenter());
+
+                    if (Settings.m_Distance == -1)
+                    {
+                        Settings.m_LightPosition = Settings.m_LightingView.getPosition();
+                    }
                 }
                 
 
@@ -2051,9 +2059,9 @@ int E21_Example()
                         MeshUBO.m_w2ShadowT = C2T * ShadowGenerationL2C;
 
                         auto& Lighting      =  UBOLighting.allocEntry<ubo_bm_lighting>();
-                        Lighting.m_LightColor        = xmath::fvec4(1);
-                        Lighting.m_AmbientLightColor = xmath::fvec4(0.5f);
-                        Lighting.m_wSpaceLightPos    = xmath::fvec4(Settings.m_LightingView.getPosition() - Settings.m_View.getPosition(), p->m_BBox.getRadius());
+                        Lighting.m_LightColor        = xmath::fvec4(1) * 7;
+                        Lighting.m_AmbientLightColor = xmath::fvec4(1) * 0.8f;
+                        Lighting.m_wSpaceLightPos    = xmath::fvec4(Settings.m_LightPosition - Settings.m_View.getPosition(), p->m_BBox.getRadius());
                         Lighting.m_wSpaceEyePos      = xmath::fvec4(0);
                     }
 
