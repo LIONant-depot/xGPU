@@ -663,7 +663,8 @@ namespace e21
 
             m_LightingView = {};
             m_LightingView.setFov(46_xdeg);
-            m_LightDirection = { -1, -2, 0 };
+            m_LightDirection = { -3.14f, -1.81f, -3.78f };
+            m_LightPosition  = {  3.14f,  1.81f,  3.7f };
             m_LightDirection.NormalizeSafe();
 
             m_bWireFrame            = false;
