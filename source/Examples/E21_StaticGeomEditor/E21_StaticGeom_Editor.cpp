@@ -2061,8 +2061,8 @@ int E21_Example()
                         MeshUBO.m_w2ShadowT = C2T * ShadowGenerationL2C;
 
                         auto& Lighting      =  UBOLighting.allocEntry<ubo_bm_lighting>();
-                        Lighting.m_LightColor        = xmath::fvec4(1) * 3;
-                        Lighting.m_AmbientLightColor = xmath::fvec4(1) * 0.8f;
+                        Lighting.m_LightColor        = xmath::fvec4(1) * 2;
+                        Lighting.m_AmbientLightColor = xmath::fvec4(1) * 0.5f;
                         Lighting.m_wSpaceLightPos    = xmath::fvec4(Settings.m_LightPosition - Settings.m_View.getPosition(), p->m_BBox.getRadius()*5 );
                         Lighting.m_wSpaceEyePos      = xmath::fvec4(0);
                         Lighting.m_LightParams.m_X   = Lighting.m_wSpaceLightPos.m_W * 0.1f;

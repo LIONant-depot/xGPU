@@ -4,6 +4,8 @@
 #extension GL_ARB_shading_language_420pack : enable
 #extension GL_ARB_gpu_shader_fp64 : enable
 
+#include "../../../Plugins/xgeom_static.plugin/source/runtime/md_tone_mapper_lion.glsl"
+
 // Constants
 const float GridScale       = 1.0;
 const float GridBias        = 1.0;
@@ -22,6 +24,7 @@ const vec4 XAxisColor       = vec4(1.0, 0.0, 0.0, 1.0);
 const vec4 ZAxisColor       = vec4(0.0, 0.0, 1.0, 1.0);
 
 layout(binding = 0) uniform sampler2D SamplerShadowMap;        // [INPUT_TEXTURE_SHADOW]
+
 
 // Push constants
 layout(set = 2, binding = 0) uniform Uniforms
@@ -287,6 +290,8 @@ void main()
     const float Shadow          = ShadowPCF(inShadowPos / inShadowPos.w);
     const float t               = 0.3;
     const vec3  FinalColor      = (DiffuseColor.xyz - DiffuseColor.xyz * t) * Shadow + DiffuseColor.xyz * t;
+
+    out_Color.rgb = ToneMapper_lion(out_Color.rgb, 1.0);
 
     out_Color.rgb = pow(FinalColor.rgb, vec3(1.0f / 2.2));
     out_Color.a = 1;
