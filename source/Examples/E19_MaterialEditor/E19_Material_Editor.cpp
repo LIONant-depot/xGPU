@@ -520,8 +520,29 @@ void DrawGraphUI(xmaterial_graph::graph& g, ed::NodeId& lastSelectedNode)
                     else if (n.m_Params[ip.m_ParamIndex].m_Type == xmaterial_graph::node_param::type::TEXTURE_RESOURCE
                           || n.m_Params[ip.m_ParamIndex].m_Type == xmaterial_graph::node_param::type::FILE )
                     {
-                        NodeFillColor(n, { widgetPos.x - 63.f ,widgetPos.y + 0.3f }, { 125,19 },
-                            IM_COL32(96, 96, 96, 255), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersNone, true, borderoutlineClr);
+                        if (n.m_Params[ip.m_ParamIndex].m_Type == xmaterial_graph::node_param::type::TEXTURE_RESOURCE)
+                        {
+                            NodeFillColor(n, { widgetPos.x - 63.f - 30 ,widgetPos.y + 0.3f }, { 125 + 30,19 },
+                                IM_COL32(96, 96, 96, 255), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersNone, true, borderoutlineClr);
+
+                            ImGui::SetCursorPosX(ImGui::GetCursorPosX() - 60.f - 25);
+                            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5.f);
+                            ImGui::Text("Rsc");
+                            ImGui::SameLine(0,5);
+                            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 2.f);
+                        }
+                        else
+                        {
+                            NodeFillColor(n, { widgetPos.x - 63.f - 35 ,widgetPos.y + 0.3f }, { 125 + 35,19 },
+                                IM_COL32(96, 96, 96, 255), ed::GetStyle().NodeRounding, ImDrawFlags_RoundCornersNone, true, borderoutlineClr);
+
+                            ImGui::SetCursorPosX(ImGui::GetCursorPosX() - 60.f - 32);
+                            ImGui::SetCursorPosY(ImGui::GetCursorPosY() + 5.f);
+                            ImGui::Text("File");
+                            ImGui::SameLine(0, 68-5);
+                            ImGui::SetCursorPosY(ImGui::GetCursorPosY() - 5.f);
+                        }
+
 
                         xproperty::settings::context Context;
 
@@ -1366,6 +1387,10 @@ int E19_Example()
     };
     e10::g_LibMgr.m_OnCompilationState.Register(CallBackForCompilation);
 
+    //
+    // setup Imgui interface
+    //
+    xgpu::tools::imgui::CreateInstance(MainWindow);
 
 
     //
@@ -1396,6 +1421,10 @@ int E19_Example()
                 return 1;
             }
 
+            ImGuiIO& io = ImGui::GetIO();
+            static std::string IniSave = std::format("{}/Assets/imgui.ini", xstrtool::To(szFileName));
+            io.IniFilename = IniSave.c_str();
+
             //
             // Set the path for the resources
             //
@@ -1412,7 +1441,7 @@ int E19_Example()
     xgpu::pipeline              material                = {};
     xgpu::pipeline_instance     material_instance       = {};
     xgpu::texture               defaulttexture          = {};
-    xmaterial_graph::graph   g                       = {};
+    xmaterial_graph::graph      g                       = {};
 
     MeshManager.Init(Device);
 
@@ -1442,13 +1471,11 @@ int E19_Example()
     }
 
     //
-    // setup Imgui interface
+    //Editor node setting
     //
-    xgpu::tools::imgui::CreateInstance(MainWindow);
+    ed::Config config;
     ed::NodeId LastSelectedNode = {};
 
-    //Editor node setting
-    ed::Config config;
     config.SettingsFile = "";   //disable .json file for ed::editor
     g_pEditor = ed::CreateEditor(&config);
 
