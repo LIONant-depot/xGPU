@@ -291,7 +291,8 @@ void main()
     const float t               = 0.3;
     const vec3  FinalColor      = (DiffuseColor.xyz - DiffuseColor.xyz * t) * Shadow + DiffuseColor.xyz * t;
 
-    out_Color.rgb = ToneMapper_lion(out_Color.rgb, 1.0);
+
+    out_Color.rgb = ToneMapper_lion(out_Color.rgb);
 
     out_Color.rgb = pow(FinalColor.rgb, vec3(1.0f / 2.2));
     out_Color.a = 1;
