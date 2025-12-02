@@ -5,6 +5,7 @@
 #extension GL_ARB_gpu_shader_fp64 : enable
 
 #include "../../../Plugins/xgeom_static.plugin/source/runtime/md_tone_mapper_lion.glsl"
+#include "../../../Plugins/xgeom_static.plugin/source/runtime/mb_lineartogamma_frag.glsl"
 
 // Constants
 const float GridScale       = 1.0;
@@ -292,9 +293,9 @@ void main()
     const vec3  FinalColor      = (DiffuseColor.xyz - DiffuseColor.xyz * t) * Shadow + DiffuseColor.xyz * t;
 
 
-    out_Color.rgb = ToneMapper_lion(out_Color.rgb);
+    out_Color.rgb = ToneMapper_lion(FinalColor);
 
-    out_Color.rgb = pow(FinalColor.rgb, vec3(1.0f / 2.2));
+    out_Color.rgb = linearToSrgb(out_Color.rgb);
     out_Color.a = 1;
 }
 
