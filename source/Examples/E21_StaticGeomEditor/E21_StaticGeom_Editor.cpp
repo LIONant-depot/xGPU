@@ -1100,7 +1100,9 @@ int E21_Example()
                                                                                          , xgpu::pipeline::sampler::address_mode::CLAMP
                                                                                          , xgpu::pipeline::sampler::address_mode::CLAMP
                                                                                          }}         
+                                    , xgpu::pipeline::sampler{}         // Normal
                                     , xgpu::pipeline::sampler{}         // Albedo
+                                    , xgpu::pipeline::sampler{}         // ORME
                                     };
         auto UBuffersUsage = std::array { xgpu::pipeline::uniform_binds { .m_BindIndex  = 0         // MeshUniforms, bind 0 set 2, changes per mesh/draw call
                                                                         , .m_Usage      = { .m_bVertex = true }
@@ -1131,7 +1133,7 @@ int E21_Example()
     }
 
     //
-    // Material of all static geometry
+    // Debug Normal  of all static geometry
     //
     struct alignas(256) debug_normal_ubo_entry
     {
@@ -2246,8 +2248,18 @@ int E21_Example()
                 xcontainer::lock::scope lk(*SelectedDescriptor.m_Log);
                 auto& Log = SelectedDescriptor.m_Log->get();
 
-                const bool Disable = Log.m_Result == e10::compilation::historical_entry::result::COMPILING_WARNINGS
-                                  || Log.m_Result == e10::compilation::historical_entry::result::COMPILING;
+                bool Disable = Log.m_Result == e10::compilation::historical_entry::result::COMPILING_WARNINGS
+                            || Log.m_Result == e10::compilation::historical_entry::result::COMPILING
+                            || SelectedDescriptor.m_pDescriptor == nullptr;
+
+                std::vector<std::string> ValidationErrors;
+                if ( Disable == false )
+                {
+                    SelectedDescriptor.m_pDescriptor->Validate(ValidationErrors);
+                    if (not ValidationErrors.empty()) Disable = true;
+                }
+
+                                  
                 if (Disable) ImGui::BeginDisabled();
                 if (ImGui::Button("\xEF\x96\xB0 Compile "))
                 {
@@ -2294,6 +2306,15 @@ int E21_Example()
                 {
                     ImGui::BeginChild("###Feedback-Child", ImVec2(600, 300));
                     ImGui::PushTextWrapPos(600);
+
+                    if (not ValidationErrors.empty())
+                    {
+                        for ( auto& S : ValidationErrors )
+                        {
+                            ImGui::TextUnformatted(S.data(), S.data() + S.size());
+                        }
+                    }
+
 
                     if (!Log.m_Log.empty())
                     {
@@ -2383,7 +2404,11 @@ int E21_Example()
                     {
                         if (auto p = xresource::g_Mgr.getResource(DefaultTextureRef); p)
                         {
-                            auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ShadowMapTexture}, xgpu::pipeline_instance::sampler_binding{*p} };
+                            auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ShadowMapTexture}
+                                                      , xgpu::pipeline_instance::sampler_binding{*p}
+                                                      , xgpu::pipeline_instance::sampler_binding{*p}
+                                                      , xgpu::pipeline_instance::sampler_binding{*p}
+                                                      };
                             auto setup = xgpu::pipeline_instance::setup
                             { .m_PipeLine               = Pipeline3D
                             , .m_SamplersBindings       = Bindings
@@ -2397,15 +2422,127 @@ int E21_Example()
                             }
                         }
                     }
-                    else if ( auto pMI = xresource::g_Mgr.getResource(Mesh3DRscRefMaterialInstance[Index]); pMI )
+                    else if (xmaterial_instance::rt* pMI = xresource::g_Mgr.getResource(
+                    Mesh3DRscRefMaterialInstance[Index]); pMI )
                     {
-                        if ( auto pT = xresource::g_Mgr.getResource(pMI->m_pTextureList[0].m_TexureRef); pT )
                         {
-                            auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ShadowMapTexture}, xgpu::pipeline_instance::sampler_binding{*pT} };
+                            std::vector<xgpu::pipeline_instance::sampler_binding> Binds;
+                            Binds.reserve( pMI->m_nTexturesList );
+
+                            for ( auto& E : pMI->getTextures() )
+                            {
+                                const int Index = static_cast<int>(&E - pMI->getTextures().data() );
+
+                                if (Index ==0) Binds.emplace_back(ShadowMapTexture);
+                                else           Binds.emplace_back( *xresource::g_Mgr.getResource(E.m_TexureRef) );
+                            }
+
+                            auto    pMat        = xresource::g_Mgr.getResource(pMI->m_MaterialRef);
+                            auto&   PipeLine    = pMat->getPipeline(0);
+
+                            // Check to see if the pipeline has been constructed....
+                            if ( not PipeLine.m_Private )
+                            {
+                                //
+                                // These registration should be factor-out
+                                // 
+                                xgpu::vertex_descriptor GeomStaticVertexDescriptor;
+                                {
+                                    auto Attributes = std::array
+                                    {
+                                        xgpu::vertex_descriptor::attribute
+                                        { .m_Offset     = offsetof(xgeom_static::geom::vertex, m_XPos)
+                                        , .m_Format     = xgpu::vertex_descriptor::format::SINT16_4D           // Position + extras
+                                        , .m_iStream    = 0
+                                        }
+                                        , xgpu::vertex_descriptor::attribute
+                                        {.m_Offset      = offsetof(xgeom_static::geom::vertex_extras, m_UV)
+                                        , .m_Format     = xgpu::vertex_descriptor::format::UINT16_2D           // UV
+                                        , .m_iStream    = 1
+                                        }
+                                        , xgpu::vertex_descriptor::attribute
+                                        { .m_Offset     = offsetof(xgeom_static::geom::vertex_extras, m_OctNormal)
+                                        , .m_Format     = xgpu::vertex_descriptor::format::UINT8_4D           // oct normal + tangent
+                                        , .m_iStream    = 1
+                                        }
+                                    };
+
+                                    if (auto Err = Device.Create(GeomStaticVertexDescriptor
+                                        , xgpu::vertex_descriptor::setup
+                                        { .m_bUseStreaming  = true
+                                        , .m_Topology       = xgpu::vertex_descriptor::topology::TRIANGLE_LIST
+                                        , .m_VertexSize     = 0
+                                        , .m_Attributes     = Attributes
+                                        }); Err)
+                                    {
+                                        assert(false);
+                                    }
+                                }
+
+                                xgpu::shader VertexShader3D;
+                                {
+                                    xgpu::shader::setup Setup
+                                    { .m_Type   = xgpu::shader::type::bit::VERTEX
+                                    , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e21::g_GeomStaticVertShader, sizeof(e21::g_GeomStaticVertShader) / sizeof(int)}}
+                                    };
+
+                                    if (auto Err = Device.Create(VertexShader3D, Setup); Err)
+                                        return xgpu::getErrorInt(Err);
+                                }
+
+                                std::vector<xgpu::pipeline::sampler> Samplers;
+                                Samplers.reserve(Binds.size());
+
+                                for (auto& E : pMI->getTextures())
+                                {
+                                    const int Index = static_cast<int>(&E - pMI->getTextures().data());
+                                    if ( Index == 0)
+                                    {
+                                        Samplers.push_back(xgpu::pipeline::sampler{ .m_AddressMode = std::array{ xgpu::pipeline::sampler::address_mode::CLAMP // Shadowmap
+                                                                                                               , xgpu::pipeline::sampler::address_mode::CLAMP
+                                                                                                               , xgpu::pipeline::sampler::address_mode::CLAMP
+                                                                                                               }});
+                                    }
+                                    else
+                                    {
+                                        Samplers.push_back({});
+                                    }
+                                }
+
+                                auto Shaders  = std::array<const xgpu::shader*, 2>{ &pMat->getShader(), &VertexShader3D };
+                                auto UBuffersUsage = std::array{ xgpu::pipeline::uniform_binds { .m_BindIndex   = 0         // MeshUniforms, bind 0 set 2, changes per mesh/draw call
+                                                                                               , .m_Usage       = {.m_bVertex = true }
+                                                                                               , .m_Type        = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC      // MUST be dynamic (per object)
+                                                                                                }
+                                                                , xgpu::pipeline::uniform_binds { .m_BindIndex  = 1         // MeshUniforms, bind 0 set 2, changes per mesh/draw call
+                                                                                                , .m_Usage      = {.m_bFragment = true }
+                                                                                                , .m_Type       = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC      // MUST be dynamic (per object)
+                                                                                                }
+                                                                , xgpu::pipeline::uniform_binds { .m_BindIndex  = 0         // ClusterUniforms clusters[], bind 0 set 1, never changes
+                                                                                                , .m_Usage      = xgpu::shader::type{xgpu::shader::type::bit::VERTEX}
+                                                                                                , .m_Type       = xgpu::pipeline::uniform_binds::type::SSBO_STATIC     // Static = big array + push_constant index
+                                                                                                }
+                                };
+                                auto Setup = xgpu::pipeline::setup
+                                { .m_VertexDescriptor       = GeomStaticVertexDescriptor
+                                , .m_Shaders                = Shaders
+                                , .m_PushConstantsSize      = sizeof(static_geom_push_const)
+                                , .m_UniformBinds           = UBuffersUsage
+                                , .m_Samplers               = Samplers
+                                };
+
+                                if (auto Err = Device.Create(PipeLine, Setup); Err)
+                                {
+                                    assert(false);
+                                    return xgpu::getErrorInt(Err);
+                                }
+                            }
+
                             auto setup = xgpu::pipeline_instance::setup
-                            { .m_PipeLine               = Pipeline3D
-                            , .m_SamplersBindings       = Bindings
+                            { .m_PipeLine               = PipeLine
+                            , .m_SamplersBindings       = Binds
                             };
+
 
                             if (auto Err = Device.Create(Mesh3DMatInstance[Index], setup); Err)
                             {

@@ -463,6 +463,9 @@ void DrawGraphUI(xmaterial_graph::graph& g, ed::NodeId& lastSelectedNode)
                     assert(type);
                     assert(n.m_Params.empty() == false);
 
+                    // Due to changes this may be true... if so just skip it..
+                    if (ip.m_ParamIndex >= n.m_Params.size()) continue;
+
                     if (n.m_Params[ip.m_ParamIndex].m_Type == xmaterial_graph::node_param::type::FLOAT ||
                         n.m_Params[ip.m_ParamIndex].m_Type == xmaterial_graph::node_param::type::INT )
                     {
@@ -1442,6 +1445,8 @@ int E19_Example()
     xgpu::pipeline_instance     material_instance       = {};
     xgpu::texture               defaulttexture          = {};
     xmaterial_graph::graph      g                       = {};
+
+    xgpu::tools::bitmap::Create(defaulttexture, Device, xbitmap::getDefaultBitmap());
 
     MeshManager.Init(Device);
 

@@ -881,9 +881,9 @@ int E20_Example()
         // Get the bounding box of the last item (the tree node)
         ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0.2f));
 
-        bool bOverride = false;
-        int Index;
-        auto                            Pair = Inspector.getComponent(0, 0);
+        bool    bOverride   = false;
+        int     Index       = 0;
+        auto    Pair        = Inspector.getComponent(0, 0);
 
         std::string NewName;
         if (pName[0] == '[')
@@ -901,10 +901,11 @@ int E20_Example()
                 auto result = std::from_chars(View.data(), View.data() + View.size(), Index);
                 assert(result.ec == std::errc());
 
-                NewName = std::format("{} {}", pName, pDesc->m_lTextureDefaults[Index].m_Name);
+                auto& Default = pDesc->m_lTextureDefaults[Index];
+                NewName = std::format("{} {}", pName, Default.m_Name);
                 pName = NewName.c_str();
 
-                bOverride = pDesc->m_lFinalTextures[pDesc->m_lTextureDefaults[Index].m_Index].m_TextureRef != pDesc->m_lTextures[Index];
+                bOverride = pDesc->m_lFinalTextures[Default.m_Index].m_TextureRef != pDesc->m_lTextures[Index];
             }
         }
 
@@ -914,8 +915,9 @@ int E20_Example()
 
             if (ImGui::Button(">"))
             {
-                xmaterial_instance::descriptor* pDesc = static_cast<xmaterial_instance::descriptor*>(Pair.second);
-                pDesc->m_lTextures[Index] = pDesc->m_lFinalTextures[pDesc->m_lTextureDefaults[Index].m_Index].m_TextureRef;
+                xmaterial_instance::descriptor* pDesc   = static_cast<xmaterial_instance::descriptor*>(Pair.second);
+                auto&                           Default = pDesc->m_lTextureDefaults[Index];
+                pDesc->m_lTextures[Index] = pDesc->m_lFinalTextures[Default.m_Index].m_TextureRef;
             }
 
             ImGui::SameLine();
