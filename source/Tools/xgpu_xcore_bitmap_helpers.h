@@ -35,7 +35,10 @@ namespace xgpu::tools::bitmap
         Table[static_cast<std::size_t>(xbitmap::format::ETC2_4RGBA1)]     = xgpu::texture::format::ETC2_4RGBA1_UNORM     ;
         Table[static_cast<std::size_t>(xbitmap::format::ETC2_8RGBA)]      = xgpu::texture::format::ETC2_8RGBA_UNORM      ;
 
-        Table[static_cast<std::size_t>(xbitmap::format::R16G16B16A16_FLOAT)] = xgpu::texture::format::R16G16B16A16_SFLOAT;
+        Table[static_cast<std::size_t>(xbitmap::format::R16G16B16A16_SFLOAT)]   = xgpu::texture::format::R16G16B16A16_SFLOAT;
+        Table[static_cast<std::size_t>(xbitmap::format::R16G16_SFLOAT)]         = xgpu::texture::format::R16G16_SFLOAT;
+        Table[static_cast<std::size_t>(xbitmap::format::R16_SFLOAT)]            = xgpu::texture::format::R16_SFLOAT;
+
         Table[static_cast<std::size_t>(xbitmap::format::R32G32B32A32_FLOAT)] = xgpu::texture::format::R32G32B32A32_SFLOAT;
 
         return Table;

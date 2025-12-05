@@ -38,7 +38,12 @@ namespace xgpu
         ,   ETC2_4RGBA1_UNORM
         ,   ETC2_8RGBA_UNORM
         ,   R32G32B32A32_SFLOAT
+        ,   R32G32B32_SFLOAT
+        ,   R32G32_SFLOAT
+        ,   R32_SFLOAT
         ,   R16G16B16A16_SFLOAT
+        ,   R16G16_SFLOAT
+        ,   R16_SFLOAT
         ,   DEPTH_U16
         ,   DEPTH_U24_STENCIL_U8
         ,   DEPTH_F32

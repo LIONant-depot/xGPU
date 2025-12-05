@@ -192,30 +192,36 @@ namespace e05
                 assert(bRead);
                 switch (I.m_pBitmap->getFormat())
                 {
-                    case xbitmap::format::R4G4B4A4:   Out = "R4G4B4A4"; break;
-                    case xbitmap::format::R5G6B5:     Out = "R5G6B5"; break;
-                    case xbitmap::format::B5G5R5A1:   Out = "B5G5R5A1"; break;
-                    case xbitmap::format::R8G8B8:     Out = "R8G8B8"; break;
-                    case xbitmap::format::R8G8B8U8:   Out = "R8G8B8U8"; break;
-                    case xbitmap::format::R8G8B8A8:   Out = "R8G8B8A8"; break;
-                    case xbitmap::format::B8G8R8A8:   Out = "B8G8R8A8"; break;
-                    case xbitmap::format::B8G8R8U8:   Out = "B8G8R8U8"; break;
-                    case xbitmap::format::U8R8G8B8:   Out = "U8R8G8B8"; break;
+                    case xbitmap::format::R4G4B4A4:             Out = "R4G4B4A4";               break;
+                    case xbitmap::format::R5G6B5:               Out = "R5G6B5";                 break;
+                    case xbitmap::format::B5G5R5A1:             Out = "B5G5R5A1";               break;
+                    case xbitmap::format::R8G8B8:               Out = "R8G8B8";                 break;
+                    case xbitmap::format::R8G8B8U8:             Out = "R8G8B8U8";               break;
+                    case xbitmap::format::R8G8B8A8:             Out = "R8G8B8A8";               break;
+                    case xbitmap::format::B8G8R8A8:             Out = "B8G8R8A8";               break;
+                    case xbitmap::format::B8G8R8U8:             Out = "B8G8R8U8";               break;
+                    case xbitmap::format::U8R8G8B8:             Out = "U8R8G8B8";               break;
 
-                    case xbitmap::format::R32G32B32A32_FLOAT: Out = "R32G32B32A32_FLOAT"; break;
-                    case xbitmap::format::R16G16B16A16_FLOAT: Out = "R16G16B16A16_FLOAT"; break;
+                    case xbitmap::format::R32G32B32A32_FLOAT:   Out = "R32G32B32A32_FLOAT";     break;
+                    case xbitmap::format::R32G32B32_FLOAT:      Out = "R32G32B32_FLOAT";        break;
+                    case xbitmap::format::R32G32_FLOAT:         Out = "R32G32_FLOAT";           break;
+                    case xbitmap::format::R32_FLOAT:            Out = "R32_FLOAT";              break;
 
-                    case xbitmap::format::BC1_4RGB:           Out = "BC1_4RGB / DXT1"; break;
-                    case xbitmap::format::BC1_4RGBA1:         Out = "BC1_4RGBA1 / DXT1"; break;
-                    case xbitmap::format::BC2_8RGBA:          Out = "BC2_8RGBA / DXT3"; break;
-                    case xbitmap::format::BC3_8RGBA:          Out = "BC3_8RGBA / DXT5"; break;
-                    case xbitmap::format::BC3_81Y0X_NORMAL:   Out = "BC3_81Y0X_NORMAL"; break;
-                    case xbitmap::format::BC4_4R:             Out = "BC4_4R"; break;
-                    case xbitmap::format::BC5_8RG:            Out = "BC5_8RG"; break;
-                    case xbitmap::format::BC5_8YX_NORMAL:     Out = "BC5_8YX_NORMAL"; break;
-                    case xbitmap::format::BC6H_8RGB_SFLOAT:   Out = "BC6H_8RGB_SFLOAT"; break;
-                    case xbitmap::format::BC6H_8RGB_UFLOAT:   Out = "BC6H_8RGB_UFLOAT"; break;
-                    case xbitmap::format::BC7_8RGBA:          Out = "BC7_8RGBA"; break;
+                    case xbitmap::format::R16G16B16A16_SFLOAT:  Out = "R16G16B16A16_SFLOAT";    break;
+                    case xbitmap::format::R16G16_SFLOAT:        Out = "R16G16_SFLOAT";          break;
+                    case xbitmap::format::R16_SFLOAT:           Out = "R16_SFLOAT";             break;
+
+                    case xbitmap::format::BC1_4RGB:             Out = "BC1_4RGB / DXT1";        break;
+                    case xbitmap::format::BC1_4RGBA1:           Out = "BC1_4RGBA1 / DXT1";      break;
+                    case xbitmap::format::BC2_8RGBA:            Out = "BC2_8RGBA / DXT3";       break;
+                    case xbitmap::format::BC3_8RGBA:            Out = "BC3_8RGBA / DXT5";       break;
+                    case xbitmap::format::BC3_81Y0X_NORMAL:     Out = "BC3_81Y0X_NORMAL";       break;
+                    case xbitmap::format::BC4_4R:               Out = "BC4_4R";                 break;
+                    case xbitmap::format::BC5_8RG:              Out = "BC5_8RG";                break;
+                    case xbitmap::format::BC5_8YX_NORMAL:       Out = "BC5_8YX_NORMAL";         break;
+                    case xbitmap::format::BC6H_8RGB_SFLOAT:     Out = "BC6H_8RGB_SFLOAT";       break;
+                    case xbitmap::format::BC6H_8RGB_UFLOAT:     Out = "BC6H_8RGB_UFLOAT";       break;
+                    case xbitmap::format::BC7_8RGBA:            Out = "BC7_8RGBA";              break;
                     default: Out = "Unexpected format"; break;
                 }
             }

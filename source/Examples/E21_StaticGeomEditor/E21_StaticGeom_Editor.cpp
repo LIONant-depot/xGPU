@@ -1893,6 +1893,18 @@ int E21_Example()
 
     bool ResetAssetBroswerPosiotion = false;
 
+
+    xgpu::texture BRDFTexture;
+    {
+        xbitmap Bitmap;
+        xbmp::tools::lighting::GenerateGGX_BRDF_RG_16SFLOAT(Bitmap, 512, 512);
+
+        if ( auto pError = xgpu::tools::bitmap::Create(BRDFTexture, Device, Bitmap); pError )
+        {
+            assert(false);
+        }
+    }
+
     //
     // Main Loop
     //
