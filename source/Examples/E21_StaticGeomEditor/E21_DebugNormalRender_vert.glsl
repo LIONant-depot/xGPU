@@ -19,10 +19,12 @@ void main()
 {
     const mb_full_vertex VertData = getVertexData();
 
+    vec3 Binormal = VertData.Tangent.w * cross(VertData.Normal.xyz, VertData.Tangent.xyz);
+
     // Try to keep the normal the same size in the screen
-    vec3 Axis = VertData.Tangent  * mesh.ScaleFactor.xxx
-              + VertData.Binormal * mesh.ScaleFactor.yyy
-              + VertData.Normal   * mesh.ScaleFactor.zzz;
+    vec3 Axis = VertData.Tangent.xyz  * mesh.ScaleFactor.xxx
+              + Binormal.xyz          * mesh.ScaleFactor.yyy
+              + VertData.Normal.xyz   * mesh.ScaleFactor.zzz;
 
     float uMaxDepth     = mesh.ScaleFactor.w;
     out_A               = mesh.L2C * VertData.LocalPos;
