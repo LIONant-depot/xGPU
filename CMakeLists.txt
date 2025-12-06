@@ -8,7 +8,6 @@ if(POLICY CMP0169)
   cmake_policy(SET CMP0169 OLD)
 endif()
 
-
 #
 # Fetch Common.cmake from xcmake_tools
 #
@@ -646,6 +645,12 @@ source_group("" FILES
   "source/Examples/Examples.h"
   "Readme.md"
 )
+
+# ADD SUPPORT FOR OPEN_MP
+find_package(OpenMP REQUIRED)
+target_link_libraries(${TARGET_PROJECT} PRIVATE OpenMP::OpenMP_CXX)
+
+
 
 # Add dependency subdirectory
 add_subdirectory("build/dependency" "${CMAKE_CURRENT_BINARY_DIR}/xGPUExamples")

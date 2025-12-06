@@ -1,6 +1,6 @@
 #version 450
 
-#include "..\..\..\plugins\xgeom_static.plugin\source\runtime\xgeom_static_mb_position_vert.glsl"
+#include "..\..\..\plugins\xgeom_static.plugin\source\runtime\xgeom_static_mb_input_position.vert"
 
 layout(set = 2, binding = 0) uniform Mesh
 {
@@ -15,7 +15,7 @@ layout(location = 1) out vec4 vClipPosition;
 void main()
 {
     // Set the final position
-    vwWorldPosition = mesh.L2w * getVertexLocalPosition();
+    vwWorldPosition = mesh.L2w * getVertexLocalPosition().Value;
     vClipPosition   = mesh.w2C * vwWorldPosition;
     gl_Position     = vClipPosition;
 }

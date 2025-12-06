@@ -4,8 +4,8 @@
 #extension GL_ARB_shading_language_420pack : enable
 #extension GL_ARB_gpu_shader_fp64 : enable
 
-#include "../../../Plugins/xgeom_static.plugin/source/runtime/md_tone_mapper_lion.glsl"
-#include "../../../Plugins/xgeom_static.plugin/source/runtime/mb_lineartogamma_frag.glsl"
+#include "../../../Plugins/xgeom_static.plugin/source/runtime/mb_tone_mapper_lion.frag"
+#include "../../../Plugins/xgeom_static.plugin/source/runtime/mb_lineartogamma.frag"
 
 // Constants
 const float GridScale       = 1.0;
