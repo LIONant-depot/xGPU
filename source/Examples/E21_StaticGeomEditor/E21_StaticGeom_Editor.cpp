@@ -646,6 +646,146 @@ namespace e21
     }
 
 
+
+#include <string>
+#include <sstream>
+#include <cmath>
+#include <algorithm> // for std::reverse
+#include <unordered_map>
+
+    // Helper: insert commas into the integer part of a numeric string.
+    // Works with formats like "12345.67", "12345", "-12345.67", etc.
+    static std::string add_commas(const std::string& s) {
+        // Separate sign, integer part, and fractional part
+        std::string sign, int_part, frac_part;
+        size_t pos = 0;
+        if (!s.empty() && (s[0] == '-' || s[0] == '+')) {
+            sign = s.substr(0, 1);
+            pos = 1;
+        }
+
+        size_t dot = s.find('.', pos);
+        if (dot == std::string::npos) {
+            int_part = s.substr(pos);
+        }
+        else {
+            int_part = s.substr(pos, dot - pos);
+            frac_part = s.substr(dot); // includes the '.'
+        }
+
+        // Insert commas into int_part (work from the end)
+        std::string with_commas;
+        int count = 0;
+        for (int i = static_cast<int>(int_part.size()) - 1; i >= 0; --i) {
+            with_commas.push_back(int_part[i]);
+            ++count;
+            if (count == 3 && i > 0) {
+                with_commas.push_back(',');
+                count = 0;
+            }
+        }
+        // Reverse back to normal order
+        std::reverse(with_commas.begin(), with_commas.end());
+
+        return sign + with_commas + frac_part;
+    }
+
+    // Round to N decimal places (N >= 0).
+    static double round_to_decimals(double value, int decimals) {
+        if (decimals <= 0) return std::round(value);
+        double scale = std::pow(10.0, static_cast<double>(decimals));
+        return std::round(value * scale) / scale;
+    }
+
+    // Format a double with at most `max_decimals` decimals, then add commas.
+    // Trims trailing zeros and a trailing '.' if present.
+    static std::string format_number_with_commas(double value, int max_decimals) {
+        // Round first to the required precision
+        double rounded = round_to_decimals(value, max_decimals);
+
+        // Print with fixed and exactly max_decimals, then trim
+        std::ostringstream oss;
+        oss.setf(std::ios::fixed);
+        oss.precision(max_decimals);
+        oss << rounded;
+        std::string s = oss.str();
+
+        // Trim trailing zeros and optional trailing '.'
+        if (s.find('.') != std::string::npos) {
+            while (!s.empty() && s.back() == '0') s.pop_back();
+            if (!s.empty() && s.back() == '.') s.pop_back();
+        }
+
+        // Add commas to integer part
+        return add_commas(s);
+    }
+
+    /**
+     * Convert a distance (in meters) into the most natural unit among:
+     * mm, cm, m, Km. Returns an ASCII string with commas, a space, and
+     * unit-specific decimal limits.
+     *
+     * Default decimal limits (adjust as needed):
+     *   Km: up to 3 decimals
+     *   m : up to 3 decimals
+     *   cm: up to 3 decimals
+     *   mm: up to 3 decimals
+     *
+     * Examples:
+     *   formatDistance(1.0f)            -> "1 m"
+     *   formatDistance(0.01f)           -> "1 cm"
+     *   formatDistance(0.0005f)         -> "0.5 mm"
+     *   formatDistance(10000.0f)        -> "10,000 Km"
+     *   formatDistance(10.2135123f*0.01f)-> "10.213 cm"  // input: meters
+     *   formatDistance(1234567.0f)      -> "1,234.567 Km"
+     *   formatDistance(-2.4f)           -> "-2.4 m"
+     *   formatDistance(INFINITY)        -> "INF m"
+     */
+    std::string formatDistance(float meters) {
+        // Handle special floating values (ASCII-only outputs)
+        if (std::isnan(meters)) return "NaN m";
+        if (std::isinf(meters)) return (meters > 0 ? "INF m" : "-INF m");
+
+        double v = static_cast<double>(meters);
+        double abs_v = std::fabs(v);
+
+        std::string unit;
+        double number;
+
+        if (abs_v >= 1000.0) {
+            unit = "Km";
+            number = v / 1000.0;
+        }
+        else if (abs_v >= 1.0) {
+            unit = "m";
+            number = v;
+        }
+        else if (abs_v >= 0.01) {
+            unit = "cm";
+            number = v * 100.0;
+        }
+        else {
+            unit = "mm";
+            number = v * 1000.0;
+        }
+
+        // Configure max decimals per unit (tweak these if you prefer)
+        static const std::unordered_map<std::string, int> max_decimals_for_unit = {
+            {"Km", 3},
+            {"m",  3},
+            {"cm", 3},
+            {"mm", 3}
+        };
+        int max_decimals = 3;
+        auto it = max_decimals_for_unit.find(unit);
+        if (it != max_decimals_for_unit.end()) {
+            max_decimals = it->second;
+        }
+
+        std::string formatted = format_number_with_commas(number, max_decimals);
+        return formatted + " " + unit; // readable spacing
+    }
+
     struct render_settings
     {
         render_settings()
@@ -677,6 +817,13 @@ namespace e21
             m_GridYMin              = {};
         }
 
+        void Recenter()
+        {
+            m_Distance = -1;
+            m_CameraTarget = { 0, 0, 0 };
+            m_Angles = {};
+        }
+
         xgpu::tools::view   m_View;
         xmath::radian3      m_Angles;
         float               m_Distance;   
@@ -697,7 +844,13 @@ namespace e21
         , obj_scope < "Camera Info"
             , obj_member<"Position", +[](render_settings& O)->auto& { static xmath::fvec3 Pos; Pos = O.m_View.getPosition(); return Pos; }>
             , obj_member<"Target",   &render_settings::m_CameraTarget >
-            >
+            , obj_member<"Recenter", +[](render_settings& O, bool bRead, std::string& Value )
+            {
+                if (bRead) Value = "Recenter";
+                else       O.Recenter();
+            }
+            , member_ui<std::string>::button<>
+            >>
         , obj_scope< "Lighting Info"
             , obj_member<"Direction",           &render_settings::m_LightDirection >
             , obj_member<"Position",            &render_settings::m_LightPosition >
@@ -780,10 +933,11 @@ namespace e21
             std::vector<lod>            m_LODs;
             xmath::fbbox                m_BBox;
 
+
             XPROPERTY_DEF
             ( "mesh", mesh
             , obj_member<"Name",        &mesh::m_Name >
-            , obj_member<"BBox",        &mesh::m_BBox >
+            , obj_member<"BBox",        &mesh::m_BBox, member_ui_open<false> >
             , obj_member<"nClusters",   &mesh::m_nClusters >
             , obj_member<"nVertices",   &mesh::m_nVertices >
             , obj_member<"nFaces",      &mesh::m_nFaces >
@@ -913,6 +1067,15 @@ namespace e21
                     Mesh.m_nMaterials += static_cast<int>(LOD.m_Submesh.size());
                 }
             }
+
+            //
+            // Compute over all size
+            //
+            m_Size.setup(0);
+            for ( auto& m : m_Mesh )
+            {
+                m_Size = m_Size.Max( m.m_BBox.getSize() );
+            }
         }
 
         void clear()
@@ -931,16 +1094,54 @@ namespace e21
         int                                         m_nFaces;
         std::vector<xrsc::material_instance_ref>    m_Materials;
         xmath::fbbox                                m_BBox;
+        xmath::fvec3                                m_Size;
         int                                         m_FileSize;
         std::vector<stream>                         m_VertexStreams;
 
         XPROPERTY_DEF
         ( "StaticGeom Inspector", static_geom_inspector
         , obj_member<"RscGeom",         &static_geom_inspector::m_RscGeom, member_flags<flags::SHOW_READONLY> >
-        , obj_member<"nClusters",       &static_geom_inspector::m_nClusters, member_flags<flags::SHOW_READONLY> >
-        , obj_member<"nVertices",       &static_geom_inspector::m_nVertices, member_flags<flags::SHOW_READONLY> >
-        , obj_member<"nFaces",          &static_geom_inspector::m_nFaces, member_flags<flags::SHOW_READONLY> >
-        , obj_member<"FileSize",        &static_geom_inspector::m_FileSize, member_flags<flags::SHOW_READONLY> >
+        , obj_scope< "Size"
+            , obj_member < "X", +[](static_geom_inspector& O, bool bRead, std::string& Val)
+            {
+                assert(bRead);
+                Val = formatDistance(O.m_Size.m_X);
+            } >
+            , obj_member < "Y", +[](static_geom_inspector& O, bool bRead, std::string& Val)
+            {
+                assert(bRead);
+                Val = formatDistance(O.m_Size.m_Y);
+            } >
+            , obj_member < "Z", +[](static_geom_inspector& O, bool bRead, std::string& Val)
+            {
+                assert(bRead);
+                Val = formatDistance(O.m_Size.m_Z);
+            } > , member_flags<flags::SHOW_READONLY 
+            >>
+        , obj_member<"nClusters", +[](static_geom_inspector& O, bool bRead, std::string& Value)
+            {
+                if (bRead) Value = format_number_with_commas(O.m_nClusters, 0);
+
+            }, member_flags<flags::SHOW_READONLY
+            >>
+        , obj_member<"nVertices", +[](static_geom_inspector& O, bool bRead, std::string& Value)
+            {
+                if (bRead) Value = format_number_with_commas(O.m_nVertices, 0);
+
+            }, member_flags<flags::SHOW_READONLY
+            >>
+        , obj_member<"nFaces", +[](static_geom_inspector& O, bool bRead, std::string& Value)
+            {
+                if (bRead) Value = format_number_with_commas(O.m_nFaces, 0);
+
+            }, member_flags<flags::SHOW_READONLY
+            >>
+        , obj_member<"FileSize",        +[](static_geom_inspector& O, bool bRead, std::string& Value)
+            {
+                if ( bRead ) Value = format_number_with_commas(O.m_FileSize, 0) + " Bytes";
+
+            }, member_flags<flags::SHOW_READONLY
+            >>
         , obj_member<"Meshes",          &static_geom_inspector::m_Mesh, member_flags<flags::SHOW_READONLY> >
         , obj_member<"VertexStreams",   &static_geom_inspector::m_VertexStreams, member_flags<flags::SHOW_READONLY> >
         , obj_member<"Materials",       &static_geom_inspector::m_Materials, member_flags<flags::SHOW_READONLY> >
