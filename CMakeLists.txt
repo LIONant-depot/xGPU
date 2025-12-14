@@ -291,7 +291,11 @@ foreach(SHADER ${GEOM_SHADER_SOURCES})
 endforeach()
 
 # Include the output directory for headers
-include_directories("${CMAKE_BINARY_DIR}/sprv_shaders_h")
+set(Vulkan_INCLUDE_DIR "${VK_SDK_PATH}/Include")
+set(Vulkan_LIBRARY "${VK_SDK_PATH}/Lib/vulkan-1.lib")
+
+include_directories("${CMAKE_BINARY_DIR}/sprv_shaders_h"
+		    ${Vulkan_INCLUDE_DIR} 	)
 
 # Create a single collection for all shaders
 set(SHADER_SOURCES ${FRAG_SHADER_SOURCES} ${VERT_SHADER_SOURCES} ${GEOM_SHADER_SOURCES})

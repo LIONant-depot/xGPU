@@ -1,6 +1,22 @@
 @echo off
 setlocal enabledelayedexpansion
 
+:: Save current directory
+set "ORIG_DIR=%CD%"
+
+:: Check for admin
+>nul 2>&1 fsutil dirty query %systemdrive% && goto :gotAdmin
+
+:: Relaunch elevated, passing original dir as arg
+powershell -Command "Start-Process '%~f0' -ArgumentList '%ORIG_DIR%' -Verb RunAs"
+exit /b
+
+:gotAdmin
+:: If relaunched, restore original dir (from arg) if provided
+if "%~1" neq "" cd /d "%~1"
+
+:: READY TO WORK!!!!
+
 rmdir /s /q xGPUExamples.vs2022
 rem rmdir /s /q ..\dependencies
 cmake ../ -G "Visual Studio 17 2022" -A x64 -B xGPUExamples.vs2022
