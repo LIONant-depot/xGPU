@@ -53,6 +53,15 @@ if errorlevel 1 (
 )
 
 echo String replacement complete
+
+rem -- HACK -- imgui-node-editor unconditionally defines operator*(float, ImVec2), duplicating
+rem imgui.h's own definition. See patch_imgui_node_editor.ps1 for details.
+powershell -ExecutionPolicy Bypass -File "%~dp0patch_imgui_node_editor.ps1"
+if errorlevel 1 (
+    echo Error: Failed to patch imgui-node-editor
+    goto :ERROR
+)
+
 endlocal
 pause
 exit /b 0
