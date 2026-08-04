@@ -25,7 +25,11 @@ include(${CMAKE_BINARY_DIR}/_deps/xcmake_tools/Common.cmake)
 #
 # Get and build the core example project
 #
-if(NOT EXISTS "${CMAKE_SOURCE_DIR}/example.lionprj")
+# Install.bat only copies check_changes.bat into Cache/Plugins after every plugin has
+# cloned, symlinked, and built successfully -- gate on that (not just the folder existing)
+# so a prior partial/failed install gets retried instead of being silently skipped, which
+# previously surfaced as an unrelated "can't find assimp-vc143-mt.dll" error much further down.
+if(NOT EXISTS "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/Plugins/check_changes.bat")
 
     FetchContent_Declare(
       xresource_pipeline_example
@@ -152,12 +156,14 @@ endif()
 #
 # Download Shaderc zip if it doesn't exist
 set(SHADERC_ZIP "${CMAKE_SOURCE_DIR}/dependencies/Shaderc.zip")
-if(NOT EXISTS "${SHADERC_ZIP}")
+set(SHADERC_EXTRACT_DIR "${CMAKE_SOURCE_DIR}/dependencies")
+set(SHADERC_INSTALL_DIR "${SHADERC_EXTRACT_DIR}/shaderc")
+# Gate on the fully-extracted install dir, not the zip: a failed/interrupted download can
+# leave a stale or 0-byte zip behind, which would otherwise block every future retry.
+if(NOT EXISTS "${SHADERC_INSTALL_DIR}")
 
     # Define paths
     set(SHADERC_URL "https://storage.googleapis.com/shaderc/artifacts/prod/graphics_shader_compiler/shaderc/windows-vs2022-amd64-release/continuous/36/20260731-122731/install.zip")
-    set(SHADERC_EXTRACT_DIR "${CMAKE_SOURCE_DIR}/dependencies")
-    set(SHADERC_INSTALL_DIR "${SHADERC_EXTRACT_DIR}/shaderc")
 
     message(STATUS "Downloading Shaderc...")
     file(DOWNLOAD "${SHADERC_URL}" "${SHADERC_ZIP}" STATUS download_status)
@@ -179,14 +185,15 @@ endif()
 # Extract all the animated assets
 #
 set(DESTINATION_ASSETS "${CMAKE_SOURCE_DIR}/dependencies/Assets/Animated")
-if(NOT EXISTS "${DESTINATION_ASSETS}")
-  file(ARCHIVE_EXTRACT INPUT "${CMAKE_SOURCE_DIR}/Assets/Animated/catwalk.zip" DESTINATION "${DESTINATION_ASSETS}")
-  file(ARCHIVE_EXTRACT INPUT "${CMAKE_SOURCE_DIR}/Assets/Animated/ImperialWalker.zip" DESTINATION "${DESTINATION_ASSETS}")
-  file(ARCHIVE_EXTRACT INPUT "${CMAKE_SOURCE_DIR}/Assets/Animated/Sonic.zip" DESTINATION "${DESTINATION_ASSETS}")
-  file(ARCHIVE_EXTRACT INPUT "${CMAKE_SOURCE_DIR}/Assets/Animated/Starwars.zip" DESTINATION "${DESTINATION_ASSETS}")
-  file(ARCHIVE_EXTRACT INPUT "${CMAKE_SOURCE_DIR}/Assets/Animated/supersoldier.zip" DESTINATION "${DESTINATION_ASSETS}")
-  file(ARCHIVE_EXTRACT INPUT "${CMAKE_SOURCE_DIR}/Assets/Animated/walking-while-listening.zip" DESTINATION "${DESTINATION_ASSETS}")
-endif()
+# Each zip extracts to a top-level folder matching its own name -- gate per-archive rather
+# than on the shared parent folder, so a failure partway through (e.g. zip 2 of 6) doesn't
+# leave the rest silently un-extracted on the next run.
+set(ANIMATED_ASSET_ARCHIVES catwalk ImperialWalker Sonic Starwars supersoldier walking-while-listening)
+foreach(asset_name ${ANIMATED_ASSET_ARCHIVES})
+  if(NOT EXISTS "${DESTINATION_ASSETS}/${asset_name}")
+    file(ARCHIVE_EXTRACT INPUT "${CMAKE_SOURCE_DIR}/Assets/Animated/${asset_name}.zip" DESTINATION "${DESTINATION_ASSETS}")
+  endif()
+endforeach()
 
 #####################
 #
