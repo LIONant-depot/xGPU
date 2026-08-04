@@ -155,7 +155,7 @@ set(SHADERC_ZIP "${CMAKE_SOURCE_DIR}/dependencies/Shaderc.zip")
 if(NOT EXISTS "${SHADERC_ZIP}")
 
     # Define paths
-    set(SHADERC_URL "https://storage.googleapis.com/shaderc/artifacts/prod/graphics_shader_compiler/shaderc/windows/continuous_release_2017/371/20210722-133829/install.zip")
+    set(SHADERC_URL "https://storage.googleapis.com/shaderc/artifacts/prod/graphics_shader_compiler/shaderc/windows-vs2022-amd64-release/continuous/36/20260731-122731/install.zip")
     set(SHADERC_EXTRACT_DIR "${CMAKE_SOURCE_DIR}/dependencies")
     set(SHADERC_INSTALL_DIR "${SHADERC_EXTRACT_DIR}/shaderc")
 
