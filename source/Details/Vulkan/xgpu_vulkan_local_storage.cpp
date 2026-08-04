@@ -98,6 +98,11 @@ namespace xgpu::vulkan
             if(m_PerDevice[i].m_pDevice == &Device ) return { m_PerDevice[i], nullptr };
         }
 
+        if( m_nDevices >= static_cast<int>(m_PerDevice.size()) )
+        {
+            return { m_PerDevice.back(), VGPU_ERROR(xgpu::device::error::FAILURE, "Exceeded the maximum number of devices supported per thread") };
+        }
+
         auto& Entry     = m_PerDevice[m_nDevices++];
         Entry.m_pDevice = &Device;
 
