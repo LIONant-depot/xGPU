@@ -58,27 +58,31 @@ endif()
 #
 # Create a worm hole to unify all the dependencies
 #
-file(CREATE_LINK
-  "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/dependencies"
-  "${CMAKE_SOURCE_DIR}/dependencies"
-  SYMBOLIC
-  RESULT result
-)
-if(result)
-  message(FATAL_ERROR "Failed to create symlink: ${result}")
+if(NOT EXISTS "${CMAKE_SOURCE_DIR}/dependencies")
+  file(CREATE_LINK
+    "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/dependencies"
+    "${CMAKE_SOURCE_DIR}/dependencies"
+    SYMBOLIC
+    RESULT result
+  )
+  if(result)
+    message(FATAL_ERROR "Failed to create symlink: ${result}")
+  endif()
 endif()
 
 #
 # Create a worm hole to unify all the dependencies
 #
-file(CREATE_LINK
-  "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/plugins"
-  "${CMAKE_SOURCE_DIR}/plugins"
-  SYMBOLIC
-  RESULT result
-)
-if(result)
-  message(FATAL_ERROR "Failed to create symlink: ${result}")
+if(NOT EXISTS "${CMAKE_SOURCE_DIR}/plugins")
+  file(CREATE_LINK
+    "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/plugins"
+    "${CMAKE_SOURCE_DIR}/plugins"
+    SYMBOLIC
+    RESULT result
+  )
+  if(result)
+    message(FATAL_ERROR "Failed to create symlink: ${result}")
+  endif()
 endif()
 
 
