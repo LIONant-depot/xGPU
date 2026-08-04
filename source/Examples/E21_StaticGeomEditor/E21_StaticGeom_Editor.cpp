@@ -34,6 +34,7 @@
 
 #include "imgui_internal.h"
 
+
 //-----------------------------------------------------------------------------------
 
 namespace e21
@@ -788,9 +789,10 @@ namespace e21
 
     struct render_settings
     {
-        render_settings()
+        void Initialize(xgpu::device& Device)
         {
             clear();
+            m_MeshManager.Init(Device);
         }
 
         void clear()
@@ -838,6 +840,7 @@ namespace e21
         bool                m_LightFollowsCamera;
         bool                m_bGridToYMin;
         float               m_GridYMin;
+        e19::mesh_manager   m_MeshManager = {};
 
         XPROPERTY_DEF
         ( "Render Settings", render_settings
@@ -1869,14 +1872,9 @@ int E21_Example()
     //
     // Create mesh mgr
     //
-    e19::mesh_manager           MeshManager             = {};
     xgpu::pipeline              material                = {};
     xgpu::pipeline_instance     material_instance       = {};
     xgpu::texture               defaulttexture          = {};
-
-    MeshManager.Init(Device);
-
-    e19::mesh_manager::model CurrentModel = e19::mesh_manager::model::CUBE;
 
     //
     // Create Background material
@@ -1958,6 +1956,8 @@ int E21_Example()
     // Setup all the views...
     //
     e21::render_settings     Settings;
+
+    Settings.Initialize(Device);
 
     //
     //create input devices
@@ -2105,6 +2105,7 @@ int E21_Example()
             assert(false);
         }
     }
+
 
     //
     // Main Loop
@@ -2357,7 +2358,7 @@ int E21_Example()
                     Uniform.m_W2C          = Settings.m_View.getW2C();
                     Uniform.m_L2CTShadow   = C2T * ShadowGenerationL2C * Uniform.m_L2W;
                     CmdBuffer.setDynamicUBO(GridDynamicUBO, 0);
-                    MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE3D);
+                    Settings.m_MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE3D);
 
                     // Leave it as the default value
                     Settings.m_GridYMin = p->m_BBox.m_Min.m_Y;

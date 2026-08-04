@@ -267,6 +267,7 @@ int E22_Example()
     float SpinSpeed = 0;
     std::chrono::high_resolution_clock::time_point Now = std::chrono::high_resolution_clock::now();
     float DeltaTime = 0;
+
     //
     // Main loop
     //

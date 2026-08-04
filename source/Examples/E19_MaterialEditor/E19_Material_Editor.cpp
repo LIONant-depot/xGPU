@@ -20,6 +20,7 @@
 #include "source/Examples/E10_TextureResourcePipeline/E10_AssetMgr.h"
 #include "source/Examples/E10_TextureResourcePipeline/E10_AssetBrowser.h"
 
+
 // Just include the loader here...
 #include "Plugins/xmaterial.plugin/source/xmaterial_xgpu_rsc_loader.cpp"
 
