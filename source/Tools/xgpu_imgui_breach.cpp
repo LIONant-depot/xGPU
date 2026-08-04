@@ -1479,7 +1479,7 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
         //ImFontConfig config;
         //config.MergeMode = true;
         //io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/consola.ttf", 12.0f, nullptr, glyph_ranges1);
-        //io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/SEGOEICONS.TTF", 12.0f, nullptr, glyph_ranges2);
+        //io.Fonts->AddFontFromFileTTF("C:/Windows/Fonts/segmdl2.ttf", 12.0f, nullptr, glyph_ranges2);
         //io.Fonts->Build();
 
         static const ImWchar glyph_ranges1[] = 
@@ -1507,14 +1507,14 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
         config2.MergeMode = true;   // Merge into the previous font
         config2.PixelSnapH = true;  // Align horizontally
         config2.GlyphOffset.y = 3.0f; // Move icons down
-        ImFont* font2 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/SEGOEICONS.TTF", 12.0f, &config2, glyph_ranges2);
-        assert(font2 != nullptr && "Failed to load SEGOEICONS.TTF");
+        ImFont* font2 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segmdl2.ttf", 12.0f, &config2, glyph_ranges2);
+        assert(font2 != nullptr && "Failed to load segmdl2.ttf");
 
 
         ImFont* font3 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/consolab.ttf", 12.0f, &config1, glyph_ranges1);
-        ImFont* font4 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/SEGOEICONS.TTF", 12.0f, &config2, glyph_ranges2);
+        ImFont* font4 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segmdl2.ttf", 12.0f, &config2, glyph_ranges2);
 
-        ImFont* font5 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/SEGOEICONS.TTF", 64.0f, &config1, glyph_ranges2);
+        ImFont* font5 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segmdl2.ttf", 64.0f, &config1, glyph_ranges2);
 
         // Build the atlas
         bool success = atlas->Build();
