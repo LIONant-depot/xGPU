@@ -140,9 +140,10 @@ namespace e23
 
     struct bone_world
     {
-        xmath::fvec3    m_Position  {};
-        xmath::fvec3    m_Right     {};
-        xmath::fvec3    m_Up        {};
+        xmath::fvec3    m_Position      {};
+        xmath::fvec3    m_Right         {};
+        xmath::fvec3    m_Up            {};
+        bool            m_bRealBindData {true}; // FROZEN: always true. BIND: false where propagated (see above).
     };
 
     enum class pose_mode { FROZEN, BIND };
@@ -308,23 +309,40 @@ namespace e23
             Center      += W.m_Position;
         }
 
-        // BIND pose: Bones[i].m_InvBindPose.Inverse(). VIRTUAL bones (and any bone the compiler
-        // never saw real mesh-skin data for) never got a real inverse bind pose computed, so it's
-        // left at identity - fall back to that bone's own FROZEN position/axes rather than letting
-        // it (and every child hanging off it) collapse to the world origin.
+        // BIND pose: Bones[i].m_InvBindPose.Inverse() where that's real (the compiler actually saw
+        // mesh-skin data for this bone). VIRTUAL bones (and any bone with no skin data) never got a
+        // real inverse bind pose, so it's left at identity - falling back to that bone's FROZEN
+        // *world* position (as an earlier version of this did) is wrong: bind and frozen poses are
+        // wholly unrelated placements (this is a walking-animation asset, so the frozen/rest pose is
+        // a mid-stride snapshot, not the neutral bind pose), so a bone between two real-bind-data
+        // ancestors would jump out to an unrelated frozen-space position and back, drawing a
+        // spurious dangling wedge on both sides of it. Instead propagate forward from the nearest
+        // bind-posed ancestor using this bone's own local (parent-relative) rest offset - the same
+        // offset FK uses for the frozen pose - so a fallback bone still hangs naturally off its
+        // real-bind-data parent rather than teleporting to a different pose's coordinate frame.
+        // Reuses WorldMats as scratch for this second forward pass - every FROZEN value it held is
+        // already saved into State.m_BoneWorldFrozen above and isn't needed again.
         for (std::size_t i = 0; i < Bones.size(); ++i)
         {
             auto& W = State.m_BoneWorldBind[i];
-            if (Bones[i].m_InvBindPose.isIdentity())
-            {
-                W = State.m_BoneWorldFrozen[i];
-            }
-            else
+            if (!Bones[i].m_InvBindPose.isIdentity())
             {
                 const xmath::fmat4 BindMat = Bones[i].m_InvBindPose.Inverse();
+                WorldMats[i] = BindMat;
                 W.m_Position = BindMat.ExtractPosition();
                 W.m_Right    = BindMat.Right();
                 W.m_Up       = BindMat.Up();
+                W.m_bRealBindData = true;
+            }
+            else
+            {
+                const xmath::fmat4 LocalMat = Rests[i].m_RestPose.toMatrix();
+                const int          iParent  = Bones[i].m_iParent;
+                WorldMats[i] = (iParent < 0) ? LocalMat : (WorldMats[iParent] * LocalMat);
+                W.m_Position = WorldMats[i].ExtractPosition();
+                W.m_Right    = WorldMats[i].Right();
+                W.m_Up       = WorldMats[i].Up();
+                W.m_bRealBindData = false;
             }
         }
 
@@ -546,9 +564,19 @@ namespace e23
             wedge_shape Shape;
             if (!ComputeWedgeShape(A, B, World[i].m_Right, World[i].m_Up, Shape)) continue;
 
+            // A bone with no real bind data got its BIND position/axes propagated from its nearest
+            // real-bind-data ancestor using a FROZEN-relative local offset - fine on its own, but the
+            // instant either side of an edge has real, independently-computed data and the other
+            // doesn't, nothing guarantees the two connect sensibly (the frozen and bind poses can
+            // point that ancestor in a completely different direction). Rather than either fabricate
+            // a confident-looking wedge across that transition (looked like a bogus extra limb) or
+            // skip it outright (leaves the whole skeleton in disconnected floating pieces), dash it -
+            // same visual language VIRTUAL bones already use for "not a normal, certain bone".
+            // Doesn't affect FROZEN, where m_bRealBindData is always true.
             const bool          bSelected  = (i == iSelectedBone);
             const bool          bVirtual   = Bones[i].m_Type == xskeleton::bone_type::VIRTUAL;
-            const bool          bDashed    = bVirtual && !bSelected;
+            const bool          bInferred  = World[i].m_bRealBindData != World[iParent].m_bRealBindData;
+            const bool          bDashed    = (bVirtual || bInferred) && !bSelected;
             const std::uint32_t BaseColor  = bVirtual ? Style.m_VirtualColor : Style.m_NormalColor;
 
             for (int k = 0; k < 4; ++k)
