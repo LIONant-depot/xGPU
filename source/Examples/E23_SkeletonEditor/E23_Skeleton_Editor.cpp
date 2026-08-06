@@ -969,7 +969,15 @@ namespace e23
         PackGroup(false, false, true,  VpX + MarginX, VpX + VpW - MarginX, 10.0f);  // td, top
         PackGroup(false, true,  true,  VpX + MarginX, VpX + VpW - MarginX, 10.0f);  // td, bottom
 
-        ImDrawList* pDrawList  = ImGui::GetForegroundDrawList();
+        // The raw 3D scene used to be drawn straight to the window's swapchain, entirely outside any
+        // ImGui window - ImGui had no relationship to it at all, which is why neither
+        // GetForegroundDrawList() nor a separate pinned overlay window ever composited correctly (a
+        // brand new, unrelated top-level window is exactly what triggered this engine's multi-viewport
+        // logic to spawn it as its own OS window). Now that the 3D content itself is drawn from inside
+        // a real window (via AddCustomRenderCallback - see the call site), labels just draw into that
+        // SAME window's own draw list - the caller must already have it open (ImGui::Begin/End) when
+        // calling this function, same as the callback's own draw calls belong to that window's list.
+        ImDrawList* pDrawList  = ImGui::GetWindowDrawList();
         const ImU32 PanelColor = IM_COL32(17, 25, 39, 235);
 
         for (auto& L : Labels)
@@ -1409,53 +1417,58 @@ int E23_Example()
     {
         if (xgpu::tools::imgui::BeginRendering(true)) continue;
 
-        const float MainWindowWidth  = static_cast<float>(MainWindow.getWidth());
-        const float MainWindowHeight = static_cast<float>(MainWindow.getHeight());
-
-        const bool bViewportHovered = [&]
-        {
-            auto ctx = ImGui::GetCurrentContext();
-            return ctx->HoveredWindow == nullptr || ctx->HoveredWindow->ID == ImGui::GetID("MainDockSpace");
-        }();
-
         //
-        // Camera controls
-        //
-        if (bViewportHovered)
-        {
-            if (Mouse.isPressed(xgpu::mouse::digital::BTN_RIGHT))
-            {
-                auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
-                Angles.m_Pitch.m_Value -= 0.01f * MousePos[1];
-                Angles.m_Yaw.m_Value   -= 0.01f * MousePos[0];
-            }
-
-            if (Mouse.isPressed(xgpu::mouse::digital::BTN_MIDDLE))
-            {
-                auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
-                CameraTarget += View.getWorldYVector() * (0.005f * MousePos[1]);
-                CameraTarget += View.getWorldXVector() * (0.005f * MousePos[0]);
-            }
-
-            if (Distance != -1)
-            {
-                Distance += Distance * -0.2f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
-                if (Distance < 0.5f)
-                {
-                    CameraTarget += View.getWorldZVector() * (0.5f * (0.5f - Distance));
-                    Distance = 0.5f;
-                }
-            }
-        }
-
-        //
-        // Skeleton render + labels + picking
+        // Skeleton viewport - a plain, dockable ImGui::Begin(...) window hosting the 3D scene via
+        // AddCustomRenderCallback, matching E19/E20's "Mesh Preview"/"Material Instance Preview"
+        // panels exactly (no special window flags). The 3D content used to be drawn straight to the
+        // window's swapchain outside any ImGui window at all, and every attempt to add a separate,
+        // specially-flagged window for just the labels kept opening as its own OS window - once
+        // everything (3D content and labels alike) lives inside this one ordinary window, that stops
+        // happening. Labels/picking/hover now all relate to this one real window instead.
         //
         if (!SkeletonState.empty())
         {
             if (auto* pSkeleton = xresource::g_Mgr.getResource(SkeletonState.m_Ref); pSkeleton)
             {
-                View.setViewport({ 0, 0, static_cast<int>(MainWindowWidth), static_cast<int>(MainWindowHeight) });
+                ImGui::SetNextWindowSize(ImVec2(900, 620), ImGuiCond_FirstUseEver);
+                ImGui::Begin("Skeleton Viewport");
+
+                const ImVec2 WindowPos  = ImGui::GetWindowPos();
+                const ImVec2 WindowSize = ImGui::GetWindowSize();
+                const bool   bViewportHovered = ImGui::IsWindowHovered();
+
+                //
+                // Camera controls
+                //
+                if (bViewportHovered)
+                {
+                    if (Mouse.isPressed(xgpu::mouse::digital::BTN_RIGHT))
+                    {
+                        auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
+                        Angles.m_Pitch.m_Value -= 0.01f * MousePos[1];
+                        Angles.m_Yaw.m_Value   -= 0.01f * MousePos[0];
+                    }
+
+                    if (Mouse.isPressed(xgpu::mouse::digital::BTN_MIDDLE))
+                    {
+                        auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
+                        CameraTarget += View.getWorldYVector() * (0.005f * MousePos[1]);
+                        CameraTarget += View.getWorldXVector() * (0.005f * MousePos[0]);
+                    }
+
+                    if (Distance != -1)
+                    {
+                        Distance += Distance * -0.2f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
+                        if (Distance < 0.5f)
+                        {
+                            CameraTarget += View.getWorldZVector() * (0.5f * (0.5f - Distance));
+                            Distance = 0.5f;
+                        }
+                    }
+                }
+
+                View.setViewport({ static_cast<int>(WindowPos.x), static_cast<int>(WindowPos.y)
+                                 , static_cast<int>(WindowPos.x + WindowSize.x), static_cast<int>(WindowPos.y + WindowSize.y) });
 
                 if (SkeletonState.m_bNeedsReframe)
                 {
@@ -1480,57 +1493,71 @@ int E23_Example()
                 e23::BuildWedgeGeometry(*pSkeleton, SkeletonState.ActiveBoneWorld(), SkeletonState.m_bIsTwistBone, Style, SkeletonState.m_iSelectedBone, WedgeVerts);
                 e23::BuildWedgeFillGeometry(*pSkeleton, SkeletonState.ActiveBoneWorld(), SkeletonState.m_bIsTwistBone, Style, SkeletonState.m_iSelectedBone, WedgeFillVerts);
 
-                auto CmdBuffer = MainWindow.getCmdBuffer();
-
-                //
-                // Ground grid, for spatial context
-                //
-                {
-                    CmdBuffer.setPipelineInstance(Grid3dMaterialInstance);
-                    grid_push_constants Push;
-                    Push.m_WorldSpaceCameraPos = View.getPosition();
-                    Push.m_L2W        = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, SkeletonState.m_Center.m_Y - SkeletonState.m_Radius, 0));
-                    Push.m_W2C        = View.getW2C();
-                    Push.m_L2CTShadow = g_DisabledShadowL2C;
-                    CmdBuffer.setPushConstants(Push);
-                    MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE3D);
-                }
-
-                //
-                // Bone wedges - light fill first, so the outline pass draws crisply on top of it.
-                //
                 if (!WedgeFillVerts.empty())
                 {
                     (void)WedgeFillVertexBuffer.MemoryMap(0, static_cast<int>(WedgeFillVerts.size()), [&](void* pData)
                     {
                         std::memcpy(pData, WedgeFillVerts.data(), WedgeFillVerts.size() * sizeof(e19::draw_vert));
                     });
-
-                    CmdBuffer.setPipelineInstance(WedgeFillPipelineInstance);
-                    CmdBuffer.setBuffer(WedgeIndexBuffer);
-                    CmdBuffer.setBuffer(WedgeFillVertexBuffer);
-                    CmdBuffer.setPushConstants(e23::push_constants{ .m_L2C = View.getW2C() });
-                    CmdBuffer.Draw(static_cast<int>(WedgeFillVerts.size()));
                 }
-
                 if (!WedgeVerts.empty())
                 {
                     (void)WedgeVertexBuffer.MemoryMap(0, static_cast<int>(WedgeVerts.size()), [&](void* pData)
                     {
                         std::memcpy(pData, WedgeVerts.data(), WedgeVerts.size() * sizeof(e19::draw_vert));
                     });
-
-                    CmdBuffer.setPipelineInstance(WedgeOutlinePipelineInstance);
-                    CmdBuffer.setBuffer(WedgeIndexBuffer);
-                    CmdBuffer.setBuffer(WedgeVertexBuffer);
-                    CmdBuffer.setPushConstants(e23::push_constants{ .m_L2C = View.getW2C() });
-                    CmdBuffer.Draw(static_cast<int>(WedgeVerts.size()));
                 }
 
+                // Deferred to actual render time (see AddCustomRenderCallback) - capture the small
+                // POD values the draw calls need by value, everything else (pipelines/buffers/managers,
+                // all alive for the app's whole lifetime) by reference.
+                const std::size_t nWedgeFillVerts = WedgeFillVerts.size();
+                const std::size_t nWedgeVerts      = WedgeVerts.size();
+                const xmath::fmat4 W2C             = View.getW2C();
+
+                xgpu::tools::imgui::AddCustomRenderCallback([&, nWedgeFillVerts, nWedgeVerts, W2C](xgpu::cmd_buffer& CmdBuffer, const ImVec2&, const ImVec2&)
+                {
+                    //
+                    // Ground grid, for spatial context
+                    //
+                    {
+                        CmdBuffer.setPipelineInstance(Grid3dMaterialInstance);
+                        grid_push_constants Push;
+                        Push.m_WorldSpaceCameraPos = View.getPosition();
+                        Push.m_L2W        = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, SkeletonState.m_Center.m_Y - SkeletonState.m_Radius, 0));
+                        Push.m_W2C        = W2C;
+                        Push.m_L2CTShadow = g_DisabledShadowL2C;
+                        CmdBuffer.setPushConstants(Push);
+                        MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE3D);
+                    }
+
+                    //
+                    // Bone wedges - light fill first, so the outline pass draws crisply on top of it.
+                    //
+                    if (nWedgeFillVerts)
+                    {
+                        CmdBuffer.setPipelineInstance(WedgeFillPipelineInstance);
+                        CmdBuffer.setBuffer(WedgeIndexBuffer);
+                        CmdBuffer.setBuffer(WedgeFillVertexBuffer);
+                        CmdBuffer.setPushConstants(e23::push_constants{ .m_L2C = W2C });
+                        CmdBuffer.Draw(static_cast<int>(nWedgeFillVerts));
+                    }
+
+                    if (nWedgeVerts)
+                    {
+                        CmdBuffer.setPipelineInstance(WedgeOutlinePipelineInstance);
+                        CmdBuffer.setBuffer(WedgeIndexBuffer);
+                        CmdBuffer.setBuffer(WedgeVertexBuffer);
+                        CmdBuffer.setPushConstants(e23::push_constants{ .m_L2C = W2C });
+                        CmdBuffer.Draw(static_cast<int>(nWedgeVerts));
+                    }
+                });
+
                 //
-                // Labels (foreground overlay) + hit rects for this frame's click test
+                // Labels + hit rects for this frame's click test - drawn into this same window.
                 //
-                const xmath::irect Viewport{ 0, 0, static_cast<int>(MainWindowWidth), static_cast<int>(MainWindowHeight) };
+                const xmath::irect Viewport{ static_cast<int>(WindowPos.x), static_cast<int>(WindowPos.y)
+                                           , static_cast<int>(WindowPos.x + WindowSize.x), static_cast<int>(WindowPos.y + WindowSize.y) };
                 e23::RenderBoneLabelsAndCollectHits(View, *pSkeleton, SkeletonState, Viewport, LabelHits);
 
                 //
@@ -1561,6 +1588,8 @@ int E23_Example()
 
                     if (iHitBone != -1) SkeletonState.m_iSelectedBone = iHitBone;
                 }
+
+                ImGui::End();
             }
         }
 
