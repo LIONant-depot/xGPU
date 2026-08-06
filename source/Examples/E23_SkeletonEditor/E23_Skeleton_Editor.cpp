@@ -128,9 +128,14 @@ namespace e23
     }
 
     //---------------------------------------------------------------------------
-    // Per-bone world-space info. The compiled skeleton already stores each bone's inverse bind
-    // pose relative to world space, so WorldMat[i] = Bones[i].m_InvBindPose.Inverse() gives the
-    // bone's full world matrix directly - no forward-kinematics / hierarchy walk needed.
+    // Per-bone world-space info. Two independent poses, both computed once at load time:
+    //   FROZEN - forward kinematics through each bone's local m_RestPose. Always valid, since
+    //            m_RestPose is populated regardless of skinning.
+    //   BIND   - Bones[i].m_InvBindPose.Inverse(). Only meaningful for a bone the compiler actually
+    //            saw mesh-skin data for; falls back to that same bone's FROZEN position otherwise
+    //            (see ComputeBoneWorldsAndFraming) rather than collapsing to the origin.
+    // A real mesh bound in a different configuration than its authored rest pose will show the two
+    // arrays disagreeing per-bone - that's the point of keeping both, not a bug to reconcile away.
     //---------------------------------------------------------------------------
 
     struct bone_world
@@ -139,6 +144,8 @@ namespace e23
         xmath::fvec3    m_Right     {};
         xmath::fvec3    m_Up        {};
     };
+
+    enum class pose_mode { FROZEN, BIND };
 
     //---------------------------------------------------------------------------
 
@@ -149,13 +156,20 @@ namespace e23
         xresource::full_guid                               m_InfoGUID      = {};
         std::wstring                                       m_DescriptorPath= {};
         std::unordered_map<std::uint32_t, std::string>     m_BoneNames     = {};
-        std::vector<bone_world>                            m_BoneWorld     = {};
+        std::vector<bone_world>                            m_BoneWorldFrozen = {};
+        std::vector<bone_world>                            m_BoneWorldBind   = {};
         xmath::fvec3                                       m_Center        = xmath::fvec3(0.0f, 0.0f, 0.0f);
         float                                              m_Radius        = 1.0f;
         int                                                 m_iSelectedBone = -1;
         bool                                                m_bNeedsReframe = true;
+        pose_mode                                           m_PoseMode      = pose_mode::FROZEN; // a view preference, not asset state - left alone by clear()
 
         bool empty() const noexcept { return m_InfoGUID.empty(); }
+
+        const std::vector<bone_world>& ActiveBoneWorld() const noexcept
+        {
+            return m_PoseMode == pose_mode::BIND ? m_BoneWorldBind : m_BoneWorldFrozen;
+        }
 
         void clear()
         {
@@ -163,7 +177,8 @@ namespace e23
             m_InfoGUID.clear();
             m_DescriptorPath.clear();
             m_BoneNames.clear();
-            m_BoneWorld.clear();
+            m_BoneWorldFrozen.clear();
+            m_BoneWorldBind.clear();
             m_Center        = xmath::fvec3(0.0f, 0.0f, 0.0f);
             m_Radius        = 1.0f;
             m_iSelectedBone = -1;
@@ -271,15 +286,12 @@ namespace e23
     {
         const auto Bones = Skeleton.getBones();
         const auto Rests = Skeleton.getBoneRests();
-        State.m_BoneWorld.resize(Bones.size());
+        State.m_BoneWorldFrozen.resize(Bones.size());
+        State.m_BoneWorldBind.resize(Bones.size());
 
-        // NOT Bones[i].m_InvBindPose.Inverse() - VIRTUAL bones (and any bone the compiler never
-        // saw real mesh-skin data for) never got a real inverse bind pose computed, so it's left
-        // at identity, which inverts right back to identity and puts the bone at the origin. Every
-        // child hanging off that bone then draws its wedge from the wrong end. m_RestPose is a
-        // local (parent-relative) transform the compiler always fills in regardless of skinning,
-        // so walking it via forward kinematics (bones are topologically sorted, parent index <
-        // child index, so a single forward pass is enough) is valid for every bone, virtual or not.
+        // FROZEN pose: forward kinematics through each bone's local m_RestPose. Bones are
+        // topologically sorted (parent index < child index), so a single forward pass is enough.
+        // Always valid - m_RestPose is populated regardless of skinning.
         std::vector<xmath::fmat4> WorldMats(Bones.size());
 
         xmath::fvec3 Center(0.0f, 0.0f, 0.0f);
@@ -289,17 +301,38 @@ namespace e23
             const int          iParent  = Bones[i].m_iParent;
             WorldMats[i] = (iParent < 0) ? LocalMat : (WorldMats[iParent] * LocalMat);
 
-            auto& W      = State.m_BoneWorld[i];
+            auto& W      = State.m_BoneWorldFrozen[i];
             W.m_Position = WorldMats[i].ExtractPosition();
             W.m_Right    = WorldMats[i].Right();
             W.m_Up       = WorldMats[i].Up();
             Center      += W.m_Position;
         }
 
+        // BIND pose: Bones[i].m_InvBindPose.Inverse(). VIRTUAL bones (and any bone the compiler
+        // never saw real mesh-skin data for) never got a real inverse bind pose computed, so it's
+        // left at identity - fall back to that bone's own FROZEN position/axes rather than letting
+        // it (and every child hanging off it) collapse to the world origin.
+        for (std::size_t i = 0; i < Bones.size(); ++i)
+        {
+            auto& W = State.m_BoneWorldBind[i];
+            if (Bones[i].m_InvBindPose.isIdentity())
+            {
+                W = State.m_BoneWorldFrozen[i];
+            }
+            else
+            {
+                const xmath::fmat4 BindMat = Bones[i].m_InvBindPose.Inverse();
+                W.m_Position = BindMat.ExtractPosition();
+                W.m_Right    = BindMat.Right();
+                W.m_Up       = BindMat.Up();
+            }
+        }
+
         if (!Bones.empty()) Center /= float(Bones.size());
 
         float Radius = 0.5f;
-        for (auto& W : State.m_BoneWorld) Radius = std::max(Radius, (W.m_Position - Center).Length());
+        for (auto& W : State.m_BoneWorldFrozen) Radius = std::max(Radius, (W.m_Position - Center).Length());
+        for (auto& W : State.m_BoneWorldBind)   Radius = std::max(Radius, (W.m_Position - Center).Length());
 
         State.m_Center        = Center;
         State.m_Radius         = Radius;
@@ -728,7 +761,8 @@ namespace e23
 
         const auto Bones  = Skeleton.getBones();
         const int  nBones = int(Bones.size());
-        if (nBones == 0 || int(State.m_BoneWorld.size()) != nBones) return;
+        const auto& BoneWorld = State.ActiveBoneWorld();
+        if (nBones == 0 || int(BoneWorld.size()) != nBones) return;
 
         const float VpX = float(Viewport.m_Min.m_X);
         const float VpY = float(Viewport.m_Min.m_Y);
@@ -747,8 +781,8 @@ namespace e23
         {
             const int iParent = Bones[i].m_iParent;
             const xmath::fvec3 LeadWorld = (iParent < 0)
-                ? State.m_BoneWorld[i].m_Position
-                : (State.m_BoneWorld[iParent].m_Position + State.m_BoneWorld[i].m_Position) * 0.5f;
+                ? BoneWorld[i].m_Position
+                : (BoneWorld[iParent].m_Position + BoneWorld[i].m_Position) * 0.5f;
 
             xmath::fvec2 Screen;
             if (!WorldToScreen(View, LeadWorld, Screen)) continue;
@@ -1278,7 +1312,7 @@ int E23_Example()
                 Style.m_NearDepth = std::max(0.01f, Distance * 0.25f);
                 Style.m_FarDepth  = Distance * 1.6f + SkeletonState.m_Radius;
 
-                e23::BuildWedgeGeometry(*pSkeleton, SkeletonState.m_BoneWorld, Style, SkeletonState.m_iSelectedBone, WedgeVerts);
+                e23::BuildWedgeGeometry(*pSkeleton, SkeletonState.ActiveBoneWorld(), Style, SkeletonState.m_iSelectedBone, WedgeVerts);
 
                 auto CmdBuffer = MainWindow.getCmdBuffer();
 
@@ -1342,7 +1376,7 @@ int E23_Example()
                         const xmath::fvec3 RayOrigin = View.getPosition();
                         const xmath::fvec3 RayDir    = View.RayFromScreen(MousePos.x, MousePos.y);
                         float BestT;
-                        e23::PickWedge(*pSkeleton, SkeletonState.m_BoneWorld, RayOrigin, RayDir, iHitBone, BestT);
+                        e23::PickWedge(*pSkeleton, SkeletonState.ActiveBoneWorld(), RayOrigin, RayDir, iHitBone, BestT);
                     }
 
                     if (iHitBone != -1) SkeletonState.m_iSelectedBone = iHitBone;
@@ -1361,6 +1395,9 @@ int E23_Example()
                 if (ImGui::Begin("Bones"))
                 {
                     ImGui::Text("%d bones", static_cast<int>(pSkeleton->getBones().size()));
+                    ImGui::RadioButton("Frozen Pose", reinterpret_cast<int*>(&SkeletonState.m_PoseMode), static_cast<int>(e23::pose_mode::FROZEN));
+                    ImGui::SameLine();
+                    ImGui::RadioButton("Bind Pose", reinterpret_cast<int*>(&SkeletonState.m_PoseMode), static_cast<int>(e23::pose_mode::BIND));
                     ImGui::Separator();
                     ImGui::BeginChild("###BoneListChild");
                     e23::RenderBoneTree(SkeletonState, *pSkeleton);
