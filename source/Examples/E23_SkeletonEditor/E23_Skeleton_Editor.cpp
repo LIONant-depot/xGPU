@@ -159,6 +159,7 @@ namespace e23
         std::unordered_map<std::uint32_t, std::string>     m_BoneNames     = {};
         std::vector<bone_world>                            m_BoneWorldFrozen = {};
         std::vector<bone_world>                            m_BoneWorldBind   = {};
+        std::vector<bool>                                  m_bIsTwistBone    = {}; // pose-independent, see LoadSkeleton
         xmath::fvec3                                       m_Center        = xmath::fvec3(0.0f, 0.0f, 0.0f);
         float                                              m_Radius        = 1.0f;
         int                                                 m_iSelectedBone = -1;
@@ -180,6 +181,7 @@ namespace e23
             m_BoneNames.clear();
             m_BoneWorldFrozen.clear();
             m_BoneWorldBind.clear();
+            m_bIsTwistBone.clear();
             m_Center        = xmath::fvec3(0.0f, 0.0f, 0.0f);
             m_Radius        = 1.0f;
             m_iSelectedBone = -1;
@@ -381,6 +383,22 @@ namespace e23
         if (auto* pSkeleton = xresource::g_Mgr.getResource(State.m_Ref); pSkeleton)
         {
             ComputeBoneWorldsAndFraming(*pSkeleton, State);
+
+            // "Twist" bones (CC_Base/AccuRig, Mixamo, and most other common rigs use this exact
+            // naming convention) are real, correct data - a short dead-end branch off the main limb
+            // chain that exists purely to smooth skin deformation (UpperarmTwist01->UpperarmTwist02
+            // hanging off Upperarm alongside the real continuation to Forearm). Rendered with the
+            // same visual weight as the real chain, that stub reads as a second, competing limb -
+            // this is what "multiple arms" actually was. De-emphasizing them (see BuildWedgeGeometry)
+            // is a visual clarity fix, not a data fix; the underlying hierarchy is correct as-is.
+            const auto Bones = pSkeleton->getBones();
+            State.m_bIsTwistBone.assign(Bones.size(), false);
+            for (int i = 0; i < int(Bones.size()); ++i)
+            {
+                const std::uint32_t Hash = pSkeleton->getBoneNames()[i].m_NameHash;
+                if (auto It = State.m_BoneNames.find(Hash); It != State.m_BoneNames.end())
+                    State.m_bIsTwistBone[i] = xstrtool::findI(It->second, "Twist") != std::string::npos;
+            }
         }
         else
         {
@@ -481,6 +499,7 @@ namespace e23
         std::uint32_t   m_BackgroundColor   = IM_COL32(10, 14, 20, 255);
         std::uint32_t   m_NormalColor       = IM_COL32(79, 195, 232, 255);
         std::uint32_t   m_VirtualColor      = IM_COL32(255, 180, 84, 255);
+        std::uint32_t   m_TwistColor        = IM_COL32(90, 110, 125, 255); // dim, desaturated - a real bone, just not one that should compete visually with the main limb chain
         std::uint32_t   m_SelectedColor     = IM_COL32(255, 255, 255, 255);
     };
 
@@ -546,7 +565,7 @@ namespace e23
         }
     }
 
-    void BuildWedgeGeometry(const xskeleton::skeleton& Skeleton, const std::vector<bone_world>& World, const wedge_style& Style, int iSelectedBone, std::vector<e19::draw_vert>& Verts)
+    void BuildWedgeGeometry(const xskeleton::skeleton& Skeleton, const std::vector<bone_world>& World, const std::vector<bool>& IsTwistBone, const wedge_style& Style, int iSelectedBone, std::vector<e19::draw_vert>& Verts)
     {
         Verts.clear();
 
@@ -565,19 +584,23 @@ namespace e23
             if (!ComputeWedgeShape(A, B, World[i].m_Right, World[i].m_Up, Shape)) continue;
 
             // A bone with no real bind data got its BIND position/axes propagated from its nearest
-            // real-bind-data ancestor using a FROZEN-relative local offset - fine on its own, but the
-            // instant either side of an edge has real, independently-computed data and the other
-            // doesn't, nothing guarantees the two connect sensibly (the frozen and bind poses can
-            // point that ancestor in a completely different direction). Rather than either fabricate
-            // a confident-looking wedge across that transition (looked like a bogus extra limb) or
-            // skip it outright (leaves the whole skeleton in disconnected floating pieces), dash it -
-            // same visual language VIRTUAL bones already use for "not a normal, certain bone".
-            // Doesn't affect FROZEN, where m_bRealBindData is always true.
+            // real-bind-data ancestor using a FROZEN-relative local offset - fine on its own, but
+            // nothing guarantees a *chain* of propagated bones (e.g. Upperarm -> Forearm, both
+            // guessed) ends up anywhere near where real bind data would have put them, even though
+            // both ends "agree" with each other. Flagging only a real/propagated *mismatch* missed
+            // exactly that case - a wholly-guessed edge would still pass since both sides matched -
+            // so this checks each endpoint's own reliability instead: any propagated endpoint, mismatch
+            // or not, is inferred. Doesn't affect FROZEN, where m_bRealBindData is always true.
+            //
+            // A "Twist" bone (see LoadSkeleton) is real, correct data - just a short dead-end branch
+            // off the main limb purely for skin-deformation smoothing. Full-weight rendering made it
+            // read as a second, competing limb; dim + dash it instead so the real chain reads clearly.
             const bool          bSelected  = (i == iSelectedBone);
             const bool          bVirtual   = Bones[i].m_Type == xskeleton::bone_type::VIRTUAL;
-            const bool          bInferred  = World[i].m_bRealBindData != World[iParent].m_bRealBindData;
-            const bool          bDashed    = (bVirtual || bInferred) && !bSelected;
-            const std::uint32_t BaseColor  = bVirtual ? Style.m_VirtualColor : Style.m_NormalColor;
+            const bool          bTwist     = i < int(IsTwistBone.size()) && IsTwistBone[i];
+            const bool          bInferred  = !World[i].m_bRealBindData || !World[iParent].m_bRealBindData;
+            const bool          bDashed    = (bVirtual || bInferred || bTwist) && !bSelected;
+            const std::uint32_t BaseColor  = bSelected ? Style.m_NormalColor : bVirtual ? Style.m_VirtualColor : bTwist ? Style.m_TwistColor : Style.m_NormalColor;
 
             for (int k = 0; k < 4; ++k)
             {
@@ -587,6 +610,68 @@ namespace e23
 
             if (Verts.size() > std::size_t(g_MaxWedgeVertices - 96))
                 break; // stay comfortably under the buffer's capacity
+        }
+    }
+
+    //---------------------------------------------------------------------------
+    // A very light fill so a wedge registers as a solid shape rather than just a hairline outline -
+    // the concept mockup this design comes from always paired the two ("Pass 1 - very light fill...
+    // Pass 2 - the outline is the real signal now, not a backstop"), but only the outline pass ever
+    // got built here. Only confident bones (not virtual/twist/inferred - see BuildWedgeGeometry) get
+    // filled, so an uncertain wedge stays outline-only and doesn't visually compete for attention.
+    //---------------------------------------------------------------------------
+
+    void EmitTri(std::vector<e19::draw_vert>& Verts, const xmath::fvec3& A, const xmath::fvec3& B, const xmath::fvec3& C, std::uint32_t Color)
+    {
+        e19::draw_vert V{}; V.m_U = 0.0f; V.m_V = 0.0f; V.m_Color = Color;
+        V.m_X = A.m_X; V.m_Y = A.m_Y; V.m_Z = A.m_Z; Verts.push_back(V);
+        V.m_X = B.m_X; V.m_Y = B.m_Y; V.m_Z = B.m_Z; Verts.push_back(V);
+        V.m_X = C.m_X; V.m_Y = C.m_Y; V.m_Z = C.m_Z; Verts.push_back(V);
+    }
+
+    void BuildWedgeFillGeometry(const xskeleton::skeleton& Skeleton, const std::vector<bone_world>& World, const std::vector<bool>& IsTwistBone, const wedge_style& Style, int iSelectedBone, std::vector<e19::draw_vert>& Verts)
+    {
+        Verts.clear();
+
+        const auto Bones = Skeleton.getBones();
+        if (World.size() != Bones.size()) return;
+
+        constexpr float FillAlphaScale = 0.16f; // matches the mockup's own light-fill alpha
+
+        for (int i = 0; i < int(Bones.size()); ++i)
+        {
+            const int iParent = Bones[i].m_iParent;
+            if (iParent < 0) continue;
+
+            const bool bVirtual  = Bones[i].m_Type == xskeleton::bone_type::VIRTUAL;
+            const bool bTwist    = i < int(IsTwistBone.size()) && IsTwistBone[i];
+            const bool bInferred = !World[i].m_bRealBindData || !World[iParent].m_bRealBindData;
+            if (bVirtual || bTwist || bInferred) continue;
+
+            const xmath::fvec3& A = World[iParent].m_Position;
+            const xmath::fvec3& B = World[i].m_Position;
+
+            wedge_shape Shape;
+            if (!ComputeWedgeShape(A, B, World[i].m_Right, World[i].m_Up, Shape)) continue;
+
+            const bool     bSelected = (i == iSelectedBone);
+            const auto     TintAt    = [&](const xmath::fvec3& P) -> std::uint32_t
+            {
+                const std::uint32_t C = VertexColor(Style, P, bSelected, Style.m_NormalColor);
+                const int A8 = int(((C >> 24) & 0xFFu) * FillAlphaScale);
+                return (C & 0x00FFFFFFu) | (std::uint32_t(A8) << 24);
+            };
+
+            for (int k = 0; k < 4; ++k)
+            {
+                const xmath::fvec3& R0 = Shape.m_Ring[k];
+                const xmath::fvec3& R1 = Shape.m_Ring[(k + 1) & 3];
+                EmitTri(Verts, A, R0, R1, TintAt(A));
+                EmitTri(Verts, B, R1, R0, TintAt(B));
+            }
+
+            if (Verts.size() > std::size_t(g_MaxWedgeVertices - 24))
+                break;
         }
     }
 
@@ -1103,6 +1188,52 @@ int E23_Example()
     }
 
     //
+    // Wedge fill pipeline - same wedge shapes, same shaders, TRIANGLE_LIST instead of LINE_LIST
+    // (Primitive3DVertexDescriptor already defaults to it) and alpha-blended for the light fill.
+    //
+    xgpu::pipeline          WedgeFillPipeline;
+    xgpu::pipeline_instance WedgeFillPipelineInstance;
+    {
+        xgpu::shader VertexShader;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type   = xgpu::shader::type::bit::VERTEX
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e23::g_OutlineVertShader, sizeof(e23::g_OutlineVertShader) / sizeof(int)}}
+            };
+            if (auto Err = Device.Create(VertexShader, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        xgpu::shader FragShader;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type   = xgpu::shader::type::bit::FRAGMENT
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e23::g_OutlineFragShader, sizeof(e23::g_OutlineFragShader) / sizeof(int)}}
+            };
+            if (auto Err = Device.Create(FragShader, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        auto Samplers = std::array{ xgpu::pipeline::sampler{} };
+        auto Shaders  = std::array<const xgpu::shader*, 2>{ &FragShader, &VertexShader };
+        auto Setup    = xgpu::pipeline::setup
+        { .m_VertexDescriptor   = Primitive3DVertexDescriptor
+        , .m_Shaders            = Shaders
+        , .m_PushConstantsSize  = sizeof(e23::push_constants)
+        , .m_Samplers           = Samplers
+        , .m_Blend              = xgpu::pipeline::blend::getAlphaOriginal()
+        };
+
+        if (auto Err = Device.Create(WedgeFillPipeline, Setup); Err)
+            return xgpu::getErrorInt(Err);
+
+        auto Bindings  = std::array{ xgpu::pipeline_instance::sampler_binding{*pDefaultTexture} };
+        auto InstSetup = xgpu::pipeline_instance::setup{ .m_PipeLine = WedgeFillPipeline, .m_SamplersBindings = Bindings };
+        if (auto Err = Device.Create(WedgeFillPipelineInstance, InstSetup); Err)
+            return xgpu::getErrorInt(Err);
+    }
+
+    //
     // 2D background pipeline (unchanged from the geom_static editor)
     //
     xgpu::pipeline Pipeline2D;
@@ -1172,6 +1303,11 @@ int E23_Example()
 
     xgpu::buffer WedgeVertexBuffer;
     if (auto Err = Device.Create(WedgeVertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(e19::draw_vert), .m_EntryCount = e23::g_MaxWedgeVertices }); Err)
+        return xgpu::getErrorInt(Err);
+
+    // Reuses WedgeIndexBuffer (0,1,2,3,... identity mapping) - valid for TRIANGLE_LIST too.
+    xgpu::buffer WedgeFillVertexBuffer;
+    if (auto Err = Device.Create(WedgeFillVertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(e19::draw_vert), .m_EntryCount = e23::g_MaxWedgeVertices }); Err)
         return xgpu::getErrorInt(Err);
 
     //
@@ -1263,6 +1399,7 @@ int E23_Example()
     }();
 
     std::vector<e19::draw_vert>          WedgeVerts;
+    std::vector<e19::draw_vert>          WedgeFillVerts;
     std::vector<e23::label_rect_hit>     LabelHits;
 
     //
@@ -1340,7 +1477,8 @@ int E23_Example()
                 Style.m_NearDepth = std::max(0.01f, Distance * 0.25f);
                 Style.m_FarDepth  = Distance * 1.6f + SkeletonState.m_Radius;
 
-                e23::BuildWedgeGeometry(*pSkeleton, SkeletonState.ActiveBoneWorld(), Style, SkeletonState.m_iSelectedBone, WedgeVerts);
+                e23::BuildWedgeGeometry(*pSkeleton, SkeletonState.ActiveBoneWorld(), SkeletonState.m_bIsTwistBone, Style, SkeletonState.m_iSelectedBone, WedgeVerts);
+                e23::BuildWedgeFillGeometry(*pSkeleton, SkeletonState.ActiveBoneWorld(), SkeletonState.m_bIsTwistBone, Style, SkeletonState.m_iSelectedBone, WedgeFillVerts);
 
                 auto CmdBuffer = MainWindow.getCmdBuffer();
 
@@ -1359,8 +1497,22 @@ int E23_Example()
                 }
 
                 //
-                // Bone wedges
+                // Bone wedges - light fill first, so the outline pass draws crisply on top of it.
                 //
+                if (!WedgeFillVerts.empty())
+                {
+                    (void)WedgeFillVertexBuffer.MemoryMap(0, static_cast<int>(WedgeFillVerts.size()), [&](void* pData)
+                    {
+                        std::memcpy(pData, WedgeFillVerts.data(), WedgeFillVerts.size() * sizeof(e19::draw_vert));
+                    });
+
+                    CmdBuffer.setPipelineInstance(WedgeFillPipelineInstance);
+                    CmdBuffer.setBuffer(WedgeIndexBuffer);
+                    CmdBuffer.setBuffer(WedgeFillVertexBuffer);
+                    CmdBuffer.setPushConstants(e23::push_constants{ .m_L2C = View.getW2C() });
+                    CmdBuffer.Draw(static_cast<int>(WedgeFillVerts.size()));
+                }
+
                 if (!WedgeVerts.empty())
                 {
                     (void)WedgeVertexBuffer.MemoryMap(0, static_cast<int>(WedgeVerts.size()), [&](void* pData)
