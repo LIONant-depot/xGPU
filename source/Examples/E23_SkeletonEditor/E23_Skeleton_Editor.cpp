@@ -348,6 +348,45 @@ namespace e23
     }
 
     //---------------------------------------------------------------------------
+    // Side-panel bone list, as a tree following the actual skeleton hierarchy rather than a flat
+    // sort - bones are stored parent-index-before-child, so a single pass builds each parent's
+    // child list, then a normal recursive TreeNode walk from the root does the rest.
+    //---------------------------------------------------------------------------
+
+    void RenderBoneNode(skeleton_state& State, const xskeleton::skeleton& Skeleton, const std::vector<std::vector<int>>& Children, int iBone)
+    {
+        const bool        bSelected = (iBone == State.m_iSelectedBone);
+        const bool        bHasKids  = !Children[iBone].empty();
+        const std::string Name      = GetBoneDisplayName(State, Skeleton, iBone);
+
+        ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+        if (bSelected)  Flags |= ImGuiTreeNodeFlags_Selected;
+        if (!bHasKids)  Flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+
+        const bool bOpen = ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<std::intptr_t>(iBone)), Flags, "%s", Name.c_str());
+        if (ImGui::IsItemClicked()) State.m_iSelectedBone = iBone;
+
+        if (bHasKids && bOpen)
+        {
+            for (int iChild : Children[iBone]) RenderBoneNode(State, Skeleton, Children, iChild);
+            ImGui::TreePop();
+        }
+    }
+
+    void RenderBoneTree(skeleton_state& State, const xskeleton::skeleton& Skeleton)
+    {
+        const auto Bones = Skeleton.getBones();
+        std::vector<std::vector<int>> Children(Bones.size());
+        int iRoot = -1;
+        for (int i = 0; i < static_cast<int>(Bones.size()); ++i)
+        {
+            if (Bones[i].m_iParent < 0) iRoot = i;
+            else                        Children[Bones[i].m_iParent].push_back(i);
+        }
+        if (iRoot != -1) RenderBoneNode(State, Skeleton, Children, iRoot);
+    }
+
+    //---------------------------------------------------------------------------
     // Wedge geometry - the classic bone gizmo: wide "ring" near the joint, tapering to the child.
     // The ring's cross-section uses the BONE'S OWN world Right()/Up() axes (not the parent's, not
     // a camera-facing basis), matching a real 3D wedge rather than a billboard.
@@ -1324,13 +1363,7 @@ int E23_Example()
                     ImGui::Text("%d bones", static_cast<int>(pSkeleton->getBones().size()));
                     ImGui::Separator();
                     ImGui::BeginChild("###BoneListChild");
-                    for (int i = 0; i < static_cast<int>(pSkeleton->getBones().size()); ++i)
-                    {
-                        const bool        bSelected = (i == SkeletonState.m_iSelectedBone);
-                        const std::string Name      = e23::GetBoneDisplayName(SkeletonState, *pSkeleton, i);
-                        if (ImGui::Selectable(Name.c_str(), bSelected))
-                            SkeletonState.m_iSelectedBone = i;
-                    }
+                    e23::RenderBoneTree(SkeletonState, *pSkeleton);
                     ImGui::EndChild();
                 }
                 ImGui::End();
