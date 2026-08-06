@@ -28,6 +28,7 @@
 
 #include "plugins/xskeleton.plugin/source/xskeleton.h"
 #include "plugins/xskeleton.plugin/source/xskeleton_descriptor.h"
+#include "plugins/xskeleton.plugin/source/xskeleton_details.h"
 #include "plugins/xskeleton.plugin/source/xskeleton_xgpu_rsc_loader.h"
 #include "plugins/xskeleton.plugin/source/xskeleton_xgpu_rsc_loader.cpp"
 
@@ -204,9 +205,49 @@ namespace e23
 
     //---------------------------------------------------------------------------
 
+    // The Descriptor's own m_RootBone is a sparse *override* layer - for an FBX-imported skeleton
+    // with no manually-authored bones, it's nearly empty (this is why the first version of this
+    // function only ever resolved 1 name). The compiler separately logs the full raw-imported tree,
+    // with real names, to Details.txt next to the resource's compiled log - see
+    // xskeleton_desc::details and xskeleton_compiler.cpp:428. That's the actual source of truth for
+    // names; the descriptor tree is only consulted too in case a bone was authored purely in the
+    // descriptor with no raw-import counterpart at all.
+    std::wstring GenerateDetailsLogPath(const std::wstring& DescriptorPath)
+    {
+        std::wstring Path = DescriptorPath;
+        if (auto Pos = Path.find(L"Descriptors"); Pos != std::wstring::npos)
+            Path.replace(Pos, std::wstring_view(L"Descriptors").length(), L"Cache\\Resources\\Logs");
+        if (auto Pos = Path.find(L".desc"); Pos != std::wstring::npos)
+            Path.replace(Pos, std::wstring_view(L".desc").length(), L".log");
+        if (auto Pos = Path.find(L"Descriptor.txt"); Pos != std::wstring::npos)
+            Path.replace(Pos, std::wstring_view(L"Descriptor.txt").length(), L"Details.txt");
+        return Path;
+    }
+
     void LoadBoneNameMap(const std::wstring& DescriptorPath, std::unordered_map<std::uint32_t, std::string>& OutMap)
     {
         OutMap.clear();
+
+        auto AddName = [&](std::string_view RawName)
+        {
+            const std::string   DisplayName = StripVBoneTag(RawName);
+            const std::uint32_t Hash        = xstrtool::CRC32(DisplayName);
+            OutMap[Hash] = DisplayName;
+        };
+
+        if (const auto DetailsPath = GenerateDetailsLogPath(DescriptorPath); std::filesystem::exists(DetailsPath))
+        {
+            xtextfile::stream TextFile;
+            if (auto Err = TextFile.Open(true, DetailsPath, xtextfile::file_type::TEXT); !Err)
+            {
+                xskeleton_desc::details       Details;
+                xproperty::settings::context  Context;
+                if (auto Err2 = xproperty::sprop::serializer::Stream(TextFile, Details, Context); !Err2)
+                {
+                    for (auto& Name : Details.m_BoneList) AddName(Name);
+                }
+            }
+        }
 
         xskeleton_desc::descriptor Descriptor;
         xproperty::settings::context Context;
@@ -218,9 +259,7 @@ namespace e23
 
         std::function<void(const xskeleton_desc::bone&)> Walk = [&](const xskeleton_desc::bone& Node)
         {
-            const std::string   DisplayName = StripVBoneTag(Node.m_Name);
-            const std::uint32_t Hash        = xstrtool::CRC32(DisplayName);
-            OutMap[Hash] = DisplayName;
+            AddName(Node.m_Name);
             for (auto& Child : Node.m_Bones) Walk(Child);
         };
         Walk(Descriptor.m_RootBone);
