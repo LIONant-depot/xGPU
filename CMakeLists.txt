@@ -365,6 +365,7 @@ add_executable(${TARGET_PROJECT}
   "source/Examples/E20_MaterialInstanceEditor/E20_Material_Instance_Editor.cpp"
   "source/Examples/E21_StaticGeomEditor/E21_StaticGeom_Editor.cpp"
   "source/Examples/E22_FramebufferTarget/E22_FramebufferTarget.cpp"
+  "source/Examples/E23_SkeletonEditor/E23_Skeleton_Editor.cpp"
 
   
   "source/tools/xgpu_view.h"
@@ -650,6 +651,10 @@ source_group("Examples/E21_StaticGeomEditor/Shaders/Headers" FILES
 
 source_group("Examples/E22_FramebufferTarget" FILES
    "source/Examples/E22_FramebufferTarget/E22_FramebufferTarget.cpp"
+)
+
+source_group("Examples/E23_SkeletonEditor" FILES
+   "source/Examples/E23_SkeletonEditor/E23_Skeleton_Editor.cpp"
 )
 
 
