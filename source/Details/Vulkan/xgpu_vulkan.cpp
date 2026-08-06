@@ -3,6 +3,7 @@
 #include <format>
 
 #include "xgpu_vulkan.h"
+#include "dependencies/xbmp_tools/src/xbmp_tools.h"
 #pragma comment(lib, "/Lib/vulkan-1.lib")
 
 #include "Details/Vulkan/xgpu_vulkan_local_storage.cpp"

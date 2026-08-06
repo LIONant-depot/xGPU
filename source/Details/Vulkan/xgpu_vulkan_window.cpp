@@ -801,6 +801,15 @@ namespace xgpu::vulkan
     {
         (void)EndFrame();
 
+        // The back-buffer for m_FrameIndex is now fully rendered (EndFrame just waited on this
+        // frame's fence) and still application-owned (present hasn't happened yet) - the one and
+        // only safe window to copy it out.
+        if (!m_PendingScreenshotPath.empty())
+        {
+            CaptureBackbuffer(m_PendingScreenshotPath);
+            m_PendingScreenshotPath.clear();
+        }
+
         auto& Frame       = m_Frames[m_FrameIndex];
         auto& Semaphore   = m_FrameSemaphores[m_SemaphoreIndex];
 
@@ -836,6 +845,169 @@ namespace xgpu::vulkan
 
         // Let the device know what is going on...
         m_Device->PageFlipNotification();
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+
+    void window::Screenshot(std::wstring_view FilePath) noexcept
+    {
+        m_PendingScreenshotPath = FilePath;
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+    // Copies the current frame's back-buffer (still in PRESENT_SRC_KHR from the render pass's own
+    // finalLayout, GPU idle since PageFlip already waited on this frame's fence) into a host-visible
+    // buffer, then hands it to xbmp_tools as an xbitmap. Mirrors the transition+copy+transition-back
+    // idiom xgpu_vulkan_texture.cpp already uses for uploads (see setImageLayout there), just with
+    // the copy direction and the two layouts reversed - image-to-buffer instead of buffer-to-image,
+    // and PRESENT_SRC_KHR/TRANSFER_SRC_OPTIMAL instead of UNDEFINED/TRANSFER_DST_OPTIMAL.
+    void window::CaptureBackbuffer(std::wstring_view FilePath) noexcept
+    {
+        auto& Frame = m_Frames[m_FrameIndex];
+
+        const std::uint32_t Width  = static_cast<std::uint32_t>(xgpu::system::window::m_Width);
+        const std::uint32_t Height = static_cast<std::uint32_t>(xgpu::system::window::m_Height);
+        const VkDeviceSize  DataSize = VkDeviceSize(Width) * VkDeviceSize(Height) * 4;
+
+        //
+        // Host-visible+coherent readback buffer
+        //
+        VkBuffer        ReadbackBuffer{};
+        VkDeviceMemory  ReadbackMemory{};
+        {
+            VkBufferCreateInfo BufferCreateInfo
+            { .sType        = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
+            , .size         = DataSize
+            , .usage        = VK_BUFFER_USAGE_TRANSFER_DST_BIT
+            , .sharingMode  = VK_SHARING_MODE_EXCLUSIVE
+            };
+
+            if (auto VKErr = vkCreateBuffer(m_Device->m_VKDevice, &BufferCreateInfo, m_Device->m_Instance->m_pVKAllocator, &ReadbackBuffer); VKErr)
+            {
+                m_Device->m_Instance->ReportError(VKErr, "Fail to create the screenshot readback buffer");
+                assert(false);
+                return;
+            }
+
+            VkMemoryRequirements MemoryRequirements;
+            vkGetBufferMemoryRequirements(m_Device->m_VKDevice, ReadbackBuffer, &MemoryRequirements);
+
+            VkMemoryAllocateInfo MemoryAllocInfo
+            { .sType            = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO
+            , .allocationSize   = MemoryRequirements.size
+            };
+            m_Device->getMemoryType(MemoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, MemoryAllocInfo.memoryTypeIndex);
+
+            if (auto VKErr = vkAllocateMemory(m_Device->m_VKDevice, &MemoryAllocInfo, m_Device->m_Instance->m_pVKAllocator, &ReadbackMemory); VKErr)
+            {
+                m_Device->m_Instance->ReportError(VKErr, "Fail to allocate memory for the screenshot readback buffer");
+                assert(false);
+                vkDestroyBuffer(m_Device->m_VKDevice, ReadbackBuffer, m_Device->m_Instance->m_pVKAllocator);
+                return;
+            }
+
+            if (auto VKErr = vkBindBufferMemory(m_Device->m_VKDevice, ReadbackBuffer, ReadbackMemory, 0); VKErr)
+            {
+                m_Device->m_Instance->ReportError(VKErr, "Fail to bind memory for the screenshot readback buffer");
+                assert(false);
+                vkFreeMemory(m_Device->m_VKDevice, ReadbackMemory, m_Device->m_Instance->m_pVKAllocator);
+                vkDestroyBuffer(m_Device->m_VKDevice, ReadbackBuffer, m_Device->m_Instance->m_pVKAllocator);
+                return;
+            }
+        }
+
+        //
+        // Transition -> copy -> transition back, on the engine's per-thread one-off setup command
+        // buffer (same one xgpu_vulkan_texture.cpp uses for its upload copies).
+        //
+        if (auto [PerDevice, Error] = m_Device->m_Instance->getLocalStorage().getOrCreatePerDevice(*m_Device); Error)
+        {
+            assert(false);
+        }
+        else
+        {
+            const VkImageSubresourceRange SubresourceRange
+            { .aspectMask   = VK_IMAGE_ASPECT_COLOR_BIT
+            , .baseMipLevel = 0
+            , .levelCount   = 1
+            , .baseArrayLayer = 0
+            , .layerCount   = 1
+            };
+
+            auto Barrier = [&](VkImageLayout OldLayout, VkImageLayout NewLayout, VkAccessFlags SrcAccess, VkAccessFlags DstAccess, VkPipelineStageFlags SrcStage, VkPipelineStageFlags DstStage)
+            {
+                VkImageMemoryBarrier ImageMemoryBarrier
+                { .sType                = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER
+                , .srcAccessMask         = SrcAccess
+                , .dstAccessMask         = DstAccess
+                , .oldLayout             = OldLayout
+                , .newLayout             = NewLayout
+                , .srcQueueFamilyIndex   = VK_QUEUE_FAMILY_IGNORED
+                , .dstQueueFamilyIndex   = VK_QUEUE_FAMILY_IGNORED
+                , .image                 = Frame.m_VKBackbuffer
+                , .subresourceRange      = SubresourceRange
+                };
+                vkCmdPipelineBarrier(PerDevice.m_VKSetupCmdBuffer, SrcStage, DstStage, 0, 0, nullptr, 0, nullptr, 1, &ImageMemoryBarrier);
+            };
+
+            // Already fenced-idle by EndFrame() above - this barrier is only for the layout
+            // metadata, not a real GPU-GPU hazard, so TOP_OF_PIPE/TRANSFER is sufficient.
+            Barrier(VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+                   , 0, VK_ACCESS_TRANSFER_READ_BIT
+                   , VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+            VkBufferImageCopy Region
+            { .bufferOffset      = 0
+            , .bufferRowLength   = 0   // tightly packed
+            , .bufferImageHeight = 0
+            , .imageSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }
+            , .imageOffset       = { 0, 0, 0 }
+            , .imageExtent       = { Width, Height, 1 }
+            };
+            vkCmdCopyImageToBuffer(PerDevice.m_VKSetupCmdBuffer, Frame.m_VKBackbuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, ReadbackBuffer, 1, &Region);
+
+            // Restore the layout the render pass's finalLayout - and vkQueuePresentKHR right
+            // after this function returns - both expect.
+            Barrier(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+                   , VK_ACCESS_TRANSFER_READ_BIT, 0
+                   , VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+
+            PerDevice.FlushVKSetupCommandBuffer();
+        }
+
+        //
+        // Map, package into an xbitmap (mandatory single-mip offset-table prefix - see the memory
+        // layout diagram at the top of xbitmap.h), and save via xbmp_tools.
+        //
+        {
+            void* pMapped{};
+            if (auto VKErr = vkMapMemory(m_Device->m_VKDevice, ReadbackMemory, 0, DataSize, 0, &pMapped); VKErr)
+            {
+                m_Device->m_Instance->ReportError(VKErr, "Fail to map the screenshot readback buffer");
+                assert(false);
+            }
+            else
+            {
+                const std::size_t   TotalDataSize = std::size_t(DataSize) + sizeof(std::int32_t);
+                std::byte* pFinal = new std::byte[TotalDataSize];
+                std::memset(pFinal, 0, sizeof(std::int32_t));                                  // mip0 offset == 0
+                std::memcpy(pFinal + sizeof(std::int32_t), pMapped, std::size_t(DataSize));
+
+                vkUnmapMemory(m_Device->m_VKDevice, ReadbackMemory);
+
+                xbitmap Bitmap;
+                Bitmap.setup(Width, Height, xbitmap::format::B8G8R8A8, DataSize, std::span{ pFinal, TotalDataSize }, true, 1, 1);
+                Bitmap.setColorSpace(xbitmap::color_space::SRGB);
+
+                if (auto Err = xbmp::tools::writers::SaveSTDImage(FilePath, Bitmap); Err)
+                {
+                    assert(false);
+                }
+            }
+        }
+
+        vkFreeMemory  (m_Device->m_VKDevice, ReadbackMemory, m_Device->m_Instance->m_pVKAllocator);
+        vkDestroyBuffer(m_Device->m_VKDevice, ReadbackBuffer, m_Device->m_Instance->m_pVKAllocator);
     }
 
     //------------------------------------------------------------------------------------------------------------------------

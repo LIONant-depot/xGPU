@@ -9,6 +9,13 @@ namespace xgpu
             virtual     int                             getWidth                ( void ) const                                              noexcept = 0;
             virtual     int                             getHeight               ( void ) const                                              noexcept = 0;
             virtual     void                            PageFlip                ( void )                                                    noexcept = 0;
+
+            // Queues a capture of whatever this window's back-buffer holds once its current frame
+            // finishes rendering - the actual copy happens inside the next PageFlip(), right after
+            // that frame's rendering is known-complete and before the image is handed to present,
+            // since that's the only point the back-buffer is both fully drawn and still
+            // application-owned. Call any time before the PageFlip() you want captured.
+            virtual     void                            Screenshot              ( std::wstring_view FilePath )                              noexcept = 0;
             virtual     void                            CmdRenderBegin          ( xgpu::cmd_buffer& CmdBuffer )                             noexcept = 0;
             virtual     void                            CmdRenderBegin          ( xgpu::cmd_buffer& CmdBuffer, const xgpu::renderpass& Renderpass )                      noexcept = 0;
             virtual     void                            CmdRenderEnd            ( xgpu::cmd_buffer& CmdBuffer )                             noexcept = 0;
@@ -82,6 +89,14 @@ namespace xgpu
     void window::PageFlip(void) noexcept
     {
         m_Private->PageFlip();
+    }
+
+    //--------------------------------------------------------------------------
+
+    XGPU_INLINE
+    void window::Screenshot(std::wstring_view FilePath) noexcept
+    {
+        m_Private->Screenshot(FilePath);
     }
 
     //--------------------------------------------------------------------------

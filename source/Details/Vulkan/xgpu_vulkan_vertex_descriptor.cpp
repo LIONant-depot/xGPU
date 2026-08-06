@@ -96,8 +96,12 @@ namespace xgpu::vulkan
         , .pVertexAttributeDescriptions       = m_VKInputAttributesDescription.data()
         };
 
-        // TODO: Don't hardcore this
-        m_VKTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+        switch (Setup.m_Topology)
+        {
+        case xgpu::vertex_descriptor::topology::TRIANGLE_LIST:  m_VKTopology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST; break;
+        case xgpu::vertex_descriptor::topology::POINT_LIST:     m_VKTopology = VK_PRIMITIVE_TOPOLOGY_POINT_LIST;    break;
+        case xgpu::vertex_descriptor::topology::LINE_LIST:      m_VKTopology = VK_PRIMITIVE_TOPOLOGY_LINE_LIST;     break;
+        }
 
         return nullptr;
     }

@@ -124,9 +124,14 @@ namespace xgpu::vulkan
                                                                             , float             A 
                                                                             ) noexcept override;
         virtual
-        void                                    PageFlip                    ( void 
+        void                                    PageFlip                    ( void
                                                                             ) noexcept override;
-        virtual     
+        virtual
+        void                                    Screenshot                  ( std::wstring_view FilePath
+                                                                            ) noexcept override;
+        void                                    CaptureBackbuffer           ( std::wstring_view FilePath
+                                                                            ) noexcept;
+        virtual
         xgpu::device                            getDevice                   ( void
                                                                             ) const noexcept override;
 
@@ -153,6 +158,7 @@ namespace xgpu::vulkan
         VkPresentModeKHR                        m_VKPresentMode         {};
         std::uint32_t                           m_SemaphoreIndex        {0};
         std::uint32_t                           m_FrameIndex            {0};
+        std::wstring                            m_PendingScreenshotPath {};
         bool                                    m_bRebuildSwapChain     {false};
         int                                     m_BeginState            {0};
         int                                     m_nCmds                 {0};
