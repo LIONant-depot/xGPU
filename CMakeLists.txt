@@ -230,6 +230,8 @@ set(FRAG_SHADER_SOURCES
   "source/Examples/E21_StaticGeomEditor/E21_GridShader_frag.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_WireFrame_frag.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_DebugNormalRender_frag.glsl"
+  "source/Examples/E23_SkeletonEditor/E23_Pick_frag.glsl"
+  "source/Examples/E23_SkeletonEditor/E23_WedgeFill_frag.glsl"
 
   )
 
@@ -255,9 +257,11 @@ set(VERT_SHADER_SOURCES
   "source/Examples/E21_StaticGeomEditor/E21_GridShader_vert.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_WireFrame_vert.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_DebugNormalRender_vert.glsl"
+  "source/Examples/E23_SkeletonEditor/E23_Pick_vert.glsl"
+  "source/Examples/E23_SkeletonEditor/E23_WedgeFill_vert.glsl"
   )
 
-# List geometry shader sources 
+# List geometry shader sources
 set(GEOM_SHADER_SOURCES 
   "source/Examples/E21_StaticGeomEditor/E21_WireFrame_geom.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_DebugNormalRender_geom.glsl"
@@ -655,6 +659,10 @@ source_group("Examples/E22_FramebufferTarget" FILES
 
 source_group("Examples/E23_SkeletonEditor" FILES
    "source/Examples/E23_SkeletonEditor/E23_Skeleton_Editor.cpp"
+   "source/Examples/E23_SkeletonEditor/E23_Pick_frag.glsl"
+   "source/Examples/E23_SkeletonEditor/E23_Pick_vert.glsl"
+   "source/Examples/E23_SkeletonEditor/E23_WedgeFill_frag.glsl"
+   "source/Examples/E23_SkeletonEditor/E23_WedgeFill_vert.glsl"
 )
 
 

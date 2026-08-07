@@ -1,11 +1,13 @@
 #include "source/xGPU.h"
 
 #include "dependencies/xproperty/source/xcore/my_properties.h"
+#include "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
 #include "dependencies/xstrtool/source/xstrtool.h"
 
 #include "source/tools/xgpu_xcore_bitmap_helpers.h"
 #include "source/tools/xgpu_view.h"
 #include <algorithm>
+#include <cfloat>
 #include <unordered_map>
 #include <functional>
 #include <filesystem>
@@ -14,6 +16,8 @@
 #include <cstring>
 #include <limits>
 #include <numbers>
+#include <optional>
+#include <set>
 
 #define XRESOURCE_PIPELINE_NO_COMPILER
 #include "dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
@@ -83,6 +87,32 @@ namespace e23
         #include "draw_frag.h"
     };
 
+    // GPU picking - same position transform as g_OutlineVertShader, but its own vertex shader:
+    // xGPU requires every stage in a pipeline to declare an identical push-constant layout, and
+    // draw_vert.glsl's push-constant block (just mat4 L2C) is shorter than E23_Pick_frag.glsl's
+    // (mat4 L2C + int BoneID), so it can't be reused here. See E23_Pick_vert/frag.glsl.
+    constexpr static std::uint32_t g_PickVertShader[] =
+    {
+        #include "E23_Pick_vert.h"
+    };
+    constexpr static std::uint32_t g_PickFragShader[] =
+    {
+        #include "E23_Pick_frag.h"
+    };
+
+    // Wedge fill - same texture*color+gamma-decode as g_OutlineFragShader (draw_frag.h), plus an
+    // RGB brightness boost applied after the alpha blend's own dilution would otherwise wash it out
+    // (see E23_WedgeFill_frag.glsl's own comment for the full reasoning). Its own vertex shader for
+    // the same push-constant-layout reason as the pick pipeline above.
+    constexpr static std::uint32_t g_WedgeFillVertShader[] =
+    {
+        #include "E23_WedgeFill_vert.h"
+    };
+    constexpr static std::uint32_t g_WedgeFillFragShader[] =
+    {
+        #include "E23_WedgeFill_frag.h"
+    };
+
     //---------------------------------------------------------------------------
 
     static void Debugger(std::string_view View)
@@ -103,6 +133,36 @@ namespace e23
     {
         xmath::fmat4    m_L2C;
     };
+
+    // Matches E23_WedgeFill_vert/frag.glsl's PushConsts block exactly (mat4 first, then the float) -
+    // the vertex shader ignores m_Boost, but it has to be declared there too so it lands at the same
+    // byte offset on both sides of the push-constant range (same reason pick_push_constants exists).
+    struct wedge_fill_push_constants
+    {
+        xmath::fmat4    m_L2C;
+        float           m_Boost;
+    };
+
+    // Matches E23_Pick_frag.glsl's PushConsts block exactly (mat4 first, then the int) - the
+    // fragment shader ignores m_L2C, but it has to be declared there too so m_BoneID lands at the
+    // same byte offset on both sides of the push-constant range.
+    struct pick_push_constants
+    {
+        xmath::fmat4    m_L2C;
+        std::int32_t    m_BoneID;
+    };
+
+    // Matches E23_Pick_frag.glsl's kBoneIDBits/kBoneIDMask exactly - PickBuffer.BestKey packs
+    // (quantized depth << kBoneIDBits) | BoneID and is reduced with atomicMin there (a plain store
+    // race between two same-pixel candidates otherwise let either one "win" regardless of which was
+    // actually closer - see that shader's own comment). 0xFFFFFFFF means no candidate ever passed
+    // depth at this pixel - the same bit pattern the CPU-side reset already writes as int32_t(-1).
+    constexpr std::uint32_t g_PickNoHitKey = 0xFFFFFFFFu;
+    int DecodePickKey(std::uint32_t Key) noexcept
+    {
+        constexpr std::uint32_t BoneIDMask = 0xFFFu; // kBoneIDMask in E23_Pick_frag.glsl
+        return (Key == g_PickNoHitKey) ? -1 : static_cast<int>(Key & BoneIDMask);
+    }
 
     //---------------------------------------------------------------------------
     // Bone name resolution. The compiled runtime skeleton has no strings - only a CRC32 hash per
@@ -146,6 +206,10 @@ namespace e23
         bool            m_bRealBindData {true}; // FROZEN: always true. BIND: false where propagated (see above).
     };
 
+    // FROZEN: forward-kinematics pose from each bone's local rest transform - the pose the skeleton
+    // resource was authored/animated in. BIND: the pose the mesh was originally skinned against;
+    // bones with no real bind data (see the fill/outline dimming) had their position inferred by
+    // propagating from the nearest ancestor that has one.
     enum class pose_mode { FROZEN, BIND };
 
     //---------------------------------------------------------------------------
@@ -156,15 +220,39 @@ namespace e23
         e10::library::guid                                 m_LibraryGUID   = {};
         xresource::full_guid                               m_InfoGUID      = {};
         std::wstring                                       m_DescriptorPath= {};
+        xskeleton_desc::descriptor                          m_Descriptor    = {}; // backs the "Skeleton Properties" inspector - see LoadSkeleton
         std::unordered_map<std::uint32_t, std::string>     m_BoneNames     = {};
+        std::unordered_map<std::uint32_t, std::string>     m_RawBoneNames  = {}; // display-name hash -> raw (pre-strip) import name, see LoadBoneNameMap
         std::vector<bone_world>                            m_BoneWorldFrozen = {};
         std::vector<bone_world>                            m_BoneWorldBind   = {};
         std::vector<bool>                                  m_bIsTwistBone    = {}; // pose-independent, see LoadSkeleton
         xmath::fvec3                                       m_Center        = xmath::fvec3(0.0f, 0.0f, 0.0f);
         float                                              m_Radius        = 1.0f;
-        int                                                 m_iSelectedBone = -1;
+
+        // Multi-select: m_SelectedBones is the actual selection; m_iAnchorBone is the standard
+        // Explorer-style anchor - the bone a plain or Ctrl+click last landed on, which a following
+        // Shift+click ranges from (and which does NOT move on a Shift+click itself).
+        std::set<int>                                       m_SelectedBones = {};
+        int                                                 m_iAnchorBone   = -1;
         bool                                                m_bNeedsReframe = true;
         pose_mode                                           m_PoseMode      = pose_mode::FROZEN; // a view preference, not asset state - left alone by clear()
+        bool                                                m_bAlwaysShowNames = false;           // view preference - see RenderBoneLabelsAndCollectHits
+        bool                                                m_bNormalizeSize   = true;            // view preference - see ViewScale()
+        bool                                                m_bColorByLOD      = false;           // view preference - see LODColor()/GetBoneLODLevel()
+
+        // Inline tree rename (double-click a bone's label) - transient UI state, not asset state.
+        int                                                 m_iRenamingBone     = -1;
+        bool                                                m_bRenameJustStarted = false;
+        std::string                                         m_RenameBuf         = {};
+
+        // Compile/save tracking - mirrors E21_StaticGeomEditor's selected_descriptor. Saving the
+        // descriptor (SaveSkeletonDescriptor) is what actually triggers a recompile - a background
+        // file-watcher in the library manager picks up the change and runs the plugin's compiler,
+        // broadcasting progress via e10::g_LibMgr.m_OnCompilationState (see the registration in
+        // E23_Example) to whichever shared_ptr<log> this GUID's compile currently owns.
+        std::shared_ptr<e10::compilation::historical_entry::log> m_Log     = {};
+        bool                                                m_bReload       = false;
+        bool                                                m_bErrors       = false;
 
         bool empty() const noexcept { return m_InfoGUID.empty(); }
 
@@ -173,21 +261,68 @@ namespace e23
             return m_PoseMode == pose_mode::BIND ? m_BoneWorldBind : m_BoneWorldFrozen;
         }
 
+        // Asset units are whatever the source FBX used - could be a 2cm mannequin or a 200m dragon.
+        // "Resize Skeleton to 1m" scales the VIEW ONLY (never the underlying asset) so m_Radius reads
+        // as 1 unit, keeping the grid/near-far planes/wedge-size floors (all tuned assuming a roughly
+        // human-scale subject) sane regardless of the asset's native scale.
+        float ViewScale() const noexcept
+        {
+            return (m_bNormalizeSize && m_Radius > 1.0e-6f) ? (1.0f / m_Radius) : 1.0f;
+        }
+
         void clear()
         {
             m_LibraryGUID.clear();
             m_InfoGUID.clear();
             m_DescriptorPath.clear();
+            m_Descriptor    = {};
             m_BoneNames.clear();
+            m_RawBoneNames.clear();
             m_BoneWorldFrozen.clear();
             m_BoneWorldBind.clear();
             m_bIsTwistBone.clear();
             m_Center        = xmath::fvec3(0.0f, 0.0f, 0.0f);
             m_Radius        = 1.0f;
-            m_iSelectedBone = -1;
+            m_SelectedBones.clear();
+            m_iAnchorBone   = -1;
             m_bNeedsReframe = true;
+            m_iRenamingBone = -1;
+            m_bRenameJustStarted = false;
+            m_RenameBuf.clear();
+            m_Log           = std::make_shared<e10::compilation::historical_entry::log>(e10::compilation::historical_entry::communication{ .m_Result = e10::compilation::historical_entry::result::SUCCESS });
+            m_bReload       = false;
+            m_bErrors       = false;
         }
+
+        void SaveDescriptor()
+        {
+            xproperty::settings::context Context;
+            if (auto Err = m_Descriptor.Serialize(false, m_DescriptorPath, Context); Err)
+                assert(false);
+        }
+
+        // Render/view settings, as a property (see the "Rendering Settings" inspector in the main
+        // loop) rather than hardcoded ImGui widgets - matches E21_StaticGeomEditor's pattern. Pose
+        // is a dynamic string property rendered as a button (member_ui<std::string>::button<>,
+        // same idiom E21_StaticGeom_Editor.cpp's own "Recenter" button uses): on read, the lambda
+        // reports the pose it'll switch TO as the button's own label; on write (i.e. the button was
+        // clicked), it toggles the actual mode. This keeps it a real row in this same property grid
+        // instead of a hand-drawn ImGui::Button floating outside it.
+        XPROPERTY_DEF
+        ( "Skeleton View", skeleton_state
+        , obj_member<"Pose", +[](skeleton_state& O, bool bRead, std::string& Value)
+            {
+                if (bRead) Value = (O.m_PoseMode == pose_mode::FROZEN) ? "To Bind" : "To Frozen";
+                else       O.m_PoseMode = (O.m_PoseMode == pose_mode::FROZEN) ? pose_mode::BIND : pose_mode::FROZEN;
+            }
+          , member_ui<std::string>::button<>
+          >
+        , obj_member<"Always Show Names",     &skeleton_state::m_bAlwaysShowNames >
+        , obj_member<"Resize Skeleton to 1m", &skeleton_state::m_bNormalizeSize >
+        , obj_member<"Color by LOD",          &skeleton_state::m_bColorByLOD >
+        )
     };
+    XPROPERTY_REG(skeleton_state)
 
     //---------------------------------------------------------------------------
 
@@ -242,30 +377,43 @@ namespace e23
         return Path;
     }
 
-    void LoadBoneNameMap(const std::wstring& DescriptorPath, std::unordered_map<std::uint32_t, std::string>& OutMap)
+    // Details.txt is the compiler's log of what it actually saw on the last import - the source of
+    // truth for raw bone names (see xskeleton_desc::details and xskeleton_compiler.cpp:428). Loaded
+    // once per LoadSkeleton and shared between name resolution and MergeWithDetails, rather than
+    // re-parsed by each.
+    xskeleton_desc::details LoadDetails(const std::wstring& DescriptorPath)
     {
-        OutMap.clear();
-
-        auto AddName = [&](std::string_view RawName)
-        {
-            const std::string   DisplayName = StripVBoneTag(RawName);
-            const std::uint32_t Hash        = xstrtool::CRC32(DisplayName);
-            OutMap[Hash] = DisplayName;
-        };
-
+        xskeleton_desc::details Details;
         if (const auto DetailsPath = GenerateDetailsLogPath(DescriptorPath); std::filesystem::exists(DetailsPath))
         {
             xtextfile::stream TextFile;
             if (auto Err = TextFile.Open(true, DetailsPath, xtextfile::file_type::TEXT); !Err)
             {
-                xskeleton_desc::details       Details;
-                xproperty::settings::context  Context;
-                if (auto Err2 = xproperty::sprop::serializer::Stream(TextFile, Details, Context); !Err2)
-                {
-                    for (auto& Name : Details.m_BoneList) AddName(Name);
-                }
+                xproperty::settings::context Context;
+                xproperty::sprop::serializer::Stream(TextFile, Details, Context);
             }
         }
+        return Details;
+    }
+
+    // OutRawMap is keyed the same way (hash of the display name) but holds the RAW, pre-strip name -
+    // the compiler's override lookup (CollectOverrides in xskeleton_compiler.cpp) matches descriptor
+    // bone entries against the raw imported name, vbone_ prefix and all, not the stripped display
+    // name - authoring a new override under the display name would silently never match.
+    void LoadBoneNameMap(const xskeleton_desc::details& Details, const std::wstring& DescriptorPath, std::unordered_map<std::uint32_t, std::string>& OutMap, std::unordered_map<std::uint32_t, std::string>& OutRawMap)
+    {
+        OutMap.clear();
+        OutRawMap.clear();
+
+        auto AddName = [&](std::string_view RawName)
+        {
+            const std::string   DisplayName = StripVBoneTag(RawName);
+            const std::uint32_t Hash        = xstrtool::CRC32(DisplayName);
+            OutMap[Hash]    = DisplayName;
+            OutRawMap[Hash] = std::string(RawName);
+        };
+
+        for (auto& Name : Details.m_BoneList) AddName(Name);
 
         xskeleton_desc::descriptor Descriptor;
         xproperty::settings::context Context;
@@ -360,6 +508,22 @@ namespace e23
     }
 
     //---------------------------------------------------------------------------
+    // "Resize Skeleton to 1m" (skeleton_state::ViewScale()) never touches the loaded asset - instead
+    // every consumer of bone positions each frame works off THIS scaled copy. m_Right/m_Up are unit
+    // directions, unaffected by a uniform scale.
+    //---------------------------------------------------------------------------
+
+    void ScaleBoneWorld(const std::vector<bone_world>& Src, float Scale, std::vector<bone_world>& Out)
+    {
+        Out.resize(Src.size());
+        for (std::size_t i = 0; i < Src.size(); ++i)
+        {
+            Out[i]            = Src[i];
+            Out[i].m_Position = Src[i].m_Position * Scale;
+        }
+    }
+
+    //---------------------------------------------------------------------------
 
     void LoadSkeleton(skeleton_state& State, e10::library::guid LibraryGUID, xresource::full_guid InfoGUID)
     {
@@ -376,7 +540,21 @@ namespace e23
         });
 
         if (!State.m_DescriptorPath.empty() && std::filesystem::exists(State.m_DescriptorPath))
-            LoadBoneNameMap(State.m_DescriptorPath, State.m_BoneNames);
+        {
+            const auto Details = LoadDetails(State.m_DescriptorPath);
+            LoadBoneNameMap(Details, State.m_DescriptorPath, State.m_BoneNames, State.m_RawBoneNames);
+
+            xproperty::settings::context Context;
+            if (auto Err = State.m_Descriptor.Serialize(true, State.m_DescriptorPath, Context); Err)
+                assert(false);
+
+            // Seed/reconcile the descriptor with an entry for every currently-imported bone (see
+            // xskeleton_desc::descriptor::MergeWithDetails) - same job E21_StaticGeomEditor's
+            // MergeWithDetails does on selection/reload, so "Bone Hierarchy" in the Skeleton
+            // Properties inspector shows the whole skeleton immediately, not just whichever bones
+            // someone already curated. In-memory only - Compile is what persists it to disk.
+            State.m_Descriptor.MergeWithDetails(Details);
+        }
 
         State.m_Ref.m_Instance = InfoGUID.m_Instance;
 
@@ -416,24 +594,313 @@ namespace e23
         return std::format("0x{:08X}", Hash);
     }
 
+    // The raw (pre-strip) import name - what the compiler's CollectOverrides actually matches
+    // descriptor bone entries against (see LoadBoneNameMap). Falls back to the display name for a
+    // bone with no known raw counterpart (e.g. purely descriptor-authored, never imported).
+    std::string GetRawBoneName(const skeleton_state& State, const xskeleton::skeleton& Skeleton, int iBone)
+    {
+        const std::uint32_t Hash = Skeleton.getBoneNames()[iBone].m_NameHash;
+        if (auto It = State.m_RawBoneNames.find(Hash); It != State.m_RawBoneNames.end())
+            return It->second;
+        return GetBoneDisplayName(State, Skeleton, iBone);
+    }
+
+    //---------------------------------------------------------------------------
+    // Bone overrides - sparse entries in the descriptor's own m_RootBone tree, matched BY NAME
+    // against the raw imported bone (xskeleton_compiler.cpp's CollectOverrides walks the whole tree
+    // into a flat name->override map before compiling) - the same "survives re-import" pattern
+    // xgeom_static's merge/ungroup/delete lists use. Tree position inside the override tree is
+    // irrelevant to the compiler, so a newly-authored entry can just be appended as a direct child of
+    // the root rather than mirroring the bone's real position in the hierarchy.
+    //---------------------------------------------------------------------------
+
+    xskeleton_desc::bone* FindBoneOverride(xskeleton_desc::bone& Node, std::string_view Name)
+    {
+        if (Node.m_Name == Name) return &Node;
+        for (auto& Child : Node.m_Bones)
+            if (auto* pFound = FindBoneOverride(Child, Name)) return pFound;
+        return nullptr;
+    }
+
+    const xskeleton_desc::bone* FindBoneOverride(const xskeleton_desc::bone& Node, std::string_view Name)
+    {
+        if (Node.m_Name == Name) return &Node;
+        for (auto& Child : Node.m_Bones)
+            if (auto* pFound = FindBoneOverride(Child, Name)) return pFound;
+        return nullptr;
+    }
+
+    xskeleton_desc::bone& FindOrCreateBoneOverride(xskeleton_desc::descriptor& Descriptor, std::string_view Name)
+    {
+        if (auto* pFound = FindBoneOverride(Descriptor.m_RootBone, Name)) return *pFound;
+        xskeleton_desc::bone NewOverride;
+        NewOverride.m_Name = std::string(Name);
+        Descriptor.m_RootBone.m_Bones.push_back(std::move(NewOverride));
+        return Descriptor.m_RootBone.m_Bones.back();
+    }
+
+    // The name to actually SHOW anywhere in this editor (tree, 3D labels) - the override's m_Rename
+    // if the user has renamed this bone, otherwise the imported display name. m_Name itself never
+    // changes on rename (see xskeleton_desc::bone::m_Rename's own comment), so overrides keep
+    // matching this bone across re-imports even after it's been renamed here.
+    std::string GetEffectiveBoneName(const skeleton_state& State, const xskeleton::skeleton& Skeleton, int iBone)
+    {
+        const std::string RawName = GetRawBoneName(State, Skeleton, iBone);
+        if (const auto* pOv = FindBoneOverride(State.m_Descriptor.m_RootBone, RawName); pOv && !pOv->m_Rename.empty())
+            return pOv->m_Rename;
+        return GetBoneDisplayName(State, Skeleton, iBone);
+    }
+
+    //---------------------------------------------------------------------------
+    // Selection - standard Explorer-style multi-select: a plain click replaces the selection and
+    // moves the anchor; Ctrl+click toggles one bone in/out without moving the anchor's fellow
+    // members (but does move the anchor to whatever was just toggled, matching Explorer); Shift+
+    // click selects every bone whose raw index falls between the anchor and the clicked bone
+    // (inclusive) WITHOUT moving the anchor, so repeated Shift+clicks resize the same range rather
+    // than compounding. Raw bone index is used as the "range" ordering rather than tree position or
+    // screen position - bones are already stored parent-before-child (see LoadSkeleton), so index
+    // order tracks the hierarchy/import order closely enough to read as a sensible range either from
+    // the tree view or from repeated viewport clicks.
+    //---------------------------------------------------------------------------
+
+    void ApplySelection(skeleton_state& State, int iBone, bool bCtrl, bool bShift)
+    {
+        if (bShift && State.m_iAnchorBone != -1)
+        {
+            if (!bCtrl) State.m_SelectedBones.clear();
+            const int Lo = std::min(State.m_iAnchorBone, iBone);
+            const int Hi = std::max(State.m_iAnchorBone, iBone);
+            for (int i = Lo; i <= Hi; ++i) State.m_SelectedBones.insert(i);
+        }
+        else if (bCtrl)
+        {
+            if (State.m_SelectedBones.count(iBone)) State.m_SelectedBones.erase(iBone);
+            else                                    State.m_SelectedBones.insert(iBone);
+            State.m_iAnchorBone = iBone;
+        }
+        else
+        {
+            State.m_SelectedBones.clear();
+            State.m_SelectedBones.insert(iBone);
+            State.m_iAnchorBone = iBone;
+        }
+    }
+
+    // A click that hits nothing (no label, no bone) clears the selection - but only a PLAIN click;
+    // Ctrl/Shift-clicking empty space is a no-op, same convention as Explorer/most 3D editors (you
+    // don't lose a multi-selection just because the next Ctrl+click missed).
+    void ClearSelectionOnEmptyClick(skeleton_state& State, bool bCtrl, bool bShift)
+    {
+        if (bCtrl || bShift) return;
+        State.m_SelectedBones.clear();
+        State.m_iAnchorBone = -1;
+    }
+
     //---------------------------------------------------------------------------
     // Side-panel bone list, as a tree following the actual skeleton hierarchy rather than a flat
     // sort - bones are stored parent-index-before-child, so a single pass builds each parent's
-    // child list, then a normal recursive TreeNode walk from the root does the rest.
+    // child list, then a normal recursive TreeNode walk from the root does the rest. Each node is
+    // colored/tagged by its current (uncompiled) override state and offers a right-click menu to
+    // change it - Save/Compile is what actually applies the edit, matching E21_StaticGeomEditor's
+    // scene-hierarchy tree (color-coded per grouped/deleted state, right-click context menu).
     //---------------------------------------------------------------------------
+
+    // Segoe MDL2 Assets glyphs - the icon font is already merged into the default ImGui font (see
+    // xgpu_imgui_breach.cpp), so no PushFont is needed; UTF-8 encoded directly since that's what
+    // ImGui's text calls expect. Hover tooltips (see RenderBoneTree) carry the actual meaning -
+    // these just need to read as distinct pictograms at a glance.
+    constexpr const char* g_ExposeIcon  = "\xEE\x9C\x98"; // Pin
+    constexpr const char* g_VirtualIcon = "\xEE\x9C\x9B"; // Link
+    constexpr const char* g_DeleteIcon  = "\xEE\x9D\x8D"; // Delete (trash)
+
+    // Bones edited via the checkbox columns or the context menu apply to the WHOLE current
+    // selection when the acted-on bone is part of a multi-bone selection (standard "edit one,
+    // apply to all selected" convention) - otherwise just to that one bone.
+    std::vector<int> EditTargets(const skeleton_state& State, int iBone)
+    {
+        if (State.m_SelectedBones.count(iBone) && State.m_SelectedBones.size() > 1)
+            return std::vector<int>(State.m_SelectedBones.begin(), State.m_SelectedBones.end());
+        return { iBone };
+    }
+
+    // The compiler enforces "a bone's LOD can never be lower than its parent's" and silently
+    // clamps-and-warns when the descriptor disagrees (xskeleton_compiler.cpp's BuildMergedBones) -
+    // mirroring that here, live, means the editor never lets you author something the compiler is
+    // just going to override anyway. Propagates the JUST-CHANGED bone's own (possibly already-
+    // clamped) LOD down through its whole subtree, raising any descendant that's currently lower;
+    // a descendant already at or above stays untouched, including its own effect on its children.
+    void ClampDescendantLODs(skeleton_state& State, const xskeleton::skeleton& Skeleton, const std::vector<std::vector<int>>& Children, int iBone, int MinLOD)
+    {
+        for (int iChild : Children[iBone])
+        {
+            auto& ChildOv = FindOrCreateBoneOverride(State.m_Descriptor, GetRawBoneName(State, Skeleton, iChild));
+            if (ChildOv.m_LODLevel < MinLOD) ChildOv.m_LODLevel = MinLOD;
+            ClampDescendantLODs(State, Skeleton, Children, iChild, ChildOv.m_LODLevel);
+        }
+    }
+
+    // Centers a checkbox-sized widget horizontally within whatever's left of the current column -
+    // otherwise it hugs the column's left edge, misaligned with the icon header above it.
+    void CenterNextCheckbox()
+    {
+        const float ColW = ImGui::GetContentRegionAvail().x;
+        const float BoxW = ImGui::GetFrameHeight();
+        if (ColW > BoxW) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ColW - BoxW) * 0.5f);
+    }
 
     void RenderBoneNode(skeleton_state& State, const xskeleton::skeleton& Skeleton, const std::vector<std::vector<int>>& Children, int iBone)
     {
-        const bool        bSelected = (iBone == State.m_iSelectedBone);
+        const bool        bSelected = State.m_SelectedBones.count(iBone) != 0;
         const bool        bHasKids  = !Children[iBone].empty();
-        const std::string Name      = GetBoneDisplayName(State, Skeleton, iBone);
+        const std::string Name      = GetEffectiveBoneName(State, Skeleton, iBone);
+        const std::string RawName   = GetRawBoneName(State, Skeleton, iBone);
 
-        ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
+        const xskeleton_desc::bone* pOv = FindBoneOverride(State.m_Descriptor.m_RootBone, RawName);
+
+        const bool bPendingDelete  = pOv && pOv->m_bDeleteBone;
+        const bool bPendingVirtual = pOv && pOv->m_Type == xskeleton_desc::bone_type::VIRTUAL;
+        const bool bPendingExpose  = pOv && pOv->m_bExpose;
+        const bool bRenaming       = State.m_iRenamingBone == iBone;
+
+        ImGui::TableNextRow();
+        ImGui::TableSetColumnIndex(0);
+
+        ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth | ImGuiTreeNodeFlags_DefaultOpen;
         if (bSelected)  Flags |= ImGuiTreeNodeFlags_Selected;
         if (!bHasKids)  Flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
 
-        const bool bOpen = ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<std::intptr_t>(iBone)), Flags, "%s", Name.c_str());
-        if (ImGui::IsItemClicked()) State.m_iSelectedBone = iBone;
+        const bool bPushedColor = bPendingDelete || bPendingVirtual;
+        if (bPendingDelete)       ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 90, 90, 255));
+        else if (bPendingVirtual) ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 180, 84, 255));
+
+        std::string Label = Name;
+        if (pOv && pOv->m_LODLevel > 0) Label += std::format("  [LOD{}]", pOv->m_LODLevel);
+        if (bPendingDelete)              Label += "  (pending delete)";
+
+        // While renaming, the node still owns the arrow/indentation/click region but shows an empty
+        // label - the actual editable text lives in the InputText drawn right after it below.
+        const bool bOpen = ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<std::intptr_t>(iBone)), Flags, "%s", bRenaming ? "" : Label.c_str());
+        if (bPushedColor) ImGui::PopStyleColor();
+
+        if (bRenaming)
+        {
+            ImGui::SameLine();
+            static char Buf[128]; // only ever one row renames at a time - a single scratch buffer is enough
+            if (State.m_bRenameJustStarted)
+            {
+                std::snprintf(Buf, sizeof(Buf), "%s", State.m_RenameBuf.c_str());
+                ImGui::SetKeyboardFocusHere();
+                State.m_bRenameJustStarted = false;
+            }
+            ImGui::PushID(iBone);
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            const bool bEnter = ImGui::InputText("##rename", Buf, sizeof(Buf), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+            if (bEnter || ImGui::IsItemDeactivatedAfterEdit())
+            {
+                FindOrCreateBoneOverride(State.m_Descriptor, RawName).m_Rename = Buf;
+                State.m_iRenamingBone = -1;
+            }
+            else if (ImGui::IsItemDeactivated())
+            {
+                State.m_iRenamingBone = -1; // Escape (or anything else that didn't actually change the text) - cancel, don't write
+            }
+            ImGui::PopID();
+        }
+        else
+        {
+            if (ImGui::IsItemClicked())
+                ApplySelection(State, iBone, ImGui::GetIO().KeyCtrl, ImGui::GetIO().KeyShift);
+
+            if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+            {
+                State.m_iRenamingBone      = iBone;
+                State.m_bRenameJustStarted = true;
+                State.m_RenameBuf          = Name;
+            }
+        }
+
+        // Right-click context menu - anchored to the tree node (SpanFullWidth, so this covers the
+        // whole row) with an explicit per-bone ID, rather than relying on BeginPopupContextItem()'s
+        // default "use whatever the last-drawn widget's ID was" behavior: that broke once the LOD
+        // column's InputInt became the new "last item" this popup implicitly leaned on, hitting
+        // ImGui's own "id != 0" assert (imgui.cpp - you cannot rely on a last-item ID that got reset).
+        ImGui::PushID(iBone);
+        if (ImGui::BeginPopupContextItem("BoneRowContextMenu"))
+        {
+            if (!bSelected) ApplySelection(State, iBone, false, false);
+
+            if (ImGui::MenuItem("Rename"))
+            {
+                State.m_iRenamingBone      = iBone;
+                State.m_bRenameJustStarted = true;
+                State.m_RenameBuf          = Name;
+            }
+
+            if (ImGui::MenuItem(bPendingVirtual ? "Mark as Normal Bone" : "Mark as Virtual Bone"))
+                for (int i : EditTargets(State, iBone))
+                    FindOrCreateBoneOverride(State.m_Descriptor, GetRawBoneName(State, Skeleton, i)).m_Type = bPendingVirtual ? xskeleton_desc::bone_type::NORMAL : xskeleton_desc::bone_type::VIRTUAL;
+
+            if (ImGui::MenuItem(bPendingDelete ? "Unmark Deletion" : "Mark for Deletion"))
+                for (int i : EditTargets(State, iBone))
+                    FindOrCreateBoneOverride(State.m_Descriptor, GetRawBoneName(State, Skeleton, i)).m_bDeleteBone = !bPendingDelete;
+
+            if (ImGui::MenuItem(bPendingExpose ? "Unexpose Socket" : "Expose as Socket"))
+                for (int i : EditTargets(State, iBone))
+                    FindOrCreateBoneOverride(State.m_Descriptor, GetRawBoneName(State, Skeleton, i)).m_bExpose = !bPendingExpose;
+
+            ImGui::EndPopup();
+        }
+        ImGui::PopID();
+
+        ImGui::TableSetColumnIndex(1);
+        {
+            bool bExpose = bPendingExpose;
+            ImGui::PushID(iBone);
+            CenterNextCheckbox();
+            if (ImGui::Checkbox("##expose", &bExpose))
+                for (int i : EditTargets(State, iBone))
+                    FindOrCreateBoneOverride(State.m_Descriptor, GetRawBoneName(State, Skeleton, i)).m_bExpose = bExpose;
+            ImGui::PopID();
+        }
+
+        ImGui::TableSetColumnIndex(2);
+        {
+            bool bVirtual = bPendingVirtual;
+            ImGui::PushID(iBone);
+            CenterNextCheckbox();
+            if (ImGui::Checkbox("##virtual", &bVirtual))
+                for (int i : EditTargets(State, iBone))
+                    FindOrCreateBoneOverride(State.m_Descriptor, GetRawBoneName(State, Skeleton, i)).m_Type = bVirtual ? xskeleton_desc::bone_type::VIRTUAL : xskeleton_desc::bone_type::NORMAL;
+            ImGui::PopID();
+        }
+
+        ImGui::TableSetColumnIndex(3);
+        {
+            bool bDelete = bPendingDelete;
+            ImGui::PushID(iBone);
+            CenterNextCheckbox();
+            if (ImGui::Checkbox("##delete", &bDelete))
+                for (int i : EditTargets(State, iBone))
+                    FindOrCreateBoneOverride(State.m_Descriptor, GetRawBoneName(State, Skeleton, i)).m_bDeleteBone = bDelete;
+            ImGui::PopID();
+        }
+
+        ImGui::TableSetColumnIndex(4);
+        {
+            int CurLOD = pOv ? pOv->m_LODLevel : 0;
+            ImGui::PushID(iBone);
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::InputInt("##lod", &CurLOD, 1, 1))
+            {
+                CurLOD = std::max(0, CurLOD);
+                for (int i : EditTargets(State, iBone))
+                {
+                    FindOrCreateBoneOverride(State.m_Descriptor, GetRawBoneName(State, Skeleton, i)).m_LODLevel = CurLOD;
+                    ClampDescendantLODs(State, Skeleton, Children, i, CurLOD);
+                }
+            }
+            ImGui::PopID();
+        }
 
         if (bHasKids && bOpen)
         {
@@ -452,7 +919,42 @@ namespace e23
             if (Bones[i].m_iParent < 0) iRoot = i;
             else                        Children[Bones[i].m_iParent].push_back(i);
         }
-        if (iRoot != -1) RenderBoneNode(State, Skeleton, Children, iRoot);
+
+        // Default IndentSpacing/ItemSpacing eat a lot of width/height per level - a real rig runs
+        // 8-10 levels deep (Hip -> Spine -> Clavicle -> Upperarm -> Forearm -> Hand -> fingers), so
+        // the default spacing alone can push a chain wider than the panel and taller than the whole
+        // hierarchy fits on screen at once.
+        ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, 7.0f);
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, 1.0f));
+
+        constexpr ImGuiTableFlags TableFlags = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY;
+        if (ImGui::BeginTable("###BoneTable", 5, TableFlags, ImGui::GetContentRegionAvail()))
+        {
+            ImGui::TableSetupColumn("Bone",    ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableSetupColumn("Expose",  ImGuiTableColumnFlags_WidthFixed, 36.0f);
+            ImGui::TableSetupColumn("Virtual", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize, 36.0f);
+            ImGui::TableSetupColumn("Delete",  ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize, 36.0f);
+            ImGui::TableSetupColumn("LOD",     ImGuiTableColumnFlags_WidthFixed, 70.0f);
+
+            // Custom header row (rather than TableHeadersRow()) so the checkbox columns can show an
+            // icon glyph instead of a full word, with the word itself moved to a hover tooltip.
+            ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
+            ImGui::TableSetColumnIndex(0); ImGui::TableHeader("Bone");
+            ImGui::TableSetColumnIndex(1); ImGui::TableHeader(g_ExposeIcon);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Expose as Socket");
+            ImGui::TableSetColumnIndex(2); ImGui::TableHeader(g_VirtualIcon);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Virtual Bone");
+            ImGui::TableSetColumnIndex(3); ImGui::TableHeader(g_DeleteIcon);
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete Bone");
+            ImGui::TableSetColumnIndex(4); ImGui::TableHeader("LOD");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Level of Detail cutoff - highest LOD index this bone stays active at");
+
+            if (iRoot != -1) RenderBoneNode(State, Skeleton, Children, iRoot);
+
+            ImGui::EndTable();
+        }
+
+        ImGui::PopStyleVar(2);
     }
 
     //---------------------------------------------------------------------------
@@ -473,18 +975,96 @@ namespace e23
         if (Len < 1.0e-5f) return false;
         Dir = Dir / Len;
 
+        // The bone's own Right/Up come straight out of its world matrix, which can carry non-uniform
+        // scale or shear from the source rig (twist/helper joints especially) - using them as-is can
+        // collapse the ring toward a line, rendering that bone as a flat 2D sliver instead of a solid
+        // wedge. Re-orthogonalize against Dir (Gram-Schmidt) so every bone gets a clean, non-degenerate
+        // cross-section regardless of how well-formed its source matrix is.
+        xmath::fvec3 UpOrtho = Up - Dir * Dir.Dot(Up);
+        if (UpOrtho.Length() < 1.0e-4f)
+            UpOrtho = (std::abs(Dir.Dot(xmath::fvec3(0, 1, 0))) < 0.99f) ? xmath::fvec3(0, 1, 0) : xmath::fvec3(1, 0, 0);
+        UpOrtho.Normalize();
+        const xmath::fvec3 RightOrtho = Dir.Cross(UpOrtho).Normalize();
+        UpOrtho = RightOrtho.Cross(Dir).Normalize();
+
         const float HeadWidth = std::max(Len * 0.10f, 1.0e-4f);
         const float HeadDist  = std::min(Len * 0.22f, HeadWidth * 2.4f);
         const xmath::fvec3 Center = A + Dir * HeadDist;
 
         Out.m_Ring =
-        { Center + Right * HeadWidth
-        , Center + Up    * HeadWidth
-        , Center - Right * HeadWidth
-        , Center - Up    * HeadWidth
+        { Center + RightOrtho * HeadWidth
+        , Center + UpOrtho    * HeadWidth
+        , Center - RightOrtho * HeadWidth
+        , Center - UpOrtho    * HeadWidth
         };
         return true;
     }
+
+    //---------------------------------------------------------------------------
+    // Root marker - a small sphere gizmo for any parentless bone. A regular wedge is drawn BETWEEN
+    // a bone and its parent, so a root (no parent) never gets one and, before this, rendered as
+    // nothing at all. Always solid yellow (not virtual/normal color-coded like a regular wedge -
+    // this is a landmark, not a limb segment; virtual state is still visible via the tree's checkbox
+    // and text color), using the same fill alpha/depth-tint machinery as a regular wedge's fill.
+    //---------------------------------------------------------------------------
+
+    struct sphere_frame
+    {
+        xmath::fvec3    m_Right;
+        xmath::fvec3    m_Up;
+        xmath::fvec3    m_Forward;
+    };
+
+    bool ComputeOrthoFrame(const xmath::fvec3& Right, const xmath::fvec3& Up, sphere_frame& Out)
+    {
+        xmath::fvec3 R = Right;
+        xmath::fvec3 U = Up;
+        if (R.Length() < 1.0e-5f || U.Length() < 1.0e-5f) return false;
+        R.Normalize();
+        U.Normalize();
+
+        xmath::fvec3 F = R.Cross(U);
+        if (F.Length() < 1.0e-4f) return false;
+        F.Normalize();
+        U = F.Cross(R).Normalize(); // re-orthogonalize, same reasoning as ComputeWedgeShape
+
+        Out = { R, U, F };
+        return true;
+    }
+
+    xmath::fvec3 SpherePoint(const xmath::fvec3& Center, const sphere_frame& Frame, float Radius, float Theta, float Phi)
+    {
+        // Phi in [0,pi] sweeps from the +Forward pole to the -Forward pole; Theta in [0,2pi) sweeps
+        // around the Forward axis through the Right/Up equatorial plane.
+        return Center
+             + Frame.m_Forward * (Radius * std::cos(Phi))
+             + Frame.m_Right   * (Radius * std::sin(Phi) * std::cos(Theta))
+             + Frame.m_Up      * (Radius * std::sin(Phi) * std::sin(Theta));
+    }
+
+    // Sized off the distance to the root's nearest child so the marker reads at the same scale as
+    // the wedges hanging off it. OverallRadius (the whole skeleton's own bounding radius, already
+    // computed in ComputeBoneWorldsAndFraming) sets a scale-appropriate FLOOR for both that and the
+    // degenerate no-children case - a fixed absolute floor (what this used to fall back to) reads
+    // fine on a 1-2 unit tall rig but is sub-pixel and invisible on rigs authored at a much larger
+    // scale (e.g. centimeters, where the whole character's bounding radius is ~100+ units).
+    float RootSphereRadius(const xskeleton::skeleton& Skeleton, const std::vector<bone_world>& World, int iRoot, float OverallRadius)
+    {
+        const auto  Bones = Skeleton.getBones();
+        float       MinDist = -1.0f;
+        for (int i = 0; i < int(Bones.size()); ++i)
+        {
+            if (Bones[i].m_iParent != iRoot) continue;
+            const float D = (World[i].m_Position - World[iRoot].m_Position).Length();
+            if (MinDist < 0.0f || D < MinDist) MinDist = D;
+        }
+        const float Floor = std::max(OverallRadius * 0.02f, 1.0e-4f);
+        return (MinDist > 1.0e-5f) ? std::max(MinDist * 0.18f, Floor) : Floor * 1.5f;
+    }
+
+    constexpr int g_RootSphereLonSegs  = 14;
+    constexpr int g_RootSphereLatRings = 8;
+    constexpr int g_RootSphereWireSegs = 28; // per great circle
 
     //---------------------------------------------------------------------------
     // Depth tint - CPU-computed per vertex every frame (camera-distance based), lerped toward the
@@ -496,18 +1076,23 @@ namespace e23
         xmath::fvec3    m_CameraPos         {};
         float           m_NearDepth         = 1.0f;
         float           m_FarDepth          = 15.0f;
-        std::uint32_t   m_BackgroundColor   = IM_COL32(10, 14, 20, 255);
-        std::uint32_t   m_NormalColor       = IM_COL32(79, 195, 232, 255);
+        std::uint32_t   m_BackgroundColor   = IM_COL32(115, 115, 115, 255); // matches the viewport's own 0.45 gray
+        std::uint32_t   m_NormalColor       = IM_COL32(255, 255, 255, 255); // white - now that the fill's alpha/boost are fixed, white reads as bright/clean rather than diluted-into-the-floor
         std::uint32_t   m_VirtualColor      = IM_COL32(255, 180, 84, 255);
         std::uint32_t   m_TwistColor        = IM_COL32(90, 110, 125, 255); // dim, desaturated - a real bone, just not one that should compete visually with the main limb chain
-        std::uint32_t   m_SelectedColor     = IM_COL32(255, 255, 255, 255);
+        std::uint32_t   m_SelectedColor     = IM_COL32(255, 40, 180, 255); // hot magenta - a distinct hue from the (now also white-ish) normal color, so selection still reads clearly
+        std::uint32_t   m_RootColor         = IM_COL32(255, 220, 40, 255); // yellow - the root sphere's own color, unconditional on virtual/normal
+        float           m_HoverBoost        = 2.5f; // multiplicative RGB brighten for whichever bone the mouse is over, regardless of selection/LOD/type color - a no-op for a channel already at 255 (e.g. plain white), which is why the fill ALSO goes fully opaque on hover (see BuildWedgeFillGeometry's TintAt)
     };
 
     std::uint32_t DepthTint(const xmath::fvec3& P, const xmath::fvec3& CameraPos, float NearD, float FarD, std::uint32_t BaseColor, std::uint32_t BgColor)
     {
         const float D     = (P - CameraPos).Length();
         const float Range = std::max(FarD - NearD, 0.001f);
-        const float T     = std::clamp((D - NearD) / Range, 0.0f, 1.0f) * 0.72f; // never fully vanish into bg
+        // Capped well under 1.0 so depth still reads as a cue, not a fade-to-neutral - at the old
+        // 0.72 cap, a bone at typical viewing distance was already 72% blended into the gray
+        // background, which is why every base color still looked "neutral" regardless of hue.
+        const float T     = std::clamp((D - NearD) / Range, 0.0f, 1.0f) * 0.35f;
 
         auto Channel = [](std::uint32_t C, int Shift) -> int { return int((C >> Shift) & 0xFFu); };
 
@@ -521,10 +1106,56 @@ namespace e23
         return IM_COL32(R, G, B, Ba);
     }
 
-    std::uint32_t VertexColor(const wedge_style& Style, const xmath::fvec3& P, bool bSelected, std::uint32_t BaseColor)
+    // Multiplies just the RGB channels by Factor, clamped to 255, alpha untouched - shared by
+    // VertexColor's hover highlight and FaceLit's per-triangle camera-facing shading.
+    std::uint32_t ScaleColorRGB(std::uint32_t Color, float Factor)
     {
-        if (bSelected) return Style.m_SelectedColor;
-        return DepthTint(P, Style.m_CameraPos, Style.m_NearDepth, Style.m_FarDepth, BaseColor, Style.m_BackgroundColor);
+        auto Channel = [](std::uint32_t C, int Shift) -> int { return int((C >> Shift) & 0xFFu); };
+        const int R = std::clamp(int(Channel(Color, 0)  * Factor), 0, 255);
+        const int G = std::clamp(int(Channel(Color, 8)  * Factor), 0, 255);
+        const int B = std::clamp(int(Channel(Color, 16) * Factor), 0, 255);
+        return (Color & 0xFF000000u) | (std::uint32_t(B) << 16) | (std::uint32_t(G) << 8) | std::uint32_t(R);
+    }
+
+    // bHovered brightens the FINAL color multiplicatively, after selection/depth-tint have already
+    // picked it - "no matter if it is selected or whatever" was the explicit ask, so this has to be
+    // the last step, not folded into the selected/normal color choice itself.
+    std::uint32_t VertexColor(const wedge_style& Style, const xmath::fvec3& P, bool bSelected, bool bHovered, std::uint32_t BaseColor)
+    {
+        std::uint32_t C = bSelected ? Style.m_SelectedColor : DepthTint(P, Style.m_CameraPos, Style.m_NearDepth, Style.m_FarDepth, BaseColor, Style.m_BackgroundColor);
+        if (bHovered) C = ScaleColorRGB(C, Style.m_HoverBoost);
+        return C;
+    }
+
+    //---------------------------------------------------------------------------
+    // "Color by LOD" view option - one color per LOD tier, cycling if a rig somehow has more LODs
+    // than the table. The compiled skeleton doesn't store a per-bone LOD value directly (see
+    // xskeleton::skeleton::getLODBoneCounts' own comment): bones are sorted ascending by LOD, and
+    // m_pLODBoneCount[L] is the cumulative count of bones active at LOD <= L, so a bone's own LOD is
+    // just "the first L whose cumulative count exceeds this bone's index".
+    //---------------------------------------------------------------------------
+
+    constexpr std::uint32_t g_LODColors[] =
+    { IM_COL32(255,  80,  80, 255)  // LOD0 - red
+    , IM_COL32(255, 170,  60, 255)  // LOD1 - orange
+    , IM_COL32(255, 230,  60, 255)  // LOD2 - yellow
+    , IM_COL32(120, 255,  90, 255)  // LOD3 - green
+    , IM_COL32( 80, 200, 255, 255)  // LOD4 - blue
+    , IM_COL32(200, 120, 255, 255)  // LOD5 - purple
+    };
+    constexpr int g_nLODColors = int(sizeof(g_LODColors) / sizeof(g_LODColors[0]));
+
+    int GetBoneLODLevel(const xskeleton::skeleton& Skeleton, int iBone)
+    {
+        const auto Counts = Skeleton.getLODBoneCounts();
+        for (int L = 0; L < int(Counts.size()); ++L)
+            if (iBone < int(Counts[L])) return L;
+        return 0; // no LOD data at all - everything is LOD0
+    }
+
+    std::uint32_t LODColor(int Level)
+    {
+        return g_LODColors[std::clamp(Level, 0, g_nLODColors - 1)];
     }
 
     //---------------------------------------------------------------------------
@@ -532,7 +1163,12 @@ namespace e23
     // 1 segment (2 verts) when solid - worst case (every bone virtual) is 8*6=48 verts/bone.
     //---------------------------------------------------------------------------
 
-    inline constexpr int g_MaxWedgeVertices = 24576;
+    inline constexpr int   g_MaxWedgeVertices = 24576;
+
+    // Compensates for the wedge fill's own alpha blend diluting brightness against the gray floor
+    // (FillAlphaScale ~0.55 means the true color only ever contributes ~55% of what reaches the
+    // screen) - see E23_WedgeFill_frag.glsl's own comment. Tunable in one place.
+    inline constexpr float g_WedgeFillBoost   = 1.8f;
 
     void EmitSegment(std::vector<e19::draw_vert>& Verts, const xmath::fvec3& A, const xmath::fvec3& B, std::uint32_t ColorA, std::uint32_t ColorB)
     {
@@ -544,9 +1180,9 @@ namespace e23
 
     // Virtual bones are dashed by only emitting alternating sub-segments along the edge - LINE_LIST
     // has no native dash support, so this approximates it geometrically.
-    void EmitEdge(std::vector<e19::draw_vert>& Verts, const xmath::fvec3& A, const xmath::fvec3& B, bool bDashed, const wedge_style& Style, bool bSelected, std::uint32_t BaseColor)
+    void EmitEdge(std::vector<e19::draw_vert>& Verts, const xmath::fvec3& A, const xmath::fvec3& B, bool bDashed, const wedge_style& Style, bool bSelected, bool bHovered, std::uint32_t BaseColor)
     {
-        auto ColorAt = [&](const xmath::fvec3& P) { return VertexColor(Style, P, bSelected, BaseColor); };
+        auto ColorAt = [&](const xmath::fvec3& P) { return VertexColor(Style, P, bSelected, bHovered, BaseColor); };
 
         if (!bDashed)
         {
@@ -565,7 +1201,27 @@ namespace e23
         }
     }
 
-    void BuildWedgeGeometry(const xskeleton::skeleton& Skeleton, const std::vector<bone_world>& World, const std::vector<bool>& IsTwistBone, const wedge_style& Style, int iSelectedBone, std::vector<e19::draw_vert>& Verts)
+    // Wireframe: 3 orthogonal great circles rather than a full lat/long wire mesh - reads clearly as
+    // "a sphere" for a fraction of the vertex cost.
+    void BuildRootSphereWireframe(const xmath::fvec3& Center, const sphere_frame& Frame, float Radius, bool bSelected, bool bHovered, const wedge_style& Style, std::uint32_t Color, std::vector<e19::draw_vert>& Verts)
+    {
+        auto Circle = [&](const xmath::fvec3& AxisA, const xmath::fvec3& AxisB)
+        {
+            xmath::fvec3 Prev = Center + AxisA * Radius;
+            for (int i = 1; i <= g_RootSphereWireSegs; ++i)
+            {
+                const float Angle = (2.0f * std::numbers::pi_v<float>) * (float(i) / float(g_RootSphereWireSegs));
+                const xmath::fvec3 Cur = Center + AxisA * (Radius * std::cos(Angle)) + AxisB * (Radius * std::sin(Angle));
+                EmitEdge(Verts, Prev, Cur, false, Style, bSelected, bHovered, Color);
+                Prev = Cur;
+            }
+        };
+        Circle(Frame.m_Right,   Frame.m_Up);
+        Circle(Frame.m_Up,      Frame.m_Forward);
+        Circle(Frame.m_Forward, Frame.m_Right);
+    }
+
+    void BuildWedgeGeometry(const xskeleton::skeleton& Skeleton, const std::vector<bone_world>& World, const std::vector<bool>& IsTwistBone, const wedge_style& Style, const std::set<int>& SelectedBones, float OverallRadius, bool bColorByLOD, int HoveredBone, std::vector<e19::draw_vert>& Verts)
     {
         Verts.clear();
 
@@ -583,33 +1239,57 @@ namespace e23
             wedge_shape Shape;
             if (!ComputeWedgeShape(A, B, World[i].m_Right, World[i].m_Up, Shape)) continue;
 
-            // A bone with no real bind data got its BIND position/axes propagated from its nearest
-            // real-bind-data ancestor using a FROZEN-relative local offset - fine on its own, but
-            // nothing guarantees a *chain* of propagated bones (e.g. Upperarm -> Forearm, both
-            // guessed) ends up anywhere near where real bind data would have put them, even though
-            // both ends "agree" with each other. Flagging only a real/propagated *mismatch* missed
-            // exactly that case - a wholly-guessed edge would still pass since both sides matched -
-            // so this checks each endpoint's own reliability instead: any propagated endpoint, mismatch
-            // or not, is inferred. Doesn't affect FROZEN, where m_bRealBindData is always true.
-            //
-            // A "Twist" bone (see LoadSkeleton) is real, correct data - just a short dead-end branch
-            // off the main limb purely for skin-deformation smoothing. Full-weight rendering made it
-            // read as a second, competing limb; dim + dash it instead so the real chain reads clearly.
-            const bool          bSelected  = (i == iSelectedBone);
-            const bool          bVirtual   = Bones[i].m_Type == xskeleton::bone_type::VIRTUAL;
+            // Dashing is a TYPE-based style choice (virtual placeholder, or a twist helper joint - see
+            // LoadSkeleton - that shouldn't visually compete with the main limb chain) and stays the
+            // same in both poses. Bind-data confidence (see BuildWedgeFillGeometry's bInferred) is
+            // signaled separately, through fill dimness only - dashing it too made bind pose look like
+            // a completely different, mostly-broken render style next to frozen's fully solid one, for
+            // any rig (like this one) where most bones only have propagated, not real, bind data.
+            const bool          bSelected  = SelectedBones.count(i) != 0;
+            const bool          bHovered   = i == HoveredBone;
+            const bool          bVirtual   = Bones[i].m_Flags.m_bVirtual;
             const bool          bTwist     = i < int(IsTwistBone.size()) && IsTwistBone[i];
-            const bool          bInferred  = !World[i].m_bRealBindData || !World[iParent].m_bRealBindData;
-            const bool          bDashed    = (bVirtual || bInferred || bTwist) && !bSelected;
-            const std::uint32_t BaseColor  = bSelected ? Style.m_NormalColor : bVirtual ? Style.m_VirtualColor : bTwist ? Style.m_TwistColor : Style.m_NormalColor;
+            const bool          bDashed    = (bVirtual || bTwist) && !bSelected;
+            const std::uint32_t BaseColor  = bColorByLOD ? LODColor(GetBoneLODLevel(Skeleton, i))
+                                            : bVirtual ? Style.m_VirtualColor : bTwist ? Style.m_TwistColor : Style.m_NormalColor;
 
-            for (int k = 0; k < 4; ++k)
+            // BuildWedgeFillGeometry gives every non-virtual, non-twist bone (bFilled here) a solid
+            // body already - drawing the full 8-edge wireframe (both tips to all 4 ring points) on
+            // TOP of that solid shape just doubled up as visual clutter, since the fill alone already
+            // reads clearly as "a tapered bone". The ring alone (its widest cross-section) is enough
+            // of an outline/accent on a filled bone. Virtual/twist bones have no fill to lean on, so
+            // they keep the full wireframe - it's the only thing conveying their shape at all.
+            const bool bFilled = !bVirtual && !bTwist;
+            if (bFilled)
             {
-                EmitEdge(Verts, A,               Shape.m_Ring[k], bDashed, Style, bSelected, BaseColor);
-                EmitEdge(Verts, Shape.m_Ring[k],  B,               bDashed, Style, bSelected, BaseColor);
+                for (int k = 0; k < 4; ++k)
+                    EmitEdge(Verts, Shape.m_Ring[k], Shape.m_Ring[(k + 1) & 3], false, Style, bSelected, bHovered, BaseColor);
+            }
+            else
+            {
+                for (int k = 0; k < 4; ++k)
+                {
+                    EmitEdge(Verts, A,               Shape.m_Ring[k], bDashed, Style, bSelected, bHovered, BaseColor);
+                    EmitEdge(Verts, Shape.m_Ring[k],  B,               bDashed, Style, bSelected, bHovered, BaseColor);
+                }
             }
 
             if (Verts.size() > std::size_t(g_MaxWedgeVertices - 96))
                 break; // stay comfortably under the buffer's capacity
+        }
+
+        for (int i = 0; i < int(Bones.size()); ++i)
+        {
+            if (Bones[i].m_iParent >= 0) continue; // only parentless bones get a marker
+
+            const bool bSelected = SelectedBones.count(i) != 0;
+            const bool bHovered  = i == HoveredBone;
+
+            sphere_frame Frame;
+            if (!ComputeOrthoFrame(World[i].m_Right, World[i].m_Up, Frame)) continue;
+
+            const std::uint32_t RootColor = bColorByLOD ? LODColor(GetBoneLODLevel(Skeleton, i)) : Style.m_RootColor;
+            BuildRootSphereWireframe(World[i].m_Position, Frame, RootSphereRadius(Skeleton, World, i, OverallRadius), bSelected, bHovered, Style, RootColor, Verts);
         }
     }
 
@@ -617,8 +1297,11 @@ namespace e23
     // A very light fill so a wedge registers as a solid shape rather than just a hairline outline -
     // the concept mockup this design comes from always paired the two ("Pass 1 - very light fill...
     // Pass 2 - the outline is the real signal now, not a backstop"), but only the outline pass ever
-    // got built here. Only confident bones (not virtual/twist/inferred - see BuildWedgeGeometry) get
-    // filled, so an uncertain wedge stays outline-only and doesn't visually compete for attention.
+    // got built here. Virtual/twist bones stay outline-only (a deliberate style choice, unrelated to
+    // bind-data confidence). Inferred bones (no real bind data - see BuildWedgeGeometry) still get
+    // filled, just dimmer than confident ones - for rigs where most bones lack real bind data, bind
+    // pose would otherwise render as an almost-invisible dashed skeleton next to frozen pose's fully
+    // solid one; a dimmer fill keeps bind pose reading as a body while still flagging uncertainty.
     //---------------------------------------------------------------------------
 
     void EmitTri(std::vector<e19::draw_vert>& Verts, const xmath::fvec3& A, const xmath::fvec3& B, const xmath::fvec3& C, std::uint32_t Color)
@@ -629,36 +1312,146 @@ namespace e23
         V.m_X = C.m_X; V.m_Y = C.m_Y; V.m_Z = C.m_Z; Verts.push_back(V);
     }
 
-    void BuildWedgeFillGeometry(const xskeleton::skeleton& Skeleton, const std::vector<bone_world>& World, const std::vector<bool>& IsTwistBone, const wedge_style& Style, int iSelectedBone, std::vector<e19::draw_vert>& Verts)
+    // "Headlight" shading baked per-triangle on the CPU: a face angled toward the camera reads
+    // brighter, one angled away reads dimmer - gives the otherwise flat-tinted wedge fills a sense
+    // of 3D form without needing real normals in e19::draw_vert (shared with other examples, not
+    // something to extend just for this). Every EmitTri call here is already one flat face with a
+    // single color for all 3 vertices, so computing the face normal from those same 3 points and
+    // treating the camera as the light direction is exact, not an approximation.
+    std::uint32_t FaceLit(const xmath::fvec3& P0, const xmath::fvec3& P1, const xmath::fvec3& P2, const xmath::fvec3& CameraPos, std::uint32_t Color)
+    {
+        // NormalizeSafe, not Normalize: a degenerate (zero-area) triangle - e.g. the root sphere's
+        // own poles, already noted as zero-area where they're built - has a zero-length cross
+        // product, and plain Normalize() asserts on that (xmath_fvec3_inline.h's own documented
+        // behavior). NormalizeSafe just yields zero instead, which correctly contributes no lighting
+        // rather than crashing.
+        xmath::fvec3       Normal = (P1 - P0).Cross(P2 - P0);
+        Normal.NormalizeSafe();
+        const xmath::fvec3 Center = (P0 + P1 + P2) * (1.0f / 3.0f);
+        xmath::fvec3       ViewDir = CameraPos - Center;
+        ViewDir.NormalizeSafe();
+        const float NdotV = std::max(0.0f, Normal.Dot(ViewDir));
+
+        constexpr float Ambient = 0.55f; // never fully dark on the away-facing side
+        const float     Lit     = Ambient + (1.0f - Ambient) * NdotV;
+        return ScaleColorRGB(Color, Lit);
+    }
+
+    // Per-object (not per-triangle) back-to-front ordering - the standard, good-enough approximation
+    // for alpha blending a scene of separate translucent objects without a full triangle sort. Each
+    // entry is either a regular wedge (bIsRoot false, iBone/iParent both meaningful) or a root sphere
+    // (bIsRoot true, iParent unused).
+    struct fill_entry
+    {
+        int     m_iBone;
+        int     m_iParent;
+        bool    m_bIsRoot;
+        float   m_CameraDist;
+    };
+
+    void BuildWedgeFillGeometry(const xskeleton::skeleton& Skeleton, const std::vector<bone_world>& World, const std::vector<bool>& IsTwistBone, const wedge_style& Style, const std::set<int>& SelectedBones, float OverallRadius, bool bColorByLOD, int HoveredBone, std::vector<e19::draw_vert>& Verts)
     {
         Verts.clear();
 
         const auto Bones = Skeleton.getBones();
         if (World.size() != Bones.size()) return;
 
-        constexpr float FillAlphaScale = 0.16f; // matches the mockup's own light-fill alpha
+        // This, not the base RGB hue, was the real reason the skeleton kept reading as "dim/neutral"
+        // through several color changes: at 0.16 alpha, ANY color is 84% gray floor showing through -
+        // the base hue barely matters once it's diluted that much.
+        constexpr float FillAlphaScale         = 0.55f;
+        constexpr float InferredFillAlphaScale = 0.30f; // still visibly dimmer - flagged uncertain bind data - but no longer barely-there
 
+        std::vector<fill_entry> Entries;
+        Entries.reserve(Bones.size());
         for (int i = 0; i < int(Bones.size()); ++i)
         {
             const int iParent = Bones[i].m_iParent;
-            if (iParent < 0) continue;
+            if (iParent < 0)
+            {
+                const float Dist = (World[i].m_Position - Style.m_CameraPos).Length();
+                Entries.push_back({ i, -1, true, Dist });
+                continue;
+            }
 
-            const bool bVirtual  = Bones[i].m_Type == xskeleton::bone_type::VIRTUAL;
-            const bool bTwist    = i < int(IsTwistBone.size()) && IsTwistBone[i];
-            const bool bInferred = !World[i].m_bRealBindData || !World[iParent].m_bRealBindData;
-            if (bVirtual || bTwist || bInferred) continue;
+            if (Bones[i].m_Flags.m_bVirtual) continue; // matches wedges: virtual bones stay outline-only
+            if (i < int(IsTwistBone.size()) && IsTwistBone[i]) continue;
 
-            const xmath::fvec3& A = World[iParent].m_Position;
-            const xmath::fvec3& B = World[i].m_Position;
+            const float Dist = ((World[iParent].m_Position + World[i].m_Position) * 0.5f - Style.m_CameraPos).Length();
+            Entries.push_back({ i, iParent, false, Dist });
+        }
+
+        // Far first - each entry then draws over whatever's already behind it, the standard way to
+        // get correct-looking alpha blending without sorting individual triangles.
+        std::sort(Entries.begin(), Entries.end(), [](const fill_entry& A, const fill_entry& B) { return A.m_CameraDist > B.m_CameraDist; });
+
+        for (auto& E : Entries)
+        {
+            const bool  bSelected = SelectedBones.count(E.m_iBone) != 0;
+            const bool  bHovered  = E.m_iBone == HoveredBone;
+
+            if (E.m_bIsRoot)
+            {
+                sphere_frame Frame;
+                if (!ComputeOrthoFrame(World[E.m_iBone].m_Right, World[E.m_iBone].m_Up, Frame)) continue;
+
+                const bool  bInferred = !World[E.m_iBone].m_bRealBindData;
+                const float ThisAlpha = bInferred ? InferredFillAlphaScale : FillAlphaScale;
+                const std::uint32_t RootBaseColor = bColorByLOD ? LODColor(GetBoneLODLevel(Skeleton, E.m_iBone)) : Style.m_RootColor;
+                const auto  TintAt    = [&](const xmath::fvec3& P) -> std::uint32_t
+                {
+                    const std::uint32_t C = VertexColor(Style, P, bSelected, bHovered, RootBaseColor);
+                    // Fully opaque, not just RGB-boosted: a white bone's RGB is already at 255, so
+                    // multiplying it (VertexColor's own hover boost) is a no-op - alpha is the only
+                    // lever left that can actually make a maxed-out color look brighter once blended
+                    // against the floor. Same reasoning selection already gets.
+                    if (bSelected || bHovered) return C;
+                    const int A8 = int(((C >> 24) & 0xFFu) * ThisAlpha);
+                    return (C & 0x00FFFFFFu) | (std::uint32_t(A8) << 24);
+                };
+
+                const float Radius = RootSphereRadius(Skeleton, World, E.m_iBone, OverallRadius);
+                for (int j = 0; j < g_RootSphereLatRings; ++j)
+                {
+                    const float Phi0 = std::numbers::pi_v<float> * (float(j)     / float(g_RootSphereLatRings));
+                    const float Phi1 = std::numbers::pi_v<float> * (float(j + 1) / float(g_RootSphereLatRings));
+                    for (int i = 0; i < g_RootSphereLonSegs; ++i)
+                    {
+                        const float Theta0 = (2.0f * std::numbers::pi_v<float>) * (float(i)     / float(g_RootSphereLonSegs));
+                        const float Theta1 = (2.0f * std::numbers::pi_v<float>) * (float(i + 1) / float(g_RootSphereLonSegs));
+
+                        const xmath::fvec3 P00 = SpherePoint(World[E.m_iBone].m_Position, Frame, Radius, Theta0, Phi0);
+                        const xmath::fvec3 P10 = SpherePoint(World[E.m_iBone].m_Position, Frame, Radius, Theta1, Phi0);
+                        const xmath::fvec3 P01 = SpherePoint(World[E.m_iBone].m_Position, Frame, Radius, Theta0, Phi1);
+                        const xmath::fvec3 P11 = SpherePoint(World[E.m_iBone].m_Position, Frame, Radius, Theta1, Phi1);
+
+                        // Winding order matters now that cull::BACK (the pipeline default) is
+                        // actually removing something visible - (P00,P10,P11)/(P00,P11,P01) computes
+                        // an INWARD-pointing normal for this Right/Up/Forward parametrization
+                        // (verified by hand), so the OUTER hemisphere was the one getting culled and
+                        // the inner one showed through instead. Swapped to the outward winding.
+                        EmitTri(Verts, P00, P11, P10, FaceLit(P00, P11, P10, Style.m_CameraPos, TintAt(P00))); // degenerate (zero-area) at the poles - harmless
+                        EmitTri(Verts, P00, P01, P11, FaceLit(P00, P01, P11, Style.m_CameraPos, TintAt(P00)));
+                    }
+                }
+                continue;
+            }
+
+            const xmath::fvec3& A = World[E.m_iParent].m_Position;
+            const xmath::fvec3& B = World[E.m_iBone].m_Position;
 
             wedge_shape Shape;
-            if (!ComputeWedgeShape(A, B, World[i].m_Right, World[i].m_Up, Shape)) continue;
+            if (!ComputeWedgeShape(A, B, World[E.m_iBone].m_Right, World[E.m_iBone].m_Up, Shape)) continue;
 
-            const bool     bSelected = (i == iSelectedBone);
-            const auto     TintAt    = [&](const xmath::fvec3& P) -> std::uint32_t
+            const bool  bInferred = !World[E.m_iBone].m_bRealBindData || !World[E.m_iParent].m_bRealBindData;
+            const float ThisAlpha = bInferred ? InferredFillAlphaScale : FillAlphaScale;
+            const std::uint32_t WedgeBaseColor = bColorByLOD ? LODColor(GetBoneLODLevel(Skeleton, E.m_iBone)) : Style.m_NormalColor;
+            const auto  TintAt    = [&](const xmath::fvec3& P) -> std::uint32_t
             {
-                const std::uint32_t C = VertexColor(Style, P, bSelected, Style.m_NormalColor);
-                const int A8 = int(((C >> 24) & 0xFFu) * FillAlphaScale);
+                const std::uint32_t C = VertexColor(Style, P, bSelected, bHovered, WedgeBaseColor);
+                // Fully opaque, not just RGB-boosted - see the root sphere's identical TintAt for why.
+                if (bSelected || bHovered) return C;
+                const int A8 = int(((C >> 24) & 0xFFu) * ThisAlpha);
                 return (C & 0x00FFFFFFu) | (std::uint32_t(A8) << 24);
             };
 
@@ -666,9 +1459,109 @@ namespace e23
             {
                 const xmath::fvec3& R0 = Shape.m_Ring[k];
                 const xmath::fvec3& R1 = Shape.m_Ring[(k + 1) & 3];
-                EmitTri(Verts, A, R0, R1, TintAt(A));
-                EmitTri(Verts, B, R1, R0, TintAt(B));
+                EmitTri(Verts, A, R0, R1, FaceLit(A, R0, R1, Style.m_CameraPos, TintAt(A)));
+                EmitTri(Verts, B, R1, R0, FaceLit(B, R1, R0, Style.m_CameraPos, TintAt(B)));
             }
+
+            if (Verts.size() > std::size_t(g_MaxWedgeVertices - 24))
+                break;
+        }
+    }
+
+    //---------------------------------------------------------------------------
+    // GPU picking geometry - one [Start, Start+Count) slice of Verts per bone (root sphere or
+    // wedge, same shapes as the visual passes), used to issue one small Draw per bone with a
+    // per-draw BoneID push constant (see the pick pipeline in E23_Example). Deliberately DECOUPLED
+    // from BuildWedgeFillGeometry: that one skips virtual/twist bones because they're meant to stay
+    // outline-only on screen, but a bone being visually outline-only shouldn't make it unclickable -
+    // every bone gets a solid pickable volume here regardless of how it's styled. Color is
+    // irrelevant (the pick fragment shader never writes it to the visible framebuffer), so 0 is
+    // used throughout.
+    //---------------------------------------------------------------------------
+
+    struct pick_range
+    {
+        int     m_iBone;
+        int     m_Start;
+        int     m_Count;
+    };
+
+    // A click freezes the mouse position and modifier-key state; the actual GPU draw/readback
+    // happens over the next few frames (see PickDelayFrames' own comment) using THIS frozen
+    // position, not wherever the mouse has drifted to by the time the result is ready.
+    struct pick_request
+    {
+        ImVec2  m_MousePos; // framebuffer-pixel space (already DisplayPos-adjusted), not raw ImGui screen space - see where this is constructed
+        bool    m_bCtrl        = false;
+        bool    m_bShift       = false;
+        bool    m_bDrawIssued  = false;
+        int     m_FramesLeft   = 0;
+    };
+
+    void BuildPickGeometry(const xskeleton::skeleton& Skeleton, const std::vector<bone_world>& World, float OverallRadius, std::vector<e19::draw_vert>& Verts, std::vector<pick_range>& OutRanges)
+    {
+        Verts.clear();
+        OutRanges.clear();
+
+        const auto Bones = Skeleton.getBones();
+        if (World.size() != Bones.size()) return;
+
+        auto EmitRange = [&](int iBone, int Start)
+        {
+            const int Count = int(Verts.size()) - Start;
+            if (Count > 0) OutRanges.push_back({ iBone, Start, Count });
+        };
+
+        for (int i = 0; i < int(Bones.size()); ++i)
+        {
+            const int Start   = int(Verts.size());
+            const int iParent = Bones[i].m_iParent;
+
+            if (iParent < 0)
+            {
+                sphere_frame Frame;
+                if (!ComputeOrthoFrame(World[i].m_Right, World[i].m_Up, Frame)) continue;
+
+                const float Radius = RootSphereRadius(Skeleton, World, i, OverallRadius);
+                for (int j = 0; j < g_RootSphereLatRings; ++j)
+                {
+                    const float Phi0 = std::numbers::pi_v<float> * (float(j)     / float(g_RootSphereLatRings));
+                    const float Phi1 = std::numbers::pi_v<float> * (float(j + 1) / float(g_RootSphereLatRings));
+                    for (int k = 0; k < g_RootSphereLonSegs; ++k)
+                    {
+                        const float Theta0 = (2.0f * std::numbers::pi_v<float>) * (float(k)     / float(g_RootSphereLonSegs));
+                        const float Theta1 = (2.0f * std::numbers::pi_v<float>) * (float(k + 1) / float(g_RootSphereLonSegs));
+
+                        const xmath::fvec3 P00 = SpherePoint(World[i].m_Position, Frame, Radius, Theta0, Phi0);
+                        const xmath::fvec3 P10 = SpherePoint(World[i].m_Position, Frame, Radius, Theta1, Phi0);
+                        const xmath::fvec3 P01 = SpherePoint(World[i].m_Position, Frame, Radius, Theta0, Phi1);
+                        const xmath::fvec3 P11 = SpherePoint(World[i].m_Position, Frame, Radius, Theta1, Phi1);
+
+                        // Same outward-winding fix as BuildWedgeFillGeometry's root sphere - without
+                        // it the pick pipeline's own cull::BACK would make the visible hemisphere
+                        // unpickable and the hidden one pickable instead.
+                        EmitTri(Verts, P00, P11, P10, 0);
+                        EmitTri(Verts, P00, P01, P11, 0);
+                    }
+                }
+                EmitRange(i, Start);
+                continue;
+            }
+
+            const xmath::fvec3& A = World[iParent].m_Position;
+            const xmath::fvec3& B = World[i].m_Position;
+
+            wedge_shape Shape;
+            if (!ComputeWedgeShape(A, B, World[i].m_Right, World[i].m_Up, Shape)) continue;
+
+            for (int k = 0; k < 4; ++k)
+            {
+                const xmath::fvec3& R0 = Shape.m_Ring[k];
+                const xmath::fvec3& R1 = Shape.m_Ring[(k + 1) & 3];
+                EmitTri(Verts, A, R0, R1, 0);
+                EmitTri(Verts, B, R1, R0, 0);
+            }
+            EmitRange(i, Start);
 
             if (Verts.size() > std::size_t(g_MaxWedgeVertices - 24))
                 break;
@@ -706,7 +1599,29 @@ namespace e23
         return true;
     }
 
-    void PickWedge(const xskeleton::skeleton& Skeleton, const std::vector<bone_world>& World, const xmath::fvec3& Origin, const xmath::fvec3& Dir, int& OutBone, float& OutT)
+    // Generic (Dir need not be unit length - T then matches RayTriangleIntersect's own convention of
+    // "same units as Dir", which is all that matters since both are only ever compared against each
+    // other for the same ray).
+    bool RaySphereIntersect(const xmath::fvec3& Origin, const xmath::fvec3& Dir, const xmath::fvec3& Center, float Radius, float& OutT)
+    {
+        const xmath::fvec3 OC = Origin - Center;
+        const float A = Dir.Dot(Dir);
+        if (A < 1.0e-12f) return false;
+        const float B = 2.0f * Dir.Dot(OC);
+        const float C = OC.Dot(OC) - Radius * Radius;
+        const float Disc = B * B - 4.0f * A * C;
+        if (Disc < 0.0f) return false;
+
+        const float SqrtDisc = std::sqrt(Disc);
+        float T = (-B - SqrtDisc) / (2.0f * A);
+        if (T <= 1.0e-6f) T = (-B + SqrtDisc) / (2.0f * A);
+        if (T <= 1.0e-6f) return false;
+
+        OutT = T;
+        return true;
+    }
+
+    void PickWedge(const xskeleton::skeleton& Skeleton, const std::vector<bone_world>& World, const xmath::fvec3& Origin, const xmath::fvec3& Dir, float OverallRadius, int& OutBone, float& OutT)
     {
         OutBone = -1;
         OutT    = std::numeric_limits<float>::max();
@@ -735,6 +1650,14 @@ namespace e23
                 if (RayTriangleIntersect(Origin, Dir, B, R1, R0, T) && T < OutT) { OutT = T; OutBone = i; }
             }
         }
+
+        for (int i = 0; i < int(Bones.size()); ++i)
+        {
+            if (Bones[i].m_iParent >= 0) continue;
+
+            float T;
+            if (RaySphereIntersect(Origin, Dir, World[i].m_Position, RootSphereRadius(Skeleton, World, i, OverallRadius), T) && T < OutT) { OutT = T; OutBone = i; }
+        }
     }
 
     //---------------------------------------------------------------------------
@@ -762,7 +1685,7 @@ namespace e23
         float           m_Nat = 0.0f, m_Pos = 0.0f, m_Extent = 0.0f;
         float           m_BoxW = 0.0f, m_BoxH = 0.0f;
         std::string     m_Text;
-        float           m_FontSize  = 9.5f;
+        float           m_FontSize  = 14.0f;
         float           m_Alpha     = 0.55f;
         ImU32           m_EdgeColor = IM_COL32(120, 150, 170, 255);
     };
@@ -866,6 +1789,8 @@ namespace e23
     ( xgpu::tools::view&              View
     , const xskeleton::skeleton&      Skeleton
     , const skeleton_state&           State
+    , const std::vector<bone_world>&  BoneWorld  // caller's - so this agrees with whatever's actually rendered (see ViewScale())
+    , int                             HoveredBone
     , const xmath::irect&             Viewport
     , std::vector<label_rect_hit>&    OutHits
     )
@@ -874,7 +1799,6 @@ namespace e23
 
         const auto Bones  = Skeleton.getBones();
         const int  nBones = int(Bones.size());
-        const auto& BoneWorld = State.ActiveBoneWorld();
         if (nBones == 0 || int(BoneWorld.size()) != nBones) return;
 
         const float VpX = float(Viewport.m_Min.m_X);
@@ -892,6 +1816,13 @@ namespace e23
 
         for (int i = 0; i < nBones && int(Labels.size()) < MaxLabels; ++i)
         {
+            const bool bSelected = State.m_SelectedBones.count(i) != 0;
+
+            // "Always Show Names" off: decluttering mode - only the current selection (and whatever
+            // bone the mouse happens to be over right now) gets a label, so the viewport (and its
+            // click-picking) isn't buried under every bone's name at once.
+            if (!State.m_bAlwaysShowNames && !bSelected && i != HoveredBone) continue;
+
             const int iParent = Bones[i].m_iParent;
             const xmath::fvec3 LeadWorld = (iParent < 0)
                 ? BoneWorld[i].m_Position
@@ -906,13 +1837,12 @@ namespace e23
             L.m_Angle      = std::atan2(Screen.m_Y - Cy, Screen.m_X - Cx);
             L.m_bLR        = DeviationFromHorizontal(L.m_Angle) < 45.0f;
 
-            const bool bSelected = (i == State.m_iSelectedBone);
-            const bool bVirtual  = Bones[i].m_Type == xskeleton::bone_type::VIRTUAL;
+            const bool bVirtual  = Bones[i].m_Flags.m_bVirtual;
 
-            L.m_Text = GetBoneDisplayName(State, Skeleton, i);
-            if (bSelected)      { L.m_FontSize = 14.0f; L.m_Alpha = 1.00f; L.m_EdgeColor = IM_COL32(255, 255, 255, 255); }
-            else if (bVirtual)  { L.m_FontSize = 11.0f; L.m_Alpha = 0.85f; L.m_EdgeColor = IM_COL32(255, 180, 84, 255); }
-            else                { L.m_FontSize = 9.5f;  L.m_Alpha = 0.55f; L.m_EdgeColor = IM_COL32(120, 150, 170, 255); }
+            L.m_Text = GetEffectiveBoneName(State, Skeleton, i);
+            if (bSelected)      { L.m_FontSize = 20.0f; L.m_Alpha = 1.00f; L.m_EdgeColor = IM_COL32(255, 255, 255, 255); }
+            else if (bVirtual)  { L.m_FontSize = 16.0f; L.m_Alpha = 0.85f; L.m_EdgeColor = IM_COL32(255, 180, 84, 255); }
+            else                { L.m_FontSize = 14.0f; L.m_Alpha = 0.55f; L.m_EdgeColor = IM_COL32(120, 150, 170, 255); }
 
             Labels.push_back(std::move(L));
         }
@@ -964,10 +1894,62 @@ namespace e23
             }
         };
 
+        // Top/bottom groups pack along X only - a single row can't spread boxes any further apart
+        // once the row itself is full, so a crowded run (e.g. every finger on a hand routed to the
+        // same edge) ends up with a shrinking, eventually negative, gap and boxes start overlapping.
+        // Wrap into multiple rows instead, each stepping further away from the viewport edge -
+        // greedily fill a row in natural (x-sorted) order, start a new one once the next box wouldn't
+        // fit, then run the existing PackInBounds *within* each row (now with far fewer items, so it
+        // rarely if ever needs to shrink the gap).
+        auto PackGroupTD = [&](bool bBottom, float Lo, float Hi, float Gap, float RowGap)
+        {
+            std::vector<label_item*> Items;
+            for (auto& L : Labels) if (!L.m_bLR && L.m_bRightOrBottom == bBottom) Items.push_back(&L);
+            if (Items.empty()) return;
+
+            std::sort(Items.begin(), Items.end(), [](label_item* A, label_item* B) { return A->m_AX < B->m_AX; });
+            for (auto* It : Items) { It->m_Nat = It->m_AX; It->m_Extent = It->m_BoxW; }
+
+            std::vector<std::vector<label_item*>> Rows;
+            std::vector<label_item*>              Current;
+            float                                 RowExtent = 0.0f;
+            for (auto* It : Items)
+            {
+                const float WithGap = It->m_Extent + (Current.empty() ? 0.0f : Gap);
+                if (!Current.empty() && RowExtent + WithGap > (Hi - Lo))
+                {
+                    Rows.push_back(std::move(Current));
+                    Current.clear();
+                    RowExtent = 0.0f;
+                }
+                Current.push_back(It);
+                RowExtent += It->m_Extent + (Current.size() > 1 ? Gap : 0.0f);
+            }
+            if (!Current.empty()) Rows.push_back(std::move(Current));
+
+            float CumulativeOffset = 0.0f;
+            for (auto& Row : Rows)
+            {
+                PackInBounds(Row, Lo, Hi, Gap);
+
+                float MaxBoxH = 0.0f;
+                for (auto* It : Row) MaxBoxH = std::max(MaxBoxH, It->m_BoxH);
+
+                const float RowCenterOffset = CumulativeOffset + MaxBoxH * 0.5f;
+                for (auto* It : Row)
+                {
+                    It->m_AX = It->m_Pos;
+                    It->m_AY = bBottom ? (VpY + VpH - MarginY - RowCenterOffset) : (VpY + MarginY + RowCenterOffset);
+                }
+
+                CumulativeOffset += MaxBoxH + RowGap;
+            }
+        };
+
         PackGroup(true,  false, false, VpY + MarginY, VpY + VpH - MarginY, 6.0f);   // lr, left
         PackGroup(true,  true,  false, VpY + MarginY, VpY + VpH - MarginY, 6.0f);   // lr, right
-        PackGroup(false, false, true,  VpX + MarginX, VpX + VpW - MarginX, 10.0f);  // td, top
-        PackGroup(false, true,  true,  VpX + MarginX, VpX + VpW - MarginX, 10.0f);  // td, bottom
+        PackGroupTD(false, VpX + MarginX, VpX + VpW - MarginX, 10.0f, 4.0f);        // td, top
+        PackGroupTD(true,  VpX + MarginX, VpX + VpW - MarginX, 10.0f, 4.0f);        // td, bottom
 
         // The raw 3D scene used to be drawn straight to the window's swapchain, entirely outside any
         // ImGui window - ImGui had no relationship to it at all, which is why neither
@@ -1196,8 +2178,10 @@ int E23_Example()
     }
 
     //
-    // Wedge fill pipeline - same wedge shapes, same shaders, TRIANGLE_LIST instead of LINE_LIST
-    // (Primitive3DVertexDescriptor already defaults to it) and alpha-blended for the light fill.
+    // Wedge fill pipeline - same wedge shapes, TRIANGLE_LIST instead of LINE_LIST (Primitive3D
+    // VertexDescriptor already defaults to it), alpha-blended for the light fill, and its own
+    // shaders (E23_WedgeFill_vert/frag.glsl) rather than the outline's - the fragment stage boosts
+    // brightness after the blend's own dilution (see that shader's own comment for why).
     //
     xgpu::pipeline          WedgeFillPipeline;
     xgpu::pipeline_instance WedgeFillPipelineInstance;
@@ -1206,7 +2190,7 @@ int E23_Example()
         {
             xgpu::shader::setup Setup
             { .m_Type   = xgpu::shader::type::bit::VERTEX
-            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e23::g_OutlineVertShader, sizeof(e23::g_OutlineVertShader) / sizeof(int)}}
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e23::g_WedgeFillVertShader, sizeof(e23::g_WedgeFillVertShader) / sizeof(int)}}
             };
             if (auto Err = Device.Create(VertexShader, Setup); Err)
                 return xgpu::getErrorInt(Err);
@@ -1216,7 +2200,7 @@ int E23_Example()
         {
             xgpu::shader::setup Setup
             { .m_Type   = xgpu::shader::type::bit::FRAGMENT
-            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e23::g_OutlineFragShader, sizeof(e23::g_OutlineFragShader) / sizeof(int)}}
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e23::g_WedgeFillFragShader, sizeof(e23::g_WedgeFillFragShader) / sizeof(int)}}
             };
             if (auto Err = Device.Create(FragShader, Setup); Err)
                 return xgpu::getErrorInt(Err);
@@ -1227,8 +2211,12 @@ int E23_Example()
         auto Setup    = xgpu::pipeline::setup
         { .m_VertexDescriptor   = Primitive3DVertexDescriptor
         , .m_Shaders            = Shaders
-        , .m_PushConstantsSize  = sizeof(e23::push_constants)
+        , .m_PushConstantsSize  = sizeof(e23::wedge_fill_push_constants)
         , .m_Samplers           = Samplers
+        // Depth-test stays on (still occluded by the opaque grid/outlines), but depth-WRITE is off -
+        // paired with BuildWedgeFillGeometry's back-to-front sort, this is what lets one translucent
+        // bone's fill blend correctly against another's instead of z-fighting/occluding it.
+        , .m_DepthStencil       = { .m_bDepthWriteEnable = false }
         , .m_Blend              = xgpu::pipeline::blend::getAlphaOriginal()
         };
 
@@ -1238,6 +2226,60 @@ int E23_Example()
         auto Bindings  = std::array{ xgpu::pipeline_instance::sampler_binding{*pDefaultTexture} };
         auto InstSetup = xgpu::pipeline_instance::setup{ .m_PipeLine = WedgeFillPipeline, .m_SamplersBindings = Bindings };
         if (auto Err = Device.Create(WedgeFillPipelineInstance, InstSetup); Err)
+            return xgpu::getErrorInt(Err);
+    }
+
+    //
+    // GPU picking pipeline - same position-transform logic as the outline/fill pipelines, but its
+    // own vertex shader (E23_Pick_vert.glsl) so its push-constant block matches the fragment
+    // shader's exactly (xGPU requires identical push-constant layouts across a pipeline's stages).
+    // The fragment shader writes the per-draw BoneID push constant into a dynamic SSBO instead of
+    // sampling a texture. Color writes are fully masked off (this pass never has to look right,
+    // only BoneID has to land correctly) - default depth test+WRITE stay on so that (a) a bone
+    // occluded by real scene geometry (e.g. the grid) never gets picked, and (b) drawing one bone
+    // per call, each testing against whatever the previous pick draw already wrote into the depth
+    // buffer, resolves "nearest bone wins" when more than one bone's geometry covers the same
+    // pixel - regardless of the (arbitrary) order bones are drawn in.
+    //
+    xgpu::pipeline          PickPipeline;
+    xgpu::pipeline_instance PickPipelineInstance;
+    {
+        xgpu::shader VertexShader;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type   = xgpu::shader::type::bit::VERTEX
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e23::g_PickVertShader, sizeof(e23::g_PickVertShader) / sizeof(int)}}
+            };
+            if (auto Err = Device.Create(VertexShader, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        xgpu::shader FragShader;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type   = xgpu::shader::type::bit::FRAGMENT
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e23::g_PickFragShader, sizeof(e23::g_PickFragShader) / sizeof(int)}}
+            };
+            if (auto Err = Device.Create(FragShader, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        auto Shaders      = std::array<const xgpu::shader*, 2>{ &FragShader, &VertexShader };
+        auto UniformBinds = std::array{ xgpu::pipeline::uniform_binds{.m_BindIndex = 0, .m_Usage = xgpu::shader::type{xgpu::shader::type::bit::FRAGMENT}, .m_Type = xgpu::pipeline::uniform_binds::type::SSBO_DYNAMIC} };
+        auto Setup        = xgpu::pipeline::setup
+        { .m_VertexDescriptor   = Primitive3DVertexDescriptor
+        , .m_Shaders            = Shaders
+        , .m_PushConstantsSize  = sizeof(e23::pick_push_constants)
+        , .m_UniformBinds       = UniformBinds
+        , .m_DepthStencil       = { .m_DepthCompare = xgpu::pipeline::depth_stencil::depth_compare::LESS } // NOT the struct default (LESS_OR_EQUAL) - lets an exactly-tied-depth candidate fail cheaply instead of contesting the pick buffer at all. The actual "closest wins" guarantee comes from PickBuffer.BestKey's atomicMin reduction (see E23_Pick_frag.glsl) - depth test alone only gates whether a candidate is even eligible to try, it doesn't order same-pixel candidates' writes against each other
+        , .m_Blend              = { .m_ColorWriteMask = 0 } // never visible - only PickBuffer.PickedID is this pass's real output
+        };
+
+        if (auto Err = Device.Create(PickPipeline, Setup); Err)
+            return xgpu::getErrorInt(Err);
+
+        auto InstSetup = xgpu::pipeline_instance::setup{ .m_PipeLine = PickPipeline };
+        if (auto Err = Device.Create(PickPipelineInstance, InstSetup); Err)
             return xgpu::getErrorInt(Err);
     }
 
@@ -1318,6 +2360,28 @@ int E23_Example()
     if (auto Err = Device.Create(WedgeFillVertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(e19::draw_vert), .m_EntryCount = e23::g_MaxWedgeVertices }); Err)
         return xgpu::getErrorInt(Err);
 
+    // Also reuses WedgeIndexBuffer - see BuildPickGeometry.
+    xgpu::buffer PickVertexBuffer;
+    if (auto Err = Device.Create(PickVertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(e19::draw_vert), .m_EntryCount = e23::g_MaxWedgeVertices }); Err)
+        return xgpu::getErrorInt(Err);
+
+    // GPU->CPU picking result - a single int written by the pick fragment shader (STORAGE type
+    // gives it VK_BUFFER_USAGE_STORAGE_BUFFER_BIT so it can be bound as a writable SSBO;
+    // CPU_WRITE_GPU_READ gives it host-visible memory so the SAME allocation is readable from the
+    // CPU side too via MemoryMap - no separate readback/staging buffer or image copy needed at all).
+    // -1 means "nothing picked". Never touched via allocEntry - always bound at its one and only
+    // (zero) offset via setDynamicUBO.
+    xgpu::buffer PickResultBuffer;
+    if (auto Err = Device.Create(PickResultBuffer, { .m_Type = xgpu::buffer::type::STORAGE, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(std::int32_t), .m_EntryCount = 1 }); Err)
+        return xgpu::getErrorInt(Err);
+
+    // A second, independent instance of the exact same thing, continuously refreshed every hovered
+    // frame (not click-gated) purely to drive the hover label - see its own use below for why this
+    // can't just share PickResultBuffer with the click path.
+    xgpu::buffer HoverResultBuffer;
+    if (auto Err = Device.Create(HoverResultBuffer, { .m_Type = xgpu::buffer::type::STORAGE, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(std::int32_t), .m_EntryCount = 1 }); Err)
+        return xgpu::getErrorInt(Err);
+
     //
     // Grid plane mesh (E19's mesh manager, used only for its PLANE3D primitive)
     //
@@ -1332,10 +2396,66 @@ int E23_Example()
     e10::assert_browser  AsserBrowser;
     e23::skeleton_state  SkeletonState;
 
+    // Compile-progress subscriber - the library manager broadcasts every resource's compile state
+    // (any type, any selection) through this one delegate; filter to whichever skeleton is currently
+    // loaded and mirror its log/result locally, matching E21_StaticGeomEditor's CallBackForCompilation.
+    auto CallBackForCompilation = [&](e10::library_mgr&, e10::library::guid, xresource::full_guid gCompilingEntry, std::shared_ptr<e10::compilation::historical_entry::log>& LogInformation)
+    {
+        if (SkeletonState.m_InfoGUID != gCompilingEntry) return;
+
+        if (SkeletonState.m_Log.get() != LogInformation.get())
+            SkeletonState.m_Log = LogInformation;
+
+        e10::compilation::historical_entry::result Result;
+        {
+            xcontainer::lock::scope lk(*SkeletonState.m_Log);
+            Result = SkeletonState.m_Log->get().m_Result;
+        }
+
+        if (Result == e10::compilation::historical_entry::result::SUCCESS || Result == e10::compilation::historical_entry::result::SUCCESS_WARNINGS)
+        {
+            SkeletonState.m_bReload = true;
+            SkeletonState.m_bErrors = false;
+        }
+        else if (Result == e10::compilation::historical_entry::result::FAILURE)
+        {
+            SkeletonState.m_bErrors = true;
+        }
+    };
+    e10::g_LibMgr.m_OnCompilationState.Register(CallBackForCompilation);
+
+    //
+    // Property inspectors - render settings (currently just pose mode) and the selected skeleton
+    // descriptor's own properties, both driven by xproperty rather than hardcoded ImGui widgets,
+    // matching E21_StaticGeomEditor's "Rendering Settings" / "Static Geom Properties" pattern. Bound
+    // once: SkeletonState and its m_Descriptor member never change address, only their contents do
+    // (LoadSkeleton overwrites m_Descriptor in place via Serialize), so the inspectors stay valid
+    // across skeleton loads with no need to re-bind on every selection change.
+    //
+    xproperty::inspector InspectorSettings("Rendering Settings");
+    xproperty::inspector Inspector("Skeleton Properties");
+
+    for (auto* E : std::array{ &Inspector, &InspectorSettings })
+    {
+        E->m_Settings.m_ColorVScalar1 = 0.270f * 1.4f;
+        E->m_Settings.m_ColorVScalar2 = 0.305f * 1.4f;
+        E->m_Settings.m_ColorSScalar  = 0.26f * 1.4f;
+    }
+
+    InspectorSettings.AppendEntity();
+    InspectorSettings.AppendEntityComponent(*xproperty::getObject(SkeletonState), &SkeletonState);
+
+    Inspector.AppendEntity();
+    Inspector.AppendEntityComponent(*SkeletonState.m_Descriptor.getProperties(), &SkeletonState.m_Descriptor);
+
     //
     // Setup Imgui interface
     //
     xgpu::tools::imgui::CreateInstance(MainWindow);
+
+    // ImGui's context (and therefore its style) only exists after CreateInstance - matches
+    // E21_StaticGeomEditor's own property-inspector theming for a consistent look across examples.
+    ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.5f;
 
     //
     // Set the project path
@@ -1408,7 +2528,23 @@ int E23_Example()
 
     std::vector<e19::draw_vert>          WedgeVerts;
     std::vector<e19::draw_vert>          WedgeFillVerts;
+    std::vector<e19::draw_vert>          PickVerts;
+    std::vector<e23::pick_range>         PickRanges;
     std::vector<e23::label_rect_hit>     LabelHits;
+    std::vector<e23::bone_world>         ScaledBoneWorld; // ActiveBoneWorld() * ViewScale() - see ScaleBoneWorld
+    int                                   HoveredBone = -1; // CPU ray test, refreshed every hovered frame - see the label pass below
+    int                                   HoverMissStreak = 0; // consecutive "nothing" GPU reads - see its own use below for why this debounces instead of clearing immediately
+    std::optional<e23::pick_request>     HoverPick; // same arm/wait/read cycle as PendingPick, but continuously re-armed instead of one-shot - see its own use below for why continuous reset-every-frame was a real CPU/GPU race, not just a staleness cosmetic issue
+    bool                                  bLastNormalizeSize = SkeletonState.m_bNormalizeSize; // detects the checkbox flipping - see its use below
+
+    // How many frames to wait after issuing a pick request's one draw before trusting its
+    // readback - there's no fence to wait on directly here, so this is the cheap alternative:
+    // conservatively longer than the swapchain's actual frames-in-flight count, so by the time
+    // this many main-loop iterations have passed, that draw's GPU work is guaranteed done.
+    constexpr int                    PickDelayFrames = 4;
+    std::optional<e23::pick_request> PendingPick;
+
+    constexpr bool g_bGPUPickingEnabled = true;
 
     //
     // Main Loop
@@ -1420,21 +2556,36 @@ int E23_Example()
         //
         // Skeleton viewport - a plain, dockable ImGui::Begin(...) window hosting the 3D scene via
         // AddCustomRenderCallback, matching E19/E20's "Mesh Preview"/"Material Instance Preview"
-        // panels exactly (no special window flags). The 3D content used to be drawn straight to the
-        // window's swapchain outside any ImGui window at all, and every attempt to add a separate,
-        // specially-flagged window for just the labels kept opening as its own OS window - once
-        // everything (3D content and labels alike) lives inside this one ordinary window, that stops
-        // happening. Labels/picking/hover now all relate to this one real window instead.
+        // panels (no special window flags). The 3D content used to be drawn straight to the window's
+        // swapchain outside any ImGui window at all, and every attempt to add a separate, specially-
+        // flagged window for just the labels kept opening as its own OS window - once everything (3D
+        // content and labels alike) lives inside this one ordinary window, that stops happening.
+        // Labels/picking/hover now all relate to this one real window instead.
         //
         if (!SkeletonState.empty())
         {
             if (auto* pSkeleton = xresource::g_Mgr.getResource(SkeletonState.m_Ref); pSkeleton)
             {
+                // A docked window's own background flag doesn't help here - when docked in a split
+                // alongside another panel, ImGui's dock node itself still paints its own fill behind
+                // the window regardless of NoBackground, so the "empty" areas came out inconsistent
+                // (see-through only while floating/central). Simpler and consistent either way: stay
+                // opaque, but match the app's real background - the 0.45 mid-gray every other example
+                // (e.g. E21) gets from the swapchain's own default clear color, since they never wrap
+                // their 3D view in an ImGui window at all - rather than ImGui's near-black theme default.
                 ImGui::SetNextWindowSize(ImVec2(900, 620), ImGuiCond_FirstUseEver);
+                ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.45f, 0.45f, 0.45f, 1.0f));
+                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
                 ImGui::Begin("Skeleton Viewport");
+                ImGui::PopStyleVar();
+                ImGui::PopStyleColor();
 
-                const ImVec2 WindowPos  = ImGui::GetWindowPos();
-                const ImVec2 WindowSize = ImGui::GetWindowSize();
+                // Content region (excludes the title bar/border), not the outer window rect - the
+                // render bridge sets the actual Vulkan viewport for AddCustomRenderCallback draws from
+                // the window's own clip rect (i.e. this same content region), so the camera/label math
+                // has to agree with that rect or bones and labels drift apart.
+                const ImVec2 WindowPos  = ImGui::GetCursorScreenPos();
+                const ImVec2 WindowSize = ImGui::GetContentRegionAvail();
                 const bool   bViewportHovered = ImGui::IsWindowHovered();
 
                 //
@@ -1470,6 +2621,24 @@ int E23_Example()
                 View.setViewport({ static_cast<int>(WindowPos.x), static_cast<int>(WindowPos.y)
                                  , static_cast<int>(WindowPos.x + WindowSize.x), static_cast<int>(WindowPos.y + WindowSize.y) });
 
+                // The "Resize Skeleton to 1m" checkbox has no on-change callback of its own (it's a
+                // plain XPROPERTY_DEF member) - noticing the flip here and re-triggering the same
+                // auto-frame LoadSkeleton uses is what makes the camera actually zoom to match
+                // instead of keeping whatever distance was tuned for the OTHER scale.
+                if (SkeletonState.m_bNormalizeSize != bLastNormalizeSize)
+                {
+                    bLastNormalizeSize      = SkeletonState.m_bNormalizeSize;
+                    SkeletonState.m_bNeedsReframe = true;
+                }
+
+                // "Resize Skeleton to 1m" - never touches the loaded asset, just what the camera,
+                // grid, and geometry-building below treat as this skeleton's radius/center/bone
+                // positions for THIS frame. See skeleton_state::ViewScale()'s own comment.
+                const float         ViewScale = SkeletonState.ViewScale();
+                const float         EffRadius = SkeletonState.m_Radius * ViewScale;
+                const xmath::fvec3  EffCenter = SkeletonState.m_Center * ViewScale;
+                e23::ScaleBoneWorld(SkeletonState.ActiveBoneWorld(), ViewScale, ScaledBoneWorld);
+
                 if (SkeletonState.m_bNeedsReframe)
                 {
                     SkeletonState.m_bNeedsReframe = false;
@@ -1479,8 +2648,8 @@ int E23_Example()
                     const float HFov        = 2.0f * std::atan(Aspect * std::tan(VerticalFov * 0.5f));
                     const float MinFov      = std::min(VerticalFov, HFov);
 
-                    Distance     = SkeletonState.m_Radius / std::tan(MinFov * 0.5f);
-                    CameraTarget = SkeletonState.m_Center;
+                    Distance     = EffRadius / std::tan(MinFov * 0.5f);
+                    CameraTarget = EffCenter;
                 }
 
                 View.LookAt(Distance, Angles, CameraTarget);
@@ -1488,10 +2657,13 @@ int E23_Example()
                 e23::wedge_style Style;
                 Style.m_CameraPos = View.getPosition();
                 Style.m_NearDepth = std::max(0.01f, Distance * 0.25f);
-                Style.m_FarDepth  = Distance * 1.6f + SkeletonState.m_Radius;
+                Style.m_FarDepth  = Distance * 1.6f + EffRadius;
 
-                e23::BuildWedgeGeometry(*pSkeleton, SkeletonState.ActiveBoneWorld(), SkeletonState.m_bIsTwistBone, Style, SkeletonState.m_iSelectedBone, WedgeVerts);
-                e23::BuildWedgeFillGeometry(*pSkeleton, SkeletonState.ActiveBoneWorld(), SkeletonState.m_bIsTwistBone, Style, SkeletonState.m_iSelectedBone, WedgeFillVerts);
+                // HoveredBone here is last frame's hover result (this frame's hover-pick block runs
+                // further down) - a one-frame lag on the highlight, imperceptible and consistent with
+                // every other bit of latency this hover mechanism already accepts.
+                e23::BuildWedgeGeometry(*pSkeleton, ScaledBoneWorld, SkeletonState.m_bIsTwistBone, Style, SkeletonState.m_SelectedBones, EffRadius, SkeletonState.m_bColorByLOD, HoveredBone, WedgeVerts);
+                e23::BuildWedgeFillGeometry(*pSkeleton, ScaledBoneWorld, SkeletonState.m_bIsTwistBone, Style, SkeletonState.m_SelectedBones, EffRadius, SkeletonState.m_bColorByLOD, HoveredBone, WedgeFillVerts);
 
                 if (!WedgeFillVerts.empty())
                 {
@@ -1508,6 +2680,151 @@ int E23_Example()
                     });
                 }
 
+                //
+                // GPU picking - a solid, clickable volume per bone (root sphere or wedge, same
+                // shapes as the visual passes) drawn one bone at a time into a 1-ish-pixel scissor
+                // rect at PendingPick's frozen mouse position, each writing its own BoneID into
+                // PickResultBuffer through the pick fragment shader if it's the closest thing
+                // there (hardware depth test/write - see the pipeline's own comment). Click
+                // arms PendingPick (see the click handler below); this issues its one draw the
+                // frame after that, then just counts down until the readback below is trustworthy.
+                //
+                // Hover picking - the SAME arm/wait-N-frames/read cycle as the click-request path
+                // below (see PendingPick's own comment), just continuously RE-ARMED instead of
+                // one-shot, so it keeps tracking the mouse while hovering. This used to reset the
+                // buffer to -1 and issue a brand-new draw EVERY frame with no wait at all - since
+                // HoverResultBuffer is host-visible memory the GPU is writing via the fragment
+                // shader's SSBO write, resetting it from the CPU with no delay could race the
+                // in-flight GPU write from a still-executing earlier frame (multiple frames in
+                // flight is normal double/triple-buffering, not a bug) - a genuine CPU/GPU memory
+                // race, not just "stale but harmless" staleness, and exactly the kind of
+                // nondeterministic result that shows up as flicker.
+                //
+                // Click always wins the mutual exclusion against hover's GPU draw further below
+                // (see bDrawHoverPickThisFrameFinal's own comment) - but that check happens much
+                // later, after hover's state machine below has already decided to transition from
+                // "armed" to "drawn, counting down". Peeking at PendingPick's PRE-transition state
+                // here (about to arm == about to draw, since click's arm and its one draw are the
+                // same frame) lets hover's transition be skipped entirely on a frame it would lose
+                // that exclusion, instead of marking itself as drawn/counting down for a draw that
+                // silently never happened - which was reading HoverResultBuffer's unwritten "-1"
+                // reset value back as a genuine miss once its delay elapsed, and desyncing hover's
+                // hit/miss state from what the mouse was actually over.
+                const bool bClickWillDrawThisFrame = g_bGPUPickingEnabled && PendingPick.has_value() && !PendingPick->m_bDrawIssued;
+
+                constexpr int HoverMissStreakToClear = 4;
+                bool          bDrawHoverPickThisFrame = false;
+                ImVec2        HoverScissorMousePos{};
+                if (bViewportHovered && g_bGPUPickingEnabled)
+                {
+                    if (!HoverPick.has_value())
+                    {
+                        const ImVec2 ViewportPos = ImGui::GetWindowViewport()->Pos;
+                        const ImVec2 RawMousePos = ImGui::GetMousePos();
+                        HoverPick = e23::pick_request{ .m_MousePos = ImVec2(RawMousePos.x - ViewportPos.x, RawMousePos.y - ViewportPos.y) };
+                    }
+
+                    if (!HoverPick->m_bDrawIssued && !bClickWillDrawThisFrame)
+                    {
+                        (void)HoverResultBuffer.MemoryMap(0, 1, [&](void* pData)
+                        {
+                            *static_cast<std::uint32_t*>(pData) = e23::g_PickNoHitKey;
+                        });
+
+                        e23::BuildPickGeometry(*pSkeleton, ScaledBoneWorld, EffRadius, PickVerts, PickRanges);
+                        if (!PickVerts.empty())
+                        {
+                            (void)PickVertexBuffer.MemoryMap(0, static_cast<int>(PickVerts.size()), [&](void* pData)
+                            {
+                                std::memcpy(pData, PickVerts.data(), PickVerts.size() * sizeof(e19::draw_vert));
+                            });
+                        }
+
+                        HoverPick->m_bDrawIssued = true;
+                        HoverPick->m_FramesLeft  = PickDelayFrames;
+                        bDrawHoverPickThisFrame  = true;
+                        HoverScissorMousePos     = HoverPick->m_MousePos;
+                    }
+                    else if (HoverPick->m_FramesLeft > 0)
+                    {
+                        --HoverPick->m_FramesLeft;
+                    }
+                    else
+                    {
+                        int ThisRead = -1;
+                        (void)HoverResultBuffer.MemoryMap(0, 1, [&](void* pData)
+                        {
+                            ThisRead = e23::DecodePickKey(*static_cast<std::uint32_t*>(pData));
+                        });
+
+                        // PickBuffer.BestKey's atomicMin (see E23_Pick_frag.glsl) makes this read
+                        // genuinely correct every single cycle now - no more consecutive-match
+                        // confirmation needed before trusting it (that was only ever working around
+                        // the pre-atomicMin SSBO write race, not real mouse-position tremor).
+                        // HoverMissStreak is a separate, still-wanted debounce: a "-1" read shouldn't
+                        // instantly drop the hover label the moment the mouse grazes off a bone's
+                        // edge - see HoverMissStreakToClear's own comment.
+                        if (ThisRead != -1)
+                        {
+                            HoveredBone     = ThisRead;
+                            HoverMissStreak = 0;
+                        }
+                        else if (++HoverMissStreak >= HoverMissStreakToClear)
+                        {
+                            HoveredBone = -1;
+                        }
+
+                        HoverPick.reset(); // re-arm next frame at wherever the mouse is by then
+                    }
+                }
+                else if (bViewportHovered)
+                {
+                    // GPU picking disabled entirely - fall back to the same CPU ray test the click
+                    // path itself falls back to: less precise, but consistent with click's own
+                    // degraded behavior rather than leaving hover with no answer at all. Synchronous,
+                    // no GPU readback involved, so no race and no debounce needed either.
+                    const ImVec2       HoverMousePos = ImGui::GetMousePos();
+                    const xmath::fvec3 RayOrigin     = View.getPosition();
+                    const xmath::fvec3 RayDir        = View.RayFromScreen(HoverMousePos.x, HoverMousePos.y);
+                    float HoverT;
+                    e23::PickWedge(*pSkeleton, ScaledBoneWorld, RayOrigin, RayDir, EffRadius, HoveredBone, HoverT);
+                    HoverMissStreak = 0;
+                    HoverPick.reset();
+                }
+                else
+                {
+                    HoveredBone     = -1;
+                    HoverMissStreak = 0;
+                    HoverPick.reset();
+                }
+
+                if (g_bGPUPickingEnabled && PendingPick.has_value() && !PendingPick->m_bDrawIssued)
+                {
+                    (void)PickResultBuffer.MemoryMap(0, 1, [&](void* pData)
+                    {
+                        *static_cast<std::uint32_t*>(pData) = e23::g_PickNoHitKey;
+                    });
+
+                    PendingPick->m_bDrawIssued = true;
+                    PendingPick->m_FramesLeft  = PickDelayFrames;
+                }
+                else if (g_bGPUPickingEnabled && PendingPick.has_value() && PendingPick->m_FramesLeft > 0)
+                {
+                    --PendingPick->m_FramesLeft;
+                }
+                else if (g_bGPUPickingEnabled && PendingPick.has_value())
+                {
+                    int PickedBone = -1;
+                    (void)PickResultBuffer.MemoryMap(0, 1, [&](void* pData)
+                    {
+                        PickedBone = e23::DecodePickKey(*static_cast<std::uint32_t*>(pData));
+                    });
+
+                    if (PickedBone != -1) e23::ApplySelection(SkeletonState, PickedBone, PendingPick->m_bCtrl, PendingPick->m_bShift);
+                    else                  e23::ClearSelectionOnEmptyClick(SkeletonState, PendingPick->m_bCtrl, PendingPick->m_bShift);
+                    PendingPick.reset();
+                }
+
                 // Deferred to actual render time (see AddCustomRenderCallback) - capture the small
                 // POD values the draw calls need by value, everything else (pipelines/buffers/managers,
                 // all alive for the app's whole lifetime) by reference.
@@ -1515,7 +2832,25 @@ int E23_Example()
                 const std::size_t nWedgeVerts      = WedgeVerts.size();
                 const xmath::fmat4 W2C             = View.getW2C();
 
-                xgpu::tools::imgui::AddCustomRenderCallback([&, nWedgeFillVerts, nWedgeVerts, W2C](xgpu::cmd_buffer& CmdBuffer, const ImVec2&, const ImVec2&)
+                // True on exactly one frame per pick request - the one where the block above just
+                // issued its draw (m_FramesLeft was freshly set to PickDelayFrames). Captured by
+                // value like everything else here since PendingPick keeps changing after this.
+                const bool   bDrawPickThisFrame = g_bGPUPickingEnabled && PendingPick.has_value() && PendingPick->m_bDrawIssued && PendingPick->m_FramesLeft == PickDelayFrames;
+                const ImVec2 PickScissorMousePos = bDrawPickThisFrame ? PendingPick->m_MousePos : ImVec2{};
+
+                // Both pick passes rely on the depth test to pick "closest wins" (see either pass's
+                // own comment) - which only works if each pass gets to resolve it against a depth
+                // buffer THAT PASS'S OWN draws haven't already half-written. Running both in the same
+                // frame at (usually) the same mouse position meant the second pass's draws could fail
+                // depth-test against depth the FIRST pass just wrote for the exact same triangle (an
+                // equal, not lesser, depth - rejected under LESS) - the click and hover results would
+                // then disagree/flicker depending on which pass happened to run second. Mutually
+                // exclusive per frame: on the one frame click is actually drawing, hover just keeps
+                // showing its last (still valid, one-frame-stale) result instead of redrawing into
+                // the same contested depth.
+                const bool bDrawHoverPickThisFrameFinal = bDrawHoverPickThisFrame && !bDrawPickThisFrame;
+
+                xgpu::tools::imgui::AddCustomRenderCallback([&, nWedgeFillVerts, nWedgeVerts, W2C, bDrawPickThisFrame, PickScissorMousePos, bDrawHoverPickThisFrame = bDrawHoverPickThisFrameFinal, HoverScissorMousePos, EffRadius, EffCenter](xgpu::cmd_buffer& CmdBuffer, const ImVec2&, const ImVec2&)
                 {
                     //
                     // Ground grid, for spatial context
@@ -1524,7 +2859,7 @@ int E23_Example()
                         CmdBuffer.setPipelineInstance(Grid3dMaterialInstance);
                         grid_push_constants Push;
                         Push.m_WorldSpaceCameraPos = View.getPosition();
-                        Push.m_L2W        = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, SkeletonState.m_Center.m_Y - SkeletonState.m_Radius, 0));
+                        Push.m_L2W        = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, EffCenter.m_Y - EffRadius, 0));
                         Push.m_W2C        = W2C;
                         Push.m_L2CTShadow = g_DisabledShadowL2C;
                         CmdBuffer.setPushConstants(Push);
@@ -1532,17 +2867,12 @@ int E23_Example()
                     }
 
                     //
-                    // Bone wedges - light fill first, so the outline pass draws crisply on top of it.
+                    // Bone wedges - ALL opaque lines first, then the semi-transparent fills back-to-
+                    // front (BuildWedgeFillGeometry already sorted them far-to-near) on top. Drawing
+                    // fills first (the old order) let a nearer fill get overwritten by a farther one's
+                    // blend, and drew every outline over every fill regardless of actual depth - wrong
+                    // both ways once more than one translucent bone is on screen at once.
                     //
-                    if (nWedgeFillVerts)
-                    {
-                        CmdBuffer.setPipelineInstance(WedgeFillPipelineInstance);
-                        CmdBuffer.setBuffer(WedgeIndexBuffer);
-                        CmdBuffer.setBuffer(WedgeFillVertexBuffer);
-                        CmdBuffer.setPushConstants(e23::push_constants{ .m_L2C = W2C });
-                        CmdBuffer.Draw(static_cast<int>(nWedgeFillVerts));
-                    }
-
                     if (nWedgeVerts)
                     {
                         CmdBuffer.setPipelineInstance(WedgeOutlinePipelineInstance);
@@ -1551,6 +2881,72 @@ int E23_Example()
                         CmdBuffer.setPushConstants(e23::push_constants{ .m_L2C = W2C });
                         CmdBuffer.Draw(static_cast<int>(nWedgeVerts));
                     }
+
+                    if (nWedgeFillVerts)
+                    {
+                        CmdBuffer.setPipelineInstance(WedgeFillPipelineInstance);
+                        CmdBuffer.setBuffer(WedgeIndexBuffer);
+                        CmdBuffer.setBuffer(WedgeFillVertexBuffer);
+                        CmdBuffer.setPushConstants(e23::wedge_fill_push_constants{ .m_L2C = W2C, .m_Boost = e23::g_WedgeFillBoost });
+                        CmdBuffer.Draw(static_cast<int>(nWedgeFillVerts));
+                    }
+
+                    //
+                    // GPU picking - one tiny draw per bone, scissored down to the exact mouse pixel
+                    // so the fragment shader only ever runs a handful of times regardless of viewport
+                    // resolution. The pipeline's depth test/write against whatever the wedge draws
+                    // above left in the depth buffer only gates which per-bone draws are even
+                    // eligible to contest the pixel - it does NOT itself make "closest wins"
+                    // deterministic, since depth-passing is not the same thing as the SSBO write
+                    // being ordered. See E23_Pick_frag.glsl's own comment: "closest wins" is actually
+                    // provided by PickBuffer.BestKey's atomicMin over a packed (depth, BoneID) key,
+                    // which is genuinely order-independent regardless of how many bones pass depth
+                    // at this pixel or in what order their draws land.
+                    //
+                    // Exactly 1x1 pixel, not a small neighborhood: kept for performance (only a
+                    // handful of fragment shader invocations regardless of viewport resolution), not
+                    // for correctness - the atomicMin key would resolve correctly even across a wider
+                    // scissor, since every covered pixel's candidates converge to their own correct
+                    // minimum independently.
+                    if (bDrawPickThisFrame && !PickRanges.empty())
+                    {
+                        CmdBuffer.setPipelineInstance(PickPipelineInstance);
+                        CmdBuffer.setDynamicUBO(PickResultBuffer, 0);
+                        CmdBuffer.setBuffer(WedgeIndexBuffer);
+                        CmdBuffer.setBuffer(PickVertexBuffer);
+                        CmdBuffer.setScissor(static_cast<int>(PickScissorMousePos.x), static_cast<int>(PickScissorMousePos.y), 1, 1);
+
+                        for (auto& R : PickRanges)
+                        {
+                            CmdBuffer.setPushConstants(e23::pick_push_constants{ .m_L2C = W2C, .m_BoneID = R.m_iBone });
+                            CmdBuffer.Draw(R.m_Count, 0, R.m_Start);
+                        }
+
+                        // Restore the full-window scissor - nothing else draws into this window
+                        // after this today, but leaving the tiny rect active would be a landmine
+                        // for whoever adds the next draw call here.
+                        CmdBuffer.setScissor(static_cast<int>(WindowPos.x), static_cast<int>(WindowPos.y), static_cast<int>(WindowSize.x), static_cast<int>(WindowSize.y));
+                    }
+
+                    // Same as the click pick draw above, but every hovered frame and into
+                    // HoverResultBuffer instead - see HoverScissorMousePos's own comment for why
+                    // this can't just reuse the click path's buffer.
+                    if (bDrawHoverPickThisFrame && !PickRanges.empty())
+                    {
+                        CmdBuffer.setPipelineInstance(PickPipelineInstance);
+                        CmdBuffer.setDynamicUBO(HoverResultBuffer, 0);
+                        CmdBuffer.setBuffer(WedgeIndexBuffer);
+                        CmdBuffer.setBuffer(PickVertexBuffer);
+                        CmdBuffer.setScissor(static_cast<int>(HoverScissorMousePos.x), static_cast<int>(HoverScissorMousePos.y), 1, 1); // see the click pass's own comment for why 1x1, not a small neighborhood
+
+                        for (auto& R : PickRanges)
+                        {
+                            CmdBuffer.setPushConstants(e23::pick_push_constants{ .m_L2C = W2C, .m_BoneID = R.m_iBone });
+                            CmdBuffer.Draw(R.m_Count, 0, R.m_Start);
+                        }
+
+                        CmdBuffer.setScissor(static_cast<int>(WindowPos.x), static_cast<int>(WindowPos.y), static_cast<int>(WindowSize.x), static_cast<int>(WindowSize.y));
+                    }
                 });
 
                 //
@@ -1558,10 +2954,14 @@ int E23_Example()
                 //
                 const xmath::irect Viewport{ static_cast<int>(WindowPos.x), static_cast<int>(WindowPos.y)
                                            , static_cast<int>(WindowPos.x + WindowSize.x), static_cast<int>(WindowPos.y + WindowSize.y) };
-                e23::RenderBoneLabelsAndCollectHits(View, *pSkeleton, SkeletonState, Viewport, LabelHits);
+                e23::RenderBoneLabelsAndCollectHits(View, *pSkeleton, SkeletonState, ScaledBoneWorld, HoveredBone, Viewport, LabelHits);
 
                 //
-                // Viewport click: label rect first (cheap), then ray-vs-wedge-face
+                // Viewport click: label rect first (cheap, resolved immediately). Otherwise, with
+                // GPU picking on, arms PendingPick - the actual pixel-accurate result lands a few
+                // frames later (see PendingPick's own comment) and applies the selection then, using
+                // the ctrl/shift state captured here at click time. Falls back to the CPU ray-vs-
+                // triangle test only when GPU picking is disabled entirely.
                 //
                 if (bViewportHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
                 {
@@ -1578,46 +2978,69 @@ int E23_Example()
                         }
                     }
 
-                    if (iHitBone == -1)
+                    if (iHitBone != -1)
+                    {
+                        e23::ApplySelection(SkeletonState, iHitBone, ImGui::GetIO().KeyCtrl, ImGui::GetIO().KeyShift);
+                    }
+                    else if (g_bGPUPickingEnabled)
+                    {
+                        // ImGui::GetMousePos() is in ImGui's global screen space, which only equals
+                        // framebuffer-pixel space when DisplayPos is (0,0) - true for the main
+                        // viewport, false once this window is docked/floated into any other OS
+                        // window. CmdBuffer.setScissor() below needs actual framebuffer pixels (see
+                        // xgpu_imgui_breach.cpp's own "clip_off = draw_data->DisplayPos" - that's the
+                        // exact same conversion, done there for ImGui's own clip rects), so subtract
+                        // this window's own viewport position here, once, rather than at every use.
+                        const ImVec2 ViewportPos = ImGui::GetWindowViewport()->Pos;
+
+                        // Replaces whatever pick request was still pending - a new click always
+                        // supersedes the intent behind an older, not-yet-resolved one.
+                        PendingPick = e23::pick_request{ .m_MousePos = ImVec2(MousePos.x - ViewportPos.x, MousePos.y - ViewportPos.y), .m_bCtrl = ImGui::GetIO().KeyCtrl, .m_bShift = ImGui::GetIO().KeyShift };
+                    }
+                    else
                     {
                         const xmath::fvec3 RayOrigin = View.getPosition();
                         const xmath::fvec3 RayDir    = View.RayFromScreen(MousePos.x, MousePos.y);
                         float BestT;
-                        e23::PickWedge(*pSkeleton, SkeletonState.ActiveBoneWorld(), RayOrigin, RayDir, iHitBone, BestT);
+                        int   iRayHitBone = -1;
+                        e23::PickWedge(*pSkeleton, ScaledBoneWorld, RayOrigin, RayDir, EffRadius, iRayHitBone, BestT);
+                        if (iRayHitBone != -1) e23::ApplySelection(SkeletonState, iRayHitBone, ImGui::GetIO().KeyCtrl, ImGui::GetIO().KeyShift);
+                        else                   e23::ClearSelectionOnEmptyClick(SkeletonState, ImGui::GetIO().KeyCtrl, ImGui::GetIO().KeyShift);
                     }
-
-                    if (iHitBone != -1) SkeletonState.m_iSelectedBone = iHitBone;
                 }
 
                 ImGui::End();
             }
         }
 
-        //
-        // Bones side panel
-        //
-        if (!SkeletonState.empty())
+        // Bone hierarchy used to live in its own "Bones" window; it's now rendered inside the
+        // "Skeleton Properties" inspector itself (see Inspector.Show() below), matching
+        // E21_StaticGeomEditor's "Scene Hierarchy" CollapsingHeader embedded in its own descriptor
+        // property window - one place to see and edit a bone, not a separate panel to hunt for.
+        if (false)
         {
-            if (auto* pSkeleton = xresource::g_Mgr.getResource(SkeletonState.m_Ref); pSkeleton)
+            if (!SkeletonState.empty())
             {
-                ImGui::SetNextWindowSize(ImVec2(280, 420), ImGuiCond_FirstUseEver);
-                if (ImGui::Begin("Bones"))
+                if (auto* pSkeleton = xresource::g_Mgr.getResource(SkeletonState.m_Ref); pSkeleton)
                 {
-                    ImGui::Text("%d bones", static_cast<int>(pSkeleton->getBones().size()));
-                    ImGui::RadioButton("Frozen Pose", reinterpret_cast<int*>(&SkeletonState.m_PoseMode), static_cast<int>(e23::pose_mode::FROZEN));
-                    ImGui::SameLine();
-                    ImGui::RadioButton("Bind Pose", reinterpret_cast<int*>(&SkeletonState.m_PoseMode), static_cast<int>(e23::pose_mode::BIND));
-                    ImGui::Separator();
-                    ImGui::BeginChild("###BoneListChild");
-                    e23::RenderBoneTree(SkeletonState, *pSkeleton);
-                    ImGui::EndChild();
+                    ImGui::SetNextWindowSize(ImVec2(280, 420), ImGuiCond_FirstUseEver);
+                    if (ImGui::Begin("Bones"))
+                    {
+                        ImGui::Text("%d bones", static_cast<int>(pSkeleton->getBones().size()));
+                        ImGui::Separator();
+                        ImGui::BeginChild("###BoneListChild");
+                        e23::RenderBoneTree(SkeletonState, *pSkeleton);
+                        ImGui::EndChild();
+                    }
+                    ImGui::End();
                 }
-                ImGui::End();
             }
         }
 
         //
-        // Main menu bar
+        // Main menu bar - Save/Compile/Feedback mirror E21_StaticGeomEditor's so this editor doesn't
+        // feel like a different tool. Saving the descriptor is what actually kicks off a recompile
+        // (see the m_OnCompilationState subscriber above); this is just the button + status readout.
         //
         if (ImGui::BeginMainMenuBar())
         {
@@ -1625,8 +3048,112 @@ int E23_Example()
             {
                 if (ImGui::MenuItem("Resource Browser", "Ctrl-Space"))
                     AsserBrowser.Show(true);
+
+                ImGui::Separator();
+                {
+                    const bool bDisableSave = !e10::g_LibMgr.isReadyToSave() && SkeletonState.empty();
+                    if (bDisableSave) ImGui::BeginDisabled();
+                    if (ImGui::MenuItem("\xEE\x9D\x8E Save ", "Ctrl+S"))
+                    {
+                        xproperty::settings::context Context;
+                        e10::g_LibMgr.Save(Context);
+                    }
+                    if (bDisableSave) ImGui::EndDisabled();
+                }
                 ImGui::EndMenu();
             }
+
+            ImGui::SameLine(410);
+
+            if (!SkeletonState.empty())
+            {
+                xcontainer::lock::scope lk(*SkeletonState.m_Log);
+                auto& Log = SkeletonState.m_Log->get();
+
+                bool bDisable = Log.m_Result == e10::compilation::historical_entry::result::COMPILING
+                             || Log.m_Result == e10::compilation::historical_entry::result::COMPILING_WARNINGS;
+
+                std::vector<std::string> ValidationErrors;
+                if (!bDisable)
+                {
+                    SkeletonState.m_Descriptor.Validate(ValidationErrors);
+                    if (!ValidationErrors.empty()) bDisable = true;
+                }
+
+                if (bDisable) ImGui::BeginDisabled();
+                if (ImGui::Button("\xEF\x96\xB0 Compile "))
+                    SkeletonState.SaveDescriptor();
+                if (bDisable) ImGui::EndDisabled();
+
+                std::uint32_t Color = IM_COL32(255, 255, 255, 255);
+                switch (Log.m_Result)
+                {
+                case e10::compilation::historical_entry::result::COMPILING_WARNINGS: Color = IM_COL32(255, 255, 0,   255); break;
+                case e10::compilation::historical_entry::result::COMPILING:          Color = IM_COL32(0,   255, 0,   255); break;
+                case e10::compilation::historical_entry::result::FAILURE:            Color = IM_COL32(255, 170, 140, 255); break;
+                case e10::compilation::historical_entry::result::SUCCESS_WARNINGS:   Color = IM_COL32(255, 255, 0,   255); break;
+                case e10::compilation::historical_entry::result::SUCCESS:            Color = IM_COL32(255, 255, 255, 255); break;
+                }
+
+                ImGui::PushStyleColor(ImGuiCol_Text, Color);
+                if (ImGui::Button("Feedback:\xee\xa5\xb2"))
+                {
+                    const ImVec2 ButtonPos  = ImGui::GetItemRectMin();
+                    const ImVec2 ButtonSize = ImGui::GetItemRectSize();
+                    ImGui::SetNextWindowPos(ImVec2(ButtonPos.x, ButtonPos.y + ButtonSize.y));
+                    ImGui::OpenPopup("Feedback");
+                }
+                ImGui::PopStyleColor();
+
+                if (ImGui::BeginPopup("Feedback"))
+                {
+                    ImGui::BeginChild("###Feedback-Child", ImVec2(600, 300));
+                    ImGui::PushTextWrapPos(600);
+
+                    for (auto& S : ValidationErrors)
+                        ImGui::TextUnformatted(S.data(), S.data() + S.size());
+
+                    if (!Log.m_Log.empty())
+                    {
+                        std::vector<std::size_t> LineOffsets{ 0 };
+                        for (std::size_t Pos = 0; (Pos = Log.m_Log.find('\n', Pos)) != std::string::npos; ++Pos)
+                            LineOffsets.push_back(Pos + 1);
+
+                        const int nLines = static_cast<int>(LineOffsets.size());
+                        ImGuiListClipper Clipper;
+                        Clipper.Begin(nLines);
+                        while (Clipper.Step())
+                        {
+                            for (int Row = Clipper.DisplayStart; Row < Clipper.DisplayEnd; ++Row)
+                            {
+                                const std::size_t Start = LineOffsets[Row];
+                                const std::size_t End   = (Row + 1 < nLines) ? LineOffsets[Row + 1] - 1 : Log.m_Log.size();
+                                const std::string_view Line(Log.m_Log.data() + Start, End - Start);
+
+                                if (xstrtool::findI(Line, "ERROR:") != std::string::npos)
+                                {
+                                    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255));
+                                    ImGui::TextUnformatted(Line.data(), Line.data() + Line.size());
+                                    ImGui::PopStyleColor();
+                                }
+                                else
+                                {
+                                    ImGui::TextUnformatted(Line.data(), Line.data() + Line.size());
+                                }
+                            }
+                        }
+                    }
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndChild();
+                    ImGui::EndPopup();
+                }
+
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Gives information about the compilation process");
+
+                if (!Log.m_Log.empty())
+                    ImGui::Text("%s", std::string(xstrtool::getLastLine(Log.m_Log)).c_str());
+            }
+
             ImGui::EndMainMenuBar();
         }
 
@@ -1635,6 +3162,47 @@ int E23_Example()
         if (auto SelAsset = AsserBrowser.getSelectedAsset(); SelAsset.empty() == false && SelAsset.m_Type == xrsc::skeleton_type_guid_v)
         {
             e23::LoadSkeleton(SkeletonState, AsserBrowser.getSelectedLibrary(), SelAsset);
+        }
+
+        // A successful recompile means the runtime resource changed under us - reload everything
+        // (descriptor, compiled resource, bone worlds) the same way a fresh selection would. clear()
+        // (inside LoadSkeleton) would otherwise wipe m_Log back to a blank SUCCESS entry, discarding
+        // the very compile output the Feedback popup is about to show - preserve it across the reload.
+        if (SkeletonState.m_bReload)
+        {
+            SkeletonState.m_bReload = false;
+            const auto SavedLog = SkeletonState.m_Log;
+            e23::LoadSkeleton(SkeletonState, SkeletonState.m_LibraryGUID, SkeletonState.m_InfoGUID);
+            SkeletonState.m_Log = SavedLog;
+        }
+
+        {
+            xproperty::settings::context Context;
+            // Show() opens its own ImGui window - both default to roughly the same cascade position
+            // on first run with nothing to visually tell them apart, so seed distinct starting spots.
+            ImGui::SetNextWindowPos(ImVec2(300, 40), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(320, 300), ImGuiCond_FirstUseEver);
+            InspectorSettings.Show(Context, []{});
+            ImGui::SetNextWindowPos(ImVec2(300, 360), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(320, 300), ImGuiCond_FirstUseEver);
+            Inspector.Show(Context, []{});
+        }
+
+        // Bone hierarchy - its own dockable window (previously embedded in "Skeleton Properties")
+        // so it can be docked/floated independently of the descriptor inspector.
+        if (!SkeletonState.empty())
+        {
+            if (auto* pSkeleton = xresource::g_Mgr.getResource(SkeletonState.m_Ref); pSkeleton)
+            {
+                ImGui::SetNextWindowPos(ImVec2(915, 18), ImGuiCond_FirstUseEver);
+                ImGui::SetNextWindowSize(ImVec2(357, 420), ImGuiCond_FirstUseEver);
+                if (ImGui::Begin("Bone Hierarchy"))
+                {
+                    ImGui::Text("%d bones", static_cast<int>(pSkeleton->getBones().size()));
+                    e23::RenderBoneTree(SkeletonState, *pSkeleton);
+                }
+                ImGui::End();
+            }
         }
 
         xgpu::tools::imgui::Render();
