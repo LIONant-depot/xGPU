@@ -61,7 +61,14 @@ namespace xgpu::vulkan
         ,   .allocationSize     = req.size
         ,   .memoryTypeIndex    = 0
         };
-        m_Device->getMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, AllocInfo.memoryTypeIndex );
+        // HOST_COHERENT, not just HOST_VISIBLE: without it, a memory type is allowed to be host-
+        // cached, meaning a GPU write isn't guaranteed visible to a later CPU MapLock without an
+        // explicit vkInvalidateMappedMemoryRanges (which nothing in this engine ever called) - CPU
+        // readback of GPU-written data (e.g. a compute/fragment-shader result read back through
+        // MemoryMap) could silently see stale bytes. The Vulkan spec guarantees at least one memory
+        // type exposes both bits together, so this can't fail to find one where HOST_VISIBLE alone
+        // would have succeeded.
+        m_Device->getMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, AllocInfo.memoryTypeIndex );
 
         if( auto VKErr = vkAllocateMemory(m_Device->m_VKDevice, &AllocInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKBufferMemory); VKErr )
         {
@@ -102,17 +109,39 @@ namespace xgpu::vulkan
         assert((StartIndex+Count) <= m_nEntries);
         assert(m_ByteSize);
 
+        const VkDeviceSize MapOffset = StartIndex*m_EntrySizeBytes;
+        const VkDeviceSize MapSize   = Count == m_nEntries ? VK_WHOLE_SIZE : static_cast<VkDeviceSize>(m_EntrySizeBytes * Count);
+
         if( auto VKErr = vkMapMemory
         ( m_Device->m_VKDevice
         , m_VKBufferMemory
-        , StartIndex*m_EntrySizeBytes
-        , Count == m_nEntries ? VK_WHOLE_SIZE : static_cast<VkDeviceSize>(m_EntrySizeBytes * Count)
+        , MapOffset
+        , MapSize
         , 0
-        , &pMemory 
+        , &pMemory
         ); VKErr )
         {
             m_Device->m_Instance->ReportError(VKErr, "Fail to Map Memory from Buffer");
             return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to Map Memory from Buffer");
+        }
+
+        // Belt-and-suspenders on top of always allocating HOST_COHERENT memory now (see Create):
+        // guarantees this map sees whatever the GPU most recently wrote, rather than relying
+        // exclusively on the memory type choice. A no-op on coherent memory per the Vulkan spec, so
+        // this is free insurance, not a workaround for a specific known-non-coherent case.
+        auto InvalidateRanges = std::array
+        {
+            VkMappedMemoryRange
+            { .sType  = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE
+            , .memory = m_VKBufferMemory
+            , .offset = MapOffset
+            , .size   = MapSize
+            }
+        };
+        if( auto VKErr = vkInvalidateMappedMemoryRanges(m_Device->m_VKDevice, static_cast<std::uint32_t>(InvalidateRanges.size()), InvalidateRanges.data()); VKErr )
+        {
+            m_Device->m_Instance->ReportError(VKErr, "Fail to Invalidate Mapped Memory for Buffer");
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to Invalidate Mapped Memory for Buffer");
         }
 
         return nullptr;
