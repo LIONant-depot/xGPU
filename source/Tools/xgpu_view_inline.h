@@ -194,7 +194,10 @@ namespace xgpu::tools
             const float       H           = Viewport.getHeight() * 0.5f;
             m_C2S.setupIdentity();
             m_C2S(0,0) =  W;
-            m_C2S(1,1) = -H;
+            // Not -H: getV2CScales() already flips Y for this engine's Vulkan convention (so NDC
+            // ends up Y-up, "intuitive" for screen-space math) - flipping again here double-inverts
+            // it, putting high-world-Y points at the bottom of the screen instead of the top.
+            m_C2S(1,1) =  H;
             m_C2S(0,3) =  W + Viewport.m_Min.m_X;
             m_C2S(1,3) =  H + Viewport.m_Min.m_Y;
         }
