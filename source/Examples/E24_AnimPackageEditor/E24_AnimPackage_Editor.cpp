@@ -73,6 +73,17 @@ namespace e24
         #include "draw_frag.h"
     };
 
+    // Same ground grid as E23_SkeletonEditor/E21_StaticGeomEditor - already compiled project-wide
+    // (E21_GridShader_vert/frag.glsl are in CMakeLists' global shader list), no new .glsl needed.
+    constexpr static std::uint32_t g_GridVertShader[] =
+    {
+        #include "E21_GridShader_vert.h"
+    };
+    constexpr static std::uint32_t g_GridFragShader[] =
+    {
+        #include "E21_GridShader_frag.h"
+    };
+
     static void Debugger(std::string_view View)
     {
         printf("%s\n", View.data());
@@ -83,6 +94,21 @@ namespace e24
     struct push_constants
     {
         xmath::fmat4    m_L2C;
+    };
+
+    // E21_GridShader's own uniform block - a real UBO (not push constants), matching E21/E23's exact
+    // shape and alignas(256) (see E23_Skeleton_Editor.cpp's identical comment: this shader's uniform
+    // block is too large for push constants and silently corrupts past m_MajorGridDiv if you try).
+    // This viewer has no shadow-casting pass, so m_L2CTShadow is always fed a zero matrix - the
+    // fragment shader only samples its shadow map when inShadowPos.w > 0, which a zero matrix never
+    // produces, so the grid always renders fully lit.
+    struct alignas(256) grid_uniform
+    {
+        xmath::fmat4    m_L2W;
+        xmath::fmat4    m_W2C;
+        xmath::fmat4    m_L2CTShadow;
+        xmath::fvec3    m_WorldSpaceCameraPos = xmath::fvec3(0.0f, 10.0f, 0.0f);
+        float           m_MajorGridDiv = 10.0f;
     };
 
     //---------------------------------------------------------------------------
@@ -620,6 +646,76 @@ int E24_Example()
     }
 
     //
+    // Ground grid, for spatial context - same E21_GridShader as E23_SkeletonEditor. Triangle
+    // topology (default), unlike the wedge outline's LINE_LIST, so it needs its own vertex
+    // descriptor even though the attribute layout is identical.
+    //
+    xgpu::vertex_descriptor Primitive3DVertexDescriptor;
+    {
+        auto Attributes = std::array
+        { xgpu::vertex_descriptor::attribute{ .m_Offset = offsetof(e19::draw_vert, m_X),     .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D }
+        , xgpu::vertex_descriptor::attribute{ .m_Offset = offsetof(e19::draw_vert, m_U),     .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D }
+        , xgpu::vertex_descriptor::attribute{ .m_Offset = offsetof(e19::draw_vert, m_Color), .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED }
+        };
+        auto Setup = xgpu::vertex_descriptor::setup{ .m_VertexSize = sizeof(e19::draw_vert), .m_Attributes = Attributes };
+        if (auto Err = Device.Create(Primitive3DVertexDescriptor, Setup); Err)
+            return xgpu::getErrorInt(Err);
+    }
+
+    xgpu::buffer GridDynamicUBO;
+    if (auto Err = Device.Create(GridDynamicUBO, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(e24::grid_uniform), .m_EntryCount = 10 }); Err)
+        return xgpu::getErrorInt(Err);
+
+    xgpu::pipeline          Grid3dMaterial;
+    xgpu::pipeline_instance Grid3dMaterialInstance;
+    {
+        xgpu::shader VertexShader;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type   = xgpu::shader::type::bit::VERTEX
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e24::g_GridVertShader, sizeof(e24::g_GridVertShader) / sizeof(int)}}
+            };
+            if (auto Err = Device.Create(VertexShader, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        xgpu::shader FragShader;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type   = xgpu::shader::type::bit::FRAGMENT
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e24::g_GridFragShader, sizeof(e24::g_GridFragShader) / sizeof(int)}}
+            };
+            if (auto Err = Device.Create(FragShader, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        auto UBuffersUsage = std::array{ xgpu::pipeline::uniform_binds{ .m_BindIndex = 0, .m_Usage = { .m_bVertex = true, .m_bFragment = true }, .m_Type = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC } };
+        auto Samplers = std::array{ xgpu::pipeline::sampler{.m_AddressMode = std::array{ xgpu::pipeline::sampler::address_mode::CLAMP, xgpu::pipeline::sampler::address_mode::CLAMP, xgpu::pipeline::sampler::address_mode::CLAMP}} };
+        auto Shaders  = std::array<const xgpu::shader*, 2>{ &FragShader, &VertexShader };
+        auto Setup    = xgpu::pipeline::setup
+        { .m_VertexDescriptor   = Primitive3DVertexDescriptor
+        , .m_Shaders            = Shaders
+        , .m_UniformBinds       = UBuffersUsage
+        , .m_Samplers           = Samplers
+        // Same fix as E23_SkeletonEditor: AddCustomRenderCallback's viewport convention makes the
+        // grid quad's winding read as back-facing, and a ground plane looks the same from both
+        // sides anyway, so disabling culling is simpler than chasing the exact winding order.
+        , .m_Primitive          = { .m_Cull = xgpu::pipeline::primitive::cull::NONE }
+        , .m_Blend              = xgpu::pipeline::blend::getAlphaOriginal()
+        };
+
+        if (auto Err = Device.Create(Grid3dMaterial, Setup); Err)
+            return xgpu::getErrorInt(Err);
+
+        // No real shadow map in this preview-only viewer (see grid_uniform's comment) - the white
+        // default texture is bound purely to satisfy the sampler slot; it's never actually sampled.
+        auto Bindings  = std::array{ xgpu::pipeline_instance::sampler_binding{*pDefaultTexture} };
+        auto InstSetup = xgpu::pipeline_instance::setup{ .m_PipeLine = Grid3dMaterial, .m_SamplersBindings = Bindings };
+        if (auto Err = Device.Create(Grid3dMaterialInstance, InstSetup); Err)
+            return xgpu::getErrorInt(Err);
+    }
+
+    //
     // Wedge outline pipeline - LINE_LIST octahedral bone gizmos, reusing the already-compiled
     // draw_vert/draw_frag shaders exactly like E23_SkeletonEditor's own wedge outline pipeline.
     //
@@ -698,6 +794,12 @@ int E24_Example()
     xgpu::buffer WedgeVertexBuffer;
     if (auto Err = Device.Create(WedgeVertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(e19::draw_vert), .m_EntryCount = e24::g_MaxWedgeVertices }); Err)
         return xgpu::getErrorInt(Err);
+
+    //
+    // Grid plane mesh (E19's mesh manager, used only for its PLANE3D primitive)
+    //
+    e19::mesh_manager MeshManager = {};
+    MeshManager.Init(Device);
 
     //
     // Asset Mgr
@@ -914,6 +1016,23 @@ int E24_Example()
 
                 xgpu::tools::imgui::AddCustomRenderCallback([&, nWedgeVerts, W2C](xgpu::cmd_buffer& CmdBuffer, const ImVec2&, const ImVec2&)
                 {
+                    //
+                    // Ground grid, for spatial context - same as E23_SkeletonEditor's. Fixed at world
+                    // (0,0,0) rather than tracking the skeleton's own center, so it always shows the
+                    // user where true zero is instead of hiding any actual world-space offset.
+                    //
+                    {
+                        CmdBuffer.setPipelineInstance(Grid3dMaterialInstance);
+                        auto& Uniform = GridDynamicUBO.allocEntry<e24::grid_uniform>();
+                        Uniform.m_WorldSpaceCameraPos = View.getPosition();
+                        Uniform.m_L2W          = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, 0, 0));
+                        Uniform.m_W2C          = W2C;
+                        Uniform.m_L2CTShadow   = xmath::fmat4::fromZero(); // no shadow pass here - see grid_uniform's comment
+                        Uniform.m_MajorGridDiv = 10.0f;
+                        CmdBuffer.setDynamicUBO(GridDynamicUBO, 0);
+                        MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE3D);
+                    }
+
                     if (nWedgeVerts)
                     {
                         CmdBuffer.setPipelineInstance(WedgeOutlinePipelineInstance);
