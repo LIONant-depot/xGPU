@@ -24,7 +24,7 @@ layout(location = 0) out vec2 outUV;
 layout(location = 1) out vec3 outCameraPos;
 layout(location = 2) out vec4 outShadowPos;
 
-void main() 
+void main()
 {
     vec4 worldPos4 = uniforms.L2W * vec4(inPosition, 1.0);
     vec3 worldPos = worldPos4.xyz;

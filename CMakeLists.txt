@@ -232,6 +232,7 @@ set(FRAG_SHADER_SOURCES
   "source/Examples/E21_StaticGeomEditor/E21_DebugNormalRender_frag.glsl"
   "source/Examples/E23_SkeletonEditor/E23_Pick_frag.glsl"
   "source/Examples/E23_SkeletonEditor/E23_WedgeFill_frag.glsl"
+  "source/Examples/E23_SkeletonEditor/E23_ShadowGeneration_frag.glsl"
 
   )
 
@@ -259,6 +260,7 @@ set(VERT_SHADER_SOURCES
   "source/Examples/E21_StaticGeomEditor/E21_DebugNormalRender_vert.glsl"
   "source/Examples/E23_SkeletonEditor/E23_Pick_vert.glsl"
   "source/Examples/E23_SkeletonEditor/E23_WedgeFill_vert.glsl"
+  "source/Examples/E23_SkeletonEditor/E23_ShadowGeneration_vert.glsl"
   )
 
 # List geometry shader sources
@@ -663,6 +665,8 @@ source_group("Examples/E23_SkeletonEditor" FILES
    "source/Examples/E23_SkeletonEditor/E23_Pick_vert.glsl"
    "source/Examples/E23_SkeletonEditor/E23_WedgeFill_frag.glsl"
    "source/Examples/E23_SkeletonEditor/E23_WedgeFill_vert.glsl"
+   "source/Examples/E23_SkeletonEditor/E23_ShadowGeneration_frag.glsl"
+   "source/Examples/E23_SkeletonEditor/E23_ShadowGeneration_vert.glsl"
 )
 
 

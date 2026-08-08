@@ -113,6 +113,19 @@ namespace e23
         #include "E23_WedgeFill_frag.h"
     };
 
+    // Shadow-map generation - position-only, depth-write-only (empty fragment shader), same pair
+    // E15_Shadowmap/E21_StaticGeomEditor already use for exactly this. Casts the solid wedge-fill
+    // (bone) geometry into a depth texture from the light's POV; E21_GridShader_frag.glsl (already
+    // linked in below for the ground grid) samples it back with its own PCF code.
+    constexpr static std::uint32_t g_ShadowGenerationVertShader[] =
+    {
+        #include "E23_ShadowGeneration_vert.h"
+    };
+    constexpr static std::uint32_t g_ShadowGenerationFragShader[] =
+    {
+        #include "E23_ShadowGeneration_frag.h"
+    };
+
     //---------------------------------------------------------------------------
 
     static void Debugger(std::string_view View)
@@ -134,12 +147,17 @@ namespace e23
         xmath::fmat4    m_L2C;
     };
 
-    // Matches E23_WedgeFill_vert/frag.glsl's PushConsts block exactly (mat4 first, then the float) -
-    // the vertex shader ignores m_Boost, but it has to be declared there too so it lands at the same
-    // byte offset on both sides of the push-constant range (same reason pick_push_constants exists).
+    // Matches E23_WedgeFill_vert/frag.glsl's PushConsts block exactly (both mat4s first, then the
+    // float) - the vertex shader ignores m_Boost and the fragment shader ignores both matrices (it
+    // reads the already-projected shadow position from the vertex stage instead), but every field
+    // has to be declared on both sides so the rest land at the same byte offset (same reason
+    // pick_push_constants exists). m_ShadowL2C is world space -> light clip/texture space - wedge
+    // verts are already baked in world space (see BuildWedgeFillGeometry), so unlike the grid's
+    // identical-looking field there's no separate L2W to fold in here.
     struct wedge_fill_push_constants
     {
         xmath::fmat4    m_L2C;
+        xmath::fmat4    m_ShadowL2C;
         float           m_Boost;
     };
 
@@ -150,6 +168,13 @@ namespace e23
     {
         xmath::fmat4    m_L2C;
         std::int32_t    m_BoneID;
+    };
+
+    // Matches E23_ShadowGeneration_vert.glsl's PushConsts block exactly (just mat4 L2C, to the
+    // light's clip space) - same shape as E15_Shadowmap's shadow_generation_push_constants.
+    struct shadow_generation_push_constants
+    {
+        xmath::fmat4    m_L2C;
     };
 
     // Matches E23_Pick_frag.glsl's kBoneIDBits/kBoneIDMask exactly - PickBuffer.BestKey packs
@@ -215,11 +240,12 @@ namespace e23
     // What determines each bone's viewport/label color - a single choice rather than two
     // independent booleans, since NORMAL/LOD/mask-weight coloring are mutually exclusive by nature
     // (a bone only has one outline color on screen at a time).
-    enum class render_color_mode : std::uint8_t { NORMAL_RENDER, LOD_RENDER, ACTIVE_LAYER_RENDER };
+    enum class render_color_mode : std::uint8_t { NORMAL_RENDER, LOD_RENDER, ACTIVE_LAYER_RENDER, EXPOSE_RENDER };
     static constexpr auto render_color_mode_v = std::array
     { xproperty::settings::enum_item("Normal",       render_color_mode::NORMAL_RENDER)
     , xproperty::settings::enum_item("LOD",          render_color_mode::LOD_RENDER)
     , xproperty::settings::enum_item("Active Layer", render_color_mode::ACTIVE_LAYER_RENDER)
+    , xproperty::settings::enum_item("Exposed",      render_color_mode::EXPOSE_RENDER)
     };
 
     //---------------------------------------------------------------------------
@@ -1502,13 +1528,32 @@ namespace e23
         return float(Weights[iBone].m_Mask) / 65535.0f; // inverse of BuildMasks' std::lround(W * 65535.0f)
     }
 
-    // Centralizes what used to be duplicated at every BaseColor call site: mask-weight coloring wins
-    // over LOD coloring when both are somehow active, and either wins over the caller's own
-    // type-based default (virtual/twist/normal/root).
-    std::uint32_t ResolveBoneColor(const xskeleton::skeleton& Skeleton, int iBone, bool bColorByLOD, int MaskGroupIdx, std::uint32_t DefaultColor)
+    //---------------------------------------------------------------------------
+    // "Exposed" view option - a plain binary highlight for whichever bones are marked as sockets
+    // (xskeleton_desc::bone::m_bExpose, baked into bone_flags::SOCKET) - no gradient needed since
+    // exposure isn't a continuous quantity like LOD or mask weight.
+    //---------------------------------------------------------------------------
+
+    std::uint32_t ExposeColor(bool bExposed)
     {
-        if (MaskGroupIdx >= 0) return MaskWeightColor(GetBoneMaskWeight(Skeleton, MaskGroupIdx, iBone));
-        if (bColorByLOD)       return LODColor(GetBoneLODLevel(Skeleton, iBone));
+        constexpr std::uint32_t Unexposed = IM_COL32( 70,  70,  70, 255); // same dim "uncolored" gray MaskWeightColor's weight-0 end uses
+        constexpr std::uint32_t Exposed   = IM_COL32(255, 140,  20, 255); // vivid orange - LOD1 moved off orange onto yellow, freeing it up, and it's nowhere near m_SelectedColor's magenta or mask-weight's cyan
+        return bExposed ? Exposed : Unexposed;
+    }
+
+    // Centralizes what used to be duplicated at every BaseColor call site: mask-weight/expose/LOD
+    // coloring (in that priority order, though in practice the caller only ever has one active at a
+    // time - see render_color_mode) wins over the caller's own type-based default
+    // (virtual/twist/normal/root).
+    std::uint32_t ResolveBoneColor(const xskeleton::skeleton& Skeleton, int iBone, render_color_mode Mode, int MaskGroupIdx, std::uint32_t DefaultColor)
+    {
+        if (MaskGroupIdx >= 0)                            return MaskWeightColor(GetBoneMaskWeight(Skeleton, MaskGroupIdx, iBone));
+        if (Mode == render_color_mode::EXPOSE_RENDER)
+        {
+            const auto Bones = Skeleton.getBones();
+            return ExposeColor(iBone >= 0 && iBone < int(Bones.size()) && Bones[iBone].m_Flags.m_bSocket);
+        }
+        if (Mode == render_color_mode::LOD_RENDER)        return LODColor(GetBoneLODLevel(Skeleton, iBone));
         return DefaultColor;
     }
 
@@ -1575,7 +1620,7 @@ namespace e23
         Circle(Frame.m_Forward, Frame.m_Right);
     }
 
-    void BuildWedgeGeometry(const xskeleton::skeleton& Skeleton, const std::vector<bone_world>& World, const std::vector<bool>& IsTwistBone, const wedge_style& Style, const std::set<int>& SelectedBones, float OverallRadius, bool bColorByLOD, int MaskGroupIdx, int HoveredBone, std::vector<e19::draw_vert>& Verts)
+    void BuildWedgeGeometry(const xskeleton::skeleton& Skeleton, const std::vector<bone_world>& World, const std::vector<bool>& IsTwistBone, const wedge_style& Style, const std::set<int>& SelectedBones, float OverallRadius, render_color_mode Mode, int MaskGroupIdx, int HoveredBone, std::vector<e19::draw_vert>& Verts)
     {
         Verts.clear();
 
@@ -1602,7 +1647,7 @@ namespace e23
             const bool          bVirtual   = Bones[i].m_Flags.m_bVirtual;
             const bool          bTwist     = i < int(IsTwistBone.size()) && IsTwistBone[i];
             const bool          bDashed    = (bVirtual || bTwist) && !bSelected;
-            const std::uint32_t BaseColor  = ResolveBoneColor(Skeleton, i, bColorByLOD, MaskGroupIdx
+            const std::uint32_t BaseColor  = ResolveBoneColor(Skeleton, i, Mode, MaskGroupIdx
                                             , bVirtual ? Style.m_VirtualColor : bTwist ? Style.m_TwistColor : Style.m_NormalColor);
             // See m_VirtualLineBoost's own comment - virtual bones have no fill to lean on, so their
             // outline needs a permanent brightness boost or they read as dim/muddy at rest.
@@ -1643,7 +1688,7 @@ namespace e23
             sphere_frame Frame;
             if (!ComputeOrthoFrame(World[i].m_Right, World[i].m_Up, Frame)) continue;
 
-            const std::uint32_t RootColor = ResolveBoneColor(Skeleton, i, bColorByLOD, MaskGroupIdx, Style.m_RootColor);
+            const std::uint32_t RootColor = ResolveBoneColor(Skeleton, i, Mode, MaskGroupIdx, Style.m_RootColor);
             BuildRootSphereWireframe(World[i].m_Position, Frame, RootSphereRadius(Skeleton, World, i, OverallRadius), bSelected, bHovered, Style, RootColor, Verts);
         }
     }
@@ -1704,7 +1749,7 @@ namespace e23
         float   m_CameraDist;
     };
 
-    void BuildWedgeFillGeometry(const xskeleton::skeleton& Skeleton, const std::vector<bone_world>& World, const std::vector<bool>& IsTwistBone, const wedge_style& Style, const std::set<int>& SelectedBones, float OverallRadius, bool bColorByLOD, int MaskGroupIdx, int HoveredBone, std::vector<e19::draw_vert>& Verts)
+    void BuildWedgeFillGeometry(const xskeleton::skeleton& Skeleton, const std::vector<bone_world>& World, const std::vector<bool>& IsTwistBone, const wedge_style& Style, const std::set<int>& SelectedBones, float OverallRadius, render_color_mode Mode, int MaskGroupIdx, int HoveredBone, std::vector<e19::draw_vert>& Verts)
     {
         Verts.clear();
 
@@ -1756,7 +1801,7 @@ namespace e23
                 if (!ComputeOrthoFrame(World[E.m_iBone].m_Right, World[E.m_iBone].m_Up, Frame)) continue;
 
                 const float ThisAlpha = FillAlphaScale;
-                const std::uint32_t RootBaseColor = ResolveBoneColor(Skeleton, E.m_iBone, bColorByLOD, MaskGroupIdx, Style.m_RootColor);
+                const std::uint32_t RootBaseColor = ResolveBoneColor(Skeleton, E.m_iBone, Mode, MaskGroupIdx, Style.m_RootColor);
                 const auto  TintAt    = [&](const xmath::fvec3& P) -> std::uint32_t
                 {
                     const std::uint32_t C = VertexColor(Style, P, bSelected, bHovered, RootBaseColor);
@@ -1803,7 +1848,7 @@ namespace e23
             if (!ComputeWedgeShape(A, B, World[E.m_iBone].m_Right, World[E.m_iBone].m_Up, Shape)) continue;
 
             const float ThisAlpha = FillAlphaScale;
-            const std::uint32_t WedgeBaseColor = ResolveBoneColor(Skeleton, E.m_iBone, bColorByLOD, MaskGroupIdx, Style.m_NormalColor);
+            const std::uint32_t WedgeBaseColor = ResolveBoneColor(Skeleton, E.m_iBone, Mode, MaskGroupIdx, Style.m_NormalColor);
             const auto  TintAt    = [&](const xmath::fvec3& P) -> std::uint32_t
             {
                 const std::uint32_t C = VertexColor(Style, P, bSelected, bHovered, WedgeBaseColor);
@@ -2159,8 +2204,7 @@ namespace e23
         const int  nBones = int(Bones.size());
         if (nBones == 0 || int(BoneWorld.size()) != nBones) return;
 
-        const bool bColorByLOD = State.m_RenderColorMode == render_color_mode::LOD_RENDER;
-        const int  MaskGroupIdx = (State.m_RenderColorMode == render_color_mode::ACTIVE_LAYER_RENDER && !State.m_ActiveMaskGroupName.empty())
+        const int MaskGroupIdx = (State.m_RenderColorMode == render_color_mode::ACTIVE_LAYER_RENDER && !State.m_ActiveMaskGroupName.empty())
                                 ? Skeleton.findMaskGroupIndex(xstrtool::CRC32(State.m_ActiveMaskGroupName)) : -1;
 
         const float VpX = float(Viewport.m_Min.m_X);
@@ -2203,8 +2247,8 @@ namespace e23
 
             L.m_Text = GetEffectiveBoneName(State, Skeleton, i);
             if (bSelected)      { L.m_FontSize = 20.0f; L.m_Alpha = 1.00f; L.m_EdgeColor = IM_COL32(255, 255, 255, 255); }
-            else if (bVirtual)  { L.m_FontSize = 16.0f; L.m_Alpha = 0.85f; L.m_EdgeColor = ResolveBoneColor(Skeleton, i, bColorByLOD, MaskGroupIdx, IM_COL32(255, 180, 84, 255)); }
-            else                { L.m_FontSize = 14.0f; L.m_Alpha = 0.55f; L.m_EdgeColor = ResolveBoneColor(Skeleton, i, bColorByLOD, MaskGroupIdx, IM_COL32(120, 150, 170, 255)); }
+            else if (bVirtual)  { L.m_FontSize = 16.0f; L.m_Alpha = 0.85f; L.m_EdgeColor = ResolveBoneColor(Skeleton, i, State.m_RenderColorMode, MaskGroupIdx, IM_COL32(255, 180, 84, 255)); }
+            else                { L.m_FontSize = 14.0f; L.m_Alpha = 0.55f; L.m_EdgeColor = ResolveBoneColor(Skeleton, i, State.m_RenderColorMode, MaskGroupIdx, IM_COL32(120, 150, 170, 255)); }
 
             Labels.push_back(std::move(L));
         }
@@ -2374,7 +2418,7 @@ int E23_Example()
 {
     // Create Vulkan instance
     xgpu::instance Instance;
-    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = e23::Debugger }); Err)
+    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = e23::Debugger, .m_pLogWarning = e23::Debugger }); Err)
         return xgpu::getErrorInt(Err);
 
     // Create device
@@ -2393,8 +2437,7 @@ int E23_Example()
     xresource::g_Mgr.Initiallize(20000);
 
     //
-    // Default (white, 1x1) texture. Used by the 2D background AND as the sampler for the grid's
-    // (unused, no producer in this viewer) shadow input and for the wedge outline pipeline.
+    // Default (white, 1x1) texture. Used by the 2D background and the wedge outline pipeline.
     //
     xrsc::texture_ref DefaultTextureRef = e23::CreateBackgroundTexture(Device, xbitmap::getDefaultBitmap());
     xgpu::texture*    pDefaultTexture   = xresource::g_Mgr.getResource(DefaultTextureRef);
@@ -2437,19 +2480,103 @@ int E23_Example()
     }
 
     //
-    // Grid pipeline - E21's ground grid, kept as-is for spatial context. The shader still expects
-    // a "shadow map" sampler and projection; since this viewer has no shadow pass, the sampler is
-    // bound to the default white texture and the projection is rigged (see g_DisabledShadowL2C
-    // below) so the shader's ShadowPCF() always resolves to "fully lit".
+    // Shadow map - a depth-only render pass from a fixed light's point of view, same technique as
+    // E15_Shadowmap/E21_StaticGeomEditor (see those files' own comments): the solid wedge-fill (bone)
+    // geometry is the shadow caster, and the ground grid below (E21_GridShader_frag.glsl, already
+    // linked in for spatial context) is the only receiver - it already carries the sampling/PCF code,
+    // previously fed a rigged "always fully lit" matrix since this viewer had no real shadow pass.
     //
-    struct grid_push_constants
+    xgpu::renderpass ShadowRenderPass;
+    xgpu::texture    ShadowMapTexture;
+    {
+        if (auto Err = Device.Create(ShadowMapTexture, { .m_Format = xgpu::texture::format::DEPTH_U16, .m_Width = 1024, .m_Height = 1024, .m_isGamma = false }); Err)
+            return xgpu::getErrorInt(Err);
+
+        std::array<xgpu::renderpass::attachment, 1> Attachments{ ShadowMapTexture };
+        if (auto Err = Device.Create(ShadowRenderPass, { .m_Attachments = Attachments }); Err)
+            return xgpu::getErrorInt(Err);
+    }
+
+    xgpu::pipeline_instance ShadowGenerationPipelineInstance;
+    {
+        xgpu::shader VertexShader;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type   = xgpu::shader::type::bit::VERTEX
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e23::g_ShadowGenerationVertShader, sizeof(e23::g_ShadowGenerationVertShader) / sizeof(int)}}
+            };
+            if (auto Err = Device.Create(VertexShader, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        xgpu::shader FragShader;
+        {
+            xgpu::shader::setup Setup
+            { .m_Type   = xgpu::shader::type::bit::FRAGMENT
+            , .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e23::g_ShadowGenerationFragShader, sizeof(e23::g_ShadowGenerationFragShader) / sizeof(int)}}
+            };
+            if (auto Err = Device.Create(FragShader, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        // Position-only - the shadow pass only ever writes depth (see the empty fragment shader),
+        // so UV/color from e19::draw_vert are irrelevant here, just skipped over via m_VertexSize.
+        xgpu::vertex_descriptor ShadowGenerationVertexDescriptor;
+        {
+            auto Attributes = std::array
+            { xgpu::vertex_descriptor::attribute{ .m_Offset = offsetof(e19::draw_vert, m_X), .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D }
+            };
+            auto Setup = xgpu::vertex_descriptor::setup{ .m_VertexSize = sizeof(e19::draw_vert), .m_Attributes = Attributes };
+            if (auto Err = Device.Create(ShadowGenerationVertexDescriptor, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        auto Shaders = std::array<const xgpu::shader*, 2>{ &VertexShader, &FragShader };
+        auto Setup   = xgpu::pipeline::setup
+        { .m_VertexDescriptor  = ShadowGenerationVertexDescriptor
+        , .m_Shaders           = Shaders
+        , .m_PushConstantsSize = sizeof(e23::shadow_generation_push_constants)
+        // Depth bias/clamp (E15/E21's exact values) - avoids shadow-acne self-shadowing artifacts
+        // from the caster and receiver geometry sitting at effectively the same depth.
+        , .m_DepthStencil      = { .m_DepthBiasConstantFactor = 1.25f
+                                 , .m_DepthBiasSlopeFactor    = 2.3f
+                                 , .m_bDepthBiasEnable        = true
+                                 , .m_bDepthClampEnable       = true
+                                 }
+        };
+
+        xgpu::pipeline ShadowGenerationPipeline;
+        if (auto Err = Device.Create(ShadowGenerationPipeline, Setup); Err)
+            return xgpu::getErrorInt(Err);
+
+        if (auto Err = Device.Create(ShadowGenerationPipelineInstance, { .m_PipeLine = ShadowGenerationPipeline }); Err)
+            return xgpu::getErrorInt(Err);
+    }
+
+    //
+    // Grid pipeline - E21's ground grid, kept as-is for spatial context, now fed a real shadow map
+    // (see ShadowMapTexture above) instead of the previous always-fully-lit rig.
+    //
+    // This block's GLSL declaration (layout(set=2, binding=0) uniform Uniforms {...}) is a real
+    // UNIFORM BLOCK, not a push-constant range - E21_StaticGeom_Editor.cpp (this shader's other,
+    // working, user) feeds it through a genuine dynamic UBO (its own grid_uniform + GridDynamicUBO +
+    // setDynamicUBO), never push constants. E23 was using .setPushConstants() for this same
+    // declaration instead - the two xGPU mechanisms aren't interchangeable for a block this size,
+    // and doing so silently corrupted everything read past a certain point in the block (verified by
+    // bisecting Grid() itself: the corruption always started exactly where MajorGridDiv - the LAST
+    // field - first got used). Matching E21's approach exactly, including its alignas(256).
+    struct alignas(256) grid_uniform
     {
         xmath::fmat4    m_L2W;
         xmath::fmat4    m_W2C;
         xmath::fmat4    m_L2CTShadow;
-        xmath::fvec3d   m_WorldSpaceCameraPos = xmath::fvec3(0.0f, 10.0f, 0.0f);
+        xmath::fvec3    m_WorldSpaceCameraPos = xmath::fvec3(0.0f, 10.0f, 0.0f);
         float           m_MajorGridDiv = 10.0f;
     };
+
+    xgpu::buffer GridDynamicUBO;
+    if (auto Err = Device.Create(GridDynamicUBO, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(grid_uniform), .m_EntryCount = 10 }); Err)
+        return xgpu::getErrorInt(Err);
 
     xgpu::pipeline          Grid3dMaterial;
     xgpu::pipeline_instance Grid3dMaterialInstance;
@@ -2474,20 +2601,27 @@ int E23_Example()
                 return xgpu::getErrorInt(Err);
         }
 
+        auto UBuffersUsage = std::array{ xgpu::pipeline::uniform_binds{ .m_BindIndex = 0, .m_Usage = { .m_bVertex = true, .m_bFragment = true }, .m_Type = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC } };
         auto Samplers = std::array{ xgpu::pipeline::sampler{.m_AddressMode = std::array{ xgpu::pipeline::sampler::address_mode::CLAMP, xgpu::pipeline::sampler::address_mode::CLAMP, xgpu::pipeline::sampler::address_mode::CLAMP}} };
         auto Shaders  = std::array<const xgpu::shader*, 2>{ &FragShader, &VertexShader };
         auto Setup    = xgpu::pipeline::setup
         { .m_VertexDescriptor   = Primitive3DVertexDescriptor
         , .m_Shaders            = Shaders
-        , .m_PushConstantsSize  = sizeof(grid_push_constants)
+        , .m_UniformBinds       = UBuffersUsage
         , .m_Samplers           = Samplers
+        // The grid quad's winding reads as back-facing under this callback's viewport convention
+        // (AddCustomRenderCallback uses a positive-height viewport, unlike E21's direct-to-swapchain
+        // rendering) - the engine's default BACK cull mode was silently discarding every fragment.
+        // A ground plane looks identical from both sides anyway, so disabling culling entirely is
+        // simpler and more robust than chasing the exact winding order.
+        , .m_Primitive          = { .m_Cull = xgpu::pipeline::primitive::cull::NONE }
         , .m_Blend              = xgpu::pipeline::blend::getAlphaOriginal()
         };
 
         if (auto Err = Device.Create(Grid3dMaterial, Setup); Err)
             return xgpu::getErrorInt(Err);
 
-        auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{*pDefaultTexture} };
+        auto Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{ShadowMapTexture} };
         auto InstSetup = xgpu::pipeline_instance::setup{ .m_PipeLine = Grid3dMaterial, .m_SamplersBindings = Bindings };
         if (auto Err = Device.Create(Grid3dMaterialInstance, InstSetup); Err)
             return xgpu::getErrorInt(Err);
@@ -2568,7 +2702,15 @@ int E23_Example()
                 return xgpu::getErrorInt(Err);
         }
 
-        auto Samplers = std::array{ xgpu::pipeline::sampler{} };
+        // Binding 0 = uSamplerColor (plain default-texture sampler, unchanged), binding 1 =
+        // SamplerShadowMap - CLAMP addressing like the grid's own shadow sampler, so anything
+        // outside the shadow frustum clamps to an edge texel rather than wrapping/repeating (the
+        // ShadowPCF XY bounds check below is what actually excludes it from shadowing, this just
+        // keeps the raw sample well-defined).
+        auto Samplers = std::array
+        { xgpu::pipeline::sampler{}
+        , xgpu::pipeline::sampler{.m_AddressMode = std::array{ xgpu::pipeline::sampler::address_mode::CLAMP, xgpu::pipeline::sampler::address_mode::CLAMP, xgpu::pipeline::sampler::address_mode::CLAMP}}
+        };
         auto Shaders  = std::array<const xgpu::shader*, 2>{ &FragShader, &VertexShader };
         auto Setup    = xgpu::pipeline::setup
         { .m_VertexDescriptor   = Primitive3DVertexDescriptor
@@ -2585,7 +2727,7 @@ int E23_Example()
         if (auto Err = Device.Create(WedgeFillPipeline, Setup); Err)
             return xgpu::getErrorInt(Err);
 
-        auto Bindings  = std::array{ xgpu::pipeline_instance::sampler_binding{*pDefaultTexture} };
+        auto Bindings  = std::array{ xgpu::pipeline_instance::sampler_binding{*pDefaultTexture}, xgpu::pipeline_instance::sampler_binding{ShadowMapTexture} };
         auto InstSetup = xgpu::pipeline_instance::setup{ .m_PipeLine = WedgeFillPipeline, .m_SamplersBindings = Bindings };
         if (auto Err = Device.Create(WedgeFillPipelineInstance, InstSetup); Err)
             return xgpu::getErrorInt(Err);
@@ -2877,14 +3019,23 @@ int E23_Example()
     Instance.Create(Mouse, {});
     Instance.Create(Keyboard, {});
 
-    // Rigged shadow projection: every world position maps to (0,0,2,1) - z=2 is outside the
-    // shader's [-1,1] shadow range, so ShadowPCF() always resolves to "fully lit" (Shadow = 1.0).
-    const xmath::fmat4 g_DisabledShadowL2C = []
+    //
+    // The shadow-casting light's own "camera" - fixed direction (not tied to the user's camera), so
+    // the shadow on the grid reads as a stable depth cue instead of swinging/flattening as they
+    // orbit. Distance/target are refit to the skeleton's current bounding sphere every frame in the
+    // main loop, the same way View itself gets reframed.
+    //
+    xgpu::tools::view LightingView = {};
+    LightingView.setFov(50_xdeg);
+    LightingView.setViewport({ 0, 0, ShadowMapTexture.getTextureDimensions()[0], ShadowMapTexture.getTextureDimensions()[1] });
+
+    // Clip-space-to-texture-space bias (scale/translate by 0.5) - the standard shadow-map remap,
+    // same matrix E15_Shadowmap/E21_StaticGeomEditor compute before feeding a shadow matrix into
+    // their own grid/mesh shaders.
+    const xmath::fmat4 g_ClipToTextureSpace = []
     {
         xmath::fmat4 M;
-        M.setupZero();
-        M(2, 3) = 2.0f;
-        M(3, 3) = 1.0f;
+        M.setupSRT({ 0.5f, 0.5f, 1.0f }, { 0_xdeg }, { 0.5f, 0.5f, 0.0f });
         return M;
     }();
 
@@ -3026,11 +3177,10 @@ int E23_Example()
                 // HoveredBone here is last frame's hover result (this frame's hover-pick block runs
                 // further down) - a one-frame lag on the highlight, imperceptible and consistent with
                 // every other bit of latency this hover mechanism already accepts.
-                const bool bColorByLOD = SkeletonState.m_RenderColorMode == e23::render_color_mode::LOD_RENDER;
-                const int  MaskGroupIdx = (SkeletonState.m_RenderColorMode == e23::render_color_mode::ACTIVE_LAYER_RENDER && !SkeletonState.m_ActiveMaskGroupName.empty())
+                const int MaskGroupIdx = (SkeletonState.m_RenderColorMode == e23::render_color_mode::ACTIVE_LAYER_RENDER && !SkeletonState.m_ActiveMaskGroupName.empty())
                                        ? pSkeleton->findMaskGroupIndex(xstrtool::CRC32(SkeletonState.m_ActiveMaskGroupName)) : -1;
-                e23::BuildWedgeGeometry(*pSkeleton, ScaledBoneWorld, SkeletonState.m_bIsTwistBone, Style, SkeletonState.m_SelectedBones, EffRadius, bColorByLOD, MaskGroupIdx, HoveredBone, WedgeVerts);
-                e23::BuildWedgeFillGeometry(*pSkeleton, ScaledBoneWorld, SkeletonState.m_bIsTwistBone, Style, SkeletonState.m_SelectedBones, EffRadius, bColorByLOD, MaskGroupIdx, HoveredBone, WedgeFillVerts);
+                e23::BuildWedgeGeometry(*pSkeleton, ScaledBoneWorld, SkeletonState.m_bIsTwistBone, Style, SkeletonState.m_SelectedBones, EffRadius, SkeletonState.m_RenderColorMode, MaskGroupIdx, HoveredBone, WedgeVerts);
+                e23::BuildWedgeFillGeometry(*pSkeleton, ScaledBoneWorld, SkeletonState.m_bIsTwistBone, Style, SkeletonState.m_SelectedBones, EffRadius, SkeletonState.m_RenderColorMode, MaskGroupIdx, HoveredBone, WedgeFillVerts);
 
                 if (!WedgeFillVerts.empty())
                 {
@@ -3045,6 +3195,54 @@ int E23_Example()
                     {
                         std::memcpy(pData, WedgeVerts.data(), WedgeVerts.size() * sizeof(e19::draw_vert));
                     });
+                }
+
+                //
+                // Shadow pass - casts the solid wedge-fill (bone) geometry onto the grid. Virtual/
+                // twist bones have no fill at all (see BuildWedgeFillGeometry), so they never cast a
+                // shadow either - nothing extra needed here for that. A fixed light direction/pitch,
+                // refit to the skeleton's current bounding sphere every frame (same "distance that
+                // keeps the subject framed regardless of scale" logic View itself uses just above).
+                // Runs as its own standalone render pass, entirely separate from the ImGui-driven
+                // main pass below (see E21_StaticGeom_Editor.cpp's identical placement/reasoning).
+                //
+                xmath::fmat4 ShadowGenerationL2C;
+                {
+                    const float LightVerticalFov = LightingView.getFov().m_Value;
+                    const float LightAspect      = LightingView.getAspect();
+                    const float LightHFov        = 2.0f * std::atan(LightAspect * std::tan(LightVerticalFov * 0.5f));
+                    const float LightMinFov      = std::min(LightVerticalFov, LightHFov);
+                    const float LightDistance    = (EffRadius + 0.01f) / std::tan(LightMinFov * 0.5f);
+
+                    // Near must stay PROPORTIONAL to LightDistance, not a fixed absolute floor - with
+                    // this FOV, LightDistance - EffRadius*4 is always negative (LightDistance is only
+                    // ~2.14x EffRadius, so it's clamped to whatever floor is given every time), which
+                    // pins Near to a tiny constant while Far keeps scaling up with EffRadius. That
+                    // blows up the near:far ratio for anything bigger than a ~1-unit-radius skeleton,
+                    // collapsing depth precision so badly that every fragment - near or far - reads
+                    // back essentially the same saturated depth (a uniformly "yellow" diagnostic, or
+                    // a uniformly-shadowed/black grid without the diagnostic). Keeping Near a fixed
+                    // fraction of LightDistance instead bounds that ratio regardless of scale.
+                    LightingView.setNearZ(LightDistance * 0.1f);
+                    LightingView.setFarZ(LightDistance + EffRadius * 4.0f);
+                    LightingView.LookAt(LightDistance, xmath::radian3(-50_xdeg, 35_xdeg, 0_xdeg), EffCenter);
+                    ShadowGenerationL2C = LightingView.getW2C();
+
+                    if (!WedgeFillVerts.empty())
+                    {
+                        auto CmdBuffer = MainWindow.StartRenderPass(ShadowRenderPass);
+                        CmdBuffer.setPipelineInstance(ShadowGenerationPipelineInstance);
+                        // Draw() always maps to an indexed draw in this engine (see every other draw
+                        // call in this file) - an index buffer MUST be bound even though this pass
+                        // never actually varies per-index. Omitting it isn't just "harmlessly ignored",
+                        // it's a genuine Vulkan validation error (vkCmdDrawIndexed with no index buffer
+                        // bound) - undefined GPU behavior that was corrupting state for the REST of the
+                        // frame, including the grid's own push constants/uniforms drawn right after.
+                        CmdBuffer.setBuffer(WedgeIndexBuffer);
+                        CmdBuffer.setBuffer(WedgeFillVertexBuffer);
+                        CmdBuffer.setPushConstants(e23::shadow_generation_push_constants{ .m_L2C = ShadowGenerationL2C });
+                        CmdBuffer.Draw(static_cast<int>(WedgeFillVerts.size()));
+                    }
                 }
 
                 //
@@ -3225,24 +3423,32 @@ int E23_Example()
                 // the same contested depth.
                 const bool bDrawHoverPickThisFrameFinal = bDrawHoverPickThisFrame && !bDrawPickThisFrame;
 
-                xgpu::tools::imgui::AddCustomRenderCallback([&, nWedgeFillVerts, nWedgeVerts, W2C, bDrawPickThisFrame, PickScissorMousePos, bDrawHoverPickThisFrame = bDrawHoverPickThisFrameFinal, HoverScissorMousePos, EffRadius, EffCenter, bDebugHideFills](xgpu::cmd_buffer& CmdBuffer, const ImVec2&, const ImVec2&)
+                xgpu::tools::imgui::AddCustomRenderCallback([&, nWedgeFillVerts, nWedgeVerts, W2C, bDrawPickThisFrame, PickScissorMousePos, bDrawHoverPickThisFrame = bDrawHoverPickThisFrameFinal, HoverScissorMousePos, EffRadius, EffCenter, bDebugHideFills, ShadowGenerationL2C](xgpu::cmd_buffer& CmdBuffer, const ImVec2&, const ImVec2&)
                 {
                     //
                     // Ground grid, for spatial context
                     //
                     {
                         CmdBuffer.setPipelineInstance(Grid3dMaterialInstance);
-                        grid_push_constants Push;
-                        Push.m_WorldSpaceCameraPos = View.getPosition();
+                        auto& Uniform = GridDynamicUBO.allocEntry<grid_uniform>();
+                        Uniform.m_WorldSpaceCameraPos = View.getPosition();
                         // Fixed at world (0,0,0) - this grid's whole purpose is to show the user where
                         // true zero is, which it can't do if it tracks the skeleton's own computed
                         // center/radius (that just makes it look plausible while hiding any actual
                         // world-space offset the skeleton has - e.g. from PreTransform - since the
                         // grid always slides right back under wherever the skeleton ends up).
-                        Push.m_L2W        = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, 0, 0));
-                        Push.m_W2C        = W2C;
-                        Push.m_L2CTShadow = g_DisabledShadowL2C;
-                        CmdBuffer.setPushConstants(Push);
+                        Uniform.m_L2W        = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, 0, 0));
+                        Uniform.m_W2C        = W2C;
+                        // The shader samples this in the grid's OWN local space (before L2W - see
+                        // E21_GridShader_vert.glsl's outShadowPos), so L2W has to be folded in here,
+                        // same as E21_StaticGeom_Editor.cpp's identical per-object computation.
+                        Uniform.m_L2CTShadow = g_ClipToTextureSpace * ShadowGenerationL2C * Uniform.m_L2W;
+                        // Explicit rather than relying on the in-class default member initializer -
+                        // allocEntry() returns a reference into mapped GPU memory, and it's worth not
+                        // assuming that construction path runs in-class initializers the same way a
+                        // plain stack variable would.
+                        Uniform.m_MajorGridDiv = 10.0f;
+                        CmdBuffer.setDynamicUBO(GridDynamicUBO, 0);
                         MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE3D);
                     }
 
@@ -3267,7 +3473,9 @@ int E23_Example()
                         CmdBuffer.setPipelineInstance(WedgeFillPipelineInstance);
                         CmdBuffer.setBuffer(WedgeIndexBuffer);
                         CmdBuffer.setBuffer(WedgeFillVertexBuffer);
-                        CmdBuffer.setPushConstants(e23::wedge_fill_push_constants{ .m_L2C = W2C, .m_Boost = e23::g_WedgeFillBoost });
+                        // No L2W to fold in here (unlike the grid's identical-looking push constant) -
+                        // wedge verts are already baked in world space, see BuildWedgeFillGeometry.
+                        CmdBuffer.setPushConstants(e23::wedge_fill_push_constants{ .m_L2C = W2C, .m_ShadowL2C = g_ClipToTextureSpace * ShadowGenerationL2C, .m_Boost = e23::g_WedgeFillBoost });
                         CmdBuffer.Draw(static_cast<int>(nWedgeFillVerts));
                     }
 

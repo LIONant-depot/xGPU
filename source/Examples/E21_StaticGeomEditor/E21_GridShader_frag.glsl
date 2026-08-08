@@ -199,7 +199,7 @@ vec4 Grid()
     float aa = 0.5 * (lenX + lenY);
 
     // X axis arrows and lines
-    mat2 rot_neg_x = mat2(-1.0, 0.0, 0.0, -1.0); // 180°
+    mat2 rot_neg_x = mat2(-1.0, 0.0, 0.0, -1.0); // 180ï¿½
     float cell_x = round(inUV.x / ArrowSpacing);
     if (cell_x >= 0.0)
     {
@@ -263,7 +263,16 @@ float SampleShadowTexture(in const vec4 Coord, in const vec2 off)
 float ShadowPCF(in const vec4 UVProjection)
 {
     float Shadow = 1.0;
-    if (UVProjection.z > -1.0 && UVProjection.z < 1.0)
+    // Z alone isn't enough to reject "outside the light's frustum" - a point far off to the side
+    // (or behind the light, see main()'s w>0 guard) can still land in [-1,1] depth range while its
+    // XY is nowhere near [0,1]. Without this, CLAMP addressing just samples the shadow map's edge
+    // texel over and over for anything past the frustum's edge, and since that sampled Z stays fixed
+    // while the fragment's own Z keeps changing, the comparison flips in and out of shadow at regular
+    // intervals - a repeating band pattern receding into the distance on any surface (like a large
+    // ground grid) that extends well past what the shadow map actually covers.
+    if (UVProjection.z > -1.0 && UVProjection.z < 1.0
+     && UVProjection.x > 0.0 && UVProjection.x < 1.0
+     && UVProjection.y > 0.0 && UVProjection.y < 1.0)
     {
         const float scale = 1.5;
         const vec2  TexelSize = scale / textureSize(SamplerShadowMap, 0);
@@ -288,7 +297,11 @@ float ShadowPCF(in const vec4 UVProjection)
 void main()
 {
     const vec4  DiffuseColor    = Grid();
-    const float Shadow          = ShadowPCF(inShadowPos / inShadowPos.w);
+    // w must be checked BEFORE the divide, not after (SampleShadowTexture's own Coord.w>0.0 check
+    // runs on the already-normalized Coord.w, which is always 1.0 post-divide regardless of the
+    // original sign) - otherwise a point behind the light (negative w) still gets divided, flipping
+    // its projected sign, and can land back inside the now-"valid" XY/Z range as pure noise.
+    const float Shadow          = (inShadowPos.w > 0.0) ? ShadowPCF(inShadowPos / inShadowPos.w) : 1.0;
     const float t               = 0.3;
     const vec3  FinalColor      = (DiffuseColor.xyz - DiffuseColor.xyz * t) * Shadow + DiffuseColor.xyz * t;
 
@@ -492,7 +505,7 @@ void main() {
     float aa = 0.5 * (lenX + lenY);
 
     // X axis arrows and lines
-    mat2 rot_neg_x = mat2(-1.0, 0.0, 0.0, -1.0); // 180°
+    mat2 rot_neg_x = mat2(-1.0, 0.0, 0.0, -1.0); // 180ï¿½
     float cell_x = round(inUV.x / ArrowSpacing );
     if (cell_x >= 0)
     {
