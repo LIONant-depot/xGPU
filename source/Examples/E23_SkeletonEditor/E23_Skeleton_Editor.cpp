@@ -212,6 +212,16 @@ namespace e23
     // propagating from the nearest ancestor that has one.
     enum class pose_mode { FROZEN, BIND };
 
+    // What determines each bone's viewport/label color - a single choice rather than two
+    // independent booleans, since NORMAL/LOD/mask-weight coloring are mutually exclusive by nature
+    // (a bone only has one outline color on screen at a time).
+    enum class render_color_mode : std::uint8_t { NORMAL_RENDER, LOD_RENDER, ACTIVE_LAYER_RENDER };
+    static constexpr auto render_color_mode_v = std::array
+    { xproperty::settings::enum_item("Normal",       render_color_mode::NORMAL_RENDER)
+    , xproperty::settings::enum_item("LOD",          render_color_mode::LOD_RENDER)
+    , xproperty::settings::enum_item("Active Layer", render_color_mode::ACTIVE_LAYER_RENDER)
+    };
+
     //---------------------------------------------------------------------------
 
     struct skeleton_state
@@ -221,6 +231,7 @@ namespace e23
         xresource::full_guid                               m_InfoGUID      = {};
         std::wstring                                       m_DescriptorPath= {};
         xskeleton_desc::descriptor                          m_Descriptor    = {}; // backs the "Skeleton Properties" inspector - see LoadSkeleton
+        xskeleton_desc::details                             m_Details       = {}; // the true, always-complete imported hierarchy - see LoadSkeleton and RenderBoneTree's own comment for why the tree is built from this, not the compiled resource
         std::unordered_map<std::uint32_t, std::string>     m_BoneNames     = {};
         std::unordered_map<std::uint32_t, std::string>     m_RawBoneNames  = {}; // display-name hash -> raw (pre-strip) import name, see LoadBoneNameMap
         std::vector<bone_world>                            m_BoneWorldFrozen = {};
@@ -238,10 +249,13 @@ namespace e23
         pose_mode                                           m_PoseMode      = pose_mode::FROZEN; // a view preference, not asset state - left alone by clear()
         bool                                                m_bAlwaysShowNames = false;           // view preference - see RenderBoneLabelsAndCollectHits
         bool                                                m_bNormalizeSize   = true;            // view preference - see ViewScale()
-        bool                                                m_bColorByLOD      = false;           // view preference - see LODColor()/GetBoneLODLevel()
+        render_color_mode                                   m_RenderColorMode  = render_color_mode::NORMAL_RENDER; // view preference - see ResolveBoneColor()
+        std::string                                         m_ActiveMaskGroupName = {};            // the "Layer" combo's current selection in the Bone Hierarchy window - empty means None (no weight column shown). Also what ACTIVE_LAYER_RENDER visualizes in the viewport.
 
         // Inline tree rename (double-click a bone's label) - transient UI state, not asset state.
-        int                                                 m_iRenamingBone     = -1;
+        // Keyed by raw bone name, not a compiled index - a deleted/not-yet-compiled bone has no
+        // compiled index at all, and an int sentinel like -1 would collide across every such row.
+        std::string                                         m_RenamingBoneName   = {};
         bool                                                m_bRenameJustStarted = false;
         std::string                                         m_RenameBuf         = {};
 
@@ -276,6 +290,7 @@ namespace e23
             m_InfoGUID.clear();
             m_DescriptorPath.clear();
             m_Descriptor    = {};
+            m_Details       = {};
             m_BoneNames.clear();
             m_RawBoneNames.clear();
             m_BoneWorldFrozen.clear();
@@ -286,7 +301,7 @@ namespace e23
             m_SelectedBones.clear();
             m_iAnchorBone   = -1;
             m_bNeedsReframe = true;
-            m_iRenamingBone = -1;
+            m_RenamingBoneName.clear();
             m_bRenameJustStarted = false;
             m_RenameBuf.clear();
             m_Log           = std::make_shared<e10::compilation::historical_entry::log>(e10::compilation::historical_entry::communication{ .m_Result = e10::compilation::historical_entry::result::SUCCESS });
@@ -319,7 +334,22 @@ namespace e23
           >
         , obj_member<"Always Show Names",     &skeleton_state::m_bAlwaysShowNames >
         , obj_member<"Resize Skeleton to 1m", &skeleton_state::m_bNormalizeSize >
-        , obj_member<"Color by LOD",          &skeleton_state::m_bColorByLOD >
+        // Read-only, only shown while "Resize Skeleton to 1m" is on - the actual multiplier being
+        // applied to the view, i.e. exactly the value to plug into PreTransform/Scale if the user
+        // wants to bake this scale into the asset itself instead of relying on the view-only fix-up.
+        , obj_member<"Scale Applied for 1m", +[](skeleton_state& O, bool bRead, float& Value)
+            {
+                if (bRead) Value = O.ViewScale();
+            }
+          , member_dynamic_flags<+[](const skeleton_state& O)
+            {
+                xproperty::flags::type Flags = {};
+                Flags.m_bDontShow     = !O.m_bNormalizeSize;
+                Flags.m_bShowReadOnly = true;
+                return Flags;
+            }>
+          >
+        , obj_member<"Render Color",          &skeleton_state::m_RenderColorMode, member_enum_span<render_color_mode_v> >
         )
     };
     XPROPERTY_REG(skeleton_state)
@@ -457,6 +487,12 @@ namespace e23
             W.m_Right    = WorldMats[i].Right();
             W.m_Up       = WorldMats[i].Up();
             Center      += W.m_Position;
+
+            if (iParent < 0)
+                printf("[RUNTIME-DIAG] Root RestPose.m_Position=(%.3f,%.3f,%.3f) RestPose.m_Rotation=(%.4f,%.4f,%.4f,%.4f) FK-World.Position=(%.3f,%.3f,%.3f)\n",
+                    Rests[i].m_RestPose.m_Position.m_X, Rests[i].m_RestPose.m_Position.m_Y, Rests[i].m_RestPose.m_Position.m_Z,
+                    Rests[i].m_RestPose.m_Rotation.m_X, Rests[i].m_RestPose.m_Rotation.m_Y, Rests[i].m_RestPose.m_Rotation.m_Z, Rests[i].m_RestPose.m_Rotation.m_W,
+                    W.m_Position.m_X, W.m_Position.m_Y, W.m_Position.m_Z);
         }
 
         // BIND pose: Bones[i].m_InvBindPose.Inverse() where that's real (the compiler actually saw
@@ -541,8 +577,8 @@ namespace e23
 
         if (!State.m_DescriptorPath.empty() && std::filesystem::exists(State.m_DescriptorPath))
         {
-            const auto Details = LoadDetails(State.m_DescriptorPath);
-            LoadBoneNameMap(Details, State.m_DescriptorPath, State.m_BoneNames, State.m_RawBoneNames);
+            State.m_Details = LoadDetails(State.m_DescriptorPath);
+            LoadBoneNameMap(State.m_Details, State.m_DescriptorPath, State.m_BoneNames, State.m_RawBoneNames);
 
             xproperty::settings::context Context;
             if (auto Err = State.m_Descriptor.Serialize(true, State.m_DescriptorPath, Context); Err)
@@ -553,7 +589,7 @@ namespace e23
             // MergeWithDetails does on selection/reload, so "Bone Hierarchy" in the Skeleton
             // Properties inspector shows the whole skeleton immediately, not just whichever bones
             // someone already curated. In-memory only - Compile is what persists it to disk.
-            State.m_Descriptor.MergeWithDetails(Details);
+            State.m_Descriptor.MergeWithDetails(State.m_Details);
         }
 
         State.m_Ref.m_Instance = InfoGUID.m_Instance;
@@ -639,6 +675,17 @@ namespace e23
         return Descriptor.m_RootBone.m_Bones.back();
     }
 
+    // Same shape as FindBoneOverride, but over the read-only imported-hierarchy tree (see
+    // xskeleton_desc::details) instead of the descriptor's override tree - used when a LOD edit on
+    // one bone needs to clamp descendants that may not have an override entry of their own yet.
+    const xskeleton_desc::details::bone* FindDetailsBone(const xskeleton_desc::details::bone& Node, std::string_view Name)
+    {
+        if (Node.m_Name == Name) return &Node;
+        for (auto& Child : Node.m_Children)
+            if (auto* pFound = FindDetailsBone(Child, Name)) return pFound;
+        return nullptr;
+    }
+
     // The name to actually SHOW anywhere in this editor (tree, 3D labels) - the override's m_Rename
     // if the user has renamed this bone, otherwise the imported display name. m_Name itself never
     // changes on rename (see xskeleton_desc::bone::m_Rename's own comment), so overrides keep
@@ -715,12 +762,20 @@ namespace e23
 
     // Bones edited via the checkbox columns or the context menu apply to the WHOLE current
     // selection when the acted-on bone is part of a multi-bone selection (standard "edit one,
-    // apply to all selected" convention) - otherwise just to that one bone.
-    std::vector<int> EditTargets(const skeleton_state& State, int iBone)
+    // apply to all selected" convention) - otherwise just to that one bone. Returns raw names
+    // directly (every caller immediately needed the name anyway) rather than compiled indices -
+    // a deleted/not-yet-compiled row has no compiled index at all, and can never be "in"
+    // m_SelectedBones (selection stays compiled-bones-only), so it always resolves to just itself.
+    std::vector<std::string> EditTargetNames(const skeleton_state& State, const xskeleton::skeleton& Skeleton, int iBone, std::string_view RawName)
     {
-        if (State.m_SelectedBones.count(iBone) && State.m_SelectedBones.size() > 1)
-            return std::vector<int>(State.m_SelectedBones.begin(), State.m_SelectedBones.end());
-        return { iBone };
+        if (iBone != -1 && State.m_SelectedBones.count(iBone) && State.m_SelectedBones.size() > 1)
+        {
+            std::vector<std::string> Names;
+            Names.reserve(State.m_SelectedBones.size());
+            for (int i : State.m_SelectedBones) Names.push_back(GetRawBoneName(State, Skeleton, i));
+            return Names;
+        }
+        return { std::string(RawName) };
     }
 
     // The compiler enforces "a bone's LOD can never be lower than its parent's" and silently
@@ -729,13 +784,74 @@ namespace e23
     // just going to override anyway. Propagates the JUST-CHANGED bone's own (possibly already-
     // clamped) LOD down through its whole subtree, raising any descendant that's currently lower;
     // a descendant already at or above stays untouched, including its own effect on its children.
-    void ClampDescendantLODs(skeleton_state& State, const xskeleton::skeleton& Skeleton, const std::vector<std::vector<int>>& Children, int iBone, int MinLOD)
+    // Walks the Details tree (every imported bone) rather than a compiled-only adjacency list, so
+    // clamping still works on a descendant that's currently deleted/not compiled.
+    void ClampDescendantLODs(skeleton_state& State, const xskeleton_desc::details::bone& DetailNode, int MinLOD)
     {
-        for (int iChild : Children[iBone])
+        for (auto& Child : DetailNode.m_Children)
         {
-            auto& ChildOv = FindOrCreateBoneOverride(State.m_Descriptor, GetRawBoneName(State, Skeleton, iChild));
+            auto& ChildOv = FindOrCreateBoneOverride(State.m_Descriptor, Child.m_Name);
             if (ChildOv.m_LODLevel < MinLOD) ChildOv.m_LODLevel = MinLOD;
-            ClampDescendantLODs(State, Skeleton, Children, iChild, ChildOv.m_LODLevel);
+            ClampDescendantLODs(State, Child, ChildOv.m_LODLevel);
+        }
+    }
+
+    // Unlike ClampDescendantLODs (which only ever raises a descendant that's currently lower),
+    // this forcibly overwrites every descendant's LOD to match exactly - a deliberate bulk-edit
+    // shortcut (e.g. "reset this whole subtree's LODs back to 0") rather than the invariant-
+    // enforcement ClampDescendantLODs exists for.
+    void MatchDescendantLODs(skeleton_state& State, const xskeleton_desc::details::bone& DetailNode, int LOD)
+    {
+        for (auto& Child : DetailNode.m_Children)
+        {
+            FindOrCreateBoneOverride(State.m_Descriptor, Child.m_Name).m_LODLevel = LOD;
+            MatchDescendantLODs(State, Child, LOD);
+        }
+    }
+
+    // Mask groups (xskeleton_desc::mask_group) are sparse by design - a bone with no entry defaults
+    // to weight 0, same convention the compiler's BuildMasks relies on. These three helpers keep that
+    // convention intact from the editing side too: reading a missing entry returns 0, and writing 0
+    // prunes the entry back out rather than letting the descriptor accumulate explicit-zero clutter.
+    xskeleton_desc::mask_entry* FindMaskEntry(xskeleton_desc::mask_group& Group, std::string_view BoneName)
+    {
+        for (auto& E : Group.m_Entries)
+            if (E.m_BoneName == BoneName) return &E;
+        return nullptr;
+    }
+
+    float GetMaskWeight(xskeleton_desc::descriptor& Descriptor, int GroupIdx, std::string_view BoneName)
+    {
+        if (GroupIdx < 0 || GroupIdx >= int(Descriptor.m_MaskGroups.size())) return 0.0f;
+        if (auto* pEntry = FindMaskEntry(Descriptor.m_MaskGroups[GroupIdx], BoneName)) return pEntry->m_Weight;
+        return 0.0f;
+    }
+
+    void SetMaskWeight(xskeleton_desc::descriptor& Descriptor, int GroupIdx, std::string_view BoneName, float Weight)
+    {
+        if (GroupIdx < 0 || GroupIdx >= int(Descriptor.m_MaskGroups.size())) return;
+        auto& Group = Descriptor.m_MaskGroups[GroupIdx];
+        Weight = std::clamp(Weight, 0.0f, 1.0f);
+        if (auto* pEntry = FindMaskEntry(Group, BoneName))
+        {
+            if (Weight <= 0.0f) std::erase_if(Group.m_Entries, [&](const xskeleton_desc::mask_entry& E) { return E.m_BoneName == BoneName; });
+            else                pEntry->m_Weight = Weight;
+        }
+        else if (Weight > 0.0f)
+        {
+            Group.m_Entries.push_back({ std::string(BoneName), Weight });
+        }
+    }
+
+    // Mirrors MatchDescendantLODs - forcibly overwrites every descendant's weight in one mask group
+    // to match exactly (a bulk-edit shortcut, e.g. "make this whole limb fully weighted"), rather
+    // than anything sparse/blended.
+    void MatchDescendantMaskWeights(skeleton_state& State, const xskeleton_desc::details::bone& DetailNode, int GroupIdx, float Weight)
+    {
+        for (auto& Child : DetailNode.m_Children)
+        {
+            SetMaskWeight(State.m_Descriptor, GroupIdx, Child.m_Name, Weight);
+            MatchDescendantMaskWeights(State, Child, GroupIdx, Weight);
         }
     }
 
@@ -748,21 +864,50 @@ namespace e23
         if (ColW > BoxW) ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (ColW - BoxW) * 0.5f);
     }
 
-    void RenderBoneNode(skeleton_state& State, const xskeleton::skeleton& Skeleton, const std::vector<std::vector<int>>& Children, int iBone)
+    // Forward-declared - defined further down, alongside "Color by LOD"'s other helpers, but needed
+    // here too so the tree can show a bone's actual COMPILED LOD tier next to its authored override
+    // (see the "eff." label below) when they disagree, rather than just trusting they always match.
+    int GetBoneLODLevel(const xskeleton::skeleton& Skeleton, int iBone);
+
+    // Driven by the Details tree (see xskeleton_desc::details) - the true, always-complete imported
+    // hierarchy, entirely independent of both the compiled resource and any pending edits. A bone
+    // marked for deletion (or one that's simply never been compiled yet) still gets a full row here,
+    // just with iBone == -1: nothing exists in the compiled resource or the 3D viewport for it, so
+    // selection/highlighting don't apply, but its override (delete/virtual/expose/LOD/rename) is a
+    // plain by-name edit that never needed a compiled index in the first place - this is exactly what
+    // lets a deleted bone be un-deleted after the compile that dropped it from the resource.
+    // HoveredBone/bAnyRowHovered are shared with the 3D viewport's own hover state (see the main
+    // loop) - this is what keeps the tree and viewport in sync in both directions: reading
+    // HoveredBone here highlights whichever row the viewport is currently hovering, and writing to
+    // it when THIS row is hovered makes the viewport highlight/label that bone right back.
+    // bAnyRowHovered lets RenderBoneTree tell "mouse over a specific row" apart from "mouse over the
+    // tree but not on any row" (e.g. empty space below the last bone) - only the former should claim
+    // HoveredBone away from whatever the viewport last set.
+    void RenderBoneNode(skeleton_state& State, const xskeleton::skeleton& Skeleton, const std::unordered_map<std::string, int>& NameToCompiledIndex, const xskeleton_desc::details::bone& DetailNode, int& HoveredBone, bool& bAnyRowHovered, int ParentLOD, int ShownGroupIdx)
     {
-        const bool        bSelected = State.m_SelectedBones.count(iBone) != 0;
-        const bool        bHasKids  = !Children[iBone].empty();
-        const std::string Name      = GetEffectiveBoneName(State, Skeleton, iBone);
-        const std::string RawName   = GetRawBoneName(State, Skeleton, iBone);
+        const std::string& RawName = DetailNode.m_Name;
+        const auto         It      = NameToCompiledIndex.find(RawName);
+        const int          iBone   = (It == NameToCompiledIndex.end()) ? -1 : It->second;
 
         const xskeleton_desc::bone* pOv = FindBoneOverride(State.m_Descriptor.m_RootBone, RawName);
+        const std::string Name = (pOv && !pOv->m_Rename.empty()) ? pOv->m_Rename : StripVBoneTag(RawName);
+
+        const bool bSelected = iBone != -1 && State.m_SelectedBones.count(iBone) != 0;
+        const bool bHovered  = iBone != -1 && iBone == HoveredBone;
+        const bool bHasKids  = !DetailNode.m_Children.empty();
 
         const bool bPendingDelete  = pOv && pOv->m_bDeleteBone;
         const bool bPendingVirtual = pOv && pOv->m_Type == xskeleton_desc::bone_type::VIRTUAL;
         const bool bPendingExpose  = pOv && pOv->m_bExpose;
-        const bool bRenaming       = State.m_iRenamingBone == iBone;
+        const bool bRenaming       = State.m_RenamingBoneName == RawName;
 
         ImGui::TableNextRow();
+        // ImGuiCol_HeaderHovered - the exact color ImGui itself already paints a hovered Selectable/
+        // TreeNode/Header with elsewhere, so this reads as "hovered" the same way the rest of the UI
+        // does (and follows the active theme) rather than a hand-picked color of its own. Layered on
+        // top of (not instead of) the Selected flag's own row color below, so a row that's both
+        // hovered and selected still reads as hovered rather than losing that cue to selection.
+        if (bHovered) ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0, ImGui::GetColorU32(ImGuiCol_HeaderHovered));
         ImGui::TableSetColumnIndex(0);
 
         ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth | ImGuiTreeNodeFlags_DefaultOpen;
@@ -775,12 +920,36 @@ namespace e23
 
         std::string Label = Name;
         if (pOv && pOv->m_LODLevel > 0) Label += std::format("  [LOD{}]", pOv->m_LODLevel);
+        // Only shown when it DISAGREES with the authored value above - e.g. a not-yet-recompiled
+        // edit, or the "child LOD >= parent" invariant raising this bone's compiled tier past what
+        // was actually authored on it directly. Whatever's rendered in the viewport (colors, LOD
+        // culling) always reflects THIS value, not the authored one above.
+        if (iBone != -1)
+        {
+            const int EffLOD = GetBoneLODLevel(Skeleton, iBone);
+            if (EffLOD != (pOv ? pOv->m_LODLevel : 0))
+                Label += std::format("  (compiled: LOD{})", EffLOD);
+        }
         if (bPendingDelete)              Label += "  (pending delete)";
 
+        // ID is the raw name, not iBone - a deleted/not-yet-compiled row has no compiled index at
+        // all, and every such row sharing the same -1 sentinel would collide (ImGui would treat them
+        // as the same widget). Raw names are guaranteed unique within a skeleton.
+        //
         // While renaming, the node still owns the arrow/indentation/click region but shows an empty
         // label - the actual editable text lives in the InputText drawn right after it below.
-        const bool bOpen = ImGui::TreeNodeEx(reinterpret_cast<void*>(static_cast<std::intptr_t>(iBone)), Flags, "%s", bRenaming ? "" : Label.c_str());
+        const bool bOpen = ImGui::TreeNodeEx(RawName.c_str(), Flags, "%s", bRenaming ? "" : Label.c_str());
         if (bPushedColor) ImGui::PopStyleColor();
+
+        // Tree -> viewport hover sync: claim HoveredBone the instant this row is hovered (no need
+        // for the viewport's own GPU-pick debouncing - the tree already knows unambiguously which
+        // bone this is). Ghost rows (iBone == -1) correctly clear any stale highlight instead of
+        // leaving some unrelated bone lit up in the viewport.
+        if (ImGui::IsItemHovered())
+        {
+            HoveredBone     = iBone;
+            bAnyRowHovered = true;
+        }
 
         if (bRenaming)
         {
@@ -792,28 +961,28 @@ namespace e23
                 ImGui::SetKeyboardFocusHere();
                 State.m_bRenameJustStarted = false;
             }
-            ImGui::PushID(iBone);
+            ImGui::PushID(RawName.c_str());
             ImGui::SetNextItemWidth(-FLT_MIN);
             const bool bEnter = ImGui::InputText("##rename", Buf, sizeof(Buf), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
             if (bEnter || ImGui::IsItemDeactivatedAfterEdit())
             {
                 FindOrCreateBoneOverride(State.m_Descriptor, RawName).m_Rename = Buf;
-                State.m_iRenamingBone = -1;
+                State.m_RenamingBoneName.clear();
             }
             else if (ImGui::IsItemDeactivated())
             {
-                State.m_iRenamingBone = -1; // Escape (or anything else that didn't actually change the text) - cancel, don't write
+                State.m_RenamingBoneName.clear(); // Escape (or anything else that didn't actually change the text) - cancel, don't write
             }
             ImGui::PopID();
         }
         else
         {
-            if (ImGui::IsItemClicked())
+            if (ImGui::IsItemClicked() && iBone != -1)
                 ApplySelection(State, iBone, ImGui::GetIO().KeyCtrl, ImGui::GetIO().KeyShift);
 
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
             {
-                State.m_iRenamingBone      = iBone;
+                State.m_RenamingBoneName   = RawName;
                 State.m_bRenameJustStarted = true;
                 State.m_RenameBuf          = Name;
             }
@@ -824,29 +993,50 @@ namespace e23
         // default "use whatever the last-drawn widget's ID was" behavior: that broke once the LOD
         // column's InputInt became the new "last item" this popup implicitly leaned on, hitting
         // ImGui's own "id != 0" assert (imgui.cpp - you cannot rely on a last-item ID that got reset).
-        ImGui::PushID(iBone);
+        ImGui::PushID(RawName.c_str());
         if (ImGui::BeginPopupContextItem("BoneRowContextMenu"))
         {
-            if (!bSelected) ApplySelection(State, iBone, false, false);
+            if (iBone != -1 && !bSelected) ApplySelection(State, iBone, false, false);
 
             if (ImGui::MenuItem("Rename"))
             {
-                State.m_iRenamingBone      = iBone;
+                State.m_RenamingBoneName   = RawName;
                 State.m_bRenameJustStarted = true;
                 State.m_RenameBuf          = Name;
             }
 
             if (ImGui::MenuItem(bPendingVirtual ? "Mark as Normal Bone" : "Mark as Virtual Bone"))
-                for (int i : EditTargets(State, iBone))
-                    FindOrCreateBoneOverride(State.m_Descriptor, GetRawBoneName(State, Skeleton, i)).m_Type = bPendingVirtual ? xskeleton_desc::bone_type::NORMAL : xskeleton_desc::bone_type::VIRTUAL;
+                for (auto& N : EditTargetNames(State, Skeleton, iBone, RawName))
+                    FindOrCreateBoneOverride(State.m_Descriptor, N).m_Type = bPendingVirtual ? xskeleton_desc::bone_type::NORMAL : xskeleton_desc::bone_type::VIRTUAL;
 
             if (ImGui::MenuItem(bPendingDelete ? "Unmark Deletion" : "Mark for Deletion"))
-                for (int i : EditTargets(State, iBone))
-                    FindOrCreateBoneOverride(State.m_Descriptor, GetRawBoneName(State, Skeleton, i)).m_bDeleteBone = !bPendingDelete;
+                for (auto& N : EditTargetNames(State, Skeleton, iBone, RawName))
+                    FindOrCreateBoneOverride(State.m_Descriptor, N).m_bDeleteBone = !bPendingDelete;
 
             if (ImGui::MenuItem(bPendingExpose ? "Unexpose Socket" : "Expose as Socket"))
-                for (int i : EditTargets(State, iBone))
-                    FindOrCreateBoneOverride(State.m_Descriptor, GetRawBoneName(State, Skeleton, i)).m_bExpose = !bPendingExpose;
+                for (auto& N : EditTargetNames(State, Skeleton, iBone, RawName))
+                    FindOrCreateBoneOverride(State.m_Descriptor, N).m_bExpose = !bPendingExpose;
+
+            // Forces the whole subtree to this bone's own LOD (not just clamps a floor like the
+            // stepper's own live-clamping does) - e.g. a one-click way to reset a branch back to 0.
+            if (ImGui::MenuItem("Match Children's LOD to This Bone"))
+                for (auto& N : EditTargetNames(State, Skeleton, iBone, RawName))
+                {
+                    const xskeleton_desc::bone* pTargetOv = FindBoneOverride(State.m_Descriptor.m_RootBone, N);
+                    const int                   TargetLOD = pTargetOv ? pTargetOv->m_LODLevel : 0;
+                    if (auto* pNode = FindDetailsBone(State.m_Details.m_RootBone, N))
+                        MatchDescendantLODs(State, *pNode, TargetLOD);
+                }
+
+            // Only offered while a layer is actually selected (see the tree's "Layer" combo) - there's
+            // no active weight to propagate otherwise.
+            if (ShownGroupIdx >= 0 && ImGui::MenuItem("Match Children's Active Layer Weight to This Bone"))
+                for (auto& N : EditTargetNames(State, Skeleton, iBone, RawName))
+                {
+                    const float TargetWeight = GetMaskWeight(State.m_Descriptor, ShownGroupIdx, N);
+                    if (auto* pNode = FindDetailsBone(State.m_Details.m_RootBone, N))
+                        MatchDescendantMaskWeights(State, *pNode, ShownGroupIdx, TargetWeight);
+                }
 
             ImGui::EndPopup();
         }
@@ -855,69 +1045,176 @@ namespace e23
         ImGui::TableSetColumnIndex(1);
         {
             bool bExpose = bPendingExpose;
-            ImGui::PushID(iBone);
+            ImGui::PushID(RawName.c_str());
             CenterNextCheckbox();
             if (ImGui::Checkbox("##expose", &bExpose))
-                for (int i : EditTargets(State, iBone))
-                    FindOrCreateBoneOverride(State.m_Descriptor, GetRawBoneName(State, Skeleton, i)).m_bExpose = bExpose;
+                for (auto& N : EditTargetNames(State, Skeleton, iBone, RawName))
+                    FindOrCreateBoneOverride(State.m_Descriptor, N).m_bExpose = bExpose;
             ImGui::PopID();
         }
 
         ImGui::TableSetColumnIndex(2);
         {
             bool bVirtual = bPendingVirtual;
-            ImGui::PushID(iBone);
+            ImGui::PushID(RawName.c_str());
             CenterNextCheckbox();
             if (ImGui::Checkbox("##virtual", &bVirtual))
-                for (int i : EditTargets(State, iBone))
-                    FindOrCreateBoneOverride(State.m_Descriptor, GetRawBoneName(State, Skeleton, i)).m_Type = bVirtual ? xskeleton_desc::bone_type::VIRTUAL : xskeleton_desc::bone_type::NORMAL;
+                for (auto& N : EditTargetNames(State, Skeleton, iBone, RawName))
+                    FindOrCreateBoneOverride(State.m_Descriptor, N).m_Type = bVirtual ? xskeleton_desc::bone_type::VIRTUAL : xskeleton_desc::bone_type::NORMAL;
             ImGui::PopID();
         }
 
         ImGui::TableSetColumnIndex(3);
         {
             bool bDelete = bPendingDelete;
-            ImGui::PushID(iBone);
+            ImGui::PushID(RawName.c_str());
             CenterNextCheckbox();
             if (ImGui::Checkbox("##delete", &bDelete))
-                for (int i : EditTargets(State, iBone))
-                    FindOrCreateBoneOverride(State.m_Descriptor, GetRawBoneName(State, Skeleton, i)).m_bDeleteBone = bDelete;
+                for (auto& N : EditTargetNames(State, Skeleton, iBone, RawName))
+                    FindOrCreateBoneOverride(State.m_Descriptor, N).m_bDeleteBone = bDelete;
             ImGui::PopID();
         }
 
+        int EffectiveLOD = pOv ? pOv->m_LODLevel : 0;
         ImGui::TableSetColumnIndex(4);
         {
-            int CurLOD = pOv ? pOv->m_LODLevel : 0;
-            ImGui::PushID(iBone);
+            int CurLOD = EffectiveLOD;
+            ImGui::PushID(RawName.c_str());
             ImGui::SetNextItemWidth(-FLT_MIN);
             if (ImGui::InputInt("##lod", &CurLOD, 1, 1))
             {
-                CurLOD = std::max(0, CurLOD);
-                for (int i : EditTargets(State, iBone))
+                // Floored at ParentLOD, not just 0 - a value below it is exactly what the compiler
+                // silently overrides-and-warns on (see BuildMergedBones), which used to let the tree
+                // show/store a LOD the compiled resource would never actually honor. Validating it
+                // here means what you type is always what you get.
+                CurLOD = std::max(ParentLOD, CurLOD);
+                for (auto& N : EditTargetNames(State, Skeleton, iBone, RawName))
                 {
-                    FindOrCreateBoneOverride(State.m_Descriptor, GetRawBoneName(State, Skeleton, i)).m_LODLevel = CurLOD;
-                    ClampDescendantLODs(State, Skeleton, Children, i, CurLOD);
+                    FindOrCreateBoneOverride(State.m_Descriptor, N).m_LODLevel = CurLOD;
+                    if (auto* pNode = FindDetailsBone(State.m_Details.m_RootBone, N))
+                        ClampDescendantLODs(State, *pNode, CurLOD);
                 }
+                EffectiveLOD = CurLOD;
+            }
+            ImGui::PopID();
+        }
+
+        // At most one weight column - for whichever mask group the "Layer" combo has active (see
+        // RenderBoneTree). ShownGroupIdx < 0 means None is selected, so no column at all.
+        if (ShownGroupIdx >= 0)
+        {
+            ImGui::TableSetColumnIndex(5);
+            float Weight = GetMaskWeight(State.m_Descriptor, ShownGroupIdx, RawName);
+            ImGui::PushID(RawName.c_str());
+            ImGui::SetNextItemWidth(-FLT_MIN);
+            if (ImGui::InputFloat("##mask", &Weight, 0.0f, 0.0f, "%.2f"))
+            {
+                Weight = std::clamp(Weight, 0.0f, 1.0f);
+                for (auto& N : EditTargetNames(State, Skeleton, iBone, RawName))
+                    SetMaskWeight(State.m_Descriptor, ShownGroupIdx, N, Weight);
             }
             ImGui::PopID();
         }
 
         if (bHasKids && bOpen)
         {
-            for (int iChild : Children[iBone]) RenderBoneNode(State, Skeleton, Children, iChild);
+            for (auto& Child : DetailNode.m_Children) RenderBoneNode(State, Skeleton, NameToCompiledIndex, Child, HoveredBone, bAnyRowHovered, std::max(ParentLOD, EffectiveLOD), ShownGroupIdx);
             ImGui::TreePop();
         }
     }
 
-    void RenderBoneTree(skeleton_state& State, const xskeleton::skeleton& Skeleton)
+    // HoveredBone is shared with (and already drives) the 3D viewport's own hover highlighting/
+    // labels - passing it in by reference is what makes hover sync bidirectional: the tree reads it
+    // to highlight whichever bone the viewport is hovering, and writes to it when a row is hovered
+    // here so the viewport picks that up right back. Returns whether any row was hovered THIS call -
+    // the caller feeds this back in as "was the tree hovered LAST frame" so the viewport's own hover
+    // logic (which runs earlier in the frame, before this) knows not to clear a hover the tree is
+    // about to reassert - see that call site's own comment.
+    bool RenderBoneTree(skeleton_state& State, const xskeleton::skeleton& Skeleton, int& HoveredBone)
     {
-        const auto Bones = Skeleton.getBones();
-        std::vector<std::vector<int>> Children(Bones.size());
-        int iRoot = -1;
-        for (int i = 0; i < static_cast<int>(Bones.size()); ++i)
+        bool bAnyRowHovered = false;
+        // Built fresh every call rather than cached - cheap for a skeleton-sized bone count, and
+        // avoids a cache that could go stale the instant a background recompile finishes underneath
+        // the UI. Absence from this map (see RenderBoneNode's iBone) is exactly the case this whole
+        // function exists to handle: a bone the compiled resource doesn't currently know about.
+        std::unordered_map<std::string, int> NameToCompiledIndex;
         {
-            if (Bones[i].m_iParent < 0) iRoot = i;
-            else                        Children[Bones[i].m_iParent].push_back(i);
+            const auto Bones = Skeleton.getBones();
+            NameToCompiledIndex.reserve(Bones.size());
+            for (int i = 0; i < static_cast<int>(Bones.size()); ++i)
+                NameToCompiledIndex[GetRawBoneName(State, Skeleton, i)] = i;
+        }
+
+        // Mask-group ("Layer") management - a single "Layer" combo picks which one group (or None)
+        // the tree shows a weight column for and "Active Layer" render mode visualizes; only the
+        // active one is ever shown/edited here, rather than every group at once. Finding it by name
+        // each frame (not caching the index) keeps this correct across add/rename/delete without
+        // needing to invalidate a cache anywhere else.
+        int ActiveGroupIdx = State.m_ActiveMaskGroupName.empty() ? -1 : State.m_Descriptor.findMaskGroup(State.m_ActiveMaskGroupName);
+        if (ActiveGroupIdx == -1) State.m_ActiveMaskGroupName.clear(); // stale name (renamed/deleted elsewhere) - fall back to None
+        {
+            ImGui::SetNextItemWidth(160.0f);
+            if (ImGui::BeginCombo("Layer", ActiveGroupIdx == -1 ? "None" : State.m_ActiveMaskGroupName.c_str()))
+            {
+                if (ImGui::Selectable("None", ActiveGroupIdx == -1))
+                    State.m_ActiveMaskGroupName.clear();
+                for (auto& Group : State.m_Descriptor.m_MaskGroups)
+                    if (ImGui::Selectable(Group.m_Name.c_str(), Group.m_Name == State.m_ActiveMaskGroupName))
+                        State.m_ActiveMaskGroupName = Group.m_Name;
+                ImGui::Separator();
+                if (ImGui::Selectable("+ Create New Layer"))
+                {
+                    // Auto-named ("Layer1", "Layer2", ...) rather than prompted - the rename box below
+                    // (shown for any active layer) is right there to retype it immediately, so a
+                    // separate name-entry step here would just be a second place to type the same thing.
+                    std::string NewName;
+                    for (int n = 1; ; ++n)
+                    {
+                        NewName = std::format("Layer{}", n);
+                        if (std::none_of(State.m_Descriptor.m_MaskGroups.begin(), State.m_Descriptor.m_MaskGroups.end()
+                            , [&](const xskeleton_desc::mask_group& G) { return G.m_Name == NewName; }))
+                            break;
+                    }
+                    State.m_Descriptor.m_MaskGroups.push_back({ .m_Name = NewName });
+                    State.m_ActiveMaskGroupName = NewName;
+                }
+                // Only offered while a layer is actually active - "delete None" is meaningless. This
+                // runs after the group list loop above has already finished for the frame, so erasing
+                // here doesn't disturb that loop's own iteration.
+                if (ActiveGroupIdx != -1 && ImGui::Selectable("Delete Active Layer"))
+                {
+                    State.m_Descriptor.m_MaskGroups.erase(State.m_Descriptor.m_MaskGroups.begin() + ActiveGroupIdx);
+                    State.m_ActiveMaskGroupName.clear();
+                }
+                ImGui::EndCombo();
+            }
+
+            ActiveGroupIdx = State.m_ActiveMaskGroupName.empty() ? -1 : State.m_Descriptor.findMaskGroup(State.m_ActiveMaskGroupName);
+            if (ActiveGroupIdx != -1)
+            {
+                // Buffer re-synced from the active group's name whenever the active selection itself
+                // changes (tracked via LastSynced) - otherwise switching the combo would leave this box
+                // showing stale text from whichever group was active before.
+                static char NameBuf[128] = {};
+                static std::string LastSynced;
+                if (LastSynced != State.m_ActiveMaskGroupName)
+                {
+                    std::snprintf(NameBuf, sizeof(NameBuf), "%s", State.m_ActiveMaskGroupName.c_str());
+                    LastSynced = State.m_ActiveMaskGroupName;
+                }
+
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(160.0f);
+                if (ImGui::InputText("##RenameMaskGroup", NameBuf, sizeof(NameBuf), ImGuiInputTextFlags_EnterReturnsTrue) || ImGui::IsItemDeactivatedAfterEdit())
+                {
+                    if (NameBuf[0] != '\0')
+                    {
+                        State.m_Descriptor.m_MaskGroups[ActiveGroupIdx].m_Name = NameBuf;
+                        State.m_ActiveMaskGroupName = NameBuf;
+                        LastSynced = State.m_ActiveMaskGroupName;
+                    }
+                }
+            }
         }
 
         // Default IndentSpacing/ItemSpacing eat a lot of width/height per level - a real rig runs
@@ -927,14 +1224,20 @@ namespace e23
         ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, 7.0f);
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(ImGui::GetStyle().ItemSpacing.x, 1.0f));
 
+        // Re-resolve after the combo/add/rename/delete UI above may have changed which group (if any)
+        // is active, and by what name/index, this same frame.
+        const int ShownGroupIdx = State.m_ActiveMaskGroupName.empty() ? -1 : State.m_Descriptor.findMaskGroup(State.m_ActiveMaskGroupName);
+        const int nMaskColumns  = ShownGroupIdx == -1 ? 0 : 1;
         constexpr ImGuiTableFlags TableFlags = ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY;
-        if (ImGui::BeginTable("###BoneTable", 5, TableFlags, ImGui::GetContentRegionAvail()))
+        if (ImGui::BeginTable("###BoneTable", 5 + nMaskColumns, TableFlags, ImGui::GetContentRegionAvail()))
         {
             ImGui::TableSetupColumn("Bone",    ImGuiTableColumnFlags_WidthStretch);
             ImGui::TableSetupColumn("Expose",  ImGuiTableColumnFlags_WidthFixed, 36.0f);
             ImGui::TableSetupColumn("Virtual", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize, 36.0f);
             ImGui::TableSetupColumn("Delete",  ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize, 36.0f);
             ImGui::TableSetupColumn("LOD",     ImGuiTableColumnFlags_WidthFixed, 70.0f);
+            if (nMaskColumns)
+                ImGui::TableSetupColumn(State.m_Descriptor.m_MaskGroups[ShownGroupIdx].m_Name.c_str(), ImGuiTableColumnFlags_WidthFixed, 70.0f);
 
             // Custom header row (rather than TableHeadersRow()) so the checkbox columns can show an
             // icon glyph instead of a full word, with the word itself moved to a hover tooltip.
@@ -948,13 +1251,26 @@ namespace e23
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete Bone");
             ImGui::TableSetColumnIndex(4); ImGui::TableHeader("LOD");
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Level of Detail cutoff - highest LOD index this bone stays active at");
+            if (nMaskColumns)
+            {
+                ImGui::TableSetColumnIndex(5); ImGui::TableHeader(State.m_Descriptor.m_MaskGroups[ShownGroupIdx].m_Name.c_str());
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Mask layer weight (0-1) - see the \"Layer\" combo above to switch/add/rename/delete");
+            }
 
-            if (iRoot != -1) RenderBoneNode(State, Skeleton, Children, iRoot);
+            if (!State.m_Details.m_RootBone.m_Name.empty())
+                RenderBoneNode(State, Skeleton, NameToCompiledIndex, State.m_Details.m_RootBone, HoveredBone, bAnyRowHovered, 0, ShownGroupIdx);
+
+            // Mouse is somewhere in the tree (header, scrollbar, empty space below the last bone)
+            // but not actually over any row - don't leave a stale highlight from whichever row was
+            // hovered last pinned in the viewport.
+            if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && !bAnyRowHovered)
+                HoveredBone = -1;
 
             ImGui::EndTable();
         }
 
         ImGui::PopStyleVar(2);
+        return bAnyRowHovered;
     }
 
     //---------------------------------------------------------------------------
@@ -1083,6 +1399,7 @@ namespace e23
         std::uint32_t   m_SelectedColor     = IM_COL32(255, 40, 180, 255); // hot magenta - a distinct hue from the (now also white-ish) normal color, so selection still reads clearly
         std::uint32_t   m_RootColor         = IM_COL32(255, 220, 40, 255); // yellow - the root sphere's own color, unconditional on virtual/normal
         float           m_HoverBoost        = 2.5f; // multiplicative RGB brighten for whichever bone the mouse is over, regardless of selection/LOD/type color - a no-op for a channel already at 255 (e.g. plain white), which is why the fill ALSO goes fully opaque on hover (see BuildWedgeFillGeometry's TintAt)
+        float           m_VirtualLineBoost  = 1.6f; // virtual bones are outline-only (no fill to lean on, see bFilled) and dashed on top of that - at rest, DepthTint's background blend plus the thin/gappy line reads as a dim, muddied color (easy to mistake for a totally different hue next to a nearby solid-filled bone) even though the same color looks fully correct the instant hover's boost brightens it. Compensates that gap permanently instead of relying on hover to reveal the true color.
     };
 
     std::uint32_t DepthTint(const xmath::fvec3& P, const xmath::fvec3& CameraPos, float NearD, float FarD, std::uint32_t BaseColor, std::uint32_t BgColor)
@@ -1137,8 +1454,8 @@ namespace e23
 
     constexpr std::uint32_t g_LODColors[] =
     { IM_COL32(255,  80,  80, 255)  // LOD0 - red
-    , IM_COL32(255, 170,  60, 255)  // LOD1 - orange
-    , IM_COL32(255, 230,  60, 255)  // LOD2 - yellow
+    , IM_COL32(255, 225,   0, 255)  // LOD1 - bright yellow (was orange - too close to red to read as "yellow" against this background)
+    , IM_COL32(190, 255,  70, 255)  // LOD2 - yellow-green (shifted off LOD1's new yellow so the two tiers stay distinct)
     , IM_COL32(120, 255,  90, 255)  // LOD3 - green
     , IM_COL32( 80, 200, 255, 255)  // LOD4 - blue
     , IM_COL32(200, 120, 255, 255)  // LOD5 - purple
@@ -1156,6 +1473,43 @@ namespace e23
     std::uint32_t LODColor(int Level)
     {
         return g_LODColors[std::clamp(Level, 0, g_nLODColors - 1)];
+    }
+
+    //---------------------------------------------------------------------------
+    // "Color by Mask Weight" view option - visualizes one mask group's per-bone weight (see
+    // xskeleton_desc::mask_group) as a color gradient, so an author can confirm a group covers
+    // exactly the bones they intended without reading raw numbers off the tree.
+    //---------------------------------------------------------------------------
+
+    std::uint32_t MaskWeightColor(float Weight)
+    {
+        Weight = std::clamp(Weight, 0.0f, 1.0f);
+        constexpr std::uint32_t Lo = IM_COL32( 70,  70,  70, 255); // weight 0 - reads as "uncolored", same family as the depth-tint background
+        constexpr std::uint32_t Hi = IM_COL32( 60, 220, 255, 255); // weight 1 - bright cyan, distinct from every LOD tier's red/yellow/green/blue/purple ramp
+        auto Channel = [](std::uint32_t C, int Shift) -> int { return int((C >> Shift) & 0xFFu); };
+        auto Lerp8   = [&](int Shift) { const int A = Channel(Lo, Shift), B = Channel(Hi, Shift); return int(A + (B - A) * Weight); };
+        return IM_COL32(Lerp8(0), Lerp8(8), Lerp8(16), 255);
+    }
+
+    // Reads the COMPILED resource's dense weight table (see xskeleton::skeleton::getMaskWeights) -
+    // same "trust the compiled data for rendering, the descriptor only for editing" split GetBoneLODLevel
+    // already uses. GroupIdx < 0 (group not found/not compiled yet) reads as weight 0 everywhere.
+    float GetBoneMaskWeight(const xskeleton::skeleton& Skeleton, int GroupIdx, int iBone)
+    {
+        if (GroupIdx < 0) return 0.0f;
+        const auto Weights = Skeleton.getMaskWeights(GroupIdx);
+        if (iBone < 0 || iBone >= int(Weights.size())) return 0.0f;
+        return float(Weights[iBone].m_Mask) / 65535.0f; // inverse of BuildMasks' std::lround(W * 65535.0f)
+    }
+
+    // Centralizes what used to be duplicated at every BaseColor call site: mask-weight coloring wins
+    // over LOD coloring when both are somehow active, and either wins over the caller's own
+    // type-based default (virtual/twist/normal/root).
+    std::uint32_t ResolveBoneColor(const xskeleton::skeleton& Skeleton, int iBone, bool bColorByLOD, int MaskGroupIdx, std::uint32_t DefaultColor)
+    {
+        if (MaskGroupIdx >= 0) return MaskWeightColor(GetBoneMaskWeight(Skeleton, MaskGroupIdx, iBone));
+        if (bColorByLOD)       return LODColor(GetBoneLODLevel(Skeleton, iBone));
+        return DefaultColor;
     }
 
     //---------------------------------------------------------------------------
@@ -1221,7 +1575,7 @@ namespace e23
         Circle(Frame.m_Forward, Frame.m_Right);
     }
 
-    void BuildWedgeGeometry(const xskeleton::skeleton& Skeleton, const std::vector<bone_world>& World, const std::vector<bool>& IsTwistBone, const wedge_style& Style, const std::set<int>& SelectedBones, float OverallRadius, bool bColorByLOD, int HoveredBone, std::vector<e19::draw_vert>& Verts)
+    void BuildWedgeGeometry(const xskeleton::skeleton& Skeleton, const std::vector<bone_world>& World, const std::vector<bool>& IsTwistBone, const wedge_style& Style, const std::set<int>& SelectedBones, float OverallRadius, bool bColorByLOD, int MaskGroupIdx, int HoveredBone, std::vector<e19::draw_vert>& Verts)
     {
         Verts.clear();
 
@@ -1241,17 +1595,18 @@ namespace e23
 
             // Dashing is a TYPE-based style choice (virtual placeholder, or a twist helper joint - see
             // LoadSkeleton - that shouldn't visually compete with the main limb chain) and stays the
-            // same in both poses. Bind-data confidence (see BuildWedgeFillGeometry's bInferred) is
-            // signaled separately, through fill dimness only - dashing it too made bind pose look like
-            // a completely different, mostly-broken render style next to frozen's fully solid one, for
-            // any rig (like this one) where most bones only have propagated, not real, bind data.
+            // same in both poses - it never encoded bind-data confidence (BuildWedgeFillGeometry no
+            // longer does either, see FillAlphaScale's own comment).
             const bool          bSelected  = SelectedBones.count(i) != 0;
             const bool          bHovered   = i == HoveredBone;
             const bool          bVirtual   = Bones[i].m_Flags.m_bVirtual;
             const bool          bTwist     = i < int(IsTwistBone.size()) && IsTwistBone[i];
             const bool          bDashed    = (bVirtual || bTwist) && !bSelected;
-            const std::uint32_t BaseColor  = bColorByLOD ? LODColor(GetBoneLODLevel(Skeleton, i))
-                                            : bVirtual ? Style.m_VirtualColor : bTwist ? Style.m_TwistColor : Style.m_NormalColor;
+            const std::uint32_t BaseColor  = ResolveBoneColor(Skeleton, i, bColorByLOD, MaskGroupIdx
+                                            , bVirtual ? Style.m_VirtualColor : bTwist ? Style.m_TwistColor : Style.m_NormalColor);
+            // See m_VirtualLineBoost's own comment - virtual bones have no fill to lean on, so their
+            // outline needs a permanent brightness boost or they read as dim/muddy at rest.
+            const std::uint32_t OutlineColor = bVirtual ? ScaleColorRGB(BaseColor, Style.m_VirtualLineBoost) : BaseColor;
 
             // BuildWedgeFillGeometry gives every non-virtual, non-twist bone (bFilled here) a solid
             // body already - drawing the full 8-edge wireframe (both tips to all 4 ring points) on
@@ -1263,14 +1618,14 @@ namespace e23
             if (bFilled)
             {
                 for (int k = 0; k < 4; ++k)
-                    EmitEdge(Verts, Shape.m_Ring[k], Shape.m_Ring[(k + 1) & 3], false, Style, bSelected, bHovered, BaseColor);
+                    EmitEdge(Verts, Shape.m_Ring[k], Shape.m_Ring[(k + 1) & 3], false, Style, bSelected, bHovered, OutlineColor);
             }
             else
             {
                 for (int k = 0; k < 4; ++k)
                 {
-                    EmitEdge(Verts, A,               Shape.m_Ring[k], bDashed, Style, bSelected, bHovered, BaseColor);
-                    EmitEdge(Verts, Shape.m_Ring[k],  B,               bDashed, Style, bSelected, bHovered, BaseColor);
+                    EmitEdge(Verts, A,               Shape.m_Ring[k], bDashed, Style, bSelected, bHovered, OutlineColor);
+                    EmitEdge(Verts, Shape.m_Ring[k],  B,               bDashed, Style, bSelected, bHovered, OutlineColor);
                 }
             }
 
@@ -1288,7 +1643,7 @@ namespace e23
             sphere_frame Frame;
             if (!ComputeOrthoFrame(World[i].m_Right, World[i].m_Up, Frame)) continue;
 
-            const std::uint32_t RootColor = bColorByLOD ? LODColor(GetBoneLODLevel(Skeleton, i)) : Style.m_RootColor;
+            const std::uint32_t RootColor = ResolveBoneColor(Skeleton, i, bColorByLOD, MaskGroupIdx, Style.m_RootColor);
             BuildRootSphereWireframe(World[i].m_Position, Frame, RootSphereRadius(Skeleton, World, i, OverallRadius), bSelected, bHovered, Style, RootColor, Verts);
         }
     }
@@ -1349,7 +1704,7 @@ namespace e23
         float   m_CameraDist;
     };
 
-    void BuildWedgeFillGeometry(const xskeleton::skeleton& Skeleton, const std::vector<bone_world>& World, const std::vector<bool>& IsTwistBone, const wedge_style& Style, const std::set<int>& SelectedBones, float OverallRadius, bool bColorByLOD, int HoveredBone, std::vector<e19::draw_vert>& Verts)
+    void BuildWedgeFillGeometry(const xskeleton::skeleton& Skeleton, const std::vector<bone_world>& World, const std::vector<bool>& IsTwistBone, const wedge_style& Style, const std::set<int>& SelectedBones, float OverallRadius, bool bColorByLOD, int MaskGroupIdx, int HoveredBone, std::vector<e19::draw_vert>& Verts)
     {
         Verts.clear();
 
@@ -1359,8 +1714,13 @@ namespace e23
         // This, not the base RGB hue, was the real reason the skeleton kept reading as "dim/neutral"
         // through several color changes: at 0.16 alpha, ANY color is 84% gray floor showing through -
         // the base hue barely matters once it's diluted that much.
-        constexpr float FillAlphaScale         = 0.55f;
-        constexpr float InferredFillAlphaScale = 0.30f; // still visibly dimmer - flagged uncertain bind data - but no longer barely-there
+        //
+        // Bind pose used to dim further still (InferredFillAlphaScale) for bones whose bind data was
+        // propagated rather than authored (m_bRealBindData==false) - meaningful in isolation, but it
+        // made Bind and Frozen look like two different intensity levels overall for any rig (like this
+        // one) where most bones only have propagated bind data. Frozen's flat, always-full intensity
+        // is the one that reads correctly, so both poses now just use it.
+        constexpr float FillAlphaScale = 0.55f;
 
         std::vector<fill_entry> Entries;
         Entries.reserve(Bones.size());
@@ -1395,9 +1755,8 @@ namespace e23
                 sphere_frame Frame;
                 if (!ComputeOrthoFrame(World[E.m_iBone].m_Right, World[E.m_iBone].m_Up, Frame)) continue;
 
-                const bool  bInferred = !World[E.m_iBone].m_bRealBindData;
-                const float ThisAlpha = bInferred ? InferredFillAlphaScale : FillAlphaScale;
-                const std::uint32_t RootBaseColor = bColorByLOD ? LODColor(GetBoneLODLevel(Skeleton, E.m_iBone)) : Style.m_RootColor;
+                const float ThisAlpha = FillAlphaScale;
+                const std::uint32_t RootBaseColor = ResolveBoneColor(Skeleton, E.m_iBone, bColorByLOD, MaskGroupIdx, Style.m_RootColor);
                 const auto  TintAt    = [&](const xmath::fvec3& P) -> std::uint32_t
                 {
                     const std::uint32_t C = VertexColor(Style, P, bSelected, bHovered, RootBaseColor);
@@ -1443,9 +1802,8 @@ namespace e23
             wedge_shape Shape;
             if (!ComputeWedgeShape(A, B, World[E.m_iBone].m_Right, World[E.m_iBone].m_Up, Shape)) continue;
 
-            const bool  bInferred = !World[E.m_iBone].m_bRealBindData || !World[E.m_iParent].m_bRealBindData;
-            const float ThisAlpha = bInferred ? InferredFillAlphaScale : FillAlphaScale;
-            const std::uint32_t WedgeBaseColor = bColorByLOD ? LODColor(GetBoneLODLevel(Skeleton, E.m_iBone)) : Style.m_NormalColor;
+            const float ThisAlpha = FillAlphaScale;
+            const std::uint32_t WedgeBaseColor = ResolveBoneColor(Skeleton, E.m_iBone, bColorByLOD, MaskGroupIdx, Style.m_NormalColor);
             const auto  TintAt    = [&](const xmath::fvec3& P) -> std::uint32_t
             {
                 const std::uint32_t C = VertexColor(Style, P, bSelected, bHovered, WedgeBaseColor);
@@ -1801,6 +2159,10 @@ namespace e23
         const int  nBones = int(Bones.size());
         if (nBones == 0 || int(BoneWorld.size()) != nBones) return;
 
+        const bool bColorByLOD = State.m_RenderColorMode == render_color_mode::LOD_RENDER;
+        const int  MaskGroupIdx = (State.m_RenderColorMode == render_color_mode::ACTIVE_LAYER_RENDER && !State.m_ActiveMaskGroupName.empty())
+                                ? Skeleton.findMaskGroupIndex(xstrtool::CRC32(State.m_ActiveMaskGroupName)) : -1;
+
         const float VpX = float(Viewport.m_Min.m_X);
         const float VpY = float(Viewport.m_Min.m_Y);
         const float VpW = float(Viewport.getWidth());
@@ -1841,8 +2203,8 @@ namespace e23
 
             L.m_Text = GetEffectiveBoneName(State, Skeleton, i);
             if (bSelected)      { L.m_FontSize = 20.0f; L.m_Alpha = 1.00f; L.m_EdgeColor = IM_COL32(255, 255, 255, 255); }
-            else if (bVirtual)  { L.m_FontSize = 16.0f; L.m_Alpha = 0.85f; L.m_EdgeColor = IM_COL32(255, 180, 84, 255); }
-            else                { L.m_FontSize = 14.0f; L.m_Alpha = 0.55f; L.m_EdgeColor = IM_COL32(120, 150, 170, 255); }
+            else if (bVirtual)  { L.m_FontSize = 16.0f; L.m_Alpha = 0.85f; L.m_EdgeColor = ResolveBoneColor(Skeleton, i, bColorByLOD, MaskGroupIdx, IM_COL32(255, 180, 84, 255)); }
+            else                { L.m_FontSize = 14.0f; L.m_Alpha = 0.55f; L.m_EdgeColor = ResolveBoneColor(Skeleton, i, bColorByLOD, MaskGroupIdx, IM_COL32(120, 150, 170, 255)); }
 
             Labels.push_back(std::move(L));
         }
@@ -2534,6 +2896,8 @@ int E23_Example()
     std::vector<e23::bone_world>         ScaledBoneWorld; // ActiveBoneWorld() * ViewScale() - see ScaleBoneWorld
     int                                   HoveredBone = -1; // CPU ray test, refreshed every hovered frame - see the label pass below
     int                                   HoverMissStreak = 0; // consecutive "nothing" GPU reads - see its own use below for why this debounces instead of clearing immediately
+    bool                                  bTreeHoveredLastFrame = false; // see its use below - keeps the viewport's own hover-clear from racing the tree's hover-set within the same frame
+    bool                                  bDebugHideFills = false; // TEMP diagnostic - F11 toggles. Tests whether nearby real bones' translucent fills (drawn AFTER outlines, alpha-blended over them) are what dilute a virtual bone's outline color, vs. some other cause.
     std::optional<e23::pick_request>     HoverPick; // same arm/wait/read cycle as PendingPick, but continuously re-armed instead of one-shot - see its own use below for why continuous reset-every-frame was a real CPU/GPU race, not just a staleness cosmetic issue
     bool                                  bLastNormalizeSize = SkeletonState.m_bNormalizeSize; // detects the checkbox flipping - see its use below
 
@@ -2662,8 +3026,11 @@ int E23_Example()
                 // HoveredBone here is last frame's hover result (this frame's hover-pick block runs
                 // further down) - a one-frame lag on the highlight, imperceptible and consistent with
                 // every other bit of latency this hover mechanism already accepts.
-                e23::BuildWedgeGeometry(*pSkeleton, ScaledBoneWorld, SkeletonState.m_bIsTwistBone, Style, SkeletonState.m_SelectedBones, EffRadius, SkeletonState.m_bColorByLOD, HoveredBone, WedgeVerts);
-                e23::BuildWedgeFillGeometry(*pSkeleton, ScaledBoneWorld, SkeletonState.m_bIsTwistBone, Style, SkeletonState.m_SelectedBones, EffRadius, SkeletonState.m_bColorByLOD, HoveredBone, WedgeFillVerts);
+                const bool bColorByLOD = SkeletonState.m_RenderColorMode == e23::render_color_mode::LOD_RENDER;
+                const int  MaskGroupIdx = (SkeletonState.m_RenderColorMode == e23::render_color_mode::ACTIVE_LAYER_RENDER && !SkeletonState.m_ActiveMaskGroupName.empty())
+                                       ? pSkeleton->findMaskGroupIndex(xstrtool::CRC32(SkeletonState.m_ActiveMaskGroupName)) : -1;
+                e23::BuildWedgeGeometry(*pSkeleton, ScaledBoneWorld, SkeletonState.m_bIsTwistBone, Style, SkeletonState.m_SelectedBones, EffRadius, bColorByLOD, MaskGroupIdx, HoveredBone, WedgeVerts);
+                e23::BuildWedgeFillGeometry(*pSkeleton, ScaledBoneWorld, SkeletonState.m_bIsTwistBone, Style, SkeletonState.m_SelectedBones, EffRadius, bColorByLOD, MaskGroupIdx, HoveredBone, WedgeFillVerts);
 
                 if (!WedgeFillVerts.empty())
                 {
@@ -2793,7 +3160,15 @@ int E23_Example()
                 }
                 else
                 {
-                    HoveredBone     = -1;
+                    // Labels are drawn (and this whole hover block runs) BEFORE the Bone Hierarchy
+                    // window gets a chance to set HoveredBone from a tree-row hover this same frame -
+                    // clearing unconditionally here would win that race every single frame and the
+                    // tree's claim would never survive long enough to reach the label draw. Checking
+                    // LAST frame's tree-hover state instead of this frame's (which doesn't exist yet)
+                    // costs at most one frame's delay when the mouse first moves onto a tree row -
+                    // imperceptible, and every frame after that the tree keeps reconfirming it.
+                    if (!bTreeHoveredLastFrame)
+                        HoveredBone = -1;
                     HoverMissStreak = 0;
                     HoverPick.reset();
                 }
@@ -2850,7 +3225,7 @@ int E23_Example()
                 // the same contested depth.
                 const bool bDrawHoverPickThisFrameFinal = bDrawHoverPickThisFrame && !bDrawPickThisFrame;
 
-                xgpu::tools::imgui::AddCustomRenderCallback([&, nWedgeFillVerts, nWedgeVerts, W2C, bDrawPickThisFrame, PickScissorMousePos, bDrawHoverPickThisFrame = bDrawHoverPickThisFrameFinal, HoverScissorMousePos, EffRadius, EffCenter](xgpu::cmd_buffer& CmdBuffer, const ImVec2&, const ImVec2&)
+                xgpu::tools::imgui::AddCustomRenderCallback([&, nWedgeFillVerts, nWedgeVerts, W2C, bDrawPickThisFrame, PickScissorMousePos, bDrawHoverPickThisFrame = bDrawHoverPickThisFrameFinal, HoverScissorMousePos, EffRadius, EffCenter, bDebugHideFills](xgpu::cmd_buffer& CmdBuffer, const ImVec2&, const ImVec2&)
                 {
                     //
                     // Ground grid, for spatial context
@@ -2859,7 +3234,12 @@ int E23_Example()
                         CmdBuffer.setPipelineInstance(Grid3dMaterialInstance);
                         grid_push_constants Push;
                         Push.m_WorldSpaceCameraPos = View.getPosition();
-                        Push.m_L2W        = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, EffCenter.m_Y - EffRadius, 0));
+                        // Fixed at world (0,0,0) - this grid's whole purpose is to show the user where
+                        // true zero is, which it can't do if it tracks the skeleton's own computed
+                        // center/radius (that just makes it look plausible while hiding any actual
+                        // world-space offset the skeleton has - e.g. from PreTransform - since the
+                        // grid always slides right back under wherever the skeleton ends up).
+                        Push.m_L2W        = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, 0, 0));
                         Push.m_W2C        = W2C;
                         Push.m_L2CTShadow = g_DisabledShadowL2C;
                         CmdBuffer.setPushConstants(Push);
@@ -2882,7 +3262,7 @@ int E23_Example()
                         CmdBuffer.Draw(static_cast<int>(nWedgeVerts));
                     }
 
-                    if (nWedgeFillVerts)
+                    if (nWedgeFillVerts && !bDebugHideFills)
                     {
                         CmdBuffer.setPipelineInstance(WedgeFillPipelineInstance);
                         CmdBuffer.setBuffer(WedgeIndexBuffer);
@@ -3029,7 +3409,7 @@ int E23_Example()
                         ImGui::Text("%d bones", static_cast<int>(pSkeleton->getBones().size()));
                         ImGui::Separator();
                         ImGui::BeginChild("###BoneListChild");
-                        e23::RenderBoneTree(SkeletonState, *pSkeleton);
+                        e23::RenderBoneTree(SkeletonState, *pSkeleton, HoveredBone);
                         ImGui::EndChild();
                     }
                     ImGui::End();
@@ -3199,11 +3579,21 @@ int E23_Example()
                 if (ImGui::Begin("Bone Hierarchy"))
                 {
                     ImGui::Text("%d bones", static_cast<int>(pSkeleton->getBones().size()));
-                    e23::RenderBoneTree(SkeletonState, *pSkeleton);
+                    bTreeHoveredLastFrame = e23::RenderBoneTree(SkeletonState, *pSkeleton, HoveredBone);
                 }
                 ImGui::End();
             }
         }
+
+        // Temporary debugging aid - F12 dumps the current frame to disk so it can be inspected
+        // without needing to drive this window's GUI directly.
+        if (ImGui::IsKeyPressed(ImGuiKey_F12))
+            MainWindow.Screenshot(L"C:\\Users\\user\\AppData\\Local\\Temp\\claude\\D--xgpu-test-xGPU\\fcc341eb-cb5f-45d6-850a-580a89daf5ff\\scratchpad\\e23_screenshot.png");
+
+        // TEMP diagnostic - F11 hides the translucent wedge-fill pass entirely, leaving only
+        // outlines. See bDebugHideFills's own comment for what this is testing.
+        if (ImGui::IsKeyPressed(ImGuiKey_F11))
+            bDebugHideFills = !bDebugHideFills;
 
         xgpu::tools::imgui::Render();
 
