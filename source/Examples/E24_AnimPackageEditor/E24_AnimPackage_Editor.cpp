@@ -41,6 +41,8 @@
 #include "plugins/xanim_package.plugin/source/xanim_package_xgpu_rsc_loader.h"
 #include "plugins/xanim_package.plugin/source/xanim_package_xgpu_rsc_loader.cpp"
 
+#include "source/tools/xgpu_imgui_timeline.h"
+
 //-----------------------------------------------------------------------------------
 //
 // E24 - AnimPackage viewer (load + preview only).
@@ -467,6 +469,18 @@ namespace e24
         return "?";
     }
 
+    // Same trash-can glyph as E23_SkeletonEditor::g_DeleteIcon (Segoe MDL2-style icon font) - reused
+    // verbatim, not re-guessed, so it's guaranteed to actually exist in the bundled font.
+    constexpr const char* g_DeleteIcon = "\xEE\x9D\x8D";
+
+    // A descriptor clip override may or may not have a compiled counterpart to preview: it won't if
+    // it's marked for Delete, or if the descriptor was edited since the last Compile. Resolved the
+    // same way the compiler itself identifies a clip at runtime - CRC32 of the compiled name.
+    int FindCompiledClipIndex(const xanim_package::anim_package& Package, const xanim_package_desc::clip& Override)
+    {
+        return Package.findClipIndex(xstrtool::CRC32(Override.m_Name));
+    }
+
     //---------------------------------------------------------------------------
 
     xrsc::texture_ref CreateBackgroundTexture(xgpu::device& Device, const xbitmap& Bitmap)
@@ -499,18 +513,41 @@ namespace e24
         xresource::full_guid                m_InfoGUID       = {};
         std::wstring                        m_DescriptorPath = {};
         xanim_package_desc::descriptor      m_Descriptor     = {};
+        xanim_package_desc::details         m_Details        = {}; // compiler's last-seen raw import list (Details.txt) - see LoadDetails/MergeWithDetails
         std::string                         m_ErrorMessage   = {}; // non-empty -> show in the UI instead of crashing
 
         std::vector<xmath::fmat4>           m_RestWorldMats  = {}; // rest pose, computed once at load - also backs the framing radius/center
         xmath::fvec3                        m_Center         = xmath::fvec3(0.0f, 0.0f, 0.0f);
         float                               m_Radius         = 1.0f;
 
-        int                                  m_iSelectedClip = -1;
+        int                                  m_iSelectedClip           = -1;   // index into the COMPILED package's clips - drives playback
+        int                                  m_iSelectedImportSource   = -1;   // index into m_Descriptor.m_ImportSources
+        int                                  m_iSelectedDescriptorClip = -1;   // index into m_ImportSources[m_iSelectedImportSource].m_Clips - drives the editable Clips table's row highlight
+
+        // Inline rename - double-click to enter, matches E23_SkeletonEditor's bone-tree rename
+        // exactly (see its own m_RenamingBoneName/m_RenameBuf comment): a single click on the Name
+        // field needs to just select/preview the row, so the field can't be an always-editable
+        // InputText - only the one (source, clip) pair being renamed shows an editable box.
+        int                                  m_iRenamingImportSource = -1;
+        int                                  m_iRenamingClip         = -1;
+        bool                                 m_bRenameJustStarted    = false;
+        std::string                          m_RenameBuf             = {};
+
         float                                m_TimeSeconds   = 0.0f;
         int                                  m_LoopsElapsed  = 0;    // see ComputeRootMotionOffset's own comment
         bool                                 m_bPlaying      = false;
+        xgpu::tools::imgui::timeline::state  m_Timeline      = {};   // scrub widget's own zoom/pan - reset whenever the selected clip changes
 
         bool m_bNeedsReframe = true;
+
+        // Compile/save tracking - mirrors E23_SkeletonEditor::skeleton_state exactly. Saving the
+        // descriptor (SaveDescriptor) is what actually triggers a recompile - a background
+        // file-watcher in the library manager picks up the change and runs the plugin's compiler,
+        // broadcasting progress via e10::g_LibMgr.m_OnCompilationState (see the registration in
+        // E24_Example) to whichever shared_ptr<log> this GUID's compile currently owns.
+        std::shared_ptr<e10::compilation::historical_entry::log> m_Log = {};
+        bool                                 m_bReload       = false;
+        bool                                 m_bErrors       = false;
 
         bool empty() const noexcept { return m_InfoGUID.empty(); }
 
@@ -520,15 +557,34 @@ namespace e24
             m_InfoGUID.clear();
             m_DescriptorPath.clear();
             m_Descriptor    = {};
+            m_Details       = {};
             m_ErrorMessage.clear();
             m_RestWorldMats.clear();
             m_Center        = xmath::fvec3(0.0f, 0.0f, 0.0f);
             m_Radius        = 1.0f;
-            m_iSelectedClip = -1;
+            m_iSelectedClip           = -1;
+            m_iSelectedImportSource   = -1;
+            m_iSelectedDescriptorClip = -1;
+            m_iRenamingImportSource   = -1;
+            m_iRenamingClip           = -1;
+            m_bRenameJustStarted      = false;
+            m_RenameBuf.clear();
             m_TimeSeconds   = 0.0f;
             m_LoopsElapsed  = 0;
             m_bPlaying      = false;
             m_bNeedsReframe = true;
+            m_Log           = std::make_shared<e10::compilation::historical_entry::log>(e10::compilation::historical_entry::communication{ .m_Result = e10::compilation::historical_entry::result::SUCCESS });
+            m_bReload       = false;
+            m_bErrors       = false;
+        }
+
+        // Writing the descriptor to disk is what actually kicks off a recompile (see m_Log's comment
+        // above) - this is the "Compile" button's entire action.
+        void SaveDescriptor()
+        {
+            xproperty::settings::context Context;
+            if (auto Err = m_Descriptor.Serialize(false, m_DescriptorPath, Context); Err)
+                assert(false);
         }
     };
 
@@ -537,6 +593,39 @@ namespace e24
         State.m_DescriptorPath = InfoPath;
         if (auto Pos = InfoPath.find(L"info.txt"); Pos != std::wstring::npos)
             State.m_DescriptorPath.replace(Pos, std::wstring_view(L"info.txt").length(), L"Descriptor.txt");
+    }
+
+    // Mirrors E23_SkeletonEditor::GenerateDetailsLogPath - generic across resource types, not
+    // skeleton-specific: Descriptors/{Type}/{shard}/{GUID}.desc/Descriptor.txt ->
+    // Cache/Resources/Logs/{Type}/{shard}/{GUID}.log/Details.txt.
+    std::wstring GenerateDetailsLogPath(const std::wstring& DescriptorPath)
+    {
+        std::wstring Path = DescriptorPath;
+        if (auto Pos = Path.find(L"Descriptors"); Pos != std::wstring::npos)
+            Path.replace(Pos, std::wstring_view(L"Descriptors").length(), L"Cache\\Resources\\Logs");
+        if (auto Pos = Path.find(L".desc"); Pos != std::wstring::npos)
+            Path.replace(Pos, std::wstring_view(L".desc").length(), L".log");
+        if (auto Pos = Path.find(L"Descriptor.txt"); Pos != std::wstring::npos)
+            Path.replace(Pos, std::wstring_view(L"Descriptor.txt").length(), L"Details.txt");
+        return Path;
+    }
+
+    // Details.txt is the compiler's log of what it actually saw on the last import - the source of
+    // truth for raw clip names, used to reconcile the descriptor's sparse per-clip overrides (see
+    // MergeWithDetails below).
+    xanim_package_desc::details LoadDetails(const std::wstring& DescriptorPath)
+    {
+        xanim_package_desc::details Details;
+        if (const auto DetailsPath = GenerateDetailsLogPath(DescriptorPath); std::filesystem::exists(DetailsPath))
+        {
+            xtextfile::stream TextFile;
+            if (auto Err = TextFile.Open(true, DetailsPath, xtextfile::file_type::TEXT); !Err)
+            {
+                xproperty::settings::context Context;
+                xproperty::sprop::serializer::Stream(TextFile, Details, Context);
+            }
+        }
+        return Details;
     }
 
     //---------------------------------------------------------------------------
@@ -571,6 +660,14 @@ namespace e24
                 State.m_ErrorMessage = std::format("Failed to read the AnimPackage descriptor: {}", Err.getMessage());
                 return;
             }
+
+            // Reconcile the descriptor's sparse per-clip overrides against the compiler's last-seen
+            // raw import list - same job xskeleton_desc::descriptor::MergeWithDetails does for E23's
+            // bone tree, so the "Clips" editor shows every currently-imported clip immediately, not
+            // just whichever ones someone already curated. In-memory only - Compile is what persists
+            // any resulting new entries to disk.
+            State.m_Details = LoadDetails(State.m_DescriptorPath);
+            State.m_Descriptor.MergeWithDetails(State.m_Details);
         }
 
         State.m_Ref.m_Instance = InfoGUID.m_Instance;
@@ -808,6 +905,49 @@ int E24_Example()
 
     e10::assert_browser  AsserBrowser;
     e24::anim_state       AnimState;
+
+    // Compile-progress subscriber - the library manager broadcasts every resource's compile state
+    // (any type, any selection) through this one delegate; filter to whichever AnimPackage is
+    // currently loaded and mirror its log/result locally, matching E23_SkeletonEditor's own
+    // CallBackForCompilation exactly.
+    auto CallBackForCompilation = [&](e10::library_mgr&, e10::library::guid, xresource::full_guid gCompilingEntry, std::shared_ptr<e10::compilation::historical_entry::log>& LogInformation)
+    {
+        if (AnimState.m_InfoGUID != gCompilingEntry) return;
+
+        if (AnimState.m_Log.get() != LogInformation.get())
+            AnimState.m_Log = LogInformation;
+
+        e10::compilation::historical_entry::result Result;
+        {
+            xcontainer::lock::scope lk(*AnimState.m_Log);
+            Result = AnimState.m_Log->get().m_Result;
+        }
+
+        if (Result == e10::compilation::historical_entry::result::SUCCESS || Result == e10::compilation::historical_entry::result::SUCCESS_WARNINGS)
+        {
+            AnimState.m_bReload = true;
+            AnimState.m_bErrors = false;
+        }
+        else if (Result == e10::compilation::historical_entry::result::FAILURE)
+        {
+            AnimState.m_bErrors = true;
+        }
+    };
+    e10::g_LibMgr.m_OnCompilationState.Register(CallBackForCompilation);
+
+    //
+    // Property inspector - the selected AnimPackage descriptor's own properties (import sources,
+    // skeleton reference, per-clip overrides), driven by xproperty rather than hardcoded ImGui
+    // widgets, matching E23_SkeletonEditor's "Skeleton Properties" pattern. Bound once: AnimState and
+    // its m_Descriptor member never change address, only their contents do (LoadAnimPackage
+    // overwrites m_Descriptor in place via Serialize), so the inspector stays valid across loads.
+    //
+    xproperty::inspector Inspector("AnimPackage Properties");
+    Inspector.m_Settings.m_ColorVScalar1 = 0.270f * 1.4f;
+    Inspector.m_Settings.m_ColorVScalar2 = 0.305f * 1.4f;
+    Inspector.m_Settings.m_ColorSScalar  = 0.26f * 1.4f;
+    Inspector.AppendEntity();
+    Inspector.AppendEntityComponent(*AnimState.m_Descriptor.getProperties(), &AnimState.m_Descriptor);
 
     //
     // Setup Imgui interface
@@ -1048,7 +1188,9 @@ int E24_Example()
         }
 
         //
-        // Main menu bar
+        // Main menu bar - Save/Compile/Feedback mirror E23_SkeletonEditor's so this editor doesn't
+        // feel like a different tool. Saving the descriptor is what actually kicks off a recompile
+        // (see the m_OnCompilationState subscriber above); this is just the button + status readout.
         //
         if (ImGui::BeginMainMenuBar())
         {
@@ -1056,9 +1198,136 @@ int E24_Example()
             {
                 if (ImGui::MenuItem("Open AnimPackage..."))
                     AsserBrowser.Show(true);
+
+                ImGui::Separator();
+                {
+                    const bool bDisableSave = !e10::g_LibMgr.isReadyToSave() && AnimState.empty();
+                    if (bDisableSave) ImGui::BeginDisabled();
+                    if (ImGui::MenuItem("Save", "Ctrl+S"))
+                    {
+                        xproperty::settings::context Context;
+                        e10::g_LibMgr.Save(Context);
+                    }
+                    if (bDisableSave) ImGui::EndDisabled();
+                }
                 ImGui::EndMenu();
             }
+
+            ImGui::SameLine(200);
+
+            if (!AnimState.empty())
+            {
+                xcontainer::lock::scope lk(*AnimState.m_Log);
+                auto& Log = AnimState.m_Log->get();
+
+                bool bDisable = Log.m_Result == e10::compilation::historical_entry::result::COMPILING
+                             || Log.m_Result == e10::compilation::historical_entry::result::COMPILING_WARNINGS;
+
+                std::vector<std::string> ValidationErrors;
+                if (!bDisable)
+                {
+                    AnimState.m_Descriptor.Validate(ValidationErrors);
+                    if (!ValidationErrors.empty()) bDisable = true;
+                }
+
+                if (bDisable) ImGui::BeginDisabled();
+                if (ImGui::Button("Compile"))
+                    AnimState.SaveDescriptor();
+                if (bDisable) ImGui::EndDisabled();
+
+                std::uint32_t Color = IM_COL32(255, 255, 255, 255);
+                switch (Log.m_Result)
+                {
+                case e10::compilation::historical_entry::result::COMPILING_WARNINGS: Color = IM_COL32(255, 255, 0,   255); break;
+                case e10::compilation::historical_entry::result::COMPILING:          Color = IM_COL32(0,   255, 0,   255); break;
+                case e10::compilation::historical_entry::result::FAILURE:            Color = IM_COL32(255, 170, 140, 255); break;
+                case e10::compilation::historical_entry::result::SUCCESS_WARNINGS:   Color = IM_COL32(255, 255, 0,   255); break;
+                case e10::compilation::historical_entry::result::SUCCESS:            Color = IM_COL32(255, 255, 255, 255); break;
+                }
+
+                ImGui::PushStyleColor(ImGuiCol_Text, Color);
+                if (ImGui::Button("Feedback"))
+                {
+                    const ImVec2 ButtonPos  = ImGui::GetItemRectMin();
+                    const ImVec2 ButtonSize = ImGui::GetItemRectSize();
+                    ImGui::SetNextWindowPos(ImVec2(ButtonPos.x, ButtonPos.y + ButtonSize.y));
+                    ImGui::OpenPopup("Feedback");
+                }
+                ImGui::PopStyleColor();
+
+                if (ImGui::BeginPopup("Feedback"))
+                {
+                    ImGui::BeginChild("###Feedback-Child", ImVec2(600, 300));
+                    ImGui::PushTextWrapPos(600);
+
+                    for (auto& S : ValidationErrors)
+                        ImGui::TextUnformatted(S.data(), S.data() + S.size());
+
+                    if (!Log.m_Log.empty())
+                    {
+                        std::vector<std::size_t> LineOffsets{ 0 };
+                        for (std::size_t Pos = 0; (Pos = Log.m_Log.find('\n', Pos)) != std::string::npos; ++Pos)
+                            LineOffsets.push_back(Pos + 1);
+
+                        const int nLines = static_cast<int>(LineOffsets.size());
+                        ImGuiListClipper Clipper;
+                        Clipper.Begin(nLines);
+                        while (Clipper.Step())
+                        {
+                            for (int Row = Clipper.DisplayStart; Row < Clipper.DisplayEnd; ++Row)
+                            {
+                                const std::size_t Start = LineOffsets[Row];
+                                const std::size_t End   = (Row + 1 < nLines) ? LineOffsets[Row + 1] - 1 : Log.m_Log.size();
+                                const std::string_view Line(Log.m_Log.data() + Start, End - Start);
+
+                                if (xstrtool::findI(Line, "ERROR:") != std::string::npos)
+                                {
+                                    ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255));
+                                    ImGui::TextUnformatted(Line.data(), Line.data() + Line.size());
+                                    ImGui::PopStyleColor();
+                                }
+                                else
+                                {
+                                    ImGui::TextUnformatted(Line.data(), Line.data() + Line.size());
+                                }
+                            }
+                        }
+                    }
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndChild();
+                    ImGui::EndPopup();
+                }
+
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Gives information about the compilation process");
+
+                if (!Log.m_Log.empty())
+                    ImGui::Text("%s", std::string(xstrtool::getLastLine(Log.m_Log)).c_str());
+            }
+
             ImGui::EndMainMenuBar();
+        }
+
+        // A successful recompile means the runtime resource changed under us - reload everything
+        // (descriptor, compiled resource, bone worlds) the same way a fresh selection would, matching
+        // E23_SkeletonEditor's own m_bReload handling. Preserve m_Log across the reload (clear()
+        // would otherwise wipe it back to a blank SUCCESS entry, discarding the very compile output
+        // the Feedback popup is about to show).
+        if (AnimState.m_bReload)
+        {
+            AnimState.m_bReload = false;
+            const auto SavedLog = AnimState.m_Log;
+            e24::LoadAnimPackage(AnimState, AnimState.m_LibraryGUID, AnimState.m_InfoGUID);
+            AnimState.m_Log = SavedLog;
+        }
+
+        {
+            xproperty::settings::context Context;
+            // Stacked below Clips/Playback in the same x=915 column rather than off to the right -
+            // a window opened further right risks landing outside the actual client area depending
+            // on the app's window size, where it would render but never be visible or reachable.
+            ImGui::SetNextWindowPos(ImVec2(915, 522), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(500, 420), ImGuiCond_FirstUseEver);
+            Inspector.Show(Context, []{});
         }
 
         AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
@@ -1069,13 +1338,20 @@ int E24_Example()
         }
 
         //
-        // Clip list - flat table (clips have no hierarchy), one row per clip. Runtime clips only
-        // carry a CRC32 name hash (see xanim_package::clip), so rows are labeled "Clip N" rather than
-        // inventing a name lookup that doesn't exist at this layer.
+        // Clip list - one flat table across every import source (which file a clip came from doesn't
+        // matter for browsing/editing - only for name-matching underneath, see xanim_package_desc::
+        // clip's own comment on why the DATA is still scoped per-source). "Source: <file>" is folded
+        // into the Name hover tooltip instead of a visible grouping/column, so a second import source
+        // doesn't fragment the table into hard-to-scan sections. Driven by the DESCRIPTOR's own
+        // m_ImportSources[*].m_Clips (every raw-imported clip, via MergeWithDetails at load - see
+        // LoadAnimPackage), not the compiled resource, so Name/Delete/Loop/DownSample/Trim/RootMotion
+        // are directly authorable here. Only one Name field is shown/edited - m_OriginalName (the raw
+        // imported name) is the stable match key across re-imports, never displayed or touched
+        // directly.
         //
         {
             ImGui::SetNextWindowPos(ImVec2(915, 18), ImGuiCond_FirstUseEver);
-            ImGui::SetNextWindowSize(ImVec2(380, 300), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(680, 320), ImGuiCond_FirstUseEver);
             if (ImGui::Begin("Clips"))
             {
                 if (!AnimState.m_ErrorMessage.empty())
@@ -1090,55 +1366,180 @@ int E24_Example()
                 {
                     ImGui::TextDisabled("File > Open AnimPackage... to begin.");
                 }
-                else if (auto* pPackage = xresource::g_Mgr.getResource(AnimState.m_Ref); pPackage)
+                else
                 {
-                    auto Clips = pPackage->getClips();
-                    ImGui::Text("%d clip(s)", static_cast<int>(Clips.size()));
+                    auto& Sources = AnimState.m_Descriptor.m_ImportSources;
+                    auto* pPackage = xresource::g_Mgr.getResource(AnimState.m_Ref);
+
+                    int TotalClips = 0;
+                    for (auto& S : Sources) TotalClips += static_cast<int>(S.m_Clips.size());
+                    ImGui::Text("%d clip(s) - click a name to preview, edit columns inline", TotalClips);
                     ImGui::Separator();
 
-                    if (ImGui::BeginTable("###ClipsTable", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp))
+                    constexpr ImGuiTableFlags TableFlags = ImGuiTableFlags_RowBg | ImGuiTableFlags_Borders | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingFixedFit;
+                    if (ImGui::BeginTable("###ClipsTable", 8, TableFlags))
                     {
                         ImGui::TableSetupScrollFreeze(0, 1);
-                        ImGui::TableSetupColumn("Clip");
-                        ImGui::TableSetupColumn("FPS");
-                        ImGui::TableSetupColumn("Frames");
-                        ImGui::TableSetupColumn("Loop");
-                        ImGui::TableSetupColumn("Root Motion");
-                        ImGui::TableHeadersRow();
+                        ImGui::TableSetupColumn("Name",   ImGuiTableColumnFlags_WidthStretch);
+                        ImGui::TableSetupColumn("Delete", ImGuiTableColumnFlags_WidthFixed, 32.0f);
+                        ImGui::TableSetupColumn("Loop",   ImGuiTableColumnFlags_WidthFixed, 34.0f);
+                        ImGui::TableSetupColumn("DS",     ImGuiTableColumnFlags_WidthFixed, 42.0f);
+                        ImGui::TableSetupColumn("In",     ImGuiTableColumnFlags_WidthFixed, 42.0f);
+                        ImGui::TableSetupColumn("Out",    ImGuiTableColumnFlags_WidthFixed, 42.0f);
+                        ImGui::TableSetupColumn("RM",     ImGuiTableColumnFlags_WidthFixed, 42.0f);
+                        ImGui::TableSetupColumn("###spacer", ImGuiTableColumnFlags_WidthFixed, 1.0f);
 
-                        for (int i = 0; i < static_cast<int>(Clips.size()); ++i)
+                        // Custom header row (rather than TableHeadersRow()) so Delete can show the
+                        // same trash icon E23_SkeletonEditor's bone tree uses; every other column uses
+                        // a short text abbreviation instead - tried real icon glyphs here (Loop/DS/Trim/
+                        // RootMotion all rendered fine, verified via screenshot) but the abbreviations
+                        // read clearer at a glance, so kept as text with the full meaning in the tooltip.
+                        ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
+                        ImGui::TableSetColumnIndex(0); ImGui::TableHeader("Name");
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Compiled clip name - hover a row's name for its original import stats and source file");
+                        ImGui::TableSetColumnIndex(1); ImGui::TableHeader(e24::g_DeleteIcon);
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete Clip - excluded from the compiled output entirely (still listed here, so it can be re-enabled)");
+                        ImGui::TableSetColumnIndex(2); ImGui::TableHeader("Loop");
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Loop - play this clip as a seamless loop; the compiler blends out any start/end pose mismatch automatically");
+                        ImGui::TableSetColumnIndex(3); ImGui::TableHeader("DS");
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Down Sample - 0 = keep the imported 60fps rate. The importer always samples at 60fps, so the only reason to lower this (e.g. to 30) is to trade quality for memory; never to fix anything");
+                        ImGui::TableSetColumnIndex(4); ImGui::TableHeader("In");
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Trim In - first frame to keep (post-resample) - -1 = from the start");
+                        ImGui::TableSetColumnIndex(5); ImGui::TableHeader("Out");
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Trim Out - last frame to keep (post-resample) - -1 = to the end");
+                        ImGui::TableSetColumnIndex(6); ImGui::TableHeader("RM");
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Root Motion - extract the root bone's own translation into a separate per-frame channel instead of animating in place - see the Playback panel for a live preview");
+
+                        for (int iSource = 0; iSource < static_cast<int>(Sources.size()); ++iSource)
                         {
-                            ImGui::TableNextRow();
-                            ImGui::TableSetColumnIndex(0);
+                            auto& Source = Sources[iSource];
+                            auto& Clips  = Source.m_Clips;
+                            ImGui::PushID(iSource);
 
-                            const bool  bSelected = (AnimState.m_iSelectedClip == i);
-                            const auto  Label     = std::format("Clip {}###clip_{}", i, i);
-                            if (ImGui::Selectable(Label.c_str(), bSelected, ImGuiSelectableFlags_SpanAllColumns))
+                            for (int i = 0; i < static_cast<int>(Clips.size()); ++i)
                             {
-                                AnimState.m_iSelectedClip = i;
-                                AnimState.m_TimeSeconds   = 0.0f;
-                                AnimState.m_LoopsElapsed  = 0;
+                                auto& Clip = Clips[i];
+                                ImGui::PushID(i);
+                                ImGui::TableNextRow();
+
+                                ImGui::TableSetColumnIndex(0);
+                                const bool bSelected = (AnimState.m_iSelectedImportSource == iSource && AnimState.m_iSelectedDescriptorClip == i);
+                                const bool bRenaming = (AnimState.m_iRenamingImportSource == iSource && AnimState.m_iRenamingClip == i);
+
+                                if (bRenaming)
+                                {
+                                    static char Buf[128]; // only ever one row renames at a time - a single scratch buffer is enough
+                                    if (AnimState.m_bRenameJustStarted)
+                                    {
+                                        std::snprintf(Buf, sizeof(Buf), "%s", AnimState.m_RenameBuf.c_str());
+                                        ImGui::SetKeyboardFocusHere();
+                                        AnimState.m_bRenameJustStarted = false;
+                                    }
+                                    ImGui::SetNextItemWidth(-FLT_MIN);
+                                    const bool bEnter = ImGui::InputText("##name", Buf, sizeof(Buf), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+                                    if (bEnter || ImGui::IsItemDeactivatedAfterEdit())
+                                    {
+                                        Clip.m_Name = Buf;
+                                        AnimState.m_iRenamingImportSource = -1;
+                                        AnimState.m_iRenamingClip         = -1;
+                                    }
+                                    else if (ImGui::IsItemDeactivated())
+                                    {
+                                        AnimState.m_iRenamingImportSource = -1; // Escape, or anything else that didn't actually change the text - cancel, don't write
+                                        AnimState.m_iRenamingClip         = -1;
+                                    }
+                                }
+                                else
+                                {
+                                    // A single click just selects/previews the row - renaming needs a
+                                    // deliberate double-click, otherwise every click-to-preview would
+                                    // also drop you into text-edit mode and make simple row selection
+                                    // painful. Deliberately NOT SpanAllColumns: that made the selection
+                                    // highlight cover the whole row as its own rectangle, drawn behind
+                                    // the checkboxes/inputs in the other columns rather than blending
+                                    // with them - confined to just this cell (matching how
+                                    // E23_SkeletonEditor's own tree-node highlight never spans into its
+                                    // checkbox columns either), it reads as a normal selected cell.
+                                    if (ImGui::Selectable(Clip.m_Name.c_str(), bSelected))
+                                    {
+                                        AnimState.m_iSelectedImportSource   = iSource;
+                                        AnimState.m_iSelectedDescriptorClip = i;
+                                        AnimState.m_iSelectedClip = (pPackage && !Clip.m_bDelete) ? e24::FindCompiledClipIndex(*pPackage, Clip) : -1;
+                                        AnimState.m_TimeSeconds   = 0.0f;
+                                        AnimState.m_LoopsElapsed  = 0;
+                                        AnimState.m_Timeline      = {}; // fresh zoom/pan for this clip's own duration
+                                    }
+                                    if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                                    {
+                                        AnimState.m_iRenamingImportSource = iSource;
+                                        AnimState.m_iRenamingClip         = i;
+                                        AnimState.m_bRenameJustStarted    = true;
+                                        AnimState.m_RenameBuf             = Clip.m_Name;
+                                    }
+                                    if (ImGui::IsItemHovered())
+                                    {
+                                        const auto FileName = std::filesystem::path(Source.m_Path).filename().string();
+                                        const int  iDetailsSource = AnimState.m_Details.findSource(Source.m_Path);
+                                        const int  iDetailsClip   = (iDetailsSource == -1) ? -1 : AnimState.m_Details.m_Sources[iDetailsSource].findClip(Clip.m_OriginalName);
+                                        if (iDetailsClip != -1)
+                                        {
+                                            auto& D = AnimState.m_Details.m_Sources[iDetailsSource].m_ClipList[iDetailsClip];
+                                            ImGui::SetTooltip("Imported as \"%s\"\nSource: %s\n%d fps, %d frames, %.2fs\n(double-click to rename)", Clip.m_OriginalName.c_str(), FileName.empty() ? "(no path set)" : FileName.c_str(), D.m_OriginalFPS, D.m_OriginalFrameCount, D.m_DurationSeconds);
+                                        }
+                                        else
+                                        {
+                                            ImGui::SetTooltip("Imported as \"%s\"\nSource: %s (not in the last import)\n(double-click to rename)", Clip.m_OriginalName.c_str(), FileName.empty() ? "(no path set)" : FileName.c_str());
+                                        }
+                                    }
+                                }
+
+                                ImGui::TableSetColumnIndex(1);
+                                ImGui::Checkbox("##delete", &Clip.m_bDelete);
+
+                                ImGui::TableSetColumnIndex(2);
+                                ImGui::Checkbox("##loop", &Clip.m_bLoop);
+
+                                ImGui::TableSetColumnIndex(3);
+                                ImGui::SetNextItemWidth(-FLT_MIN);
+                                ImGui::InputInt("##downsamplefps", &Clip.m_DownsampleFPS, 0);
+
+                                ImGui::TableSetColumnIndex(4);
+                                ImGui::SetNextItemWidth(-FLT_MIN);
+                                ImGui::InputInt("##trimstart", &Clip.m_TrimStartFrame, 0);
+
+                                ImGui::TableSetColumnIndex(5);
+                                ImGui::SetNextItemWidth(-FLT_MIN);
+                                ImGui::InputInt("##trimend", &Clip.m_TrimEndFrame, 0);
+
+                                ImGui::TableSetColumnIndex(6);
+                                ImGui::SetNextItemWidth(-FLT_MIN);
+                                int Mode = static_cast<int>(Clip.m_RootMotion);
+                                if (ImGui::Combo("##rootmotion", &Mode, "None\0XZ Only\0XYZ\0"))
+                                    Clip.m_RootMotion = static_cast<xanim_package::root_motion_mode>(Mode);
+
+                                ImGui::PopID();
                             }
 
-                            ImGui::TableSetColumnIndex(1); ImGui::Text("%d", Clips[i].m_FPS);
-                            ImGui::TableSetColumnIndex(2); ImGui::Text("%d", Clips[i].m_nFrames);
-                            ImGui::TableSetColumnIndex(3); ImGui::TextUnformatted(Clips[i].m_bLoop ? "Yes" : "No");
-                            ImGui::TableSetColumnIndex(4); ImGui::TextUnformatted(e24::RootMotionModeName(Clips[i].m_RootMotionMode));
+                            ImGui::PopID();
                         }
 
                         ImGui::EndTable();
                     }
+
+                    if (Sources.empty())
+                        ImGui::TextDisabled("No import sources yet - add one in the AnimPackage Properties panel.");
                 }
             }
             ImGui::End();
         }
 
         //
-        // Transport bar - Play/Pause, a time scrub bound to [0, ClipLength), and read-only clip info.
+        // Transport bar - Play/Pause, a scrubbable timeline bound to [0, ClipLength), and read-only
+        // clip info. No event tracks yet (see E24_Timeline.h's own comment) - just an empty span.
         //
         {
             ImGui::SetNextWindowPos(ImVec2(915, 322), ImGuiCond_FirstUseEver);
-            ImGui::SetNextWindowSize(ImVec2(380, 140), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(500, 190), ImGuiCond_FirstUseEver);
             if (ImGui::Begin("Playback"))
             {
                 auto* pPackage = AnimState.empty() ? nullptr : xresource::g_Mgr.getResource(AnimState.m_Ref);
@@ -1154,8 +1555,7 @@ int E24_Example()
                     ImGui::SameLine();
                     ImGui::Text("Clip %d", AnimState.m_iSelectedClip);
 
-                    const float MaxTime = std::max(ClipLength - 1.0e-4f, 0.0f);
-                    if (ImGui::SliderFloat("Time (s)", &AnimState.m_TimeSeconds, 0.0f, MaxTime))
+                    if (xgpu::tools::imgui::timeline::Draw(AnimState.m_Timeline, AnimState.m_TimeSeconds, ClipLength, static_cast<float>(Clip.m_FPS), {}, "playback_timeline"))
                         AnimState.m_LoopsElapsed = 0; // manual scrub - the "elapsed loops" count no longer means anything
 
                     ImGui::Text("FPS: %d    Frames: %d    Loop: %s    Root Motion: %s"

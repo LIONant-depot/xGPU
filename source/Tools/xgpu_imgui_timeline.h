@@ -1,0 +1,424 @@
+#ifndef XGPU_IMGUI_TIMELINE_H
+#define XGPU_IMGUI_TIMELINE_H
+#pragma once
+#include "imgui.h"
+
+#include <string>
+#include <vector>
+#include <span>
+#include <cmath>
+#include <cstdio>
+#include <algorithm>
+
+// A small, self-contained ImGui timeline/scrubber widget - built in-house rather than pulling in a
+// third-party sequencer (ImGuizmo's ImSequencer, ImTimeline, etc.): this codebase hand-builds every
+// other editor widget (property inspector, asset browser, wedge renderer), and a custom widget
+// integrates its own zoom/pan/scrub feel and color palette directly rather than adapting someone
+// else's API/data model to fit. Time is always in SECONDS; FPS is only used to snap the playhead to
+// whole frames while scrubbing. Lives in source/tools (not a per-example folder) since it's meant to
+// be reused by any editor with a clip/sequence to scrub - E24_AnimPackageEditor is its first user,
+// not its only intended one.
+//
+// `track`/`event` exist now purely as a rendering surface for a feature not built yet: authored
+// "events" (a name + start time + duration, living on a named track/lane) that Draw() already knows
+// how to lay out and render. Nothing constructs a `track` yet - every caller today passes an empty
+// span - but the shape is here so adding real event authoring later is a data-model exercise, not a
+// widget rewrite.
+namespace xgpu::tools::imgui::timeline
+{
+    struct event
+    {
+        std::string     m_Name      = {};
+        float           m_Start     = 0.0f;    // seconds
+        float           m_Duration  = 0.0f;    // seconds
+        std::uint32_t   m_Color     = IM_COL32(90, 170, 250, 255);
+    };
+
+    struct track
+    {
+        std::string         m_Name   = {};
+        std::vector<event>  m_Events = {};
+    };
+
+    // Persistent view state (zoom/pan/drag) - one instance per timeline widget in the UI, kept
+    // alive across frames by the caller (a local `static` or a member on the caller's own state).
+    struct state
+    {
+        float   m_ViewStart     = 0.0f;    // seconds - left edge of the visible window
+        float   m_ViewDuration  = 4.0f;    // seconds visible across the widget's full width
+        bool    m_bPanning      = false;
+        float   m_PanStartMouseX    = 0.0f;
+        float   m_PanStartViewStart = 0.0f;
+        bool    m_bDragStartedOverRuler = false;   // gates scrub to left-drags that began over the
+                                                    // ruler/content area, not the reserved gutter -
+                                                    // pan (right-drag) works anywhere on the widget
+        float   m_GutterWidth = 120.0f;            // width of the left "properties" column - user-
+                                                    // draggable via the divider between the two columns
+    };
+
+    //-------------------------------------------------------------------------
+
+    // Classic "nice numbers for graph labels" algorithm, restricted to a 1-2-5 decade progression
+    // (...0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100...) - computed directly from PixelsPerUnit/
+    // MinPixelSpacing rather than scanning a fixed lookup table, so it scales to any zoom level or
+    // unit range without a hardcoded min/max, while always landing tick values on round, base-10
+    // boundaries instead of arbitrary multiples.
+    inline float NiceTickStep(float PixelsPerUnit, float MinPixelSpacing)
+    {
+        const float RawStep    = MinPixelSpacing / std::max(PixelsPerUnit, 1.0e-6f);
+        const float Magnitude  = std::pow(10.0f, std::floor(std::log10(RawStep)));
+        const float Residual   = RawStep / Magnitude;
+        const float NiceResidual = (Residual <= 1.0f) ? 1.0f : (Residual <= 2.0f) ? 2.0f : (Residual <= 5.0f) ? 5.0f : 10.0f;
+        return NiceResidual * Magnitude;
+    }
+
+    // One notch finer than Step (assumed to already be an exact 1-2-5-decade value, e.g. NiceTickStep's
+    // own return value) - used to build the cascading fade tiers in Draw() below. Always divides by a
+    // clean divisor of Step itself (2 or 5), NEVER hops sideways to the nearest 1-2-5 neighbor: hopping
+    // (e.g. 5 -> 2) would overlay two grids that don't nest - 2 doesn't evenly divide 5, so their tick
+    // positions interleave unevenly and read as patchy/missing ticks. Dividing keeps every tier a clean
+    // subdivision of the one above it: 10->5->1, 20->10->5->1, 50->10->5->1...
+    inline float NiceStepFiner(float Step)
+    {
+        const float Magnitude = std::pow(10.0f, std::floor(std::log10(Step) + 1.0e-4f));
+        const float Residual  = Step / Magnitude;
+        const float Divisor   = (Residual > 3.5f) ? 5.0f : 2.0f;   // residual 5 -> /5 (to 1); residual 1 or 2 -> /2 (to 5 or 1)
+        return Step / Divisor;
+    }
+
+    //-------------------------------------------------------------------------
+    // Draws the ruler + scrubbable playhead + clip-extent bar + any event tracks. `Time` is the
+    // playhead position (seconds) - clamped to [0, ContentDuration] and, if FPS > 0, snapped to the
+    // nearest whole frame while the user is actively scrubbing. Returns true the frame `Time` was
+    // changed by user interaction (so the caller can stop autoplay-advancing it, reset loop counters,
+    // etc. - the same thing a manual slider edit would already need to do).
+    inline bool Draw
+    ( state&                  State
+    , float&                  Time
+    , float                   ContentDuration
+    , float                   FPS
+    , std::span<const track>  Tracks
+    , const char*             StrID
+    )
+    {
+        bool bChanged = false;
+        ContentDuration = std::max(ContentDuration, 0.001f);
+        // Capped at the content's own length (with a 1s floor for near-instant clips) - no reason to
+        // zoom out past "the whole clip fits", so this IS the max zoom-out. The zoom-IN cap (max, not
+        // min, magnification) needs the ruler's actual pixel width, computed further down once the
+        // canvas exists - only the upper bound is applied here, for now.
+        const float MaxView = std::max(ContentDuration, 1.0f);
+        State.m_ViewDuration = std::min(State.m_ViewDuration, MaxView);
+
+        // Wide enough for a tick's stacked "1.33s"/"f80" label to read clearly - reused below both to
+        // pick the labeled tick tier AND (via MinView) as the max-zoom-in cap: once a single FRAME
+        // already has this much room, it's as legible as a tick ever needs to be, so there's no reason
+        // to zoom in any further.
+        constexpr float MajorTickSpacingPx = 70.0f;
+
+        ImGui::PushID(StrID);
+        ImGui::BeginGroup();
+
+        // Tall enough for two stacked lines (seconds + frame number) on major ticks.
+        const float RulerHeight = 4.0f + 2.0f * ImGui::GetTextLineHeight();
+        constexpr float TrackHeight = 22.0f;
+        constexpr float TrackGap    = 4.0f;
+        const float ContentHeight = RulerHeight + TrackGap + TrackHeight + (Tracks.empty() ? 0.0f : TrackGap + static_cast<float>(Tracks.size()) * (TrackHeight + TrackGap));
+
+        // A column on the left, outside the pannable/zoomable ruler - carries this row's own property
+        // cell (the Time/Frame readout, below) plus per-track labels, and later authored event/
+        // property controls (see the file header comment on `track`/`event`). Never part of the time
+        // axis: clicks/drags/zoom starting here don't scrub or pan the timeline. Width is user-
+        // draggable via the divider (also below), clamped to the available space each frame.
+        const float AvailWidth = ImGui::GetContentRegionAvail().x;
+        State.m_GutterWidth = std::clamp(State.m_GutterWidth, 50.0f, std::max(AvailWidth - 80.0f, 50.0f));
+        const float GutterWidth = State.m_GutterWidth;
+
+        ImVec2 CanvasPos  = ImGui::GetCursorScreenPos();
+        ImVec2 CanvasSize = ImVec2(std::max(AvailWidth, GutterWidth + 50.0f), ContentHeight);
+
+        ImGui::SetNextItemAllowOverlap();   // let the divider button (submitted after, same screen area) steal hover from this one - otherwise ImGui's first-claimed-wins hover rule locks the divider out entirely
+        ImGui::InvisibleButton("##canvas", CanvasSize, ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+        const bool bHoveredWidget  = ImGui::IsItemHovered();
+        const bool bActive         = ImGui::IsItemActive();
+        const bool bCanvasActivated = ImGui::IsItemActivated();   // captured now - the divider button
+                                                                   // submitted below would otherwise
+                                                                   // steal "last item" for IsItem*() calls
+
+        ImDrawList* pDraw = ImGui::GetWindowDrawList();
+        const ImVec2 GutterP0 = CanvasPos;
+        const ImVec2 GutterP1 = ImVec2(CanvasPos.x + GutterWidth, CanvasPos.y + CanvasSize.y);
+        const ImVec2 P0 = ImVec2(CanvasPos.x + GutterWidth, CanvasPos.y);
+        const ImVec2 P1 = ImVec2(CanvasPos.x + CanvasSize.x, CanvasPos.y + CanvasSize.y);
+
+        // Max zoom-in: once a single frame is at least MajorTickSpacingPx wide, it's already perfectly
+        // legible - clamped here (now that the ruler's pixel width is known) rather than left at the
+        // old fixed 0.05s floor, so the cap scales with the widget's own size and the clip's FPS
+        // instead of an arbitrary constant.
+        const bool  bFrameStepped = FPS > 0.0f;
+        const float MinView = bFrameStepped ? std::max((P1.x - P0.x) / (MajorTickSpacingPx * FPS), 0.01f) : 0.05f;
+        State.m_ViewDuration = std::clamp(State.m_ViewDuration, MinView, MaxView);
+
+        pDraw->AddRectFilled(GutterP0, GutterP1, IM_COL32(22, 22, 26, 255));
+        pDraw->AddRectFilled(P0, P1, IM_COL32(28, 28, 32, 255));
+        pDraw->AddLine(ImVec2(P0.x, GutterP0.y), ImVec2(P0.x, GutterP1.y), IM_COL32(60, 60, 68, 255), 1.0f);
+
+        // Draggable divider - a thin hit-region straddling the gutter/ruler boundary, submitted after
+        // (so it wins hover over) the main canvas button above. Resizes State.m_GutterWidth directly
+        // off the mouse delta - one frame of lag between drag and the boundary moving, imperceptible.
+        {
+            constexpr float HandleHalfWidth = 7.0f;    // generous hit-region - the drawn line stays 1px
+            ImGui::SetCursorScreenPos(ImVec2(P0.x - HandleHalfWidth, CanvasPos.y));
+            ImGui::InvisibleButton("##gutter_divider", ImVec2(HandleHalfWidth * 2.0f, CanvasSize.y));
+            const bool bDividerHot = ImGui::IsItemHovered() || ImGui::IsItemActive();
+            if (bDividerHot)
+                ImGui::SetMouseCursor(ImGuiMouseCursor_ResizeEW);
+            if (ImGui::IsItemActive())
+                State.m_GutterWidth += ImGui::GetIO().MouseDelta.x;
+            if (bDividerHot)   // brighten the divider line itself so hovering it gives visible feedback
+                pDraw->AddLine(ImVec2(P0.x, GutterP0.y), ImVec2(P0.x, GutterP1.y), IM_COL32(140, 170, 220, 255), 2.0f);
+        }
+
+        // Row 1, left column: the live Time/Frame readout - this row's own property cell, same idea as
+        // every other row in this "table" (track names get theirs further down). Replaces the old
+        // standalone Text() line that used to sit above the whole widget. "Time:"/"Frame:" are padded
+        // to the same prefix width so the values line up underneath each other.
+        {
+            const int Frame = FPS > 0.0f ? static_cast<int>(std::lround(Time * FPS)) : 0;
+            char TimeBuf[32];
+            snprintf(TimeBuf, sizeof(TimeBuf), "Time:  %.3fs", Time);
+            pDraw->AddText(ImVec2(GutterP0.x + 4.0f, GutterP0.y + 1.0f), IM_COL32(220, 220, 230, 255), TimeBuf);
+            if (FPS > 0.0f)
+            {
+                char FrameBuf[32];
+                snprintf(FrameBuf, sizeof(FrameBuf), "Frame: %d", Frame);
+                pDraw->AddText(ImVec2(GutterP0.x + 4.0f, GutterP0.y + 1.0f + ImGui::GetTextLineHeight()), IM_COL32(160, 160, 170, 255), FrameBuf);
+            }
+            if (ImGui::IsMouseHoveringRect(GutterP0, ImVec2(GutterP1.x, GutterP0.y + RulerHeight)))
+            {
+                if (FPS > 0.0f) ImGui::SetTooltip("Time:  %.3fs\nFrame: %d\n\ndrag = scrub, scroll = zoom, right-drag = pan", Time, Frame);
+                else            ImGui::SetTooltip("Time:  %.3fs\n\ndrag = scrub, scroll = zoom, right-drag = pan", Time);
+            }
+        }
+
+        // Outer clip spans the FULL widget (gutter included) - just a safety bound. The ruler's own
+        // scrollable content (ticks, clip bar, event boxes) needs a TIGHTER clip scoped to [P0,P1] so
+        // it doesn't bleed into the gutter while panned/zoomed - that inner clip is pushed/popped
+        // around each such block below, rather than left active for the rest of the function, so
+        // gutter-side drawing (row dividers, track names) - which sits at GutterP0.x, left of P0.x -
+        // doesn't get silently clipped away too.
+        pDraw->PushClipRect(GutterP0, P1, true);
+
+        const float PixelsPerSecond = (P1.x - P0.x) / State.m_ViewDuration;
+        auto TimeToX = [&](float T) { return P0.x + (T - State.m_ViewStart) * PixelsPerSecond; };
+        auto XToTime = [&](float X) { return State.m_ViewStart + (X - P0.x) / PixelsPerSecond; };
+
+        // A left-drag only scrubs if it STARTED over the ruler/content area (not the gutter) - checked
+        // once at activation, not every frame, so an in-progress drag doesn't cut out if the cursor
+        // strays back over the gutter mid-drag.
+        if (bCanvasActivated)
+            State.m_bDragStartedOverRuler = ImGui::GetIO().MousePos.x >= P0.x;
+        const bool bRulerHovered = bHoveredWidget && ImGui::GetIO().MousePos.x >= P0.x;
+
+        // Zoom to cursor (mouse wheel) - only while hovering the ruler/content, not the gutter
+        if (bRulerHovered && ImGui::GetIO().MouseWheel != 0.0f)
+        {
+            const float MouseTime = XToTime(ImGui::GetIO().MousePos.x);
+            const float ZoomFactor = std::pow(1.15f, -ImGui::GetIO().MouseWheel);
+            State.m_ViewDuration = std::clamp(State.m_ViewDuration * ZoomFactor, MinView, MaxView);
+            const float NewPixelsPerSecond = (P1.x - P0.x) / State.m_ViewDuration;
+            State.m_ViewStart = MouseTime - (ImGui::GetIO().MousePos.x - P0.x) / NewPixelsPerSecond;
+        }
+
+        // Pan: right-drag anywhere across the whole widget, gutter included - a broad, forgiving
+        // gesture for shifting the view, unlike scrub (below) which only makes sense over the actual
+        // time axis.
+        const bool bWantPan = bActive && ImGui::IsMouseDown(ImGuiMouseButton_Right);
+        if (bWantPan)
+        {
+            if (!State.m_bPanning)
+            {
+                State.m_bPanning          = true;
+                State.m_PanStartMouseX    = ImGui::GetIO().MousePos.x;
+                State.m_PanStartViewStart = State.m_ViewStart;
+            }
+            State.m_ViewStart = State.m_PanStartViewStart - (ImGui::GetIO().MousePos.x - State.m_PanStartMouseX) / PixelsPerSecond;
+        }
+        else
+        {
+            State.m_bPanning = false;
+        }
+
+        // Max left pan: never scroll into negative time - a clip has no "before frame 0", so there's
+        // nothing meaningful to show there. A little overscroll past the END still reads as
+        // intentional (confirms "this is where the clip actually stops"), just not before the start.
+        const float MinStart = 0.0f;
+        const float MaxStart = std::max(MinStart, ContentDuration - State.m_ViewDuration * 0.25f);
+        State.m_ViewStart = std::clamp(State.m_ViewStart, MinStart, MaxStart);
+
+        // Ruler ticks: a continuous cascade of "nice" 1-2-5-decade tick tiers (...1,2,5,10,20,50,100
+        // frames-or-seconds...), each fading in/out by its own pixel spacing - the same technique the
+        // scene's own floor grid uses (E21_GridShader_frag.glsl's logA/logB crossfade) so zooming
+        // slides smoothly between tick densities instead of ticks popping in/out at a hard threshold.
+        // Only the LABEL is a discrete choice: exactly one tier - the coarsest that still clears
+        // MajorTickSpacingPx (declared up top, also used for the max-zoom-in cap) - gets numbers; every
+        // finer tier stays unlabeled background texture, fading continuously as the view zooms. In
+        // frame-stepped mode the cascade bottoms out at exactly 1 frame (never a fractional one), so
+        // there's always a real, visible tick to scrub onto - every frame, not just every other one.
+        constexpr float TickFadeStartPx    = 8.0f;     // a tier starts fading in once its ticks are this close together...
+        constexpr float TickFadeEndPx      = 24.0f;    // ...and reaches full opacity by this spacing
+        constexpr int   MaxFadeTiers       = 4;        // cap on how many nice-steps finer than Major to cascade through
+
+        const float PixelsPerUnit    = bFrameStepped ? (PixelsPerSecond / FPS) : PixelsPerSecond;
+        const float MajorStep        = NiceTickStep(PixelsPerUnit, MajorTickSpacingPx);   // frames if bFrameStepped, else seconds
+        const float MajorStepSeconds = bFrameStepped ? (MajorStep / FPS) : MajorStep;
+
+        float TierSteps[MaxFadeTiers + 1];
+        int   nTiers = 0;
+        {
+            float S = MajorStep;
+            for (int i = 0; i <= MaxFadeTiers; ++i)
+            {
+                TierSteps[nTiers++] = S;
+                if (bFrameStepped && S <= 1.0f + 1.0e-4f) break;   // already at the single-frame floor
+
+                float Next = NiceStepFiner(S);
+                if (bFrameStepped) Next = std::max(Next, 1.0f);
+                if (Next * PixelsPerUnit < TickFadeStartPx * 0.5f) break;  // next tier would be fully invisible
+                S = Next;
+            }
+        }
+
+        pDraw->PushClipRect(P0, P1, true);   // ruler-only: ticks must never bleed into the gutter
+        for (int Tier = 0; Tier < nTiers; ++Tier)
+        {
+            const float Step      = TierSteps[Tier];
+            const bool  bMajor    = (Tier == 0);
+            const float PxSpacing = Step * PixelsPerUnit;
+            const float Alpha     = bMajor ? 1.0f : std::clamp((PxSpacing - TickFadeStartPx) / (TickFadeEndPx - TickFadeStartPx), 0.0f, 1.0f);
+            if (Alpha <= 0.003f) continue;
+
+            const std::uint8_t LineA       = static_cast<std::uint8_t>(Alpha * (bMajor ? 255.0f : 130.0f));
+            const float         StepSeconds = bFrameStepped ? (Step / FPS) : Step;
+            const float         FirstTick   = std::floor(State.m_ViewStart / StepSeconds) * StepSeconds;
+
+            for (float T = FirstTick; T <= State.m_ViewStart + State.m_ViewDuration + StepSeconds; T += StepSeconds)
+            {
+                const float X = TimeToX(T);
+                if (X < P0.x - 2.0f || X > P1.x + 2.0f) continue;
+
+                const float TickTop = P0.y + (bMajor ? 4.0f : 12.0f);
+                pDraw->AddLine(ImVec2(X, TickTop), ImVec2(X, P0.y + RulerHeight), IM_COL32(120, 120, 130, LineA), 1.0f);
+
+                if (bMajor)
+                {
+                    char SecBuf[32];
+                    snprintf(SecBuf, sizeof(SecBuf), MajorStepSeconds < 1.0f ? "%.2fs" : "%.1fs", T);
+                    pDraw->AddText(ImVec2(X + 3.0f, P0.y + 1.0f), IM_COL32(200, 200, 210, 255), SecBuf);
+
+                    if (FPS > 0.0f)
+                    {
+                        char FrameBuf[32];
+                        snprintf(FrameBuf, sizeof(FrameBuf), "f%lld", std::llround(T * FPS));
+                        pDraw->AddText(ImVec2(X + 3.0f, P0.y + 1.0f + ImGui::GetTextLineHeight()), IM_COL32(150, 150, 160, 255), FrameBuf);
+                    }
+                }
+            }
+        }
+        pDraw->PopClipRect();   // back to the full-width outer clip
+
+        // Row dividers span the FULL width, gutter included - each row (ruler, the clip itself, every
+        // event track) is a row of the same table, so its property cell on the left and its content on
+        // the right share one bottom border, exactly like the ruler row's already did.
+        auto DrawRowDivider = [&](float Y) { pDraw->AddLine(ImVec2(GutterP0.x, Y), ImVec2(P1.x, Y), IM_COL32(70, 70, 78, 255), 1.0f); };
+        DrawRowDivider(P0.y + RulerHeight);
+
+        // Clip-extent bar - anchors the ruler to "this is where the clip's own data actually lives";
+        // space beyond it (visible when zoomed/panned past the end) stays plain background. This row
+        // IS "the animation" itself, so its own property cell lives in the gutter to its left (today
+        // just background - a natural home for a clip name/color once this widget authors more than
+        // one clip at a time) and it gets the same row divider as every other row.
+        {
+            pDraw->PushClipRect(P0, P1, true);   // ruler-only, same reasoning as the ticks above
+            const float BarTop = P0.y + RulerHeight + TrackGap;
+            const float BarBot = BarTop + TrackHeight;
+            const float XStart = std::max(TimeToX(0.0f), P0.x);
+            const float XEnd   = std::min(TimeToX(ContentDuration), P1.x);
+            if (XEnd > XStart)
+                pDraw->AddRectFilled(ImVec2(XStart, BarTop), ImVec2(XEnd, BarBot), IM_COL32(70, 110, 170, 180), 3.0f);
+            pDraw->AddRect(ImVec2(XStart, BarTop), ImVec2(XEnd, BarBot), IM_COL32(110, 150, 210, 255), 3.0f);
+            pDraw->PopClipRect();
+            DrawRowDivider(BarBot + TrackGap * 0.5f);
+        }
+
+        // Event tracks (empty today - see the file comment). Track names live in the fixed gutter
+        // (never scrolls/zooms with the ruler); only their events are drawn in the time-axis content.
+        float TrackY = P0.y + RulerHeight + TrackGap + TrackHeight + TrackGap;
+        for (auto& Track : Tracks)
+        {
+            pDraw->AddText(ImVec2(GutterP0.x + 4.0f, TrackY + 3.0f), IM_COL32(160, 160, 170, 255), Track.m_Name.c_str());
+            pDraw->PushClipRect(P0, P1, true);   // ruler-only, same reasoning as the ticks above
+            for (auto& Ev : Track.m_Events)
+            {
+                const float XStart = TimeToX(Ev.m_Start);
+                const float XEnd   = TimeToX(Ev.m_Start + Ev.m_Duration);
+                if (XEnd < P0.x || XStart > P1.x) continue;
+
+                const ImVec2 A(std::max(XStart, P0.x), TrackY);
+                const ImVec2 B(std::min(XEnd, P1.x), TrackY + TrackHeight);
+                pDraw->AddRectFilled(A, B, Ev.m_Color, 3.0f);
+                pDraw->AddRect(A, B, IM_COL32(0, 0, 0, 120), 3.0f);
+                pDraw->PushClipRect(A, B, true);
+                pDraw->AddText(ImVec2(A.x + 3.0f, A.y + 3.0f), IM_COL32(20, 20, 20, 255), Ev.m_Name.c_str());
+                pDraw->PopClipRect();
+            }
+            pDraw->PopClipRect();
+            TrackY += TrackHeight + TrackGap;
+            DrawRowDivider(TrackY - TrackGap * 0.5f);
+        }
+
+        // Scrub: left-click or left-drag on the ruler/content seeks the playhead there, snapping to
+        // whole frames if FPS is known - discrete, predictable scrubbing rather than continuous float
+        // jitter that never quite lands on a real frame. Gated to drags that started over the ruler
+        // (not the gutter) - right-drag is pan (above), so no risk of the two colliding.
+        if (bActive && State.m_bDragStartedOverRuler && !bWantPan && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+        {
+            float NewTime = std::clamp(XToTime(ImGui::GetIO().MousePos.x), 0.0f, ContentDuration);
+            if (FPS > 0.0f) NewTime = std::round(NewTime * FPS) / FPS;
+            if (std::abs(NewTime - Time) > 1.0e-6f) { Time = NewTime; bChanged = true; }
+        }
+
+        // Playhead - a full-height line plus a small triangular grip at the top, matching the accent
+        // color used nowhere else in this canvas so it always reads as "the one draggable thing".
+        // Ruler-only clip: if Time is currently panned out of view, it should just not be drawn, not
+        // bleed its triangle into the gutter.
+        {
+            pDraw->PushClipRect(P0, P1, true);
+            const float X = TimeToX(Time);
+            pDraw->AddLine(ImVec2(X, P0.y), ImVec2(X, P1.y), IM_COL32(255, 110, 60, 255), 2.0f);
+            pDraw->AddTriangleFilled(ImVec2(X - 6.0f, P0.y), ImVec2(X + 6.0f, P0.y), ImVec2(X, P0.y + 10.0f), IM_COL32(255, 110, 60, 255));
+            pDraw->PopClipRect();
+        }
+
+        // Shown on plain hover AND throughout an active scrub drag (not gated on bActive the way it
+        // used to be) - checked via bDragStartedOverRuler rather than bRulerHovered alone, since a fast
+        // drag can momentarily carry the mouse outside the ruler's exact hover rect while still held.
+        const bool bScrubbing = bActive && State.m_bDragStartedOverRuler && ImGui::IsMouseDown(ImGuiMouseButton_Left);
+        if (bRulerHovered || bScrubbing)
+        {
+            const float HoverTime = XToTime(ImGui::GetIO().MousePos.x);
+            if (HoverTime >= -0.001f && HoverTime <= ContentDuration + 0.001f)
+            {
+                if (FPS > 0.0f) ImGui::SetTooltip("%.3fs   f%lld", HoverTime, std::llround(HoverTime * FPS));
+                else             ImGui::SetTooltip("%.3fs", HoverTime);
+            }
+        }
+
+        pDraw->PopClipRect();
+        ImGui::EndGroup();
+        ImGui::PopID();
+        return bChanged;
+    }
+}
+
+#endif

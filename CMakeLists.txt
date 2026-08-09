@@ -380,6 +380,7 @@ add_executable(${TARGET_PROJECT}
   "source/tools/xgpu_xcore_bitmap_helpers.h"
   "source/tools/xgpu_imgui_breach.h"
   "source/tools/xgpu_imgui_breach.cpp"
+  "source/tools/xgpu_imgui_timeline.h"
   "source/tools/xgpu_basis_universal_texture_loader.h"
   "source/tools/Import3D/import3d.h"
   "source/tools/Import3D/import3d_animation.h"
@@ -412,6 +413,7 @@ source_group("Tools" FILES
   "source/tools/xgpu_xcore_bitmap_helpers.h"
   "source/tools/xgpu_imgui_breach.h"
   "source/tools/xgpu_imgui_breach.cpp"
+  "source/tools/xgpu_imgui_timeline.h"
   "source/tools/xgpu_basis_universal_texture_loader.h"
 )
 
