@@ -473,6 +473,23 @@ namespace e24
     // verbatim, not re-guessed, so it's guaranteed to actually exist in the bundled font.
     constexpr const char* g_DeleteIcon = "\xEE\x9D\x8D";
 
+    // Transport bar glyphs, cross-checked against the authoritative community codepoint table
+    // (github.com/scottdorman/mdl2-icons) rather than guessed. GoToStart/GoToEnd reuse the standard
+    // Previous/Next "skip track" pair (U+E892/U+E893) - visually symmetric and the conventional choice
+    // for single-clip transport controls; there's no dedicated "go to end" glyph in the font to pair
+    // with the dedicated "go to start" one, so Previous/Next keeps both ends visually consistent.
+    constexpr const char* g_PlayIcon      = "\xEE\x9D\xA8";  // U+E768 Play
+    constexpr const char* g_PauseIcon     = "\xEE\x9D\xA9";  // U+E769 Pause
+    constexpr const char* g_GoToStartIcon = "\xEE\xA2\x92";  // U+E892 Previous
+    constexpr const char* g_GoToEndIcon   = "\xEE\xA2\x93";  // U+E893 Next
+
+    // Discrete playback-speed steps - a slider snapped to these (rather than a continuous float) makes
+    // landing exactly back on 1x trivial, per the user's own request.
+    constexpr float       g_PlaybackSpeeds[]    = { 0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f };
+    constexpr const char* g_PlaybackSpeedLabels[] = { "0.25x", "0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x", "3x" };  // avoids %g's significant-digit truncation (1.25 -> "1.2")
+    constexpr int         g_NumPlaybackSpeeds   = static_cast<int>(std::size(g_PlaybackSpeeds));
+    constexpr int         g_DefaultSpeedIndex   = 3;   // g_PlaybackSpeeds[3] == 1.0f
+
     // A descriptor clip override may or may not have a compiled counterpart to preview: it won't if
     // it's marked for Delete, or if the descriptor was edited since the last Compile. Resolved the
     // same way the compiler itself identifies a clip at runtime - CRC32 of the compiled name.
@@ -536,6 +553,7 @@ namespace e24
         float                                m_TimeSeconds   = 0.0f;
         int                                  m_LoopsElapsed  = 0;    // see ComputeRootMotionOffset's own comment
         bool                                 m_bPlaying      = false;
+        int                                  m_iSpeedIndex   = e24::g_DefaultSpeedIndex;  // index into e24::g_PlaybackSpeeds
         xgpu::tools::imgui::timeline::state  m_Timeline      = {};   // scrub widget's own zoom/pan - reset whenever the selected clip changes
 
         bool m_bNeedsReframe = true;
@@ -1015,6 +1033,12 @@ int E24_Example()
     {
         if (xgpu::tools::imgui::BeginRendering(true)) continue;
 
+        // Space bar toggles Play/Pause - same action as the transport bar's own button, just not
+        // gated on that panel having focus (matches every video player's own convention). Guarded by
+        // WantTextInput so it still types a literal space while renaming a clip instead of hijacking it.
+        if (!AnimState.empty() && AnimState.m_iSelectedClip >= 0 && !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_Space))
+            AnimState.m_bPlaying = !AnimState.m_bPlaying;
+
         //
         // Advance playback time before evaluating the pose this frame.
         //
@@ -1026,7 +1050,7 @@ int E24_Example()
 
             if (AnimState.m_bPlaying && ClipLength > 0.0f)
             {
-                AnimState.m_TimeSeconds += ImGui::GetIO().DeltaTime;
+                AnimState.m_TimeSeconds += ImGui::GetIO().DeltaTime * e24::g_PlaybackSpeeds[AnimState.m_iSpeedIndex];
                 if (Clip.m_bLoop)
                 {
                     while (AnimState.m_TimeSeconds >= ClipLength) { AnimState.m_TimeSeconds -= ClipLength; ++AnimState.m_LoopsElapsed; }
@@ -1549,17 +1573,56 @@ int E24_Example()
                     auto&       Clip       = pPackage->getClips()[AnimState.m_iSelectedClip];
                     const float ClipLength = (Clip.m_FPS > 0 && Clip.m_nFrames > 0) ? float(Clip.m_nFrames) / float(Clip.m_FPS) : 0.0f;
 
-                    if (ImGui::Button(AnimState.m_bPlaying ? "Pause" : "Play"))
+                    // Three real transport buttons (Play/Pause, go-to-start, go-to-end) instead of one
+                    // button plus a redundant "Clip N" index nobody needs - the clip's own NAME goes in
+                    // the timeline's gutter instead (see ClipName below).
+                    if (ImGui::Button(AnimState.m_bPlaying ? e24::g_PauseIcon : e24::g_PlayIcon))
                         AnimState.m_bPlaying = !AnimState.m_bPlaying;
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip(AnimState.m_bPlaying ? "Pause" : "Play");
 
                     ImGui::SameLine();
-                    ImGui::Text("Clip %d", AnimState.m_iSelectedClip);
+                    if (ImGui::Button(e24::g_GoToStartIcon))
+                    {
+                        AnimState.m_TimeSeconds  = 0.0f;
+                        AnimState.m_LoopsElapsed = 0;
+                    }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Go to start");
 
-                    if (xgpu::tools::imgui::timeline::Draw(AnimState.m_Timeline, AnimState.m_TimeSeconds, ClipLength, static_cast<float>(Clip.m_FPS), {}, "playback_timeline"))
+                    ImGui::SameLine();
+                    if (ImGui::Button(e24::g_GoToEndIcon))
+                        AnimState.m_TimeSeconds = ClipLength;
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Go to end");
+
+                    // Playback speed - discrete steps (not a continuous float) so landing exactly back
+                    // on 1x is trivial instead of a fiddly drag.
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(140.0f);
+                    ImGui::SliderInt("##speed", &AnimState.m_iSpeedIndex, 0, e24::g_NumPlaybackSpeeds - 1, e24::g_PlaybackSpeedLabels[AnimState.m_iSpeedIndex]);
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Playback speed");
+
+                    // The clip's own display name - matches how a nested import_source is identified,
+                    // read straight from the descriptor entry that selecting this clip already tracks.
+                    const char* pClipName = nullptr;
+                    if (AnimState.m_iSelectedImportSource >= 0 && AnimState.m_iSelectedImportSource < int(AnimState.m_Descriptor.m_ImportSources.size()))
+                    {
+                        auto& Source = AnimState.m_Descriptor.m_ImportSources[AnimState.m_iSelectedImportSource];
+                        if (AnimState.m_iSelectedDescriptorClip >= 0 && AnimState.m_iSelectedDescriptorClip < int(Source.m_Clips.size()))
+                            pClipName = Source.m_Clips[AnimState.m_iSelectedDescriptorClip].m_Name.c_str();
+                    }
+
+                    // The footer line (below) is pinned to the very bottom of the window - the timeline
+                    // widget stretches to fill everything above it, so the table's own background
+                    // occupies the rest of the panel instead of leaving dead space even when it has
+                    // nothing more to show (a single clip, no event tracks yet).
+                    const float FooterHeight   = ImGui::GetTextLineHeightWithSpacing();
+                    const float MinTimelineHeight = std::max(ImGui::GetContentRegionAvail().y - FooterHeight, 0.0f);
+
+                    if (xgpu::tools::imgui::timeline::Draw(AnimState.m_Timeline, AnimState.m_TimeSeconds, ClipLength, static_cast<float>(Clip.m_FPS), {}, "playback_timeline", pClipName, MinTimelineHeight))
                         AnimState.m_LoopsElapsed = 0; // manual scrub - the "elapsed loops" count no longer means anything
 
-                    ImGui::Text("FPS: %d    Frames: %d    Loop: %s    Root Motion: %s"
-                               , Clip.m_FPS, Clip.m_nFrames, Clip.m_bLoop ? "Yes" : "No", e24::RootMotionModeName(Clip.m_RootMotionMode));
+                    const float ZoomPercent = xgpu::tools::imgui::timeline::GetZoomPercent(AnimState.m_Timeline, ClipLength);
+                    ImGui::Text("Zoom: %.0f%%    FPS: %d    Frames: %d    Loop: %s    Root Motion: %s"
+                               , ZoomPercent, Clip.m_FPS, Clip.m_nFrames, Clip.m_bLoop ? "Yes" : "No", e24::RootMotionModeName(Clip.m_RootMotionMode));
                 }
                 else
                 {

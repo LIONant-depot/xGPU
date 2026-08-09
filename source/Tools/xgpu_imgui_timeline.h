@@ -86,6 +86,16 @@ namespace xgpu::tools::imgui::timeline
         return Step / Divisor;
     }
 
+    // How zoomed-in the view currently is, as a percentage where 100% = fully zoomed out (the whole
+    // clip visible, i.e. State.m_ViewDuration == the same MaxView cap Draw() itself enforces) - kept
+    // as a shared helper rather than duplicating the MaxView formula at each call site, so this stays
+    // consistent if that cap ever changes.
+    inline float GetZoomPercent(const state& State, float ContentDuration)
+    {
+        const float MaxView = std::max(std::max(ContentDuration, 0.001f), 1.0f);
+        return (State.m_ViewDuration > 0.0f) ? (MaxView / State.m_ViewDuration) * 100.0f : 100.0f;
+    }
+
     //-------------------------------------------------------------------------
     // Draws the ruler + scrubbable playhead + clip-extent bar + any event tracks. `Time` is the
     // playhead position (seconds) - clamped to [0, ContentDuration] and, if FPS > 0, snapped to the
@@ -99,6 +109,14 @@ namespace xgpu::tools::imgui::timeline
     , float                   FPS
     , std::span<const track>  Tracks
     , const char*             StrID
+    , const char*             ClipName = nullptr   // shown in the gutter's clip-extent-bar row, same
+                                                    // spot a track's own name shows for its row - null
+                                                    // if the caller has nothing to name yet
+    , float                   MinHeight = 0.0f     // stretches the widget's background to at least
+                                                    // this tall (e.g. "whatever's left in my window
+                                                    // above a footer line") even past its own rows'
+                                                    // natural height, so the table still reads as
+                                                    // filling the panel instead of leaving dead space
     )
     {
         bool bChanged = false;
@@ -119,11 +137,14 @@ namespace xgpu::tools::imgui::timeline
         ImGui::PushID(StrID);
         ImGui::BeginGroup();
 
-        // Tall enough for two stacked lines (seconds + frame number) on major ticks.
-        const float RulerHeight = 4.0f + 2.0f * ImGui::GetTextLineHeight();
+        // Tall enough for the gutter's two stacked Time/Frame INPUT WIDGETS (taller than plain text -
+        // frame padding included), which happens to comfortably fit the ruler side's own two stacked
+        // tick-label text lines too.
+        const float RulerHeight = 4.0f + ImGui::GetFrameHeightWithSpacing() + ImGui::GetFrameHeight();
         constexpr float TrackHeight = 22.0f;
         constexpr float TrackGap    = 4.0f;
-        const float ContentHeight = RulerHeight + TrackGap + TrackHeight + (Tracks.empty() ? 0.0f : TrackGap + static_cast<float>(Tracks.size()) * (TrackHeight + TrackGap));
+        const float NaturalContentHeight = RulerHeight + TrackGap + TrackHeight + (Tracks.empty() ? 0.0f : TrackGap + static_cast<float>(Tracks.size()) * (TrackHeight + TrackGap));
+        const float ContentHeight = std::max(NaturalContentHeight, MinHeight);
 
         // A column on the left, outside the pannable/zoomable ruler - carries this row's own property
         // cell (the Time/Frame readout, below) plus per-track labels, and later authored event/
@@ -180,25 +201,54 @@ namespace xgpu::tools::imgui::timeline
         }
 
         // Row 1, left column: the live Time/Frame readout - this row's own property cell, same idea as
-        // every other row in this "table" (track names get theirs further down). Replaces the old
-        // standalone Text() line that used to sit above the whole widget. "Time:"/"Frame:" are padded
-        // to the same prefix width so the values line up underneath each other.
+        // every other row in this "table" (track names get theirs further down). Editable: type a
+        // value and press Enter (or click away) to jump the playhead straight there, same as any other
+        // ImGui numeric field - each one only re-syncs its displayed text from Time/FPS while NOT
+        // actively being typed into, so mid-edit keystrokes are never clobbered by playback advancing
+        // Time underneath it.
         {
-            const int Frame = FPS > 0.0f ? static_cast<int>(std::lround(Time * FPS)) : 0;
-            char TimeBuf[32];
-            snprintf(TimeBuf, sizeof(TimeBuf), "Time:  %.3fs", Time);
-            pDraw->AddText(ImVec2(GutterP0.x + 4.0f, GutterP0.y + 1.0f), IM_COL32(220, 220, 230, 255), TimeBuf);
+            // Labels padded to the WIDER of the two ("Frame:") so both edit boxes start at the same X
+            // and share the same width, regardless of which label is actually shorter.
+            const float LabelWidth = std::max(ImGui::CalcTextSize("Time:").x, ImGui::CalcTextSize("Frame:").x);
+            const float FieldX     = GutterP0.x + 4.0f + LabelWidth + 4.0f;
+            const float FieldWidth = std::max(GutterWidth - 8.0f - LabelWidth - 4.0f, 20.0f);
+            const float Field1Y    = GutterP0.y + 2.0f;
+            const float Field2Y    = Field1Y + ImGui::GetFrameHeightWithSpacing();
+            const float LabelYOff  = ImGui::GetStyle().FramePadding.y;   // vertically centers the label text against the taller input box
+
+            pDraw->PushClipRect(GutterP0, GutterP1, true);   // gutter-only - see ClipName's own comment below
+            pDraw->AddText(ImVec2(GutterP0.x + 4.0f, Field1Y + LabelYOff), IM_COL32(200, 200, 210, 255), "Time:");
+            if (FPS > 0.0f)
+                pDraw->AddText(ImVec2(GutterP0.x + 4.0f, Field2Y + LabelYOff), IM_COL32(200, 200, 210, 255), "Frame:");
+            pDraw->PopClipRect();
+
+            ImGui::SetCursorScreenPos(ImVec2(FieldX, Field1Y));
+            ImGui::SetNextItemWidth(FieldWidth);
+            ImGui::InputFloat("##time_edit", &Time, 0.0f, 0.0f, "%.3fs");
+            if (ImGui::IsItemDeactivatedAfterEdit())
+            {
+                Time = std::clamp(Time, 0.0f, ContentDuration);
+                if (FPS > 0.0f) Time = std::round(Time * FPS) / FPS;
+                bChanged = true;
+            }
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Time - type a value, Enter to jump there");
+
             if (FPS > 0.0f)
             {
-                char FrameBuf[32];
-                snprintf(FrameBuf, sizeof(FrameBuf), "Frame: %d", Frame);
-                pDraw->AddText(ImVec2(GutterP0.x + 4.0f, GutterP0.y + 1.0f + ImGui::GetTextLineHeight()), IM_COL32(160, 160, 170, 255), FrameBuf);
+                int Frame = static_cast<int>(std::lround(Time * FPS));
+                ImGui::SetCursorScreenPos(ImVec2(FieldX, Field2Y));
+                ImGui::SetNextItemWidth(FieldWidth);
+                ImGui::InputInt("##frame_edit", &Frame, 0, 0);
+                if (ImGui::IsItemDeactivatedAfterEdit())
+                {
+                    Time = std::clamp(static_cast<float>(Frame) / FPS, 0.0f, ContentDuration);
+                    bChanged = true;
+                }
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Frame - type a value, Enter to jump there");
             }
-            if (ImGui::IsMouseHoveringRect(GutterP0, ImVec2(GutterP1.x, GutterP0.y + RulerHeight)))
-            {
-                if (FPS > 0.0f) ImGui::SetTooltip("Time:  %.3fs\nFrame: %d\n\ndrag = scrub, scroll = zoom, right-drag = pan", Time, Frame);
-                else            ImGui::SetTooltip("Time:  %.3fs\n\ndrag = scrub, scroll = zoom, right-drag = pan", Time);
-            }
+
+            if (!ImGui::IsAnyItemActive() && ImGui::IsMouseHoveringRect(GutterP0, ImVec2(GutterP1.x, GutterP0.y + RulerHeight)))
+                ImGui::SetTooltip("drag = scrub, scroll = zoom, right-drag = pan");
         }
 
         // Outer clip spans the FULL widget (gutter included) - just a safety bound. The ruler's own
@@ -335,10 +385,19 @@ namespace xgpu::tools::imgui::timeline
 
         // Clip-extent bar - anchors the ruler to "this is where the clip's own data actually lives";
         // space beyond it (visible when zoomed/panned past the end) stays plain background. This row
-        // IS "the animation" itself, so its own property cell lives in the gutter to its left (today
-        // just background - a natural home for a clip name/color once this widget authors more than
-        // one clip at a time) and it gets the same row divider as every other row.
+        // IS "the animation" itself, so its own property cell in the gutter carries ITS name - same
+        // convention as every track row's own name cell - and it gets the same row divider as every
+        // other row.
         {
+            if (ClipName)
+            {
+                pDraw->PushClipRect(GutterP0, GutterP1, true);   // gutter-only - a long name (or a
+                                                                  // narrow, user-dragged gutter) must
+                                                                  // never spill text into the ruler
+                pDraw->AddText(ImVec2(GutterP0.x + 4.0f, P0.y + RulerHeight + TrackGap + 3.0f), IM_COL32(200, 200, 210, 255), ClipName);
+                pDraw->PopClipRect();
+            }
+
             pDraw->PushClipRect(P0, P1, true);   // ruler-only, same reasoning as the ticks above
             const float BarTop = P0.y + RulerHeight + TrackGap;
             const float BarBot = BarTop + TrackHeight;
@@ -356,7 +415,9 @@ namespace xgpu::tools::imgui::timeline
         float TrackY = P0.y + RulerHeight + TrackGap + TrackHeight + TrackGap;
         for (auto& Track : Tracks)
         {
+            pDraw->PushClipRect(GutterP0, GutterP1, true);   // gutter-only - see ClipName's own comment above
             pDraw->AddText(ImVec2(GutterP0.x + 4.0f, TrackY + 3.0f), IM_COL32(160, 160, 170, 255), Track.m_Name.c_str());
+            pDraw->PopClipRect();
             pDraw->PushClipRect(P0, P1, true);   // ruler-only, same reasoning as the ticks above
             for (auto& Ev : Track.m_Events)
             {
