@@ -150,6 +150,19 @@ namespace e25
         return Ref;
     }
 
+    // What actually drives the skeleton's per-bone world matrices this frame - independent of whether
+    // a preview animation happens to be loaded. BIND_POSE always shows the skeleton's rest/bind pose,
+    // ignoring any resolved animation entirely. FROZEN_POSE evaluates the resolved clip at its current
+    // scrub position but never auto-advances (playback is forced paused; manual scrubbing still
+    // works), matching E23_Skeleton_Editor's own FROZEN/BIND naming for the equivalent skeleton-only
+    // toggle. ANIMATION_POSE is the existing behavior: plays/advances per the transport bar.
+    enum class pose_type : std::uint8_t { BIND_POSE, FROZEN_POSE, ANIMATION_POSE };
+    static constexpr auto pose_type_v = std::array
+    { xproperty::settings::enum_item("Bind Pose",      pose_type::BIND_POSE)
+    , xproperty::settings::enum_item("Frozen Pose",    pose_type::FROZEN_POSE)
+    , xproperty::settings::enum_item("Animation Pose", pose_type::ANIMATION_POSE)
+    };
+
     //---------------------------------------------------------------------------
     // Render/preview settings - view-only, not part of the descriptor, not persisted to disk (same
     // "view preference, not asset state" precedent as E23's own render_settings-style toggles).
@@ -163,12 +176,14 @@ namespace e25
         xrsc::anim_package  m_PreviewAnimRef = {};
         int                 m_iLOD           = 0;
         int                 m_MaxInfluences  = 4;
+        pose_type           m_PoseType       = pose_type::ANIMATION_POSE;
 
         XPROPERTY_DEF
         ( "RenderSettings", render_settings
         , obj_member<"PreviewAnimRef", &render_settings::m_PreviewAnimRef >
         , obj_member<"LOD",            &render_settings::m_iLOD >
         , obj_member<"MaxInfluences",  &render_settings::m_MaxInfluences >
+        , obj_member<"Pose Type",      &render_settings::m_PoseType, member_enum_span<pose_type_v> >
         )
     };
     XPROPERTY_REG(render_settings)
@@ -765,10 +780,14 @@ int E25_Example()
                         SkinState.m_Timeline         = {};   // fresh zoom/pan for this clip's own duration
                     }
 
-                    auto* pAnim = SkinState.m_ResolvedAnimRef.empty() ? nullptr : xresource::g_Mgr.getResource(SkinState.m_ResolvedAnimRef);
-                    bool  bUsedAnimatedPose = false;
+                    auto*      pAnim      = SkinState.m_ResolvedAnimRef.empty() ? nullptr : xresource::g_Mgr.getResource(SkinState.m_ResolvedAnimRef);
+                    const bool bAnimValid = pAnim && !pAnim->getClips().empty() && pAnim->m_nBones == pSkeleton->getBones().size();
 
-                    if (pAnim && !pAnim->getClips().empty() && pAnim->m_nBones == pSkeleton->getBones().size())
+                    // ANIMATION_POSE is the only mode that actually touches the resolved clip - BIND_POSE
+                    // and FROZEN_POSE are both static, animation-independent skeleton visualizations
+                    // (they only differ in which formula builds the skin matrices below), matching
+                    // E23_Skeleton_Editor's own BIND/FROZEN split.
+                    if (RenderSettings.m_PoseType == e25::pose_type::ANIMATION_POSE && bAnimValid)
                     {
                         if (SkinState.m_iSelectedClip < 0 || SkinState.m_iSelectedClip >= int(pAnim->getClips().size()))
                             SkinState.m_iSelectedClip = 0;
@@ -792,23 +811,40 @@ int E25_Example()
                             const auto Offset     = xgpu::tools::editors::ComputeRootMotionOffset(Clip, RootMotion, SkinState.m_TimeSeconds, SkinState.m_LoopsElapsed);
                             xgpu::tools::editors::ApplyWorldOffset(SkinState.m_PoseWorldMats, Offset);
                         }
-                        bUsedAnimatedPose = true;
                     }
                     else
                     {
+                        // FROZEN_POSE (and BIND_POSE, and ANIMATION_POSE with no valid clip resolved)
+                        // all land here - BIND_POSE overrides the skin matrices to Identity below
+                        // regardless of what m_PoseWorldMats holds, so computing it is only meaningful
+                        // for FROZEN_POSE, but it's cheap and harmless to always compute.
                         xgpu::tools::editors::ComputeRestBoneWorlds(*pSkeleton, SkinState.m_PoseWorldMats);
                     }
-                    (void)bUsedAnimatedPose;
 
                     //
                     // Skin matrices: World * InvBindPose per bone, uploaded to the BoneMatrixBuffer SSBO.
+                    // BIND_POSE is a special case: World*InvBindPose only cancels out to Identity (the
+                    // mesh exactly as authored, zero deformation) when World is EXACTLY the bone's own
+                    // bind-space transform. ComputeRestBoneWorlds instead forward-kinematics the
+                    // skeleton's own separately-authored "rest pose" curve, which is a DIFFERENT thing
+                    // than the pose the mesh was actually skinned against and can visibly diverge from
+                    // it (this skeleton's own rest data isn't a neutral T/A-pose). Bypassing the
+                    // World*InvBindPose formula entirely and forcing Identity is what "bind pose"
+                    // unambiguously means, regardless of whatever the skeleton's own rest curve holds.
                     //
                     {
                         auto Bones  = pSkeleton->getBones();
                         const int nBones = std::min<int>(static_cast<int>(Bones.size()), e25::g_MaxBonesSupported);
                         SkinState.m_SkinMatrices.resize(Bones.size());
-                        for (int i = 0; i < int(Bones.size()); ++i)
-                            SkinState.m_SkinMatrices[i] = SkinState.m_PoseWorldMats[i] * Bones[i].m_InvBindPose;
+                        if (RenderSettings.m_PoseType == e25::pose_type::BIND_POSE)
+                        {
+                            std::fill(SkinState.m_SkinMatrices.begin(), SkinState.m_SkinMatrices.end(), xmath::fmat4::fromIdentity());
+                        }
+                        else
+                        {
+                            for (int i = 0; i < int(Bones.size()); ++i)
+                                SkinState.m_SkinMatrices[i] = SkinState.m_PoseWorldMats[i] * Bones[i].m_InvBindPose;
+                        }
 
                         (void)BoneMatrixBuffer.MemoryMap(0, nBones, [&](void* pData)
                         {
