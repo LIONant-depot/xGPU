@@ -804,10 +804,12 @@ namespace xgpu::vulkan
         // The back-buffer for m_FrameIndex is now fully rendered (EndFrame just waited on this
         // frame's fence) and still application-owned (present hasn't happened yet) - the one and
         // only safe window to copy it out.
-        if (!m_PendingScreenshotPath.empty())
+        if (m_pPendingScreenshotDest)
         {
-            CaptureBackbuffer(m_PendingScreenshotPath);
-            m_PendingScreenshotPath.clear();
+            CaptureBackbuffer(*m_pPendingScreenshotDest, *m_pPendingScreenshotWidth, *m_pPendingScreenshotHeight);
+            m_pPendingScreenshotDest = nullptr;
+            m_pPendingScreenshotWidth = nullptr;
+            m_pPendingScreenshotHeight = nullptr;
         }
 
         auto& Frame       = m_Frames[m_FrameIndex];
@@ -849,25 +851,31 @@ namespace xgpu::vulkan
 
     //------------------------------------------------------------------------------------------------------------------------
 
-    void window::Screenshot(std::wstring_view FilePath) noexcept
+    bool window::Screenshot(std::vector<std::uint32_t>& Dest, int& Width, int& Height) noexcept
     {
-        m_PendingScreenshotPath = FilePath;
+        m_pPendingScreenshotDest   = &Dest;
+        m_pPendingScreenshotWidth  = &Width;
+        m_pPendingScreenshotHeight = &Height;
+        return true;
     }
 
     //------------------------------------------------------------------------------------------------------------------------
     // Copies the current frame's back-buffer (still in PRESENT_SRC_KHR from the render pass's own
     // finalLayout, GPU idle since PageFlip already waited on this frame's fence) into a host-visible
-    // buffer, then hands it to xbmp_tools as an xbitmap. Mirrors the transition+copy+transition-back
-    // idiom xgpu_vulkan_texture.cpp already uses for uploads (see setImageLayout there), just with
-    // the copy direction and the two layouts reversed - image-to-buffer instead of buffer-to-image,
-    // and PRESENT_SRC_KHR/TRANSFER_SRC_OPTIMAL instead of UNDEFINED/TRANSFER_DST_OPTIMAL.
-    void window::CaptureBackbuffer(std::wstring_view FilePath) noexcept
+    // buffer, then straight into Dest as packed uint32 pixels (B8G8R8A8 byte order in memory - no
+    // format conversion, no xbitmap: that dependency deliberately lives in source/Tools/
+    // xgpu_screenshot.h, not in the engine core - see xgpu_window.h's own comment). Mirrors the
+    // transition+copy+transition-back idiom xgpu_vulkan_texture.cpp already uses for uploads (see
+    // setImageLayout there), just with the copy direction and the two layouts reversed -
+    // image-to-buffer instead of buffer-to-image, and PRESENT_SRC_KHR/TRANSFER_SRC_OPTIMAL instead of
+    // UNDEFINED/TRANSFER_DST_OPTIMAL.
+    void window::CaptureBackbuffer(std::vector<std::uint32_t>& Dest, int& Width, int& Height) noexcept
     {
         auto& Frame = m_Frames[m_FrameIndex];
 
-        const std::uint32_t Width  = static_cast<std::uint32_t>(xgpu::system::window::m_Width);
-        const std::uint32_t Height = static_cast<std::uint32_t>(xgpu::system::window::m_Height);
-        const VkDeviceSize  DataSize = VkDeviceSize(Width) * VkDeviceSize(Height) * 4;
+        const std::uint32_t W        = static_cast<std::uint32_t>(xgpu::system::window::m_Width);
+        const std::uint32_t H        = static_cast<std::uint32_t>(xgpu::system::window::m_Height);
+        const VkDeviceSize  DataSize = VkDeviceSize(W) * VkDeviceSize(H) * 4;
 
         //
         // Host-visible+coherent readback buffer
@@ -886,6 +894,7 @@ namespace xgpu::vulkan
             {
                 m_Device->m_Instance->ReportError(VKErr, "Fail to create the screenshot readback buffer");
                 assert(false);
+                Dest.clear(); Width = 0; Height = 0;
                 return;
             }
 
@@ -903,6 +912,7 @@ namespace xgpu::vulkan
                 m_Device->m_Instance->ReportError(VKErr, "Fail to allocate memory for the screenshot readback buffer");
                 assert(false);
                 vkDestroyBuffer(m_Device->m_VKDevice, ReadbackBuffer, m_Device->m_Instance->m_pVKAllocator);
+                Dest.clear(); Width = 0; Height = 0;
                 return;
             }
 
@@ -912,6 +922,7 @@ namespace xgpu::vulkan
                 assert(false);
                 vkFreeMemory(m_Device->m_VKDevice, ReadbackMemory, m_Device->m_Instance->m_pVKAllocator);
                 vkDestroyBuffer(m_Device->m_VKDevice, ReadbackBuffer, m_Device->m_Instance->m_pVKAllocator);
+                Dest.clear(); Width = 0; Height = 0;
                 return;
             }
         }
@@ -962,7 +973,7 @@ namespace xgpu::vulkan
             , .bufferImageHeight = 0
             , .imageSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }
             , .imageOffset       = { 0, 0, 0 }
-            , .imageExtent       = { Width, Height, 1 }
+            , .imageExtent       = { W, H, 1 }
             };
             vkCmdCopyImageToBuffer(PerDevice.m_VKSetupCmdBuffer, Frame.m_VKBackbuffer, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, ReadbackBuffer, 1, &Region);
 
@@ -976,8 +987,8 @@ namespace xgpu::vulkan
         }
 
         //
-        // Map, package into an xbitmap (mandatory single-mip offset-table prefix - see the memory
-        // layout diagram at the top of xbitmap.h), and save via xbmp_tools.
+        // Map and copy straight into Dest - one uint32 per pixel, same B8G8R8A8 byte order the
+        // buffer was filled with, no intermediate format wrapper.
         //
         {
             void* pMapped{};
@@ -985,24 +996,16 @@ namespace xgpu::vulkan
             {
                 m_Device->m_Instance->ReportError(VKErr, "Fail to map the screenshot readback buffer");
                 assert(false);
+                Dest.clear(); Width = 0; Height = 0;
             }
             else
             {
-                const std::size_t   TotalDataSize = std::size_t(DataSize) + sizeof(std::int32_t);
-                std::byte* pFinal = new std::byte[TotalDataSize];
-                std::memset(pFinal, 0, sizeof(std::int32_t));                                  // mip0 offset == 0
-                std::memcpy(pFinal + sizeof(std::int32_t), pMapped, std::size_t(DataSize));
+                Width  = static_cast<int>(W);
+                Height = static_cast<int>(H);
+                Dest.resize(static_cast<std::size_t>(W) * static_cast<std::size_t>(H));
+                std::memcpy(Dest.data(), pMapped, static_cast<std::size_t>(DataSize));
 
                 vkUnmapMemory(m_Device->m_VKDevice, ReadbackMemory);
-
-                xbitmap Bitmap;
-                Bitmap.setup(Width, Height, xbitmap::format::B8G8R8A8, DataSize, std::span{ pFinal, TotalDataSize }, true, 1, 1);
-                Bitmap.setColorSpace(xbitmap::color_space::SRGB);
-
-                if (auto Err = xbmp::tools::writers::SaveSTDImage(FilePath, Bitmap); Err)
-                {
-                    assert(false);
-                }
             }
         }
 

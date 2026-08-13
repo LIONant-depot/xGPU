@@ -127,9 +127,13 @@ namespace xgpu::vulkan
         void                                    PageFlip                    ( void
                                                                             ) noexcept override;
         virtual
-        void                                    Screenshot                  ( std::wstring_view FilePath
+        bool                                    Screenshot                  ( std::vector<std::uint32_t>& Dest
+                                                                            , int&                          Width
+                                                                            , int&                          Height
                                                                             ) noexcept override;
-        void                                    CaptureBackbuffer           ( std::wstring_view FilePath
+        void                                    CaptureBackbuffer           ( std::vector<std::uint32_t>& Dest
+                                                                            , int&                          Width
+                                                                            , int&                          Height
                                                                             ) noexcept;
         virtual
         xgpu::device                            getDevice                   ( void
@@ -158,7 +162,9 @@ namespace xgpu::vulkan
         VkPresentModeKHR                        m_VKPresentMode         {};
         std::uint32_t                           m_SemaphoreIndex        {0};
         std::uint32_t                           m_FrameIndex            {0};
-        std::wstring                            m_PendingScreenshotPath {};
+        std::vector<std::uint32_t>*             m_pPendingScreenshotDest   {nullptr};   // non-null while a Screenshot() request is waiting for the next PageFlip()
+        int*                                    m_pPendingScreenshotWidth  {nullptr};
+        int*                                    m_pPendingScreenshotHeight {nullptr};
         bool                                    m_bRebuildSwapChain     {false};
         int                                     m_BeginState            {0};
         int                                     m_nCmds                 {0};

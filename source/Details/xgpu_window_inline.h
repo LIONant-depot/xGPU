@@ -10,12 +10,10 @@ namespace xgpu
             virtual     int                             getHeight               ( void ) const                                              noexcept = 0;
             virtual     void                            PageFlip                ( void )                                                    noexcept = 0;
 
-            // Queues a capture of whatever this window's back-buffer holds once its current frame
-            // finishes rendering - the actual copy happens inside the next PageFlip(), right after
-            // that frame's rendering is known-complete and before the image is handed to present,
-            // since that's the only point the back-buffer is both fully drawn and still
-            // application-owned. Call any time before the PageFlip() you want captured.
-            virtual     void                            Screenshot              ( std::wstring_view FilePath )                              noexcept = 0;
+            // See xgpu::window::Screenshot's own comment - registers Dest/Width/Height to be filled
+            // in during the next PageFlip(), the only point the back-buffer is both fully drawn and
+            // still application-owned.
+            virtual     bool                            Screenshot              ( std::vector<std::uint32_t>& Dest, int& Width, int& Height ) noexcept = 0;
             virtual     void                            CmdRenderBegin          ( xgpu::cmd_buffer& CmdBuffer )                             noexcept = 0;
             virtual     void                            CmdRenderBegin          ( xgpu::cmd_buffer& CmdBuffer, const xgpu::renderpass& Renderpass )                      noexcept = 0;
             virtual     void                            CmdRenderEnd            ( xgpu::cmd_buffer& CmdBuffer )                             noexcept = 0;
@@ -94,9 +92,10 @@ namespace xgpu
     //--------------------------------------------------------------------------
 
     XGPU_INLINE
-    void window::Screenshot(std::wstring_view FilePath) noexcept
+    [[nodiscard]] bool
+    window::Screenshot(std::vector<std::uint32_t>& Dest, int& Width, int& Height) noexcept
     {
-        m_Private->Screenshot(FilePath);
+        return m_Private->Screenshot(Dest, Width, Height);
     }
 
     //--------------------------------------------------------------------------
