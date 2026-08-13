@@ -37,6 +37,7 @@
 #include "plugins/xskeleton.plugin/source/xskeleton_xgpu_rsc_loader.cpp"
 
 #include "imgui_internal.h"
+#include "source/tools/editors/xgpu_editor_viewport.h"
 
 //-----------------------------------------------------------------------------------
 //
@@ -3088,49 +3089,22 @@ int E23_Example()
                 // opaque, but match the app's real background - the 0.45 mid-gray every other example
                 // (e.g. E21) gets from the swapchain's own default clear color, since they never wrap
                 // their 3D view in an ImGui window at all - rather than ImGui's near-black theme default.
-                ImGui::SetNextWindowSize(ImVec2(900, 620), ImGuiCond_FirstUseEver);
-                ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.45f, 0.45f, 0.45f, 1.0f));
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-                ImGui::Begin("Skeleton Viewport");
-                ImGui::PopStyleVar();
-                ImGui::PopStyleColor();
+                const auto Frame = xgpu::tools::editors::BeginViewportWindow("Skeleton Viewport");
 
                 // Content region (excludes the title bar/border), not the outer window rect - the
                 // render bridge sets the actual Vulkan viewport for AddCustomRenderCallback draws from
                 // the window's own clip rect (i.e. this same content region), so the camera/label math
                 // has to agree with that rect or bones and labels drift apart.
-                const ImVec2 WindowPos  = ImGui::GetCursorScreenPos();
-                const ImVec2 WindowSize = ImGui::GetContentRegionAvail();
-                const bool   bViewportHovered = ImGui::IsWindowHovered();
+                const ImVec2 WindowPos        = Frame.m_WindowPos;
+                const ImVec2 WindowSize       = Frame.m_WindowSize;
+                const bool   bViewportHovered = Frame.m_bHovered;
 
                 //
                 // Camera controls
                 //
                 if (bViewportHovered)
                 {
-                    if (Mouse.isPressed(xgpu::mouse::digital::BTN_RIGHT))
-                    {
-                        auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
-                        Angles.m_Pitch.m_Value -= 0.01f * MousePos[1];
-                        Angles.m_Yaw.m_Value   -= 0.01f * MousePos[0];
-                    }
-
-                    if (Mouse.isPressed(xgpu::mouse::digital::BTN_MIDDLE))
-                    {
-                        auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
-                        CameraTarget += View.getWorldYVector() * (0.005f * MousePos[1]);
-                        CameraTarget += View.getWorldXVector() * (0.005f * MousePos[0]);
-                    }
-
-                    if (Distance != -1)
-                    {
-                        Distance += Distance * -0.2f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
-                        if (Distance < 0.5f)
-                        {
-                            CameraTarget += View.getWorldZVector() * (0.5f * (0.5f - Distance));
-                            Distance = 0.5f;
-                        }
-                    }
+                    xgpu::tools::editors::HandleOrbitCameraInput(Mouse, View, Angles, Distance, CameraTarget);
                 }
 
                 View.setViewport({ static_cast<int>(WindowPos.x), static_cast<int>(WindowPos.y)
@@ -3157,14 +3131,7 @@ int E23_Example()
                 if (SkeletonState.m_bNeedsReframe)
                 {
                     SkeletonState.m_bNeedsReframe = false;
-
-                    const float VerticalFov = View.getFov().m_Value;
-                    const float Aspect      = View.getAspect();
-                    const float HFov        = 2.0f * std::atan(Aspect * std::tan(VerticalFov * 0.5f));
-                    const float MinFov      = std::min(VerticalFov, HFov);
-
-                    Distance     = EffRadius / std::tan(MinFov * 0.5f);
-                    CameraTarget = EffCenter;
+                    xgpu::tools::editors::ReframeOrbitCamera(View, EffRadius, EffCenter, Distance, CameraTarget);
                 }
 
                 View.LookAt(Distance, Angles, CameraTarget);
@@ -3792,11 +3759,6 @@ int E23_Example()
                 ImGui::End();
             }
         }
-
-        // Temporary debugging aid - F12 dumps the current frame to disk so it can be inspected
-        // without needing to drive this window's GUI directly.
-        if (ImGui::IsKeyPressed(ImGuiKey_F12))
-            MainWindow.Screenshot(L"C:\\Users\\user\\AppData\\Local\\Temp\\claude\\D--xgpu-test-xGPU\\fcc341eb-cb5f-45d6-850a-580a89daf5ff\\scratchpad\\e23_screenshot.png");
 
         // TEMP diagnostic - F11 hides the translucent wedge-fill pass entirely, leaving only
         // outlines. See bDebugHideFills's own comment for what this is testing.

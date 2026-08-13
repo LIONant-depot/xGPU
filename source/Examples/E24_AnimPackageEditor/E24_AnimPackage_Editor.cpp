@@ -42,6 +42,8 @@
 #include "plugins/xanim_package.plugin/source/xanim_package_xgpu_rsc_loader.cpp"
 
 #include "source/tools/xgpu_imgui_timeline.h"
+#include "source/tools/editors/xgpu_editor_anim_pose.h"
+#include "source/tools/editors/xgpu_editor_viewport.h"
 
 //-----------------------------------------------------------------------------------
 //
@@ -363,89 +365,15 @@ namespace e24
     }
 
     //---------------------------------------------------------------------------
-    // Pose evaluation.
+    // Pose evaluation - ComputeRestBoneWorlds/ComputeAnimatedBoneWorlds/ComputeRootMotionOffset/
+    // ApplyWorldOffset now live in xgpu_editor_anim_pose.h (xgpu::tools::editors namespace), pulled
+    // out so E25's skin preview can reuse the exact same pose evaluation. Local aliases below keep
+    // every call site in this file unchanged.
     //---------------------------------------------------------------------------
-
-    // Forward kinematics through each bone's local rest transform - always valid, used both as the
-    // "nothing selected yet" preview and to compute the framing radius/center at load time. Bones are
-    // topologically sorted (parent index < child index), so one forward pass is enough.
-    void ComputeRestBoneWorlds(const xskeleton::skeleton& Skeleton, std::vector<xmath::fmat4>& OutWorlds)
-    {
-        const auto Bones = Skeleton.getBones();
-        const auto Rests = Skeleton.getBoneRests();
-        OutWorlds.resize(Bones.size());
-        for (std::size_t i = 0; i < Bones.size(); ++i)
-        {
-            const xmath::fmat4 LocalMat = Rests[i].m_RestPose.toMatrix();
-            const int          iParent  = Bones[i].m_iParent;
-            OutWorlds[i] = (iParent < 0) ? LocalMat : (OutWorlds[iParent] * LocalMat);
-        }
-    }
-
-    // Same shape as E16_AnimCharacter's ComputeMatrices for the time->frame/blend arithmetic (frame
-    // index + fractional blend, wraparound for a looping clip vs clamping for a non-looping one), but
-    // reading anim_package's own skeleton-order curve layout directly - getClipFrame(iClip, iFrame)[i]
-    // IS bone i of the bound skeleton, no per-frame name-hash lookup needed (see xanim_package.h's own
-    // comment on why the compiler guarantees this).
-    static void ComputeAnimatedBoneWorlds
-    ( const xskeleton::skeleton&         Skel
-    , const xanim_package::anim_package& Pkg
-    , int                                 iClip
-    , float                               TimeSeconds
-    , std::vector<xmath::fmat4>&          OutWorlds
-    )
-    {
-        auto&     Clip    = Pkg.getClips()[iClip];
-        const int nFrames = Clip.m_nFrames;
-        if (nFrames <= 0) { ComputeRestBoneWorlds(Skel, OutWorlds); return; }
-
-        const float FrameTime = TimeSeconds * Clip.m_FPS;
-        int iF0 = static_cast<int>(FrameTime);
-        int iF1 = iF0 + 1;
-        if (Clip.m_bLoop) { iF0 = ((iF0 % nFrames) + nFrames) % nFrames; iF1 = ((iF1 % nFrames) + nFrames) % nFrames; }
-        else               { iF0 = std::clamp(iF0, 0, nFrames - 1); iF1 = std::clamp(iF1, 0, nFrames - 1); }
-        const float T = FrameTime - std::floor(FrameTime);
-
-        auto FrameA = Pkg.getClipFrame(iClip, iF0);
-        auto FrameB = Pkg.getClipFrame(iClip, iF1);
-        auto Bones  = Skel.getBones();
-
-        OutWorlds.resize(Bones.size());
-        for (int i = 0; i < static_cast<int>(Bones.size()); ++i)
-        {
-            const auto Local    = xmath::transform3::fromBlend(FrameA[i], FrameB[i], T);
-            const auto LocalMat = Local.toMatrix();
-            OutWorlds[i] = (Bones[i].m_iParent < 0) ? LocalMat : (OutWorlds[Bones[i].m_iParent] * LocalMat);
-        }
-    }
-
-    // Display-only root motion: the accumulated delta is added as a single extra world-space offset
-    // to every bone, purely so a clip authored with root motion doesn't just play in place. Loop
-    // count comes from the CALLER's own wrap-tracking (see anim_state::m_LoopsElapsed) rather than
-    // from an ever-growing time value - the scrub slider needs m_TimeSeconds to stay bounded to
-    // [0, ClipLength) for the UI, so the loop count is tracked as a side channel instead.
-    xmath::fvec3 ComputeRootMotionOffset(const xanim_package::clip& Clip, std::span<const xmath::fvec3> RootMotion, float WrappedTimeSeconds, int LoopsElapsed)
-    {
-        if (RootMotion.empty() || Clip.m_nFrames <= 0) return {};
-
-        const int   nFrames   = Clip.m_nFrames;
-        const float FrameTime = WrappedTimeSeconds * Clip.m_FPS;
-        int iF0 = static_cast<int>(FrameTime);
-        int iF1 = iF0 + 1;
-        if (Clip.m_bLoop) { iF0 = ((iF0 % nFrames) + nFrames) % nFrames; iF1 = ((iF1 % nFrames) + nFrames) % nFrames; }
-        else               { iF0 = std::clamp(iF0, 0, nFrames - 1); iF1 = std::clamp(iF1, 0, nFrames - 1); }
-        const float T = FrameTime - std::floor(FrameTime);
-
-        const xmath::fvec3 Blended = RootMotion[iF0] + (RootMotion[iF1] - RootMotion[iF0]) * T;
-        return Clip.m_LoopDisplacement * float(LoopsElapsed) + Blended;
-    }
-
-    void ApplyWorldOffset(std::vector<xmath::fmat4>& Worlds, const xmath::fvec3& Offset)
-    {
-        xmath::fmat4 T;
-        T.setupSRT(xmath::fvec3(1.0f, 1.0f, 1.0f), xmath::radian3(0_xdeg, 0_xdeg, 0_xdeg), Offset);
-        for (auto& M : Worlds) M = T * M;
-    }
+    using xgpu::tools::editors::ComputeRestBoneWorlds;
+    using xgpu::tools::editors::ComputeAnimatedBoneWorlds;
+    using xgpu::tools::editors::ComputeRootMotionOffset;
+    using xgpu::tools::editors::ApplyWorldOffset;
 
     void ToBoneWorldArray(const std::vector<xmath::fmat4>& Worlds, std::vector<bone_world>& Out)
     {
@@ -483,12 +411,12 @@ namespace e24
     constexpr const char* g_GoToStartIcon = "\xEE\xA2\x92";  // U+E892 Previous
     constexpr const char* g_GoToEndIcon   = "\xEE\xA2\x93";  // U+E893 Next
 
-    // Discrete playback-speed steps - a slider snapped to these (rather than a continuous float) makes
-    // landing exactly back on 1x trivial, per the user's own request.
-    constexpr float       g_PlaybackSpeeds[]    = { 0.25f, 0.5f, 0.75f, 1.0f, 1.25f, 1.5f, 2.0f, 3.0f };
-    constexpr const char* g_PlaybackSpeedLabels[] = { "0.25x", "0.5x", "0.75x", "1x", "1.25x", "1.5x", "2x", "3x" };  // avoids %g's significant-digit truncation (1.25 -> "1.2")
-    constexpr int         g_NumPlaybackSpeeds   = static_cast<int>(std::size(g_PlaybackSpeeds));
-    constexpr int         g_DefaultSpeedIndex   = 3;   // g_PlaybackSpeeds[3] == 1.0f
+    // Discrete playback-speed steps - now shared via xgpu_editor_anim_pose.h (E25 needs the identical
+    // table); aliased here so every existing e24::g_PlaybackSpeeds[...] call site stays unchanged.
+    using xgpu::tools::editors::g_PlaybackSpeeds;
+    using xgpu::tools::editors::g_PlaybackSpeedLabels;
+    using xgpu::tools::editors::g_NumPlaybackSpeeds;
+    using xgpu::tools::editors::g_DefaultSpeedIndex;
 
     // A descriptor clip override may or may not have a compiled counterpart to preview: it won't if
     // it's marked for Delete, or if the descriptor was edited since the last Compile. Resolved the
@@ -1050,16 +978,10 @@ int E24_Example()
 
             if (AnimState.m_bPlaying && ClipLength > 0.0f)
             {
-                AnimState.m_TimeSeconds += ImGui::GetIO().DeltaTime * e24::g_PlaybackSpeeds[AnimState.m_iSpeedIndex];
-                if (Clip.m_bLoop)
-                {
-                    while (AnimState.m_TimeSeconds >= ClipLength) { AnimState.m_TimeSeconds -= ClipLength; ++AnimState.m_LoopsElapsed; }
-                }
-                else if (AnimState.m_TimeSeconds >= ClipLength)
-                {
-                    AnimState.m_TimeSeconds = ClipLength;
-                    AnimState.m_bPlaying    = false;
-                }
+                xgpu::tools::editors::AdvancePlayback
+                ( AnimState.m_TimeSeconds, AnimState.m_LoopsElapsed, AnimState.m_bPlaying
+                , ClipLength, Clip.m_bLoop, ImGui::GetIO().DeltaTime, e24::g_PlaybackSpeeds[AnimState.m_iSpeedIndex]
+                );
             }
         }
 
@@ -1074,45 +996,17 @@ int E24_Example()
 
             if (pSkeleton)
             {
-                ImGui::SetNextWindowSize(ImVec2(900, 620), ImGuiCond_FirstUseEver);
-                ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.45f, 0.45f, 0.45f, 1.0f));
-                ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0, 0));
-                ImGui::Begin("AnimPackage Viewport");
-                ImGui::PopStyleVar();
-                ImGui::PopStyleColor();
-
-                const ImVec2 WindowPos  = ImGui::GetCursorScreenPos();
-                const ImVec2 WindowSize = ImGui::GetContentRegionAvail();
-                const bool   bViewportHovered = ImGui::IsWindowHovered();
+                const auto Frame = xgpu::tools::editors::BeginViewportWindow("AnimPackage Viewport");
+                const ImVec2 WindowPos        = Frame.m_WindowPos;
+                const ImVec2 WindowSize       = Frame.m_WindowSize;
+                const bool   bViewportHovered = Frame.m_bHovered;
 
                 //
                 // Camera controls
                 //
                 if (bViewportHovered)
                 {
-                    if (Mouse.isPressed(xgpu::mouse::digital::BTN_RIGHT))
-                    {
-                        auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
-                        Angles.m_Pitch.m_Value -= 0.01f * MousePos[1];
-                        Angles.m_Yaw.m_Value   -= 0.01f * MousePos[0];
-                    }
-
-                    if (Mouse.isPressed(xgpu::mouse::digital::BTN_MIDDLE))
-                    {
-                        auto MousePos = Mouse.getValue(xgpu::mouse::analog::POS_REL);
-                        CameraTarget += View.getWorldYVector() * (0.005f * MousePos[1]);
-                        CameraTarget += View.getWorldXVector() * (0.005f * MousePos[0]);
-                    }
-
-                    if (Distance != -1)
-                    {
-                        Distance += Distance * -0.2f * Mouse.getValue(xgpu::mouse::analog::WHEEL_REL)[0];
-                        if (Distance < 0.5f)
-                        {
-                            CameraTarget += View.getWorldZVector() * (0.5f * (0.5f - Distance));
-                            Distance = 0.5f;
-                        }
-                    }
+                    xgpu::tools::editors::HandleOrbitCameraInput(Mouse, View, Angles, Distance, CameraTarget);
                 }
 
                 View.setViewport({ static_cast<int>(WindowPos.x), static_cast<int>(WindowPos.y)
@@ -1121,14 +1015,7 @@ int E24_Example()
                 if (AnimState.m_bNeedsReframe)
                 {
                     AnimState.m_bNeedsReframe = false;
-
-                    const float VerticalFov = View.getFov().m_Value;
-                    const float Aspect      = View.getAspect();
-                    const float HFov        = 2.0f * std::atan(Aspect * std::tan(VerticalFov * 0.5f));
-                    const float MinFov      = std::min(VerticalFov, HFov);
-
-                    Distance     = AnimState.m_Radius / std::tan(MinFov * 0.5f);
-                    CameraTarget = AnimState.m_Center;
+                    xgpu::tools::editors::ReframeOrbitCamera(View, AnimState.m_Radius, AnimState.m_Center, Distance, CameraTarget);
                 }
 
                 View.LookAt(Distance, Angles, CameraTarget);

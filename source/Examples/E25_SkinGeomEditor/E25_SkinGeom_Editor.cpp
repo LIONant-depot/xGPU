@@ -1,0 +1,1013 @@
+#include "source/xGPU.h"
+
+#include "dependencies/xproperty/source/xcore/my_properties.h"
+#include "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
+#include "dependencies/xstrtool/source/xstrtool.h"
+
+#include "source/tools/xgpu_xcore_bitmap_helpers.h"
+#include "source/tools/xgpu_view.h"
+#include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <filesystem>
+#include <vector>
+
+#define XRESOURCE_PIPELINE_NO_COMPILER
+#include "dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
+#include "source/xstrtool.h"
+#include "source/Examples/E10_TextureResourcePipeline/E10_Resources.h"
+#include "source/Examples/E10_TextureResourcePipeline/E10_AssetMgr.h"
+#include "source/Examples/E10_TextureResourcePipeline/E10_AssetBrowser.h"
+
+#include "plugins/xtexture.plugin/source/xtexture_xgpu_rsc_loader.h"
+
+#include "../E19_MaterialEditor/E19_mesh_manager.h"
+
+// Skeleton: only the compiled-resource loader (.h) is needed - E23_Skeleton_Editor.cpp already
+// includes the .cpp once into its own translation unit, and both link into the same executable.
+#include "plugins/xskeleton.plugin/source/xskeleton.h"
+#include "plugins/xskeleton.plugin/source/xskeleton_xgpu_rsc_loader.h"
+
+// AnimPackage: same reasoning - already defined by E24_AnimPackage_Editor.cpp's own .cpp include.
+#include "plugins/xanim_package.plugin/source/xanim_package.h"
+#include "plugins/xanim_package.plugin/source/xanim_package_descriptor.h"
+#include "plugins/xanim_package.plugin/source/xanim_package_xgpu_rsc_loader.h"
+
+// GeomSkin's runtime header uses xrsc::material_instance_ref (default material list) without
+// including its declaration itself - same as xgeom_static.h, which relies on whichever consumer
+// pulls this in first. Must come before xgeom_skin.h.
+#include "plugins/xmaterial_instance.plugin/source/xmaterial_instance_xgpu_rsc_loader.h"
+
+// GeomSkin: nothing else in the executable defines this loader yet, so both the declaration (.h)
+// and the definition (.cpp) are included here, same pattern xanim_package used the one time IT was new.
+#include "plugins/xgeom_skin.plugin/source/xgeom_skin.h"
+#include "plugins/xgeom_skin.plugin/source/xgeom_skin_descriptor.h"
+#include "plugins/xgeom_skin.plugin/source/xgeom_skin_details.h"
+#include "plugins/xgeom_skin.plugin/source/xgeom_skin_xgpu_rsc_loader.h"
+#include "plugins/xgeom_skin.plugin/source/xgeom_skin_xgpu_rsc_loader.cpp"
+#include "plugins/xgeom_skin.plugin/source/xgeom_skin_xgpu_runtime.h"
+
+#include "source/tools/editors/xgpu_editor_viewport.h"
+#include "source/tools/editors/xgpu_editor_anim_pose.h"
+
+//-----------------------------------------------------------------------------------
+//
+// E25 - GeomSkin editor: opens a compiled xgeom_skin asset, resolves the xskeleton it's bound to,
+// and (optionally) an xanim_package to preview deformation with. Mirrors E24_AnimPackage_Editor's
+// load/inspector/asset-browser shell (descriptor authoring, Compile button, clip/playback transport)
+// and E21_StaticGeom_Editor's compressed-cluster mesh rendering pipeline, extended with the skin
+// matrix computation the fused position+skin vertex format needs. Proves out the shared editors/
+// viewport+pose-eval code (xgpu_editor_viewport.h/xgpu_editor_anim_pose.h) on a third consumer.
+//
+// v1 scope: single diffuse-sampler material (no per-material texture resolution - a default white
+// texture satisfies the sampler slot, matching how E24's own wedge pipeline binds it) and no shadow
+// pass. The point of this editor is proving the skinning pipeline deforms correctly, not building a
+// second material system - E21 already owns that.
+//
+//-----------------------------------------------------------------------------------
+
+namespace e25
+{
+    //---------------------------------------------------------------------------
+    // Shaders - the two GeomSkin runtime shaders (compiled project-wide, see CMakeLists' shader
+    // lists) plus the same ground grid every preview editor reuses.
+    //---------------------------------------------------------------------------
+
+    constexpr static std::uint32_t g_GeomSkinVertShader[] =
+    {
+        #include "GeomSkinBasicShader_vert.h"
+    };
+    constexpr static std::uint32_t g_GeomSkinFragShader[] =
+    {
+        #include "GeomSkinBasicShader_frag.h"
+    };
+    constexpr static std::uint32_t g_GridVertShader[] =
+    {
+        #include "E21_GridShader_vert.h"
+    };
+    constexpr static std::uint32_t g_GridFragShader[] =
+    {
+        #include "E21_GridShader_frag.h"
+    };
+
+    static void Debugger(std::string_view View)
+    {
+        printf("%s\n", View.data());
+    }
+
+    struct alignas(256) grid_uniform
+    {
+        xmath::fmat4    m_L2W;
+        xmath::fmat4    m_W2C;
+        xmath::fmat4    m_L2CTShadow;
+        xmath::fvec3    m_WorldSpaceCameraPos = xmath::fvec3(0.0f, 10.0f, 0.0f);
+        float           m_MajorGridDiv = 10.0f;
+    };
+
+    struct alignas(256) ubo_geom_skin_mesh
+    {
+        xmath::fmat4    m_L2w;
+        xmath::fmat4    m_w2C;
+        xmath::fmat4    m_w2ShadowT;   // always zero in v1 - no shadow pass, see file header comment
+    };
+
+    struct alignas(256) ubo_bm_lighting
+    {
+        xmath::fvec4    m_LightColor;
+        xmath::fvec4    m_AmbientLightColor;
+        xmath::fvec4    m_wSpaceLightPos;
+        xmath::fvec4    m_wSpaceEyePos;
+        xmath::fvec4    m_LightParams;
+    };
+
+    struct geom_skin_push_const
+    {
+        std::uint32_t   m_ClusterIndex;
+        std::uint32_t   m_MaxInfluences;
+    };
+
+    // Generous fixed upper bound for the bone-matrix SSBO - simplest possible v1 allocation strategy
+    // (one buffer sized once at startup, re-uploaded every frame) rather than resizing per-skeleton.
+    constexpr int g_MaxBonesSupported = 256;
+
+    xrsc::texture_ref CreateBackgroundTexture(xgpu::device& Device, const xbitmap& Bitmap)
+    {
+        xrsc::texture_ref Ref;
+        Ref.m_Instance = xresource::guid_generator::Instance64();
+
+        auto Texture = std::make_unique<xgpu::texture>();
+        if (auto Err = xgpu::tools::bitmap::Create(*Texture, Device, Bitmap); Err)
+        {
+            assert(false);
+            e25::Debugger(xgpu::getErrorMsg(Err));
+            std::exit(xgpu::getErrorInt(Err));
+        }
+
+        xresource::g_Mgr.RegisterResource(Ref, Texture.release());
+        return Ref;
+    }
+
+    //---------------------------------------------------------------------------
+    // Render/preview settings - view-only, not part of the descriptor, not persisted to disk (same
+    // "view preference, not asset state" precedent as E23's own render_settings-style toggles).
+    // m_PreviewAnimRef gets the built-in xproperty drag-drop resource-ref widget automatically
+    // (member_ui<xresource::def_guid<...>>, see dependencies/xproperty/source/examples/imgui/
+    // my_property_ui.h) - the same mechanism every descriptor's own resource-ref fields already use,
+    // no custom picker code needed.
+    //---------------------------------------------------------------------------
+    struct render_settings
+    {
+        xrsc::anim_package  m_PreviewAnimRef = {};
+        int                 m_iLOD           = 0;
+        int                 m_MaxInfluences  = 4;
+
+        XPROPERTY_DEF
+        ( "RenderSettings", render_settings
+        , obj_member<"PreviewAnimRef", &render_settings::m_PreviewAnimRef >
+        , obj_member<"LOD",            &render_settings::m_iLOD >
+        , obj_member<"MaxInfluences",  &render_settings::m_MaxInfluences >
+        )
+    };
+    XPROPERTY_REG(render_settings)
+
+    //---------------------------------------------------------------------------
+
+    struct skin_state
+    {
+        xrsc::geom_skin                      m_Ref            = {};   // compiled skin mesh resource
+        xrsc::skeleton                       m_SkeletonRef    = {};   // compiled skeleton resource, resolved from the descriptor
+        e10::library::guid                   m_LibraryGUID    = {};
+        xresource::full_guid                 m_InfoGUID       = {};
+        std::wstring                         m_DescriptorPath = {};
+        xgeom_skin::descriptor               m_Descriptor     = {};
+        xgeom_skin::details                  m_Details        = {};
+
+        std::string                          m_ErrorMessage   = {};
+
+        xmath::fvec3                         m_Center         = xmath::fvec3(0.0f, 0.0f, 0.0f);
+        float                                m_Radius         = 1.0f;
+        bool                                 m_bNeedsReframe  = true;
+
+        // Preview animation actually resolved so far - tracked separately from render_settings'
+        // m_PreviewAnimRef so a change can be detected and the playback state reset accordingly.
+        xrsc::anim_package                   m_ResolvedAnimRef = {};
+        int                                  m_iSelectedClip   = -1;
+        float                                m_TimeSeconds     = 0.0f;
+        int                                  m_LoopsElapsed    = 0;
+        bool                                 m_bPlaying        = false;
+        int                                  m_iSpeedIndex     = xgpu::tools::editors::g_DefaultSpeedIndex;
+
+        std::vector<xmath::fmat4>            m_PoseWorldMats;   // per-bone world-space pose (rest or animated)
+        std::vector<xmath::fmat4>            m_SkinMatrices;    // per-bone World * InvBindPose, uploaded to the BoneMatrixBuffer SSBO
+
+        std::shared_ptr<e10::compilation::historical_entry::log> m_Log = {};
+        bool                                  m_bReload        = false;
+        bool                                  m_bErrors        = false;
+
+        bool empty() const noexcept { return m_InfoGUID.empty(); }
+
+        void clear()
+        {
+            m_Descriptor    = {};
+            m_Details       = {};
+            m_ErrorMessage.clear();
+            m_Center        = xmath::fvec3(0.0f, 0.0f, 0.0f);
+            m_Radius        = 1.0f;
+            m_bNeedsReframe = true;
+            m_iSelectedClip = -1;
+            m_TimeSeconds   = 0.0f;
+            m_LoopsElapsed  = 0;
+            m_bPlaying      = false;
+            m_PoseWorldMats.clear();
+            m_SkinMatrices.clear();
+            m_Log           = std::make_shared<e10::compilation::historical_entry::log>(e10::compilation::historical_entry::communication{ .m_Result = e10::compilation::historical_entry::result::SUCCESS });
+            m_bReload       = false;
+            m_bErrors       = false;
+        }
+
+        // Writing the descriptor to disk is what actually kicks off a recompile - this is the
+        // "Compile" button's entire action, same as every other editor in this codebase.
+        void SaveDescriptor()
+        {
+            xproperty::settings::context Context;
+            if (auto Err = m_Descriptor.Serialize(false, m_DescriptorPath, Context); Err)
+                assert(false);
+        }
+    };
+
+    void GenerateDescriptorPath(skin_state& State, const std::wstring& InfoPath)
+    {
+        State.m_DescriptorPath = InfoPath;
+        if (auto Pos = InfoPath.find(L"info.txt"); Pos != std::wstring::npos)
+            State.m_DescriptorPath.replace(Pos, std::wstring_view(L"info.txt").length(), L"Descriptor.txt");
+    }
+
+    // Mirrors E24_AnimPackage_Editor::GenerateDetailsLogPath exactly - generic across resource types.
+    std::wstring GenerateDetailsLogPath(const std::wstring& DescriptorPath)
+    {
+        std::wstring Path = DescriptorPath;
+        if (auto Pos = Path.find(L"Descriptors"); Pos != std::wstring::npos)
+            Path.replace(Pos, std::wstring_view(L"Descriptors").length(), L"Cache\\Resources\\Logs");
+        if (auto Pos = Path.find(L".desc"); Pos != std::wstring::npos)
+            Path.replace(Pos, std::wstring_view(L".desc").length(), L".log");
+        if (auto Pos = Path.find(L"Descriptor.txt"); Pos != std::wstring::npos)
+            Path.replace(Pos, std::wstring_view(L"Descriptor.txt").length(), L"Details.txt");
+        return Path;
+    }
+
+    xgeom_skin::details LoadDetails(const std::wstring& DescriptorPath)
+    {
+        xgeom_skin::details Details;
+        if (const auto DetailsPath = GenerateDetailsLogPath(DescriptorPath); std::filesystem::exists(DetailsPath))
+        {
+            xtextfile::stream TextFile;
+            if (auto Err = TextFile.Open(true, DetailsPath, xtextfile::file_type::TEXT); !Err)
+            {
+                xproperty::settings::context Context;
+                xproperty::sprop::serializer::Stream(TextFile, Details, Context);
+            }
+        }
+        return Details;
+    }
+
+    //---------------------------------------------------------------------------
+
+    void LoadSkinGeom(skin_state& State, e10::library::guid LibraryGUID, xresource::full_guid InfoGUID)
+    {
+        xresource::g_Mgr.ReleaseRef(State.m_Ref);
+        xresource::g_Mgr.ReleaseRef(State.m_SkeletonRef);
+        State.clear();
+        State.m_Ref.clear();
+        State.m_SkeletonRef.clear();
+
+        State.m_LibraryGUID = LibraryGUID;
+        State.m_InfoGUID    = InfoGUID;
+
+        e10::g_LibMgr.getNodeInfo(State.m_LibraryGUID, State.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
+        {
+            GenerateDescriptorPath(State, NodeInfo.m_Path);
+        });
+
+        if (!State.m_DescriptorPath.empty() && std::filesystem::exists(State.m_DescriptorPath))
+        {
+            xproperty::settings::context Context;
+            // descriptor::Serialize also cross-checks the referenced skeleton's compiled bone
+            // manifest - that part can legitimately fail (skeleton not compiled yet) even though
+            // m_SkeletonRef/etc already deserialized fine, so only treat this as fatal if the
+            // skeleton reference itself never came through (same convention as xanim_package_desc).
+            auto Err = State.m_Descriptor.Serialize(true, State.m_DescriptorPath, Context);
+            if (Err && State.m_Descriptor.m_SkeletonRef.empty())
+            {
+                State.m_ErrorMessage = std::format("Failed to read the GeomSkin descriptor: {}", Err.getMessage());
+                return;
+            }
+
+            State.m_Details = LoadDetails(State.m_DescriptorPath);
+            State.m_Descriptor.MergeWithDetails(State.m_Details);
+        }
+
+        State.m_Ref.m_Instance = InfoGUID.m_Instance;
+        auto* pGeom = xresource::g_Mgr.getResource(State.m_Ref);
+        if (pGeom == nullptr)
+        {
+            State.m_ErrorMessage = "Failed to load the compiled GeomSkin resource.";
+            return;
+        }
+
+        if (State.m_Descriptor.m_SkeletonRef.empty())
+        {
+            State.m_ErrorMessage = "This GeomSkin's descriptor has no Skeleton reference.";
+            return;
+        }
+
+        State.m_SkeletonRef.m_Instance = State.m_Descriptor.m_SkeletonRef.m_Instance;
+        auto* pSkeleton = xresource::g_Mgr.getResource(State.m_SkeletonRef);
+        if (pSkeleton == nullptr)
+        {
+            State.m_ErrorMessage = "Failed to resolve the referenced Skeleton resource.";
+            return;
+        }
+
+        xgpu::tools::editors::ComputeRestBoneWorlds(*pSkeleton, State.m_PoseWorldMats);
+
+        State.m_Center        = pGeom->m_BBox.getCenter();
+        State.m_Radius        = std::max(0.01f, pGeom->m_BBox.getRadius());
+        State.m_bNeedsReframe = true;
+    }
+}
+
+//-----------------------------------------------------------------------------------
+
+int E25_Example()
+{
+    xgpu::instance Instance;
+    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = e25::Debugger, .m_pLogWarning = e25::Debugger }); Err)
+        return xgpu::getErrorInt(Err);
+
+    xgpu::device Device;
+    if (auto Err = Instance.Create(Device); Err)
+        return xgpu::getErrorInt(Err);
+
+    xgpu::window MainWindow;
+    if (auto Err = Device.Create(MainWindow, {}); Err)
+        return xgpu::getErrorInt(Err);
+
+    xresource::g_Mgr.Initiallize(20000);
+
+    //
+    // Default (white, 1x1) texture - satisfies the basic-shader's diffuse sampler slot (see file
+    // header comment: no per-material texture resolution in v1).
+    //
+    xrsc::texture_ref DefaultTextureRef = e25::CreateBackgroundTexture(Device, xbitmap::getDefaultBitmap());
+    xgpu::texture*    pDefaultTexture   = xresource::g_Mgr.getResource(DefaultTextureRef);
+    if (pDefaultTexture == nullptr)
+    {
+        assert(false);
+        return 1;
+    }
+
+    //
+    // Ground grid, for spatial context - same E21_GridShader as every other preview editor.
+    //
+    xgpu::vertex_descriptor Primitive3DVertexDescriptor;
+    {
+        auto Attributes = std::array
+        { xgpu::vertex_descriptor::attribute{ .m_Offset = offsetof(e19::draw_vert, m_X),     .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D }
+        , xgpu::vertex_descriptor::attribute{ .m_Offset = offsetof(e19::draw_vert, m_U),     .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D }
+        , xgpu::vertex_descriptor::attribute{ .m_Offset = offsetof(e19::draw_vert, m_Color), .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED }
+        };
+        auto Setup = xgpu::vertex_descriptor::setup{ .m_VertexSize = sizeof(e19::draw_vert), .m_Attributes = Attributes };
+        if (auto Err = Device.Create(Primitive3DVertexDescriptor, Setup); Err)
+            return xgpu::getErrorInt(Err);
+    }
+
+    xgpu::buffer GridDynamicUBO;
+    if (auto Err = Device.Create(GridDynamicUBO, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(e25::grid_uniform), .m_EntryCount = 10 }); Err)
+        return xgpu::getErrorInt(Err);
+
+    xgpu::pipeline          Grid3dMaterial;
+    xgpu::pipeline_instance Grid3dMaterialInstance;
+    {
+        xgpu::shader VertexShader;
+        {
+            xgpu::shader::setup Setup{ .m_Type = xgpu::shader::type::bit::VERTEX, .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e25::g_GridVertShader, sizeof(e25::g_GridVertShader) / sizeof(int)}} };
+            if (auto Err = Device.Create(VertexShader, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        xgpu::shader FragShader;
+        {
+            xgpu::shader::setup Setup{ .m_Type = xgpu::shader::type::bit::FRAGMENT, .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e25::g_GridFragShader, sizeof(e25::g_GridFragShader) / sizeof(int)}} };
+            if (auto Err = Device.Create(FragShader, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        auto UBuffersUsage = std::array{ xgpu::pipeline::uniform_binds{ .m_BindIndex = 0, .m_Usage = { .m_bVertex = true, .m_bFragment = true }, .m_Type = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC } };
+        auto Samplers = std::array{ xgpu::pipeline::sampler{.m_AddressMode = std::array{ xgpu::pipeline::sampler::address_mode::CLAMP, xgpu::pipeline::sampler::address_mode::CLAMP, xgpu::pipeline::sampler::address_mode::CLAMP}} };
+        auto Shaders  = std::array<const xgpu::shader*, 2>{ &FragShader, &VertexShader };
+        auto Setup    = xgpu::pipeline::setup
+        { .m_VertexDescriptor   = Primitive3DVertexDescriptor
+        , .m_Shaders            = Shaders
+        , .m_UniformBinds       = UBuffersUsage
+        , .m_Samplers           = Samplers
+        , .m_Primitive          = { .m_Cull = xgpu::pipeline::primitive::cull::NONE }
+        , .m_Blend              = xgpu::pipeline::blend::getAlphaOriginal()
+        };
+
+        if (auto Err = Device.Create(Grid3dMaterial, Setup); Err)
+            return xgpu::getErrorInt(Err);
+
+        auto Bindings  = std::array{ xgpu::pipeline_instance::sampler_binding{*pDefaultTexture} };
+        auto InstSetup = xgpu::pipeline_instance::setup{ .m_PipeLine = Grid3dMaterial, .m_SamplersBindings = Bindings };
+        if (auto Err = Device.Create(Grid3dMaterialInstance, InstSetup); Err)
+            return xgpu::getErrorInt(Err);
+    }
+
+    e19::mesh_manager MeshManager = {};
+    MeshManager.Init(Device);
+
+    //
+    // GeomSkin mesh pipeline - the actual point of this editor. Vertex descriptor covers 2 streams:
+    // stream 0 is the fused position+skin buffer (xgeom_skin::geom::vertex, 12 bytes: 3xint16 pos +
+    // 6 packed bytes read back as a uvec4 + a uint16, see xgeom_skin_mb_input_full.vert's own comment
+    // on why no 64-bit shader math is needed for that), stream 1 is vertex_extras (12 bytes).
+    //
+    xgpu::buffer GeomSkinDynamicUBOMesh;
+    if (auto Err = Device.Create(GeomSkinDynamicUBOMesh, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(e25::ubo_geom_skin_mesh), .m_EntryCount = 100 }); Err)
+        return xgpu::getErrorInt(Err);
+
+    xgpu::buffer UBOLighting;
+    if (auto Err = Device.Create(UBOLighting, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(e25::ubo_bm_lighting), .m_EntryCount = 100 }); Err)
+        return xgpu::getErrorInt(Err);
+
+    // Per-bone skinning matrices (World * InvBindPose) for the CURRENT pose - re-uploaded every frame
+    // the viewport renders. Sized once to a generous fixed bone-count ceiling (see g_MaxBonesSupported).
+    xgpu::buffer BoneMatrixBuffer;
+    if (auto Err = Device.Create(BoneMatrixBuffer, { .m_Type = xgpu::buffer::type::STORAGE, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(xmath::fmat4), .m_EntryCount = e25::g_MaxBonesSupported }); Err)
+        return xgpu::getErrorInt(Err);
+
+    xgpu::pipeline GeomSkinPipeline;
+    {
+        xgpu::vertex_descriptor GeomSkinVertexDescriptor;
+        {
+            auto Attributes = std::array
+            { xgpu::vertex_descriptor::attribute
+              { .m_Offset  = offsetof(xgeom_skin::geom::vertex, m_XPos)
+              , .m_Format  = xgpu::vertex_descriptor::format::SINT16_3D
+              , .m_iStream = 0
+              }
+            , xgpu::vertex_descriptor::attribute
+              { .m_Offset  = offsetof(xgeom_skin::geom::vertex, m_Packed)
+              , .m_Format  = xgpu::vertex_descriptor::format::UINT8_4D_UINT       // m_Packed[0..3] -> lo32
+              , .m_iStream = 0
+              }
+            , xgpu::vertex_descriptor::attribute
+              { .m_Offset  = offsetof(xgeom_skin::geom::vertex, m_Packed) + 4
+              , .m_Format  = xgpu::vertex_descriptor::format::UINT16_1D          // m_Packed[4..5] -> hi16
+              , .m_iStream = 0
+              }
+            , xgpu::vertex_descriptor::attribute
+              { .m_Offset  = offsetof(xgeom_skin::geom::vertex_extras, m_UV)
+              , .m_Format  = xgpu::vertex_descriptor::format::UINT16_2D
+              , .m_iStream = 1
+              }
+            , xgpu::vertex_descriptor::attribute
+              { .m_Offset  = offsetof(xgeom_skin::geom::vertex_extras, m_OctNormal)
+              , .m_Format  = xgpu::vertex_descriptor::format::UINT16_2D
+              , .m_iStream = 1
+              }
+            , xgpu::vertex_descriptor::attribute
+              { .m_Offset  = offsetof(xgeom_skin::geom::vertex_extras, m_OctTangentX)
+              , .m_Format  = xgpu::vertex_descriptor::format::UINT16_1D
+              , .m_iStream = 1
+              }
+            , xgpu::vertex_descriptor::attribute
+              { .m_Offset  = offsetof(xgeom_skin::geom::vertex_extras, m_OctTangentY_Sign)
+              , .m_Format  = xgpu::vertex_descriptor::format::UINT16_1D
+              , .m_iStream = 1
+              }
+            };
+            if (auto Err = Device.Create(GeomSkinVertexDescriptor
+            , xgpu::vertex_descriptor::setup
+            { .m_bUseStreaming = true
+            , .m_Topology      = xgpu::vertex_descriptor::topology::TRIANGLE_LIST
+            , .m_VertexSize    = 0
+            , .m_Attributes    = Attributes
+            }); Err)
+            {
+                return xgpu::getErrorInt(Err);
+            }
+        }
+
+        xgpu::shader FragmentShader;
+        {
+            xgpu::shader::setup Setup{ .m_Type = xgpu::shader::type::bit::FRAGMENT, .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e25::g_GeomSkinFragShader, sizeof(e25::g_GeomSkinFragShader) / sizeof(int)}} };
+            if (auto Err = Device.Create(FragmentShader, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        xgpu::shader VertexShader;
+        {
+            xgpu::shader::setup Setup{ .m_Type = xgpu::shader::type::bit::VERTEX, .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e25::g_GeomSkinVertShader, sizeof(e25::g_GeomSkinVertShader) / sizeof(int)}} };
+            if (auto Err = Device.Create(VertexShader, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        auto Shaders  = std::array<const xgpu::shader*, 2>{ &FragmentShader, &VertexShader };
+        auto Samplers = std::array{ xgpu::pipeline::sampler{} };   // SamplerDiffuseMap
+        auto UBuffersUsage = std::array
+        { xgpu::pipeline::uniform_binds{ .m_BindIndex = 0, .m_Usage = { .m_bVertex   = true }, .m_Type = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC }   // MeshUniforms
+        , xgpu::pipeline::uniform_binds{ .m_BindIndex = 1, .m_Usage = { .m_bFragment = true }, .m_Type = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC }   // Lighting
+        , xgpu::pipeline::uniform_binds{ .m_BindIndex = 0, .m_Usage = { .m_bVertex   = true }, .m_Type = xgpu::pipeline::uniform_binds::type::SSBO_STATIC }   // ClusterBuffer
+        , xgpu::pipeline::uniform_binds{ .m_BindIndex = 1, .m_Usage = { .m_bVertex   = true }, .m_Type = xgpu::pipeline::uniform_binds::type::SSBO_STATIC }   // BoneMatrixBuffer
+        };
+        auto Setup = xgpu::pipeline::setup
+        { .m_VertexDescriptor   = GeomSkinVertexDescriptor
+        , .m_Shaders            = Shaders
+        , .m_PushConstantsSize  = sizeof(e25::geom_skin_push_const)
+        , .m_UniformBinds       = UBuffersUsage
+        , .m_Samplers           = Samplers
+        };
+
+        if (auto Err = Device.Create(GeomSkinPipeline, Setup); Err)
+            return xgpu::getErrorInt(Err);
+    }
+
+    xgpu::pipeline_instance GeomSkinPipelineInstance;
+    {
+        auto Bindings  = std::array{ xgpu::pipeline_instance::sampler_binding{*pDefaultTexture} };
+        auto InstSetup = xgpu::pipeline_instance::setup{ .m_PipeLine = GeomSkinPipeline, .m_SamplersBindings = Bindings };
+        if (auto Err = Device.Create(GeomSkinPipelineInstance, InstSetup); Err)
+            return xgpu::getErrorInt(Err);
+    }
+
+    //
+    // Asset Mgr
+    //
+    resource_mgr_user_data ResourceMgrUserData;
+
+    e10::assert_browser  AsserBrowser;
+    e25::skin_state       SkinState;
+    e25::render_settings  RenderSettings;
+
+    // Compile-progress subscriber - mirrors E23/E24's own CallBackForCompilation exactly.
+    auto CallBackForCompilation = [&](e10::library_mgr&, e10::library::guid, xresource::full_guid gCompilingEntry, std::shared_ptr<e10::compilation::historical_entry::log>& LogInformation)
+    {
+        if (SkinState.m_InfoGUID != gCompilingEntry) return;
+
+        if (SkinState.m_Log.get() != LogInformation.get())
+            SkinState.m_Log = LogInformation;
+
+        e10::compilation::historical_entry::result Result;
+        {
+            xcontainer::lock::scope lk(*SkinState.m_Log);
+            Result = SkinState.m_Log->get().m_Result;
+        }
+
+        if (Result == e10::compilation::historical_entry::result::SUCCESS || Result == e10::compilation::historical_entry::result::SUCCESS_WARNINGS)
+        {
+            SkinState.m_bReload = true;
+            SkinState.m_bErrors = false;
+        }
+        else if (Result == e10::compilation::historical_entry::result::FAILURE)
+        {
+            SkinState.m_bErrors = true;
+        }
+    };
+    e10::g_LibMgr.m_OnCompilationState.Register(CallBackForCompilation);
+
+    //
+    // Property inspectors - descriptor (authoring) and render settings (preview), both driven by
+    // xproperty rather than hardcoded ImGui widgets, matching every other editor in this codebase.
+    // Bound once: SkinState/RenderSettings never change address, only their contents do.
+    //
+    xproperty::inspector DescriptorInspector("GeomSkin Properties");
+    DescriptorInspector.m_Settings.m_ColorVScalar1 = 0.270f * 1.4f;
+    DescriptorInspector.m_Settings.m_ColorVScalar2 = 0.305f * 1.4f;
+    DescriptorInspector.m_Settings.m_ColorSScalar  = 0.26f * 1.4f;
+    DescriptorInspector.AppendEntity();
+    DescriptorInspector.AppendEntityComponent(*SkinState.m_Descriptor.getProperties(), &SkinState.m_Descriptor);
+
+    xproperty::inspector RenderSettingsInspector("Rendering Settings");
+    RenderSettingsInspector.AppendEntity();
+    RenderSettingsInspector.AppendEntityComponent(*xproperty::getObjectByType<e25::render_settings>(), &RenderSettings);
+
+    //
+    // Setup Imgui interface
+    //
+    xgpu::tools::imgui::CreateInstance(MainWindow);
+    ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.5f;
+
+    //
+    // Set the project path (same lookup every editor example uses)
+    //
+    {
+        TCHAR szFileName[MAX_PATH];
+        GetModuleFileName(NULL, szFileName, MAX_PATH);
+
+        if (auto I = xstrtool::findI(std::wstring{ szFileName }, { L"xGPU" }); I != std::string::npos)
+        {
+            I += 4; // Skip the xGPU part
+            szFileName[I] = 0;
+
+            TCHAR LIONantProject[] = L"\\example.lionprj";
+            for (int i = 0; szFileName[I++] = LIONantProject[i]; ++i);
+
+            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
+            {
+                e25::Debugger(Err.getMessage());
+                return 1;
+            }
+
+            ImGuiIO& io = ImGui::GetIO();
+            static std::string IniSave = std::format("{}/Assets/imgui.ini", xstrtool::To(szFileName));
+            io.IniFilename = IniSave.c_str();
+
+            ResourceMgrUserData.m_Device = Device;
+            xresource::g_Mgr.setUserData(&ResourceMgrUserData, false);
+            xresource::g_Mgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", e10::g_LibMgr.m_ProjectPath));
+        }
+    }
+
+    //
+    // Setup the view (camera) - same orbit/pan/zoom controls as every other example.
+    //
+    xgpu::tools::view  View     = {};
+    xmath::radian3     Angles   = {};
+    float              Distance = -1;   // let it auto-compute once an asset loads
+    xmath::fvec3       CameraTarget(0, 0, 0);
+    View.setFov(60_xdeg);
+
+    xgpu::mouse    Mouse;
+    xgpu::keyboard Keyboard;
+    Instance.Create(Mouse, {});
+    Instance.Create(Keyboard, {});
+
+    //
+    // Main Loop
+    //
+    while (Instance.ProcessInputEvents())
+    {
+        if (xgpu::tools::imgui::BeginRendering(true)) continue;
+
+        //
+        // GeomSkin viewport
+        //
+        if (!SkinState.empty())
+        {
+            if (auto* pGeom = xresource::g_Mgr.getResource(SkinState.m_Ref); pGeom)
+            {
+                if (auto* pSkeleton = xresource::g_Mgr.getResource(SkinState.m_SkeletonRef); pSkeleton)
+                {
+                    const auto Frame = xgpu::tools::editors::BeginViewportWindow("Skin Viewport");
+                    const ImVec2 WindowPos        = Frame.m_WindowPos;
+                    const ImVec2 WindowSize       = Frame.m_WindowSize;
+                    const bool   bViewportHovered = Frame.m_bHovered;
+
+                    if (bViewportHovered)
+                        xgpu::tools::editors::HandleOrbitCameraInput(Mouse, View, Angles, Distance, CameraTarget);
+
+                    View.setViewport({ static_cast<int>(WindowPos.x), static_cast<int>(WindowPos.y)
+                                     , static_cast<int>(WindowPos.x + WindowSize.x), static_cast<int>(WindowPos.y + WindowSize.y) });
+
+                    if (SkinState.m_bNeedsReframe)
+                    {
+                        SkinState.m_bNeedsReframe = false;
+                        xgpu::tools::editors::ReframeOrbitCamera(View, SkinState.m_Radius, SkinState.m_Center, Distance, CameraTarget);
+                    }
+
+                    View.LookAt(Distance, Angles, CameraTarget);
+
+                    //
+                    // Resolve the preview animation (tracks RenderSettings.m_PreviewAnimRef, reset
+                    // playback whenever it changes).
+                    //
+                    if (RenderSettings.m_PreviewAnimRef.m_Instance.m_Value != SkinState.m_ResolvedAnimRef.m_Instance.m_Value)
+                    {
+                        xresource::g_Mgr.ReleaseRef(SkinState.m_ResolvedAnimRef);
+                        SkinState.m_ResolvedAnimRef = RenderSettings.m_PreviewAnimRef;
+                        SkinState.m_iSelectedClip    = -1;
+                        SkinState.m_TimeSeconds      = 0.0f;
+                        SkinState.m_LoopsElapsed     = 0;
+                        SkinState.m_bPlaying         = !SkinState.m_ResolvedAnimRef.empty();
+                    }
+
+                    auto* pAnim = SkinState.m_ResolvedAnimRef.empty() ? nullptr : xresource::g_Mgr.getResource(SkinState.m_ResolvedAnimRef);
+                    bool  bUsedAnimatedPose = false;
+
+                    if (pAnim && !pAnim->getClips().empty() && pAnim->m_nBones == pSkeleton->getBones().size())
+                    {
+                        if (SkinState.m_iSelectedClip < 0 || SkinState.m_iSelectedClip >= int(pAnim->getClips().size()))
+                            SkinState.m_iSelectedClip = 0;
+
+                        auto& Clip = pAnim->getClips()[SkinState.m_iSelectedClip];
+                        const float ClipLength = (Clip.m_FPS > 0 && Clip.m_nFrames > 0) ? float(Clip.m_nFrames) / float(Clip.m_FPS) : 0.0f;
+
+                        if (SkinState.m_bPlaying && ClipLength > 0.0f)
+                        {
+                            xgpu::tools::editors::AdvancePlayback
+                            ( SkinState.m_TimeSeconds, SkinState.m_LoopsElapsed, SkinState.m_bPlaying
+                            , ClipLength, Clip.m_bLoop, ImGui::GetIO().DeltaTime, xgpu::tools::editors::g_PlaybackSpeeds[SkinState.m_iSpeedIndex]
+                            );
+                        }
+
+                        xgpu::tools::editors::ComputeAnimatedBoneWorlds(*pSkeleton, *pAnim, SkinState.m_iSelectedClip, SkinState.m_TimeSeconds, SkinState.m_PoseWorldMats);
+
+                        if (Clip.m_RootMotionMode != xanim_package::root_motion_mode::NONE)
+                        {
+                            const auto RootMotion = pAnim->getClipRootMotion(SkinState.m_iSelectedClip);
+                            const auto Offset     = xgpu::tools::editors::ComputeRootMotionOffset(Clip, RootMotion, SkinState.m_TimeSeconds, SkinState.m_LoopsElapsed);
+                            xgpu::tools::editors::ApplyWorldOffset(SkinState.m_PoseWorldMats, Offset);
+                        }
+                        bUsedAnimatedPose = true;
+                    }
+                    else
+                    {
+                        xgpu::tools::editors::ComputeRestBoneWorlds(*pSkeleton, SkinState.m_PoseWorldMats);
+                    }
+                    (void)bUsedAnimatedPose;
+
+                    //
+                    // Skin matrices: World * InvBindPose per bone, uploaded to the BoneMatrixBuffer SSBO.
+                    //
+                    {
+                        auto Bones  = pSkeleton->getBones();
+                        const int nBones = std::min<int>(static_cast<int>(Bones.size()), e25::g_MaxBonesSupported);
+                        SkinState.m_SkinMatrices.resize(Bones.size());
+                        for (int i = 0; i < int(Bones.size()); ++i)
+                            SkinState.m_SkinMatrices[i] = SkinState.m_PoseWorldMats[i] * Bones[i].m_InvBindPose;
+
+                        (void)BoneMatrixBuffer.MemoryMap(0, nBones, [&](void* pData)
+                        {
+                            std::memcpy(pData, SkinState.m_SkinMatrices.data(), static_cast<std::size_t>(nBones) * sizeof(xmath::fmat4));
+                        });
+                    }
+
+                    const auto L2w = xmath::fmat4::fromTranslation(-View.getPosition());
+                    const auto w2C = View.getW2C() * xmath::fmat4::fromTranslation(View.getPosition());
+                    const auto CameraPos = View.getPosition();
+
+                    xgpu::tools::imgui::AddCustomRenderCallback([&, L2w, w2C, CameraPos](xgpu::cmd_buffer& CmdBuffer, const ImVec2&, const ImVec2&)
+                    {
+                        //
+                        // Grid
+                        //
+                        {
+                            CmdBuffer.setPipelineInstance(Grid3dMaterialInstance);
+
+                            auto& Uniform = GridDynamicUBO.allocEntry<e25::grid_uniform>();
+                            Uniform.m_WorldSpaceCameraPos = CameraPos;
+                            Uniform.m_L2W        = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, pGeom->m_BBox.m_Min.m_Y, 0));
+                            Uniform.m_W2C        = w2C;
+                            Uniform.m_L2CTShadow = xmath::fmat4::fromZero();   // no shadow pass in v1
+                            CmdBuffer.setDynamicUBO(GridDynamicUBO, 0);
+                            MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE3D);
+                        }
+
+                        //
+                        // Skin mesh
+                        //
+                        if (pGeom->m_nVertices > 0)
+                        {
+                            CmdBuffer.setStreamingBuffers({ &pGeom->IndexBuffer(), 3 });
+
+                            auto& MeshUBO = GeomSkinDynamicUBOMesh.allocEntry<e25::ubo_geom_skin_mesh>();
+                            MeshUBO.m_L2w       = L2w;
+                            MeshUBO.m_w2C       = w2C;
+                            MeshUBO.m_w2ShadowT = xmath::fmat4::fromZero();
+
+                            auto& Lighting = UBOLighting.allocEntry<e25::ubo_bm_lighting>();
+                            Lighting.m_LightColor        = xmath::fvec4(1) * 4;
+                            Lighting.m_AmbientLightColor = xmath::fvec4(1) * 0.7f;
+                            Lighting.m_wSpaceLightPos    = xmath::fvec4(0, 0, 0, pGeom->m_BBox.getRadius() * 5);   // co-located with the camera
+                            Lighting.m_wSpaceEyePos      = xmath::fvec4(0);
+                            Lighting.m_LightParams.m_X   = Lighting.m_wSpaceLightPos.m_W * 0.1f;
+                            Lighting.m_LightParams.m_Y   = 6500;   // Temperature
+                            Lighting.m_LightParams.m_Z   = 1;      // Intensity boost
+                            Lighting.m_LightParams.m_W   = 0;
+
+                            const std::uint32_t MaxInfluences = static_cast<std::uint32_t>(std::clamp(RenderSettings.m_MaxInfluences, 1, 4));
+
+                            std::array StaticSSBO{ &pGeom->ClusterBuffer(), &BoneMatrixBuffer };
+                            for (auto& M : pGeom->getMeshes())
+                            {
+                                const int UseLOD = std::clamp(RenderSettings.m_iLOD, 0, int(M.m_nLODs) - 1);
+                                auto&     L      = pGeom->getLODs()[M.m_iLOD + UseLOD];
+
+                                for (auto& S : pGeom->getSubmeshes().subspan(L.m_iSubmesh, L.m_nSubmesh))
+                                {
+                                    CmdBuffer.setPipelineInstance(GeomSkinPipelineInstance, StaticSSBO);
+                                    CmdBuffer.setDynamicUBO(GeomSkinDynamicUBOMesh, 0);
+                                    CmdBuffer.setDynamicUBO(UBOLighting, 1);
+
+                                    e25::geom_skin_push_const PushConst{ .m_ClusterIndex = S.m_iCluster, .m_MaxInfluences = MaxInfluences };
+                                    for (auto& C : pGeom->getClusters().subspan(S.m_iCluster, S.m_nCluster))
+                                    {
+                                        CmdBuffer.setPushConstants(PushConst);
+                                        CmdBuffer.Draw(C.m_nIndices, C.m_iIndex, C.m_iVertex);
+                                        PushConst.m_ClusterIndex++;
+                                    }
+                                }
+                            }
+                        }
+                    });
+
+                    ImGui::End();
+                }
+                else
+                {
+                    ImGui::Begin("Skin Viewport");
+                    ImGui::TextDisabled("%s", SkinState.m_ErrorMessage.empty() ? "Failed to resolve the referenced Skeleton resource." : SkinState.m_ErrorMessage.c_str());
+                    ImGui::End();
+                }
+            }
+        }
+
+        //
+        // Main menu bar - Open/Save/Compile/Feedback mirrors E23/E24 so this editor doesn't feel
+        // like a different tool.
+        //
+        if (ImGui::BeginMainMenuBar())
+        {
+            if (ImGui::BeginMenu("File"))
+            {
+                if (ImGui::MenuItem("Open GeomSkin..."))
+                    AsserBrowser.Show(true);
+
+                ImGui::Separator();
+                {
+                    const bool bDisableSave = !e10::g_LibMgr.isReadyToSave() && SkinState.empty();
+                    if (bDisableSave) ImGui::BeginDisabled();
+                    if (ImGui::MenuItem("Save", "Ctrl+S"))
+                    {
+                        xproperty::settings::context Context;
+                        e10::g_LibMgr.Save(Context);
+                    }
+                    if (bDisableSave) ImGui::EndDisabled();
+                }
+                ImGui::EndMenu();
+            }
+
+            ImGui::SameLine(200);
+
+            if (!SkinState.empty())
+            {
+                xcontainer::lock::scope lk(*SkinState.m_Log);
+                auto& Log = SkinState.m_Log->get();
+
+                bool bDisable = Log.m_Result == e10::compilation::historical_entry::result::COMPILING
+                             || Log.m_Result == e10::compilation::historical_entry::result::COMPILING_WARNINGS;
+
+                std::vector<std::string> ValidationErrors;
+                if (!bDisable)
+                {
+                    SkinState.m_Descriptor.Validate(ValidationErrors);
+                    if (!ValidationErrors.empty()) bDisable = true;
+                }
+
+                if (bDisable) ImGui::BeginDisabled();
+                if (ImGui::Button("Compile"))
+                    SkinState.SaveDescriptor();
+                if (bDisable) ImGui::EndDisabled();
+
+                std::uint32_t Color = IM_COL32(255, 255, 255, 255);
+                switch (Log.m_Result)
+                {
+                case e10::compilation::historical_entry::result::COMPILING_WARNINGS: Color = IM_COL32(255, 255, 0,   255); break;
+                case e10::compilation::historical_entry::result::COMPILING:          Color = IM_COL32(0,   255, 0,   255); break;
+                case e10::compilation::historical_entry::result::FAILURE:            Color = IM_COL32(255, 170, 140, 255); break;
+                case e10::compilation::historical_entry::result::SUCCESS_WARNINGS:   Color = IM_COL32(255, 255, 0,   255); break;
+                case e10::compilation::historical_entry::result::SUCCESS:            Color = IM_COL32(255, 255, 255, 255); break;
+                }
+
+                ImGui::PushStyleColor(ImGuiCol_Text, Color);
+                if (ImGui::Button("Feedback"))
+                {
+                    const ImVec2 ButtonPos  = ImGui::GetItemRectMin();
+                    const ImVec2 ButtonSize = ImGui::GetItemRectSize();
+                    ImGui::SetNextWindowPos(ImVec2(ButtonPos.x, ButtonPos.y + ButtonSize.y));
+                    ImGui::OpenPopup("Feedback");
+                }
+                ImGui::PopStyleColor();
+
+                if (ImGui::BeginPopup("Feedback"))
+                {
+                    ImGui::BeginChild("###Feedback-Child", ImVec2(600, 300));
+                    ImGui::PushTextWrapPos(600);
+
+                    for (auto& S : ValidationErrors)
+                        ImGui::TextUnformatted(S.data(), S.data() + S.size());
+
+                    if (!Log.m_Log.empty())
+                        ImGui::TextUnformatted(Log.m_Log.data(), Log.m_Log.data() + Log.m_Log.size());
+
+                    ImGui::PopTextWrapPos();
+                    ImGui::EndChild();
+                    ImGui::EndPopup();
+                }
+
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Gives information about the compilation process");
+
+                if (!Log.m_Log.empty())
+                    ImGui::Text("%s", std::string(xstrtool::getLastLine(Log.m_Log)).c_str());
+            }
+
+            ImGui::EndMainMenuBar();
+        }
+
+        // A successful recompile means the runtime resource changed under us - reload everything
+        // the same way a fresh selection would, matching E23/E24's own m_bReload handling.
+        if (SkinState.m_bReload)
+        {
+            SkinState.m_bReload = false;
+            const auto SavedLog = SkinState.m_Log;
+            e25::LoadSkinGeom(SkinState, SkinState.m_LibraryGUID, SkinState.m_InfoGUID);
+            SkinState.m_Log = SavedLog;
+        }
+
+        {
+            xproperty::settings::context Context;
+            ImGui::SetNextWindowPos(ImVec2(915, 25), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(500, 420), ImGuiCond_FirstUseEver);
+            DescriptorInspector.Show(Context, []{});
+
+            ImGui::SetNextWindowPos(ImVec2(915, 460), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(500, 200), ImGuiCond_FirstUseEver);
+            RenderSettingsInspector.Show(Context, []{});
+        }
+
+        AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
+
+        if (auto SelAsset = AsserBrowser.getSelectedAsset(); SelAsset.empty() == false && SelAsset.m_Type == xgeom_skin::resource_type_guid_v)
+        {
+            e25::LoadSkinGeom(SkinState, AsserBrowser.getSelectedLibrary(), SelAsset);
+        }
+
+        //
+        // Playback transport - deliberately minimal (Play/Pause, scrub slider, speed combo) rather
+        // than E24's full timeline widget: the point here is proving the skin deforms correctly, not
+        // re-building animation-scrubbing UI a third time.
+        //
+        if (!SkinState.empty() && !SkinState.m_ResolvedAnimRef.empty())
+        {
+            if (auto* pAnim = xresource::g_Mgr.getResource(SkinState.m_ResolvedAnimRef); pAnim && !pAnim->getClips().empty())
+            {
+                ImGui::SetNextWindowPos(ImVec2(915, 665), ImGuiCond_FirstUseEver);
+                ImGui::SetNextWindowSize(ImVec2(500, 120), ImGuiCond_FirstUseEver);
+                if (ImGui::Begin("Playback"))
+                {
+                    if (SkinState.m_iSelectedClip < 0 || SkinState.m_iSelectedClip >= int(pAnim->getClips().size()))
+                        SkinState.m_iSelectedClip = 0;
+
+                    auto& Clip = pAnim->getClips()[SkinState.m_iSelectedClip];
+                    const float ClipLength = (Clip.m_FPS > 0 && Clip.m_nFrames > 0) ? float(Clip.m_nFrames) / float(Clip.m_FPS) : 0.0f;
+
+                    if (ImGui::BeginCombo("Clip", std::format("Clip {}", SkinState.m_iSelectedClip).c_str()))
+                    {
+                        for (int i = 0; i < int(pAnim->getClips().size()); ++i)
+                        {
+                            const bool bSelected = (i == SkinState.m_iSelectedClip);
+                            if (ImGui::Selectable(std::format("Clip {}", i).c_str(), bSelected))
+                            {
+                                SkinState.m_iSelectedClip = i;
+                                SkinState.m_TimeSeconds   = 0.0f;
+                                SkinState.m_LoopsElapsed  = 0;
+                            }
+                        }
+                        ImGui::EndCombo();
+                    }
+
+                    if (ImGui::Button(SkinState.m_bPlaying ? "Pause" : "Play"))
+                        SkinState.m_bPlaying = !SkinState.m_bPlaying;
+
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(200);
+                    if (ImGui::SliderFloat("Time", &SkinState.m_TimeSeconds, 0.0f, std::max(0.001f, ClipLength)))
+                        SkinState.m_LoopsElapsed = 0;   // manual scrub - elapsed-loop count no longer means anything
+
+                    if (ImGui::BeginCombo("Speed", xgpu::tools::editors::g_PlaybackSpeedLabels[SkinState.m_iSpeedIndex]))
+                    {
+                        for (int i = 0; i < xgpu::tools::editors::g_NumPlaybackSpeeds; ++i)
+                        {
+                            const bool bSelected = (i == SkinState.m_iSpeedIndex);
+                            if (ImGui::Selectable(xgpu::tools::editors::g_PlaybackSpeedLabels[i], bSelected))
+                                SkinState.m_iSpeedIndex = i;
+                        }
+                        ImGui::EndCombo();
+                    }
+                }
+                ImGui::End();
+            }
+        }
+
+        xgpu::tools::imgui::Render();
+
+        MainWindow.PageFlip();
+
+        xresource::g_Mgr.OnEndFrameDelegate();
+    }
+
+    xgpu::tools::imgui::Shutdown();
+
+    return 0;
+}

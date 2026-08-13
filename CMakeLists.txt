@@ -227,6 +227,8 @@ set(FRAG_SHADER_SOURCES
   "source/Examples/E17_FullSkin/E17_skingeom_frag.glsl"
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticShadowMapCreation_frag.glsl"
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_frag.glsl"
+  "plugins/xgeom_skin.plugin/source/runtime/GeomSkinShadowMapCreation_frag.glsl"
+  "plugins/xgeom_skin.plugin/source/runtime/GeomSkinBasicShader_frag.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_GridShader_frag.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_WireFrame_frag.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_DebugNormalRender_frag.glsl"
@@ -255,6 +257,8 @@ set(VERT_SHADER_SOURCES
   "source/Examples/E18_QuantizeSkinVertex/E18_quantize_skingeom_vert.glsl"
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticShadowMapCreation_vert.glsl"
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_vert.glsl"
+  "plugins/xgeom_skin.plugin/source/runtime/GeomSkinShadowMapCreation_vert.glsl"
+  "plugins/xgeom_skin.plugin/source/runtime/GeomSkinBasicShader_vert.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_GridShader_vert.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_WireFrame_vert.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_DebugNormalRender_vert.glsl"
@@ -373,8 +377,12 @@ add_executable(${TARGET_PROJECT}
   "source/Examples/E22_FramebufferTarget/E22_FramebufferTarget.cpp"
   "source/Examples/E23_SkeletonEditor/E23_Skeleton_Editor.cpp"
   "source/Examples/E24_AnimPackageEditor/E24_AnimPackage_Editor.cpp"
+  "source/Examples/E25_SkinGeomEditor/E25_SkinGeom_Editor.cpp"
 
 
+  "source/tools/editors/xgpu_editor_viewport.h"
+  "source/tools/editors/xgpu_editor_anim_pose.h"
+  "source/tools/editors/xgpu_editor_resource_picker.h"
   "source/tools/xgpu_view.h"
   "source/tools/xgpu_view_inline.h"
   "source/tools/xgpu_xcore_bitmap_helpers.h"
@@ -464,6 +472,9 @@ source_group("Examples/E07_PrimitiveGeoms" FILES
 
 # Include the xgeom_static.plugin so it works
 include_directories( "${CMAKE_SOURCE_DIR}/dependencies/example.lionprj/Cache/Plugins/xgeom_static.plugin" )
+
+# Include the xgeom_skin.plugin so it works
+include_directories( "${CMAKE_SOURCE_DIR}/dependencies/example.lionprj/Cache/Plugins/xgeom_skin.plugin" )
 
 source_group("Examples/E08_AsyncTextureLoading" FILES
    "source/Examples/E08_AsyncTextureLoading/E08_AsyncTextureLoading.cpp"
