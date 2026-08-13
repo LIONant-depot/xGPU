@@ -10,6 +10,7 @@
 #include <cmath>
 #include <cstring>
 #include <filesystem>
+#include <functional>
 #include <vector>
 
 #define XRESOURCE_PIPELINE_NO_COMPILER
@@ -929,7 +930,238 @@ int E25_Example()
             xproperty::settings::context Context;
             ImGui::SetNextWindowPos(ImVec2(915, 25), ImGuiCond_FirstUseEver);
             ImGui::SetNextWindowSize(ImVec2(500, 420), ImGuiCond_FirstUseEver);
-            DescriptorInspector.Show(Context, []{});
+
+            // "Scene Hierarchy" tree - ported from E21_StaticGeom_Editor.cpp verbatim (same node/mesh-
+            // grouping data model, inherited unchanged by xgeom_skin_descriptor.h/details.h), letting
+            // the raw imported node tree be organized into merge groups / delete entries by right-
+            // click, exactly like the static geometry editor. SkinState.m_Details/m_Descriptor are
+            // already loaded once at LoadSkinGeom time (unlike E21, which re-reads Details.txt and
+            // calls MergeWithDetails every frame) - no per-frame file I/O needed here.
+            DescriptorInspector.Show(Context, [&]
+            {
+                if (SkinState.empty()) return;
+                if (SkinState.m_Details.m_RootNode.m_Children.empty() && SkinState.m_Details.m_RootNode.m_MeshList.empty()) return;
+
+                if (ImGui::CollapsingHeader("Scene Hierarchy", ImGuiTreeNodeFlags_DefaultOpen))
+                {
+                    ImGui::Separator();
+                    ImGui::Dummy(ImVec2(0, 12));
+
+                    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8, 7));
+                    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(8, 2));
+                    ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, 12.0f);
+                    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 8));
+
+                    std::function<bool(const xgeom_skin::details::node&)> WorthRendering = [&](const xgeom_skin::details::node& n)
+                    {
+                        if (n.m_Children.empty() && n.m_MeshList.empty())
+                            return false;
+
+                        if (not n.m_Children.empty() && n.m_MeshList.empty())
+                        {
+                            for (auto& x : n.m_Children)
+                                if (WorthRendering(x))
+                                    return true;
+
+                            return false;
+                        }
+
+                        return true;
+                    };
+
+                    constexpr static ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_AllowOverlap | ImGuiTreeNodeFlags_SpanAvailWidth;
+                    auto&                                Desc = SkinState.m_Descriptor;
+                    auto                                 DefaultTextColor = ImGui::GetStyle().Colors[ImGuiCol_Text];
+                    auto                                 GroupColor   = ImVec4(0.5f, 1.0f, 0.5f, 1.0f);
+                    auto                                 DeletedColor = ImVec4(0.8f, 0.3f, 0.3f, 1.0f);
+                    xgeom_skin::node_path                CurrentNodePath;
+
+                    std::function<void(const xgeom_skin::details::node&, const xgeom_skin::details&, bool, bool)> DisplayNode = [&](const xgeom_skin::details::node& n, const xgeom_skin::details& d, bool bIncluded, bool isDeletedParent)
+                    {
+                        if (n.m_Children.empty() && n.m_MeshList.empty())
+                            return;
+
+                        if (not n.m_Children.empty() && n.m_MeshList.empty())
+                        {
+                            if (WorthRendering(n) == false) return;
+                        }
+
+                        std::size_t prev_len = CurrentNodePath.size();
+                        if (!CurrentNodePath.empty()) CurrentNodePath += "/";
+                        CurrentNodePath += n.m_Name;
+
+                        const bool isInDeletedList = Desc.isNodeInDeleteList(CurrentNodePath);
+                        bool       isDeleted       = isDeletedParent || isInDeletedList;
+                        auto       Pair            = Desc.findMergeGroupFromNode(CurrentNodePath);
+                        if (isDeleted) ImGui::PushStyleColor(ImGuiCol_Text, DeletedColor);
+                        const bool node_open = [&]
+                            {
+                                if (isInDeletedList)    return ImGui::TreeNodeEx(&n, flags, "\xEE\x9D\x8D (%s) %s", Pair.first ? Pair.first->m_Name.c_str() : "", n.m_Name.c_str());
+                                else if (Pair.first)    return ImGui::TreeNodeEx(&n, flags, "\xEE\xAF\x92 (%s) %s", Pair.first->m_Name.c_str(), n.m_Name.c_str());
+                                else                    return ImGui::TreeNodeEx(&n, flags, "%s", n.m_Name.c_str());
+                            }();
+                        if (isDeleted) ImGui::PopStyleColor();
+
+                        {
+                            ImGui::PushID(&n);
+                            if (ImGui::BeginPopupContextItem("NodeContextMenu"))
+                            {
+                                ImGui::PushStyleColor(ImGuiCol_Text, DefaultTextColor);
+                                if (not bIncluded)
+                                {
+                                    if (Pair.first)
+                                    {
+                                        if (ImGui::MenuItem("Remove from Group"))
+                                        {
+                                            Desc.RemoveNodeFromGroup(*Pair.first, Pair.second, SkinState.m_Details);
+                                            Pair.first = nullptr;
+                                        }
+                                    }
+                                    else
+                                    {
+                                        if (ImGui::MenuItem("Add to New Group"))
+                                        {
+                                            for (int i = 0; i < 100; i++)
+                                            {
+                                                std::string NewName = std::format("Group #{}", i);
+
+                                                for (int j = 0; j < int(Desc.m_MergeGroupList.size()); ++j)
+                                                {
+                                                    if (NewName == Desc.m_MergeGroupList[j].m_Name)
+                                                    {
+                                                        NewName.clear();
+                                                        break;
+                                                    }
+                                                }
+
+                                                if (not NewName.empty())
+                                                {
+                                                    Pair.first = &Desc.m_MergeGroupList.emplace_back();
+                                                    Pair.first->m_Name = std::move(NewName);
+
+                                                    Desc.AddNodeInGroupList(*Pair.first, CurrentNodePath);
+                                                    Pair.second = 0;
+                                                    break;
+                                                }
+                                            }
+                                        }
+
+                                        if (not Desc.m_MergeGroupList.empty())
+                                        {
+                                            if (ImGui::BeginMenu("Add to Merge Group"))
+                                            {
+                                                for (int i = 0; i < int(Desc.m_MergeGroupList.size()); ++i)
+                                                {
+                                                    if (ImGui::MenuItem(Desc.m_MergeGroupList[i].m_Name.c_str()))
+                                                    {
+                                                        Desc.AddNodeInGroupList(Desc.m_MergeGroupList[i], CurrentNodePath);
+                                                        Pair.first  = &Desc.m_MergeGroupList[i];
+                                                        Pair.second = int(Desc.m_MergeGroupList[i].m_NodePathList.size()) - 1;
+                                                        break;
+                                                    }
+                                                }
+
+                                                ImGui::EndMenu();
+                                            }
+                                        }
+                                    }
+                                }
+
+                                if (isDeleted == false)
+                                {
+                                    if (ImGui::MenuItem("\xEE\x9D\x8D Delete Node"))
+                                    {
+                                        Desc.AddNodeInDeleteList(CurrentNodePath, SkinState.m_Details);
+                                        isDeleted = true;
+                                    }
+                                }
+                                else if (isInDeletedList)
+                                {
+                                    if (ImGui::MenuItem("\xEE\x9D\x8D UnDelete Node"))
+                                    {
+                                        Desc.RemoveNodeFromDeleteList(CurrentNodePath, SkinState.m_Details);
+                                        isDeleted = true;
+                                    }
+                                }
+
+                                ImGui::PopStyleColor();
+                                ImGui::EndPopup();
+                            }
+                            ImGui::PopID();
+                        }
+
+                        if (node_open)
+                        {
+                            if (isDeleted) ImGui::PushStyleColor(ImGuiCol_Text, DeletedColor);
+                            else if (Pair.first) ImGui::PushStyleColor(ImGuiCol_Text, GroupColor);
+
+                            for (int idx : n.m_MeshList)
+                            {
+                                ImGuiTreeNodeFlags mesh_flags = ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
+
+                                const auto& m = d.m_MeshList[idx];
+
+                                ImGui::TreeNodeEx((void*)(intptr_t)idx, mesh_flags, "\xEE\xAF\x92 %s", m.m_Name.c_str());
+
+                                if (ImGui::IsItemHovered())
+                                {
+                                    ImGui::BeginTooltip();
+                                    ImGui::PushStyleColor(ImGuiCol_Text, DefaultTextColor);
+
+                                    ImGui::Text("nFaces    : %d\n"
+                                        "nUVs      : %d\n"
+                                        "nColors   : %d\n"
+                                        "nMaterials: %d\n"
+                                        , m.m_NumFaces
+                                        , m.m_NumUVs
+                                        , m.m_NumColors
+                                        , int(m.m_MaterialList.size())
+                                    );
+                                    for (auto& mat : m.m_MaterialList)
+                                    {
+                                        ImGui::Text("%2d.%s\n", 1 + int(&mat - m.m_MaterialList.data()), d.m_MaterialList[mat].c_str());
+                                    }
+
+                                    ImGui::PopStyleColor();
+                                    ImGui::EndTooltip();
+                                }
+                            }
+                            for (const auto& child : n.m_Children)
+                            {
+                                DisplayNode(child, d, !!Pair.first || bIncluded, isDeleted);
+                            }
+                            ImGui::TreePop();
+
+                            if (isDeleted)  ImGui::PopStyleColor();
+                            else if (Pair.first) ImGui::PopStyleColor();
+                        }
+
+                        CurrentNodePath.resize(prev_len);
+                    };
+
+                    const bool node_open = [&]
+                    {
+                        if (Desc.m_bMergeAllMeshes) return ImGui::TreeNodeEx(&SkinState.m_Details.m_RootNode, flags, "\xEE\xAF\x92 Root");
+                        else                        return ImGui::TreeNodeEx(&SkinState.m_Details.m_RootNode, flags, "Root");
+                    }();
+
+                    if (node_open)
+                    {
+                        if (Desc.m_bMergeAllMeshes) ImGui::PushStyleColor(ImGuiCol_Text, GroupColor);
+
+                        CurrentNodePath = SkinState.m_Details.m_RootNode.m_Name;
+                        for (const auto& child : SkinState.m_Details.m_RootNode.m_Children)
+                        {
+                            DisplayNode(child, SkinState.m_Details, Desc.m_bMergeAllMeshes, false);
+                        }
+
+                        ImGui::TreePop();
+                        if (Desc.m_bMergeAllMeshes) ImGui::PopStyleColor();
+                    }
+
+                    ImGui::PopStyleVar(4);
+                }
+            });
 
             ImGui::SetNextWindowPos(ImVec2(915, 460), ImGuiCond_FirstUseEver);
             ImGui::SetNextWindowSize(ImVec2(500, 200), ImGuiCond_FirstUseEver);
