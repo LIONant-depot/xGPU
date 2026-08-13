@@ -48,6 +48,7 @@
 #include "plugins/xgeom_skin.plugin/source/xgeom_skin_xgpu_rsc_loader.cpp"
 #include "plugins/xgeom_skin.plugin/source/xgeom_skin_xgpu_runtime.h"
 
+#include "source/tools/xgpu_imgui_timeline.h"
 #include "source/tools/editors/xgpu_editor_viewport.h"
 #include "source/tools/editors/xgpu_editor_anim_pose.h"
 #include "source/tools/editors/xgpu_editor_resource_picker.h"
@@ -192,12 +193,20 @@ namespace e25
 
         // Preview animation actually resolved so far - tracked separately from render_settings'
         // m_PreviewAnimRef so a change can be detected and the playback state reset accordingly.
+        // xresource::mgr::getResource(def_guid<T>&) mutates its argument in place on first resolution
+        // (swaps the GUID for a cached resolved pointer, m_Instance.m_Pointer = pRSC - see
+        // xresource_mgr.h's getResource) - since m_ResolvedAnimRef gets resolved every frame to draw,
+        // comparing IT against m_PreviewAnimRef would only ever match on the very first frame. This
+        // plain uint64 mirrors m_PreviewAnimRef.m_Instance.m_Value verbatim and is NEVER passed to
+        // getResource, so it stays a real GUID value forever - the only thing safe to diff against.
+        std::uint64_t                        m_LastPreviewAnimInstance = 0;
         xrsc::anim_package                   m_ResolvedAnimRef = {};
         int                                  m_iSelectedClip   = -1;
         float                                m_TimeSeconds     = 0.0f;
         int                                  m_LoopsElapsed    = 0;
         bool                                 m_bPlaying        = false;
         int                                  m_iSpeedIndex     = xgpu::tools::editors::g_DefaultSpeedIndex;
+        xgpu::tools::imgui::timeline::state  m_Timeline        = {};   // scrub widget's own zoom/pan - reset whenever the selected clip changes
 
         std::vector<xmath::fmat4>            m_PoseWorldMats;   // per-bone world-space pose (rest or animated)
         std::vector<xmath::fmat4>            m_SkinMatrices;    // per-bone World * InvBindPose, uploaded to the BoneMatrixBuffer SSBO
@@ -744,14 +753,16 @@ int E25_Example()
                     // Resolve the preview animation (tracks RenderSettings.m_PreviewAnimRef, reset
                     // playback whenever it changes).
                     //
-                    if (RenderSettings.m_PreviewAnimRef.m_Instance.m_Value != SkinState.m_ResolvedAnimRef.m_Instance.m_Value)
+                    if (RenderSettings.m_PreviewAnimRef.m_Instance.m_Value != SkinState.m_LastPreviewAnimInstance)
                     {
                         xresource::g_Mgr.ReleaseRef(SkinState.m_ResolvedAnimRef);
-                        SkinState.m_ResolvedAnimRef = RenderSettings.m_PreviewAnimRef;
+                        SkinState.m_ResolvedAnimRef       = RenderSettings.m_PreviewAnimRef;
+                        SkinState.m_LastPreviewAnimInstance = RenderSettings.m_PreviewAnimRef.m_Instance.m_Value;
                         SkinState.m_iSelectedClip    = -1;
                         SkinState.m_TimeSeconds      = 0.0f;
                         SkinState.m_LoopsElapsed     = 0;
                         SkinState.m_bPlaying         = !SkinState.m_ResolvedAnimRef.empty();
+                        SkinState.m_Timeline         = {};   // fresh zoom/pan for this clip's own duration
                     }
 
                     auto* pAnim = SkinState.m_ResolvedAnimRef.empty() ? nullptr : xresource::g_Mgr.getResource(SkinState.m_ResolvedAnimRef);
@@ -1243,22 +1254,23 @@ int E25_Example()
         }
 
         //
-        // Playback transport - deliberately minimal (Play/Pause, scrub slider, speed combo) rather
-        // than E24's full timeline widget: the point here is proving the skin deforms correctly, not
-        // re-building animation-scrubbing UI a third time.
+        // Playback transport - Play/Pause/GoToStart/GoToEnd, speed slider, and the shared scrubbable
+        // timeline widget, matching E24_AnimPackage_Editor.cpp's transport bar exactly (same shared
+        // xgpu_imgui_timeline.h widget + xgpu_editor_anim_pose.h icon/speed constants) rather than the
+        // bespoke slider this editor started with.
         //
         if (!SkinState.empty() && !SkinState.m_ResolvedAnimRef.empty())
         {
             if (auto* pAnim = xresource::g_Mgr.getResource(SkinState.m_ResolvedAnimRef); pAnim && !pAnim->getClips().empty())
             {
                 ImGui::SetNextWindowPos(ImVec2(915, 665), ImGuiCond_FirstUseEver);
-                ImGui::SetNextWindowSize(ImVec2(500, 120), ImGuiCond_FirstUseEver);
+                ImGui::SetNextWindowSize(ImVec2(500, 190), ImGuiCond_FirstUseEver);
                 if (ImGui::Begin("Playback"))
                 {
                     if (SkinState.m_iSelectedClip < 0 || SkinState.m_iSelectedClip >= int(pAnim->getClips().size()))
                         SkinState.m_iSelectedClip = 0;
 
-                    auto& Clip = pAnim->getClips()[SkinState.m_iSelectedClip];
+                    auto&       Clip       = pAnim->getClips()[SkinState.m_iSelectedClip];
                     const float ClipLength = (Clip.m_FPS > 0 && Clip.m_nFrames > 0) ? float(Clip.m_nFrames) / float(Clip.m_FPS) : 0.0f;
 
                     if (ImGui::BeginCombo("Clip", std::format("Clip {}", SkinState.m_iSelectedClip).c_str()))
@@ -1271,29 +1283,50 @@ int E25_Example()
                                 SkinState.m_iSelectedClip = i;
                                 SkinState.m_TimeSeconds   = 0.0f;
                                 SkinState.m_LoopsElapsed  = 0;
+                                SkinState.m_Timeline      = {};   // fresh zoom/pan for this clip's own duration
                             }
                         }
                         ImGui::EndCombo();
                     }
 
-                    if (ImGui::Button(SkinState.m_bPlaying ? "Pause" : "Play"))
+                    // Three real transport buttons (Play/Pause, go-to-start, go-to-end) instead of one
+                    // button plus a redundant index - the clip's own label goes in the timeline's
+                    // gutter instead (see ClipName below).
+                    if (ImGui::Button(SkinState.m_bPlaying ? xgpu::tools::editors::g_PauseIcon : xgpu::tools::editors::g_PlayIcon))
                         SkinState.m_bPlaying = !SkinState.m_bPlaying;
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip(SkinState.m_bPlaying ? "Pause" : "Play");
 
                     ImGui::SameLine();
-                    ImGui::SetNextItemWidth(200);
-                    if (ImGui::SliderFloat("Time", &SkinState.m_TimeSeconds, 0.0f, std::max(0.001f, ClipLength)))
+                    if (ImGui::Button(xgpu::tools::editors::g_GoToStartIcon))
+                    {
+                        SkinState.m_TimeSeconds  = 0.0f;
+                        SkinState.m_LoopsElapsed = 0;
+                    }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Go to start");
+
+                    ImGui::SameLine();
+                    if (ImGui::Button(xgpu::tools::editors::g_GoToEndIcon))
+                        SkinState.m_TimeSeconds = ClipLength;
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Go to end");
+
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(140.0f);
+                    ImGui::SliderInt("##speed", &SkinState.m_iSpeedIndex, 0, xgpu::tools::editors::g_NumPlaybackSpeeds - 1, xgpu::tools::editors::g_PlaybackSpeedLabels[SkinState.m_iSpeedIndex]);
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Playback speed");
+
+                    const char* pClipName = "Clip";   // E25 only ever sees the compiled anim_package
+                                                       // (clip names live in ITS descriptor, which this
+                                                       // editor doesn't own/load) - a generic label here
+                                                       // is honest about what data is actually available.
+
+                    const float FooterHeight      = ImGui::GetTextLineHeightWithSpacing();
+                    const float MinTimelineHeight = std::max(ImGui::GetContentRegionAvail().y - FooterHeight, 0.0f);
+
+                    if (xgpu::tools::imgui::timeline::Draw(SkinState.m_Timeline, SkinState.m_TimeSeconds, ClipLength, static_cast<float>(Clip.m_FPS), {}, "playback_timeline", pClipName, MinTimelineHeight))
                         SkinState.m_LoopsElapsed = 0;   // manual scrub - elapsed-loop count no longer means anything
 
-                    if (ImGui::BeginCombo("Speed", xgpu::tools::editors::g_PlaybackSpeedLabels[SkinState.m_iSpeedIndex]))
-                    {
-                        for (int i = 0; i < xgpu::tools::editors::g_NumPlaybackSpeeds; ++i)
-                        {
-                            const bool bSelected = (i == SkinState.m_iSpeedIndex);
-                            if (ImGui::Selectable(xgpu::tools::editors::g_PlaybackSpeedLabels[i], bSelected))
-                                SkinState.m_iSpeedIndex = i;
-                        }
-                        ImGui::EndCombo();
-                    }
+                    const float ZoomPercent = xgpu::tools::imgui::timeline::GetZoomPercent(SkinState.m_Timeline, ClipLength);
+                    ImGui::Text("Zoom: %.0f%%    FPS: %d    Frames: %d    Loop: %s", ZoomPercent, Clip.m_FPS, Clip.m_nFrames, Clip.m_bLoop ? "Yes" : "No");
                 }
                 ImGui::End();
             }

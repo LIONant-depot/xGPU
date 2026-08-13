@@ -107,6 +107,14 @@ namespace xgpu::tools::editors
     inline constexpr int         g_NumPlaybackSpeeds     = static_cast<int>(std::size(g_PlaybackSpeeds));
     inline constexpr int         g_DefaultSpeedIndex     = 3;   // g_PlaybackSpeeds[3] == 1.0f
 
+    // Segoe MDL2 Assets icon glyphs for the transport bar's three real buttons (Play/Pause,
+    // go-to-start, go-to-end) - pulled out of E24_AnimPackage_Editor.cpp so E25's transport bar can
+    // match it exactly instead of re-picking glyphs.
+    inline constexpr const char* g_PlayIcon      = "\xEE\x9D\xA8";  // U+E768 Play
+    inline constexpr const char* g_PauseIcon     = "\xEE\x9D\xA9";  // U+E769 Pause
+    inline constexpr const char* g_GoToStartIcon = "\xEE\xA2\x92";  // U+E892 Previous
+    inline constexpr const char* g_GoToEndIcon   = "\xEE\xA2\x93";  // U+E893 Next
+
     // Advances TimeSeconds by Speed*DeltaTime and applies clip-length wrap (looping, incrementing
     // LoopsElapsed) or clamp-and-stop (non-looping, clearing bPlaying) semantics. Caller is expected
     // to have already checked bPlaying and ClipLengthSeconds>0 before calling - this only does the

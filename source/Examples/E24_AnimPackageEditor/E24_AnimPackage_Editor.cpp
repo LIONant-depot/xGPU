@@ -401,18 +401,13 @@ namespace e24
     // verbatim, not re-guessed, so it's guaranteed to actually exist in the bundled font.
     constexpr const char* g_DeleteIcon = "\xEE\x9D\x8D";
 
-    // Transport bar glyphs, cross-checked against the authoritative community codepoint table
-    // (github.com/scottdorman/mdl2-icons) rather than guessed. GoToStart/GoToEnd reuse the standard
-    // Previous/Next "skip track" pair (U+E892/U+E893) - visually symmetric and the conventional choice
-    // for single-clip transport controls; there's no dedicated "go to end" glyph in the font to pair
-    // with the dedicated "go to start" one, so Previous/Next keeps both ends visually consistent.
-    constexpr const char* g_PlayIcon      = "\xEE\x9D\xA8";  // U+E768 Play
-    constexpr const char* g_PauseIcon     = "\xEE\x9D\xA9";  // U+E769 Pause
-    constexpr const char* g_GoToStartIcon = "\xEE\xA2\x92";  // U+E892 Previous
-    constexpr const char* g_GoToEndIcon   = "\xEE\xA2\x93";  // U+E893 Next
-
-    // Discrete playback-speed steps - now shared via xgpu_editor_anim_pose.h (E25 needs the identical
-    // table); aliased here so every existing e24::g_PlaybackSpeeds[...] call site stays unchanged.
+    // Transport bar glyphs and discrete playback-speed steps - shared via xgpu_editor_anim_pose.h
+    // (E25 needs the identical set); aliased here so every existing e24::g_PlayIcon/g_PlaybackSpeeds[...]
+    // call site stays unchanged.
+    using xgpu::tools::editors::g_PlayIcon;
+    using xgpu::tools::editors::g_PauseIcon;
+    using xgpu::tools::editors::g_GoToStartIcon;
+    using xgpu::tools::editors::g_GoToEndIcon;
     using xgpu::tools::editors::g_PlaybackSpeeds;
     using xgpu::tools::editors::g_PlaybackSpeedLabels;
     using xgpu::tools::editors::g_NumPlaybackSpeeds;
