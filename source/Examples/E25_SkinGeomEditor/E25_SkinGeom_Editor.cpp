@@ -63,9 +63,18 @@
 // viewport+pose-eval code (xgpu_editor_viewport.h/xgpu_editor_anim_pose.h) on a third consumer.
 //
 // v1 scope: single diffuse-sampler material (no per-material texture resolution - a default white
-// texture satisfies the sampler slot, matching how E24's own wedge pipeline binds it) and no shadow
-// pass. The point of this editor is proving the skinning pipeline deforms correctly, not building a
-// second material system - E21 already owns that.
+// texture satisfies the sampler slot, matching how E24's own wedge pipeline binds it). The point of
+// this editor is proving the skinning pipeline deforms correctly, not building a second material
+// system - E21 already owns that.
+//
+// Shadow pass: same depth-only technique as E21_StaticGeomEditor/E23_Skeleton_Editor - a fixed light
+// casts the skinned mesh onto the ground grid (E21_GridShader_frag.glsl, already linked in for spatial
+// context, already carries the sampling/PCF code - previously fed a rigged always-fully-lit matrix).
+// Reuses xgeom_skin.plugin's own GeomSkinShadowMapCreation_{vert,frag}.glsl (already CMake-registered,
+// already skins through the same ClusterBuffer/BoneMatrixBuffer SSBOs the main pass uses) rather than
+// a position-only shader, since this mesh's vertices only exist skinned. The mesh casts a shadow but
+// does not receive one - neither GeomSkinBasicShader_frag.glsl nor GeomStaticBasicShader_frag.glsl
+// samples a shadow map at all; only the grid does.
 //
 //-----------------------------------------------------------------------------------
 
@@ -92,6 +101,17 @@ namespace e25
     {
         #include "E21_GridShader_frag.h"
     };
+    // Depth-only shadow caster - xgeom_skin.plugin's own shadow shader, which skins through the same
+    // ClusterBuffer/BoneMatrixBuffer SSBOs the main GeomSkin pipeline already uses (a position-only
+    // shader like E21/E23's wouldn't work here - this mesh's vertices only exist skinned).
+    constexpr static std::uint32_t g_ShadowVertShader[] =
+    {
+        #include "GeomSkinShadowMapCreation_vert.h"
+    };
+    constexpr static std::uint32_t g_ShadowFragShader[] =
+    {
+        #include "GeomSkinShadowMapCreation_frag.h"
+    };
 
     static void Debugger(std::string_view View)
     {
@@ -111,7 +131,7 @@ namespace e25
     {
         xmath::fmat4    m_L2w;
         xmath::fmat4    m_w2C;
-        xmath::fmat4    m_w2ShadowT;   // always zero in v1 - no shadow pass, see file header comment
+        xmath::fmat4    m_w2ShadowT;   // dead/unused - GeomSkinBasicShader_frag.glsl never reads it (only the grid samples a shadow map); kept zero since feeding it a real value would be inert either way
     };
 
     struct alignas(256) ubo_bm_lighting
@@ -121,6 +141,13 @@ namespace e25
         xmath::fvec4    m_wSpaceLightPos;
         xmath::fvec4    m_wSpaceEyePos;
         xmath::fvec4    m_LightParams;
+    };
+
+    // MeshUniforms{mat4 L2C} in GeomSkinShadowMapCreation_vert.glsl - the shadow-caster pass only
+    // ever needs the light's local-to-clip matrix, nothing else.
+    struct alignas(256) ubo_shadow_generation_mesh
+    {
+        xmath::fmat4    m_L2C;
     };
 
     struct geom_skin_push_const
@@ -393,6 +420,90 @@ int E25_Example()
     }
 
     //
+    // Shadow map - a depth-only render pass from a fixed light's point of view, same technique as
+    // E21_StaticGeomEditor/E23_Skeleton_Editor (see those files' own comments): the skinned mesh is
+    // the shadow caster, and the ground grid below is the only receiver.
+    //
+    xgpu::renderpass ShadowRenderPass;
+    xgpu::texture    ShadowMapTexture;
+    {
+        if (auto Err = Device.Create(ShadowMapTexture, { .m_Format = xgpu::texture::format::DEPTH_U16, .m_Width = 1024, .m_Height = 1024, .m_isGamma = false }); Err)
+            return xgpu::getErrorInt(Err);
+
+        std::array<xgpu::renderpass::attachment, 1> Attachments{ ShadowMapTexture };
+        if (auto Err = Device.Create(ShadowRenderPass, { .m_Attachments = Attachments }); Err)
+            return xgpu::getErrorInt(Err);
+    }
+
+    xgpu::buffer ShadowGenerationDynamicUBOMesh;
+    if (auto Err = Device.Create(ShadowGenerationDynamicUBOMesh, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(e25::ubo_shadow_generation_mesh), .m_EntryCount = 100 }); Err)
+        return xgpu::getErrorInt(Err);
+
+    xgpu::pipeline          ShadowGenerationPipeline;
+    xgpu::pipeline_instance ShadowGenerationPipelineInstance;
+    {
+        xgpu::shader VertexShader;
+        {
+            xgpu::shader::setup Setup{ .m_Type = xgpu::shader::type::bit::VERTEX, .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e25::g_ShadowVertShader, sizeof(e25::g_ShadowVertShader) / sizeof(int)}} };
+            if (auto Err = Device.Create(VertexShader, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        xgpu::shader FragShader;
+        {
+            xgpu::shader::setup Setup{ .m_Type = xgpu::shader::type::bit::FRAGMENT, .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e25::g_ShadowFragShader, sizeof(e25::g_ShadowFragShader) / sizeof(int)}} };
+            if (auto Err = Device.Create(FragShader, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        // Position-only stream (0) - GeomSkinShadowMapCreation_vert.glsl (via xgeom_skin_mb_input_
+        // position.vert) only ever reads position+skin data, never stream 1's UV/normal/tangent.
+        xgpu::vertex_descriptor ShadowGenerationVertexDescriptor;
+        {
+            auto Attributes = std::array
+            { xgpu::vertex_descriptor::attribute{ .m_Offset = offsetof(xgeom_skin::geom::vertex, m_XPos),          .m_Format = xgpu::vertex_descriptor::format::SINT16_3D,     .m_iStream = 0 }
+            , xgpu::vertex_descriptor::attribute{ .m_Offset = offsetof(xgeom_skin::geom::vertex, m_Packed),        .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_UINT, .m_iStream = 0 }
+            , xgpu::vertex_descriptor::attribute{ .m_Offset = offsetof(xgeom_skin::geom::vertex, m_Packed) + 4,    .m_Format = xgpu::vertex_descriptor::format::UINT16_1D,     .m_iStream = 0 }
+            };
+            if (auto Err = Device.Create(ShadowGenerationVertexDescriptor
+            , xgpu::vertex_descriptor::setup
+            { .m_bUseStreaming = true
+            , .m_Topology      = xgpu::vertex_descriptor::topology::TRIANGLE_LIST
+            , .m_VertexSize    = 0
+            , .m_Attributes    = Attributes
+            }); Err)
+            {
+                return xgpu::getErrorInt(Err);
+            }
+        }
+
+        // Matches xgeom_skin_mb_clusters.vert's set=1 bindings 0/1 (Cluster/BoneMatrix) plus the
+        // shader's own set=2 binding 0 MeshUniforms{L2C} - same shape as GeomSkinPipeline below, just
+        // without the Lighting UBO or diffuse sampler (the fragment shader is empty; depth-write only).
+        auto UBuffersUsage = std::array
+        { xgpu::pipeline::uniform_binds{ .m_BindIndex = 0, .m_Usage = { .m_bVertex = true }, .m_Type = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC }   // MeshUniforms{L2C}
+        , xgpu::pipeline::uniform_binds{ .m_BindIndex = 0, .m_Usage = { .m_bVertex = true }, .m_Type = xgpu::pipeline::uniform_binds::type::SSBO_STATIC }   // ClusterBuffer
+        , xgpu::pipeline::uniform_binds{ .m_BindIndex = 1, .m_Usage = { .m_bVertex = true }, .m_Type = xgpu::pipeline::uniform_binds::type::SSBO_STATIC }   // BoneMatrixBuffer
+        };
+        auto Shaders = std::array<const xgpu::shader*, 2>{ &FragShader, &VertexShader };
+        auto Setup   = xgpu::pipeline::setup
+        { .m_VertexDescriptor   = ShadowGenerationVertexDescriptor
+        , .m_Shaders            = Shaders
+        , .m_PushConstantsSize  = sizeof(e25::geom_skin_push_const)
+        , .m_UniformBinds       = UBuffersUsage
+        // Depth bias/clamp (E15/E21/E23's exact values) - avoids shadow-acne self-shadowing artifacts
+        // from the caster and receiver geometry sitting at effectively the same depth.
+        , .m_DepthStencil       = { .m_DepthBiasConstantFactor = 1.25f, .m_DepthBiasSlopeFactor = 2.3f, .m_bDepthBiasEnable = true, .m_bDepthClampEnable = true }
+        };
+
+        if (auto Err = Device.Create(ShadowGenerationPipeline, Setup); Err)
+            return xgpu::getErrorInt(Err);
+
+        if (auto Err = Device.Create(ShadowGenerationPipelineInstance, { .m_PipeLine = ShadowGenerationPipeline }); Err)
+            return xgpu::getErrorInt(Err);
+    }
+
+    //
     // Ground grid, for spatial context - same E21_GridShader as every other preview editor.
     //
     xgpu::vertex_descriptor Primitive3DVertexDescriptor;
@@ -443,7 +554,7 @@ int E25_Example()
         if (auto Err = Device.Create(Grid3dMaterial, Setup); Err)
             return xgpu::getErrorInt(Err);
 
-        auto Bindings  = std::array{ xgpu::pipeline_instance::sampler_binding{*pDefaultTexture} };
+        auto Bindings  = std::array{ xgpu::pipeline_instance::sampler_binding{ShadowMapTexture} };
         auto InstSetup = xgpu::pipeline_instance::setup{ .m_PipeLine = Grid3dMaterial, .m_SamplersBindings = Bindings };
         if (auto Err = Device.Create(Grid3dMaterialInstance, InstSetup); Err)
             return xgpu::getErrorInt(Err);
@@ -723,11 +834,33 @@ int E25_Example()
     float              Distance = -1;   // let it auto-compute once an asset loads
     xmath::fvec3       CameraTarget(0, 0, 0);
     View.setFov(60_xdeg);
+    View.setNearZ(0.01f); // TEMP DEBUG TEST: never explicitly set before - testing whether a degenerate
+    View.setFarZ(10000.0f); // Near/Far=0 default was clipping the (100-unit-scale) grid while the tiny (~1-2 unit) character still happened to render fine
 
     xgpu::mouse    Mouse;
     xgpu::keyboard Keyboard;
     Instance.Create(Mouse, {});
     Instance.Create(Keyboard, {});
+
+    //
+    // The shadow-casting light's own "camera" - fixed direction (not tied to the user's camera), so
+    // the shadow on the grid reads as a stable depth cue instead of swinging/flattening as they orbit.
+    // Distance/target are refit to the mesh's current bounding sphere every frame in the main loop,
+    // the same way View itself gets reframed. Same technique as E23_Skeleton_Editor.
+    //
+    xgpu::tools::view LightingView = {};
+    LightingView.setFov(50_xdeg);
+    LightingView.setViewport({ 0, 0, ShadowMapTexture.getTextureDimensions()[0], ShadowMapTexture.getTextureDimensions()[1] });
+
+    // Clip-space-to-texture-space bias (scale/translate by 0.5) - the standard shadow-map remap, same
+    // matrix E15_Shadowmap/E21_StaticGeomEditor/E23_Skeleton_Editor compute before feeding a shadow
+    // matrix into their own grid/mesh shaders.
+    const xmath::fmat4 g_ClipToTextureSpace = []
+    {
+        xmath::fmat4 M;
+        M.setupSRT({ 0.5f, 0.5f, 1.0f }, { 0_xdeg }, { 0.5f, 0.5f, 0.0f });
+        return M;
+    }();
 
     //
     // Main Loop
@@ -852,11 +985,72 @@ int E25_Example()
                         });
                     }
 
+                    //
+                    // Shadow pass - refit the light to the mesh's current bounding sphere (same technique
+                    // View itself uses to auto-frame), then render the skinned mesh depth-only into
+                    // ShadowMapTexture from the light's point of view. Issued as its own render pass,
+                    // separate from and before the ImGui-driven main color pass below (matching E23's
+                    // ordering) - not deferred through AddCustomRenderCallback.
+                    //
+                    xmath::fmat4 ShadowGenerationL2C;
+                    {
+                        const float LightVerticalFov = LightingView.getFov().m_Value;
+                        const float LightAspect      = LightingView.getAspect();
+                        const float LightHFov        = 2.0f * std::atan(LightAspect * std::tan(LightVerticalFov * 0.5f));
+                        const float LightMinFov      = std::min(LightVerticalFov, LightHFov);
+                        const float LightDistance    = (SkinState.m_Radius + 0.01f) / std::tan(LightMinFov * 0.5f);
+
+                        // Near stays a fixed FRACTION of LightDistance rather than an absolute floor -
+                        // see E23_Skeleton_Editor's own comment on why an absolute floor collapses depth
+                        // precision once the subject's radius scales up.
+                        LightingView.setNearZ(LightDistance * 0.1f);
+                        LightingView.setFarZ(LightDistance + SkinState.m_Radius * 4.0f);
+                        LightingView.LookAt(LightDistance, xmath::radian3(-50_xdeg, 35_xdeg, 0_xdeg), SkinState.m_Center);
+                        ShadowGenerationL2C = LightingView.getW2C();
+
+                        if (pGeom->m_nVertices > 0)
+                        {
+                            auto CmdBuffer = MainWindow.StartRenderPass(ShadowRenderPass);
+                            CmdBuffer.setStreamingBuffers({ &pGeom->IndexBuffer(), 2 });   // Index + stream 0 (position/skin) only
+
+                            std::array ShadowStaticSSBO{ &pGeom->ClusterBuffer(), &BoneMatrixBuffer };
+                            const std::uint32_t MaxInfluencesForShadow = static_cast<std::uint32_t>(std::clamp(RenderSettings.m_MaxInfluences, 1, 4));
+                            for (auto& M : pGeom->getMeshes())
+                            {
+                                const int UseLOD = std::clamp(RenderSettings.m_iLOD, 0, int(M.m_nLODs) - 1);
+                                auto&     L      = pGeom->getLODs()[M.m_iLOD + UseLOD];
+
+                                for (auto& S : pGeom->getSubmeshes().subspan(L.m_iSubmesh, L.m_nSubmesh))
+                                {
+                                    CmdBuffer.setPipelineInstance(ShadowGenerationPipelineInstance, ShadowStaticSSBO);
+
+                                    auto& ShadowUBO = ShadowGenerationDynamicUBOMesh.allocEntry<e25::ubo_shadow_generation_mesh>();
+                                    ShadowUBO.m_L2C = ShadowGenerationL2C;
+                                    CmdBuffer.setDynamicUBO(ShadowGenerationDynamicUBOMesh, 0);
+
+                                    e25::geom_skin_push_const PushConst{ .m_ClusterIndex = S.m_iCluster, .m_MaxInfluences = MaxInfluencesForShadow };
+                                    for (auto& C : pGeom->getClusters().subspan(S.m_iCluster, S.m_nCluster))
+                                    {
+                                        CmdBuffer.setPushConstants(PushConst);
+                                        CmdBuffer.Draw(C.m_nIndices, C.m_iIndex, C.m_iVertex);
+                                        PushConst.m_ClusterIndex++;
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     const auto L2w = xmath::fmat4::fromTranslation(-View.getPosition());
                     const auto w2C = View.getW2C() * xmath::fmat4::fromTranslation(View.getPosition());
                     const auto CameraPos = View.getPosition();
+                    // The grid's own L2W is a plain, non-camera-relative world matrix (unlike the mesh's
+                    // L2w, which is deliberately pre-shifted by -CameraPos for precision, paired with
+                    // w2C's compensating +CameraPos above) - feeding it the mesh's adjusted w2C bakes in
+                    // an uncancelled +CameraPos translation that doesn't belong there. E24_AnimPackage_
+                    // Editor.cpp's own (confirmed working) grid uses plain View.getW2C() directly.
+                    const auto GridW2C = View.getW2C();
 
-                    xgpu::tools::imgui::AddCustomRenderCallback([&, L2w, w2C, CameraPos](xgpu::cmd_buffer& CmdBuffer, const ImVec2&, const ImVec2&)
+                    xgpu::tools::imgui::AddCustomRenderCallback([&, L2w, w2C, CameraPos, GridW2C, ShadowGenerationL2C](xgpu::cmd_buffer& CmdBuffer, const ImVec2&, const ImVec2&)
                     {
                         //
                         // Grid
@@ -866,9 +1060,13 @@ int E25_Example()
 
                             auto& Uniform = GridDynamicUBO.allocEntry<e25::grid_uniform>();
                             Uniform.m_WorldSpaceCameraPos = CameraPos;
-                            Uniform.m_L2W        = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, pGeom->m_BBox.m_Min.m_Y, 0));
-                            Uniform.m_W2C        = w2C;
-                            Uniform.m_L2CTShadow = xmath::fmat4::fromZero();   // no shadow pass in v1
+                            Uniform.m_L2W        = xmath::fmat4(xmath::fvec3(100.f, 100.0f, 1.f), xmath::radian3(-90_xdeg, 0_xdeg, 0_xdeg), xmath::fvec3(0, 0, 0));
+                            Uniform.m_W2C        = GridW2C;
+                            Uniform.m_L2CTShadow = g_ClipToTextureSpace * ShadowGenerationL2C * Uniform.m_L2W;
+                            // Explicit rather than relying on the in-class default member initializer -
+                            // allocEntry() returns a reference into mapped GPU memory (E23_Skeleton_
+                            // Editor.cpp's identical grid setup does this explicitly for the same reason).
+                            Uniform.m_MajorGridDiv = 10.0f;
                             CmdBuffer.setDynamicUBO(GridDynamicUBO, 0);
                             MeshManager.Rendering(CmdBuffer, e19::mesh_manager::model::PLANE3D);
                         }
