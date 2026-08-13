@@ -50,6 +50,7 @@
 
 #include "source/tools/editors/xgpu_editor_viewport.h"
 #include "source/tools/editors/xgpu_editor_anim_pose.h"
+#include "source/tools/editors/xgpu_editor_resource_picker.h"
 
 //-----------------------------------------------------------------------------------
 //
@@ -592,6 +593,66 @@ int E25_Example()
     xproperty::inspector RenderSettingsInspector("Rendering Settings");
     RenderSettingsInspector.AppendEntity();
     RenderSettingsInspector.AppendEntityComponent(*xproperty::getObjectByType<e25::render_settings>(), &RenderSettings);
+
+    // Wire up the resource-ref picker delegates (SkeletonRef/MaterialInstance on the descriptor,
+    // PreviewAnimRef on render settings). These three are multicast (xdelegate::thread_unsafe, additive
+    // Register - not an overridable slot), and xproperty::inspector's own constructor pre-registers a
+    // plain default handler on m_OnResourceLeftSize. Without clearing it first, our handler runs
+    // *alongside* the default one, so the same field's TreeNodeEx gets submitted twice under the same
+    // ImGui ID - producing a visibly duplicated row AND leaving click/drag-drop unreliable (duplicate-ID
+    // hover/active-id confusion). E19/E20/E21 all clear before registering; matching that here.
+    // Left-column label for a resource-ref field/array-element. Shared by both inspectors: for
+    // DescriptorInspector's MaterialInstance array, rewrite the default "[N]" label to
+    // "[N] <MaterialName>" using the same positional correlation MergeWithDetails guarantees between
+    // m_MaterialDetailsList and m_MaterialInstRefList (see xgeom_skin_descriptor.h), and grey out slots
+    // no surviving mesh/node references; every other resource-ref field (SkeletonRef, PreviewAnimRef)
+    // just gets the plain framed label. Ported from E21_StaticGeom_Editor.cpp.
+    auto OnResourceLeftSize = [](xproperty::inspector& Inspector, void* pID, ImGuiTreeNodeFlags flags, const char* pName, bool& Open)
+    {
+        std::string NewName;
+        bool        bDisable = false;
+        if (pName[0] == '[' && strcmp(Inspector.getName(), "GeomSkin Properties") == 0)
+        {
+            auto Pair  = Inspector.getComponent(0, 0);
+            auto View  = std::string_view(pName);
+            auto pDesc = static_cast<xgeom_skin::descriptor*>(Pair.second);
+
+            if (not pDesc->m_MaterialDetailsList.empty())
+            {
+                View = View.substr(1, View.size() - 2);
+                int Index;
+                auto result = std::from_chars(View.data(), View.data() + View.size(), Index);
+                assert(result.ec == std::errc());
+
+                NewName  = std::format("{} {}", pName, pDesc->m_MaterialDetailsList[Index].m_Name);
+                pName    = NewName.c_str();
+                bDisable = pDesc->m_MaterialDetailsList[Index].m_RefCount <= 0;
+            }
+        }
+
+        if (bDisable) ImGui::BeginDisabled();
+        Open = ImGui::TreeNodeEx(pID, ImGuiTreeNodeFlags_Framed | flags, "  %s", pName);
+        if (bDisable) ImGui::EndDisabled();
+    };
+
+    for (auto* pInspector : { &DescriptorInspector, &RenderSettingsInspector })
+    {
+        pInspector->m_OnResourceWigzmos.m_Delegates.clear();
+        pInspector->m_OnResourceBrowser.m_Delegates.clear();
+        pInspector->m_OnResourceLeftSize.m_Delegates.clear();
+
+        pInspector->m_OnResourceWigzmos.Register<[](xproperty::inspector&, bool& bOpen, const xresource::full_guid& PreFullGuid)
+        {
+            xgpu::tools::editors::RenderResourceWigzmos(bOpen, PreFullGuid);
+        }>();
+
+        pInspector->m_OnResourceBrowser.Register<[](xproperty::inspector&, const void* pUID, bool& bOpen, xresource::full_guid& Out, std::span<const xresource::type_guid> Filters)
+        {
+            xgpu::tools::editors::ResourceBrowserPopup(pUID, bOpen, Out, Filters);
+        }>();
+
+        pInspector->m_OnResourceLeftSize.Register(OnResourceLeftSize);
+    }
 
     //
     // Setup Imgui interface
@@ -1169,6 +1230,12 @@ int E25_Example()
         }
 
         AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
+
+        // Drives the per-field resource-ref picker popup (xgpu_editor_resource_picker.h's
+        // g_AssetBrowserPopup) - ShowAsPopup() only arms it, this is what actually draws it each frame.
+        // Missing this call is why clicking a resource-ref button previously did nothing: the popup's
+        // "wants to open" state was set, but nothing ever rendered it. Matches E21's own per-frame call.
+        xgpu::tools::editors::g_AssetBrowserPopup.RenderAsPopup(e10::g_LibMgr, xresource::g_Mgr);
 
         if (auto SelAsset = AsserBrowser.getSelectedAsset(); SelAsset.empty() == false && SelAsset.m_Type == xgeom_skin::resource_type_guid_v)
         {
