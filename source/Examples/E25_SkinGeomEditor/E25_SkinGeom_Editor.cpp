@@ -38,6 +38,7 @@
 // including its declaration itself - same as xgeom_static.h, which relies on whichever consumer
 // pulls this in first. Must come before xgeom_skin.h.
 #include "plugins/xmaterial_instance.plugin/source/xmaterial_instance_xgpu_rsc_loader.h"
+#include "plugins/xmaterial_instance.plugin/source/xmaterial_instance_runtime.h"
 
 // GeomSkin: nothing else in the executable defines this loader yet, so both the declaration (.h)
 // and the definition (.cpp) are included here, same pattern xanim_package used the one time IT was new.
@@ -408,8 +409,8 @@ int E25_Example()
     xresource::g_Mgr.Initiallize(20000);
 
     //
-    // Default (white, 1x1) texture - satisfies the basic-shader's diffuse sampler slot (see file
-    // header comment: no per-material texture resolution in v1).
+    // Default (white, 1x1) texture - fallback diffuse binding for meshes with no material instance
+    // assigned (mirrors E21_StaticGeom_Editor's own MI.empty() branch).
     //
     xrsc::texture_ref DefaultTextureRef = e25::CreateBackgroundTexture(Device, xbitmap::getDefaultBitmap());
     xgpu::texture*    pDefaultTexture   = xresource::g_Mgr.getResource(DefaultTextureRef);
@@ -686,6 +687,59 @@ int E25_Example()
     e10::assert_browser  AsserBrowser;
     e25::skin_state       SkinState;
     e25::render_settings  RenderSettings;
+
+    //
+    // Per-submesh material-instance pipeline instances - one per entry in the loaded mesh's
+    // getDefaultMaterialInstances(), rebuilt whenever a (new) asset loads. Follows
+    // E21_StaticGeom_Editor.cpp's Mesh3DMatInstance/Mesh3DRscRefMaterialInstance pattern: GeomSkin's
+    // shader only ever declares one sampler ("SamplerDiffuseMap", unlike E21's shadow+3-texture PBR
+    // setup), so this only ever needs to resolve the material instance's first bound texture - no
+    // per-Material dynamic pipeline construction needed, GeomSkinPipeline is shared by all of them.
+    //
+    std::vector<xgpu::pipeline_instance>     SkinMatInstance;
+    std::vector<xrsc::material_instance_ref> SkinRscRefMaterialInstance;
+
+    auto RebuildSkinMaterialInstances = [&]
+    {
+        for (auto& E : SkinMatInstance)             Device.Destroy(std::move(E));
+        for (auto& E : SkinRscRefMaterialInstance)  xresource::g_Mgr.ReleaseRef(E);
+
+        auto* pGeom = xresource::g_Mgr.getResource(SkinState.m_Ref);
+        if (pGeom == nullptr) { SkinMatInstance.clear(); SkinRscRefMaterialInstance.clear(); return; }
+
+        SkinMatInstance.resize(pGeom->m_nDefaultMaterialInstances);
+        SkinRscRefMaterialInstance.resize(pGeom->m_nDefaultMaterialInstances);
+
+        for (auto& MI : pGeom->getDefaultMaterialInstances())
+        {
+            const auto Index = static_cast<int>(&MI - pGeom->getDefaultMaterialInstances().data());
+
+            xresource::g_Mgr.CloneRef(SkinRscRefMaterialInstance[Index], MI);
+
+            if (MI.empty())
+            {
+                auto Bindings  = std::array{ xgpu::pipeline_instance::sampler_binding{*pDefaultTexture} };
+                auto InstSetup = xgpu::pipeline_instance::setup{ .m_PipeLine = GeomSkinPipeline, .m_SamplersBindings = Bindings };
+                if (auto Err = Device.Create(SkinMatInstance[Index], InstSetup); Err)
+                    assert(false);
+            }
+            else if (xmaterial_instance::rt* pMI = xresource::g_Mgr.getResource(SkinRscRefMaterialInstance[Index]); pMI && pMI->m_nTexturesList > 0)
+            {
+                auto*  pTex     = xresource::g_Mgr.getResource(pMI->getTextures()[0].m_TexureRef);
+                auto   Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{pTex ? *pTex : *pDefaultTexture} };
+                auto   InstSetup = xgpu::pipeline_instance::setup{ .m_PipeLine = GeomSkinPipeline, .m_SamplersBindings = Bindings };
+                if (auto Err = Device.Create(SkinMatInstance[Index], InstSetup); Err)
+                    assert(false);
+            }
+            else
+            {
+                auto Bindings  = std::array{ xgpu::pipeline_instance::sampler_binding{*pDefaultTexture} };
+                auto InstSetup = xgpu::pipeline_instance::setup{ .m_PipeLine = GeomSkinPipeline, .m_SamplersBindings = Bindings };
+                if (auto Err = Device.Create(SkinMatInstance[Index], InstSetup); Err)
+                    assert(false);
+            }
+        }
+    };
 
     // Compile-progress subscriber - mirrors E23/E24's own CallBackForCompilation exactly.
     auto CallBackForCompilation = [&](e10::library_mgr&, e10::library::guid, xresource::full_guid gCompilingEntry, std::shared_ptr<e10::compilation::historical_entry::log>& LogInformation)
@@ -1103,7 +1157,8 @@ int E25_Example()
 
                                 for (auto& S : pGeom->getSubmeshes().subspan(L.m_iSubmesh, L.m_nSubmesh))
                                 {
-                                    CmdBuffer.setPipelineInstance(GeomSkinPipelineInstance, StaticSSBO);
+                                    auto& MatInstance = (S.m_iMaterial < SkinMatInstance.size()) ? SkinMatInstance[S.m_iMaterial] : GeomSkinPipelineInstance;
+                                    CmdBuffer.setPipelineInstance(MatInstance, StaticSSBO);
                                     CmdBuffer.setDynamicUBO(GeomSkinDynamicUBOMesh, 0);
                                     CmdBuffer.setDynamicUBO(UBOLighting, 1);
 
@@ -1230,6 +1285,7 @@ int E25_Example()
             const auto SavedLog = SkinState.m_Log;
             e25::LoadSkinGeom(SkinState, SkinState.m_LibraryGUID, SkinState.m_InfoGUID);
             SkinState.m_Log = SavedLog;
+            RebuildSkinMaterialInstances();
         }
 
         {
@@ -1485,6 +1541,7 @@ int E25_Example()
         if (auto SelAsset = AsserBrowser.getSelectedAsset(); SelAsset.empty() == false && SelAsset.m_Type == xgeom_skin::resource_type_guid_v)
         {
             e25::LoadSkinGeom(SkinState, AsserBrowser.getSelectedLibrary(), SelAsset);
+            RebuildSkinMaterialInstances();
         }
 
         //
