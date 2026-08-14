@@ -94,6 +94,10 @@ namespace e25
     {
         #include "GeomSkinBasicShader_frag.h"
     };
+    constexpr static std::uint32_t g_GeomSkinPBRFragShader[] =
+    {
+        #include "GeomSkinPBRShader_frag.h"
+    };
     constexpr static std::uint32_t g_GridVertShader[] =
     {
         #include "E21_GridShader_vert.h"
@@ -584,59 +588,75 @@ int E25_Example()
     if (auto Err = Device.Create(BoneMatrixBuffer, { .m_Type = xgpu::buffer::type::STORAGE, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ, .m_EntryByteSize = sizeof(xmath::fmat4), .m_EntryCount = e25::g_MaxBonesSupported }); Err)
         return xgpu::getErrorInt(Err);
 
+    // Shared by both pipelines below - same vertex format/shader either way, only the fragment
+    // shader (and its sampler count) differs between the plain single-texture path and the PBR one.
+    xgpu::vertex_descriptor GeomSkinVertexDescriptor;
+    {
+        auto Attributes = std::array
+        { xgpu::vertex_descriptor::attribute
+          { .m_Offset  = offsetof(xgeom_skin::geom::vertex, m_XPos)
+          , .m_Format  = xgpu::vertex_descriptor::format::SINT16_3D
+          , .m_iStream = 0
+          }
+        , xgpu::vertex_descriptor::attribute
+          { .m_Offset  = offsetof(xgeom_skin::geom::vertex, m_Packed)
+          , .m_Format  = xgpu::vertex_descriptor::format::UINT8_4D_UINT       // m_Packed[0..3] -> lo32
+          , .m_iStream = 0
+          }
+        , xgpu::vertex_descriptor::attribute
+          { .m_Offset  = offsetof(xgeom_skin::geom::vertex, m_Packed) + 4
+          , .m_Format  = xgpu::vertex_descriptor::format::UINT16_1D          // m_Packed[4..5] -> hi16
+          , .m_iStream = 0
+          }
+        , xgpu::vertex_descriptor::attribute
+          { .m_Offset  = offsetof(xgeom_skin::geom::vertex_extras, m_UV)
+          , .m_Format  = xgpu::vertex_descriptor::format::UINT16_2D
+          , .m_iStream = 1
+          }
+        , xgpu::vertex_descriptor::attribute
+          { .m_Offset  = offsetof(xgeom_skin::geom::vertex_extras, m_OctNormal)
+          , .m_Format  = xgpu::vertex_descriptor::format::UINT16_2D
+          , .m_iStream = 1
+          }
+        , xgpu::vertex_descriptor::attribute
+          { .m_Offset  = offsetof(xgeom_skin::geom::vertex_extras, m_OctTangentX)
+          , .m_Format  = xgpu::vertex_descriptor::format::UINT16_1D
+          , .m_iStream = 1
+          }
+        , xgpu::vertex_descriptor::attribute
+          { .m_Offset  = offsetof(xgeom_skin::geom::vertex_extras, m_OctTangentY_Sign)
+          , .m_Format  = xgpu::vertex_descriptor::format::UINT16_1D
+          , .m_iStream = 1
+          }
+        };
+        if (auto Err = Device.Create(GeomSkinVertexDescriptor
+        , xgpu::vertex_descriptor::setup
+        { .m_bUseStreaming = true
+        , .m_Topology      = xgpu::vertex_descriptor::topology::TRIANGLE_LIST
+        , .m_VertexSize    = 0
+        , .m_Attributes    = Attributes
+        }); Err)
+        {
+            return xgpu::getErrorInt(Err);
+        }
+    }
+
+    xgpu::shader GeomSkinVertexShader;
+    {
+        xgpu::shader::setup Setup{ .m_Type = xgpu::shader::type::bit::VERTEX, .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e25::g_GeomSkinVertShader, sizeof(e25::g_GeomSkinVertShader) / sizeof(int)}} };
+        if (auto Err = Device.Create(GeomSkinVertexShader, Setup); Err)
+            return xgpu::getErrorInt(Err);
+    }
+
+    auto UBuffersUsage = std::array
+    { xgpu::pipeline::uniform_binds{ .m_BindIndex = 0, .m_Usage = { .m_bVertex   = true }, .m_Type = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC }   // MeshUniforms
+    , xgpu::pipeline::uniform_binds{ .m_BindIndex = 1, .m_Usage = { .m_bFragment = true }, .m_Type = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC }   // Lighting
+    , xgpu::pipeline::uniform_binds{ .m_BindIndex = 0, .m_Usage = { .m_bVertex   = true }, .m_Type = xgpu::pipeline::uniform_binds::type::SSBO_STATIC }   // ClusterBuffer
+    , xgpu::pipeline::uniform_binds{ .m_BindIndex = 1, .m_Usage = { .m_bVertex   = true }, .m_Type = xgpu::pipeline::uniform_binds::type::SSBO_STATIC }   // BoneMatrixBuffer
+    };
+
     xgpu::pipeline GeomSkinPipeline;
     {
-        xgpu::vertex_descriptor GeomSkinVertexDescriptor;
-        {
-            auto Attributes = std::array
-            { xgpu::vertex_descriptor::attribute
-              { .m_Offset  = offsetof(xgeom_skin::geom::vertex, m_XPos)
-              , .m_Format  = xgpu::vertex_descriptor::format::SINT16_3D
-              , .m_iStream = 0
-              }
-            , xgpu::vertex_descriptor::attribute
-              { .m_Offset  = offsetof(xgeom_skin::geom::vertex, m_Packed)
-              , .m_Format  = xgpu::vertex_descriptor::format::UINT8_4D_UINT       // m_Packed[0..3] -> lo32
-              , .m_iStream = 0
-              }
-            , xgpu::vertex_descriptor::attribute
-              { .m_Offset  = offsetof(xgeom_skin::geom::vertex, m_Packed) + 4
-              , .m_Format  = xgpu::vertex_descriptor::format::UINT16_1D          // m_Packed[4..5] -> hi16
-              , .m_iStream = 0
-              }
-            , xgpu::vertex_descriptor::attribute
-              { .m_Offset  = offsetof(xgeom_skin::geom::vertex_extras, m_UV)
-              , .m_Format  = xgpu::vertex_descriptor::format::UINT16_2D
-              , .m_iStream = 1
-              }
-            , xgpu::vertex_descriptor::attribute
-              { .m_Offset  = offsetof(xgeom_skin::geom::vertex_extras, m_OctNormal)
-              , .m_Format  = xgpu::vertex_descriptor::format::UINT16_2D
-              , .m_iStream = 1
-              }
-            , xgpu::vertex_descriptor::attribute
-              { .m_Offset  = offsetof(xgeom_skin::geom::vertex_extras, m_OctTangentX)
-              , .m_Format  = xgpu::vertex_descriptor::format::UINT16_1D
-              , .m_iStream = 1
-              }
-            , xgpu::vertex_descriptor::attribute
-              { .m_Offset  = offsetof(xgeom_skin::geom::vertex_extras, m_OctTangentY_Sign)
-              , .m_Format  = xgpu::vertex_descriptor::format::UINT16_1D
-              , .m_iStream = 1
-              }
-            };
-            if (auto Err = Device.Create(GeomSkinVertexDescriptor
-            , xgpu::vertex_descriptor::setup
-            { .m_bUseStreaming = true
-            , .m_Topology      = xgpu::vertex_descriptor::topology::TRIANGLE_LIST
-            , .m_VertexSize    = 0
-            , .m_Attributes    = Attributes
-            }); Err)
-            {
-                return xgpu::getErrorInt(Err);
-            }
-        }
-
         xgpu::shader FragmentShader;
         {
             xgpu::shader::setup Setup{ .m_Type = xgpu::shader::type::bit::FRAGMENT, .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e25::g_GeomSkinFragShader, sizeof(e25::g_GeomSkinFragShader) / sizeof(int)}} };
@@ -644,21 +664,8 @@ int E25_Example()
                 return xgpu::getErrorInt(Err);
         }
 
-        xgpu::shader VertexShader;
-        {
-            xgpu::shader::setup Setup{ .m_Type = xgpu::shader::type::bit::VERTEX, .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e25::g_GeomSkinVertShader, sizeof(e25::g_GeomSkinVertShader) / sizeof(int)}} };
-            if (auto Err = Device.Create(VertexShader, Setup); Err)
-                return xgpu::getErrorInt(Err);
-        }
-
-        auto Shaders  = std::array<const xgpu::shader*, 2>{ &FragmentShader, &VertexShader };
+        auto Shaders  = std::array<const xgpu::shader*, 2>{ &FragmentShader, &GeomSkinVertexShader };
         auto Samplers = std::array{ xgpu::pipeline::sampler{} };   // SamplerDiffuseMap
-        auto UBuffersUsage = std::array
-        { xgpu::pipeline::uniform_binds{ .m_BindIndex = 0, .m_Usage = { .m_bVertex   = true }, .m_Type = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC }   // MeshUniforms
-        , xgpu::pipeline::uniform_binds{ .m_BindIndex = 1, .m_Usage = { .m_bFragment = true }, .m_Type = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC }   // Lighting
-        , xgpu::pipeline::uniform_binds{ .m_BindIndex = 0, .m_Usage = { .m_bVertex   = true }, .m_Type = xgpu::pipeline::uniform_binds::type::SSBO_STATIC }   // ClusterBuffer
-        , xgpu::pipeline::uniform_binds{ .m_BindIndex = 1, .m_Usage = { .m_bVertex   = true }, .m_Type = xgpu::pipeline::uniform_binds::type::SSBO_STATIC }   // BoneMatrixBuffer
-        };
         auto Setup = xgpu::pipeline::setup
         { .m_VertexDescriptor   = GeomSkinVertexDescriptor
         , .m_Shaders            = Shaders
@@ -676,6 +683,36 @@ int E25_Example()
         auto Bindings  = std::array{ xgpu::pipeline_instance::sampler_binding{*pDefaultTexture} };
         auto InstSetup = xgpu::pipeline_instance::setup{ .m_PipeLine = GeomSkinPipeline, .m_SamplersBindings = Bindings };
         if (auto Err = Device.Create(GeomSkinPipelineInstance, InstSetup); Err)
+            return xgpu::getErrorInt(Err);
+    }
+
+    //
+    // PBR variant - used for material instances that resolve to 4 texture slots
+    // (ShadowMap[unused]/Normal/Albedo/ORM), matching E21_StaticGeom_Editor's own PBR pipeline
+    // layout and the "Default PBR Material" node graph. Same vertex descriptor/shader as the plain
+    // pipeline above (xgeom_skin's vertex shader already outputs Normal/Tangent/wSpacePosition
+    // unconditionally), only the fragment shader and sampler count differ.
+    //
+    xgpu::pipeline GeomSkinPBRPipeline;
+    {
+        xgpu::shader FragmentShader;
+        {
+            xgpu::shader::setup Setup{ .m_Type = xgpu::shader::type::bit::FRAGMENT, .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e25::g_GeomSkinPBRFragShader, sizeof(e25::g_GeomSkinPBRFragShader) / sizeof(int)}} };
+            if (auto Err = Device.Create(FragmentShader, Setup); Err)
+                return xgpu::getErrorInt(Err);
+        }
+
+        auto Shaders  = std::array<const xgpu::shader*, 2>{ &FragmentShader, &GeomSkinVertexShader };
+        auto Samplers = std::array{ xgpu::pipeline::sampler{}, xgpu::pipeline::sampler{}, xgpu::pipeline::sampler{}, xgpu::pipeline::sampler{} };   // ShadowMap[unused]/Normal/Albedo/ORM
+        auto Setup = xgpu::pipeline::setup
+        { .m_VertexDescriptor   = GeomSkinVertexDescriptor
+        , .m_Shaders            = Shaders
+        , .m_PushConstantsSize  = sizeof(e25::geom_skin_push_const)
+        , .m_UniformBinds       = UBuffersUsage
+        , .m_Samplers           = Samplers
+        };
+
+        if (auto Err = Device.Create(GeomSkinPBRPipeline, Setup); Err)
             return xgpu::getErrorInt(Err);
     }
 
@@ -723,7 +760,25 @@ int E25_Example()
                 if (auto Err = Device.Create(SkinMatInstance[Index], InstSetup); Err)
                     assert(false);
             }
-            else if (xmaterial_instance::rt* pMI = xresource::g_Mgr.getResource(SkinRscRefMaterialInstance[Index]); pMI && pMI->m_nTexturesList > 0)
+            else if (xmaterial_instance::rt* pMI = xresource::g_Mgr.getResource(SkinRscRefMaterialInstance[Index]); pMI && pMI->m_nTexturesList >= 4)
+            {
+                // PBR material (ShadowMap[unused]/Normal/Albedo/ORM) - same 4-slot convention
+                // E21_StaticGeom_Editor uses: index 0 is always the live ShadowMapTexture regardless
+                // of what the compiled material instance stored there.
+                std::vector<xgpu::pipeline_instance::sampler_binding> Bindings;
+                Bindings.reserve(pMI->m_nTexturesList);
+                for (auto& E : pMI->getTextures())
+                {
+                    const int TexIndex = static_cast<int>(&E - pMI->getTextures().data());
+                    if (TexIndex == 0) { Bindings.emplace_back(ShadowMapTexture); continue; }
+                    auto* pTex = xresource::g_Mgr.getResource(E.m_TexureRef);
+                    Bindings.emplace_back(pTex ? *pTex : *pDefaultTexture);
+                }
+                auto InstSetup = xgpu::pipeline_instance::setup{ .m_PipeLine = GeomSkinPBRPipeline, .m_SamplersBindings = Bindings };
+                if (auto Err = Device.Create(SkinMatInstance[Index], InstSetup); Err)
+                    assert(false);
+            }
+            else if (pMI && pMI->m_nTexturesList > 0)
             {
                 auto*  pTex     = xresource::g_Mgr.getResource(pMI->getTextures()[0].m_TexureRef);
                 auto   Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{pTex ? *pTex : *pDefaultTexture} };
