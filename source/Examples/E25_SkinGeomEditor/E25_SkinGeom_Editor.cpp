@@ -37,6 +37,8 @@
 // GeomSkin's runtime header uses xrsc::material_instance_ref (default material list) without
 // including its declaration itself - same as xgeom_static.h, which relies on whichever consumer
 // pulls this in first. Must come before xgeom_skin.h.
+#include "plugins/xmaterial.plugin/source/xmaterial_xgpu_rsc_loader.h"
+#include "plugins/xmaterial.plugin/source/xmaterial_runtime.h"
 #include "plugins/xmaterial_instance.plugin/source/xmaterial_instance_xgpu_rsc_loader.h"
 #include "plugins/xmaterial_instance.plugin/source/xmaterial_instance_runtime.h"
 
@@ -94,10 +96,6 @@ namespace e25
     {
         #include "GeomSkinBasicShader_frag.h"
     };
-    constexpr static std::uint32_t g_GeomSkinPBRFragShader[] =
-    {
-        #include "GeomSkinPBRShader_frag.h"
-    };
     constexpr static std::uint32_t g_GridVertShader[] =
     {
         #include "E21_GridShader_vert.h"
@@ -136,7 +134,7 @@ namespace e25
     {
         xmath::fmat4    m_L2w;
         xmath::fmat4    m_w2C;
-        xmath::fmat4    m_w2ShadowT;   // dead/unused - GeomSkinBasicShader_frag.glsl never reads it (only the grid samples a shadow map); kept zero since feeding it a real value would be inert either way
+        xmath::fmat4    m_w2ShadowT;   // consumed by mb_standard_pbr.frag's ShadowPCF (both GeomSkin fragment shaders #include it) - must be a real clip-to-shadow-texture matrix, not zero, or shadowing silently no-ops
     };
 
     struct alignas(256) ubo_bm_lighting
@@ -686,35 +684,6 @@ int E25_Example()
             return xgpu::getErrorInt(Err);
     }
 
-    //
-    // PBR variant - used for material instances that resolve to 4 texture slots
-    // (ShadowMap[unused]/Normal/Albedo/ORM), matching E21_StaticGeom_Editor's own PBR pipeline
-    // layout and the "Default PBR Material" node graph. Same vertex descriptor/shader as the plain
-    // pipeline above (xgeom_skin's vertex shader already outputs Normal/Tangent/wSpacePosition
-    // unconditionally), only the fragment shader and sampler count differ.
-    //
-    xgpu::pipeline GeomSkinPBRPipeline;
-    {
-        xgpu::shader FragmentShader;
-        {
-            xgpu::shader::setup Setup{ .m_Type = xgpu::shader::type::bit::FRAGMENT, .m_Sharer = xgpu::shader::setup::raw_data{std::span{ (std::int32_t*)e25::g_GeomSkinPBRFragShader, sizeof(e25::g_GeomSkinPBRFragShader) / sizeof(int)}} };
-            if (auto Err = Device.Create(FragmentShader, Setup); Err)
-                return xgpu::getErrorInt(Err);
-        }
-
-        auto Shaders  = std::array<const xgpu::shader*, 2>{ &FragmentShader, &GeomSkinVertexShader };
-        auto Samplers = std::array{ xgpu::pipeline::sampler{}, xgpu::pipeline::sampler{}, xgpu::pipeline::sampler{}, xgpu::pipeline::sampler{} };   // ShadowMap[unused]/Normal/Albedo/ORM
-        auto Setup = xgpu::pipeline::setup
-        { .m_VertexDescriptor   = GeomSkinVertexDescriptor
-        , .m_Shaders            = Shaders
-        , .m_PushConstantsSize  = sizeof(e25::geom_skin_push_const)
-        , .m_UniformBinds       = UBuffersUsage
-        , .m_Samplers           = Samplers
-        };
-
-        if (auto Err = Device.Create(GeomSkinPBRPipeline, Setup); Err)
-            return xgpu::getErrorInt(Err);
-    }
 
     //
     // Asset Mgr
@@ -728,24 +697,34 @@ int E25_Example()
     //
     // Per-submesh material-instance pipeline instances - one per entry in the loaded mesh's
     // getDefaultMaterialInstances(), rebuilt whenever a (new) asset loads. Follows
-    // E21_StaticGeom_Editor.cpp's Mesh3DMatInstance/Mesh3DRscRefMaterialInstance pattern: GeomSkin's
-    // shader only ever declares one sampler ("SamplerDiffuseMap", unlike E21's shadow+3-texture PBR
-    // setup), so this only ever needs to resolve the material instance's first bound texture - no
-    // per-Material dynamic pipeline construction needed, GeomSkinPipeline is shared by all of them.
+    // E21_StaticGeom_Editor.cpp's Mesh3DMatInstance/Mesh3DRscRefMaterialInstance pattern exactly:
+    // any assigned material instance gets its pipeline built dynamically from the ACTUAL compiled
+    // Material's own shader (pMat->getShader() - the same lit PBR shader static geom uses when its
+    // MaterialInstance points at the same Material), not a separate GeomSkin-authored copy. Only a
+    // truly unassigned slot falls back to the fixed single-texture GeomSkinPipeline+pDefaultTexture.
+    //
+    // Unlike E21, this doesn't cache the built pipeline on the Material resource itself
+    // (xmaterial::rt::getPipeline() only has ONE basis slot, already claimed by xgeom_static's own
+    // vertex format) - each GeomSkin material instance gets its own freshly-built xgpu::pipeline in
+    // SkinDynamicPipelines instead, sized to whatever texture count that material actually declares.
     //
     std::vector<xgpu::pipeline_instance>     SkinMatInstance;
+    std::vector<xgpu::pipeline>              SkinDynamicPipelines;
     std::vector<xrsc::material_instance_ref> SkinRscRefMaterialInstance;
 
     auto RebuildSkinMaterialInstances = [&]
     {
         for (auto& E : SkinMatInstance)             Device.Destroy(std::move(E));
+        for (auto& E : SkinDynamicPipelines)        Device.Destroy(std::move(E));
         for (auto& E : SkinRscRefMaterialInstance)  xresource::g_Mgr.ReleaseRef(E);
+        SkinDynamicPipelines.clear();
 
         auto* pGeom = xresource::g_Mgr.getResource(SkinState.m_Ref);
         if (pGeom == nullptr) { SkinMatInstance.clear(); SkinRscRefMaterialInstance.clear(); return; }
 
         SkinMatInstance.resize(pGeom->m_nDefaultMaterialInstances);
         SkinRscRefMaterialInstance.resize(pGeom->m_nDefaultMaterialInstances);
+        SkinDynamicPipelines.reserve(pGeom->m_nDefaultMaterialInstances);
 
         for (auto& MI : pGeom->getDefaultMaterialInstances())
         {
@@ -753,18 +732,13 @@ int E25_Example()
 
             xresource::g_Mgr.CloneRef(SkinRscRefMaterialInstance[Index], MI);
 
-            if (MI.empty())
+            xmaterial_instance::rt* pMI  = MI.empty() ? nullptr : xresource::g_Mgr.getResource(SkinRscRefMaterialInstance[Index]);
+            xmaterial::rt*          pMat = (pMI && not pMI->m_MaterialRef.empty()) ? xresource::g_Mgr.getResource(pMI->m_MaterialRef) : nullptr;
+
+            if (pMI && pMat && pMI->m_nTexturesList > 0)
             {
-                auto Bindings  = std::array{ xgpu::pipeline_instance::sampler_binding{*pDefaultTexture} };
-                auto InstSetup = xgpu::pipeline_instance::setup{ .m_PipeLine = GeomSkinPipeline, .m_SamplersBindings = Bindings };
-                if (auto Err = Device.Create(SkinMatInstance[Index], InstSetup); Err)
-                    assert(false);
-            }
-            else if (xmaterial_instance::rt* pMI = xresource::g_Mgr.getResource(SkinRscRefMaterialInstance[Index]); pMI && pMI->m_nTexturesList >= 4)
-            {
-                // PBR material (ShadowMap[unused]/Normal/Albedo/ORM) - same 4-slot convention
-                // E21_StaticGeom_Editor uses: index 0 is always the live ShadowMapTexture regardless
-                // of what the compiled material instance stored there.
+                // Index 0 is always the live ShadowMapTexture regardless of what the compiled
+                // material instance stored there - same convention E21_StaticGeom_Editor uses.
                 std::vector<xgpu::pipeline_instance::sampler_binding> Bindings;
                 Bindings.reserve(pMI->m_nTexturesList);
                 for (auto& E : pMI->getTextures())
@@ -774,15 +748,26 @@ int E25_Example()
                     auto* pTex = xresource::g_Mgr.getResource(E.m_TexureRef);
                     Bindings.emplace_back(pTex ? *pTex : *pDefaultTexture);
                 }
-                auto InstSetup = xgpu::pipeline_instance::setup{ .m_PipeLine = GeomSkinPBRPipeline, .m_SamplersBindings = Bindings };
-                if (auto Err = Device.Create(SkinMatInstance[Index], InstSetup); Err)
+
+                std::vector<xgpu::pipeline::sampler> Samplers(pMI->m_nTexturesList);
+                Samplers[0] = xgpu::pipeline::sampler{ .m_AddressMode = std::array{ xgpu::pipeline::sampler::address_mode::CLAMP  // Shadowmap
+                                                                                   , xgpu::pipeline::sampler::address_mode::CLAMP
+                                                                                   , xgpu::pipeline::sampler::address_mode::CLAMP
+                                                                                   } };
+
+                auto& NewPipeline = SkinDynamicPipelines.emplace_back();
+                auto  Shaders     = std::array<const xgpu::shader*, 2>{ &pMat->getShader(), &GeomSkinVertexShader };
+                auto  PipeSetup   = xgpu::pipeline::setup
+                { .m_VertexDescriptor   = GeomSkinVertexDescriptor
+                , .m_Shaders            = Shaders
+                , .m_PushConstantsSize  = sizeof(e25::geom_skin_push_const)
+                , .m_UniformBinds       = UBuffersUsage
+                , .m_Samplers           = Samplers
+                };
+                if (auto Err = Device.Create(NewPipeline, PipeSetup); Err)
                     assert(false);
-            }
-            else if (pMI && pMI->m_nTexturesList > 0)
-            {
-                auto*  pTex     = xresource::g_Mgr.getResource(pMI->getTextures()[0].m_TexureRef);
-                auto   Bindings = std::array{ xgpu::pipeline_instance::sampler_binding{pTex ? *pTex : *pDefaultTexture} };
-                auto   InstSetup = xgpu::pipeline_instance::setup{ .m_PipeLine = GeomSkinPipeline, .m_SamplersBindings = Bindings };
+
+                auto InstSetup = xgpu::pipeline_instance::setup{ .m_PipeLine = NewPipeline, .m_SamplersBindings = Bindings };
                 if (auto Err = Device.Create(SkinMatInstance[Index], InstSetup); Err)
                     assert(false);
             }
@@ -1190,12 +1175,12 @@ int E25_Example()
                             auto& MeshUBO = GeomSkinDynamicUBOMesh.allocEntry<e25::ubo_geom_skin_mesh>();
                             MeshUBO.m_L2w       = L2w;
                             MeshUBO.m_w2C       = w2C;
-                            MeshUBO.m_w2ShadowT = xmath::fmat4::fromZero();
+                            MeshUBO.m_w2ShadowT = g_ClipToTextureSpace * ShadowGenerationL2C;
 
                             auto& Lighting = UBOLighting.allocEntry<e25::ubo_bm_lighting>();
                             Lighting.m_LightColor        = xmath::fvec4(1) * 4;
                             Lighting.m_AmbientLightColor = xmath::fvec4(1) * 0.7f;
-                            Lighting.m_wSpaceLightPos    = xmath::fvec4(0, 0, 0, pGeom->m_BBox.getRadius() * 5);   // co-located with the camera
+                            Lighting.m_wSpaceLightPos    = xmath::fvec4(LightingView.getPosition() - CameraPos, pGeom->m_BBox.getRadius() * 5);
                             Lighting.m_wSpaceEyePos      = xmath::fvec4(0);
                             Lighting.m_LightParams.m_X   = Lighting.m_wSpaceLightPos.m_W * 0.1f;
                             Lighting.m_LightParams.m_Y   = 6500;   // Temperature

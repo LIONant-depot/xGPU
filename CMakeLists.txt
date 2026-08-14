@@ -229,7 +229,6 @@ set(FRAG_SHADER_SOURCES
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_frag.glsl"
   "plugins/xgeom_skin.plugin/source/runtime/GeomSkinShadowMapCreation_frag.glsl"
   "plugins/xgeom_skin.plugin/source/runtime/GeomSkinBasicShader_frag.glsl"
-  "plugins/xgeom_skin.plugin/source/runtime/GeomSkinPBRShader_frag.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_GridShader_frag.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_WireFrame_frag.glsl"
   "source/Examples/E21_StaticGeomEditor/E21_DebugNormalRender_frag.glsl"
