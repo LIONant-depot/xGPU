@@ -698,6 +698,12 @@ source_group("" FILES
 find_package(OpenMP REQUIRED)
 target_link_libraries(${TARGET_PROJECT} PRIVATE OpenMP::OpenMP_CXX)
 
+# The hardened xproperty header instantiates noticeably more templates per translation unit,
+# which pushes some examples (E10_TextureResourcePipeline) past MSVC's COFF section limit.
+if(MSVC)
+  target_compile_options(${TARGET_PROJECT} PRIVATE /bigobj)
+endif()
+
 
 
 # Add dependency subdirectory
