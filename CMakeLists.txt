@@ -235,6 +235,7 @@ set(FRAG_SHADER_SOURCES
   "source/Examples/E23_SkeletonEditor/E23_Pick_frag.glsl"
   "source/Examples/E23_SkeletonEditor/E23_WedgeFill_frag.glsl"
   "source/Examples/E23_SkeletonEditor/E23_ShadowGeneration_frag.glsl"
+  "source/Examples/E27_NodeOS/E27_normal_frag.glsl"
 
   )
 
@@ -265,6 +266,7 @@ set(VERT_SHADER_SOURCES
   "source/Examples/E23_SkeletonEditor/E23_Pick_vert.glsl"
   "source/Examples/E23_SkeletonEditor/E23_WedgeFill_vert.glsl"
   "source/Examples/E23_SkeletonEditor/E23_ShadowGeneration_vert.glsl"
+  "source/Examples/E27_NodeOS/E27_normal_vert.glsl"
   )
 
 # List geometry shader sources
@@ -378,6 +380,20 @@ add_executable(${TARGET_PROJECT}
   "source/Examples/E23_SkeletonEditor/E23_Skeleton_Editor.cpp"
   "source/Examples/E24_AnimPackageEditor/E24_AnimPackage_Editor.cpp"
   "source/Examples/E25_SkinGeomEditor/E25_SkinGeom_Editor.cpp"
+  "source/Examples/E26_RTCS_Editor/E26_RTCS_Editor.cpp"
+  "source/Examples/E27_NodeOS/E27_NodeOS_Editor.cpp"
+  "source/Examples/E27_NodeOS/SDK/xnode_os_plugin_api.h"
+  "source/Examples/E27_NodeOS/SDK/xnode_os_host_interface.h"
+  "source/Examples/E27_NodeOS/SDK/xnode_os_reflected_object.h"
+  "source/Examples/E27_NodeOS/SDK/xnode_os_property_adapter.h"
+  "source/Examples/E27_NodeOS/SDK/xnode_os_shared_types.h"
+  "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_identity.h"
+  "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_template.h"
+  "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_resolution.h"
+  "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_semantic.h"
+  "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_document.h"
+  "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_operations.h"
+  "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_demo_data.h"
 
 
   "source/tools/editors/xgpu_editor_viewport.h"
@@ -685,6 +701,44 @@ source_group("Examples/E23_SkeletonEditor" FILES
 
 source_group("Examples/E24_AnimPackageEditor" FILES
    "source/Examples/E24_AnimPackageEditor/E24_AnimPackage_Editor.cpp"
+)
+
+# Include the xrtcs.plugin so it works - not a resource-pipeline plugin (see its README.md), so
+# just its Graph/ headers, compiled directly into this target like xmaterial_graph's above.
+include_directories( "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/Plugins/xrtcs.plugin" )
+
+source_group("Examples/E26_RTCS_Editor" FILES
+   "source/Examples/E26_RTCS_Editor/E26_RTCS_Editor.cpp"
+)
+
+source_group("Examples/E26_RTCS_Editor/graph" FILES
+  "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_identity.h"
+  "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_template.h"
+  "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_resolution.h"
+  "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_semantic.h"
+  "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_document.h"
+  "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_operations.h"
+  "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_demo_data.h"
+)
+
+# xundo_system.h (used by E27_NodeOS_Editor.cpp for its command/undo layer) does a bare
+# #include "xcmdline_parser.h" rather than a repo-root-relative path, so xcmdline's own source
+# folder needs to be on the include path directly - nothing else currently adds it.
+include_directories( "${CMAKE_SOURCE_DIR}/dependencies/xcmdline/source" )
+
+# NodeOS's plugin ABI headers only - the plugin .cpp files themselves
+# (source/Examples/E27_NodeOS/Plugins/**) are deliberately NOT part of this list: the whole point
+# is that they are compiled live, by the running E27 host shelling out to the local MSVC toolchain,
+# never by this project's own build.
+source_group("Examples/E27_NodeOS" FILES
+   "source/Examples/E27_NodeOS/E27_NodeOS_Editor.cpp"
+)
+source_group("Examples/E27_NodeOS/SDK" FILES
+  "source/Examples/E27_NodeOS/SDK/xnode_os_plugin_api.h"
+  "source/Examples/E27_NodeOS/SDK/xnode_os_host_interface.h"
+  "source/Examples/E27_NodeOS/SDK/xnode_os_reflected_object.h"
+  "source/Examples/E27_NodeOS/SDK/xnode_os_property_adapter.h"
+  "source/Examples/E27_NodeOS/SDK/xnode_os_shared_types.h"
 )
 
 

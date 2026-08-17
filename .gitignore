@@ -14,3 +14,20 @@ Build/xGPUExamples.vs2022/assimp-vc143-mt.dll
 /example.lionprj
 /plugins
 /out
+
+# AI agent working notes - not part of the shipped example/engine source
+/_ai_programming
+
+# Stray verification screenshots dropped at repo root during manual testing (real image assets
+# always live under Assets/, never here)
+/*.png
+/*.tga
+
+# E27_NodeOS: plugins are compiled live by the running host, never by this project's own build -
+# the DLL/obj/lib/log/batch output has no business in source control. Debug log, undo-history
+# store, and ad-hoc save/export files produced while exercising the example are runtime output too.
+/source/Examples/E27_NodeOS/CompiledPlugins/
+/source/Examples/E27_NodeOS/UndoHistory/
+/source/Examples/E27_NodeOS/nodeos_debug.log
+/source/Examples/E27_NodeOS/graph.txt
+/source/Examples/E27_NodeOS/exported_mesh.obj
