@@ -4,14 +4,17 @@
 
 #include "source/Examples/E27_NodeOS/SDK/xnode_os_plugin_api.h"
 #include "source/Examples/E27_NodeOS/SDK/xnode_os_host_interface.h"
-#include "source/Examples/E27_NodeOS/SDK/xnode_os_reflected_object.h"
 #include "source/Examples/E27_NodeOS/SDK/xnode_os_shared_types.h"
 
+// The real, official property inspector - the host draws every plugin's properties uniformly with
+// this over the node's own real getProperties() object (see xnode_os_plugin_api.h's top comment for
+// why that's safe across the DLL boundary now). Only the header: the real .cpp implementation is
+// already compiled once, into this same executable, by E04_Properties.cpp - including the .cpp here
+// too would double-define every symbol in it.
+#include "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
+
 // For the whole graph file (Nodes/Links/xProperties records) - see SaveGraph/LoadGraph/
-// SerializeReflectedMembers below. The host never needs real xproperty types itself: property
-// serialization walks a plugin's ixnode_os_reflected_object view generically, the same ABI-safe
-// primitives the property panel already draws with - xtextfile only needs to know about that fixed
-// atomic vocabulary, which belongs to the host, not to any individual plugin.
+// SerializeReflectedMembers below.
 #include "dependencies/xtextfile/source/xtextfile.h"
 
 // The command/undo layer: every graph mutation (add/delete node, connect, reorder, edit a property,
@@ -105,24 +108,23 @@ namespace nodeos
     struct available_node_type
     {
         std::string                        m_DisplayName;   // "<plugin display name> :: <node name>"
-        HMODULE                             m_Module = nullptr;
-        const xnode_os_node_type_desc*      m_pDesc  = nullptr;
+        HMODULE                             m_Module  = nullptr;
+        xnode_os_node_factory*              m_pFactory = nullptr;
         std::string                         m_SourcePath;    // the plugin_source_entry this came from - only for recompiling; not an identity
         std::string                         m_DirName;       // the plugin's Plugins/<DirName>/ folder name - the actual identity (see plugin_source_entry)
     };
 
     //------------------------------------------------------------------------------------------------
-    // One instance of a node type dropped on the canvas. Holds the type descriptor DIRECTLY (not an
-    // index into AvailableTypes): the module it points into is never FreeLibrary'd, even across a
-    // plugin recompile (see CompileAndLoadPlugin), so the pointer stays valid for this instance's
-    // whole life - and unlike a positional index, pruning AvailableTypes on recompile can never
-    // silently repoint an existing node at the wrong descriptor.
+    // One instance of a node type dropped on the canvas. m_pNode IS the node - its own property
+    // members, ports, and Execute all live on the polymorphic object itself (see
+    // xnode_os_plugin_api.h), not a separate opaque blob. The module its factory lives in is never
+    // FreeLibrary'd, even across a plugin recompile (see MergeCompileResult), so m_pNode stays valid
+    // for this instance's whole life.
     //------------------------------------------------------------------------------------------------
     struct node_instance
     {
         std::uint64_t                    m_Id = 0;
-        const xnode_os_node_type_desc*   m_pType = nullptr;
-        void*                            m_pProperties = nullptr; // this instance's own property block - see xnode_os_node_type_desc's comment
+        xnode_os_node*                   m_pNode = nullptr;
         int                              m_Order = 0;         // stacking rank (rslgraph-ui's NodeDef::order) - reorder with the header's up/down buttons, never freely dragged
         std::vector<void*>                m_CachedOutputs;      // filled after a successful Execute
         bool                              m_bHasRun = false;
@@ -145,10 +147,10 @@ namespace nodeos
     //------------------------------------------------------------------------------------------------
     struct plugin_compile_result
     {
-        bool                                          m_bSuccess = false;
-        std::string                                    m_Log;
-        HMODULE                                        m_Module = nullptr;
-        std::vector<const xnode_os_node_type_desc*>    m_Types;
+        bool                     m_bSuccess = false;
+        std::string               m_Log;
+        HMODULE                   m_Module   = nullptr;
+        xnode_os_node_factory*    m_pFactory = nullptr;
     };
 
     // A source file the Node Library panel offers to compile - just a display name + path to a .cpp
@@ -195,49 +197,25 @@ namespace nodeos
     static std::uint64_t InPinOf (std::uint64_t NodeId, int PortIndex) noexcept { return MixPinId(NodeId, PortIndex, 0x2ull); }
 
     //------------------------------------------------------------------------------------------------
-    // The host's own implementation of the interface handed to a plugin's NodeOS_OnLoad. One fresh
-    // instance per compile/load call: RegisterNodeType just collects into m_Collected, rejecting any
-    // descriptor whose own ABI version doesn't match this host build's - the cheap insurance
-    // xnode_os_plugin_api.h describes, so a stale-header plugin's registration is refused outright
-    // instead of the host reading past the end of a struct shape it doesn't actually match.
+    // The host's own implementation of the interface handed to a plugin's NodeOS_CreateFactory. Truly
+    // stateless (just routes Log() to the same Debugger() channel everything else here uses), so one
+    // shared instance safely serves every plugin's CreateFactory call - there is nothing here a second
+    // caller could ever clobber.
     //------------------------------------------------------------------------------------------------
     class host_bridge final : public ixnode_os_host
     {
     public:
-        std::vector<const xnode_os_node_type_desc*> m_Collected;
-
-        int GetAbiVersion() const noexcept override { return XNODE_OS_ABI_VERSION; }
-
-        void RegisterNodeType(const xnode_os_node_type_desc* pDesc) noexcept override
-        {
-            if (!pDesc) return;
-            if (pDesc->m_AbiVersion != XNODE_OS_ABI_VERSION)
-            {
-                Debugger(std::format("Node OS: rejected a node type registered with ABI version {} (host expects {})", pDesc->m_AbiVersion, XNODE_OS_ABI_VERSION));
-                return;
-            }
-            m_Collected.push_back(pDesc);
-        }
-
         void Log(const char* pMessage) noexcept override
         {
             if (pMessage) Debugger(pMessage);
         }
-
-        void* GetImGuiContext() const noexcept override
-        {
-            return ImGui::GetCurrentContext();
-        }
-
-        void GetImGuiAllocatorFunctions(void** ppAllocFunc, void** ppFreeFunc, void** ppUserData) const noexcept override
-        {
-            ImGuiMemAllocFunc AllocFunc; ImGuiMemFreeFunc FreeFunc; void* pUserData;
-            ImGui::GetAllocatorFunctions(&AllocFunc, &FreeFunc, &pUserData);
-            *ppAllocFunc = reinterpret_cast<void*>(AllocFunc);
-            *ppFreeFunc  = reinterpret_cast<void*>(FreeFunc);
-            *ppUserData  = pUserData;
-        }
     };
+
+    static host_bridge& GetHostBridge()
+    {
+        static host_bridge s_Bridge;
+        return s_Bridge;
+    }
 
     //------------------------------------------------------------------------------------------------
     // vcvarsall.bat's own vswhere.exe lookup and full INCLUDE/LIB/PATH setup is identical every time
@@ -284,9 +262,9 @@ namespace nodeos
 
     //------------------------------------------------------------------------------------------------
     // Shells out to the local MSVC toolchain to turn one plugin .cpp into a DLL, right now, while this
-    // program is running - then LoadLibrary's it and calls its NodeOS_OnLoad, handing it a host_bridge
-    // to register whatever node types it exports through. Pure: touches no shared state, safe to run
-    // on a background thread (see the async path below) as well as inline.
+    // program is running - then LoadLibrary's it and calls its NodeOS_CreateFactory, handing it a
+    // host_bridge and getting back the one factory it exports. Pure: touches no shared state, safe to
+    // run on a background thread (see the async path below) as well as inline.
     //------------------------------------------------------------------------------------------------
     static plugin_compile_result CompilePluginWorker(std::string SourcePath)
     {
@@ -311,10 +289,10 @@ namespace nodeos
             Bat << "@echo off\r\n";
             Bat << GetOrBuildVsEnvSetup(); // cached - no vcvarsall.bat/vswhere re-run on every compile
             // /MDd + the same WIN32/_WINDOWS/_DEBUG/UNICODE defines as xGPU_unit_test's own Debug
-            // config: cheap insurance for any plugin that opts into m_pDrawProperties (see
-            // xnode_os_plugin_api.h) and compiles its own copy of imgui.cpp/xPropertyImGuiInspector.cpp
-            // - keeping the build environment identical to the host's own is what makes the shared
-            // ImGuiContext this enables safe to dereference from the plugin's own compiled code.
+            // config: every plugin still raw-includes imgui.cpp/xPropertyImGuiInspector.cpp purely to
+            // satisfy the linker for xproperty::ui's per-(type,style) Render templates (see
+            // cube_node.cpp's top comment) even though it never calls Show() itself, so it needs the
+            // same build environment as the host to compile that at all.
             // The imgui/ folder itself (not just the repo root) is on this line because
             // xPropertyImGuiInspector.cpp does a bare #include "imgui_internal.h" - it expects to be
             // compiled with the same include-path shape the host's own project gives it. Same reason
@@ -344,26 +322,20 @@ namespace nodeos
             return Result;
         }
 
-        auto pOnLoad = (xnode_os_pfn_on_load)GetProcAddress(Module, XNODE_OS_ON_LOAD_NAME);
-        if (!pOnLoad)
+        auto pCreateFactory = (xnode_os_pfn_create_factory*)GetProcAddress(Module, XNODE_OS_CREATE_FACTORY_NAME);
+        if (!pCreateFactory)
         {
-            Result.m_Log += "\n[DLL loaded but does not export " XNODE_OS_ON_LOAD_NAME "]";
+            Result.m_Log += "\n[DLL loaded but does not export " XNODE_OS_CREATE_FACTORY_NAME "]";
             FreeLibrary(Module);
             return Result;
         }
 
-        host_bridge Bridge;
-        if (!pOnLoad(&Bridge))
-        {
-            Result.m_Log += "\n[NodeOS_OnLoad returned false - plugin declined to initialize]";
-            FreeLibrary(Module);
-            return Result;
-        }
+        xnode_os_node_factory& Factory = pCreateFactory(GetHostBridge());
 
-        Result.m_Log += std::format("\n[compiled and loaded successfully - {} node type(s) registered]", Bridge.m_Collected.size());
+        Result.m_Log += std::format("\n[compiled and loaded successfully - '{}' node type registered]", Factory.getName());
         Result.m_bSuccess = true;
         Result.m_Module   = Module;
-        Result.m_Types    = std::move(Bridge.m_Collected);
+        Result.m_pFactory = &Factory;
         return Result;
     }
 
@@ -377,15 +349,14 @@ namespace nodeos
         if (!Result.m_bSuccess) return false;
 
         // Recompiling an already-loaded plugin: prune whatever THIS source registered last time before
-        // adding its fresh registrations. The old module is never FreeLibrary'd - anything still
-        // referencing it (an already-placed node instance's raw xnode_os_node_type_desc* included)
-        // keeps working against it indefinitely; this only stops the stale entry from being offered
-        // again in the Add Node menu.
+        // adding its fresh registration. Neither the old module NOR its factory is ever destroyed -
+        // anything still referencing it (an already-placed node instance's m_pFactory included) keeps
+        // working against it indefinitely; this only stops the stale entry from being offered again in
+        // the Add Node menu.
         if (Entry.m_Module)
             std::erase_if(OutTypes, [&](auto& T) { return T.m_Module == Entry.m_Module; });
 
-        for (auto* pDesc : Result.m_Types)
-            OutTypes.push_back({ std::format("{} :: {}", Entry.m_DisplayName, pDesc->m_pName), Result.m_Module, pDesc, Entry.m_SourcePath, Entry.m_DirName });
+        OutTypes.push_back({ std::format("{} :: {}", Entry.m_DisplayName, Result.m_pFactory->getName()), Result.m_Module, Result.m_pFactory, Entry.m_SourcePath, Entry.m_DirName });
 
         Entry.m_bLoaded = true;
         Entry.m_Module  = Result.m_Module;
@@ -444,41 +415,39 @@ namespace nodeos
     // compiling+loading it right now if this is the very first time it's been placed, or just finding
     // the already-loaded entry (by its "<source display name> :: <node name>" prefix, the same string
     // CompileAndLoadPlugin builds) so picking a second instance never recompiles.
-    static const xnode_os_node_type_desc* EnsureLoadedAndGetType(plugin_source_entry& Source, std::vector<available_node_type>& AvailableTypes)
+    static xnode_os_node_factory* EnsureLoadedAndGetType(plugin_source_entry& Source, std::vector<available_node_type>& AvailableTypes)
     {
         if (!Source.m_bLoaded)
         {
             const std::size_t Before = AvailableTypes.size();
             if (!CompileAndLoadPlugin(Source, AvailableTypes) || AvailableTypes.size() <= Before) return nullptr;
-            return AvailableTypes[Before].m_pDesc;
+            return AvailableTypes[Before].m_pFactory;
         }
         const std::string Prefix = Source.m_DisplayName + " :: ";
         for (auto& T : AvailableTypes)
-            if (T.m_DisplayName.rfind(Prefix, 0) == 0) return T.m_pDesc;
+            if (T.m_DisplayName.rfind(Prefix, 0) == 0) return T.m_pFactory;
         return nullptr;
     }
 
     //------------------------------------------------------------------------------------------------
     // Every node-add path (right-click canvas, spine insert marker, the empty-canvas "+") funnels
-    // through here so property allocation never gets forgotten at one of them - and its mirror,
-    // destroying that same block when a node is removed.
+    // through here so instance creation never gets forgotten at one of them - and its mirror,
+    // destroying that same instance when a node is removed.
     //------------------------------------------------------------------------------------------------
-    static node_instance CreateNodeInstance(std::uint64_t Id, const xnode_os_node_type_desc* pType, int Order)
+    static node_instance CreateNodeInstance(std::uint64_t Id, xnode_os_node_factory* pFactory, int Order)
     {
         node_instance NewNode;
         NewNode.m_Id    = Id;
-        NewNode.m_pType = pType;
         NewNode.m_Order = Order;
-        if (pType && pType->m_PropertyStructSize > 0 && pType->m_pCreateDefaultProperties)
-            NewNode.m_pProperties = pType->m_pCreateDefaultProperties();
+        if (pFactory) NewNode.m_pNode = &pFactory->CreateNodeInstance();
         return NewNode;
     }
 
-    static void DestroyNodeProperties(node_instance& Node)
+    static void DestroyNodeInstance(node_instance& Node)
     {
-        if (Node.m_pType && Node.m_pProperties && Node.m_pType->m_pDestroyProperties)
-            Node.m_pType->m_pDestroyProperties(Node.m_pProperties);
-        Node.m_pProperties = nullptr;
+        if (Node.m_pNode && Node.m_pNode->m_pFactory)
+            Node.m_pNode->m_pFactory->DestroyNodeInstance(*Node.m_pNode);
+        Node.m_pNode = nullptr;
     }
 
     //================================================================================================
@@ -786,6 +755,13 @@ namespace nodeos
         xgpu::texture     m_Texture;
         xgpu::renderpass  m_RenderPass;
         xgpu::buffer      m_VertexBuffer;
+        // Draw() is always an indexed draw in this engine (see E22_FramebufferTarget's own usage) -
+        // this preview data is already a plain, non-indexed triangle list (RebuildIfMesh expands each
+        // triangle into 3 raw vertices), so this is a trivial identity mapping (index i = i), just to
+        // satisfy Draw()'s requirement that SOME index buffer is bound. Sized to the largest vertex
+        // count this entry has ever needed - recreated only when a bigger mesh comes through.
+        xgpu::buffer      m_IndexBuffer;
+        int                m_IndexCapacity = 0;
         int                m_VertexCount = 0;
         bool               m_bTextureReady = false;
     };
@@ -880,6 +856,18 @@ namespace nodeos
 
             if (Device.Create(Entry.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(mesh_preview_vert), .m_EntryCount = (int)Verts.size() })) return;
             (void)Entry.m_VertexBuffer.MemoryMap(0, (int)Verts.size(), [&](void* pData) { std::memcpy(pData, Verts.data(), Verts.size() * sizeof(mesh_preview_vert)); });
+
+            if ((int)Verts.size() > Entry.m_IndexCapacity)
+            {
+                if (Device.Create(Entry.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = (int)Verts.size() })) return;
+                (void)Entry.m_IndexBuffer.MemoryMap(0, (int)Verts.size(), [&](void* pData)
+                {
+                    auto* pIndex = static_cast<std::uint32_t*>(pData);
+                    for (std::uint32_t i = 0; i < Verts.size(); ++i) pIndex[i] = i;
+                });
+                Entry.m_IndexCapacity = (int)Verts.size();
+            }
+
             Entry.m_VertexCount = (int)Verts.size();
         }
 
@@ -894,6 +882,7 @@ namespace nodeos
                 auto CmdBuffer = MainWindow.StartRenderPass(Entry.m_RenderPass);
                 CmdBuffer.setPipelineInstance(m_PipelineInstance);
                 CmdBuffer.setBuffer(Entry.m_VertexBuffer);
+                CmdBuffer.setBuffer(Entry.m_IndexBuffer);
                 CmdBuffer.setPushConstants(mesh_preview_push_constants{ .m_L2C = m_View.getW2C() });
                 CmdBuffer.Draw(Entry.m_VertexCount);
             }
@@ -949,11 +938,13 @@ namespace nodeos
     // NodeDef::ports is a single flat array regardless of direction; this is the equivalent view
     // over our ABI's separate input/output arrays.
     struct port_ref { bool m_bIsOutput; int m_Index; const xnode_os_port_desc* m_pDesc; };
-    static std::vector<port_ref> FlatPorts(const xnode_os_node_type_desc* pDesc)
+    static std::vector<port_ref> FlatPorts(const xnode_os_node* pNode)
     {
         std::vector<port_ref> Out;
-        for (int i = 0; i < pDesc->m_InputCount;  ++i) Out.push_back({ false, i, &pDesc->m_pInputs[i] });
-        for (int i = 0; i < pDesc->m_OutputCount; ++i) Out.push_back({ true,  i, &pDesc->m_pOutputs[i] });
+        const auto Inputs  = pNode->getInputs();
+        const auto Outputs = pNode->getOutputs();
+        for (int i = 0; i < (int)Inputs.size();  ++i) Out.push_back({ false, i, &Inputs[i] });
+        for (int i = 0; i < (int)Outputs.size(); ++i) Out.push_back({ true,  i, &Outputs[i] });
         return Out;
     }
     static std::uint64_t PinOf(const port_ref& P, std::uint64_t NodeId) { return P.m_bIsOutput ? OutPinOf(NodeId, P.m_Index) : InPinOf(NodeId, P.m_Index); }
@@ -969,34 +960,35 @@ namespace nodeos
     // glyph and doesn't need the VALUE_LINE_H space reserved for one (leaving it in produced a visible
     // gap between a Mesh row and whatever row follows it).
     static float RowHeight(const port_ref& P) noexcept { return geo::ROW_H + (IsMeshType(P.m_pDesc->m_pTypeName) ? 0.0f : geo::VALUE_LINE_H); }
-    static int MeshPortCount(const xnode_os_node_type_desc* pDesc)
+    static int MeshPortCount(const xnode_os_node* pNode)
     {
         int Count = 0;
-        for (auto& P : FlatPorts(pDesc)) if (IsMeshType(P.m_pDesc->m_pTypeName)) ++Count;
+        for (auto& P : FlatPorts(pNode)) if (IsMeshType(P.m_pDesc->m_pTypeName)) ++Count;
         return Count;
     }
-    static float PreviewAreaHeight(const xnode_os_node_type_desc* pDesc)
+    static float PreviewAreaHeight(const xnode_os_node* pNode)
     {
-        const int Count = MeshPortCount(pDesc);
+        const int Count = MeshPortCount(pNode);
         return Count > 0 ? Count * (mesh_preview_system::s_PreviewSize + geo::PREVIEW_GAP) + geo::PREVIEW_GAP : 0.0f;
     }
-    static float NodeWidth(const xnode_os_node_type_desc* pDesc)
+    static float NodeWidth(const xnode_os_node* pNode)
     {
-        float NameW = ImGui::CalcTextSize(pDesc->m_pName).x;
+        const auto NodeName = pNode->m_pFactory->getName();
+        float NameW = ImGui::CalcTextSize(NodeName.data(), NodeName.data() + NodeName.size()).x;
         float PortColW = 40.0f;
-        for (auto& P : FlatPorts(pDesc))
+        for (auto& P : FlatPorts(pNode))
         {
             NameW = std::max(NameW, ImGui::CalcTextSize(P.m_pDesc->m_pName).x);
             const std::string TypeLabel = std::string("[") + P.m_pDesc->m_pTypeName + "]";
             PortColW = std::max(PortColW, ImGui::CalcTextSize(TypeLabel.c_str()).x + geo::PORT_PAD);
         }
-        const float MinForPreview = MeshPortCount(pDesc) > 0 ? mesh_preview_system::s_PreviewSize + 24.0f : 0.0f;
+        const float MinForPreview = MeshPortCount(pNode) > 0 ? mesh_preview_system::s_PreviewSize + 24.0f : 0.0f;
         return std::max(NameW + 2.0f * PortColW + 40.0f, MinForPreview);
     }
-    static float NodeHeight(const xnode_os_node_type_desc* pDesc)
+    static float NodeHeight(const xnode_os_node* pNode)
     {
-        float H = geo::HEADER_H + PreviewAreaHeight(pDesc);
-        for (auto& P : FlatPorts(pDesc)) H += RowHeight(P);
+        float H = geo::HEADER_H + PreviewAreaHeight(pNode);
+        for (auto& P : FlatPorts(pNode)) H += RowHeight(P);
         return H + geo::NODE_PAD_BOTTOM;
     }
     static float DistPointSegment(ImVec2 P, ImVec2 A, ImVec2 B) noexcept
@@ -1119,7 +1111,7 @@ namespace nodeos
         const float AvailWidth = ImGui::GetContentRegionAvail().x;
 
         auto FindNode = [&](std::uint64_t Id) -> node_instance* { auto It = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == Id; }); return It == Nodes.end() ? nullptr : &*It; };
-        auto DescOf   = [&](node_instance* pN) -> const xnode_os_node_type_desc* { return pN ? pN->m_pType : nullptr; };
+        auto DescOf   = [&](node_instance* pN) -> const xnode_os_node* { return pN ? pN->m_pNode : nullptr; };
 
         // ---- stacking order: sorted by m_Order, never freely dragged (rslgraph-ui's layout.ts) ----
         std::vector<std::uint64_t> Order;
@@ -1253,9 +1245,11 @@ namespace nodeos
             for (auto& Link : Links)
             {
                 auto* pSrcDesc = DescOf(FindNode(Link.m_SourceNode)); auto* pDstDesc = DescOf(FindNode(Link.m_TargetNode));
-                if (!pSrcDesc || !pDstDesc || Link.m_SourceOutput >= pSrcDesc->m_OutputCount || Link.m_TargetInput >= pDstDesc->m_InputCount) continue;
-                const port_ref OutP{ true, Link.m_SourceOutput, &pSrcDesc->m_pOutputs[Link.m_SourceOutput] };
-                const port_ref InP { false, Link.m_TargetInput,  &pDstDesc->m_pInputs[Link.m_TargetInput] };
+                if (!pSrcDesc || !pDstDesc) continue;
+                const auto SrcOutputs = pSrcDesc->getOutputs(); const auto DstInputs = pDstDesc->getInputs();
+                if (Link.m_SourceOutput >= (int)SrcOutputs.size() || Link.m_TargetInput >= (int)DstInputs.size()) continue;
+                const port_ref OutP{ true, Link.m_SourceOutput, &SrcOutputs[Link.m_SourceOutput] };
+                const port_ref InP { false, Link.m_TargetInput,  &DstInputs[Link.m_TargetInput] };
                 const char LSide = LinkSide(Link);
                 const float FromY = PortAnchor(Link.m_SourceNode, OutP, LSide).y, ToY = PortAnchor(Link.m_TargetNode, InP, LSide).y;
                 const int Side2 = (LSide == 'R') ? 1 : 0;
@@ -1374,9 +1368,11 @@ namespace nodeos
         for (auto& Link : Links)
         {
             auto* pSrcDesc = DescOf(FindNode(Link.m_SourceNode)); auto* pDstDesc = DescOf(FindNode(Link.m_TargetNode));
-            if (!pSrcDesc || !pDstDesc || Link.m_SourceOutput >= pSrcDesc->m_OutputCount || Link.m_TargetInput >= pDstDesc->m_InputCount) continue;
-            const port_ref OutP{ true, Link.m_SourceOutput, &pSrcDesc->m_pOutputs[Link.m_SourceOutput] };
-            const port_ref InP { false, Link.m_TargetInput,  &pDstDesc->m_pInputs[Link.m_TargetInput] };
+            if (!pSrcDesc || !pDstDesc) continue;
+            const auto SrcOutputs = pSrcDesc->getOutputs(); const auto DstInputs = pDstDesc->getInputs();
+            if (Link.m_SourceOutput >= (int)SrcOutputs.size() || Link.m_TargetInput >= (int)DstInputs.size()) continue;
+            const port_ref OutP{ true, Link.m_SourceOutput, &SrcOutputs[Link.m_SourceOutput] };
+            const port_ref InP { false, Link.m_TargetInput,  &DstInputs[Link.m_TargetInput] };
             const bool bSelected = (Selection.m_SelectedLink == Link.m_Id);
             const ImU32 Col = bSelected ? IM_COL32(253, 224, 71, 255) : TypeColor(OutP.m_pDesc->m_pTypeName);
             const char LSide = LinkSide(Link);
@@ -1410,10 +1406,12 @@ namespace nodeos
             pDraw->AddRect(P0, P1, bBeingDragged ? IM_COL32(56, 189, 248, 255) : (bSelected ? IM_COL32(253, 224, 71, 255) : IM_COL32(51, 65, 85, 255))
                           , ToScreenLen(10.0f), 0, ToScreenLen((bSelected || bBeingDragged) ? 2.5f : 1.5f));
             const float TitleY = pRow->m_Y + (geo::HEADER_H - ImGui::GetFontSize()) * 0.5f;
-            DrawText({ pRow->m_X + 10, TitleY }, IM_COL32(226, 232, 240, 255), pDesc->m_pName);
+            const auto NodeName = pDesc->m_pFactory->getName();
+            DrawText({ pRow->m_X + 10, TitleY }, IM_COL32(226, 232, 240, 255), NodeName.data());
             {
-                const ImVec2 CatSize = ImGui::CalcTextSize(pDesc->m_pCategory);
-                DrawText({ pRow->m_X + pRow->m_W - CatSize.x - 10, TitleY }, IM_COL32(100, 116, 139, 255), pDesc->m_pCategory);
+                const auto NodeCategory = pDesc->m_pFactory->getCategory();
+                const ImVec2 CatSize = ImGui::CalcTextSize(NodeCategory.data(), NodeCategory.data() + NodeCategory.size());
+                DrawText({ pRow->m_X + pRow->m_W - CatSize.x - 10, TitleY }, IM_COL32(100, 116, 139, 255), NodeCategory.data());
             }
             pDraw->AddLine(ToScreen({ pRow->m_X, pRow->m_Y + geo::HEADER_H }), ToScreen({ pRow->m_X + pRow->m_W, pRow->m_Y + geo::HEADER_H }), IM_COL32(51, 65, 85, 255));
 
@@ -1545,7 +1543,7 @@ namespace nodeos
                         {
                             if (auto* pFromDesc = DescOf(FindNode(Drag.m_FromNode)))
                             {
-                                const char* pFromType = Drag.m_bFromIsOutput ? pFromDesc->m_pOutputs[Drag.m_FromIndex].m_pTypeName : pFromDesc->m_pInputs[Drag.m_FromIndex].m_pTypeName;
+                                const char* pFromType = Drag.m_bFromIsOutput ? pFromDesc->getOutputs()[Drag.m_FromIndex].m_pTypeName : pFromDesc->getInputs()[Drag.m_FromIndex].m_pTypeName;
                                 bTypeMatches = std::strcmp(pFromType, P.m_pDesc->m_pTypeName) == 0;
                             }
                         }
@@ -1723,8 +1721,10 @@ namespace nodeos
                 const std::uint64_t InNode  = Drag.m_bFromIsOutput ? TargetNode : Drag.m_FromNode;
                 const int            InIdx   = Drag.m_bFromIsOutput ? TargetIndex : Drag.m_FromIndex;
                 auto* pOutDesc = DescOf(FindNode(OutNode)); auto* pInDesc = DescOf(FindNode(InNode));
-                if (pOutDesc && pInDesc && OutNode != InNode && OutIdx < pOutDesc->m_OutputCount && InIdx < pInDesc->m_InputCount
-                    && std::strcmp(pOutDesc->m_pOutputs[OutIdx].m_pTypeName, pInDesc->m_pInputs[InIdx].m_pTypeName) == 0)
+                const auto OutOutputs = pOutDesc ? pOutDesc->getOutputs() : std::span<const xnode_os_port_desc>{};
+                const auto InInputs   = pInDesc   ? pInDesc->getInputs()   : std::span<const xnode_os_port_desc>{};
+                if (pOutDesc && pInDesc && OutNode != InNode && OutIdx < (int)OutOutputs.size() && InIdx < (int)InInputs.size()
+                    && std::strcmp(OutOutputs[OutIdx].m_pTypeName, InInputs[InIdx].m_pTypeName) == 0)
                 {
                     // Eviction of any prior link into the same target input happens inside Connect's
                     // own Redo() now (and its Undo() restores whatever got evicted) - see connect_cmd.
@@ -1741,8 +1741,9 @@ namespace nodeos
             {
                 auto* pSrcDesc = DescOf(FindNode(Link.m_SourceNode)); auto* pDstDesc = DescOf(FindNode(Link.m_TargetNode));
                 if (!pSrcDesc || !pDstDesc) continue;
-                const port_ref OutP{ true, Link.m_SourceOutput, &pSrcDesc->m_pOutputs[Link.m_SourceOutput] };
-                const port_ref InP { false, Link.m_TargetInput,  &pDstDesc->m_pInputs[Link.m_TargetInput] };
+                const auto SrcOutputs = pSrcDesc->getOutputs(); const auto DstInputs = pDstDesc->getInputs();
+                const port_ref OutP{ true, Link.m_SourceOutput, &SrcOutputs[Link.m_SourceOutput] };
+                const port_ref InP { false, Link.m_TargetInput,  &DstInputs[Link.m_TargetInput] };
                 const char LSide = LinkSide(Link);
                 const ImVec2 From = PortAnchor(Link.m_SourceNode, OutP, LSide), To = PortAnchor(Link.m_TargetNode, InP, LSide);
                 const float HX = HighwayX(LSide, LaneOfLink[Link.m_Id]);
@@ -1771,14 +1772,14 @@ namespace nodeos
     // Dependency-respecting evaluation: repeatedly execute any not-yet-run node whose every
     // connected input already has a producer that has run, until nothing changes. Good enough for
     // the small acyclic graphs this proof of concept cares about. No longer needs AvailableTypes at
-    // all - each node holds its own type descriptor directly (node_instance::m_pType).
+    // all - each node instance carries its own behavior directly (node_instance::m_pNode).
     //------------------------------------------------------------------------------------------------
     static void ExecuteGraph(xgpu::device& Device, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, mesh_preview_system& MeshPreview)
     {
         for (auto& Node : Nodes)
         {
-            if (Node.m_bHasRun && Node.m_pType && Node.m_pType->m_pFreeOutputs)
-                Node.m_pType->m_pFreeOutputs(Node.m_CachedOutputs.data(), (int)Node.m_CachedOutputs.size());
+            if (Node.m_bHasRun && Node.m_pNode)
+                Node.m_pNode->FreeOutputs(Node.m_CachedOutputs.data());
             Node.m_bHasRun = false;
             Node.m_LastError.clear();
             Node.m_CachedOutputs.clear();
@@ -1791,10 +1792,11 @@ namespace nodeos
             bProgress = false;
             for (auto& Node : Nodes)
             {
-                if (Node.m_bHasRun || !Node.m_pType) continue;
-                auto* pDesc = Node.m_pType;
+                if (Node.m_bHasRun || !Node.m_pNode) continue;
+                const auto NodeInputs  = Node.m_pNode->getInputs();
+                const auto NodeOutputs = Node.m_pNode->getOutputs();
 
-                std::vector<void*> Inputs(pDesc->m_InputCount, nullptr);
+                std::vector<void*> Inputs(NodeInputs.size(), nullptr);
                 bool bReady = true;
                 for (auto& Link : Links)
                 {
@@ -1806,8 +1808,8 @@ namespace nodeos
                 }
                 if (!bReady) continue;
 
-                Node.m_CachedOutputs.assign(pDesc->m_OutputCount, nullptr);
-                pDesc->m_pExecute(Node.m_pProperties, Inputs.data(), Node.m_CachedOutputs.data());
+                Node.m_CachedOutputs.assign(NodeOutputs.size(), nullptr);
+                Node.m_pNode->Execute(Inputs.data(), Node.m_CachedOutputs.data());
                 Node.m_bHasRun = true;
                 bProgress = true;
             }
@@ -1821,93 +1823,170 @@ namespace nodeos
         // producer's output (Cube) and a consumer's input (Inspect Mesh) get a live render.
         for (auto& Node : Nodes)
         {
-            if (!Node.m_pType) continue;
-            auto* pDesc = Node.m_pType;
-            for (int i = 0; i < pDesc->m_OutputCount; ++i)
+            if (!Node.m_pNode) continue;
+            const auto NodeOutputs = Node.m_pNode->getOutputs();
+            const auto NodeInputs  = Node.m_pNode->getInputs();
+            for (int i = 0; i < (int)NodeOutputs.size(); ++i)
             {
                 void* pValue = (Node.m_bHasRun && i < (int)Node.m_CachedOutputs.size()) ? Node.m_CachedOutputs[i] : nullptr;
-                MeshPreview.RebuildIfMesh(Device, OutPinOf(Node.m_Id, i), pDesc->m_pOutputs[i].m_pTypeName, pValue);
+                MeshPreview.RebuildIfMesh(Device, OutPinOf(Node.m_Id, i), NodeOutputs[i].m_pTypeName, pValue);
             }
-            for (int i = 0; i < pDesc->m_InputCount; ++i)
-                MeshPreview.RebuildIfMesh(Device, InPinOf(Node.m_Id, i), pDesc->m_pInputs[i].m_pTypeName, GetInputValue(Node.m_Id, i, Nodes, Links));
+            for (int i = 0; i < (int)NodeInputs.size(); ++i)
+            {
+                MeshPreview.RebuildIfMesh(Device, InPinOf(Node.m_Id, i), NodeInputs[i].m_pTypeName, GetInputValue(Node.m_Id, i, Nodes, Links));
+            }
         }
     }
 
     //------------------------------------------------------------------------------------------------
     // Generic, host-owned property serialization - reads/writes a (Name, Kind, Value) row per member,
-    // via nothing but the ABI-safe ixnode_os_reflected_object primitives every plugin with properties
-    // already provides. This is deliberately NOT delegated to a plugin: xtextfile only ever needs to
-    // know about the same fixed 5 atomic kinds (FLOAT/INT/BOOL/STRING/ENUM) the property panel already
-    // draws with, and that vocabulary belongs to the host ("the OS"), not to any individual plugin - a
-    // plugin needs to expose nothing beyond m_pGetReflectedObject for this to work, no separate
-    // serialization opt-in required. Values round-trip as text (this engine's text files are already
-    // documented as lossy for floats - see xtextfile.h's own top comment - which is an accepted,
-    // existing tradeoff, not a new one introduced here). ENUM stores the underlying int value, matching
-    // how DrawReflectedMembers already treats it (SetInt) rather than round-tripping through the name
-    // table. COMPOUND/LIST members are skipped for now (same "not yet handled generically" scope
-    // xnode_os_property_adapter.h already documents for the drawing side).
+    // directly against the node's own REAL xproperty::type::object (getProperties(), inherited from
+    // xproperty::base - see xnode_os_plugin_api.h's top comment for why a real object crossing the DLL
+    // boundary is safe now). xtextfile only ever needs to know about the same fixed 5 atomic kinds
+    // (FLOAT/INT/BOOL/STRING/ENUM) the property panel already draws with, and that vocabulary belongs
+    // to the host ("the OS"), not to any individual plugin. Values round-trip as text (this engine's
+    // text files are already documented as lossy for floats - see xtextfile.h's own top comment - an
+    // accepted, existing tradeoff, not a new one). ENUM stores the underlying int value. Only atomic
+    // ("var") members are serialized - COMPOUND/LIST members (e.g. Inspect Mesh's nested "Mesh" scope)
+    // are skipped, matching this project's current scope; they're still drawn fine by the real
+    // inspector, just not round-tripped through save/load or undo snapshots yet.
     //------------------------------------------------------------------------------------------------
+    enum class property_kind : int { FLOAT = 0, INT = 1, BOOL = 2, STRING = 3, ENUM = 4 };
+
     // A single property reduced to its plain-text row shape - Name/Kind/Value, no storage-backend
-    // opinion at all. This is the ONLY place that knows how to turn one ixnode_os_reflected_object
-    // member into text and back; every serialization backend (the xtextfile-based graph file below,
-    // and any future in-memory one - e.g. xundo snapshots) is a thin wrapper around these two
-    // functions, so the atomic-kind switch logic exists exactly once regardless of how many backends
-    // eventually want a text view of a property block.
+    // opinion at all. This is the ONLY place that knows how to turn one xproperty member into text and
+    // back; every serialization backend (the xtextfile-based graph file below, and the in-memory one
+    // used for xundo snapshots) is a thin wrapper around these two functions.
     struct property_row { std::string m_Name; int m_Kind; std::string m_Value; };
 
-    static property_row ReflectedMemberToRow(ixnode_os_reflected_object* pObj, int Idx)
+    static void NarrowInto(const std::wstring& W, std::string& Out) noexcept
     {
-        property_row Row{ pObj->GetMemberName(Idx), static_cast<int>(pObj->GetMemberKind(Idx)), {} };
-        switch (pObj->GetMemberKind(Idx))
+        Out.clear();
+        if (W.empty()) return;
+        const int Needed = WideCharToMultiByte(CP_UTF8, 0, W.c_str(), (int)W.size(), nullptr, 0, nullptr, nullptr);
+        if (Needed <= 0) return;
+        Out.resize((std::size_t)Needed);
+        WideCharToMultiByte(CP_UTF8, 0, W.c_str(), (int)W.size(), Out.data(), Needed, nullptr, nullptr);
+    }
+    static std::wstring WidenFromUtf8(const std::string& S) noexcept
+    {
+        if (S.empty()) return {};
+        const int Needed = MultiByteToWideChar(CP_UTF8, 0, S.c_str(), (int)S.size(), nullptr, 0);
+        if (Needed <= 0) return {};
+        std::wstring W((std::size_t)Needed, L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, S.c_str(), (int)S.size(), W.data(), Needed);
+        return W;
+    }
+
+    static int ReadEnumAsInt(const xproperty::type::members& Member, void* pInstance) noexcept
+    {
+        xproperty::any Out; xproperty::settings::context Ctx;
+        if (!Member.TryRead(pInstance, Out, Ctx)) return 0;
+        // An enum's underlying storage type varies by declaration; probe the common widths rather
+        // than assuming one.
+        if (auto R = Out.tryGet<int>();           R) return *R.value();
+        if (auto R = Out.tryGet<unsigned int>();  R) return (int)*R.value();
+        if (auto R = Out.tryGet<std::int64_t>();  R) return (int)*R.value();
+        if (auto R = Out.tryGet<std::uint64_t>(); R) return (int)*R.value();
+        return 0;
+    }
+    static void WriteEnumFromInt(const xproperty::type::members& Member, void* pInstance, int Value) noexcept
+    {
+        auto* pVar = std::get_if<xproperty::type::members::var>(&Member.m_Variant);
+        if (!pVar) return;
+        const auto Found = pVar->m_AtomicType.TryFindEnumByValue((std::uint64_t)Value);
+        if (!Found) return; // not one of the enum's registered values - reject rather than write garbage
+        xproperty::any In{ std::string(Found.value()->m_pName) }; xproperty::settings::context Ctx;
+        (void)Member.TryWrite(pInstance, In, Ctx);
+    }
+
+    static bool ReflectedMemberToRow(const xproperty::type::members& Member, void* pInstance, property_row& OutRow)
+    {
+        auto* pVar = std::get_if<xproperty::type::members::var>(&Member.m_Variant);
+        if (!pVar) return false; // COMPOUND/LIST - not serialized generically, see comment above
+
+        OutRow.m_Name = Member.m_pName;
+        if (pVar->m_AtomicType.m_IsEnum)
         {
-            case xnode_os_member_kind::FLOAT:  Row.m_Value = std::format("{}", pObj->GetFloat(Idx));  break;
-            case xnode_os_member_kind::INT:    Row.m_Value = std::format("{}", pObj->GetInt(Idx));    break;
-            case xnode_os_member_kind::BOOL:   Row.m_Value = pObj->GetBool(Idx) ? "1" : "0";           break;
-            case xnode_os_member_kind::STRING: Row.m_Value = pObj->GetString(Idx);                     break;
-            case xnode_os_member_kind::ENUM:   Row.m_Value = std::format("{}", pObj->GetInt(Idx));    break;
-            default: break; // COMPOUND/LIST - not serialized generically yet, see comment above
+            OutRow.m_Kind  = (int)property_kind::ENUM;
+            OutRow.m_Value = std::format("{}", ReadEnumAsInt(Member, pInstance));
+            return true;
         }
-        return Row;
+
+        xproperty::any Out; xproperty::settings::context Ctx;
+        if (!Member.TryRead(pInstance, Out, Ctx)) return false;
+
+        if      (Out.is<float>())        { OutRow.m_Kind = (int)property_kind::FLOAT;  OutRow.m_Value = std::format("{}", Out.get<float>()); }
+        else if (Out.is<int>())          { OutRow.m_Kind = (int)property_kind::INT;    OutRow.m_Value = std::format("{}", Out.get<int>()); }
+        else if (Out.is<bool>())         { OutRow.m_Kind = (int)property_kind::BOOL;   OutRow.m_Value = Out.get<bool>() ? "1" : "0"; }
+        else if (Out.is<std::string>())  { OutRow.m_Kind = (int)property_kind::STRING; OutRow.m_Value = Out.get<std::string>(); }
+        else if (Out.is<std::wstring>()) { OutRow.m_Kind = (int)property_kind::STRING; NarrowInto(Out.get<std::wstring>(), OutRow.m_Value); }
+        else return false; // an atomic type outside the fixed vocabulary - skip, not an error
+
+        return true;
     }
 
     // Looks the member up BY NAME (not by the row's original index) so a property added, removed, or
-    // reordered on the plugin's struct since the row was produced doesn't silently misassign a value -
-    // the same robustness the old inline xtextfile version had, now shared by every backend.
-    static void ApplyRowToReflectedObject(ixnode_os_reflected_object* pObj, const property_row& Row)
+    // reordered on the plugin's struct since the row was produced doesn't silently misassign a value.
+    static void ApplyRowToMember(const xproperty::type::object* pObj, void* pInstance, const property_row& Row)
     {
-        int FoundIdx = -1;
-        for (int m = 0; m < pObj->GetMemberCount(); ++m)
-            if (Row.m_Name == pObj->GetMemberName(m)) { FoundIdx = m; break; }
-        if (FoundIdx < 0) return; // property no longer exists on this type - skip, don't fail the whole caller
+        const xproperty::type::members* pFound = nullptr;
+        for (auto& M : pObj->m_Members) if (Row.m_Name == M.m_pName) { pFound = &M; break; }
+        if (!pFound) return; // property no longer exists on this type - skip, don't fail the whole caller
 
-        switch (static_cast<xnode_os_member_kind>(Row.m_Kind))
+        xproperty::settings::context Ctx;
+        switch (static_cast<property_kind>(Row.m_Kind))
         {
-            case xnode_os_member_kind::FLOAT:  pObj->SetFloat(FoundIdx, std::stof(Row.m_Value));        break;
-            case xnode_os_member_kind::INT:    pObj->SetInt(FoundIdx, std::stoi(Row.m_Value));          break;
-            case xnode_os_member_kind::BOOL:   pObj->SetBool(FoundIdx, Row.m_Value == "1");             break;
-            case xnode_os_member_kind::STRING: pObj->SetString(FoundIdx, Row.m_Value.c_str());          break;
-            case xnode_os_member_kind::ENUM:   pObj->SetInt(FoundIdx, std::stoi(Row.m_Value));          break;
-            default: break;
+            case property_kind::ENUM:  WriteEnumFromInt(*pFound, pInstance, std::stoi(Row.m_Value)); return;
+            case property_kind::FLOAT: { xproperty::any In{ std::stof(Row.m_Value) };  (void)pFound->TryWrite(pInstance, In, Ctx); return; }
+            case property_kind::INT:   { xproperty::any In{ std::stoi(Row.m_Value) };  (void)pFound->TryWrite(pInstance, In, Ctx); return; }
+            case property_kind::BOOL:  { xproperty::any In{ Row.m_Value == "1" };      (void)pFound->TryWrite(pInstance, In, Ctx); return; }
+            case property_kind::STRING:
+            {
+                auto* pVar = std::get_if<xproperty::type::members::var>(&pFound->m_Variant);
+                if (pVar && pVar->m_AtomicType.m_GUID == xproperty::type::atomic_v<std::wstring>.m_GUID)
+                {
+                    xproperty::any In{ WidenFromUtf8(Row.m_Value) }; (void)pFound->TryWrite(pInstance, In, Ctx);
+                }
+                else
+                {
+                    xproperty::any In{ Row.m_Value }; (void)pFound->TryWrite(pInstance, In, Ctx);
+                }
+                return;
+            }
         }
     }
 
-    // Thin xtextfile-backed wrapper around the row conversion above - identical wire format and
-    // behavior to before the refactor (Name/Kind/Value fields, by-name lookup on read), just no longer
-    // inlining the atomic-kind switch logic itself.
-    static bool SerializeReflectedMembers(xtextfile::stream& Stream, ixnode_os_reflected_object* pObj)
+    // Only atomic ("var") members are serializable - see this block's top comment.
+    static std::vector<std::uint32_t> SerializableMemberIndices(const xproperty::type::object* pObj)
     {
+        std::vector<std::uint32_t> Out;
+        for (std::uint32_t i = 0; i < pObj->m_Members.size(); ++i)
+            if (std::get_if<xproperty::type::members::var>(&pObj->m_Members[i].m_Variant)) Out.push_back(i);
+        return Out;
+    }
+
+    static bool HasSerializableProperties(xnode_os_node* pNode)
+    {
+        return pNode && !SerializableMemberIndices(pNode->getProperties()).empty();
+    }
+
+    // Thin xtextfile-backed wrapper around the row conversion above.
+    static bool SerializeReflectedMembers(xtextfile::stream& Stream, xnode_os_node* pNode)
+    {
+        const xproperty::type::object* pObj = pNode->getProperties();
+        const auto Indices = SerializableMemberIndices(pObj);
         if (auto Err = Stream.Record("xProperties"
-            , [&](std::size_t& C, xerr&) { if (!Stream.isReading()) C = static_cast<std::size_t>(pObj->GetMemberCount()); }
+            , [&](std::size_t& C, xerr&) { if (!Stream.isReading()) C = Indices.size(); }
             , [&](std::size_t i, xerr& Error)
             {
                 property_row Row;
 
-                // On write, 'i' IS the member index (we told Record our own member count above, and
-                // we're the ones choosing to walk 0..Count-1 in that same order). On read, 'i' is just
-                // this row's position in the file - ApplyRowToReflectedObject looks the member up by
+                // On write, i indexes Indices (the filtered, serializable subset) in order. On read,
+                // i is just this row's position in the file - ApplyRowToMember looks the member up by
                 // name instead.
                 if (!Stream.isReading())
-                    Row = ReflectedMemberToRow(pObj, static_cast<int>(i));
+                    ReflectedMemberToRow(pObj->m_Members[Indices[i]], pNode, Row);
 
                 0
                 || (Error = Stream.Field("Name",  Row.m_Name))
@@ -1916,7 +1995,7 @@ namespace nodeos
                 if (Error) return;
 
                 if (Stream.isReading())
-                    ApplyRowToReflectedObject(pObj, Row);
+                    ApplyRowToMember(pObj, pNode, Row);
             }
         ); Err)
         {
@@ -1930,19 +2009,22 @@ namespace nodeos
     // file-stream abstraction for something that never touches disk would be the wrong tool. One line
     // per member, tab-separated (property names/values here are plain identifiers/numbers/paths, never
     // tabs or newlines, so no escaping is needed - unlike the general text-file format).
-    static std::string SerializePropertiesToString(ixnode_os_reflected_object* pObj)
+    static std::string SerializePropertiesToString(xnode_os_node* pNode)
     {
+        const xproperty::type::object* pObj = pNode->getProperties();
         std::string Out;
-        for (int i = 0; i < pObj->GetMemberCount(); ++i)
+        for (auto Idx : SerializableMemberIndices(pObj))
         {
-            const auto Row = ReflectedMemberToRow(pObj, i);
+            property_row Row;
+            if (!ReflectedMemberToRow(pObj->m_Members[Idx], pNode, Row)) continue;
             Out += std::format("{}\t{}\t{}\n", Row.m_Name, Row.m_Kind, Row.m_Value);
         }
         return Out;
     }
 
-    static void ApplyPropertiesFromString(ixnode_os_reflected_object* pObj, const std::string& Snapshot)
+    static void ApplyPropertiesFromString(xnode_os_node* pNode, const std::string& Snapshot)
     {
+        const xproperty::type::object* pObj = pNode->getProperties();
         std::size_t Pos = 0;
         while (Pos < Snapshot.size())
         {
@@ -1955,7 +2037,7 @@ namespace nodeos
             const std::size_t Tab2 = Line.find('\t', Tab1 == std::string::npos ? std::string::npos : Tab1 + 1);
             if (Tab1 == std::string::npos || Tab2 == std::string::npos) continue; // malformed row - skip
 
-            ApplyRowToReflectedObject(pObj, property_row
+            ApplyRowToMember(pObj, pNode, property_row
             { .m_Name  = Line.substr(0, Tab1)
             , .m_Kind  = std::stoi(Line.substr(Tab1 + 1, Tab2 - Tab1 - 1))
             , .m_Value = Line.substr(Tab2 + 1)
@@ -1991,13 +2073,13 @@ namespace nodeos
             return false;
         }
 
-        const auto FindSourcePath = [&](const xnode_os_node_type_desc* pType) -> std::string
+        const auto FindSourcePath = [&](const xnode_os_node_factory* pFactory) -> std::string
         {
             // The plugin's DIRECTORY NAME, not its absolute .cpp path (kept as "Source" in the field
             // name/comment for continuity, but see plugin_source_entry's own comment on why a folder
             // name is the actual identity) - stays meaningful if the repo ever moves and matches what
             // AddNode/DeleteNodes commands already use.
-            for (auto& T : AvailableTypes) if (T.m_pDesc == pType) return T.m_DirName;
+            for (auto& T : AvailableTypes) if (T.m_pFactory == pFactory) return T.m_DirName;
             return {};
         };
 
@@ -2007,22 +2089,14 @@ namespace nodeos
             {
                 auto&         N             = Nodes[i];
                 std::uint64_t Id            = N.m_Id;
-                std::string   Source        = FindSourcePath(N.m_pType);
-                std::string   TypeName      = N.m_pType ? N.m_pType->m_pName : "";
+                std::string   Source        = N.m_pNode ? FindSourcePath(N.m_pNode->m_pFactory) : std::string{};
+                std::string   TypeName      = N.m_pNode ? std::string(N.m_pNode->m_pFactory->getName()) : "";
                 int           Order         = N.m_Order;
-                // Not merely "does m_pGetReflectedObject exist" - a property struct whose every member
-                // the ABI-safe adapter can't represent (yet) would exist but reflect zero members, and
-                // SerializeReflectedMembers would then write no "xProperties" record at all, desyncing
-                // the reader if HasProperties still claimed one was coming.
-                bool          HasProperties = false;
-                if (N.m_pType && N.m_pType->m_pGetReflectedObject && N.m_pProperties)
-                {
-                    if (auto* pObj = N.m_pType->m_pGetReflectedObject(N.m_pProperties))
-                    {
-                        HasProperties = pObj->GetMemberCount() > 0;
-                        pObj->Destroy();
-                    }
-                }
+                // Not merely "does the node have properties at all" - a property struct whose every
+                // member falls outside the serializable atomic vocabulary would exist but reflect zero
+                // rows, and SerializeReflectedMembers would then write no "xProperties" record at all,
+                // desyncing the reader if HasProperties still claimed one was coming.
+                bool          HasProperties = HasSerializableProperties(N.m_pNode);
 
                 0
                 || (Error = Stream.Field("Id",            Id))
@@ -2039,13 +2113,9 @@ namespace nodeos
 
         for (auto& N : Nodes)
         {
-            if (N.m_pType && N.m_pType->m_pGetReflectedObject && N.m_pProperties)
+            if (HasSerializableProperties(N.m_pNode))
             {
-                auto* pObj = N.m_pType->m_pGetReflectedObject(N.m_pProperties);
-                if (!pObj) continue;
-                const bool bOk = SerializeReflectedMembers(Stream, pObj);
-                pObj->Destroy();
-                if (!bOk)
+                if (!SerializeReflectedMembers(Stream, N.m_pNode))
                 {
                     Debugger(std::format("Node OS: failed writing properties for node {}", N.m_Id));
                     return false;
@@ -2123,34 +2193,30 @@ namespace nodeos
                     return;
                 }
 
-                const auto* pType = EnsureLoadedAndGetType(*SrcIt, AvailableTypes);
-                if (!pType || TypeName != pType->m_pName || (HasProperties && !pType->m_pGetReflectedObject))
+                auto* pFactory = EnsureLoadedAndGetType(*SrcIt, AvailableTypes);
+                if (!pFactory || TypeName != pFactory->getName())
                 {
                     Error = xerr::create<xtextfile::state::FIELD_NOT_FOUND, "Node OS: a saved node's type no longer matches its plugin source">();
                     return;
                 }
 
-                NewNodes.push_back(CreateNodeInstance(Id, pType, Order));
+                NewNodes.push_back(CreateNodeInstance(Id, pFactory, Order));
             }
         ); Err)
         {
             Debugger("Node OS: failed reading Nodes record");
-            for (auto& N : NewNodes) DestroyNodeProperties(N);
+            for (auto& N : NewNodes) DestroyNodeInstance(N);
             return false;
         }
 
         for (auto& N : NewNodes)
         {
-            if (N.m_pType && N.m_pType->m_pGetReflectedObject && N.m_pProperties)
+            if (HasSerializableProperties(N.m_pNode))
             {
-                auto* pObj = N.m_pType->m_pGetReflectedObject(N.m_pProperties);
-                if (!pObj) continue;
-                const bool bOk = SerializeReflectedMembers(Stream, pObj);
-                pObj->Destroy();
-                if (!bOk)
+                if (!SerializeReflectedMembers(Stream, N.m_pNode))
                 {
                     Debugger(std::format("Node OS: failed reading properties for node {}", N.m_Id));
-                    for (auto& M : NewNodes) DestroyNodeProperties(M);
+                    for (auto& M : NewNodes) DestroyNodeInstance(M);
                     return false;
                 }
             }
@@ -2176,91 +2242,14 @@ namespace nodeos
         ); Err)
         {
             Debugger("Node OS: failed reading Links record");
-            for (auto& N : NewNodes) DestroyNodeProperties(N);
+            for (auto& N : NewNodes) DestroyNodeInstance(N);
             return false;
         }
 
-        for (auto& N : Nodes) DestroyNodeProperties(N);
+        for (auto& N : Nodes) DestroyNodeInstance(N);
         Nodes = std::move(NewNodes);
         Links = std::move(NewLinks);
         return true;
-    }
-
-    //------------------------------------------------------------------------------------------------
-    // Dockable panel for the currently-selected node's properties - active only when exactly one node
-    // is selected (multi-select property editing is out of scope for now). Walks the node type's
-    // ixnode_os_reflected_object view of its property block, drawing the 5 fixed atomic kinds with
-    // ordinary ImGui widgets and recursing generically into COMPOUND members - a plugin never needs
-    // to teach this panel about a new type, only ever compose the fixed five. The reflected view is
-    // deliberately cheap and re-requested every frame (created here, Destroy()'d at the end of the
-    // same call) rather than cached, since it's just a thin view over the property block, not the
-    // property block itself.
-    //------------------------------------------------------------------------------------------------
-    static void DrawReflectedMembers(ixnode_os_reflected_object* pObj, bool& bDirty)
-    {
-        for (int i = 0; i < pObj->GetMemberCount(); ++i)
-        {
-            ImGui::PushID(i);
-            const char* pName = pObj->GetMemberName(i);
-            switch (pObj->GetMemberKind(i))
-            {
-                case xnode_os_member_kind::FLOAT:
-                {
-                    float V = pObj->GetFloat(i);
-                    if (ImGui::DragFloat(pName, &V, 0.01f)) { pObj->SetFloat(i, V); bDirty = true; }
-                    break;
-                }
-                case xnode_os_member_kind::INT:
-                {
-                    int V = pObj->GetInt(i);
-                    if (ImGui::DragInt(pName, &V)) { pObj->SetInt(i, V); bDirty = true; }
-                    break;
-                }
-                case xnode_os_member_kind::BOOL:
-                {
-                    bool V = pObj->GetBool(i);
-                    if (ImGui::Checkbox(pName, &V)) { pObj->SetBool(i, V); bDirty = true; }
-                    break;
-                }
-                case xnode_os_member_kind::STRING:
-                {
-                    char Buffer[256];
-                    strncpy_s(Buffer, pObj->GetString(i), _TRUNCATE);
-                    if (ImGui::InputText(pName, Buffer, sizeof(Buffer))) { pObj->SetString(i, Buffer); bDirty = true; }
-                    break;
-                }
-                case xnode_os_member_kind::ENUM:
-                {
-                    const int Current = pObj->GetInt(i);
-                    const char* pCurrentName = "";
-                    for (int e = 0; e < pObj->GetEnumValueCount(i); ++e)
-                        if (auto V = pObj->GetEnumValueAt(i, e); V.m_Value == Current) pCurrentName = V.m_pName;
-                    if (ImGui::BeginCombo(pName, pCurrentName))
-                    {
-                        for (int e = 0; e < pObj->GetEnumValueCount(i); ++e)
-                        {
-                            auto V = pObj->GetEnumValueAt(i, e);
-                            if (ImGui::Selectable(V.m_pName, V.m_Value == Current)) { pObj->SetInt(i, V.m_Value); bDirty = true; }
-                        }
-                        ImGui::EndCombo();
-                    }
-                    break;
-                }
-                case xnode_os_member_kind::COMPOUND:
-                {
-                    if (ImGui::TreeNode(pName))
-                    {
-                        if (auto* pChild = pObj->GetCompoundMember(i)) DrawReflectedMembers(pChild, bDirty);
-                        ImGui::TreePop();
-                    }
-                    break;
-                }
-                case xnode_os_member_kind::LIST:
-                    ImGui::Text("%s: (%d entries)", pName, pObj->GetListCount(i)); // v1: count only, see xnode_os_property_adapter.h
-                    break;
-            }
-            ImGui::PopID();
-        }
     }
 
     static void DrawNodePropertiesEmptyState(const char* pMessage)
@@ -2272,6 +2261,21 @@ namespace nodeos
         ImGui::End();
     }
 
+    //------------------------------------------------------------------------------------------------
+    // Dockable panel for the currently-selected node's properties - active only when exactly one node
+    // is selected (multi-select property editing is out of scope for now). Draws with the HOST's own
+    // real xproperty::inspector over the node's own real getProperties() object, uniformly for every
+    // node type - no plugin ever needs to compile its own copy of ImGui/xPropertyImGuiInspector.cpp or
+    // implement its own drawing function just to show a property panel (see xnode_os_plugin_api.h's
+    // top comment for why a real xproperty::type::object crossing the DLL boundary is safe now).
+    //
+    // The Inspector instance itself MUST persist across frames rather than being rebuilt from scratch
+    // on every call - see cube_node.cpp's old DrawProperties comment (from before this became the
+    // host's job) for the full explanation: Show() seeds each row's ImGui id partly from the address
+    // of its component-list slot, so a fresh AppendEntity()/AppendEntityComponent() call every frame
+    // makes every widget's id unstable, which looks exactly like "nothing happens when I click." Only
+    // rebuild when a different node gets selected.
+    //------------------------------------------------------------------------------------------------
     static void DrawNodePropertiesPanel(std::vector<node_instance>& Nodes, const std::set<std::uint64_t>& SelectedNodes, xundo::system& System)
     {
         if (SelectedNodes.size() != 1)
@@ -2281,61 +2285,34 @@ namespace nodeos
         }
 
         auto It = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == *SelectedNodes.begin(); });
-        if (It == Nodes.end() || !It->m_pType) { DrawNodePropertiesEmptyState("(node no longer exists)"); return; }
+        if (It == Nodes.end() || !It->m_pNode) { DrawNodePropertiesEmptyState("(node no longer exists)"); return; }
 
-        auto* pType = It->m_pType;
-        if ((!pType->m_pGetReflectedObject && !pType->m_pDrawProperties) || !It->m_pProperties)
+        xnode_os_node* pNode = It->m_pNode;
+        if (!HasSerializableProperties(pNode))
         {
-            DrawNodePropertiesEmptyState(std::format("{} has no properties.", pType->m_pName).c_str());
+            DrawNodePropertiesEmptyState(std::format("{} has no properties.", pNode->m_pFactory->getName()).c_str());
             return;
         }
-        void* pProperties = It->m_pProperties;
         const std::uint64_t NodeId = It->m_Id;
 
-        // m_pDrawProperties, when a plugin offers it, draws with the plugin's OWN compiled
-        // xproperty::inspector over its OWN reflection data - see xnode_os_plugin_api.h's comment for
-        // why that's safe where an earlier, abandoned attempt (the host inspecting the plugin's real
-        // xproperty object directly) was not. It has no "did anything change" signal of its own (and
-        // may include arbitrary custom buttons doing arbitrary things), so a before/after snapshot of
-        // the WHOLE properties block - via the same ixnode_os_reflected_object primitives the ABI-safe
-        // path below uses, never a raw byte compare (a property can own a resource, e.g. Export Mesh's
-        // Path is a std::wstring) - is the one thing that covers every kind of mutation uniformly.
-        if (pType->m_pDrawProperties)
+        static xproperty::inspector s_Inspector("Node Properties");
+        static void*                s_pBoundNode = nullptr;
+        if (s_pBoundNode != pNode)
         {
-            std::string Before;
-            if (pType->m_pGetReflectedObject)
-                if (auto* pObj = pType->m_pGetReflectedObject(pProperties)) { Before = SerializePropertiesToString(pObj); pObj->Destroy(); }
-
-            pType->m_pDrawProperties(pProperties);
-
-            if (pType->m_pGetReflectedObject)
-            {
-                std::string After;
-                if (auto* pObj = pType->m_pGetReflectedObject(pProperties)) { After = SerializePropertiesToString(pObj); pObj->Destroy(); }
-                if (After != Before)
-                    commands::Run(System, commands::MakeSetProperties(NodeId, Before, After));
-            }
-            return;
+            s_Inspector.clear();
+            s_Inspector.AppendEntity();
+            s_Inspector.AppendEntityComponent(*pNode->getProperties(), pNode);
+            s_pBoundNode = pNode;
         }
 
+        const std::string Before = SerializePropertiesToString(pNode);
+        xproperty::settings::context Context;
         ImGui::SetNextWindowPos(ImVec2(1265, 90), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(300, 300), ImGuiCond_FirstUseEver);
-        if (ImGui::Begin("Node Properties"))
-        {
-            ImGui::TextDisabled("%s", pType->m_pName);
-            ImGui::Separator();
-            if (auto* pObj = pType->m_pGetReflectedObject(pProperties))
-            {
-                const std::string Before = SerializePropertiesToString(pObj);
-                bool bUnusedDirty = false;
-                DrawReflectedMembers(pObj, bUnusedDirty);
-                const std::string After = SerializePropertiesToString(pObj);
-                if (After != Before)
-                    commands::Run(System, commands::MakeSetProperties(NodeId, Before, After));
-                pObj->Destroy();
-            }
-        }
-        ImGui::End();
+        s_Inspector.Show(Context, [] {});
+        const std::string After = SerializePropertiesToString(pNode);
+        if (After != Before)
+            commands::Run(System, commands::MakeSetProperties(NodeId, Before, After));
     }
 
     //================================================================================================
@@ -2349,7 +2326,7 @@ namespace nodeos
     namespace commands
     {
         // Base64Encode/Decode, JoinIds/SplitIds, FindSourceByDirName, WriteString/ReadString, and the
-        // free Make*/Run helpers live EARLIER in this file (right after DestroyNodeProperties) - they
+        // free Make*/Run helpers live EARLIER in this file (right after DestroyNodeInstance) - they
         // need to be visible to DrawGraphCanvas/DrawNodePropertiesPanel, which are defined before this
         // point, and ordinary single-pass C++ lookup means a name has to already be declared above the
         // point that uses it. The actual xundo::command_base-derived classes below stay here because
@@ -2442,7 +2419,7 @@ namespace nodeos
 
                 auto* pSrc = FindSourceByDirName(Ctx.m_Sources, std::get<std::string>(PluginDir));
                 if (!pSrc) return "CreateNode: unknown plugin directory";
-                const auto* pType = EnsureLoadedAndGetType(*pSrc, Ctx.m_AvailableTypes);
+                auto* pType = EnsureLoadedAndGetType(*pSrc, Ctx.m_AvailableTypes);
                 if (!pType) return "CreateNode: failed to compile/load plugin";
 
                 for (auto& N : Ctx.m_Nodes) if (N.m_Order >= TargetOrder) ++N.m_Order;
@@ -2466,7 +2443,7 @@ namespace nodeos
                 std::uint64_t Id = 0; File.Read(Id);
                 auto& Ctx = get<node_os_command_context>();
                 std::erase_if(Ctx.m_Links, [&](auto& L) { return L.m_SourceNode == Id || L.m_TargetNode == Id; });
-                for (auto& N : Ctx.m_Nodes) if (N.m_Id == Id) DestroyNodeProperties(N);
+                for (auto& N : Ctx.m_Nodes) if (N.m_Id == Id) DestroyNodeInstance(N);
                 std::erase_if(Ctx.m_Nodes, [&](auto& N) { return N.m_Id == Id; });
                 Ctx.m_Selection.m_SelectedNodes.erase(Id);
 
@@ -2504,7 +2481,7 @@ namespace nodeos
                 auto& Ctx = get<node_os_command_context>();
                 auto IsDoomed = [&](std::uint64_t Id) { return std::find(Ids.begin(), Ids.end(), Id) != Ids.end(); };
                 std::erase_if(Ctx.m_Links, [&](auto& L) { return IsDoomed(L.m_SourceNode) || IsDoomed(L.m_TargetNode); });
-                for (auto& N : Ctx.m_Nodes) if (IsDoomed(N.m_Id)) DestroyNodeProperties(N);
+                for (auto& N : Ctx.m_Nodes) if (IsDoomed(N.m_Id)) DestroyNodeInstance(N);
                 std::erase_if(Ctx.m_Nodes, [&](auto& N) { return IsDoomed(N.m_Id); });
                 for (auto Id : Ids) Ctx.m_Selection.m_SelectedNodes.erase(Id);
                 Ctx.m_bDirty = true;
@@ -2524,10 +2501,10 @@ namespace nodeos
                 {
                     if (!IsDoomed(N.m_Id)) continue;
                     std::string PluginDir;
-                    for (auto& T : Ctx.m_AvailableTypes) if (T.m_pDesc == N.m_pType) { PluginDir = T.m_DirName; break; }
+                    for (auto& T : Ctx.m_AvailableTypes) if (N.m_pNode && T.m_pFactory == N.m_pNode->m_pFactory) { PluginDir = T.m_DirName; break; }
                     std::string Properties;
-                    if (N.m_pType && N.m_pType->m_pGetReflectedObject && N.m_pProperties)
-                        if (auto* pObj = N.m_pType->m_pGetReflectedObject(N.m_pProperties)) { Properties = SerializePropertiesToString(pObj); pObj->Destroy(); }
+                    if (HasSerializableProperties(N.m_pNode))
+                        Properties = SerializePropertiesToString(N.m_pNode);
                     NodeSnaps.push_back({ N.m_Id, PluginDir, N.m_Order, Properties });
                 }
                 std::vector<link_instance> LinkSnaps;
@@ -2553,12 +2530,11 @@ namespace nodeos
                     const std::string Properties = ReadString(File);
 
                     auto* pSrc = FindSourceByDirName(Ctx.m_Sources, PluginDir);
-                    const auto* pType = pSrc ? EnsureLoadedAndGetType(*pSrc, Ctx.m_AvailableTypes) : nullptr;
-                    if (!pType) continue; // plugin source no longer resolvable - best effort, matching LoadGraph's own tolerance
-                    Ctx.m_Nodes.push_back(CreateNodeInstance(Id, pType, Order));
-                    if (!Properties.empty() && pType->m_pGetReflectedObject)
-                        if (auto* pObj = pType->m_pGetReflectedObject(Ctx.m_Nodes.back().m_pProperties))
-                        { ApplyPropertiesFromString(pObj, Properties); pObj->Destroy(); }
+                    auto* pFactory = pSrc ? EnsureLoadedAndGetType(*pSrc, Ctx.m_AvailableTypes) : nullptr;
+                    if (!pFactory) continue; // plugin source no longer resolvable - best effort, matching LoadGraph's own tolerance
+                    Ctx.m_Nodes.push_back(CreateNodeInstance(Id, pFactory, Order));
+                    if (!Properties.empty())
+                        ApplyPropertiesFromString(Ctx.m_Nodes.back().m_pNode, Properties);
                 }
                 std::uint32_t LinkCount = 0; File.Read(LinkCount);
                 for (std::uint32_t i = 0; i < LinkCount; ++i)
@@ -2755,11 +2731,11 @@ namespace nodeos
                 m_hAfter  = m_Parser.addOption("After",  "Base64 property snapshot, post-edit", true, 1);
             }
 
-            static ixnode_os_reflected_object* GetObjFor(node_os_command_context& Ctx, std::uint64_t NodeId)
+            static xnode_os_node* GetNodeFor(node_os_command_context& Ctx, std::uint64_t NodeId)
             {
                 for (auto& N : Ctx.m_Nodes)
-                    if (N.m_Id == NodeId && N.m_pType && N.m_pType->m_pGetReflectedObject && N.m_pProperties)
-                        return N.m_pType->m_pGetReflectedObject(N.m_pProperties);
+                    if (N.m_Id == NodeId && HasSerializableProperties(N.m_pNode))
+                        return N.m_pNode;
                 return nullptr;
             }
 
@@ -2769,10 +2745,9 @@ namespace nodeos
                 auto After  = m_Parser.getOptionArgAs<std::string>(m_hAfter, 0);
                 if (std::holds_alternative<xerr>(NodeId) || std::holds_alternative<xerr>(After)) return "SetProperties: bad arguments";
                 auto& Ctx = get<node_os_command_context>();
-                if (auto* pObj = GetObjFor(Ctx, ParseGuid(std::get<std::string>(NodeId))))
+                if (auto* pNode = GetNodeFor(Ctx, ParseGuid(std::get<std::string>(NodeId))))
                 {
-                    ApplyPropertiesFromString(pObj, Base64Decode(std::get<std::string>(After)));
-                    pObj->Destroy();
+                    ApplyPropertiesFromString(pNode, Base64Decode(std::get<std::string>(After)));
                     Ctx.m_bDirty = true;
                 }
                 return {};
@@ -2791,10 +2766,9 @@ namespace nodeos
                 std::uint64_t NodeId = 0; File.Read(NodeId);
                 const std::string BeforeB64 = ReadString(File);
                 auto& Ctx = get<node_os_command_context>();
-                if (auto* pObj = GetObjFor(Ctx, NodeId))
+                if (auto* pNode = GetNodeFor(Ctx, NodeId))
                 {
-                    ApplyPropertiesFromString(pObj, Base64Decode(BeforeB64));
-                    pObj->Destroy();
+                    ApplyPropertiesFromString(pNode, Base64Decode(BeforeB64));
                     Ctx.m_bDirty = true;
                 }
             }

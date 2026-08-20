@@ -384,8 +384,6 @@ add_executable(${TARGET_PROJECT}
   "source/Examples/E27_NodeOS/E27_NodeOS_Editor.cpp"
   "source/Examples/E27_NodeOS/SDK/xnode_os_plugin_api.h"
   "source/Examples/E27_NodeOS/SDK/xnode_os_host_interface.h"
-  "source/Examples/E27_NodeOS/SDK/xnode_os_reflected_object.h"
-  "source/Examples/E27_NodeOS/SDK/xnode_os_property_adapter.h"
   "source/Examples/E27_NodeOS/SDK/xnode_os_shared_types.h"
   "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_identity.h"
   "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_template.h"
@@ -736,8 +734,6 @@ source_group("Examples/E27_NodeOS" FILES
 source_group("Examples/E27_NodeOS/SDK" FILES
   "source/Examples/E27_NodeOS/SDK/xnode_os_plugin_api.h"
   "source/Examples/E27_NodeOS/SDK/xnode_os_host_interface.h"
-  "source/Examples/E27_NodeOS/SDK/xnode_os_reflected_object.h"
-  "source/Examples/E27_NodeOS/SDK/xnode_os_property_adapter.h"
   "source/Examples/E27_NodeOS/SDK/xnode_os_shared_types.h"
 )
 
