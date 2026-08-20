@@ -6,20 +6,13 @@
 // export_mesh_node IS the property object (via xproperty::base, inherited through xnode_os_node) -
 // the host's own real xproperty::inspector draws it directly, including the native file-picker
 // "..." button the m_Path member's file_dialog style asks for (see cube_node.cpp's top comment for
-// why a real xproperty::type::object crossing the DLL boundary is safe). Unlike cube_node.cpp, this
-// plugin DOES still need the raw imgui/xPropertyImGuiInspector.cpp includes below, purely for the
-// linker: m_Path's explicit member_ui<...>::file_dialog<...> style captures a "how to draw me"
-// function pointer at registration time, which needs xproperty::ui's real Render templates linked
-// in even though this plugin never calls Show() itself. A member with no explicit style (cube_node's
-// Width/Height/Depth) never captures that pointer and needs none of this.
-#define IMGUI_DEFINE_MATH_OPERATORS
+// why a real xproperty::type::object crossing the DLL boundary is safe). No ImGui/inspector includes
+// needed here even though m_Path has an explicit style: member_ui_base now stores a (Type,Style)
+// GUID pair rather than a resolved function pointer, so attaching a style only ever stores two
+// integers - the host resolves the real drawer through its own registry at draw time (see
+// xproperty's my_property_ui.h/xPropertyImGuiInspector.cpp).
 #include "../../SDK/xnode_os_plugin_api.h"
 #include "../../SDK/xnode_os_shared_types.h"
-#include "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.cpp"
-#include "dependencies/imgui/imgui.cpp"
-#include "dependencies/imgui/imgui_draw.cpp"
-#include "dependencies/imgui/imgui_widgets.cpp"
-#include "dependencies/imgui/imgui_tables.cpp"
 #include <cstdio>
 #include <fstream>
 

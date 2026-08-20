@@ -9,20 +9,12 @@
 // a "Report" text output stapled to the canvas. inspect_mesh_node IS the property object (via
 // xproperty::base, inherited through xnode_os_node) - the host's own real xproperty::inspector
 // draws it directly, disabling the Mesh/* fields for edit because they're obj_member_ro (read-only)
-// - a distinction the old ABI-safe primitive walk had no concept of at all. Unlike cube_node.cpp,
-// this plugin DOES still need the raw imgui/xPropertyImGuiInspector.cpp includes below, purely for
-// the linker: obj_member_ro captures a "how to draw me, disabled" function pointer at registration
-// time regardless of the member's actual type, which needs xproperty::ui's real Render templates
-// linked in even though this plugin never calls Show() itself (confirmed empirically - a plain,
-// non-read-only member never captures that pointer and needs none of this).
-#define IMGUI_DEFINE_MATH_OPERATORS
+// - a distinction the old ABI-safe primitive walk had no concept of at all. No ImGui/inspector
+// includes needed here even though these are read-only: member_ui_base now stores a (Type,Style)
+// GUID pair rather than a resolved function pointer, so the host resolves the real drawer through
+// its own registry at draw time (see xproperty's my_property_ui.h/xPropertyImGuiInspector.cpp).
 #include "../../SDK/xnode_os_plugin_api.h"
 #include "../../SDK/xnode_os_shared_types.h"
-#include "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.cpp"
-#include "dependencies/imgui/imgui.cpp"
-#include "dependencies/imgui/imgui_draw.cpp"
-#include "dependencies/imgui/imgui_widgets.cpp"
-#include "dependencies/imgui/imgui_tables.cpp"
 
 namespace
 {
