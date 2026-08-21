@@ -125,7 +125,8 @@ namespace nodeos
     {
         std::uint64_t                    m_Id = 0;
         xnode_os_node*                   m_pNode = nullptr;
-        int                              m_Order = 0;         // stacking rank (rslgraph-ui's NodeDef::order) - reorder with the header's up/down buttons, never freely dragged
+        std::uint64_t                    m_SpineId = 0;       // which spine (see `spine` below) this box belongs to
+        int                              m_Order = 0;         // stacking rank, dense WITHIN m_SpineId only (never across the whole graph) - reorder with the header's up/down buttons, never freely dragged
         std::vector<void*>                m_CachedOutputs;      // filled after a successful Execute
         bool                              m_bHasRun = false;
         std::string                       m_LastError;
@@ -136,6 +137,37 @@ namespace nodeos
         std::uint64_t m_Id = 0;
         std::uint64_t m_SourceNode = 0; int m_SourceOutput = 0;
         std::uint64_t m_TargetNode = 0; int m_TargetInput  = 0;
+    };
+
+    //------------------------------------------------------------------------------------------------
+    // The horizontal container a spine (or several) lives in. Columns form a plain doubly-linked
+    // list (never a tree) with exactly one root - today's original, always-there column. A column's
+    // width is its own boxes + its own highway lane extent, recomputed fresh every frame in
+    // DrawGraphCanvas like everything else here - nothing about live geometry is ever stored here.
+    //------------------------------------------------------------------------------------------------
+    struct column
+    {
+        std::uint64_t m_Id      = 0;
+        std::uint64_t m_LeftId  = 0;  // 0 = no neighbor yet
+        std::uint64_t m_RightId = 0;  // 0 = no neighbor yet
+        bool          m_bIsRoot = false; // exactly one column ever has this set
+    };
+
+    //------------------------------------------------------------------------------------------------
+    // A vertical chain of boxes connected up/down - pure connectivity, doesn't know or care about
+    // highways/lanes at all (that's the column's concern). A column can host more than one spine, as
+    // long as their vertical Y-ranges don't overlap. A spine's position is just (m_Y, m_ColumnId) -
+    // plain, absolute, directly settable world-space coordinates, not derived from anything else. It
+    // doesn't remember where it came from, only where it currently is, so it can be freely dragged to
+    // a new Y (same column) or a new column later without carrying any stale history. Root ignores
+    // m_Y (always geo::TOP) and never changes m_ColumnId.
+    //------------------------------------------------------------------------------------------------
+    struct spine
+    {
+        std::uint64_t m_Id       = 0;
+        std::uint64_t m_ColumnId = 0;
+        bool          m_bIsRoot  = false; // exactly one spine
+        float         m_Y        = 0.0f;  // absolute world Y of this spine's own top slot (root ignores this - always geo::TOP)
     };
 
     //------------------------------------------------------------------------------------------------
@@ -434,11 +466,12 @@ namespace nodeos
     // through here so instance creation never gets forgotten at one of them - and its mirror,
     // destroying that same instance when a node is removed.
     //------------------------------------------------------------------------------------------------
-    static node_instance CreateNodeInstance(std::uint64_t Id, xnode_os_node_factory* pFactory, int Order)
+    static node_instance CreateNodeInstance(std::uint64_t Id, xnode_os_node_factory* pFactory, int Order, std::uint64_t SpineId)
     {
         node_instance NewNode;
-        NewNode.m_Id    = Id;
-        NewNode.m_Order = Order;
+        NewNode.m_Id      = Id;
+        NewNode.m_Order   = Order;
+        NewNode.m_SpineId = SpineId;
         if (pFactory) NewNode.m_pNode = &pFactory->CreateNodeInstance();
         return NewNode;
     }
@@ -556,6 +589,7 @@ namespace nodeos
             return Out;
         }
 
+
         // Plugins are identified by their Plugins/<DirName>/ folder name, not by an absolute source
         // path - a folder name is guaranteed unique within this scan (see plugin_source_entry's own
         // comment) and stays meaningful across machines/checkouts, in a saved graph file, or in a
@@ -564,6 +598,17 @@ namespace nodeos
         {
             for (auto& S : Sources) if (S.m_DirName == DirName) return &S;
             return nullptr;
+        }
+
+        // Shared by create_node_cmd's own -After/-Before resolution and select_cmd's -MarkerAfter/
+        // -MarkerBefore resolution (and now create_spine_cmd's -AnchorNode) - all three need the exact
+        // same "which spine, and which dense order within it, does this already-known node id sit at"
+        // lookup against the current node list.
+        inline bool ResolveNodeSpineAndOrder(const std::vector<node_instance>& Nodes, std::uint64_t NodeId, std::uint64_t& OutSpineId, int& OutOrder) noexcept
+        {
+            for (auto& N : Nodes)
+                if (N.m_Id == NodeId) { OutSpineId = N.m_SpineId; OutOrder = N.m_Order; return true; }
+            return false;
         }
 
         inline void WriteString(xundo::undo_file& File, const std::string& S)
@@ -599,6 +644,12 @@ namespace nodeos
         {
             return std::format("CreateNode -Id {} -PluginDir {} -Before {}", FormatGuid(Id), PluginDir, FormatGuid(BeforeNodeId));
         }
+        // -InSpine is the only way to place a node into a currently-empty spine - there's no existing
+        // node in it yet to address -After/-Before relative to.
+        inline std::string MakeCreateNodeInSpine(std::uint64_t Id, const std::string& PluginDir, std::uint64_t SpineId)
+        {
+            return std::format("CreateNode -Id {} -PluginDir {} -InSpine {}", FormatGuid(Id), PluginDir, FormatGuid(SpineId));
+        }
         inline std::string MakeDeleteNodes(const std::vector<std::uint64_t>& Ids) { return std::format("DeleteNodes -Ids {}", JoinIds(Ids)); }
         inline std::string MakeDeleteLink(std::uint64_t Id) { return std::format("DeleteLink -Id {}", FormatGuid(Id)); }
         inline std::string MakeConnect(std::uint64_t Id, std::uint64_t SourceNode, int SourceOutput, std::uint64_t TargetNode, int TargetInput)
@@ -607,6 +658,21 @@ namespace nodeos
                                , FormatGuid(Id), FormatGuid(SourceNode), SourceOutput, FormatGuid(TargetNode), TargetInput);
         }
         inline std::string MakeReorderNodes(const std::vector<std::uint64_t>& NewOrder) { return std::format("ReorderNodes -Ids {}", JoinIds(NewOrder)); }
+        // Moves node(s) into a DIFFERENT spine at a given position - addressed the same way CreateNode
+        // addresses insertion (-After/-Before an existing node, or -InSpine to append to a spine
+        // regardless of its current size).
+        inline std::string MakeMoveNodesToSpineAfter(const std::vector<std::uint64_t>& Ids, std::uint64_t AfterNodeId)
+        {
+            return std::format("MoveNodesToSpine -Ids {} -After {}", JoinIds(Ids), FormatGuid(AfterNodeId));
+        }
+        inline std::string MakeMoveNodesToSpineBefore(const std::vector<std::uint64_t>& Ids, std::uint64_t BeforeNodeId)
+        {
+            return std::format("MoveNodesToSpine -Ids {} -Before {}", JoinIds(Ids), FormatGuid(BeforeNodeId));
+        }
+        inline std::string MakeMoveNodesToSpineIn(const std::vector<std::uint64_t>& Ids, std::uint64_t SpineId)
+        {
+            return std::format("MoveNodesToSpine -Ids {} -InSpine {}", JoinIds(Ids), FormatGuid(SpineId));
+        }
         inline std::string MakeSetProperties(std::uint64_t NodeId, const std::string& Before, const std::string& After)
         {
             return std::format("SetProperties -NodeId {} -Before {} -After {}", FormatGuid(NodeId), Base64Encode(Before), Base64Encode(After));
@@ -623,7 +689,43 @@ namespace nodeos
         inline std::string MakeSelectLink(std::uint64_t Link) { return std::format("Select -Link {}", FormatGuid(Link)); }
         inline std::string MakeSelectMarkerAfter(std::uint64_t NodeId)  { return std::format("Select -MarkerAfter {}",  FormatGuid(NodeId)); }
         inline std::string MakeSelectMarkerBefore(std::uint64_t NodeId) { return std::format("Select -MarkerBefore {}", FormatGuid(NodeId)); }
+        inline std::string MakeSelectMarkerSpine(std::uint64_t SpineId) { return std::format("Select -MarkerSpine {}", FormatGuid(SpineId)); }
         inline std::string MakeClearSelection() { return "ClearSelection"; }
+
+        // CreateSpine - places a new, empty spine directly at an absolute -Y. -Column/-NewColumn fold
+        // "attach to an existing column" vs. "synthesize a new one" into one command, same pattern
+        // Select already uses for its own several mutually exclusive concerns. -NewColumnId is minted
+        // by the CALLER (never inside Redo()), matching this codebase's standing rule for every id this
+        // command system ever creates. -NewColumn carries a dummy "1" argument rather than appearing
+        // bare - xcmdline::parser::hasOption() only reports an option present if it actually collected
+        // an argument, so a bare flag immediately followed by another flag (nothing non-flag trailing
+        // it) leaves its own args empty and fails minArgs, erroring the WHOLE command before Redo()
+        // ever runs (the exact bug already hit and fixed once for -AnchorAfter/-AnchorBefore).
+        inline std::string MakeCreateSpineNewColumn(std::uint64_t SpineId, float Y, std::uint64_t NeighborColumnId, char Side, std::uint64_t NewColumnId)
+        {
+            return std::format("CreateSpine -Id {} -Y {:.3f} -NewColumn 1 -NewColumnId {} -NeighborColumn {} -Side {}"
+                               , FormatGuid(SpineId), Y, FormatGuid(NewColumnId), FormatGuid(NeighborColumnId), Side);
+        }
+        inline std::string MakeCreateSpineExistingColumn(std::uint64_t SpineId, float Y, std::uint64_t ColumnId)
+        {
+            return std::format("CreateSpine -Id {} -Y {:.3f} -Column {}", FormatGuid(SpineId), Y, FormatGuid(ColumnId));
+        }
+        inline std::string MakeDeleteSpine(std::uint64_t SpineId) { return std::format("DeleteSpine -Id {}", FormatGuid(SpineId)); }
+
+        // SetSpinePosition - sets a spine's absolute (Y, Column) directly - drag it anywhere within
+        // its own column (any pixel), or straight into a different already-existing column.
+        inline std::string MakeSetSpinePosition(std::uint64_t SpineId, float Y, std::uint64_t ColumnId)
+        {
+            return std::format("SetSpinePosition -Id {} -Y {:.3f} -Column {}", FormatGuid(SpineId), Y, FormatGuid(ColumnId));
+        }
+        // Same, but the destination column doesn't exist yet - splice a new one in beside -NeighborColumn
+        // first. Mirrors MakeCreateSpineNewColumn's own dummy "1" on -NewColumn for the same xcmdline
+        // bare-flag reason.
+        inline std::string MakeSetSpinePositionNewColumn(std::uint64_t SpineId, float Y, std::uint64_t NeighborColumnId, char Side, std::uint64_t NewColumnId)
+        {
+            return std::format("SetSpinePosition -Id {} -Y {:.3f} -NewColumn 1 -NewColumnId {} -NeighborColumn {} -Side {}"
+                               , FormatGuid(SpineId), Y, FormatGuid(NewColumnId), FormatGuid(NeighborColumnId), Side);
+        }
 
         // Wraps system::Execute with logging - EVERY command, not just failures, so nodeos_debug.log
         // is a genuine audit trail of everything that happened to the graph (the same log an AI agent
@@ -932,6 +1034,10 @@ namespace nodeos
         constexpr float PORT_HIT_RADIUS = 16.0f;
         constexpr float LINK_HIT_DIST   = 6.0f;
         constexpr float PREVIEW_GAP     = 10.0f;
+        constexpr float COLUMN_MARGIN     = 60.0f; // world-space gap between two adjacent columns' own highway extents
+        constexpr float COLUMN_CLEAR_GAP  = 24.0f; // extra world-space distance, past a column's own extent, a spine-control drag must clear before a new-column drop target appears
+        constexpr float SPINE_CIRCLE_R    = 7.0f;  // the two spine-control circles' own radius (screen-space, scales with zoom like everything else here)
+        constexpr float SPINE_CIRCLE_GAP  = 4.0f;  // gap between the insert-marker box's edge and each circle, so they never overlap its own hit area
     }
 
     // Every port on a node in one flat, row-ordered list (inputs then outputs) - rslgraph-ui's own
@@ -1018,8 +1124,10 @@ namespace nodeos
                                                    // codebase's own multi-select convention (E23's bone
                                                    // tree/viewport)
         std::uint64_t            m_SelectedLink = 0;
-        int                      m_SelectedGap  = -1; // a spine slot, selected the same way a node is -
-                                                        // -1 means none. Future copy/paste targets this.
+        std::uint64_t            m_SelectedGapSpineId = 0;  // 0 means none selected
+        int                      m_SelectedGapIndex   = -1; // a gap slot within m_SelectedGapSpineId,
+                                                              // selected the same way a node is.
+                                                              // Future copy/paste targets this.
     };
 
     // Drag-to-reorder: picking up a node (or, if it's part of the current selection, the whole
@@ -1031,14 +1139,35 @@ namespace nodeos
         std::vector<std::uint64_t> m_MovingIds;
     };
 
-    // Zoom (mouse wheel, anchored under the cursor) and vertical pan (left-drag on empty canvas space)
-    // - the canvas has no native ImGui scrollbar, so this is the only way to navigate a graph taller
-    // than the window. Deliberately no horizontal pan/zoom-anchor: the stack always centers on the
-    // window (point 4 of the review that shaped this) - only vertical position and scale are ever
-    // adjustable.
+    // Dragging one of the two circles on a spine-control marker - either to grow a new column/spine
+    // off of it, or (staying inside the dragged spine's own column) to freely reposition that spine's
+    // own Y. No "which circle was grabbed" field on purpose - direction is recomputed live every frame
+    // from the current mouse position relative to the grab point, never locked in at grab-time (see
+    // the design conversation this came out of: "we do not care... we snap the origin... and move on").
+    struct canvas_spine_drag
+    {
+        bool           m_bActive  = false;
+        std::uint64_t  m_SpineId  = 0; // the spine the grabbed marker belongs to
+        float          m_GrabY    = 0.0f; // world Y of the grabbed marker itself, at grab time
+    };
+
+    // Delete key on a selected (non-empty) spine's own gap-marker can't just call DeleteSpine - it
+    // refuses a spine that still has nodes on it. Instead this holds which spine is waiting on the
+    // user's "delete it and everything on it?" answer, between the frame Delete was pressed and the
+    // frame the confirm popup gets one.
+    struct canvas_delete_spine_confirm
+    {
+        std::uint64_t m_SpineId = 0; // 0 = no confirmation pending
+    };
+
+    // Zoom (mouse wheel, anchored under the cursor) and pan (right-drag on empty canvas space, both
+    // axes) - the canvas has no native ImGui scrollbar, so this is the only way to navigate a graph
+    // wider/taller than the window. No bounds on either axis - the graph can grow arbitrarily far in
+    // any direction as columns/spines are added, so there's no fixed content extent to clamp against.
     struct canvas_view
     {
         float m_Zoom = 1.0f;
+        float m_PanX = 0.0f;
         float m_PanY = 0.0f;
         bool  m_bPanDragActive = false; // true from a right-press starting inside the canvas until the
                                          // right button releases - tracked by hand (see DrawGraphCanvas)
@@ -1052,7 +1181,10 @@ namespace nodeos
     static void DrawGraphCanvas(std::vector<plugin_source_entry>& Sources, std::vector<available_node_type>& AvailableTypes, std::vector<node_instance>& Nodes
                                , std::vector<link_instance>& Links, mesh_preview_system& MeshPreview
                                , canvas_drag& Drag, canvas_selection& Selection, canvas_view& View
-                               , canvas_node_drag& NodeDrag, bool& bDirty, xundo::system& System)
+                               , canvas_node_drag& NodeDrag, canvas_spine_drag& SpineDrag
+                               , canvas_delete_spine_confirm& DeleteSpineConfirm
+                               , std::vector<spine>& Spines, std::vector<column>& Columns
+                               , bool& bDirty, xundo::system& System)
     {
         ImGui::SetNextWindowPos(ImVec2(440, 0), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(820, 560), ImGuiCond_FirstUseEver);
@@ -1113,104 +1245,274 @@ namespace nodeos
         auto FindNode = [&](std::uint64_t Id) -> node_instance* { auto It = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == Id; }); return It == Nodes.end() ? nullptr : &*It; };
         auto DescOf   = [&](node_instance* pN) -> const xnode_os_node* { return pN ? pN->m_pNode : nullptr; };
 
-        // ---- stacking order: sorted by m_Order, never freely dragged (rslgraph-ui's layout.ts) ----
+        auto FindColumn = [&](std::uint64_t Id) -> column* { for (auto& Co : Columns) if (Co.m_Id == Id) return &Co; return nullptr; };
+        std::unordered_map<std::uint64_t, std::uint64_t> ColumnOfSpine;
+        for (auto& S : Spines) ColumnOfSpine[S.m_Id] = S.m_ColumnId;
+        auto ColumnOfNode = [&](std::uint64_t NodeId) -> std::uint64_t { auto* pN = FindNode(NodeId); return pN ? ColumnOfSpine[pN->m_SpineId] : 0; };
+
+        // ---- Pass A: per-spine relative layout - each spine's own dense node order + sizes, Y
+        // relative to that spine's own local origin (not yet placed in world/column space). Spine
+        // (pure up/down connectivity, blind to highways) vs Column (the horizontal container that owns
+        // them) is a deliberate split - see this file's own design-conversation history. ----
+        struct spine_layout
+        {
+            std::vector<std::uint64_t> m_Order;               // this spine's own dense node order
+            std::vector<float>          m_RelY, m_W, m_H;       // parallel to m_Order
+            float                        m_RelBottom  = geo::NODE_GAP; // relative Y of the trailing gap
+            float                        m_WidestNode = 120.0f;
+        };
+        std::unordered_map<std::uint64_t, spine_layout> SpineLayout;
+        for (auto& S : Spines)
+        {
+            spine_layout SL;
+            std::vector<std::uint64_t> SpineNodeIds;
+            for (auto& N : Nodes) if (N.m_SpineId == S.m_Id) SpineNodeIds.push_back(N.m_Id);
+            std::sort(SpineNodeIds.begin(), SpineNodeIds.end(), [&](std::uint64_t A, std::uint64_t B) { return FindNode(A)->m_Order < FindNode(B)->m_Order; });
+
+            // A leading NODE_GAP (instead of starting flush at relative 0) reserves room for the
+            // "insert before the first node" spine marker below, so it sits in a real gap identical in
+            // size to every between-node gap rather than being crammed against the spine's own origin.
+            float CursorY = geo::NODE_GAP;
+            for (auto Id : SpineNodeIds)
+            {
+                auto* pDesc = DescOf(FindNode(Id));
+                if (!pDesc) continue;
+                const float W = NodeWidth(pDesc), H = NodeHeight(pDesc);
+                SL.m_WidestNode = std::max(SL.m_WidestNode, W);
+                SL.m_Order.push_back(Id); SL.m_RelY.push_back(CursorY); SL.m_W.push_back(W); SL.m_H.push_back(H);
+                CursorY += H + geo::NODE_GAP;
+            }
+            SL.m_RelBottom = CursorY;
+            SpineLayout.emplace(S.m_Id, std::move(SL));
+        }
+
+        // Relative Y of gap GapIndex (0 = before everything, m_Order.size() = after everything) within
+        // a spine's own local layout - the exact formula every DrawInsertMarker call site already used
+        // for the single-spine case, factored out so both the anchor walk (Pass B) and the marker-
+        // drawing loop further below can share it. An empty spine's own single placeholder slot sits at
+        // the same relative Y its first real node would (CursorY's own starting value above).
+        auto GapRelY = [&](const spine_layout& SL, int GapIndex) -> float
+        {
+            if (SL.m_Order.empty()) return geo::NODE_GAP;
+            if (GapIndex <= 0) return SL.m_RelY.front() - geo::NODE_GAP * 0.5f;
+            if (GapIndex >= (int)SL.m_Order.size()) return SL.m_RelY.back() + SL.m_H.back() + geo::NODE_GAP * 0.5f;
+            return SL.m_RelY[GapIndex - 1] + SL.m_H[GapIndex - 1] + geo::NODE_GAP * 0.5f;
+        };
+
+        // ---- Pass B: per-spine absolute Y. A spine's own m_Y IS its absolute world Y directly - no
+        // derivation needed, root included (it just starts seeded at geo::TOP, like any other spine
+        // starts wherever it was dropped). ----
+        std::unordered_map<std::uint64_t, float> SpineAbsY;
+        for (auto& S : Spines) SpineAbsY[S.m_Id] = S.m_Y;
+
+        // Every node, in no particular meaningful order - only used where "for every node" is all that
+        // matters (the render loop, the drag-to-connect port hit-test), never for relative ordering.
         std::vector<std::uint64_t> Order;
-        for (auto& N : Nodes) Order.push_back(N.m_Id);
-        std::sort(Order.begin(), Order.end(), [&](std::uint64_t A, std::uint64_t B) { return FindNode(A)->m_Order < FindNode(B)->m_Order; });
-        auto OrderIndex = [&](std::uint64_t Id) -> int { auto It = std::find(Order.begin(), Order.end(), Id); return It == Order.end() ? 0 : (int)(It - Order.begin()); };
+        for (auto& S : Spines) { auto& SL = SpineLayout[S.m_Id]; Order.insert(Order.end(), SL.m_Order.begin(), SL.m_Order.end()); }
 
         struct row_layout { std::uint64_t m_NodeId; float m_X, m_Y, m_W, m_H; };
         std::vector<row_layout> Layout;
-        float WidestNode = 120.0f;
-        // A leading NODE_GAP (instead of starting flush at TOP) reserves room for the "insert before
-        // the first node" spine marker below, so it sits in a real gap identical in size to every
-        // between-node gap rather than being crammed against the window edge.
-        float CursorY = geo::TOP + geo::NODE_GAP;
-        for (auto Id : Order)
+        for (auto& S : Spines)
         {
-            auto* pDesc = DescOf(FindNode(Id));
-            if (!pDesc) continue;
-            const float W = NodeWidth(pDesc), H = NodeHeight(pDesc);
-            WidestNode = std::max(WidestNode, W);
-            Layout.push_back({ Id, 0.0f, CursorY, W, H });
-            CursorY += H + geo::NODE_GAP;
+            auto& SL = SpineLayout[S.m_Id];
+            for (std::size_t i = 0; i < SL.m_Order.size(); ++i)
+                Layout.push_back({ SL.m_Order[i], 0.0f, SpineAbsY[S.m_Id] + SL.m_RelY[i], SL.m_W[i], SL.m_H[i] });
         }
-        const float SpineX = std::max(AvailWidth * 0.5f, 260.0f); // centered on the window, never so narrow the highways collide
-        for (auto& R : Layout) R.m_X = SpineX - R.m_W * 0.5f;
-        const float TotalH       = CursorY + 20.0f;
-        const float HighwayBase  = WidestNode * 0.5f + geo::ICON_CLEARANCE;
         auto FindRow = [&](std::uint64_t Id) -> row_layout* { auto It = std::find_if(Layout.begin(), Layout.end(), [&](auto& R) { return R.m_NodeId == Id; }); return It == Layout.end() ? nullptr : &*It; };
 
-        // Insert a new node instance at stacking position GapIndex (0 = before everything, Order.size()
-        // = after everything, i = between Order[i-1] and Order[i]) - renumbers every node's m_Order to
-        // its dense index in the resulting stack rather than doing arithmetic on the existing m_Order
-        // values, since deleting a node can leave those with gaps. Takes the plugin SOURCE, not a type
-        // descriptor directly, so the very first placement of a not-yet-compiled type can still
-        // compile+load it lazily (EnsureLoadedAndGetType).
-        auto InsertNodeAt = [&](int GapIndex, plugin_source_entry& Src)
+        // Is ColId's column to the right of OfColId's, walking the column chain structurally (never by
+        // comparing X positions - those aren't known yet this early, and don't need to be: the chain's
+        // own Left/Right links already say which way is which).
+        auto IsColumnRightOf = [&](std::uint64_t ColId, std::uint64_t OfColId) -> bool
         {
-            if (!EnsureLoadedAndGetType(Src, AvailableTypes)) return;
-            const auto NewId = xresource::guid_generator::Instance64();
+            for (auto* pCo = FindColumn(OfColId); pCo && pCo->m_RightId; pCo = FindColumn(pCo->m_RightId))
+                if (pCo->m_RightId == ColId) return true;
+            return false;
+        };
+
+        // Cross-column connection ownership (the user's own spec): draw the direct line from source to
+        // target and look at its diagonal direction - "down-right" or "up-left" (the horizontal and
+        // vertical steps agree in sign) means the SOURCE's own column carries the vertical run;
+        // "up-right" or "down-left" (they disagree) means the TARGET's column does. Same column (even
+        // a different spine sharing it) is unambiguous - always that one column, no diagonal to reason
+        // about.
+        auto OwnerColumnOf = [&](const link_instance& L) -> std::uint64_t
+        {
+            const auto SrcCol = ColumnOfNode(L.m_SourceNode), DstCol = ColumnOfNode(L.m_TargetNode);
+            if (SrcCol == DstCol) return SrcCol;
+            auto* pSrcRow = FindRow(L.m_SourceNode); auto* pDstRow = FindRow(L.m_TargetNode);
+            if (!pSrcRow || !pDstRow) return SrcCol;
+            const bool bRight = IsColumnRightOf(DstCol, SrcCol);
+            const bool bDown  = pDstRow->m_Y >= pSrcRow->m_Y;
+            return (bRight == bDown) ? SrcCol : DstCol;
+        };
+
+        float TotalH = 0.0f;
+        for (auto& S : Spines) TotalH = std::max(TotalH, SpineAbsY[S.m_Id] + SpineLayout[S.m_Id].m_RelBottom);
+        TotalH += 20.0f;
+
+        // Insert a new node instance at stacking position GapIndex within SpineId (0 = before
+        // everything in that spine, that spine's own node count = after everything) - renumbers every
+        // node's m_Order (spine-local, not global any more) to its dense index in the resulting stack
+        // rather than doing arithmetic on the existing m_Order values, since deleting a node can leave
+        // those with gaps. Takes the plugin SOURCE, not a type descriptor directly, so the very first
+        // placement of a not-yet-compiled type can still compile+load it lazily.
+        auto InsertNodeAt = [&](std::uint64_t SpineId, int GapIndex, plugin_source_entry& Src)
+        {
+            auto* pType = EnsureLoadedAndGetType(Src, AvailableTypes);
+            if (!pType) return;
+            auto& SL = SpineLayout[SpineId];
+            if (SL.m_Order.empty()) { commands::Run(System, commands::MakeCreateNodeInSpine(xresource::guid_generator::Instance64(), Src.m_DirName, SpineId)); return; }
+
+            const int Clamped = std::clamp(GapIndex, 0, (int)SL.m_Order.size());
+
+            // Growth-blocking is a UI-LAYER GATE, never inside create_node_cmd::Redo() (which stays
+            // 100% ImGui-free/headless-safe) - appending past the bottom must not be allowed to grow
+            // into a sibling spine sharing this column. Measured via a throwaway instance, since a
+            // not-yet-created node's own height depends on its real port list, not just its type; for
+            // now, a collision here just silently rejects the append (same as an unresolved drag-drop)
+            // - "fracturing" a spine to make room is deliberately left for later.
+            if (Clamped >= (int)SL.m_Order.size())
+            {
+                auto& TempInstance = pType->CreateNodeInstance();
+                const float NewBottom = SpineAbsY[SpineId] + SL.m_RelBottom + NodeHeight(&TempInstance);
+                pType->DestroyNodeInstance(TempInstance);
+                for (auto& S2 : Spines)
+                {
+                    if (S2.m_Id == SpineId || S2.m_ColumnId != ColumnOfSpine[SpineId]) continue;
+                    auto& SL2 = SpineLayout[S2.m_Id];
+                    if (SpineAbsY[SpineId] <= SpineAbsY[S2.m_Id] + SL2.m_RelBottom && SpineAbsY[S2.m_Id] <= NewBottom) return;
+                }
+            }
+
             // Addressed relative to whichever EXISTING node currently sits at this gap - see
             // create_node_cmd's own comment for why (node ids are already known/observable, an
-            // invented "gap id" would need its own discovery step). Order is non-empty here (this
-            // lambda is only reachable once Layout is non-empty).
-            const int Clamped = std::clamp(GapIndex, 0, (int)Order.size());
-            const std::string Cmd = (Clamped < (int)Order.size())
-                ? commands::MakeCreateNodeBefore(NewId, Src.m_DirName, Order[Clamped])
-                : commands::MakeCreateNodeAfter(NewId, Src.m_DirName, Order.back());
+            // invented "gap id" would need its own discovery step).
+            const auto NewId = xresource::guid_generator::Instance64();
+            const std::string Cmd = (Clamped < (int)SL.m_Order.size())
+                ? commands::MakeCreateNodeBefore(NewId, Src.m_DirName, SL.m_Order[Clamped])
+                : commands::MakeCreateNodeAfter(NewId, Src.m_DirName, SL.m_Order.back());
             commands::Run(System, Cmd);
         };
 
-        // Move an already-existing set of nodes (a drag-and-drop reorder) to stacking position
-        // GapIndex, same dense-renumber approach as InsertNodeAt - GapIndex is expressed against the
-        // ORIGINAL Order, so it's adjusted by however many of the moving nodes sat before it there.
-        // Pure reorder: no bDirty, since it doesn't change what's connected to what.
-        auto MoveNodesTo = [&](const std::vector<std::uint64_t>& MovingIds, int GapIndex)
+        // Move an already-existing set of nodes (a drag-and-drop reorder or, now, a drag onto a
+        // DIFFERENT spine's own marker) to stacking position GapIndex WITHIN SpineId. Same-spine drop:
+        // a pure dense-renumber reorder (ReorderNodes), unchanged from before spines existed.
+        // Cross-spine drop: issues MoveNodesToSpine instead, addressed the same way InsertNodeAt
+        // addresses a new node (-After/-Before an existing node, or -InSpine for an empty target).
+        auto MoveNodesTo = [&](std::uint64_t SpineId, const std::vector<std::uint64_t>& MovingIds, int GapIndex)
         {
-            std::vector<std::uint64_t> MovingInOrder, Remaining;
-            for (auto Id : Order)
+            if (MovingIds.empty()) return;
+            const bool bAllAlreadyHere = std::all_of(MovingIds.begin(), MovingIds.end(), [&](std::uint64_t Id) { auto* pN = FindNode(Id); return pN && pN->m_SpineId == SpineId; });
+            auto& SL = SpineLayout[SpineId];
+
+            if (bAllAlreadyHere)
             {
-                if (std::find(MovingIds.begin(), MovingIds.end(), Id) != MovingIds.end()) MovingInOrder.push_back(Id);
-                else Remaining.push_back(Id);
+                std::vector<std::uint64_t> MovingInOrder, Remaining;
+                for (auto Id : SL.m_Order)
+                {
+                    if (std::find(MovingIds.begin(), MovingIds.end(), Id) != MovingIds.end()) MovingInOrder.push_back(Id);
+                    else Remaining.push_back(Id);
+                }
+                if (MovingInOrder.empty()) return;
+                int Adjust = 0;
+                for (int i = 0; i < GapIndex && i < (int)SL.m_Order.size(); ++i)
+                    if (std::find(MovingIds.begin(), MovingIds.end(), SL.m_Order[i]) != MovingIds.end()) ++Adjust;
+                const int NewGapIndex = std::clamp(GapIndex - Adjust, 0, (int)Remaining.size());
+                Remaining.insert(Remaining.begin() + NewGapIndex, MovingInOrder.begin(), MovingInOrder.end());
+                commands::Run(System, commands::MakeReorderNodes(Remaining));
+                return;
             }
-            if (MovingInOrder.empty()) return;
-            int Adjust = 0;
-            for (int i = 0; i < GapIndex && i < (int)Order.size(); ++i)
-                if (std::find(MovingIds.begin(), MovingIds.end(), Order[i]) != MovingIds.end()) ++Adjust;
-            const int NewGapIndex = std::clamp(GapIndex - Adjust, 0, (int)Remaining.size());
-            Remaining.insert(Remaining.begin() + NewGapIndex, MovingInOrder.begin(), MovingInOrder.end());
-            commands::Run(System, commands::MakeReorderNodes(Remaining));
+
+            // Cross-spine move: the same growth-blocking gate InsertNodeAt uses, checked only for an
+            // append (past the end) - inserting into the middle is left unguarded for now, same
+            // limitation InsertNodeAt already accepts. These are real (not throwaway) instances, so
+            // their height is already known without needing to create/destroy a temporary one.
+            const int Clamped = std::clamp(GapIndex, 0, (int)SL.m_Order.size());
+            if (Clamped >= (int)SL.m_Order.size())
+            {
+                // A sibling that this exact move is about to drain completely (e.g. merging a whole
+                // spine into another one sitting in the same column) isn't a real obstacle - by the time
+                // the append actually lands there, it'll be gone.
+                auto WouldBecomeEmpty = [&](std::uint64_t OtherSpineId)
+                {
+                    bool bHasAny = false;
+                    for (auto& N : Nodes)
+                        if (N.m_SpineId == OtherSpineId)
+                        {
+                            bHasAny = true;
+                            if (std::find(MovingIds.begin(), MovingIds.end(), N.m_Id) == MovingIds.end()) return false;
+                        }
+                    return bHasAny;
+                };
+                float AddedHeight = 0.0f;
+                for (auto Id : MovingIds) { auto* pN = FindNode(Id); if (pN && pN->m_pNode) AddedHeight += NodeHeight(pN->m_pNode) + geo::NODE_GAP; }
+                const float NewBottom = SpineAbsY[SpineId] + SL.m_RelBottom + AddedHeight;
+                for (auto& S2 : Spines)
+                {
+                    if (S2.m_Id == SpineId || S2.m_ColumnId != ColumnOfSpine[SpineId] || WouldBecomeEmpty(S2.m_Id)) continue;
+                    auto& SL2 = SpineLayout[S2.m_Id];
+                    if (SpineAbsY[SpineId] <= SpineAbsY[S2.m_Id] + SL2.m_RelBottom && SpineAbsY[S2.m_Id] <= NewBottom) return;
+                }
+            }
+
+            const std::string Cmd = SL.m_Order.empty() ? commands::MakeMoveNodesToSpineIn(MovingIds, SpineId)
+                : (Clamped < (int)SL.m_Order.size() ? commands::MakeMoveNodesToSpineBefore(MovingIds, SL.m_Order[Clamped])
+                                                     : commands::MakeMoveNodesToSpineAfter(MovingIds, SL.m_Order.back()));
+            commands::Run(System, Cmd);
         };
 
         // ---- per-port side (L/R): chosen by wire direction, so a wire never crosses over its own
         // destination node - the source's output and the target's input both take the side that
-        // matches whether the wire travels down (R) or up (L) the stack (Canvas.tsx's `state` memo).
-        // A link's highway side is a pure per-link fact (which way it travels in the stack) - computing
-        // it fresh wherever needed, rather than caching it keyed only by pin, is what fixes the "a pin
-        // with wires going both up and down only ever renders on one side" bug: a single pin can need
-        // BOTH sides at once (one link outgoing up, another down), so anything keyed purely by pin id
-        // can only ever remember the last link that touched it.
-        auto LinkSide = [&](const link_instance& L) -> char { return (OrderIndex(L.m_TargetNode) >= OrderIndex(L.m_SourceNode)) ? 'R' : 'L'; };
+        // matches whether the wire travels down (R) or up (L) in absolute world space. A link's
+        // highway side is a pure per-link fact (which way it travels) - computing it fresh wherever
+        // needed, rather than caching it keyed only by pin, is what fixes the "a pin with wires going
+        // both up and down only ever renders on one side" bug. Compared by each node's own ABSOLUTE Y
+        // (not a per-spine stacking index) specifically so this stays correct for a link between two
+        // DIFFERENT spines that share a column - the highway/lane packing belongs to the column, not
+        // the spine, and connect_cmd only forbids a link from leaving its column, not its spine.
+        auto LinkSide = [&](const link_instance& L) -> char
+        {
+            auto* pSrcRow = FindRow(L.m_SourceNode); auto* pDstRow = FindRow(L.m_TargetNode);
+            if (!pSrcRow || !pDstRow) return 'R';
+            return (pDstRow->m_Y >= pSrcRow->m_Y) ? 'R' : 'L';
+        };
+
+        // Same column: the ORIGINAL rule above - both ends share one side, chosen purely by up/down
+        // travel. Cross column: each end's pin instead renders on whichever of its own two edges faces
+        // the OTHER column (so neither end ever has to route back around its own node to reach the
+        // highway) - and the rail (within whichever column OwnerColumnOf resolves to) sits on that
+        // same owning end's own facing side, so the vertical run starts already pointed the right way.
+        auto LinkSides = [&](const link_instance& L, char& OutSourceSide, char& OutTargetSide, char& OutRailSide)
+        {
+            const auto SrcCol = ColumnOfNode(L.m_SourceNode), DstCol = ColumnOfNode(L.m_TargetNode);
+            if (SrcCol == DstCol) { OutSourceSide = OutTargetSide = OutRailSide = LinkSide(L); return; }
+            const bool bTargetRight = IsColumnRightOf(DstCol, SrcCol);
+            OutSourceSide = bTargetRight ? 'R' : 'L';
+            OutTargetSide = bTargetRight ? 'L' : 'R';
+            OutRailSide   = (OwnerColumnOf(L) == SrcCol) ? OutSourceSide : OutTargetSide;
+        };
 
         // Which side(s) a given pin actually needs a glyph rendered on - a set, not a single side, so a
-        // pin used by links going both directions gets two glyphs, one per side actually in use.
+        // pin used by links going in different directions (up vs down, or toward different columns)
+        // gets one glyph per side actually in use.
         std::unordered_map<std::uint64_t, std::set<char>> PortSides;
         for (auto& Link : Links)
         {
-            const char S = LinkSide(Link);
-            PortSides[OutPinOf(Link.m_SourceNode, Link.m_SourceOutput)].insert(S);
-            PortSides[InPinOf(Link.m_TargetNode, Link.m_TargetInput)].insert(S);
+            char SourceSide = 'R', TargetSide = 'R', RailSide = 'R';
+            LinkSides(Link, SourceSide, TargetSide, RailSide);
+            PortSides[OutPinOf(Link.m_SourceNode, Link.m_SourceOutput)].insert(SourceSide);
+            PortSides[InPinOf(Link.m_TargetNode, Link.m_TargetInput)].insert(TargetSide);
         }
-        // Every rendered side for an unconnected pin defaults to 'R', matching this codebase's existing
-        // convention for a pin nothing has touched yet.
-        auto SidesOf = [&](std::uint64_t PinId) -> std::set<char>
+        // An unconnected pin defaults to the conventional side for its direction - input on the left,
+        // output on the right - same as every other node-graph editor. A connected pin instead renders
+        // wherever its actual link(s) go (PortSides above), which may not be the default side at all.
+        auto SidesOf = [&](std::uint64_t PinId, bool bIsOutput) -> std::set<char>
         {
             auto It = PortSides.find(PinId);
-            return It == PortSides.end() ? std::set<char>{'R'} : It->second;
+            return It == PortSides.end() ? std::set<char>{ bIsOutput ? 'R' : 'L' } : It->second;
         };
 
-        auto HighwayX = [&](char S, int Lane) { const float D = HighwayBase + Lane * geo::LANE_GAP; return S == 'L' ? SpineX - D : SpineX + D; };
         // Takes the side explicitly now - a port can have two valid anchor points (one per side it's
         // rendered on), so "the" anchor no longer makes sense without saying which one.
         auto PortAnchor = [&](std::uint64_t NodeId, const port_ref& P, char S) -> ImVec2
@@ -1229,18 +1531,18 @@ namespace nodeos
             return { (S == 'L') ? pRow->m_X : pRow->m_X + pRow->m_W, Y };
         };
 
-        // ---- lane packing per side: greedy interval partitioning, NOT rslgraph-ui's own laneOf (which
-        // is just a stateless per-side counter - order of appearance, nothing more; verified directly
-        // in Canvas.tsx). Sorting by Y-span length before assigning means a short/local hop always gets
+        // ---- lane packing: greedy interval partitioning, NOT rslgraph-ui's own laneOf (which is just
+        // a stateless per-side counter - order of appearance, nothing more; verified directly in
+        // Canvas.tsx). Sorting by Y-span length before assigning means a short/local hop always gets
         // first pick of the innermost lane, and only actually claims a new lane when it truly overlaps
-        // something already there - so nearby connections hug the spine and far-traveling ones are the
-        // only thing pushed outward, and any lane that's genuinely free gets reused instead of growing
-        // the lane count.
+        // something already there. Pooled PER COLUMN, keyed by OwnerColumnOf(Link) - a connection can
+        // now span any two columns, but its vertical run only ever lives in ONE of them at a time (see
+        // OwnerColumnOf's own comment) - no two columns' highways ever interact.
         struct link_lane_interval { float m_Lo, m_Hi; };
-        std::vector<std::vector<link_lane_interval>> LaneIntervals[2]; // [0]=L, [1]=R
+        std::unordered_map<std::uint64_t, std::vector<std::vector<link_lane_interval>>> LaneIntervalsBySide[2]; // [0]=L, [1]=R, keyed by column id
         std::unordered_map<std::uint64_t, int> LaneOfLink;
         {
-            struct link_span { std::uint64_t m_LinkId; int m_Side; float m_Lo, m_Hi; };
+            struct link_span { std::uint64_t m_LinkId, m_ColumnId; int m_Side; float m_Lo, m_Hi; };
             std::vector<link_span> Spans;
             for (auto& Link : Links)
             {
@@ -1250,15 +1552,16 @@ namespace nodeos
                 if (Link.m_SourceOutput >= (int)SrcOutputs.size() || Link.m_TargetInput >= (int)DstInputs.size()) continue;
                 const port_ref OutP{ true, Link.m_SourceOutput, &SrcOutputs[Link.m_SourceOutput] };
                 const port_ref InP { false, Link.m_TargetInput,  &DstInputs[Link.m_TargetInput] };
-                const char LSide = LinkSide(Link);
-                const float FromY = PortAnchor(Link.m_SourceNode, OutP, LSide).y, ToY = PortAnchor(Link.m_TargetNode, InP, LSide).y;
-                const int Side2 = (LSide == 'R') ? 1 : 0;
-                Spans.push_back({ Link.m_Id, Side2, std::min(FromY, ToY), std::max(FromY, ToY) });
+                char SourceSide = 'R', TargetSide = 'R', RailSide = 'R';
+                LinkSides(Link, SourceSide, TargetSide, RailSide);
+                const float FromY = PortAnchor(Link.m_SourceNode, OutP, SourceSide).y, ToY = PortAnchor(Link.m_TargetNode, InP, TargetSide).y;
+                const int Side2 = (RailSide == 'R') ? 1 : 0;
+                Spans.push_back({ Link.m_Id, OwnerColumnOf(Link), Side2, std::min(FromY, ToY), std::max(FromY, ToY) });
             }
             std::sort(Spans.begin(), Spans.end(), [](auto& A, auto& B) { return (A.m_Hi - A.m_Lo) < (B.m_Hi - B.m_Lo); });
             for (auto& S : Spans)
             {
-                auto& Lanes = LaneIntervals[S.m_Side];
+                auto& Lanes = LaneIntervalsBySide[S.m_Side][S.m_ColumnId];
                 int ChosenLane = -1;
                 for (int L = 0; L < (int)Lanes.size(); ++L)
                 {
@@ -1271,7 +1574,55 @@ namespace nodeos
                 LaneOfLink[S.m_LinkId] = ChosenLane;
             }
         }
-        const int LaneCount[2] = { (int)LaneIntervals[0].size(), (int)LaneIntervals[1].size() };
+        auto LaneCountOf = [&](std::uint64_t ColId, int Side01) -> int
+        {
+            auto It = LaneIntervalsBySide[Side01].find(ColId);
+            return It == LaneIntervalsBySide[Side01].end() ? 0 : (int)It->second.size();
+        };
+
+        // ---- Pass C: per-column X, root first then walking Left/Right outward - required order, not
+        // a choice: each column's X depends on the previous column's own live highway extent on that
+        // side. A column's width is its own boxes + its own highway lane extent - no two columns'
+        // highways ever interact. ----
+        std::unordered_map<std::uint64_t, float> ColumnWidestNode;
+        for (auto& S : Spines)
+        {
+            auto& W = ColumnWidestNode[S.m_ColumnId];
+            W = std::max(W, SpineLayout[S.m_Id].m_WidestNode);
+        }
+        auto HighwayBaseOf = [&](std::uint64_t ColId) -> float
+        {
+            auto It = ColumnWidestNode.find(ColId);
+            return (It == ColumnWidestNode.end() ? 120.0f : It->second) * 0.5f + geo::ICON_CLEARANCE;
+        };
+        auto Extent = [&](std::uint64_t ColId, char Side) -> float
+        {
+            const int Count = LaneCountOf(ColId, Side == 'R' ? 1 : 0);
+            return HighwayBaseOf(ColId) + std::max(0, Count - 1) * geo::LANE_GAP;
+        };
+
+        std::unordered_map<std::uint64_t, float> ColumnX;
+        std::uint64_t RootColumnId = 0;
+        for (auto& Co : Columns) if (Co.m_bIsRoot) { RootColumnId = Co.m_Id; break; }
+        ColumnX[RootColumnId] = std::max(AvailWidth * 0.5f, 260.0f); // centered on the window, never so narrow the highways collide
+        for (auto* pCo = FindColumn(RootColumnId); pCo && pCo->m_LeftId; )
+        {
+            auto* pNext = FindColumn(pCo->m_LeftId);
+            if (!pNext) break;
+            ColumnX[pNext->m_Id] = ColumnX[pCo->m_Id] - (Extent(pCo->m_Id, 'L') + geo::COLUMN_MARGIN + Extent(pNext->m_Id, 'R'));
+            pCo = pNext;
+        }
+        for (auto* pCo = FindColumn(RootColumnId); pCo && pCo->m_RightId; )
+        {
+            auto* pNext = FindColumn(pCo->m_RightId);
+            if (!pNext) break;
+            ColumnX[pNext->m_Id] = ColumnX[pCo->m_Id] + (Extent(pCo->m_Id, 'R') + geo::COLUMN_MARGIN + Extent(pNext->m_Id, 'L'));
+            pCo = pNext;
+        }
+        for (auto& R : Layout) R.m_X = ColumnX[ColumnOfNode(R.m_NodeId)] - R.m_W * 0.5f;
+
+        const float SpineX = ColumnX[RootColumnId]; // the window always centers on the ROOT column - see ToScreen below, unchanged from before spines existed
+        auto HighwayX = [&](std::uint64_t ColId, char S, int Lane) { const float D = HighwayBaseOf(ColId) + Lane * geo::LANE_GAP; return S == 'L' ? ColumnX[ColId] - D : ColumnX[ColId] + D; };
 
         const ImVec2 WindowOrigin = ImGui::GetCursorScreenPos();
         const float  AvailHeight  = ImGui::GetContentRegionAvail().y; // captured before canvas_bg (below) advances the cursor and shrinks it
@@ -1287,24 +1638,25 @@ namespace nodeos
         const bool bMouseInCanvasRect = ImGui::IsMouseHoveringRect(WindowOrigin, { WindowOrigin.x + AvailWidth, WindowOrigin.y + AvailHeight });
         const float WindowCenterX = WindowOrigin.x + AvailWidth * 0.5f;
 
-        // Wheel zoom, anchored under the cursor, vertically only - horizontally the stack is always
-        // window-centered, see canvas_view's own comment. The canvas has no native scrollbar (see
-        // ImGuiWindowFlags above); right-drag on empty canvas space (below) handles vertical pan.
+        // Wheel zoom, anchored under the cursor on both axes. The canvas has no native scrollbar (see
+        // ImGuiWindowFlags above); right-drag on empty canvas space (below) handles panning, both axes.
         if (bMouseInCanvasRect)
         {
             const float Wheel = ImGui::GetIO().MouseWheel;
             if (Wheel != 0.0f)
             {
+                const float LocalXAtMouse = (ImGui::GetIO().MousePos.x - WindowCenterX - View.m_PanX) / View.m_Zoom + SpineX;
                 const float LocalYAtMouse = (ImGui::GetIO().MousePos.y - WindowOrigin.y - View.m_PanY) / View.m_Zoom;
                 View.m_Zoom = std::clamp(View.m_Zoom + Wheel * 0.1f, 0.3f, 2.5f);
+                View.m_PanX = ImGui::GetIO().MousePos.x - WindowCenterX - (LocalXAtMouse - SpineX) * View.m_Zoom;
                 View.m_PanY = ImGui::GetIO().MousePos.y - WindowOrigin.y - LocalYAtMouse * View.m_Zoom;
             }
         }
 
-        auto ToScreen    = [&](ImVec2 P) { return ImVec2(WindowCenterX + (P.x - SpineX) * View.m_Zoom, WindowOrigin.y + View.m_PanY + P.y * View.m_Zoom); };
+        auto ToScreen    = [&](ImVec2 P) { return ImVec2(WindowCenterX + View.m_PanX + (P.x - SpineX) * View.m_Zoom, WindowOrigin.y + View.m_PanY + P.y * View.m_Zoom); };
         auto ToScreenLen = [&](float L) { return L * View.m_Zoom; };
         ImDrawList* pDraw = ImGui::GetWindowDrawList();
-        const ImVec2 MouseLocal{ SpineX + (ImGui::GetIO().MousePos.x - WindowCenterX) / View.m_Zoom, (ImGui::GetIO().MousePos.y - WindowOrigin.y - View.m_PanY) / View.m_Zoom };
+        const ImVec2 MouseLocal{ SpineX + (ImGui::GetIO().MousePos.x - WindowCenterX - View.m_PanX) / View.m_Zoom, (ImGui::GetIO().MousePos.y - WindowOrigin.y - View.m_PanY) / View.m_Zoom };
 
         // Background catcher, submitted first so it sits "under" every node/pin/button widget
         // (each marked AllowOverlap below to win hover/clicks over this) - gives click-on-empty-space
@@ -1334,36 +1686,31 @@ namespace nodeos
         if (View.m_bPanDragActive)
         {
             if (ImGui::IsMouseDown(ImGuiMouseButton_Right))
+            {
+                View.m_PanX += ImGui::GetIO().MouseDelta.x;
                 View.m_PanY += ImGui::GetIO().MouseDelta.y;
+            }
             else
                 View.m_bPanDragActive = false;
         }
         const bool bBackgroundClicked = ImGui::IsItemClicked(ImGuiMouseButton_Left);
 
-        // Clamp panning to the actual content bounds - the first node's leading gap (local Y 0) and the
-        // last node's trailing gap (TotalH) should never be pushed off-screen unless the stack is
-        // genuinely taller than the window; even then, panning stops exactly at the real ends instead of
-        // overscrolling into a gap the nodes themselves don't justify. Applied after both the wheel-zoom
-        // and the drag-pan above so neither can leave PanY out of range.
+        auto DrawHighwayPath = [&](std::uint64_t ColId, ImVec2 From, ImVec2 To, char S, int Lane, ImU32 Col, float Thickness, const float* pDash)
         {
-            const float ContentHeightScreen = TotalH * View.m_Zoom;
-            if (ContentHeightScreen <= AvailHeight)
-                View.m_PanY = 0.0f;
-            else
-                View.m_PanY = std::clamp(View.m_PanY, AvailHeight - ContentHeightScreen, 0.0f);
-        }
-
-        auto DrawHighwayPath = [&](ImVec2 From, ImVec2 To, char S, int Lane, ImU32 Col, float Thickness, const float* pDash)
-        {
-            const float HX = HighwayX(S, Lane);
+            const float HX = HighwayX(ColId, S, Lane);
             (void)pDash; // no native dashed-line primitive - dashing omitted, solid preview line is distinguished by color instead
             pDraw->AddLine(ToScreen(From), ToScreen({ HX, From.y }), Col, Thickness);
             pDraw->AddLine(ToScreen({ HX, From.y }), ToScreen({ HX, To.y }), Col, Thickness);
             pDraw->AddLine(ToScreen({ HX, To.y }), ToScreen(To), Col, Thickness);
         };
 
-        pDraw->AddLine(ToScreen({ HighwayX('L', 0), 0 }), ToScreen({ HighwayX('L', 0), TotalH }), IM_COL32(30, 38, 58, 255));
-        pDraw->AddLine(ToScreen({ HighwayX('R', 0), 0 }), ToScreen({ HighwayX('R', 0), TotalH }), IM_COL32(30, 38, 58, 255));
+        // One rail pair per column, each spanning the full graph height - harmless to draw past a
+        // column's own actual content, and simpler than tracking each column's own vertical extent.
+        for (auto& Co : Columns)
+        {
+            pDraw->AddLine(ToScreen({ HighwayX(Co.m_Id, 'L', 0), 0 }), ToScreen({ HighwayX(Co.m_Id, 'L', 0), TotalH }), IM_COL32(30, 38, 58, 255));
+            pDraw->AddLine(ToScreen({ HighwayX(Co.m_Id, 'R', 0), 0 }), ToScreen({ HighwayX(Co.m_Id, 'R', 0), TotalH }), IM_COL32(30, 38, 58, 255));
+        }
 
         for (auto& Link : Links)
         {
@@ -1375,15 +1722,17 @@ namespace nodeos
             const port_ref InP { false, Link.m_TargetInput,  &DstInputs[Link.m_TargetInput] };
             const bool bSelected = (Selection.m_SelectedLink == Link.m_Id);
             const ImU32 Col = bSelected ? IM_COL32(253, 224, 71, 255) : TypeColor(OutP.m_pDesc->m_pTypeName);
-            const char LSide = LinkSide(Link);
-            DrawHighwayPath(PortAnchor(Link.m_SourceNode, OutP, LSide), PortAnchor(Link.m_TargetNode, InP, LSide)
-                           , LSide, LaneOfLink[Link.m_Id], Col, bSelected ? 3.0f : 2.0f, nullptr);
+            char SourceSide = 'R', TargetSide = 'R', RailSide = 'R';
+            LinkSides(Link, SourceSide, TargetSide, RailSide);
+            DrawHighwayPath(OwnerColumnOf(Link), PortAnchor(Link.m_SourceNode, OutP, SourceSide), PortAnchor(Link.m_TargetNode, InP, TargetSide)
+                           , RailSide, LaneOfLink[Link.m_Id], Col, bSelected ? 3.0f : 2.0f, nullptr);
         }
 
         if (Drag.m_bActive)
         {
             const char S = Drag.m_FromSide;
-            DrawHighwayPath(Drag.m_FromPos, MouseLocal, S, LaneCount[S == 'R' ? 1 : 0], IM_COL32(125, 211, 252, 255), 2.0f, nullptr);
+            const auto DragColumnId = ColumnOfNode(Drag.m_FromNode);
+            DrawHighwayPath(DragColumnId, Drag.m_FromPos, MouseLocal, S, LaneCountOf(DragColumnId, S == 'R' ? 1 : 0), IM_COL32(125, 211, 252, 255), 2.0f, nullptr);
         }
 
         const float FontSize = ImGui::GetFontSize() * View.m_Zoom;
@@ -1485,7 +1834,7 @@ namespace nodeos
                 // A pin used by links going both up and down the stack needs a glyph on BOTH sides -
                 // one per side actually in use (SidesOf), not just whichever link happened to be
                 // processed last into a single shared "the" side.
-                for (char S : SidesOf(PinOf(P, Id)))
+                for (char S : SidesOf(PinOf(P, Id), P.m_bIsOutput))
                 {
                     const float CX = (S == 'L') ? pRow->m_X : pRow->m_X + pRow->m_W;
 
@@ -1578,19 +1927,24 @@ namespace nodeos
             ImGui::PopID();
         }
 
-        // ---- the spine: a "+" marker in every gap of the stack (before the first node, between each
-        // consecutive pair, after the last) - left-click one to insert a node at that exact position.
-        // This is the "skeleton" the user asked to make the stacking order itself directly editable.
-        // (GapIndex, local Y) of every marker drawn below - collected so the node-drag drop below can
-        // hit-test against MouseLocal directly (see the comment there for why, instead of ImGui hover).
-        std::vector<std::pair<int, float>> MarkerPositions;
-        if (!Layout.empty())
+        // ---- the spine control: a "+" marker (with its box, and now two circles) in every gap of
+        // every spine (before its first node, between each consecutive pair, after its last - or just
+        // one, for a currently-empty spine) - left-click one to insert a node at that exact position;
+        // drag a circle to grow a whole new spine off it. This is the "skeleton" the user asked to make
+        // the stacking order itself directly editable, now extended to grow sideways too.
+        struct marker_pos { std::uint64_t m_SpineId; int m_GapIndex; float m_X, m_Y; };
+        std::vector<marker_pos> MarkerPositions;
+        for (auto& Sp : Spines)
         {
-            auto DrawInsertMarker = [&](int GapIndex, float Y)
+            auto& SL = SpineLayout[Sp.m_Id];
+            const float MarkerX = ColumnX[Sp.m_ColumnId];
+
+            auto DrawInsertMarker = [&](int GapIndex)
             {
-                MarkerPositions.push_back({ GapIndex, Y });
-                const bool   bSelected = (Selection.m_SelectedGap == GapIndex);
-                const ImVec2 Center = ToScreen({ SpineX, Y });
+                const float Y = SpineAbsY[Sp.m_Id] + GapRelY(SL, GapIndex);
+                MarkerPositions.push_back({ Sp.m_Id, GapIndex, MarkerX, Y });
+                const bool   bSelected = (Selection.m_SelectedGapSpineId == Sp.m_Id && Selection.m_SelectedGapIndex == GapIndex);
+                const ImVec2 Center = ToScreen({ MarkerX, Y });
                 const float  HalfW = ToScreenLen(28.0f), HalfH = ToScreenLen(13.0f);
                 const ImVec2 BoxMin{ Center.x - HalfW, Center.y - HalfH }, BoxMax{ Center.x + HalfW, Center.y + HalfH };
                 const float  PlusR = ToScreenLen(10.0f);
@@ -1612,6 +1966,7 @@ namespace nodeos
                 pDraw->AddLine({ Center.x, Center.y - Arm }, { Center.x, Center.y + Arm }, IM_COL32(226, 232, 240, 255), ToScreenLen(1.5f));
 
                 ImGui::PushID("spine_insert");
+                ImGui::PushID((int)Sp.m_Id); ImGui::PushID((int)(Sp.m_Id >> 32));
                 ImGui::PushID(GapIndex);
 
                 // Box hit region, submitted first (bigger, covers the + button's area too).
@@ -1622,11 +1977,10 @@ namespace nodeos
                 {
                     // Addressed relative to the node currently on one side of this gap, same reasoning
                     // as CreateNode's own -After/-Before (a raw, shifting GapIndex isn't something
-                    // worth serializing into a durable command). Order is non-empty here (only reached
-                    // once Layout is non-empty).
-                    const std::string Cmd = (GapIndex < (int)Order.size())
-                        ? commands::MakeSelectMarkerBefore(Order[GapIndex])
-                        : commands::MakeSelectMarkerAfter(Order.back());
+                    // worth serializing into a durable command) - or, for a currently-empty spine, the
+                    // spine itself (-MarkerSpine, legal only in that case).
+                    const std::string Cmd = SL.m_Order.empty() ? commands::MakeSelectMarkerSpine(Sp.m_Id)
+                        : (GapIndex < (int)SL.m_Order.size() ? commands::MakeSelectMarkerBefore(SL.m_Order[GapIndex]) : commands::MakeSelectMarkerAfter(SL.m_Order.back()));
                     commands::Run(System, Cmd);
                 }
 
@@ -1644,17 +1998,62 @@ namespace nodeos
                         ImGui::TextDisabled("No plugin sources found under Plugins/.");
                     for (auto& Src : Sources)
                         if (ImGui::MenuItem(Src.m_DisplayName.c_str()))
-                            InsertNodeAt(GapIndex, Src);
+                            InsertNodeAt(Sp.m_Id, GapIndex, Src);
+
+                    // Only a real split when there's something on both sides of this exact gap - splitting
+                    // at the very top (nothing above) or the very bottom (nothing below) wouldn't actually
+                    // separate anything. The new spine lands in the SAME column, anchored at this gap's own
+                    // current absolute Y, so its nodes stay exactly where they visually already are.
+                    if (GapIndex > 0 && GapIndex < (int)SL.m_Order.size())
+                    {
+                        ImGui::Separator();
+                        if (ImGui::MenuItem("Split spine here"))
+                        {
+                            const auto NewSpineId = xresource::guid_generator::Instance64();
+                            const std::vector<std::uint64_t> Trailing(SL.m_Order.begin() + GapIndex, SL.m_Order.end());
+                            commands::Run(System, commands::MakeCreateSpineExistingColumn(NewSpineId, Y, Sp.m_ColumnId));
+                            commands::Run(System, commands::MakeMoveNodesToSpineIn(Trailing, NewSpineId));
+                        }
+                    }
                     ImGui::EndPopup();
                 }
+
+                // The two spine-control circles, positioned OUTSIDE the box's own edges so they never
+                // overlap its click area (the same overlapping-InvisibleButton lesson this file already
+                // learned once). Always present, even on a currently-empty spine's own lone placeholder -
+                // that's the only way to grab and drag a still-empty spine anywhere.
+                {
+                    const float CircleR   = ToScreenLen(geo::SPINE_CIRCLE_R);
+                    const float CircleGap = ToScreenLen(geo::SPINE_CIRCLE_GAP);
+                    const ImVec2 CircleCenters[2] = { { BoxMin.x - CircleGap - CircleR, Center.y }, { BoxMax.x + CircleGap + CircleR, Center.y } };
+                    for (int Side = 0; Side < 2; ++Side)
+                    {
+                        ImGui::PushID(Side);
+                        ImGui::SetNextItemAllowOverlap();
+                        ImGui::SetCursorScreenPos({ CircleCenters[Side].x - CircleR, CircleCenters[Side].y - CircleR });
+                        ImGui::InvisibleButton("circle", ImVec2(CircleR * 2, CircleR * 2));
+                        const bool bHovered = ImGui::IsItemHovered();
+                        if (ImGui::IsItemActivated())
+                        {
+                            SpineDrag.m_bActive = false; // only flips true past the drag threshold below
+                            SpineDrag.m_SpineId = Sp.m_Id;
+                            SpineDrag.m_GrabY   = Y;
+                        }
+                        if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 3.0f))
+                            SpineDrag.m_bActive = true;
+                        pDraw->AddCircleFilled(CircleCenters[Side], CircleR, bHovered ? IM_COL32(94, 234, 212, 255) : IM_COL32(51, 65, 85, 255));
+                        pDraw->AddCircle(CircleCenters[Side], CircleR, IM_COL32(148, 163, 184, 255), 0, ToScreenLen(1.2f));
+                        ImGui::PopID();
+                    }
+                }
+
                 ImGui::PopID();
+                ImGui::PopID(); ImGui::PopID();
                 ImGui::PopID();
             };
 
-            DrawInsertMarker(0, Layout.front().m_Y - geo::NODE_GAP * 0.5f);
-            for (int i = 0; i + 1 < (int)Layout.size(); ++i)
-                DrawInsertMarker(i + 1, Layout[i].m_Y + Layout[i].m_H + geo::NODE_GAP * 0.5f);
-            DrawInsertMarker((int)Layout.size(), Layout.back().m_Y + Layout.back().m_H + geo::NODE_GAP * 0.5f);
+            for (int GapIndex = 0; GapIndex <= (int)SL.m_Order.size(); ++GapIndex)
+                DrawInsertMarker(GapIndex);
         }
 
         // Resolve a node-drag drop by direct distance to MouseLocal, same pattern as the pin-to-pin
@@ -1665,13 +2064,15 @@ namespace nodeos
         // it entirely instead of relying on getting every AllowOverlap/ActiveId interaction exactly right.
         if (NodeDrag.m_bActive && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
         {
-            int BestGap = -1; float Best = 40.0f;
-            for (auto& [GapIndex, Y] : MarkerPositions)
+            std::uint64_t BestSpineId = 0; int BestGap = -1; float Best = 40.0f;
+            for (auto& M : MarkerPositions)
             {
-                const float D = std::hypot(SpineX - MouseLocal.x, Y - MouseLocal.y);
-                if (D < Best) { Best = D; BestGap = GapIndex; }
+                const float D = std::hypot(M.m_X - MouseLocal.x, M.m_Y - MouseLocal.y);
+                if (D < Best) { Best = D; BestSpineId = M.m_SpineId; BestGap = M.m_GapIndex; }
             }
-            if (BestGap >= 0) MoveNodesTo(NodeDrag.m_MovingIds, BestGap);
+            // MoveNodesTo silently cancels on its own if the moving set doesn't already live entirely
+            // in BestSpineId - cross-spine drag-reorder isn't supported yet.
+            if (BestGap >= 0) MoveNodesTo(BestSpineId, NodeDrag.m_MovingIds, BestGap);
             NodeDrag.m_bActive = false;
         }
 
@@ -1692,6 +2093,203 @@ namespace nodeos
                 NodeDrag.m_bActive = false;
         }
 
+        // ---- spine-control drag: dropping on empty space within the dragged spine's own column
+        // relocates it there (Step 1, unchanged); dropping on one of the "+" targets shown for every
+        // OTHER existing column, or in the gaps between/around columns, attaches a new empty spine to
+        // that column or splices in a brand-new one (Step 2). Every target is visible for the whole
+        // drag, not just once some threshold is crossed - "whenever we drag the circle."
+        if (SpineDrag.m_bActive)
+        {
+            const std::uint64_t OwnColumnId = ColumnOfSpine[SpineDrag.m_SpineId];
+            const ImVec2 GrabWorldPos{ ColumnX[OwnColumnId], SpineDrag.m_GrabY };
+
+            pDraw->AddLine(ToScreen(GrabWorldPos), ImGui::GetIO().MousePos, IM_COL32(94, 234, 212, 220), ToScreenLen(2.0f));
+
+            // Every column, left to right, walking outward from the dragged spine's own.
+            std::vector<column*> Ordered;
+            {
+                auto* pLeftmost = FindColumn(OwnColumnId);
+                while (pLeftmost && pLeftmost->m_LeftId) pLeftmost = FindColumn(pLeftmost->m_LeftId);
+                for (auto* p = pLeftmost; p; p = FindColumn(p->m_RightId)) Ordered.push_back(p);
+            }
+
+            // An existing-column "+" sits at that column's own center X, MouseLocal.y for its own Y -
+            // exactly where every one of that column's own spine-control markers already lives too,
+            // since they share the same X. When the mouse is close enough to one of those markers that
+            // dropping there should merge into it instead (see the merge resolution below), the "+"
+            // itself steps out of the way for the frame rather than winning the pick purely on X and
+            // blocking the more specific target underneath it.
+            auto NearOtherMarker = [&](std::uint64_t ColId)
+            {
+                for (auto& M : MarkerPositions)
+                    if (M.m_SpineId != SpineDrag.m_SpineId && ColumnOfSpine[M.m_SpineId] == ColId && std::abs(M.m_Y - MouseLocal.y) < 40.0f)
+                        return true;
+                return false;
+            };
+
+            // One "+" per EXISTING column, including the dragged spine's own (drop -> attach a new,
+            // empty spine there - the own-column one lands right in the dragged spine's own column
+            // without disturbing it, same as any other column's), plus one in every gap between/around
+            // columns (drop -> splice in a brand-new column).
+            struct drop_target { std::uint64_t m_ColumnId; bool m_bNewColumn; bool m_bBetween; std::uint64_t m_NeighborColumnId; char m_Side; float m_X; };
+            std::vector<drop_target> Targets;
+            for (std::size_t i = 0; i < Ordered.size(); ++i)
+            {
+                auto* pCol = Ordered[i];
+                if (!NearOtherMarker(pCol->m_Id))
+                    Targets.push_back({ pCol->m_Id, false, false, 0, 'R', ColumnX[pCol->m_Id] });
+
+                if (i == 0)
+                {
+                    const float GhostX = ColumnX[pCol->m_Id] - (Extent(pCol->m_Id, 'L') + geo::COLUMN_MARGIN + HighwayBaseOf(0));
+                    Targets.push_back({ 0, true, false, pCol->m_Id, 'L', GhostX });
+                }
+                if (i + 1 < Ordered.size())
+                {
+                    // Midpoint of the actual GAP between the two columns' own facing highway edges -
+                    // NOT the midpoint of their centers, which drifts toward whichever column is
+                    // narrower whenever the two have different highway extents.
+                    auto* pNext = Ordered[i + 1];
+                    const float MidX = (ColumnX[pCol->m_Id] + Extent(pCol->m_Id, 'R') + ColumnX[pNext->m_Id] - Extent(pNext->m_Id, 'L')) * 0.5f;
+                    Targets.push_back({ 0, true, true, pCol->m_Id, 'R', MidX });
+                }
+                else
+                {
+                    const float GhostX = ColumnX[pCol->m_Id] + (Extent(pCol->m_Id, 'R') + geo::COLUMN_MARGIN + HighwayBaseOf(0));
+                    Targets.push_back({ 0, true, false, pCol->m_Id, 'R', GhostX });
+                }
+            }
+
+            // The "+" targets follow the mouse's own Y continuously (not the fixed grab point) - the
+            // user aims each one exactly where the new/attached spine should land. Drawn bigger than
+            // the spine-control marker's own "+" (radius 10) since there can be many of these at once,
+            // scattered across the whole canvas - they need to read clearly at a glance while dragging.
+            // The BETWEEN-column ones are the exception: kept smaller than that so there's still room
+            // in a narrow gap to drop past the "+" and land the spine directly in one of the two
+            // flanking columns instead. PickRadiusFor is the ONE source of truth for "is the mouse over
+            // this target" - shared by the highlight below and the actual drop resolution on release, so
+            // a "+" never lights up as armed for a wider area than what will really register the drop.
+            auto PickRadiusFor = [&](const drop_target& T) { return ToScreenLen(T.m_bBetween ? 9.0f : 20.0f); };
+            for (auto& T : Targets)
+            {
+                const ImVec2 TCenter = ToScreen({ T.m_X, MouseLocal.y });
+                const float  TR = ToScreenLen(T.m_bBetween ? 9.0f : 16.0f);
+                const bool   bHere = std::abs(ImGui::GetIO().MousePos.x - TCenter.x) < PickRadiusFor(T);
+                pDraw->AddCircleFilled(TCenter, TR, bHere ? IM_COL32(56, 130, 246, 255) : (T.m_bNewColumn ? IM_COL32(30, 41, 59, 180) : IM_COL32(30, 41, 59, 255)));
+                pDraw->AddCircle(TCenter, TR, IM_COL32(100, 116, 139, 255), 0, ToScreenLen(1.2f));
+                const float TArm = TR * 0.45f;
+                pDraw->AddLine({ TCenter.x - TArm, TCenter.y }, { TCenter.x + TArm, TCenter.y }, IM_COL32(226, 232, 240, 220), ToScreenLen(1.5f));
+                pDraw->AddLine({ TCenter.x, TCenter.y - TArm }, { TCenter.x, TCenter.y + TArm }, IM_COL32(226, 232, 240, 220), ToScreenLen(1.5f));
+            }
+
+            if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+            {
+                drop_target* pBest = nullptr; float BestD = 0.0f;
+                for (auto& T : Targets)
+                {
+                    const float PickR = PickRadiusFor(T);
+                    const float D = std::abs(ImGui::GetIO().MousePos.x - ToScreen({ T.m_X, MouseLocal.y }).x);
+                    if (D < PickR && (!pBest || D < BestD)) { BestD = D; pBest = &T; }
+                }
+
+                if (pBest)
+                {
+                    const auto NewSpineId = xresource::guid_generator::Instance64();
+                    const std::string Cmd = pBest->m_bNewColumn
+                        ? commands::MakeCreateSpineNewColumn(NewSpineId, MouseLocal.y, pBest->m_NeighborColumnId, pBest->m_Side, xresource::guid_generator::Instance64())
+                        : commands::MakeCreateSpineExistingColumn(NewSpineId, MouseLocal.y, pBest->m_ColumnId);
+                    commands::Run(System, Cmd);
+                }
+                else
+                {
+                    // Dropped on a DIFFERENT spine's own node-gap marker (not the floating column "+"
+                    // above, a stationary one belonging to an already-populated spine) - merge the whole
+                    // dragged spine's nodes in at that exact gap, same as dragging a set of nodes onto
+                    // another spine already does, and the old nodes at/after that gap shift down to make
+                    // room (MoveNodesToSpine's own renumbering). The dragged spine ends up empty either
+                    // way, so remove it the same way any empty spine goes - but only if the move actually
+                    // happened; MoveNodesTo silently no-ops on a blocked append, and an empty spine has
+                    // nothing to merge in the first place.
+                    std::uint64_t MergeTargetSpineId = 0; int MergeTargetGap = -1; float MergeBestD = 40.0f;
+                    for (auto& M : MarkerPositions)
+                    {
+                        if (M.m_SpineId == SpineDrag.m_SpineId) continue;
+                        const float D = std::hypot(M.m_X - MouseLocal.x, M.m_Y - MouseLocal.y);
+                        if (D < MergeBestD) { MergeBestD = D; MergeTargetSpineId = M.m_SpineId; MergeTargetGap = M.m_GapIndex; }
+                    }
+
+                    std::vector<std::uint64_t> MergingIds;
+                    if (MergeTargetGap >= 0)
+                        for (auto& N : Nodes) if (N.m_SpineId == SpineDrag.m_SpineId) MergingIds.push_back(N.m_Id);
+
+                    if (!MergingIds.empty())
+                    {
+                        std::sort(MergingIds.begin(), MergingIds.end(), [&](std::uint64_t A, std::uint64_t B)
+                                 { auto* pA = FindNode(A); auto* pB = FindNode(B); return (pA ? pA->m_Order : 0) < (pB ? pB->m_Order : 0); });
+                        MoveNodesTo(MergeTargetSpineId, MergingIds, MergeTargetGap);
+                        bool bStillHasNodes = false;
+                        for (auto& N : Nodes) if (N.m_SpineId == SpineDrag.m_SpineId) { bStillHasNodes = true; break; }
+                        if (!bStillHasNodes)
+                            commands::Run(System, commands::MakeDeleteSpine(SpineDrag.m_SpineId));
+                    }
+                    else
+                    {
+                        // Not on a "+" or another spine's marker either - dropped somewhere in a column's
+                        // own space instead (own column or a different one), so move the dragged spine
+                        // there, preserving the exact offset between the grabbed marker and the spine's
+                        // own top so the drag feels WYSIWYG regardless of which one of its gaps was
+                        // grabbed. Dropped in genuinely empty space (past every column and every "+" too)
+                        // - splice a brand-new column in at the nearest edge and move it there instead.
+                        auto SpineIt = std::find_if(Spines.begin(), Spines.end(), [&](auto& S) { return S.m_Id == SpineDrag.m_SpineId; });
+                        if (SpineIt != Spines.end())
+                        {
+                            const float GrabOffsetFromTop = SpineDrag.m_GrabY - SpineAbsY[SpineDrag.m_SpineId];
+                            const float NewTopY = MouseLocal.y - GrabOffsetFromTop;
+
+                            column* pHit = nullptr;
+                            for (auto* pCol : Ordered)
+                                if (MouseLocal.x >= ColumnX[pCol->m_Id] - Extent(pCol->m_Id, 'L')
+                                 && MouseLocal.x <= ColumnX[pCol->m_Id] + Extent(pCol->m_Id, 'R')) { pHit = pCol; break; }
+
+                            if (pHit)
+                            {
+                                commands::Run(System, commands::MakeSetSpinePosition(SpineDrag.m_SpineId, NewTopY, pHit->m_Id));
+                            }
+                            else if (MouseLocal.x < ColumnX[Ordered.front()->m_Id] - Extent(Ordered.front()->m_Id, 'L'))
+                            {
+                                const auto NewColumnId = xresource::guid_generator::Instance64();
+                                commands::Run(System, commands::MakeSetSpinePositionNewColumn(SpineDrag.m_SpineId, NewTopY, Ordered.front()->m_Id, 'L', NewColumnId));
+                            }
+                            else if (MouseLocal.x > ColumnX[Ordered.back()->m_Id] + Extent(Ordered.back()->m_Id, 'R'))
+                            {
+                                const auto NewColumnId = xresource::guid_generator::Instance64();
+                                commands::Run(System, commands::MakeSetSpinePositionNewColumn(SpineDrag.m_SpineId, NewTopY, Ordered.back()->m_Id, 'R', NewColumnId));
+                            }
+                            else
+                            {
+                                for (std::size_t i = 0; i + 1 < Ordered.size(); ++i)
+                                {
+                                    auto* pA = Ordered[i]; auto* pB = Ordered[i + 1];
+                                    const float AEdge = ColumnX[pA->m_Id] + Extent(pA->m_Id, 'R');
+                                    const float BEdge = ColumnX[pB->m_Id] - Extent(pB->m_Id, 'L');
+                                    if (MouseLocal.x >= AEdge && MouseLocal.x <= BEdge)
+                                    {
+                                        const bool bCloserToA = (MouseLocal.x - AEdge) <= (BEdge - MouseLocal.x);
+                                        auto* pNeighbor = bCloserToA ? pA : pB;
+                                        const char Side = bCloserToA ? 'R' : 'L';
+                                        const auto NewColumnId = xresource::guid_generator::Instance64();
+                                        commands::Run(System, commands::MakeSetSpinePositionNewColumn(SpineDrag.m_SpineId, NewTopY, pNeighbor->m_Id, Side, NewColumnId));
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                SpineDrag.m_bActive = false;
+            }
+        }
+
         // --- resolve a drag-to-connect drop: hit-test every port, validate direction+type, single-
         // connection-per-input eviction (Canvas.tsx's onUp + connect.ts's evictionCandidate) ---
         if (Drag.m_bActive && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
@@ -1706,7 +2304,7 @@ namespace nodeos
                 {
                     // A pin rendered on both sides has two valid drop anchors now - check whichever one
                     // the mouse is actually closest to.
-                    for (char S : SidesOf(PinOf(P, Id)))
+                    for (char S : SidesOf(PinOf(P, Id), P.m_bIsOutput))
                     {
                         const ImVec2 A = PortAnchor(Id, P, S);
                         const float D = std::hypot(A.x - MouseLocal.x, A.y - MouseLocal.y);
@@ -1744,9 +2342,10 @@ namespace nodeos
                 const auto SrcOutputs = pSrcDesc->getOutputs(); const auto DstInputs = pDstDesc->getInputs();
                 const port_ref OutP{ true, Link.m_SourceOutput, &SrcOutputs[Link.m_SourceOutput] };
                 const port_ref InP { false, Link.m_TargetInput,  &DstInputs[Link.m_TargetInput] };
-                const char LSide = LinkSide(Link);
-                const ImVec2 From = PortAnchor(Link.m_SourceNode, OutP, LSide), To = PortAnchor(Link.m_TargetNode, InP, LSide);
-                const float HX = HighwayX(LSide, LaneOfLink[Link.m_Id]);
+                char SourceSide = 'R', TargetSide = 'R', RailSide = 'R';
+                LinkSides(Link, SourceSide, TargetSide, RailSide);
+                const ImVec2 From = PortAnchor(Link.m_SourceNode, OutP, SourceSide), To = PortAnchor(Link.m_TargetNode, InP, TargetSide);
+                const float HX = HighwayX(OwnerColumnOf(Link), RailSide, LaneOfLink[Link.m_Id]);
                 const ImVec2 Pts[4] = { From, { HX, From.y }, { HX, To.y }, To };
                 for (int s = 0; s < 3; ++s) { const float D = DistPointSegment(MouseLocal, Pts[s], Pts[s + 1]); if (D < Best) { Best = D; HitLink = Link.m_Id; } }
             }
@@ -1763,6 +2362,47 @@ namespace nodeos
                 commands::Run(System, commands::MakeDeleteLink(Selection.m_SelectedLink));
             else if (!Selection.m_SelectedNodes.empty())
                 commands::Run(System, commands::MakeDeleteNodes({ Selection.m_SelectedNodes.begin(), Selection.m_SelectedNodes.end() }));
+            else if (Selection.m_SelectedGapSpineId)
+            {
+                bool bHasNodes = false;
+                for (auto& N : Nodes) if (N.m_SpineId == Selection.m_SelectedGapSpineId) { bHasNodes = true; break; }
+                if (bHasNodes)
+                {
+                    // DeleteSpine itself would just refuse this - ask first, since it means taking every
+                    // node on the spine (and every link touching them) with it.
+                    DeleteSpineConfirm.m_SpineId = Selection.m_SelectedGapSpineId;
+                    ImGui::OpenPopup("NodeOS_DeleteSpineConfirm");
+                }
+                else
+                {
+                    commands::Run(System, commands::MakeDeleteSpine(Selection.m_SelectedGapSpineId));
+                }
+            }
+        }
+
+        if (ImGui::BeginPopupModal("NodeOS_DeleteSpineConfirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            int NodeCount = 0;
+            for (auto& N : Nodes) if (N.m_SpineId == DeleteSpineConfirm.m_SpineId) ++NodeCount;
+            ImGui::Text("Delete this spine and its %d node%s?", NodeCount, NodeCount == 1 ? "" : "s");
+            ImGui::Separator();
+            if (ImGui::Button("Delete", ImVec2(120, 0)))
+            {
+                std::vector<std::uint64_t> Ids;
+                for (auto& N : Nodes) if (N.m_SpineId == DeleteSpineConfirm.m_SpineId) Ids.push_back(N.m_Id);
+                if (!Ids.empty()) commands::Run(System, commands::MakeDeleteNodes(Ids));
+                commands::Run(System, commands::MakeDeleteSpine(DeleteSpineConfirm.m_SpineId));
+                DeleteSpineConfirm.m_SpineId = 0;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SetItemDefaultFocus();
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0)))
+            {
+                DeleteSpineConfirm.m_SpineId = 0;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
         }
 
         ImGui::End();
@@ -2062,7 +2702,8 @@ namespace nodeos
     // reader would have no way to know whether to expect (and thus stay aligned past) that node's
     // "xProperties" record, and every property record after it in the file would silently desync.
     //------------------------------------------------------------------------------------------------
-    static bool SaveGraph(const std::string& Utf8Path, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links, const std::vector<available_node_type>& AvailableTypes)
+    static bool SaveGraph(const std::string& Utf8Path, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links, const std::vector<available_node_type>& AvailableTypes
+                         , const std::vector<spine>& Spines, const std::vector<column>& Columns)
     {
         const std::wstring WPath(Utf8Path.begin(), Utf8Path.end()); // ASCII-safe path is all this demo needs
 
@@ -2092,6 +2733,7 @@ namespace nodeos
                 std::string   Source        = N.m_pNode ? FindSourcePath(N.m_pNode->m_pFactory) : std::string{};
                 std::string   TypeName      = N.m_pNode ? std::string(N.m_pNode->m_pFactory->getName()) : "";
                 int           Order         = N.m_Order;
+                std::uint64_t SpineId       = N.m_SpineId;
                 // Not merely "does the node have properties at all" - a property struct whose every
                 // member falls outside the serializable atomic vocabulary would exist but reflect zero
                 // rows, and SerializeReflectedMembers would then write no "xProperties" record at all,
@@ -2103,6 +2745,7 @@ namespace nodeos
                 || (Error = Stream.Field("Source",        Source))
                 || (Error = Stream.Field("Type",          TypeName))
                 || (Error = Stream.Field("Order",         Order))
+                || (Error = Stream.Field("SpineId",       SpineId))
                 || (Error = Stream.Field("HasProperties", HasProperties));
             }
         ); Err)
@@ -2147,6 +2790,50 @@ namespace nodeos
             return false;
         }
 
+        if (auto Err = Stream.Record("Columns"
+            , [&](std::size_t& C, xerr&) { C = Columns.size(); }
+            , [&](std::size_t i, xerr& Error)
+            {
+                auto&         Co      = Columns[i];
+                std::uint64_t Id      = Co.m_Id;
+                std::uint64_t LeftId  = Co.m_LeftId;
+                std::uint64_t RightId = Co.m_RightId;
+                bool          IsRoot  = Co.m_bIsRoot;
+
+                0
+                || (Error = Stream.Field("Id",      Id))
+                || (Error = Stream.Field("LeftId",  LeftId))
+                || (Error = Stream.Field("RightId", RightId))
+                || (Error = Stream.Field("IsRoot",  IsRoot));
+            }
+        ); Err)
+        {
+            Debugger("Node OS: failed writing Columns record");
+            return false;
+        }
+
+        if (auto Err = Stream.Record("Spines"
+            , [&](std::size_t& C, xerr&) { C = Spines.size(); }
+            , [&](std::size_t i, xerr& Error)
+            {
+                auto&         Sp       = Spines[i];
+                std::uint64_t Id       = Sp.m_Id;
+                std::uint64_t ColumnId = Sp.m_ColumnId;
+                bool          IsRoot   = Sp.m_bIsRoot;
+                float         Y        = Sp.m_Y;
+
+                0
+                || (Error = Stream.Field("Id",       Id))
+                || (Error = Stream.Field("ColumnId", ColumnId))
+                || (Error = Stream.Field("IsRoot",   IsRoot))
+                || (Error = Stream.Field("Y",        Y));
+            }
+        ); Err)
+        {
+            Debugger("Node OS: failed writing Spines record");
+            return false;
+        }
+
         return true;
     }
 
@@ -2155,7 +2842,8 @@ namespace nodeos
     // "xProperties" record (if HasProperties was true) sitting unread in the file, desyncing every
     // property record after it - a loud, whole-file failure beats a quietly corrupted partial load.
     static bool LoadGraph(const std::string& Utf8Path, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links
-                         , std::vector<plugin_source_entry>& Sources, std::vector<available_node_type>& AvailableTypes)
+                         , std::vector<plugin_source_entry>& Sources, std::vector<available_node_type>& AvailableTypes
+                         , std::vector<spine>& Spines, std::vector<column>& Columns)
     {
         const std::wstring WPath(Utf8Path.begin(), Utf8Path.end());
 
@@ -2176,6 +2864,7 @@ namespace nodeos
                 std::uint64_t Id = 0;
                 std::string   Source, TypeName;
                 int           Order = 0;
+                std::uint64_t SpineId = 0;
                 bool          HasProperties = false;
 
                 if (0
@@ -2183,6 +2872,7 @@ namespace nodeos
                  || (Error = Stream.Field("Source",        Source))
                  || (Error = Stream.Field("Type",          TypeName))
                  || (Error = Stream.Field("Order",         Order))
+                 || (Error = Stream.Field("SpineId",       SpineId))
                  || (Error = Stream.Field("HasProperties", HasProperties)))
                     return;
 
@@ -2200,7 +2890,7 @@ namespace nodeos
                     return;
                 }
 
-                NewNodes.push_back(CreateNodeInstance(Id, pFactory, Order));
+                NewNodes.push_back(CreateNodeInstance(Id, pFactory, Order, SpineId));
             }
         ); Err)
         {
@@ -2246,9 +2936,78 @@ namespace nodeos
             return false;
         }
 
+        std::vector<column> NewColumns;
+        if (auto Err = Stream.Record("Columns"
+            , [&](std::size_t& C, xerr&) { NewColumns.reserve(C); }
+            , [&](std::size_t, xerr& Error)
+            {
+                column Co{};
+                if (0
+                 || (Error = Stream.Field("Id",      Co.m_Id))
+                 || (Error = Stream.Field("LeftId",  Co.m_LeftId))
+                 || (Error = Stream.Field("RightId", Co.m_RightId))
+                 || (Error = Stream.Field("IsRoot",  Co.m_bIsRoot)))
+                    return;
+                NewColumns.push_back(Co);
+            }
+        ); Err)
+        {
+            Debugger("Node OS: failed reading Columns record");
+            for (auto& N : NewNodes) DestroyNodeInstance(N);
+            return false;
+        }
+
+        std::vector<spine> NewSpines;
+        if (auto Err = Stream.Record("Spines"
+            , [&](std::size_t& C, xerr&) { NewSpines.reserve(C); }
+            , [&](std::size_t, xerr& Error)
+            {
+                spine Sp{};
+                if (0
+                 || (Error = Stream.Field("Id",       Sp.m_Id))
+                 || (Error = Stream.Field("ColumnId", Sp.m_ColumnId))
+                 || (Error = Stream.Field("IsRoot",   Sp.m_bIsRoot))
+                 || (Error = Stream.Field("Y",        Sp.m_Y)))
+                    return;
+                NewSpines.push_back(Sp);
+            }
+        ); Err)
+        {
+            Debugger("Node OS: failed reading Spines record");
+            for (auto& N : NewNodes) DestroyNodeInstance(N);
+            return false;
+        }
+
+        // Cross-reference validation: every SpineId a node claims, every ColumnId a spine claims, and
+        // every Left/RightId a column claims must resolve among the freshly-loaded sets - a dangling
+        // reference fails the WHOLE load, same policy as the "plugin source no longer exists" check
+        // above (a loud failure beats a quietly corrupted graph).
+        {
+            auto HasSpine  = [&](std::uint64_t Id) { return std::any_of(NewSpines.begin(),  NewSpines.end(),  [&](auto& Sp) { return Sp.m_Id == Id; }); };
+            auto HasColumn = [&](std::uint64_t Id) { return std::any_of(NewColumns.begin(), NewColumns.end(), [&](auto& Co) { return Co.m_Id == Id; }); };
+
+            bool bValid = true;
+            for (auto& N : NewNodes) if (!HasSpine(N.m_SpineId)) { bValid = false; break; }
+            if (bValid) for (auto& Sp : NewSpines)
+                if (!HasColumn(Sp.m_ColumnId)) { bValid = false; break; }
+            if (bValid) for (auto& Co : NewColumns)
+            {
+                if (Co.m_LeftId  != 0 && !HasColumn(Co.m_LeftId))  { bValid = false; break; }
+                if (Co.m_RightId != 0 && !HasColumn(Co.m_RightId)) { bValid = false; break; }
+            }
+            if (!bValid)
+            {
+                Debugger("Node OS: failed loading - a Spine/Column reference does not resolve");
+                for (auto& N : NewNodes) DestroyNodeInstance(N);
+                return false;
+            }
+        }
+
         for (auto& N : Nodes) DestroyNodeInstance(N);
-        Nodes = std::move(NewNodes);
-        Links = std::move(NewLinks);
+        Nodes   = std::move(NewNodes);
+        Links   = std::move(NewLinks);
+        Spines  = std::move(NewSpines);
+        Columns = std::move(NewColumns);
         return true;
     }
 
@@ -2345,16 +3104,19 @@ namespace nodeos
             std::vector<plugin_source_entry>&  m_Sources;
             std::vector<available_node_type>&  m_AvailableTypes;
             bool&                              m_bDirty;
+            std::vector<spine>&                 m_Spines;
+            std::vector<column>&                m_Columns;
         };
 
-        // Shared by select_cmd and clear_selection_cmd - both snapshot/restore the exact same triple.
+        // Shared by select_cmd and clear_selection_cmd - both snapshot/restore the exact same set.
         inline void BackupSelection(node_os_command_context& Ctx, xundo::undo_file& File) noexcept
         {
             auto& S = Ctx.m_Selection;
             File.Write(static_cast<std::uint32_t>(S.m_SelectedNodes.size()));
             for (auto Id : S.m_SelectedNodes) File.Write(Id);
             File.Write(S.m_SelectedLink);
-            File.Write(S.m_SelectedGap);
+            File.Write(S.m_SelectedGapSpineId);
+            File.Write(S.m_SelectedGapIndex);
         }
         inline void RestoreSelection(node_os_command_context& Ctx, xundo::undo_file& File) noexcept
         {
@@ -2363,7 +3125,8 @@ namespace nodeos
             S.m_SelectedNodes.clear();
             for (std::uint32_t i = 0; i < Count; ++i) { std::uint64_t Id = 0; File.Read(Id); S.m_SelectedNodes.insert(Id); }
             File.Read(S.m_SelectedLink);
-            File.Read(S.m_SelectedGap);
+            File.Read(S.m_SelectedGapSpineId);
+            File.Read(S.m_SelectedGapIndex);
         }
 
         //================================================================================================
@@ -2377,33 +3140,62 @@ namespace nodeos
         {
             create_node_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "CreateNode", pDataBase) { RegisterArguments(); }
 
-            const char* getCommandHelp() const noexcept override { return "Creates a node. Usage: CreateNode -Id N -PluginDir dirname [-After id | -Before id]"; }
+            const char* getCommandHelp() const noexcept override { return "Creates a node. Usage: CreateNode -Id N -PluginDir dirname [-After id | -Before id | -InSpine spineid]"; }
             void RegisterArguments() noexcept override
             {
                 m_hId        = m_Parser.addOption("Id",        "Node id",                                           true,  1);
                 m_hPluginDir = m_Parser.addOption("PluginDir", "Plugin folder name under Plugins/ (e.g. CubeNode)",  true,  1);
                 m_hAfter     = m_Parser.addOption("After",     "Insert right after this node id",                   false, 1);
                 m_hBefore    = m_Parser.addOption("Before",    "Insert right before this node id - neither -After nor -Before means append at the end", false, 1);
+                m_hInSpine   = m_Parser.addOption("InSpine",   "Append to this (currently empty) spine id - mutually exclusive with -After/-Before, the only way to place a node into a spine with no nodes yet", false, 1);
             }
 
-            // Resolves -After/-Before (if given) against the CURRENT node list into a target dense
-            // order index - shared by Redo (which needs it to place the new node) and BackupCurrenState
-            // (which needs it to know the full pre-insert layout for Undo).
-            std::string ResolveTargetOrder(node_os_command_context& Ctx, int& OutTargetOrder) const noexcept
+            // Resolves -After/-Before/-InSpine (if given) against the CURRENT node/spine list into a
+            // target spine id + a dense order index WITHIN THAT SPINE - shared by Redo (which needs it
+            // to place the new node) and BackupCurrenState (which needs it to know the full pre-insert
+            // layout for Undo).
+            std::string ResolveTargetOrder(node_os_command_context& Ctx, int& OutTargetOrder, std::uint64_t& OutTargetSpineId) const noexcept
             {
-                const bool bHasAfter  = m_Parser.hasOption(m_hAfter);
-                const bool bHasBefore = m_Parser.hasOption(m_hBefore);
-                if (bHasAfter && bHasBefore) return "CreateNode: -After and -Before are mutually exclusive";
+                const bool bHasAfter   = m_Parser.hasOption(m_hAfter);
+                const bool bHasBefore  = m_Parser.hasOption(m_hBefore);
+                const bool bHasInSpine = m_Parser.hasOption(m_hInSpine);
+                if ((bHasAfter ? 1 : 0) + (bHasBefore ? 1 : 0) + (bHasInSpine ? 1 : 0) > 1)
+                    return "CreateNode: -After, -Before and -InSpine are mutually exclusive";
 
-                if (!bHasAfter && !bHasBefore) { OutTargetOrder = static_cast<int>(Ctx.m_Nodes.size()); return {}; }
+                if (bHasInSpine)
+                {
+                    auto RefArg = m_Parser.getOptionArgAs<std::string>(m_hInSpine, 0);
+                    if (std::holds_alternative<xerr>(RefArg)) return "CreateNode: bad arguments";
+                    const auto SpineId = ParseGuid(std::get<std::string>(RefArg));
+                    bool bFound = false;
+                    for (auto& S : Ctx.m_Spines) if (S.m_Id == SpineId) { bFound = true; break; }
+                    if (!bFound) return "CreateNode: -InSpine spine no longer exists";
+                    int Count = 0;
+                    for (auto& N : Ctx.m_Nodes) if (N.m_SpineId == SpineId) ++Count;
+                    OutTargetOrder = Count; OutTargetSpineId = SpineId; return {};
+                }
+
+                if (!bHasAfter && !bHasBefore)
+                {
+                    // No placement given at all - append to the root spine, same as this command's
+                    // behavior before spines existed.
+                    for (auto& S : Ctx.m_Spines)
+                        if (S.m_bIsRoot)
+                        {
+                            int Count = 0;
+                            for (auto& N : Ctx.m_Nodes) if (N.m_SpineId == S.m_Id) ++Count;
+                            OutTargetOrder = Count; OutTargetSpineId = S.m_Id; return {};
+                        }
+                    return "CreateNode: no root spine exists";
+                }
 
                 auto RefArg = m_Parser.getOptionArgAs<std::string>(bHasAfter ? m_hAfter : m_hBefore, 0);
                 if (std::holds_alternative<xerr>(RefArg)) return "CreateNode: bad arguments";
                 const auto RefId = ParseGuid(std::get<std::string>(RefArg));
 
-                for (auto& N : Ctx.m_Nodes)
-                    if (N.m_Id == RefId) { OutTargetOrder = bHasAfter ? N.m_Order + 1 : N.m_Order; return {}; }
-                return "CreateNode: -After/-Before node no longer exists";
+                std::uint64_t RefSpineId = 0; int RefOrder = 0;
+                if (!ResolveNodeSpineAndOrder(Ctx.m_Nodes, RefId, RefSpineId, RefOrder)) return "CreateNode: -After/-Before node no longer exists";
+                OutTargetSpineId = RefSpineId; OutTargetOrder = bHasAfter ? RefOrder + 1 : RefOrder; return {};
             }
 
             std::string Redo() noexcept override
@@ -2414,16 +3206,16 @@ namespace nodeos
                     return "CreateNode: bad arguments";
 
                 auto& Ctx = get<node_os_command_context>();
-                int TargetOrder = 0;
-                if (auto Err = ResolveTargetOrder(Ctx, TargetOrder); !Err.empty()) return Err;
+                int TargetOrder = 0; std::uint64_t TargetSpineId = 0;
+                if (auto Err = ResolveTargetOrder(Ctx, TargetOrder, TargetSpineId); !Err.empty()) return Err;
 
                 auto* pSrc = FindSourceByDirName(Ctx.m_Sources, std::get<std::string>(PluginDir));
                 if (!pSrc) return "CreateNode: unknown plugin directory";
                 auto* pType = EnsureLoadedAndGetType(*pSrc, Ctx.m_AvailableTypes);
                 if (!pType) return "CreateNode: failed to compile/load plugin";
 
-                for (auto& N : Ctx.m_Nodes) if (N.m_Order >= TargetOrder) ++N.m_Order;
-                Ctx.m_Nodes.push_back(CreateNodeInstance(ParseGuid(std::get<std::string>(Id)), pType, TargetOrder));
+                for (auto& N : Ctx.m_Nodes) if (N.m_SpineId == TargetSpineId && N.m_Order >= TargetOrder) ++N.m_Order;
+                Ctx.m_Nodes.push_back(CreateNodeInstance(ParseGuid(std::get<std::string>(Id)), pType, TargetOrder, TargetSpineId));
                 Ctx.m_bDirty = true;
                 return {};
             }
@@ -2456,7 +3248,7 @@ namespace nodeos
                 Ctx.m_bDirty = true;
             }
 
-            xcmdline::parser::handle m_hId, m_hPluginDir, m_hAfter, m_hBefore;
+            xcmdline::parser::handle m_hId, m_hPluginDir, m_hAfter, m_hBefore, m_hInSpine;
         };
 
         //================================================================================================
@@ -2495,7 +3287,7 @@ namespace nodeos
                 auto& Ctx = get<node_os_command_context>();
                 auto IsDoomed = [&](std::uint64_t Id) { return std::find(Ids.begin(), Ids.end(), Id) != Ids.end(); };
 
-                struct node_snap { std::uint64_t m_Id; std::string m_PluginDir; int m_Order; std::string m_Properties; };
+                struct node_snap { std::uint64_t m_Id; std::string m_PluginDir; int m_Order; std::uint64_t m_SpineId; std::string m_Properties; };
                 std::vector<node_snap> NodeSnaps;
                 for (auto& N : Ctx.m_Nodes)
                 {
@@ -2505,7 +3297,7 @@ namespace nodeos
                     std::string Properties;
                     if (HasSerializableProperties(N.m_pNode))
                         Properties = SerializePropertiesToString(N.m_pNode);
-                    NodeSnaps.push_back({ N.m_Id, PluginDir, N.m_Order, Properties });
+                    NodeSnaps.push_back({ N.m_Id, PluginDir, N.m_Order, N.m_SpineId, Properties });
                 }
                 std::vector<link_instance> LinkSnaps;
                 for (auto& L : Ctx.m_Links)
@@ -2513,7 +3305,7 @@ namespace nodeos
                         LinkSnaps.push_back(L);
 
                 File.Write(static_cast<std::uint32_t>(NodeSnaps.size()));
-                for (auto& S : NodeSnaps) { File.Write(S.m_Id); WriteString(File, S.m_PluginDir); File.Write(S.m_Order); WriteString(File, S.m_Properties); }
+                for (auto& S : NodeSnaps) { File.Write(S.m_Id); WriteString(File, S.m_PluginDir); File.Write(S.m_Order); File.Write(S.m_SpineId); WriteString(File, S.m_Properties); }
                 File.Write(static_cast<std::uint32_t>(LinkSnaps.size()));
                 for (auto& L : LinkSnaps) File.Write(L);
             }
@@ -2527,12 +3319,13 @@ namespace nodeos
                     std::uint64_t Id = 0; File.Read(Id);
                     const std::string PluginDir = ReadString(File);
                     int Order = 0; File.Read(Order);
+                    std::uint64_t SpineId = 0; File.Read(SpineId);
                     const std::string Properties = ReadString(File);
 
                     auto* pSrc = FindSourceByDirName(Ctx.m_Sources, PluginDir);
                     auto* pFactory = pSrc ? EnsureLoadedAndGetType(*pSrc, Ctx.m_AvailableTypes) : nullptr;
                     if (!pFactory) continue; // plugin source no longer resolvable - best effort, matching LoadGraph's own tolerance
-                    Ctx.m_Nodes.push_back(CreateNodeInstance(Id, pFactory, Order));
+                    Ctx.m_Nodes.push_back(CreateNodeInstance(Id, pFactory, Order, SpineId));
                     if (!Properties.empty())
                         ApplyPropertiesFromString(Ctx.m_Nodes.back().m_pNode, Properties);
                 }
@@ -2633,6 +3426,14 @@ namespace nodeos
                 link_instance L{};
                 if (!ParseAll(L)) return "Connect: bad arguments";
                 auto& Ctx = get<node_os_command_context>();
+                // Any two nodes anywhere in the graph can connect, regardless of spine or column - the
+                // highway belongs to the SOURCE node's own column: the wire travels that column's own
+                // rail up/down to the target's Y, then jogs however far sideways it needs to reach the
+                // target, crossing intervening columns if the target lives in a different one (see
+                // DrawHighwayPath/its ColumnOfNode(Link.m_SourceNode) call in DrawGraphCanvas).
+                auto SourceIt = std::find_if(Ctx.m_Nodes.begin(), Ctx.m_Nodes.end(), [&](auto& N) { return N.m_Id == L.m_SourceNode; });
+                auto TargetIt = std::find_if(Ctx.m_Nodes.begin(), Ctx.m_Nodes.end(), [&](auto& N) { return N.m_Id == L.m_TargetNode; });
+                if (SourceIt == Ctx.m_Nodes.end() || TargetIt == Ctx.m_Nodes.end()) return "Connect: source/target node no longer exists";
                 std::erase_if(Ctx.m_Links, [&](auto& X) { return X.m_TargetNode == L.m_TargetNode && X.m_TargetInput == L.m_TargetInput; });
                 Ctx.m_Links.push_back(L);
                 Ctx.m_bDirty = true;
@@ -2668,6 +3469,511 @@ namespace nodeos
             }
 
             xcmdline::parser::handle m_hId, m_hSourceNode, m_hSourceOutput, m_hTargetNode, m_hTargetInput;
+        };
+
+        //================================================================================================
+        // CreateSpine - a genuinely new mutation shape: creates zero nodes, only the structural
+        // containers (a spine, and optionally the column that houses it), placed directly at an
+        // absolute world -Y - a spine's position is just (Y, ColumnId), nothing derived. -Column/
+        // -NewColumn fold "attach to an already-existing column" vs. "synthesize a brand-new one right
+        // on -Side of -NeighborColumn" into one command, the same way Select already folds its several
+        // mutually exclusive concerns into one. -NewColumnId is minted by the CALLER (never inside
+        // Redo()), matching this codebase's standing rule that Redo() never invents an id. No bDirty -
+        // this never touches node/link data (matches reorder_nodes_cmd not setting it either).
+        //================================================================================================
+        struct create_spine_cmd : xundo::command_base
+        {
+            create_spine_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "CreateSpine", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override
+            {
+                return "Creates a new, empty spine. Usage: CreateSpine -Id spineid -Y yvalue "
+                       "(-Column columnid | -NewColumn -NewColumnId id -NeighborColumn columnid -Side L|R)";
+            }
+            void RegisterArguments() noexcept override
+            {
+                m_hId             = m_Parser.addOption("Id",             "New spine id",                                    true,  1);
+                m_hY              = m_Parser.addOption("Y",              "Absolute world Y for this spine's own top slot",  true,  1);
+                m_hColumn         = m_Parser.addOption("Column",         "Attach to this already-existing column id",       false, 1);
+                m_hNewColumn      = m_Parser.addOption("NewColumn",      "Synthesize a new column (value ignored)",         false, 1);
+                m_hNewColumnId    = m_Parser.addOption("NewColumnId",    "Id for the new column",                           false, 1);
+                m_hNeighborColumn = m_Parser.addOption("NeighborColumn", "The new column's own neighbor column id",         false, 1);
+                m_hSide           = m_Parser.addOption("Side",           "Which side of -NeighborColumn the new one sits on: L or R", false, 1);
+            }
+
+            // Shared by Redo and BackupCurrenState - resolves and validates every argument without
+            // mutating anything (the actual column creation only ever happens once, inside Redo()).
+            std::string ResolveArgs(node_os_command_context& Ctx, std::uint64_t& OutSpineId, float& OutY, std::uint64_t& OutColumnId, bool& OutNewColumn
+                                   , std::uint64_t& OutNewColumnId, std::uint64_t& OutNeighborColumnId, char& OutSide) const noexcept
+            {
+                auto IdArg = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
+                auto YArg  = m_Parser.getOptionArgAs<double>(m_hY, 0);
+                if (std::holds_alternative<xerr>(IdArg) || std::holds_alternative<xerr>(YArg)) return "CreateSpine: bad arguments";
+                OutSpineId = ParseGuid(std::get<std::string>(IdArg));
+                OutY       = static_cast<float>(std::get<double>(YArg));
+
+                const bool bHasColumn    = m_Parser.hasOption(m_hColumn);
+                const bool bHasNewColumn = m_Parser.hasOption(m_hNewColumn);
+                if (bHasColumn == bHasNewColumn) return "CreateSpine: exactly one of -Column/-NewColumn is required";
+
+                if (bHasColumn)
+                {
+                    auto A = m_Parser.getOptionArgAs<std::string>(m_hColumn, 0);
+                    if (std::holds_alternative<xerr>(A)) return "CreateSpine: bad arguments";
+                    OutColumnId = ParseGuid(std::get<std::string>(A));
+                    bool bFound = false; for (auto& Co : Ctx.m_Columns) if (Co.m_Id == OutColumnId) { bFound = true; break; }
+                    if (!bFound) return "CreateSpine: -Column no longer exists";
+                    OutNewColumn = false;
+                    return {};
+                }
+
+                auto NCId = m_Parser.getOptionArgAs<std::string>(m_hNewColumnId, 0);
+                auto NB   = m_Parser.getOptionArgAs<std::string>(m_hNeighborColumn, 0);
+                auto Sd   = m_Parser.getOptionArgAs<std::string>(m_hSide, 0);
+                if (std::holds_alternative<xerr>(NCId) || std::holds_alternative<xerr>(NB) || std::holds_alternative<xerr>(Sd)) return "CreateSpine: bad arguments";
+                OutNewColumnId      = ParseGuid(std::get<std::string>(NCId));
+                OutNeighborColumnId = ParseGuid(std::get<std::string>(NB));
+                const auto& SideStr = std::get<std::string>(Sd);
+                if (SideStr.empty() || (SideStr[0] != 'L' && SideStr[0] != 'R')) return "CreateSpine: -Side must be L or R";
+                OutSide = SideStr[0];
+
+                bool bNeighborFound = false;
+                for (auto& Co : Ctx.m_Columns) if (Co.m_Id == OutNeighborColumnId) { bNeighborFound = true; break; }
+                if (!bNeighborFound) return "CreateSpine: -NeighborColumn no longer exists";
+                OutNewColumn = true;
+                return {};
+            }
+
+            std::string Redo() noexcept override
+            {
+                auto& Ctx = get<node_os_command_context>();
+                std::uint64_t SpineId = 0, ColumnId = 0, NewColumnId = 0, NeighborColumnId = 0; float Y = 0.0f; bool bNewColumn = false; char Side = 'R';
+                if (auto Err = ResolveArgs(Ctx, SpineId, Y, ColumnId, bNewColumn, NewColumnId, NeighborColumnId, Side); !Err.empty()) return Err;
+
+                if (bNewColumn)
+                {
+                    // Splices the new column in on -Side of -NeighborColumn - if the neighbor already
+                    // had a column there (inserting BETWEEN two existing columns, not just past the
+                    // outermost one), that far column is relinked to the new one instead, same as
+                    // inserting into any doubly-linked list.
+                    column NewCol{ NewColumnId, 0, 0, false };
+                    for (auto& Co : Ctx.m_Columns)
+                        if (Co.m_Id == NeighborColumnId)
+                        {
+                            std::uint64_t& NearPtr = (Side == 'R') ? Co.m_RightId : Co.m_LeftId;
+                            const std::uint64_t OldFarNeighborId = NearPtr;
+                            NearPtr = NewColumnId;
+                            if (Side == 'R') { NewCol.m_LeftId = NeighborColumnId; NewCol.m_RightId = OldFarNeighborId; }
+                            else             { NewCol.m_RightId = NeighborColumnId; NewCol.m_LeftId = OldFarNeighborId; }
+                            if (OldFarNeighborId != 0)
+                                for (auto& Co2 : Ctx.m_Columns)
+                                    if (Co2.m_Id == OldFarNeighborId)
+                                    {
+                                        std::uint64_t& FarPtr = (Side == 'R') ? Co2.m_LeftId : Co2.m_RightId;
+                                        FarPtr = NewColumnId;
+                                        break;
+                                    }
+                            break;
+                        }
+                    Ctx.m_Columns.push_back(NewCol);
+                    ColumnId = NewColumnId;
+                }
+
+                Ctx.m_Spines.push_back(spine{ SpineId, ColumnId, false, Y });
+                return {};
+            }
+
+            void BackupCurrenState(xundo::undo_file& File) noexcept override
+            {
+                auto& Ctx = get<node_os_command_context>();
+                std::uint64_t SpineId = 0, ColumnId = 0, NewColumnId = 0, NeighborColumnId = 0; float Y = 0.0f; bool bNewColumn = false; char Side = 'R';
+                const bool bOk = ResolveArgs(Ctx, SpineId, Y, ColumnId, bNewColumn, NewColumnId, NeighborColumnId, Side).empty();
+                File.Write(bOk ? std::uint8_t{1} : std::uint8_t{0});
+                File.Write(SpineId);
+                File.Write(bNewColumn ? std::uint8_t{1} : std::uint8_t{0});
+                File.Write(bNewColumn ? NewColumnId : ColumnId);
+                File.Write(NeighborColumnId);
+                File.Write(Side == 'R' ? std::uint8_t{1} : std::uint8_t{0});
+
+                // The far neighbor (if any) that will need relinking on undo - whichever column
+                // currently sits past -NeighborColumn on -Side, before the splice happens.
+                std::uint64_t OldFarNeighborId = 0;
+                if (bNewColumn)
+                    for (auto& Co : Ctx.m_Columns)
+                        if (Co.m_Id == NeighborColumnId) { OldFarNeighborId = (Side == 'R') ? Co.m_RightId : Co.m_LeftId; break; }
+                File.Write(OldFarNeighborId);
+            }
+
+            void Undo(xundo::undo_file& File) noexcept override
+            {
+                std::uint8_t bOk = 0; File.Read(bOk);
+                if (!bOk) return;
+                std::uint64_t SpineId = 0; File.Read(SpineId);
+                std::uint8_t bNewColumn = 0; File.Read(bNewColumn);
+                std::uint64_t ColumnId = 0; File.Read(ColumnId);
+                std::uint64_t NeighborColumnId = 0; File.Read(NeighborColumnId);
+                std::uint8_t bSideR = 0; File.Read(bSideR);
+                std::uint64_t OldFarNeighborId = 0; File.Read(OldFarNeighborId);
+
+                auto& Ctx = get<node_os_command_context>();
+                std::erase_if(Ctx.m_Spines, [&](auto& Sp) { return Sp.m_Id == SpineId; });
+                if (bNewColumn)
+                {
+                    std::erase_if(Ctx.m_Columns, [&](auto& Co) { return Co.m_Id == ColumnId; });
+                    for (auto& Co : Ctx.m_Columns)
+                        if (Co.m_Id == NeighborColumnId)
+                        {
+                            if (bSideR) Co.m_RightId = OldFarNeighborId; else Co.m_LeftId = OldFarNeighborId;
+                            break;
+                        }
+                    if (OldFarNeighborId != 0)
+                        for (auto& Co : Ctx.m_Columns)
+                            if (Co.m_Id == OldFarNeighborId)
+                            {
+                                if (bSideR) Co.m_LeftId = NeighborColumnId; else Co.m_RightId = NeighborColumnId;
+                                break;
+                            }
+                }
+            }
+
+            xcmdline::parser::handle m_hId, m_hY, m_hColumn, m_hNewColumn, m_hNewColumnId, m_hNeighborColumn, m_hSide;
+        };
+
+        //================================================================================================
+        // SetSpinePosition - sets a spine's absolute position directly: which column it lives in, and
+        // its own world Y within it. No anchor/offset indirection at all - a spine's position IS
+        // (Y, ColumnId), plain and settable. -NewColumn mirrors CreateSpine's own dual addressing, so a
+        // spine can be dropped straight into a brand-new column spliced in beside an existing one.
+        // Cascades to remove the OLD column too if the move empties it, bridging its own Left/Right
+        // neighbors together, same as DeleteSpine's own cascade - no exceptions, even for the root
+        // column: its m_bIsRoot flag transfers onto the destination column first, since Pass C's layout
+        // walk needs exactly one root column to exist as its anchor, but doesn't care which one it is.
+        // No bDirty - repositioning a spine never changes what's connected to what.
+        //================================================================================================
+        struct set_spine_position_cmd : xundo::command_base
+        {
+            set_spine_position_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "SetSpinePosition", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override
+            {
+                return "Moves a spine. Usage: SetSpinePosition -Id spineid -Y yvalue "
+                       "(-Column columnid | -NewColumn -NewColumnId id -NeighborColumn columnid -Side L|R)";
+            }
+            void RegisterArguments() noexcept override
+            {
+                m_hId             = m_Parser.addOption("Id",             "Spine id to move",                                true,  1);
+                m_hY              = m_Parser.addOption("Y",              "New absolute world Y",                            true,  1);
+                m_hColumn         = m_Parser.addOption("Column",         "Move into this already-existing column id",       false, 1);
+                m_hNewColumn      = m_Parser.addOption("NewColumn",      "Synthesize a new column (value ignored)",         false, 1);
+                m_hNewColumnId    = m_Parser.addOption("NewColumnId",    "Id for the new column",                           false, 1);
+                m_hNeighborColumn = m_Parser.addOption("NeighborColumn", "The new column's own neighbor column id",         false, 1);
+                m_hSide           = m_Parser.addOption("Side",           "Which side of -NeighborColumn the new one sits on: L or R", false, 1);
+            }
+
+            // Shared by Redo and BackupCurrenState - resolves and validates every argument without
+            // mutating anything (the actual column creation only ever happens once, inside Redo()).
+            std::string ResolveArgs(node_os_command_context& Ctx, std::uint64_t& OutSpineId, float& OutY, std::uint64_t& OutColumnId, bool& OutNewColumn
+                                   , std::uint64_t& OutNewColumnId, std::uint64_t& OutNeighborColumnId, char& OutSide) const noexcept
+            {
+                auto IdArg = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
+                auto YArg  = m_Parser.getOptionArgAs<double>(m_hY, 0);
+                if (std::holds_alternative<xerr>(IdArg) || std::holds_alternative<xerr>(YArg)) return "SetSpinePosition: bad arguments";
+                OutSpineId = ParseGuid(std::get<std::string>(IdArg));
+                OutY       = static_cast<float>(std::get<double>(YArg));
+
+                const bool bHasColumn    = m_Parser.hasOption(m_hColumn);
+                const bool bHasNewColumn = m_Parser.hasOption(m_hNewColumn);
+                if (bHasColumn == bHasNewColumn) return "SetSpinePosition: exactly one of -Column/-NewColumn is required";
+
+                if (bHasColumn)
+                {
+                    auto A = m_Parser.getOptionArgAs<std::string>(m_hColumn, 0);
+                    if (std::holds_alternative<xerr>(A)) return "SetSpinePosition: bad arguments";
+                    OutColumnId = ParseGuid(std::get<std::string>(A));
+                    bool bFound = false; for (auto& Co : Ctx.m_Columns) if (Co.m_Id == OutColumnId) { bFound = true; break; }
+                    if (!bFound) return "SetSpinePosition: -Column no longer exists";
+                    OutNewColumn = false;
+                    return {};
+                }
+
+                auto NCId = m_Parser.getOptionArgAs<std::string>(m_hNewColumnId, 0);
+                auto NB   = m_Parser.getOptionArgAs<std::string>(m_hNeighborColumn, 0);
+                auto Sd   = m_Parser.getOptionArgAs<std::string>(m_hSide, 0);
+                if (std::holds_alternative<xerr>(NCId) || std::holds_alternative<xerr>(NB) || std::holds_alternative<xerr>(Sd)) return "SetSpinePosition: bad arguments";
+                OutNewColumnId      = ParseGuid(std::get<std::string>(NCId));
+                OutNeighborColumnId = ParseGuid(std::get<std::string>(NB));
+                const auto& SideStr = std::get<std::string>(Sd);
+                if (SideStr.empty() || (SideStr[0] != 'L' && SideStr[0] != 'R')) return "SetSpinePosition: -Side must be L or R";
+                OutSide = SideStr[0];
+
+                bool bNeighborFound = false;
+                for (auto& Co : Ctx.m_Columns) if (Co.m_Id == OutNeighborColumnId) { bNeighborFound = true; break; }
+                if (!bNeighborFound) return "SetSpinePosition: -NeighborColumn no longer exists";
+                OutNewColumn = true;
+                return {};
+            }
+
+            // Shared by Redo and BackupCurrenState - a column with zero spines never persists, no
+            // exceptions: if it's the one flagged m_bIsRoot, Redo() transfers that flag onto the
+            // destination column first (Pass C's layout walk always needs exactly one root column to
+            // exist as its anchor, it doesn't care which one).
+            static bool WillRemoveOldColumn(node_os_command_context& Ctx, std::uint64_t SpineId, std::uint64_t OldColumnId, std::uint64_t DestColumnId) noexcept
+            {
+                if (OldColumnId == DestColumnId) return false;
+                for (auto& Sp : Ctx.m_Spines) if (Sp.m_Id != SpineId && Sp.m_ColumnId == OldColumnId) return false;
+                for (auto& Co : Ctx.m_Columns) if (Co.m_Id == OldColumnId) return true;
+                return false;
+            }
+
+            std::string Redo() noexcept override
+            {
+                auto& Ctx = get<node_os_command_context>();
+                std::uint64_t SpineId = 0, ColumnId = 0, NewColumnId = 0, NeighborColumnId = 0; float Y = 0.0f; bool bNewColumn = false; char Side = 'R';
+                if (auto Err = ResolveArgs(Ctx, SpineId, Y, ColumnId, bNewColumn, NewColumnId, NeighborColumnId, Side); !Err.empty()) return Err;
+
+                auto SpineIt = std::find_if(Ctx.m_Spines.begin(), Ctx.m_Spines.end(), [&](auto& Sp) { return Sp.m_Id == SpineId; });
+                if (SpineIt == Ctx.m_Spines.end()) return "SetSpinePosition: spine no longer exists";
+                const auto OldColumnId = SpineIt->m_ColumnId;
+
+                if (bNewColumn)
+                {
+                    // Splices the new column in on -Side of -NeighborColumn, exactly like CreateSpine.
+                    column NewCol{ NewColumnId, 0, 0, false };
+                    for (auto& Co : Ctx.m_Columns)
+                        if (Co.m_Id == NeighborColumnId)
+                        {
+                            std::uint64_t& NearPtr = (Side == 'R') ? Co.m_RightId : Co.m_LeftId;
+                            const std::uint64_t OldFarNeighborId = NearPtr;
+                            NearPtr = NewColumnId;
+                            if (Side == 'R') { NewCol.m_LeftId = NeighborColumnId; NewCol.m_RightId = OldFarNeighborId; }
+                            else             { NewCol.m_RightId = NeighborColumnId; NewCol.m_LeftId = OldFarNeighborId; }
+                            if (OldFarNeighborId != 0)
+                                for (auto& Co2 : Ctx.m_Columns)
+                                    if (Co2.m_Id == OldFarNeighborId)
+                                    {
+                                        std::uint64_t& FarPtr = (Side == 'R') ? Co2.m_LeftId : Co2.m_RightId;
+                                        FarPtr = NewColumnId;
+                                        break;
+                                    }
+                            break;
+                        }
+                    Ctx.m_Columns.push_back(NewCol);
+                    ColumnId = NewColumnId;
+                }
+
+                SpineIt->m_ColumnId = ColumnId;
+                SpineIt->m_Y        = Y;
+
+                if (OldColumnId != ColumnId)
+                {
+                    bool bOtherSpineInOldColumn = false;
+                    for (auto& Sp : Ctx.m_Spines) if (Sp.m_ColumnId == OldColumnId) { bOtherSpineInOldColumn = true; break; }
+                    if (!bOtherSpineInOldColumn)
+                    {
+                        auto ColIt = std::find_if(Ctx.m_Columns.begin(), Ctx.m_Columns.end(), [&](auto& Co) { return Co.m_Id == OldColumnId; });
+                        // A column with zero spines never persists, no exceptions - bridge its own
+                        // Left/Right neighbors together, same as DeleteSpine's own cascade. If this was
+                        // the root column, transfer that flag onto where the spine is moving TO first, so
+                        // exactly one column always stays flagged root.
+                        if (ColIt != Ctx.m_Columns.end())
+                        {
+                            if (ColIt->m_bIsRoot)
+                                for (auto& Co : Ctx.m_Columns) if (Co.m_Id == ColumnId) { Co.m_bIsRoot = true; break; }
+                            const auto LeftId = ColIt->m_LeftId, RightId = ColIt->m_RightId;
+                            for (auto& Co : Ctx.m_Columns)
+                            {
+                                if (LeftId  != 0 && Co.m_Id == LeftId)  Co.m_RightId = RightId;
+                                if (RightId != 0 && Co.m_Id == RightId) Co.m_LeftId  = LeftId;
+                            }
+                            Ctx.m_Columns.erase(ColIt);
+                        }
+                    }
+                }
+                return {};
+            }
+
+            void BackupCurrenState(xundo::undo_file& File) noexcept override
+            {
+                auto& Ctx = get<node_os_command_context>();
+                std::uint64_t SpineId = 0, ColumnId = 0, NewColumnId = 0, NeighborColumnId = 0; float Y = 0.0f; bool bNewColumn = false; char Side = 'R';
+                const bool bOk = ResolveArgs(Ctx, SpineId, Y, ColumnId, bNewColumn, NewColumnId, NeighborColumnId, Side).empty();
+                auto SpineIt = bOk ? std::find_if(Ctx.m_Spines.begin(), Ctx.m_Spines.end(), [&](auto& Sp) { return Sp.m_Id == SpineId; }) : Ctx.m_Spines.end();
+                if (!bOk || SpineIt == Ctx.m_Spines.end()) { File.Write(std::uint8_t{0}); return; }
+
+                File.Write(std::uint8_t{1});
+                File.Write(*SpineIt); // spine is a plain POD-ish struct - trivially copyable snapshot
+
+                // Everything needed to reverse the splice, if -NewColumn (same fields as CreateSpine's
+                // own undo needs).
+                File.Write(bNewColumn ? std::uint8_t{1} : std::uint8_t{0});
+                File.Write(NeighborColumnId);
+                File.Write(Side == 'R' ? std::uint8_t{1} : std::uint8_t{0});
+                std::uint64_t OldFarNeighborId = 0;
+                if (bNewColumn)
+                    for (auto& Co : Ctx.m_Columns)
+                        if (Co.m_Id == NeighborColumnId) { OldFarNeighborId = (Side == 'R') ? Co.m_RightId : Co.m_LeftId; break; }
+                File.Write(OldFarNeighborId);
+                const auto DestColumnId = bNewColumn ? NewColumnId : ColumnId;
+                File.Write(DestColumnId);
+
+                const auto OldColumnId = SpineIt->m_ColumnId;
+                const bool bOldColumnWillBeRemoved = WillRemoveOldColumn(Ctx, SpineId, OldColumnId, DestColumnId);
+                File.Write(bOldColumnWillBeRemoved ? std::uint8_t{1} : std::uint8_t{0});
+                if (bOldColumnWillBeRemoved)
+                {
+                    auto ColIt = std::find_if(Ctx.m_Columns.begin(), Ctx.m_Columns.end(), [&](auto& Co) { return Co.m_Id == OldColumnId; });
+                    if (ColIt != Ctx.m_Columns.end()) File.Write(*ColIt);
+                }
+            }
+
+            void Undo(xundo::undo_file& File) noexcept override
+            {
+                std::uint8_t bFound = 0; File.Read(bFound);
+                if (!bFound) return;
+                spine OldSpine{}; File.Read(OldSpine);
+
+                std::uint8_t bNewColumn = 0; File.Read(bNewColumn);
+                std::uint64_t NeighborColumnId = 0; File.Read(NeighborColumnId);
+                std::uint8_t bSideR = 0; File.Read(bSideR);
+                std::uint64_t OldFarNeighborId = 0; File.Read(OldFarNeighborId);
+                std::uint64_t DestColumnId = 0; File.Read(DestColumnId);
+
+                std::uint8_t bColumnRemoved = 0; File.Read(bColumnRemoved);
+                column OldColumn{}; bool bHaveColumn = false;
+                if (bColumnRemoved) { File.Read(OldColumn); bHaveColumn = true; }
+
+                auto& Ctx = get<node_os_command_context>();
+
+                if (bNewColumn)
+                {
+                    // Reverse the splice Redo() performed, exactly like CreateSpine's own undo.
+                    std::erase_if(Ctx.m_Columns, [&](auto& Co) { return Co.m_Id == DestColumnId; });
+                    for (auto& Co : Ctx.m_Columns)
+                        if (Co.m_Id == NeighborColumnId)
+                        {
+                            if (bSideR) Co.m_RightId = OldFarNeighborId; else Co.m_LeftId = OldFarNeighborId;
+                            break;
+                        }
+                    if (OldFarNeighborId != 0)
+                        for (auto& Co : Ctx.m_Columns)
+                            if (Co.m_Id == OldFarNeighborId)
+                            {
+                                if (bSideR) Co.m_LeftId = NeighborColumnId; else Co.m_RightId = NeighborColumnId;
+                                break;
+                            }
+                }
+
+                for (auto& Sp : Ctx.m_Spines) if (Sp.m_Id == OldSpine.m_Id) { Sp = OldSpine; break; }
+
+                if (bHaveColumn)
+                {
+                    // If Redo() transferred the root flag onto the destination column, hand it back -
+                    // exactly one column stays flagged root at all times. A no-op if the destination was
+                    // itself a -NewColumn splice already unwound above.
+                    if (OldColumn.m_bIsRoot)
+                        for (auto& Co : Ctx.m_Columns) if (Co.m_Id == DestColumnId) { Co.m_bIsRoot = false; break; }
+                    Ctx.m_Columns.push_back(OldColumn);
+                    for (auto& Co : Ctx.m_Columns)
+                    {
+                        if (OldColumn.m_LeftId  != 0 && Co.m_Id == OldColumn.m_LeftId)  Co.m_RightId = OldColumn.m_Id;
+                        if (OldColumn.m_RightId != 0 && Co.m_Id == OldColumn.m_RightId) Co.m_LeftId  = OldColumn.m_Id;
+                    }
+                }
+            }
+
+            xcmdline::parser::handle m_hId, m_hY, m_hColumn, m_hNewColumn, m_hNewColumnId, m_hNeighborColumn, m_hSide;
+        };
+
+        //================================================================================================
+        // DeleteSpine - legal only when the spine currently has zero member nodes (deleting a populated
+        // one is two user actions: delete its nodes, then delete the now-empty placeholder - same
+        // single-responsibility shape as DeleteLink). Cascades to remove the column too if this was its
+        // last spine, bridging its own Left/Right neighbors together (a column with zero spines never
+        // persists) - except the one column flagged m_bIsRoot, which Pass C's layout walk always needs
+        // to exist as its anchor.
+        //================================================================================================
+        struct delete_spine_cmd : xundo::command_base
+        {
+            delete_spine_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "DeleteSpine", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "Deletes an empty spine (and its column, if it was the column's last one). Usage: DeleteSpine -Id spineid"; }
+            void RegisterArguments() noexcept override { m_hId = m_Parser.addOption("Id", "Spine id", true, 1); }
+
+            std::string Redo() noexcept override
+            {
+                auto IdArg = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
+                if (std::holds_alternative<xerr>(IdArg)) return "DeleteSpine: bad arguments";
+                const auto SpineId = ParseGuid(std::get<std::string>(IdArg));
+
+                auto& Ctx = get<node_os_command_context>();
+                auto SpineIt = std::find_if(Ctx.m_Spines.begin(), Ctx.m_Spines.end(), [&](auto& Sp) { return Sp.m_Id == SpineId; });
+                if (SpineIt == Ctx.m_Spines.end()) return "DeleteSpine: spine no longer exists";
+                if (SpineIt->m_bIsRoot) return "DeleteSpine: cannot delete the root spine";
+                for (auto& N : Ctx.m_Nodes) if (N.m_SpineId == SpineId) return "DeleteSpine: spine still has nodes";
+
+                const auto ColumnId = SpineIt->m_ColumnId;
+                bool bOtherSpineInColumn = false;
+                for (auto& Sp : Ctx.m_Spines) if (Sp.m_Id != SpineId && Sp.m_ColumnId == ColumnId) { bOtherSpineInColumn = true; break; }
+
+                Ctx.m_Spines.erase(SpineIt);
+                if (!bOtherSpineInColumn)
+                {
+                    auto ColIt = std::find_if(Ctx.m_Columns.begin(), Ctx.m_Columns.end(), [&](auto& Co) { return Co.m_Id == ColumnId; });
+                    if (ColIt != Ctx.m_Columns.end() && !ColIt->m_bIsRoot)
+                    {
+                        const auto LeftId = ColIt->m_LeftId, RightId = ColIt->m_RightId;
+                        for (auto& Co : Ctx.m_Columns)
+                        {
+                            if (LeftId  != 0 && Co.m_Id == LeftId)  Co.m_RightId = RightId;
+                            if (RightId != 0 && Co.m_Id == RightId) Co.m_LeftId  = LeftId;
+                        }
+                        Ctx.m_Columns.erase(ColIt);
+                    }
+                }
+                if (Ctx.m_Selection.m_SelectedGapSpineId == SpineId) { Ctx.m_Selection.m_SelectedGapSpineId = 0; Ctx.m_Selection.m_SelectedGapIndex = -1; }
+                return {};
+            }
+
+            void BackupCurrenState(xundo::undo_file& File) noexcept override
+            {
+                auto& Ctx = get<node_os_command_context>();
+                auto IdArg = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
+                const auto SpineId = std::holds_alternative<xerr>(IdArg) ? std::uint64_t{0} : ParseGuid(std::get<std::string>(IdArg));
+
+                auto SpineIt = std::find_if(Ctx.m_Spines.begin(), Ctx.m_Spines.end(), [&](auto& Sp) { return Sp.m_Id == SpineId; });
+                const bool bFound = SpineIt != Ctx.m_Spines.end();
+                File.Write(bFound ? std::uint8_t{1} : std::uint8_t{0});
+                if (!bFound) return;
+
+                File.Write(*SpineIt); // spine is a plain POD-ish struct - trivially copyable snapshot
+
+                bool bOtherSpineInColumn = false;
+                for (auto& Sp : Ctx.m_Spines) if (Sp.m_Id != SpineId && Sp.m_ColumnId == SpineIt->m_ColumnId) { bOtherSpineInColumn = true; break; }
+                auto ColIt = std::find_if(Ctx.m_Columns.begin(), Ctx.m_Columns.end(), [&](auto& Co) { return Co.m_Id == SpineIt->m_ColumnId; });
+                const bool bColumnWillBeRemoved = !bOtherSpineInColumn && ColIt != Ctx.m_Columns.end() && !ColIt->m_bIsRoot;
+                File.Write(bColumnWillBeRemoved ? std::uint8_t{1} : std::uint8_t{0}); // "will the column also be removed"
+                if (bColumnWillBeRemoved) File.Write(*ColIt);
+            }
+
+            void Undo(xundo::undo_file& File) noexcept override
+            {
+                std::uint8_t bFound = 0; File.Read(bFound);
+                if (!bFound) return;
+                spine Spine{}; File.Read(Spine);
+                std::uint8_t bColumnRemoved = 0; File.Read(bColumnRemoved);
+
+                auto& Ctx = get<node_os_command_context>();
+                Ctx.m_Spines.push_back(Spine);
+                if (bColumnRemoved)
+                {
+                    column Column{}; File.Read(Column);
+                    Ctx.m_Columns.push_back(Column);
+                    for (auto& Co : Ctx.m_Columns)
+                    {
+                        if (Column.m_LeftId  != 0 && Co.m_Id == Column.m_LeftId)  Co.m_RightId = Column.m_Id;
+                        if (Column.m_RightId != 0 && Co.m_Id == Column.m_RightId) Co.m_LeftId  = Column.m_Id;
+                    }
+                }
+            }
+
+            xcmdline::parser::handle m_hId;
         };
 
         //================================================================================================
@@ -2710,6 +4016,138 @@ namespace nodeos
             }
 
             xcmdline::parser::handle m_hIds;
+        };
+
+        //================================================================================================
+        // MoveNodesToSpine - moves node(s) into a DIFFERENT spine (dragging a node onto another
+        // spine's own marker), renumbering every spine it touches - each source spine's own remainder
+        // and the destination spine's new dense order - densely to 0..N-1, same reasoning as
+        // CreateNode/ReorderNodes: deleting/removing leaves gaps that get closed here, never patched
+        // with arithmetic on the existing m_Order values. Addressed the same way CreateNode addresses
+        // insertion (-After/-Before an existing node in the destination, or -InSpine to append
+        // regardless of that spine's current size).
+        //================================================================================================
+        struct move_nodes_to_spine_cmd : xundo::command_base
+        {
+            move_nodes_to_spine_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "MoveNodesToSpine", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override
+            {
+                return "Moves node(s) into a different spine. Usage: MoveNodesToSpine -Ids id[,id...] (-After id | -Before id | -InSpine spineid)";
+            }
+            void RegisterArguments() noexcept override
+            {
+                m_hIds     = m_Parser.addOption("Ids",     "Node ids to move, comma-separated",                          true,  1);
+                m_hAfter   = m_Parser.addOption("After",   "Insert right after this node id in the destination spine",  false, 1);
+                m_hBefore  = m_Parser.addOption("Before",  "Insert right before this node id in the destination spine", false, 1);
+                m_hInSpine = m_Parser.addOption("InSpine", "Append to this spine, whatever its current size",           false, 1);
+            }
+
+            // Shared by Redo and BackupCurrenState - resolves -After/-Before/-InSpine into a target
+            // spine + dense order index, exactly like create_node_cmd's own ResolveTargetOrder.
+            std::string ResolveTarget(node_os_command_context& Ctx, std::uint64_t& OutSpineId, int& OutOrder) const noexcept
+            {
+                const bool bHasAfter   = m_Parser.hasOption(m_hAfter);
+                const bool bHasBefore  = m_Parser.hasOption(m_hBefore);
+                const bool bHasInSpine = m_Parser.hasOption(m_hInSpine);
+                if ((bHasAfter ? 1 : 0) + (bHasBefore ? 1 : 0) + (bHasInSpine ? 1 : 0) != 1)
+                    return "MoveNodesToSpine: exactly one of -After/-Before/-InSpine is required";
+
+                if (bHasInSpine)
+                {
+                    auto RefArg = m_Parser.getOptionArgAs<std::string>(m_hInSpine, 0);
+                    if (std::holds_alternative<xerr>(RefArg)) return "MoveNodesToSpine: bad arguments";
+                    const auto SpineId = ParseGuid(std::get<std::string>(RefArg));
+                    bool bFound = false;
+                    for (auto& S : Ctx.m_Spines) if (S.m_Id == SpineId) { bFound = true; break; }
+                    if (!bFound) return "MoveNodesToSpine: -InSpine spine no longer exists";
+                    int Count = 0;
+                    for (auto& N : Ctx.m_Nodes) if (N.m_SpineId == SpineId) ++Count;
+                    OutSpineId = SpineId; OutOrder = Count; return {};
+                }
+
+                auto RefArg = m_Parser.getOptionArgAs<std::string>(bHasAfter ? m_hAfter : m_hBefore, 0);
+                if (std::holds_alternative<xerr>(RefArg)) return "MoveNodesToSpine: bad arguments";
+                const auto RefId = ParseGuid(std::get<std::string>(RefArg));
+                std::uint64_t RefSpineId = 0; int RefOrder = 0;
+                if (!ResolveNodeSpineAndOrder(Ctx.m_Nodes, RefId, RefSpineId, RefOrder)) return "MoveNodesToSpine: -After/-Before node no longer exists";
+                OutSpineId = RefSpineId; OutOrder = bHasAfter ? RefOrder + 1 : RefOrder;
+                return {};
+            }
+
+            std::string Redo() noexcept override
+            {
+                auto IdsArg = m_Parser.getOptionArgAs<std::string>(m_hIds, 0);
+                if (std::holds_alternative<xerr>(IdsArg)) return "MoveNodesToSpine: bad arguments";
+                const auto MovingIds = SplitIds(std::get<std::string>(IdsArg));
+                if (MovingIds.empty()) return "MoveNodesToSpine: no ids given";
+
+                auto& Ctx = get<node_os_command_context>();
+                std::uint64_t TargetSpineId = 0; int TargetOrder = 0;
+                if (auto Err = ResolveTarget(Ctx, TargetSpineId, TargetOrder); !Err.empty()) return Err;
+
+                auto IsMoving = [&](std::uint64_t Id) { return std::find(MovingIds.begin(), MovingIds.end(), Id) != MovingIds.end(); };
+
+                auto OrderOf = [&](std::uint64_t Id) { for (auto& N : Ctx.m_Nodes) if (N.m_Id == Id) return N.m_Order; return 0; };
+
+                // The target's CURRENT dense order, snapshotted before any renumbering below touches it
+                // - TargetOrder (resolved above) is expressed against this exact snapshot.
+                std::vector<std::uint64_t> TargetOrderBefore;
+                for (auto& N : Ctx.m_Nodes) if (N.m_SpineId == TargetSpineId) TargetOrderBefore.push_back(N.m_Id);
+                std::sort(TargetOrderBefore.begin(), TargetOrderBefore.end(), [&](std::uint64_t A, std::uint64_t B) { return OrderOf(A) < OrderOf(B); });
+
+                // How many movers already sitting in the TARGET spine were before TargetOrder -
+                // removing them shifts the insertion point left by that many (same adjustment the UI's
+                // own same-spine MoveNodesTo already makes).
+                int Adjust = 0;
+                for (int i = 0; i < TargetOrder && i < (int)TargetOrderBefore.size(); ++i)
+                    if (IsMoving(TargetOrderBefore[i])) ++Adjust;
+
+                // Every distinct spine this touches: every mover's OWN current spine, plus the target -
+                // each gets its own remainder (or, for the target, remainder-plus-movers) renumbered
+                // densely to 0..N-1.
+                std::set<std::uint64_t> TouchedSpineIds{ TargetSpineId };
+                for (auto Id : MovingIds)
+                    for (auto& N : Ctx.m_Nodes) if (N.m_Id == Id) { TouchedSpineIds.insert(N.m_SpineId); break; }
+
+                for (auto SpineId : TouchedSpineIds)
+                {
+                    std::vector<std::uint64_t> Remaining;
+                    for (auto& N : Ctx.m_Nodes) if (N.m_SpineId == SpineId && !IsMoving(N.m_Id)) Remaining.push_back(N.m_Id);
+                    std::sort(Remaining.begin(), Remaining.end(), [&](std::uint64_t A, std::uint64_t B) { return OrderOf(A) < OrderOf(B); });
+                    if (SpineId == TargetSpineId)
+                    {
+                        const int InsertAt = std::clamp(TargetOrder - Adjust, 0, (int)Remaining.size());
+                        Remaining.insert(Remaining.begin() + InsertAt, MovingIds.begin(), MovingIds.end());
+                    }
+                    for (int i = 0; i < (int)Remaining.size(); ++i)
+                        for (auto& N : Ctx.m_Nodes) if (N.m_Id == Remaining[i]) { N.m_Order = i; break; }
+                }
+                for (auto Id : MovingIds)
+                    for (auto& N : Ctx.m_Nodes) if (N.m_Id == Id) N.m_SpineId = TargetSpineId;
+
+                return {}; // pure reassignment - doesn't change what's connected to what, no bDirty (matches ReorderNodes)
+            }
+
+            void BackupCurrenState(xundo::undo_file& File) noexcept override
+            {
+                auto& Ctx = get<node_os_command_context>();
+                File.Write(static_cast<std::uint32_t>(Ctx.m_Nodes.size()));
+                for (auto& N : Ctx.m_Nodes) { File.Write(N.m_Id); File.Write(N.m_Order); File.Write(N.m_SpineId); }
+            }
+
+            void Undo(xundo::undo_file& File) noexcept override
+            {
+                auto& Ctx = get<node_os_command_context>();
+                std::uint32_t Count = 0; File.Read(Count);
+                for (std::uint32_t i = 0; i < Count; ++i)
+                {
+                    std::uint64_t Id = 0; int Order = 0; std::uint64_t SpineId = 0;
+                    File.Read(Id); File.Read(Order); File.Read(SpineId);
+                    for (auto& N : Ctx.m_Nodes) if (N.m_Id == Id) { N.m_Order = Order; N.m_SpineId = SpineId; break; }
+                }
+            }
+
+            xcmdline::parser::handle m_hIds, m_hAfter, m_hBefore, m_hInSpine;
         };
 
         //================================================================================================
@@ -2786,7 +4224,7 @@ namespace nodeos
             const char* getCommandHelp() const noexcept override
             {
                 return "Sets the current selection - every flag is optional, omitted means \"none of this kind\"."
-                       " Usage: Select [-Nodes id[,id...]] [-Link id] [-MarkerAfter id | -MarkerBefore id]";
+                       " Usage: Select [-Nodes id[,id...]] [-Link id] [-MarkerAfter id | -MarkerBefore id | -MarkerSpine spineid]";
             }
             void RegisterArguments() noexcept override
             {
@@ -2794,6 +4232,7 @@ namespace nodeos
                 m_hLink         = m_Parser.addOption("Link",         "Selected link id",                                    false, 1);
                 m_hMarkerAfter  = m_Parser.addOption("MarkerAfter",  "Select the insert marker right after this node id",   false, 1);
                 m_hMarkerBefore = m_Parser.addOption("MarkerBefore", "Select the insert marker right before this node id",  false, 1);
+                m_hMarkerSpine  = m_Parser.addOption("MarkerSpine",  "Select an empty spine's own placeholder marker",       false, 1);
             }
 
             std::string Redo() noexcept override
@@ -2818,19 +4257,34 @@ namespace nodeos
                     S.m_SelectedLink = ParseGuid(std::get<std::string>(LinkArg));
                 }
 
-                S.m_SelectedGap = -1;
+                S.m_SelectedGapSpineId = 0;
+                S.m_SelectedGapIndex   = -1;
                 const bool bHasAfter  = m_Parser.hasOption(m_hMarkerAfter);
                 const bool bHasBefore = m_Parser.hasOption(m_hMarkerBefore);
-                if (bHasAfter && bHasBefore) return "Select: -MarkerAfter and -MarkerBefore are mutually exclusive";
+                const bool bHasSpine  = m_Parser.hasOption(m_hMarkerSpine);
+                if ((bHasAfter ? 1 : 0) + (bHasBefore ? 1 : 0) + (bHasSpine ? 1 : 0) > 1)
+                    return "Select: -MarkerAfter, -MarkerBefore and -MarkerSpine are mutually exclusive";
                 if (bHasAfter || bHasBefore)
                 {
                     auto RefArg = m_Parser.getOptionArgAs<std::string>(bHasAfter ? m_hMarkerAfter : m_hMarkerBefore, 0);
                     if (std::holds_alternative<xerr>(RefArg)) return "Select: bad arguments";
                     const auto RefId = ParseGuid(std::get<std::string>(RefArg));
+                    std::uint64_t RefSpineId = 0; int RefOrder = 0;
+                    if (!ResolveNodeSpineAndOrder(Ctx.m_Nodes, RefId, RefSpineId, RefOrder)) return "Select: -MarkerAfter/-MarkerBefore node no longer exists";
+                    S.m_SelectedGapSpineId = RefSpineId; S.m_SelectedGapIndex = bHasAfter ? RefOrder + 1 : RefOrder;
+                }
+                else if (bHasSpine)
+                {
+                    // Legal only for an empty spine - a non-empty one already has -MarkerBefore <its
+                    // first node> to select the very same visual slot.
+                    auto RefArg = m_Parser.getOptionArgAs<std::string>(m_hMarkerSpine, 0);
+                    if (std::holds_alternative<xerr>(RefArg)) return "Select: bad arguments";
+                    const auto RefSpineId = ParseGuid(std::get<std::string>(RefArg));
                     bool bFound = false;
-                    for (auto& N : Ctx.m_Nodes)
-                        if (N.m_Id == RefId) { S.m_SelectedGap = bHasAfter ? N.m_Order + 1 : N.m_Order; bFound = true; break; }
-                    if (!bFound) return "Select: -MarkerAfter/-MarkerBefore node no longer exists";
+                    for (auto& Sp : Ctx.m_Spines) if (Sp.m_Id == RefSpineId) { bFound = true; break; }
+                    if (!bFound) return "Select: -MarkerSpine spine no longer exists";
+                    for (auto& N : Ctx.m_Nodes) if (N.m_SpineId == RefSpineId) return "Select: -MarkerSpine is only for an empty spine";
+                    S.m_SelectedGapSpineId = RefSpineId; S.m_SelectedGapIndex = 0;
                 }
                 return {};
             }
@@ -2838,7 +4292,7 @@ namespace nodeos
             void BackupCurrenState(xundo::undo_file& File) noexcept override { BackupSelection(get<node_os_command_context>(), File); }
             void Undo(xundo::undo_file& File) noexcept override { RestoreSelection(get<node_os_command_context>(), File); }
 
-            xcmdline::parser::handle m_hNodes, m_hLink, m_hMarkerAfter, m_hMarkerBefore;
+            xcmdline::parser::handle m_hNodes, m_hLink, m_hMarkerAfter, m_hMarkerBefore, m_hMarkerSpine;
         };
 
         //================================================================================================
@@ -2857,7 +4311,8 @@ namespace nodeos
                 auto& S = get<node_os_command_context>().m_Selection;
                 S.m_SelectedNodes.clear();
                 S.m_SelectedLink = 0;
-                S.m_SelectedGap  = -1;
+                S.m_SelectedGapSpineId = 0;
+                S.m_SelectedGapIndex   = -1;
                 return {};
             }
 
@@ -2893,14 +4348,23 @@ int E27_Example()
     std::vector<nodeos::node_instance>       Nodes;
     std::vector<nodeos::link_instance>       Links;
 
+    // There is always exactly one root spine living in exactly one root column - every other spine/
+    // column this session ever creates starts out attached next to one of the existing ones via
+    // CreateSpine. m_Y seeds at geo::TOP, same starting point as before any spine was ever dragged.
+    std::vector<nodeos::spine>  Spines  { nodeos::spine {  xresource::guid_generator::Instance64(), 0, true, nodeos::geo::TOP } };
+    std::vector<nodeos::column> Columns { nodeos::column { xresource::guid_generator::Instance64(), 0, 0, true } };
+    Spines.front().m_ColumnId = Columns.front().m_Id;
+
     nodeos::mesh_preview_system MeshPreview;
     if (!MeshPreview.Init(Device))
         return 1;
 
-    nodeos::canvas_drag      Drag;
-    nodeos::canvas_selection Selection;
-    nodeos::canvas_view      View;
-    nodeos::canvas_node_drag NodeDrag;
+    nodeos::canvas_drag       Drag;
+    nodeos::canvas_selection  Selection;
+    nodeos::canvas_view       View;
+    nodeos::canvas_node_drag  NodeDrag;
+    nodeos::canvas_spine_drag SpineDrag;
+    nodeos::canvas_delete_spine_confirm DeleteSpineConfirm;
 
     bool bDirty = false; // persists across frames - see the deferred-execute comment below
     char GraphPathBuffer[260] = "D:/LIONant/xGPU/source/Examples/E27_NodeOS/graph.txt";
@@ -2912,7 +4376,7 @@ int E27_Example()
     // identically to how the ImGui code below calls it. bAutoLoadSave=false - a fresh undo stack each
     // run, since a stale on-disk history from a previous, differently-shaped graph would be more
     // confusing than useful for this example.
-    nodeos::commands::node_os_command_context CmdContext{ Nodes, Links, Selection, Sources, AvailableTypes, bDirty };
+    nodeos::commands::node_os_command_context CmdContext{ Nodes, Links, Selection, Sources, AvailableTypes, bDirty, Spines, Columns };
     xundo::system NodeOsUndo;
     if (auto Err = NodeOsUndo.Init("D:/LIONant/xGPU/source/Examples/E27_NodeOS/UndoHistory", false); !Err.empty())
         nodeos::Debugger(std::format("Node OS: xundo Init failed: {}", Err));
@@ -2921,9 +4385,13 @@ int E27_Example()
     nodeos::commands::delete_link_cmd     CmdDeleteLink(NodeOsUndo, &CmdContext);
     nodeos::commands::connect_cmd         CmdConnect(NodeOsUndo, &CmdContext);
     nodeos::commands::reorder_nodes_cmd   CmdReorderNodes(NodeOsUndo, &CmdContext);
+    nodeos::commands::move_nodes_to_spine_cmd CmdMoveNodesToSpine(NodeOsUndo, &CmdContext);
     nodeos::commands::set_properties_cmd  CmdSetProperties(NodeOsUndo, &CmdContext);
     nodeos::commands::select_cmd          CmdSelect(NodeOsUndo, &CmdContext);
     nodeos::commands::clear_selection_cmd CmdClearSelection(NodeOsUndo, &CmdContext);
+    nodeos::commands::create_spine_cmd    CmdCreateSpine(NodeOsUndo, &CmdContext);
+    nodeos::commands::delete_spine_cmd    CmdDeleteSpine(NodeOsUndo, &CmdContext);
+    nodeos::commands::set_spine_position_cmd CmdSetSpinePosition(NodeOsUndo, &CmdContext);
 
     while (Instance.ProcessInputEvents())
     {
@@ -2960,7 +4428,7 @@ int E27_Example()
         // every mesh preview reflects it - no manual "Execute Graph" click required for the common
         // case; the button below remains for a manual force-rerun.
         nodeos::DrawNodeLibraryPanel(Sources, AvailableTypes, bDirty);
-        nodeos::DrawGraphCanvas(Sources, AvailableTypes, Nodes, Links, MeshPreview, Drag, Selection, View, NodeDrag, bDirty, NodeOsUndo);
+        nodeos::DrawGraphCanvas(Sources, AvailableTypes, Nodes, Links, MeshPreview, Drag, Selection, View, NodeDrag, SpineDrag, DeleteSpineConfirm, Spines, Columns, bDirty, NodeOsUndo);
         nodeos::DrawNodePropertiesPanel(Nodes, Selection.m_SelectedNodes, NodeOsUndo);
 
         ImGui::SetNextWindowPos(ImVec2(1265, 0), ImGuiCond_FirstUseEver);
@@ -3041,12 +4509,15 @@ int E27_Example()
             ImGui::SetNextItemWidth(-1);
             ImGui::InputText("##GraphPath", GraphPathBuffer, sizeof(GraphPathBuffer));
             if (ImGui::Button("Save"))
-                GraphStatus = nodeos::SaveGraph(GraphPathBuffer, Nodes, Links, AvailableTypes) ? "Saved." : "Save failed - see log.";
+                GraphStatus = nodeos::SaveGraph(GraphPathBuffer, Nodes, Links, AvailableTypes, Spines, Columns) ? "Saved." : "Save failed - see log.";
             ImGui::SameLine();
             if (ImGui::Button("Load"))
             {
                 Selection.m_SelectedNodes.clear();
-                GraphStatus = nodeos::LoadGraph(GraphPathBuffer, Nodes, Links, Sources, AvailableTypes) ? "Loaded." : "Load failed - see log.";
+                Selection.m_SelectedLink = 0;
+                Selection.m_SelectedGapSpineId = 0;
+                Selection.m_SelectedGapIndex   = -1;
+                GraphStatus = nodeos::LoadGraph(GraphPathBuffer, Nodes, Links, Sources, AvailableTypes, Spines, Columns) ? "Loaded." : "Load failed - see log.";
                 bDirty = true; // re-run the freshly loaded graph, same deferred path as everything else
                 // Load replaces Nodes/Links wholesale (not through commands), so any existing undo
                 // history refers to node/link ids that may no longer mean anything in the new graph -
