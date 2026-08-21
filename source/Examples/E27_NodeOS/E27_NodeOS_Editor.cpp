@@ -3,6 +3,7 @@
 #include "source/tools/xgpu_view.h"
 
 #include <atomic> // std::atomic<int> compile counter, see CompilePluginWorker
+#include <mutex>  // guards the shared plugin PCH rebuild, see EnsurePluginPchFresh
 
 #include "source/Examples/E27_NodeOS/SDK/xnode_os_plugin_api.h"
 #include "source/Examples/E27_NodeOS/SDK/xnode_os_host_interface.h"
@@ -251,6 +252,20 @@ namespace nodeos
         return s_Bridge;
     }
 
+    // Every std::system() call this file ever makes to invoke the MSVC toolchain shares this ONE lock -
+    // concurrent cl.exe/link.exe invocations from the same parent process (e.g. the PCH build racing a
+    // different plugin's own compile, both firing during startup's auto-add-node burst) turned out to
+    // silently kill one of them: confirmed empirically - a standalone test program calling system() on
+    // the exact same generated .bat, in isolation, always succeeded, while the same .bat launched from
+    // inside this app while ANOTHER compile was also in flight sometimes died ~45ms in, before ever
+    // reaching its own cl.exe line, with system() still reporting exit code 0. Serializing every
+    // compiler invocation (this one included) removes the race entirely.
+    static std::mutex& CompilerInvocationMutex()
+    {
+        static std::mutex s_Mutex;
+        return s_Mutex;
+    }
+
     //------------------------------------------------------------------------------------------------
     // vcvarsall.bat's own vswhere.exe lookup and full INCLUDE/LIB/PATH setup is identical every time
     // it runs for this host process - re-running it from scratch on every single plugin compile is
@@ -279,6 +294,12 @@ namespace nodeos
                 Bat << "call \"D:\\Program Files\\Microsoft Visual Studio\\2022\\Community\\VC\\Auxiliary\\Build\\vcvarsall.bat\" x64 >nul\r\n";
                 Bat << "set > \"" << LogPath.string() << "\"\r\n"; // bare `set`: dumps every current env var as NAME=VALUE
             }
+            // Not guarded by CompilerInvocationMutex() - this only ever runs vswhere.exe/vcvarsall.bat
+            // (never cl.exe/link.exe, so it can't race one), and it's already exactly-once-safe via
+            // this function's own static-local-initializer guarantee. Guarding it WOULD be actively
+            // wrong: EnsurePluginPchFresh() calls this function while already holding that mutex, so
+            // acquiring it again here (same thread, non-reentrant mutex) would deadlock on the very
+            // first call - confirmed the hard way, this exact bug shipped once already.
             std::system(std::format("\"{}\"", BatPath.string()).c_str());
 
             std::ifstream LogFile(LogPath);
@@ -295,6 +316,115 @@ namespace nodeos
     }
 
     //------------------------------------------------------------------------------------------------
+    // A plugin's own include chain (xnode_os_plugin_api.h -> xproperty core -> xmath/xresource_guid)
+    // costs ~1.5s of template-heavy parsing PER COMPILE, measured empirically (a truly empty .cpp with
+    // the same flags compiles in ~40ms - link itself is ~65ms, so that 1.5s is neither process startup
+    // nor linking, it's parsing these exact headers). A precompiled header covering that chain, built
+    // once and reused via /Yu + /FI, turns that into a one-time cost. Rebuilt automatically whenever
+    // any covered header's write-time is newer than the existing .pch, so editing the SDK while the
+    // app is running is always picked up on the very next plugin compile - never silently stale.
+    // Mutex-guarded since plugin compiles can run concurrently on background threads (std::async).
+    // bPchReady's fallback in CompilePluginWorker means a build failure here (any cause) never breaks
+    // a plugin compile - it just misses the speedup that one time.
+    //------------------------------------------------------------------------------------------------
+    static const std::filesystem::path& PluginPchOutputDir()
+    {
+        static const std::filesystem::path s_Dir = "D:/LIONant/xGPU/source/Examples/E27_NodeOS/CompiledPlugins";
+        return s_Dir;
+    }
+    static const std::filesystem::path& PluginPchHeaderName()
+    {
+        // Deliberately a bare filename, not an absolute path - /Yc, /Yu and /FI must all name it
+        // identically for MSVC to recognize the reuse, and /FI needs a bare name resolvable via /I
+        // (added to every plugin's own compile line below) since the plugin's source file lives in a
+        // different folder than this header.
+        static const std::filesystem::path s_Name = "_plugin_pch.h";
+        return s_Name;
+    }
+    static std::filesystem::path PluginPchFile() { return PluginPchOutputDir() / "_plugin_pch.pch"; }
+    // The .obj produced alongside the .pch when it's (re)built - creating a PCH still really compiles
+    // its pch.cpp, so every non-inline global that chain drags in (xproperty's static registration
+    // objects, xresource::g_Mgr, ...) ends up defined in THIS .obj. /Yu alone doesn't pull it in - it
+    // has to be passed as an extra input to every plugin's own link step below, or those symbols come
+    // back as LNK2001 unresolved externals (confirmed empirically - this is exactly what happened on
+    // the first attempt at wiring this up).
+    static std::filesystem::path PluginPchObjFile() { return PluginPchOutputDir() / "_plugin_pch.obj"; }
+
+    // Returns whether the PCH is actually usable right now - a plugin compile should NEVER fail just
+    // because the speed optimization didn't pan out; the caller falls back to compiling without it.
+    static bool EnsurePluginPchFresh()
+    {
+        std::lock_guard Lock(CompilerInvocationMutex());
+
+        namespace fs = std::filesystem;
+        const fs::path OutputDir  = PluginPchOutputDir();
+        const fs::path PchHeader  = OutputDir / PluginPchHeaderName();
+        const fs::path PchFile    = PluginPchFile();
+        std::error_code Ec;
+        fs::create_directories(OutputDir, Ec);
+
+        // Every header this PCH transitively covers - traced by hand from xnode_os_plugin_api.h's own
+        // #include chain. If any of these is newer than the existing .pch, the cache is stale.
+        const fs::path CoveredHeaders[] =
+        {
+            "D:/LIONant/xGPU/source/Examples/E27_NodeOS/SDK/xnode_os_plugin_api.h",
+            "D:/LIONant/xGPU/source/Examples/E27_NodeOS/SDK/xnode_os_host_interface.h",
+            "D:/LIONant/xGPU/source/Examples/E27_NodeOS/SDK/xnode_os_shared_types.h",
+            "D:/LIONant/xGPU/dependencies/xproperty/source/xcore/my_properties.h",
+            "D:/LIONant/xGPU/dependencies/xproperty/source/xproperty.h",
+            "D:/LIONant/xGPU/dependencies/xproperty/source/sprop/property_sprop_container.h",
+            "D:/LIONant/xGPU/dependencies/xproperty/source/examples/imgui/my_property_ui.h",
+            "D:/LIONant/xGPU/dependencies/xresource_guid/source/xresource_guid.h",
+            "D:/LIONant/xGPU/dependencies/xmath/source/xmath.h",
+        };
+
+        const fs::path PchObjPath = OutputDir / "_plugin_pch.obj";
+        bool bNeedsBuild = !fs::exists(PchFile) || !fs::exists(PchObjPath);
+        if (!bNeedsBuild)
+        {
+            const auto PchTime = fs::last_write_time(PchFile, Ec);
+            for (auto& H : CoveredHeaders)
+                if (fs::exists(H) && fs::last_write_time(H, Ec) > PchTime) { bNeedsBuild = true; break; }
+        }
+        if (!bNeedsBuild) return true;
+
+        const fs::path PchSource = OutputDir / "_plugin_pch.cpp";
+        const fs::path PchLog    = OutputDir / "_plugin_pch_build.log";
+        const fs::path PchBat    = OutputDir / "_plugin_pch_build.bat";
+
+        // The two headers a plugin's own SDK include actually needs - everything else (xproperty,
+        // xmath, xresource_guid) comes in transitively through these.
+        { std::ofstream Header(PchHeader);
+          Header << "#pragma once\r\n"
+                 << "#include \"" << CoveredHeaders[0].string() << "\"\r\n"
+                 << "#include \"" << CoveredHeaders[2].string() << "\"\r\n"; }
+        { std::ofstream Source(PchSource); Source << "#include \"" << PluginPchHeaderName().string() << "\"\r\n"; }
+
+        // The .ofstream MUST be closed (flushed to disk) before system() launches cmd.exe to read this
+        // exact file - the other two .bat writers in this file (GetOrBuildVsEnvSetup,
+        // CompilePluginWorker) already scope their own std::ofstream inside a nested { } block for
+        // exactly this reason. Skipping that scoping here once caused a real, hard-to-diagnose bug:
+        // cmd.exe would read whatever prefix of the file had already been flushed, hit a premature
+        // EOF partway through, and exit "successfully" having never reached the cl.exe line at all.
+        {
+            std::ofstream Bat(PchBat);
+            Bat << "@echo off\r\n";
+            Bat << GetOrBuildVsEnvSetup();
+            Bat << "cl.exe /nologo /c /EHsc /std:c++20 /MDd /DWIN32 /D_WINDOWS /D_DEBUG /DUNICODE /D_UNICODE "
+                   "/I\"D:\\LIONant\\xGPU\\source\\Examples\\E27_NodeOS\\SDK\" /I\"D:\\LIONant\\xGPU\" "
+                   "/Yc\"" << PluginPchHeaderName().string() << "\" /Fp\"" << PchFile.string() << "\" \""
+                << PchSource.string() << "\" /Fo\"" << PchObjPath.string() << "\" > \"" << PchLog.string() << "\" 2>&1\r\n";
+        }
+
+        std::system(std::format("\"{}\"", PchBat.string()).c_str());
+
+        // Verify it actually landed - if the build silently failed for any reason, every subsequent
+        // plugin compile must fall back to not using the PCH rather than hard-failing on a missing
+        // .pch/.obj.
+        return fs::exists(PchFile) && fs::exists(PchObjPath);
+    }
+
+    //------------------------------------------------------------------------------------------------
     // Shells out to the local MSVC toolchain to turn one plugin .cpp into a DLL, right now, while this
     // program is running - then LoadLibrary's it and calls its NodeOS_CreateFactory, handing it a
     // host_bridge and getting back the one factory it exports. Pure: touches no shared state, safe to
@@ -302,6 +432,7 @@ namespace nodeos
     //------------------------------------------------------------------------------------------------
     static plugin_compile_result CompilePluginWorker(std::string SourcePath)
     {
+        const bool bPchReady = EnsurePluginPchFresh();
         plugin_compile_result Result;
         namespace fs = std::filesystem;
         const fs::path Src        = SourcePath;
@@ -324,29 +455,39 @@ namespace nodeos
         fs::create_directories(OutputDir, Ec);
 
         // A .bat is far more robust than trying to hand-escape a single system() command line with
-        // spaces in "Program Files" and nested quotes. Two /I's: the SDK folder (so a plugin can write
-        // bare `#include "xnode_os_plugin_api.h"`) and the repo root (so a plugin wanting properties
-        // can write the exact same `#include "dependencies/xproperty/source/xcore/my_properties.h"`
-        // line every other example in this engine already uses).
+        // spaces in "Program Files" and nested quotes. Two /I's always: the SDK folder (so a plugin
+        // can write bare `#include "xnode_os_plugin_api.h"`) and the repo root (so a plugin wanting
+        // properties can write the exact same `#include "dependencies/xproperty/source/xcore/
+        // my_properties.h"` line every other example in this engine already uses). When the shared PCH
+        // is actually ready, /Yu+/FI+/Fp force-inject and reuse it (skipping the ~1.5s of template-
+        // heavy header parsing that chain costs otherwise - see EnsurePluginPchFresh's own comment for
+        // the measurement) and its own .obj rides along as an extra link input (creating a PCH still
+        // really compiles its own translation unit, so every non-inline global that chain drags in has
+        // to be linked from somewhere). If the PCH build ever failed, this whole clause is skipped and
+        // the plugin just compiles the plain way - correctness always wins over speed here.
         {
             std::ofstream Bat(BatPath);
             Bat << "@echo off\r\n";
             Bat << GetOrBuildVsEnvSetup(); // cached - no vcvarsall.bat/vswhere re-run on every compile
-            // /MDd + the same WIN32/_WINDOWS/_DEBUG/UNICODE defines as xGPU_unit_test's own Debug
-            // config: every plugin still raw-includes imgui.cpp/xPropertyImGuiInspector.cpp purely to
-            // satisfy the linker for xproperty::ui's per-(type,style) Render templates (see
-            // cube_node.cpp's top comment) even though it never calls Show() itself, so it needs the
-            // same build environment as the host to compile that at all.
-            // The imgui/ folder itself (not just the repo root) is on this line because
-            // xPropertyImGuiInspector.cpp does a bare #include "imgui_internal.h" - it expects to be
-            // compiled with the same include-path shape the host's own project gives it. Same reason
-            // for dependencies/xerr: xtextfile.h does a bare #include "source/xerr.h", resolving
-            // relative to xerr's OWN folder being on the include path, exactly like the host's project.
-            Bat << "cl.exe /nologo /LD /EHsc /std:c++20 /MDd /DWIN32 /D_WINDOWS /D_DEBUG /DUNICODE /D_UNICODE /I\"D:\\LIONant\\xGPU\\source\\Examples\\E27_NodeOS\\SDK\" /I\"D:\\LIONant\\xGPU\\dependencies\\imgui\" /I\"D:\\LIONant\\xGPU\\dependencies\\xerr\" /I\"D:\\LIONant\\xGPU\" \"" << Src.string() << "\" /Fe:\"" << DllPath.string() << "\" /Fo:\"" << (OutputDir / (Unique + ".obj")).string() << "\" > \"" << LogPath.string() << "\" 2>&1\r\n";
+            // /MDd links the DYNAMIC debug CRT (shared across every plugin DLL and the host), not the
+            // static one - same WIN32/_WINDOWS/_DEBUG/UNICODE defines as xGPU_unit_test's own Debug
+            // config, so the SDK/xproperty headers see an identical build environment either side of
+            // the DLL boundary.
+            Bat << "cl.exe /nologo /LD /EHsc /std:c++20 /MDd /DWIN32 /D_WINDOWS /D_DEBUG /DUNICODE /D_UNICODE"
+                   " /I\"D:\\LIONant\\xGPU\\source\\Examples\\E27_NodeOS\\SDK\" /I\"D:\\LIONant\\xGPU\"";
+            if (bPchReady)
+                Bat << " /I\"" << PluginPchOutputDir().string() << "\""
+                       " /Yu\"" << PluginPchHeaderName().string() << "\" /FI\"" << PluginPchHeaderName().string() << "\""
+                       " /Fp\"" << PluginPchFile().string() << "\"";
+            Bat << " \"" << Src.string() << "\"";
+            if (bPchReady)
+                Bat << " \"" << PluginPchObjFile().string() << "\"";
+            Bat << " /Fe:\"" << DllPath.string() << "\" /Fo:\"" << (OutputDir / (Unique + ".obj")).string() << "\" > \"" << LogPath.string() << "\" 2>&1\r\n";
         }
 
         const std::string Command = std::format("\"{}\"", BatPath.string());
-        const int ExitCode = std::system(Command.c_str());
+        int ExitCode;
+        { std::lock_guard Lock(CompilerInvocationMutex()); ExitCode = std::system(Command.c_str()); }
 
         std::ifstream LogFile(LogPath);
         std::stringstream LogStream;

@@ -11,12 +11,11 @@
 // (see xnode_os_plugin_api.h's top comment for why a real xproperty::type::object crossing the DLL
 // boundary is safe).
 //
-// No raw imgui/xPropertyImGuiInspector.cpp includes here, unlike export_mesh_node.cpp/
-// inspect_mesh_node.cpp - obj_member's registration only captures a "how to draw me" function
-// pointer (needing xproperty::ui's real Render templates linked in) for a member that's either
-// explicitly styled (member_ui<T>::Style<...>) or read-only (obj_member_ro); Width/Height/Depth
-// below are plain, editable, unstyled members, so nothing here ever references that machinery -
-// confirmed empirically by isolating read-only vs. plain members in separate test compiles.
+// No ImGui/inspector includes needed here, same as export_mesh_node.cpp/inspect_mesh_node.cpp:
+// member_ui_base stores a (Type,Style) GUID pair rather than a resolved function pointer, so
+// attaching a style (or none, as here) only ever stores plain data - the host resolves the real
+// drawer through its own registry at draw time (see xproperty's my_property_ui.h/
+// xPropertyImGuiInspector.cpp). Width/Height/Depth below are plain, unstyled members either way.
 #include "../../SDK/xnode_os_plugin_api.h"
 #include "../../SDK/xnode_os_shared_types.h"
 #include <cstdlib>
