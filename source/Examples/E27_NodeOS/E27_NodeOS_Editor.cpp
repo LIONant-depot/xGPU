@@ -2,6 +2,8 @@
 #include "source/tools/xgpu_imgui_breach.h"
 #include "source/tools/xgpu_view.h"
 
+#include <atomic> // std::atomic<int> compile counter, see CompilePluginWorker
+
 #include "source/Examples/E27_NodeOS/SDK/xnode_os_plugin_api.h"
 #include "source/Examples/E27_NodeOS/SDK/xnode_os_host_interface.h"
 #include "source/Examples/E27_NodeOS/SDK/xnode_os_shared_types.h"
@@ -304,9 +306,19 @@ namespace nodeos
         namespace fs = std::filesystem;
         const fs::path Src        = SourcePath;
         const fs::path OutputDir  = fs::path("D:/LIONant/xGPU/source/Examples/E27_NodeOS/CompiledPlugins");
-        const fs::path DllPath    = OutputDir / (Src.stem().string() + ".dll");
-        const fs::path BatPath    = OutputDir / (Src.stem().string() + "_compile.bat");
-        const fs::path LogPath    = OutputDir / (Src.stem().string() + "_compile.log");
+
+        // A recompile's own DLL is never FreeLibrary'd (MergeCompileResult keeps the old module alive
+        // indefinitely so any already-placed node instance's m_pFactory keeps working) - which means the
+        // OS still has the PREVIOUS build's exact .dll file locked. Reusing the same output filename
+        // therefore made the linker fail with LNK1104 ("cannot open file") on every recompile past the
+        // first. Each compile gets its own never-reused filename instead, so it's always writing
+        // somewhere fresh - old DLLs just accumulate on disk for the life of the process, same as their
+        // in-memory modules already do.
+        static std::atomic<int> s_CompileCounter{ 0 };
+        const std::string Unique = Src.stem().string() + "_" + std::to_string(++s_CompileCounter);
+        const fs::path DllPath    = OutputDir / (Unique + ".dll");
+        const fs::path BatPath    = OutputDir / (Unique + "_compile.bat");
+        const fs::path LogPath    = OutputDir / (Unique + "_compile.log");
 
         std::error_code Ec;
         fs::create_directories(OutputDir, Ec);
@@ -330,7 +342,7 @@ namespace nodeos
             // compiled with the same include-path shape the host's own project gives it. Same reason
             // for dependencies/xerr: xtextfile.h does a bare #include "source/xerr.h", resolving
             // relative to xerr's OWN folder being on the include path, exactly like the host's project.
-            Bat << "cl.exe /nologo /LD /EHsc /std:c++20 /MDd /DWIN32 /D_WINDOWS /D_DEBUG /DUNICODE /D_UNICODE /I\"D:\\LIONant\\xGPU\\source\\Examples\\E27_NodeOS\\SDK\" /I\"D:\\LIONant\\xGPU\\dependencies\\imgui\" /I\"D:\\LIONant\\xGPU\\dependencies\\xerr\" /I\"D:\\LIONant\\xGPU\" \"" << Src.string() << "\" /Fe:\"" << DllPath.string() << "\" /Fo:\"" << (OutputDir / (Src.stem().string() + ".obj")).string() << "\" > \"" << LogPath.string() << "\" 2>&1\r\n";
+            Bat << "cl.exe /nologo /LD /EHsc /std:c++20 /MDd /DWIN32 /D_WINDOWS /D_DEBUG /DUNICODE /D_UNICODE /I\"D:\\LIONant\\xGPU\\source\\Examples\\E27_NodeOS\\SDK\" /I\"D:\\LIONant\\xGPU\\dependencies\\imgui\" /I\"D:\\LIONant\\xGPU\\dependencies\\xerr\" /I\"D:\\LIONant\\xGPU\" \"" << Src.string() << "\" /Fe:\"" << DllPath.string() << "\" /Fo:\"" << (OutputDir / (Unique + ".obj")).string() << "\" > \"" << LogPath.string() << "\" 2>&1\r\n";
         }
 
         const std::string Command = std::format("\"{}\"", BatPath.string());
