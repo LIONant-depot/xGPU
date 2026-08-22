@@ -1,0 +1,5 @@
+
+[ NodeType : 1 ]
+{ Guid:G             DisplayName:s  Category:s      SchemaVersion:d  SemanticHash:G  OwnerExtension:s   HeaderColor:s  Width:d  Template:s }
+//-----------------  -------------  --------------  ---------------  --------------  -----------------  -------------  -------  ----------
+  #7630B89D9DD8A8D3  "End (Else)"   "Flow Control"         1               #0        "xnode.scripting"       ""          200        ""    

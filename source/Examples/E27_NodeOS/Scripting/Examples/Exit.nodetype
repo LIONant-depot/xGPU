@@ -1,0 +1,11 @@
+
+[ NodeType : 1 ]
+{ Guid:G             DisplayName:s  Category:s      SchemaVersion:d  SemanticHash:G  OwnerExtension:s   HeaderColor:s  Width:d  Template:s                                               }
+//-----------------  -------------  --------------  ---------------  --------------  -----------------  -------------  -------  --------------------------------------------------------
+  #26723A4EC9B147AE     "Exit"      "Flow Control"         1               #0        "xnode.scripting"       ""          200    "throw nodeos::scripting::script_exit{ $input[Code] };
+"
+
+[ Pins : 1 ]
+{ Id:s    Kind:s    TypeGuid:G        }
+//------  --------  -----------------
+  "Code"  "DataIn"  #C4DD0DB40595D386

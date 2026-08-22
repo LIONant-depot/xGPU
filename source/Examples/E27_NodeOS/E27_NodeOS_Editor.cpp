@@ -133,6 +133,7 @@ namespace nodeos
         std::vector<void*>                m_CachedOutputs;      // filled after a successful Execute
         bool                              m_bHasRun = false;
         std::string                       m_LastError;
+        std::uint64_t                    m_OwnedEndId = 0;    // 0 = doesn't own a marker. A control-flow node (If/ForEachLoop, see NODE_SCRIPTING_DESIGN.md section 4.1) owns a paired End/End-Else marker node, created and destroyed together with it - never an ordinary, independently-editable link.
     };
 
     struct link_instance
@@ -140,6 +141,7 @@ namespace nodeos
         std::uint64_t m_Id = 0;
         std::uint64_t m_SourceNode = 0; int m_SourceOutput = 0;
         std::uint64_t m_TargetNode = 0; int m_TargetInput  = 0;
+        bool          m_bReadOnly  = false; // an owner<->End ownership link (NODE_SCRIPTING_DESIGN.md section 4.1) - can never be dragged loose or deleted independently; only removed when one of its two nodes is deleted (which removes both, via DeleteNodes' cascade)
     };
 
     //------------------------------------------------------------------------------------------------
@@ -764,6 +766,35 @@ namespace nodeos
             return false;
         }
 
+        // A control node and its owned End/End-Else marker are never independently deletable - the
+        // pair is one unit (NODE_SCRIPTING_DESIGN.md section 4.1). Deleting either one pulls the other
+        // in too. Used by DeleteNodes' Redo AND BackupCurrenState, so Undo restores exactly what was
+        // actually removed, including anything cascade-added.
+        inline std::vector<std::uint64_t> ExpandOwnershipCascade(const std::vector<node_instance>& Nodes, std::vector<std::uint64_t> Ids) noexcept
+        {
+            bool bChanged = true;
+            while (bChanged)
+            {
+                bChanged = false;
+                for (auto& N : Nodes)
+                {
+                    const bool bOwnerInSet = std::find(Ids.begin(), Ids.end(), N.m_Id) != Ids.end();
+                    if (bOwnerInSet && N.m_OwnedEndId != 0 && std::find(Ids.begin(), Ids.end(), N.m_OwnedEndId) == Ids.end())
+                    {
+                        Ids.push_back(N.m_OwnedEndId);
+                        bChanged = true;
+                    }
+                    const bool bMarkerInSet = N.m_OwnedEndId != 0 && std::find(Ids.begin(), Ids.end(), N.m_OwnedEndId) != Ids.end();
+                    if (bMarkerInSet && !bOwnerInSet)
+                    {
+                        Ids.push_back(N.m_Id);
+                        bChanged = true;
+                    }
+                }
+            }
+            return Ids;
+        }
+
         inline void WriteString(xundo::undo_file& File, const std::string& S)
         {
             const std::uint32_t Len = static_cast<std::uint32_t>(S.size());
@@ -797,18 +828,97 @@ namespace nodeos
         {
             return std::format("CreateNode -Id {} -PluginDir {} -Before {}", FormatGuid(Id), PluginDir, FormatGuid(BeforeNodeId));
         }
+        // Same four placements as CreateNode, for a control node (If/ForEachLoop) that owns a
+        // paired End/End-Else marker (NODE_SCRIPTING_DESIGN.md section 4.1) - the marker is always
+        // created right after the owner, in the same spine, in the same command, along with the
+        // read-only link between them (LinkId is caller-minted, same "Redo never invents an id" rule
+        // as everything else - see connect_cmd's own MakeConnect for the existing precedent). This
+        // link is never something the user drags into existence - the system wires it automatically,
+        // and it's rendered read-only (Connect/DeleteLink both refuse to touch it) specifically
+        // because it isn't an ordinary, user-editable connection.
+        inline std::string MakeCreateOwnedPairAppend(std::uint64_t Id, const std::string& PluginDir, std::uint64_t EndId, const std::string& EndPluginDir, std::uint64_t LinkId)
+        {
+            return std::format("CreateOwnedPair -Id {} -PluginDir {} -EndId {} -EndPluginDir {} -LinkId {}", FormatGuid(Id), PluginDir, FormatGuid(EndId), EndPluginDir, FormatGuid(LinkId));
+        }
+        inline std::string MakeCreateOwnedPairAfter(std::uint64_t Id, const std::string& PluginDir, std::uint64_t EndId, const std::string& EndPluginDir, std::uint64_t LinkId, std::uint64_t AfterNodeId)
+        {
+            return std::format("CreateOwnedPair -Id {} -PluginDir {} -EndId {} -EndPluginDir {} -LinkId {} -After {}", FormatGuid(Id), PluginDir, FormatGuid(EndId), EndPluginDir, FormatGuid(LinkId), FormatGuid(AfterNodeId));
+        }
+        inline std::string MakeCreateOwnedPairBefore(std::uint64_t Id, const std::string& PluginDir, std::uint64_t EndId, const std::string& EndPluginDir, std::uint64_t LinkId, std::uint64_t BeforeNodeId)
+        {
+            return std::format("CreateOwnedPair -Id {} -PluginDir {} -EndId {} -EndPluginDir {} -LinkId {} -Before {}", FormatGuid(Id), PluginDir, FormatGuid(EndId), EndPluginDir, FormatGuid(LinkId), FormatGuid(BeforeNodeId));
+        }
+        inline std::string MakeCreateOwnedPairInSpine(std::uint64_t Id, const std::string& PluginDir, std::uint64_t EndId, const std::string& EndPluginDir, std::uint64_t LinkId, std::uint64_t SpineId)
+        {
+            return std::format("CreateOwnedPair -Id {} -PluginDir {} -EndId {} -EndPluginDir {} -LinkId {} -InSpine {}", FormatGuid(Id), PluginDir, FormatGuid(EndId), EndPluginDir, FormatGuid(LinkId), FormatGuid(SpineId));
+        }
+
         // -InSpine is the only way to place a node into a currently-empty spine - there's no existing
         // node in it yet to address -After/-Before relative to.
         inline std::string MakeCreateNodeInSpine(std::uint64_t Id, const std::string& PluginDir, std::uint64_t SpineId)
         {
             return std::format("CreateNode -Id {} -PluginDir {} -InSpine {}", FormatGuid(Id), PluginDir, FormatGuid(SpineId));
         }
+
+        enum class node_placement_kind { Append, After, Before, InSpine };
+
+        // Every "add a node" UI path funnels through here to decide plain CreateNode vs.
+        // CreateOwnedPair - the one place that reads xnode_os_node_factory::needsOwnedEndMarker(), so
+        // no call site has to know "If"/"ForEachLoop" by name. RefId is the -After/-Before node id or
+        // the -InSpine spine id; ignored for Append.
+        inline std::string BuildCreateNodeCommand
+        (
+            std::vector<plugin_source_entry>& Sources
+        ,   std::vector<available_node_type>& AvailableTypes
+        ,   plugin_source_entry&               OwnerSrc
+        ,   xnode_os_node_factory*              pOwnerType
+        ,   node_placement_kind                 Kind
+        ,   std::uint64_t                        RefId
+        ) noexcept
+        {
+            const auto NewId = xresource::guid_generator::Instance64();
+            if (pOwnerType->needsOwnedEndMarker())
+            {
+                const std::string EndDir(pOwnerType->getOwnedEndMarkerPluginDir());
+                auto* pEndSrc = FindSourceByDirName(Sources, EndDir);
+                if (pEndSrc && EnsureLoadedAndGetType(*pEndSrc, AvailableTypes))
+                {
+                    const auto EndId  = xresource::guid_generator::Instance64();
+                    const auto LinkId = xresource::guid_generator::Instance64();
+                    switch (Kind)
+                    {
+                    case node_placement_kind::Append:  return MakeCreateOwnedPairAppend (NewId, OwnerSrc.m_DirName, EndId, EndDir, LinkId);
+                    case node_placement_kind::After:   return MakeCreateOwnedPairAfter  (NewId, OwnerSrc.m_DirName, EndId, EndDir, LinkId, RefId);
+                    case node_placement_kind::Before:  return MakeCreateOwnedPairBefore (NewId, OwnerSrc.m_DirName, EndId, EndDir, LinkId, RefId);
+                    case node_placement_kind::InSpine: return MakeCreateOwnedPairInSpine(NewId, OwnerSrc.m_DirName, EndId, EndDir, LinkId, RefId);
+                    }
+                }
+                // Marker plugin missing/failed to compile - fall through to a plain create rather than
+                // silently doing nothing, so the user sees the node and a compile error in the log
+                // instead of the "+" click appearing to do nothing at all.
+            }
+            switch (Kind)
+            {
+            case node_placement_kind::Append:  return MakeCreateNodeAppend (NewId, OwnerSrc.m_DirName);
+            case node_placement_kind::After:   return MakeCreateNodeAfter  (NewId, OwnerSrc.m_DirName, RefId);
+            case node_placement_kind::Before:  return MakeCreateNodeBefore (NewId, OwnerSrc.m_DirName, RefId);
+            case node_placement_kind::InSpine: return MakeCreateNodeInSpine(NewId, OwnerSrc.m_DirName, RefId);
+            }
+            return {};
+        }
+
         inline std::string MakeDeleteNodes(const std::vector<std::uint64_t>& Ids) { return std::format("DeleteNodes -Ids {}", JoinIds(Ids)); }
         inline std::string MakeDeleteLink(std::uint64_t Id) { return std::format("DeleteLink -Id {}", FormatGuid(Id)); }
         inline std::string MakeConnect(std::uint64_t Id, std::uint64_t SourceNode, int SourceOutput, std::uint64_t TargetNode, int TargetInput)
         {
             return std::format("Connect -Id {} -SourceNode {} -SourceOutput {} -TargetNode {} -TargetInput {}"
                                , FormatGuid(Id), FormatGuid(SourceNode), SourceOutput, FormatGuid(TargetNode), TargetInput);
+        }
+        // Value is a plain scalar token (a Float/Int/Bool literal), never containing spaces - no
+        // Base64 needed here, unlike SetProperties' own arbitrary multi-line blobs.
+        inline std::string MakeSetLiteralValue(std::uint64_t PinId, const std::string& Value)
+        {
+            return std::format("SetLiteralValue -Pin {} -Value {}", FormatGuid(PinId), Value);
         }
         inline std::string MakeReorderNodes(const std::vector<std::uint64_t>& NewOrder) { return std::format("ReorderNodes -Ids {}", JoinIds(NewOrder)); }
         // Moves node(s) into a DIFFERENT spine at a given position - addressed the same way CreateNode
@@ -829,6 +939,15 @@ namespace nodeos
         inline std::string MakeSetProperties(std::uint64_t NodeId, const std::string& Before, const std::string& After)
         {
             return std::format("SetProperties -NodeId {} -Before {} -After {}", FormatGuid(NodeId), Base64Encode(Before), Base64Encode(After));
+        }
+        // Disabling (-Enable 0) needs none of EndId/EndPluginDir/LinkId - use MakeSetEndElseDisable.
+        inline std::string MakeSetEndElseEnable(std::uint64_t OwnerId, std::uint64_t EndId, const std::string& EndPluginDir, std::uint64_t LinkId)
+        {
+            return std::format("SetEndElseState -OwnerId {} -Enable 1 -EndId {} -EndPluginDir {} -LinkId {}", FormatGuid(OwnerId), FormatGuid(EndId), EndPluginDir, FormatGuid(LinkId));
+        }
+        inline std::string MakeSetEndElseDisable(std::uint64_t OwnerId)
+        {
+            return std::format("SetEndElseState -OwnerId {} -Enable 0", FormatGuid(OwnerId));
         }
         // Every field is OPTIONAL and simply omitted when not selected - "nothing selected" is the bare
         // command "Select" with no flags at all, not a "-Nodes -" placeholder or a "-Link 0x000...0"
@@ -961,7 +1080,10 @@ namespace nodeos
     static const char* PortTypeToPreview(const char* pTypeName, void* pValue)
     {
         static thread_local std::string s_Scratch;
-        if (!pValue) { return "(none)"; }
+        // No value to show is not itself information worth a line of text - especially now that
+        // most scalar inputs show either a live wire or an inline constant instead of ever reaching
+        // this at all. Blank, not "(none)".
+        if (!pValue) { return ""; }
         if (std::strcmp(pTypeName, "Text") == 0) { return static_cast<const char*>(pValue); }
         if (std::strcmp(pTypeName, "Mesh") == 0)
         {
@@ -1208,17 +1330,186 @@ namespace nodeos
     }
     static std::uint64_t PinOf(const port_ref& P, std::uint64_t NodeId) { return P.m_bIsOutput ? OutPinOf(NodeId, P.m_Index) : InPinOf(NodeId, P.m_Index); }
     static bool IsMeshType(const char* pType) noexcept { return std::strcmp(pType, "Mesh") == 0; }
+    // A "Scope" pin (NODE_SCRIPTING_DESIGN.md section 4.1's owner<->End ownership pins) never
+    // carries a runtime value at all - it exists purely to draw the read-only ownership wire, so it
+    // gets the same no-value-line treatment as Mesh below, never a "(none)" placeholder.
+    static bool IsScopeType(const char* pType) noexcept { return std::strcmp(pType, "Scope") == 0; }
+    // An "Any" pin (Compare/Math Expression's A/B/Result, Print's Value) is a scalar wildcard - it
+    // resolves DIRECTLY to whatever's wired to it. A "Span<Any>" pin (ForEachLoop's own Span input -
+    // named for std::span, since that's what actually accepts a std::vector, std::array, C array, or
+    // any other contiguous container of any element type T) is a CONTAINER wildcard - see
+    // IsSpanWildcardType/ResolveContainerWildcardType below for how those differ: a container's
+    // element type is what actually varies, not its own shape.
+    static bool IsWildcardType(const char* pType) noexcept { return std::strcmp(pType, "Any") == 0; }
+    static bool IsSpanWildcardType(const char* pType) noexcept { return std::strcmp(pType, "Span<Any>") == 0; }
+    // Any container-shaped type name, resolved or not ("Span<Any>", "Span<Float>", ...) - never has
+    // an inline literal or a preview line to show (there's no sensible "type a container" UI), same
+    // no-value-line treatment RowHeight already gives Mesh/Scope/Bool below.
+    static bool IsContainerType(const char* pType) noexcept { return std::string_view(pType).substr(0, 5) == "Span<"; }
+    // If pType looks like "Span<X>", returns X; otherwise returns pType unchanged (nothing to
+    // unwrap). Plain string surgery, not a real generic/template system - this corpus only ever
+    // nests one level deep (NODE_SCRIPTING_DESIGN.md never called for more).
+    static std::string_view UnwrapSpanElementType(std::string_view Type) noexcept
+    {
+        if (Type.size() > 6 && Type.substr(0, 5) == "Span<" && Type.back() == '>')
+            return Type.substr(5, Type.size() - 6);
+        return Type;
+    }
+    // What container type (e.g. "Span<Float>") is wired to NodeId's own "Span<Any>" input, if
+    // anything - unwrapped or not, this is just "what's actually connected there" (used both to
+    // display the Span pin's own effective type, and as the raw material ResolveNodeWildcardType
+    // unwraps for Element/Index below). Returns nullptr while nothing is wired yet.
+    static const char* ResolveContainerWildcardType(std::uint64_t NodeId, const xnode_os_node* pDesc, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links) noexcept
+    {
+        int Index = 0;
+        for (auto& P : pDesc->getInputs())
+        {
+            if (IsSpanWildcardType(P.m_pTypeName))
+                for (auto& L : Links)
+                    if (L.m_TargetNode == NodeId && L.m_TargetInput == Index)
+                        for (auto& N : Nodes)
+                            if (N.m_Id == L.m_SourceNode && N.m_pNode)
+                            {
+                                auto Outs = N.m_pNode->getOutputs();
+                                if (L.m_SourceOutput < (int)Outs.size()) return Outs[L.m_SourceOutput].m_pTypeName;
+                            }
+            ++Index;
+        }
+        return nullptr;
+    }
+    // What has NodeId's own scalar "Any" wildcard(s) resolved to, if anything is wired yet - either
+    // directly (a plain Any input wired straight to a source, Compare/Math Expression's A/B) or
+    // indirectly, unwrapped from a "Span<Any>" input's own resolved container type (ForEachLoop's
+    // Element/Index, once its Span input is wired) - purely derived from the CURRENT Links every
+    // frame, never stored anywhere, same "never cache stale geometry" rule as everything else in
+    // this file: disconnecting the wire that resolved it reverts it to unresolved for free, with no
+    // explicit cleanup needed. Returns nullptr while nothing is wired yet (any type is still
+    // acceptable in that case). A free function, not a DrawGraphCanvas-local lambda, specifically so
+    // RowHeight/NodeHeight (also free functions - they run during layout, before/outside the
+    // interactive draw loop) can call it too; DrawGraphCanvas's own call sites just pass their
+    // already-in-scope Nodes/Links along.
+    static const char* ResolveNodeWildcardType(std::uint64_t NodeId, const xnode_os_node* pDesc, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links) noexcept
+    {
+        int Index = 0;
+        for (auto& P : pDesc->getInputs())
+        {
+            if (IsWildcardType(P.m_pTypeName))
+                for (auto& L : Links)
+                    if (L.m_TargetNode == NodeId && L.m_TargetInput == Index)
+                        for (auto& N : Nodes)
+                            if (N.m_Id == L.m_SourceNode && N.m_pNode)
+                            {
+                                auto Outs = N.m_pNode->getOutputs();
+                                if (L.m_SourceOutput < (int)Outs.size()) return Outs[L.m_SourceOutput].m_pTypeName;
+                            }
+            ++Index;
+        }
+        if (const char* pContainerType = ResolveContainerWildcardType(NodeId, pDesc, Nodes, Links))
+        {
+            static thread_local std::string s_Elem;
+            s_Elem.assign(UnwrapSpanElementType(pContainerType));
+            return s_Elem.c_str();
+        }
+        return nullptr;
+    }
+    // The effective type name for display/matching purposes: a concrete pin's own declared type
+    // unchanged; an Any pin's resolved type once something has locked it in (or the raw "Any" text
+    // itself while still fully open); a Span<Any> pin's own resolved container type, NOT unwrapped
+    // (or the raw "Span<Any>" text while still open) - Span itself displays/matches as the whole
+    // container, only Element/Index (plain Any pins) see the unwrapped element type. Never nullptr -
+    // always safe to print/compare directly.
+    static const char* EffectiveTypeName(std::uint64_t NodeId, const xnode_os_node* pDesc, const char* pRawType, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links) noexcept
+    {
+        if (IsSpanWildcardType(pRawType))
+        {
+            if (const char* pResolved = ResolveContainerWildcardType(NodeId, pDesc, Nodes, Links)) return pResolved;
+            return pRawType;
+        }
+        if (!IsWildcardType(pRawType)) return pRawType;
+        if (const char* pResolved = ResolveNodeWildcardType(NodeId, pDesc, Nodes, Links)) return pResolved;
+        return pRawType;
+    }
+    // For connection-matching only: is this (already-effective) type name STILL an open wildcard of
+    // either kind - a bare "Any" that's never been wired at all, or a "Span<Any>" whose own Span
+    // input hasn't been wired yet? Either one accepts any type on the other end of a new connection.
+    // A RESOLVED wildcard (EffectiveTypeName already returned the real type, e.g. "Float" or
+    // "Span<Float>") is intentionally NOT considered open here - it must match exactly like any
+    // ordinary concrete pin from that point on.
+    static bool IsAnyKindOfWildcard(const char* pType) noexcept { return IsWildcardType(pType) || IsSpanWildcardType(pType); }
+    // Defined further down (needs xproperty::any/settings::context machinery not declared yet at
+    // this point in the file) - forward-declared here so DisplayTypeText, right below, can call it.
+    static bool ReadBoolProperty(const xnode_os_node* pNode, const char* pName, bool Default) noexcept;
+    // ForEachLoop's own Element output additionally shows const/& based on its own "ReadOnlyElement"
+    // checkbox (defaults to read-only, i.e. "const T&") - the node should visibly reflect that choice
+    // rather than have it be an invisible side-panel-only setting. A name-based special case, the
+    // display-only counterpart to Compare's operator-filtering/Constant's inline Value widget above.
+    // Every other port's display text is just its own effective type name, unchanged.
+    static std::string DisplayTypeText(const xnode_os_node* pDesc, const port_ref& P, const char* pEffType)
+    {
+        if (P.m_bIsOutput && pDesc->m_pFactory->getName() == "ForEachLoop" && std::strcmp(P.m_pDesc->m_pName, "Element") == 0)
+        {
+            const bool bReadOnly = ReadBoolProperty(pDesc, "ReadOnlyElement", true);
+            return (bReadOnly ? std::string("const ") : std::string()) + pEffType + "&";
+        }
+        return pEffType;
+    }
     static ImU32 TypeColor(const char* pType) noexcept
     {
         if (IsMeshType(pType))                    return IM_COL32(167, 139, 250, 255);
         if (std::strcmp(pType, "Text") == 0)      return IM_COL32(74, 222, 128, 255);
+        // A Scope pin (owner<->End ownership, NODE_SCRIPTING_DESIGN.md section 4.1) matches the box
+        // border color, not the generic default - it's part of the box's own structure, not a value.
+        if (IsScopeType(pType))                   return IM_COL32(51, 65, 85, 255);
         return IM_COL32(148, 163, 184, 255);
     }
+    // A Bool pin never has anything to preview - it dropped the inline-constant checkbox (a
+    // hardcoded true/false doesn't fit how Condition/And/Or/Not are meant to be used - they're wired
+    // from Compare, not typed directly). No point reserving a value line it will never use. (There
+    // used to be an "Exec" pin shape here too, under the old Blueprint-style exec-flow model; the
+    // flat-spine execution model - NODE_SCRIPTING_DESIGN.md section 4 - makes it unnecessary, since a
+    // node's "next" is simply whatever follows it in the same spine, so it was removed entirely along
+    // with the plugins that used it. There's also deliberately no separate "Int"/"Short" scalar pin
+    // type: minimizing node/type proliferation matters more than nominal precision here, so every
+    // scalar numeric value in this corpus - including ForEachLoop's own Element/index - is just
+    // "Float", the same principle already applied to Compare (one enum-driven node instead of a
+    // GreaterThan/LessThan/Equals box each).)
+    static bool IsNoPreviewType(const char* pType) noexcept { return std::strcmp(pType, "Bool") == 0; }
     // A Mesh-typed port's live render lives in one shared preview block at the TOP of the node (right
     // under the header), not inline per-row - so its row never prints a value-preview line below the
     // glyph and doesn't need the VALUE_LINE_H space reserved for one (leaving it in produced a visible
-    // gap between a Mesh row and whatever row follows it).
-    static float RowHeight(const port_ref& P) noexcept { return geo::ROW_H + (IsMeshType(P.m_pDesc->m_pTypeName) ? 0.0f : geo::VALUE_LINE_H); }
+    // gap between a Mesh row and whatever row follows it). Scope/Bool pins get the same
+    // treatment for the same underlying reason - none of them ever have a value to preview.
+    // An output pin never shows anything either, right now - nothing in this corpus actually
+    // executes yet, so pValue is always null and the row would sit empty regardless of type. Revisit
+    // once real execution is wired up and an output can genuinely have a live value to preview.
+    static bool IsPinConnected(std::uint64_t NodeId, int PinIndex, bool bIsOutput, const std::vector<link_instance>& Links) noexcept
+    {
+        for (auto& L : Links)
+            if (bIsOutput ? (L.m_SourceNode == NodeId && L.m_SourceOutput == PinIndex)
+                          : (L.m_TargetNode == NodeId && L.m_TargetInput  == PinIndex))
+                return true;
+        return false;
+    }
+    static float RowHeight(const port_ref& P, std::uint64_t NodeId, const std::vector<link_instance>& Links, const char* pEffType) noexcept
+    {
+        if (IsMeshType(pEffType) || IsScopeType(pEffType) || IsNoPreviewType(pEffType) || IsContainerType(pEffType) || P.m_bIsOutput)
+            return geo::ROW_H;
+        // A still-unresolved Any pin (Compare/Math Expression's A/B before either one is wired - see
+        // ResolveNodeWildcardType) has nothing to preview or enter yet either - same no-line
+        // treatment as Mesh/Scope/Bool above, until it resolves to something.
+        if (IsWildcardType(pEffType)) return geo::ROW_H;
+        // A numeric input's extra line is reserved only for its own inline literal-constant widget
+        // (the Unity-style default input) - once a wire connects the pin the widget disappears (see
+        // the inline-literal draw block below) and nothing else takes its place (no node executes
+        // yet, so a connected pin has no live value to preview either), so the reserved space needs
+        // to disappear along with the widget or a blank gap is left behind. Checked against the
+        // EFFECTIVE type so an Any pin resolved to one of these gets the exact same treatment an
+        // ordinarily-typed pin of that type would.
+        const bool bIsNumeric = std::strcmp(pEffType, "Float") == 0 || std::strcmp(pEffType, "Int") == 0 || std::strcmp(pEffType, "Short") == 0;
+        if (bIsNumeric && IsPinConnected(NodeId, P.m_Index, false, Links))
+            return geo::ROW_H;
+        return geo::ROW_H + geo::VALUE_LINE_H;
+    }
     static int MeshPortCount(const xnode_os_node* pNode)
     {
         int Count = 0;
@@ -1230,25 +1521,151 @@ namespace nodeos
         const int Count = MeshPortCount(pNode);
         return Count > 0 ? Count * (mesh_preview_system::s_PreviewSize + geo::PREVIEW_GAP) + geo::PREVIEW_GAP : 0.0f;
     }
-    static float NodeWidth(const xnode_os_node* pNode)
+    // An End marker (NODE_SCRIPTING_DESIGN.md section 4.1/4.2) isn't really a node in its own right -
+    // more an extension of whichever If/ForEachLoop owns it - so it renders as a title-only pill:
+    // no body, no port rows, no visible pin glyph at all (the wire just anchors to the title bar's
+    // own edge). Its actual displayed title is computed contextually elsewhere (the node-header draw
+    // loop) since that needs the ownership graph this function doesn't have access to; a fixed,
+    // generously-wide box here is a reasonable trade against threading that context through here too.
+    static bool IsEndMarkerType(const xnode_os_node* pNode) noexcept { return pNode->m_pFactory->getName() == "End"; }
+    static float NodeWidth(const xnode_os_node* pNode, std::uint64_t NodeId, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links)
     {
+        if (IsEndMarkerType(pNode)) return 190.0f;
         const auto NodeName = pNode->m_pFactory->getName();
         float NameW = ImGui::CalcTextSize(NodeName.data(), NodeName.data() + NodeName.size()).x;
         float PortColW = 40.0f;
         for (auto& P : FlatPorts(pNode))
         {
             NameW = std::max(NameW, ImGui::CalcTextSize(P.m_pDesc->m_pName).x);
-            const std::string TypeLabel = std::string("[") + P.m_pDesc->m_pTypeName + "]";
+            // Sized off the EFFECTIVE (and, for ForEachLoop's Element, const/&-decorated - see
+            // DisplayTypeText) type, so a resolved Any pin gets room for its real type name, not just
+            // the shorter placeholder "Any" text.
+            const char* pEffType = EffectiveTypeName(NodeId, pNode, P.m_pDesc->m_pTypeName, Nodes, Links);
+            const std::string TypeLabel = std::string("[") + DisplayTypeText(pNode, P, pEffType) + "]";
             PortColW = std::max(PortColW, ImGui::CalcTextSize(TypeLabel.c_str()).x + geo::PORT_PAD);
         }
         const float MinForPreview = MeshPortCount(pNode) > 0 ? mesh_preview_system::s_PreviewSize + 24.0f : 0.0f;
         return std::max(NameW + 2.0f * PortColW + 40.0f, MinForPreview);
     }
-    static float NodeHeight(const xnode_os_node* pNode)
+    static float NodeHeight(const xnode_os_node* pNode, std::uint64_t NodeId, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links)
     {
+        if (IsEndMarkerType(pNode)) return geo::HEADER_H;
         float H = geo::HEADER_H + PreviewAreaHeight(pNode);
-        for (auto& P : FlatPorts(pNode)) H += RowHeight(P);
+        for (auto& P : FlatPorts(pNode)) H += RowHeight(P, NodeId, Links, EffectiveTypeName(NodeId, pNode, P.m_pDesc->m_pTypeName, Nodes, Links));
+        // Reserve room for each enum property's own inline dropdown, drawn directly in the node body
+        // (not just the side properties panel) - see the inline-enum-widget block in the draw loop.
+        if (const xproperty::type::object* pObj = pNode->getProperties())
+            for (auto& M : pObj->m_Members)
+                if (auto* pVar = std::get_if<xproperty::type::members::var>(&M.m_Variant); pVar && pVar->m_AtomicType.m_IsEnum)
+                    H += geo::ROW_H + 4.0f;
+        // Constant's own numeric Value gets a second inline row too, same as its Type dropdown just
+        // above - see the Constant-specific block right after the inline-enum-widget loop.
+        if (pNode->m_pFactory->getName() == "Constant")
+            H += geo::ROW_H + 4.0f;
         return H + geo::NODE_PAD_BOTTOM;
+    }
+    // How many scopes currently enclose each node, in place of visual indentation (which would fight
+    // the spine layout's own X positions) - walk each spine in Order, push a node's own
+    // m_OwnedEndId when it owns one, pop on reaching it. An End-Else (which owns a further End)
+    // pops its own pairing and immediately pushes the next one, so the false-branch content lands
+    // back at the same depth the true branch was at - traced by hand for both plain If and If/Else
+    // before trusting this.
+    static std::unordered_map<std::uint64_t, int> ComputeScopeDepths(const std::vector<node_instance>& Nodes)
+    {
+        std::unordered_map<std::uint64_t, int> Depth;
+        std::map<std::uint64_t, std::vector<const node_instance*>> BySpine;
+        for (auto& N : Nodes) BySpine[N.m_SpineId].push_back(&N);
+        for (auto& [SpineId, SpineNodes] : BySpine)
+        {
+            std::vector<const node_instance*> Sorted = SpineNodes;
+            std::sort(Sorted.begin(), Sorted.end(), [](const node_instance* A, const node_instance* B) { return A->m_Order < B->m_Order; });
+            std::vector<std::uint64_t> Stack;
+            for (auto* N : Sorted)
+            {
+                if (!Stack.empty() && Stack.back() == N->m_Id) Stack.pop_back();
+                Depth[N->m_Id] = (int)Stack.size();
+                if (N->m_OwnedEndId != 0) Stack.push_back(N->m_OwnedEndId);
+            }
+        }
+        return Depth;
+    }
+    // Diminishing-returns darken, never marching to pure black - the fill is already very dark
+    // (17,24,39) against a near-black canvas, so an unbounded per-level darken would make deeply
+    // nested boxes blend into the background, defeating the point.
+    static ImU32 DarkenForDepth(ImU32 BaseCol, int Depth) noexcept
+    {
+        if (Depth <= 0) return BaseCol;
+        const float Factor = 0.45f + 0.55f / (1.0f + Depth * 0.6f);
+        const int R = (int)(((BaseCol >> IM_COL32_R_SHIFT) & 0xFF) * Factor);
+        const int G = (int)(((BaseCol >> IM_COL32_G_SHIFT) & 0xFF) * Factor);
+        const int B = (int)(((BaseCol >> IM_COL32_B_SHIFT) & 0xFF) * Factor);
+        return IM_COL32(R, G, B, 255);
+    }
+    // Every node id from an owner (If/ForEachLoop) through its own End marker, inclusive, by walking
+    // its spine in Order - used to highlight "what does this scope actually contain" when its
+    // ownership link is selected. A visual highlight only, deliberately not an actual selection (see
+    // the call site) - inspecting a scope shouldn't make its boxes eligible for Delete/drag.
+    static std::vector<std::uint64_t> ComputeScopeSpan(const std::vector<node_instance>& Nodes, std::uint64_t OwnerId)
+    {
+        const node_instance* pOwner = nullptr;
+        for (auto& N : Nodes) if (N.m_Id == OwnerId) { pOwner = &N; break; }
+        if (!pOwner || pOwner->m_OwnedEndId == 0) return {};
+
+        std::vector<const node_instance*> Sorted;
+        for (auto& N : Nodes) if (N.m_SpineId == pOwner->m_SpineId) Sorted.push_back(&N);
+        std::sort(Sorted.begin(), Sorted.end(), [](const node_instance* A, const node_instance* B) { return A->m_Order < B->m_Order; });
+
+        std::vector<std::uint64_t> Span;
+        bool bInside = false;
+        for (auto* N : Sorted)
+        {
+            if (N->m_Id == OwnerId) bInside = true;
+            if (bInside) Span.push_back(N->m_Id);
+            if (bInside && N->m_Id == pOwner->m_OwnedEndId) break;
+        }
+        return Span;
+    }
+    // An If/ForEachLoop and everything in its scope - including its own End (or End/End-Else pair)
+    // and anything nested inside, else-branch content included - is one piece, never separable by an
+    // ordinary drag. Expands an initial moving-set so that touching ANY part of a scope (the owner,
+    // its marker, or something dragged from inside it via a multi-select) pulls the whole thing along
+    // - reuses ComputeScopeSpan, which already walks through further nesting on its own.
+    static std::vector<std::uint64_t> ExpandMoveSetForScopes(const std::vector<node_instance>& Nodes, std::vector<std::uint64_t> Ids)
+    {
+        std::set<std::uint64_t> Result(Ids.begin(), Ids.end());
+        bool bChanged = true;
+        while (bChanged)
+        {
+            bChanged = false;
+            for (auto Id : std::vector<std::uint64_t>(Result.begin(), Result.end()))
+            {
+                const node_instance* pN = nullptr;
+                for (auto& N : Nodes) if (N.m_Id == Id) { pN = &N; break; }
+                if (!pN) continue;
+
+                std::uint64_t OwnerId = 0;
+                if (pN->m_OwnedEndId != 0) OwnerId = Id; // Id is itself an owner
+                else for (auto& N : Nodes) if (N.m_OwnedEndId == Id) { OwnerId = N.m_Id; break; } // Id is someone's marker
+                if (OwnerId == 0) continue;
+
+                for (auto SpanId : ComputeScopeSpan(Nodes, OwnerId))
+                    if (Result.insert(SpanId).second) bChanged = true;
+            }
+        }
+        // Result is a std::set, so it's currently sorted by raw GUID value - meaningless for
+        // ordering. Re-sort by each node's actual (SpineId, Order) so whatever consumes this list to
+        // rebuild a sequence (ReorderNodes/MoveNodesTo) gets the nodes back in their real, current
+        // relative order, not scrambled by id value.
+        std::vector<std::uint64_t> Out(Result.begin(), Result.end());
+        std::sort(Out.begin(), Out.end(), [&](std::uint64_t A, std::uint64_t B)
+        {
+            const node_instance *pA = nullptr, *pB = nullptr;
+            for (auto& N : Nodes) { if (N.m_Id == A) pA = &N; if (N.m_Id == B) pB = &N; }
+            if (!pA || !pB) return false;
+            if (pA->m_SpineId != pB->m_SpineId) return pA->m_SpineId < pB->m_SpineId;
+            return pA->m_Order < pB->m_Order;
+        });
+        return Out;
     }
     static float DistPointSegment(ImVec2 P, ImVec2 A, ImVec2 B) noexcept
     {
@@ -1330,6 +1747,17 @@ namespace nodeos
                                          // working through that.
     };
 
+    // Forward-declared: defined later alongside the rest of the property-serialization helpers, but
+    // needed here too, to compute an End marker's contextual display name (see the node-header draw
+    // loop below), and to draw an enum property's dropdown directly in the node body rather than only
+    // in the side properties panel (see the inline-enum-widget block further down).
+    static std::string SerializePropertiesToString(xnode_os_node* pNode);
+    static bool ReadBoolPropertyFromSnapshot(const std::string& Snapshot, std::string_view Name) noexcept;
+    static bool HasSerializableProperties(xnode_os_node* pNode);
+    static int ReadEnumAsInt(const xproperty::type::members& Member, void* pInstance) noexcept;
+    static void WriteEnumFromInt(const xproperty::type::members& Member, void* pInstance, int Value) noexcept;
+    static bool ReadBoolProperty(const xnode_os_node* pNode, const char* pName, bool Default) noexcept;
+
     //------------------------------------------------------------------------------------------------
     static void DrawGraphCanvas(std::vector<plugin_source_entry>& Sources, std::vector<available_node_type>& AvailableTypes, std::vector<node_instance>& Nodes
                                , std::vector<link_instance>& Links, mesh_preview_system& MeshPreview
@@ -1337,6 +1765,7 @@ namespace nodeos
                                , canvas_node_drag& NodeDrag, canvas_spine_drag& SpineDrag
                                , canvas_delete_spine_confirm& DeleteSpineConfirm
                                , std::vector<spine>& Spines, std::vector<column>& Columns
+                               , std::unordered_map<std::uint64_t, std::string>& LiteralValues
                                , bool& bDirty, xundo::system& System)
     {
         ImGui::SetNextWindowPos(ImVec2(440, 0), ImGuiCond_FirstUseEver);
@@ -1383,8 +1812,8 @@ namespace nodeos
                         // Lazy compile: the very first placement of this type compiles+loads it right
                         // now (Sources is populated from a folder scan at startup, not from a manual
                         // "Compile & Load" click) - every later placement just reuses the loaded type.
-                        if (EnsureLoadedAndGetType(Src, AvailableTypes))
-                            commands::Run(System, commands::MakeCreateNodeAppend(xresource::guid_generator::Instance64(), Src.m_DirName));
+                        if (auto* pType = EnsureLoadedAndGetType(Src, AvailableTypes))
+                            commands::Run(System, commands::BuildCreateNodeCommand(Sources, AvailableTypes, Src, pType, commands::node_placement_kind::Append, 0));
                     }
                 ImGui::EndPopup();
             }
@@ -1397,6 +1826,9 @@ namespace nodeos
 
         auto FindNode = [&](std::uint64_t Id) -> node_instance* { auto It = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == Id; }); return It == Nodes.end() ? nullptr : &*It; };
         auto DescOf   = [&](node_instance* pN) -> const xnode_os_node* { return pN ? pN->m_pNode : nullptr; };
+        // EffectiveTypeName(Id, pDesc, RawType) - see the top-level definition above RowHeight for why
+        // this needs to be a free function rather than a local lambda (RowHeight/NodeHeight need it too,
+        // and can't see anything declared in here).
 
         auto FindColumn = [&](std::uint64_t Id) -> column* { for (auto& Co : Columns) if (Co.m_Id == Id) return &Co; return nullptr; };
         std::unordered_map<std::uint64_t, std::uint64_t> ColumnOfSpine;
@@ -1430,7 +1862,7 @@ namespace nodeos
             {
                 auto* pDesc = DescOf(FindNode(Id));
                 if (!pDesc) continue;
-                const float W = NodeWidth(pDesc), H = NodeHeight(pDesc);
+                const float W = NodeWidth(pDesc, Id, Nodes, Links), H = NodeHeight(pDesc, Id, Nodes, Links);
                 SL.m_WidestNode = std::max(SL.m_WidestNode, W);
                 SL.m_Order.push_back(Id); SL.m_RelY.push_back(CursorY); SL.m_W.push_back(W); SL.m_H.push_back(H);
                 CursorY += H + geo::NODE_GAP;
@@ -1515,7 +1947,7 @@ namespace nodeos
             auto* pType = EnsureLoadedAndGetType(Src, AvailableTypes);
             if (!pType) return;
             auto& SL = SpineLayout[SpineId];
-            if (SL.m_Order.empty()) { commands::Run(System, commands::MakeCreateNodeInSpine(xresource::guid_generator::Instance64(), Src.m_DirName, SpineId)); return; }
+            if (SL.m_Order.empty()) { commands::Run(System, commands::BuildCreateNodeCommand(Sources, AvailableTypes, Src, pType, commands::node_placement_kind::InSpine, SpineId)); return; }
 
             const int Clamped = std::clamp(GapIndex, 0, (int)SL.m_Order.size());
 
@@ -1528,7 +1960,9 @@ namespace nodeos
             if (Clamped >= (int)SL.m_Order.size())
             {
                 auto& TempInstance = pType->CreateNodeInstance();
-                const float NewBottom = SpineAbsY[SpineId] + SL.m_RelBottom + NodeHeight(&TempInstance);
+                // Sentinel id 0: this throwaway instance owns no real links, so every pin must size
+                // as "disconnected" - Instance64() never mints 0, so no real link can match it.
+                const float NewBottom = SpineAbsY[SpineId] + SL.m_RelBottom + NodeHeight(&TempInstance, 0, Nodes, Links);
                 pType->DestroyNodeInstance(TempInstance);
                 for (auto& S2 : Spines)
                 {
@@ -1541,10 +1975,9 @@ namespace nodeos
             // Addressed relative to whichever EXISTING node currently sits at this gap - see
             // create_node_cmd's own comment for why (node ids are already known/observable, an
             // invented "gap id" would need its own discovery step).
-            const auto NewId = xresource::guid_generator::Instance64();
             const std::string Cmd = (Clamped < (int)SL.m_Order.size())
-                ? commands::MakeCreateNodeBefore(NewId, Src.m_DirName, SL.m_Order[Clamped])
-                : commands::MakeCreateNodeAfter(NewId, Src.m_DirName, SL.m_Order.back());
+                ? commands::BuildCreateNodeCommand(Sources, AvailableTypes, Src, pType, commands::node_placement_kind::Before, SL.m_Order[Clamped])
+                : commands::BuildCreateNodeCommand(Sources, AvailableTypes, Src, pType, commands::node_placement_kind::After, SL.m_Order.back());
             commands::Run(System, Cmd);
         };
 
@@ -1599,7 +2032,7 @@ namespace nodeos
                     return bHasAny;
                 };
                 float AddedHeight = 0.0f;
-                for (auto Id : MovingIds) { auto* pN = FindNode(Id); if (pN && pN->m_pNode) AddedHeight += NodeHeight(pN->m_pNode) + geo::NODE_GAP; }
+                for (auto Id : MovingIds) { auto* pN = FindNode(Id); if (pN && pN->m_pNode) AddedHeight += NodeHeight(pN->m_pNode, Id, Nodes, Links) + geo::NODE_GAP; }
                 const float NewBottom = SpineAbsY[SpineId] + SL.m_RelBottom + AddedHeight;
                 for (auto& S2 : Spines)
                 {
@@ -1672,6 +2105,10 @@ namespace nodeos
         {
             auto* pRow = FindRow(NodeId); auto* pDesc = DescOf(FindNode(NodeId));
             if (!pRow || !pDesc) return {};
+            // An End marker has no body/rows at all - its pin (never drawn as a glyph) anchors
+            // straight to the title bar's own edge instead.
+            if (IsEndMarkerType(pDesc))
+                return { (S == 'L') ? pRow->m_X : pRow->m_X + pRow->m_W, pRow->m_Y + geo::HEADER_H * 0.5f };
             float Y = pRow->m_Y + geo::HEADER_H + PreviewAreaHeight(pDesc);
             for (auto& Q : FlatPorts(pDesc))
             {
@@ -1679,7 +2116,7 @@ namespace nodeos
                 // ROW_H*0.5) - NOT half of RowHeight(), which also counts the value-line space below
                 // the glyph and would anchor wires visibly below the actual drawn pin.
                 if (Q.m_bIsOutput == P.m_bIsOutput && Q.m_Index == P.m_Index) { Y += geo::ROW_H * 0.5f; break; }
-                Y += RowHeight(Q);
+                Y += RowHeight(Q, NodeId, Links, EffectiveTypeName(NodeId, pDesc, Q.m_pDesc->m_pTypeName, Nodes, Links));
             }
             return { (S == 'L') ? pRow->m_X : pRow->m_X + pRow->m_W, Y };
         };
@@ -1859,11 +2296,18 @@ namespace nodeos
 
         // One rail pair per column, each spanning the full graph height - harmless to draw past a
         // column's own actual content, and simpler than tracking each column's own vertical extent.
+        // Drawn at the OUTERMOST lane actually in use on each side, not lane 0 - a column carrying
+        // more than one parallel wire on a side needs its rail to reach as far out as its farthest
+        // lane, or the backdrop line would cut through wires instead of framing all of them.
         for (auto& Co : Columns)
         {
-            pDraw->AddLine(ToScreen({ HighwayX(Co.m_Id, 'L', 0), 0 }), ToScreen({ HighwayX(Co.m_Id, 'L', 0), TotalH }), IM_COL32(30, 38, 58, 255));
-            pDraw->AddLine(ToScreen({ HighwayX(Co.m_Id, 'R', 0), 0 }), ToScreen({ HighwayX(Co.m_Id, 'R', 0), TotalH }), IM_COL32(30, 38, 58, 255));
+            const int LOuter = std::max(0, LaneCountOf(Co.m_Id, 0) - 1);
+            const int ROuter = std::max(0, LaneCountOf(Co.m_Id, 1) - 1);
+            pDraw->AddLine(ToScreen({ HighwayX(Co.m_Id, 'L', LOuter), 0 }), ToScreen({ HighwayX(Co.m_Id, 'L', LOuter), TotalH }), IM_COL32(30, 38, 58, 255));
+            pDraw->AddLine(ToScreen({ HighwayX(Co.m_Id, 'R', ROuter), 0 }), ToScreen({ HighwayX(Co.m_Id, 'R', ROuter), TotalH }), IM_COL32(30, 38, 58, 255));
         }
+
+        const auto ScopeDepths = ComputeScopeDepths(Nodes);
 
         for (auto& Link : Links)
         {
@@ -1874,11 +2318,23 @@ namespace nodeos
             const port_ref OutP{ true, Link.m_SourceOutput, &SrcOutputs[Link.m_SourceOutput] };
             const port_ref InP { false, Link.m_TargetInput,  &DstInputs[Link.m_TargetInput] };
             const bool bSelected = (Selection.m_SelectedLink == Link.m_Id);
-            const ImU32 Col = bSelected ? IM_COL32(253, 224, 71, 255) : TypeColor(OutP.m_pDesc->m_pTypeName);
+            // TypeColor("Scope") already matches the box border color, so an ordinary owner<->End
+            // link (always a Scope pin) picks up the right color for free here - only its extra
+            // thickness needs a read-only-specific branch. A Scope link's own two ends always share
+            // the same depth by construction (an owner and its End marker both resolve to the same
+            // stack size in ComputeScopeDepths), so either endpoint's depth darkens the whole wire,
+            // matching the boxes it connects.
+            ImU32 Col = bSelected ? IM_COL32(253, 224, 71, 255) : TypeColor(OutP.m_pDesc->m_pTypeName);
+            if (!bSelected && Link.m_bReadOnly)
+            {
+                auto DepthIt = ScopeDepths.find(Link.m_SourceNode);
+                Col = DarkenForDepth(Col, DepthIt == ScopeDepths.end() ? 0 : DepthIt->second);
+            }
+            const float Thickness = bSelected ? 3.0f : (Link.m_bReadOnly ? 4.0f : 2.0f);
             char SourceSide = 'R', TargetSide = 'R', RailSide = 'R';
             LinkSides(Link, SourceSide, TargetSide, RailSide);
             DrawHighwayPath(OwnerColumnOf(Link), PortAnchor(Link.m_SourceNode, OutP, SourceSide), PortAnchor(Link.m_TargetNode, InP, TargetSide)
-                           , RailSide, LaneOfLink[Link.m_Id], Col, bSelected ? 3.0f : 2.0f, nullptr);
+                           , RailSide, LaneOfLink[Link.m_Id], Col, Thickness, nullptr);
         }
 
         if (Drag.m_bActive)
@@ -1887,6 +2343,19 @@ namespace nodeos
             const auto DragColumnId = ColumnOfNode(Drag.m_FromNode);
             DrawHighwayPath(DragColumnId, Drag.m_FromPos, MouseLocal, S, LaneCountOf(DragColumnId, S == 'R' ? 1 : 0), IM_COL32(125, 211, 252, 255), 2.0f, nullptr);
         }
+
+        // Selecting a scope's ownership link highlights every box the scope actually contains - a
+        // visual-only highlight (see ComputeScopeSpan), never added to Selection.m_SelectedNodes, so
+        // inspecting a scope this way never makes its contents eligible for Delete or drag.
+        std::set<std::uint64_t> HighlightedScopeSpan;
+        if (Selection.m_SelectedLink != 0)
+            for (auto& L : Links)
+                if (L.m_Id == Selection.m_SelectedLink && L.m_bReadOnly)
+                {
+                    auto Span = ComputeScopeSpan(Nodes, L.m_SourceNode);
+                    HighlightedScopeSpan.insert(Span.begin(), Span.end());
+                    break;
+                }
 
         const float FontSize = ImGui::GetFontSize() * View.m_Zoom;
         auto DrawText = [&](ImVec2 Pos, ImU32 Col, const char* pText) { pDraw->AddText(nullptr, FontSize, ToScreen(Pos), Col, pText); };
@@ -1904,18 +2373,49 @@ namespace nodeos
             const bool bSelected      = Selection.m_SelectedNodes.contains(Id);
             const bool bBeingDragged  = NodeDrag.m_bActive && std::find(NodeDrag.m_MovingIds.begin(), NodeDrag.m_MovingIds.end(), Id) != NodeDrag.m_MovingIds.end();
 
-            pDraw->AddRectFilled(P0, P1, IM_COL32(17, 24, 39, 255), ToScreenLen(10.0f));
-            pDraw->AddRect(P0, P1, bBeingDragged ? IM_COL32(56, 189, 248, 255) : (bSelected ? IM_COL32(253, 224, 71, 255) : IM_COL32(51, 65, 85, 255))
-                          , ToScreenLen(10.0f), 0, ToScreenLen((bSelected || bBeingDragged) ? 2.5f : 1.5f));
+            // Depth stands in for indentation (see ComputeScopeDepths) - the deeper a node's own
+            // enclosing scope, the darker its fill; the border stays untouched so the box outline is
+            // always visible no matter how deep.
+            const auto DepthIt = ScopeDepths.find(Id);
+            const int  Depth   = DepthIt == ScopeDepths.end() ? 0 : DepthIt->second;
+            const bool bInHighlightedSpan = HighlightedScopeSpan.contains(Id);
+            pDraw->AddRectFilled(P0, P1, DarkenForDepth(IM_COL32(17, 24, 39, 255), Depth), ToScreenLen(10.0f));
+            pDraw->AddRect(P0, P1, bBeingDragged ? IM_COL32(56, 189, 248, 255) : (bSelected ? IM_COL32(253, 224, 71, 255) : (bInHighlightedSpan ? IM_COL32(125, 211, 252, 255) : IM_COL32(51, 65, 85, 255)))
+                          , ToScreenLen(10.0f), 0, ToScreenLen((bSelected || bBeingDragged || bInHighlightedSpan) ? 2.5f : 1.5f));
             const float TitleY = pRow->m_Y + (geo::HEADER_H - ImGui::GetFontSize()) * 0.5f;
             const auto NodeName = pDesc->m_pFactory->getName();
-            DrawText({ pRow->m_X + 10, TitleY }, IM_COL32(226, 232, 240, 255), NodeName.data());
+            // An End marker's own factory name is just "End" for every instance - not clear enough
+            // on its own (NODE_SCRIPTING_DESIGN.md section 4.2). Its actual displayed title is
+            // computed contextually: "<Owner>-End" for a plain marker, "<Owner>-End-Else" once its
+            // own IsElse checkbox is on, or "Else-End" for the further marker THAT one owns in turn
+            // (recognized by its owner also being an End, not a real control node).
+            std::string DisplayName(NodeName);
+            if (NodeName == "End")
+            {
+                node_instance* pOwnerNode = nullptr;
+                for (auto& N : Nodes) if (N.m_OwnedEndId == Id) { pOwnerNode = &N; break; }
+                if (pOwnerNode && pOwnerNode->m_pNode)
+                {
+                    const auto OwnerName = pOwnerNode->m_pNode->m_pFactory->getName();
+                    if (OwnerName == "End") DisplayName = "Else-End";
+                    else
+                    {
+                        const bool bIsElse = pNode->m_pNode && ReadBoolPropertyFromSnapshot(SerializePropertiesToString(pNode->m_pNode), "IsElse");
+                        DisplayName = std::string(OwnerName) + (bIsElse ? "-End-Else" : "-End");
+                    }
+                }
+            }
+            const bool bIsEndMarker = IsEndMarkerType(pDesc);
+            DrawText({ pRow->m_X + (bIsEndMarker ? pRow->m_W * 0.5f - ImGui::CalcTextSize(DisplayName.c_str()).x * 0.5f : 10.0f), TitleY }, IM_COL32(226, 232, 240, 255), DisplayName.c_str());
+            // An End marker's title bar shows only its name - no category label, no header/body
+            // divider line (it has no body to divide from).
+            if (!bIsEndMarker)
             {
                 const auto NodeCategory = pDesc->m_pFactory->getCategory();
                 const ImVec2 CatSize = ImGui::CalcTextSize(NodeCategory.data(), NodeCategory.data() + NodeCategory.size());
                 DrawText({ pRow->m_X + pRow->m_W - CatSize.x - 10, TitleY }, IM_COL32(100, 116, 139, 255), NodeCategory.data());
+                pDraw->AddLine(ToScreen({ pRow->m_X, pRow->m_Y + geo::HEADER_H }), ToScreen({ pRow->m_X + pRow->m_W, pRow->m_Y + geo::HEADER_H }), IM_COL32(51, 65, 85, 255));
             }
-            pDraw->AddLine(ToScreen({ pRow->m_X, pRow->m_Y + geo::HEADER_H }), ToScreen({ pRow->m_X + pRow->m_W, pRow->m_Y + geo::HEADER_H }), IM_COL32(51, 65, 85, 255));
 
             ImGui::PushID((int)Id);
             ImGui::SetNextItemAllowOverlap();
@@ -1930,15 +2430,21 @@ namespace nodeos
             if (ImGui::IsItemActivated())
             {
                 NodeDrag.m_bActive = false;
-                NodeDrag.m_MovingIds = Selection.m_SelectedNodes.contains(Id)
+                auto InitialIds = Selection.m_SelectedNodes.contains(Id)
                     ? std::vector<std::uint64_t>(Selection.m_SelectedNodes.begin(), Selection.m_SelectedNodes.end())
                     : std::vector<std::uint64_t>{ Id };
+                NodeDrag.m_MovingIds = ExpandMoveSetForScopes(Nodes, std::move(InitialIds));
             }
             if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 3.0f))
                 NodeDrag.m_bActive = true;
 
             if (ImGui::IsItemClicked() && !NodeDrag.m_bActive)
             {
+                // A control node and its owned End/End-Else marker(s) are one compound node (NODE_
+                // SCRIPTING_DESIGN.md section 4.1) - clicking any one piece selects the whole group,
+                // same cascade DeleteNodes already uses so the two notions of "one unit" agree.
+                const auto GroupIds = commands::ExpandOwnershipCascade(Nodes, { Id });
+
                 // Toggle decided here, against the CURRENT selection, then issued as the full desired
                 // end-state - Select's Redo() just sets exactly what's in the command string (so replay
                 // during a later Redo() stays deterministic regardless of what's currently selected).
@@ -1946,11 +2452,11 @@ namespace nodeos
                 std::set<std::uint64_t> NewSelectedNodes = bToggle ? Selection.m_SelectedNodes : std::set<std::uint64_t>{};
                 if (bToggle)
                 {
-                    if (NewSelectedNodes.contains(Id)) NewSelectedNodes.erase(Id);
-                    else                                 NewSelectedNodes.insert(Id);
+                    if (NewSelectedNodes.contains(Id)) for (auto Gid : GroupIds) NewSelectedNodes.erase(Gid);
+                    else                                 for (auto Gid : GroupIds) NewSelectedNodes.insert(Gid);
                 }
                 else
-                    NewSelectedNodes = { Id };
+                    NewSelectedNodes = { GroupIds.begin(), GroupIds.end() };
                 commands::Run(System, commands::MakeSelectNodes({ NewSelectedNodes.begin(), NewSelectedNodes.end() }));
             }
 
@@ -1973,11 +2479,18 @@ namespace nodeos
                 }
             }
 
+            // An End marker draws no port rows at all - no glyph, no label, nothing to drag - its
+            // pin is purely the title-bar anchor point PortAnchor already computes above.
+            if (!IsEndMarkerType(pDesc))
             for (auto& P : FlatPorts(pDesc))
             {
-                const float RH = RowHeight(P);
+                // An Any pin (Compare's A/B) shows and colors as whatever it's currently resolved to
+                // (see ResolveNodeWildcardType) - "Any" itself only while nothing has locked it in yet.
+                const char* pEffType = EffectiveTypeName(Id, pDesc, P.m_pDesc->m_pTypeName, Nodes, Links);
+                const float RH = RowHeight(P, Id, Links, pEffType);
                 const float CenterY = RowY + geo::ROW_H * 0.5f;
-                const ImU32 Col = TypeColor(P.m_pDesc->m_pTypeName);
+                // A Scope pin darkens with its own node's depth too, matching the box and the wire.
+                const ImU32 Col = IsScopeType(pEffType) ? DarkenForDepth(TypeColor(pEffType), Depth) : TypeColor(pEffType);
                 const bool bConnected = PortSides.contains(PinOf(P, Id));
                 const ImU32 Fill = bConnected ? Col : IM_COL32(11, 16, 33, 255);
 
@@ -2001,7 +2514,7 @@ namespace nodeos
                     pDraw->AddTriangleFilled(Tip, B1, B2, Fill);
                     pDraw->AddTriangle(Tip, B1, B2, Col, ToScreenLen(1.5f));
 
-                    const std::string TypeLabel = std::string("[") + P.m_pDesc->m_pTypeName + "]";
+                    const std::string TypeLabel = std::string("[") + DisplayTypeText(pDesc, P, pEffType) + "]";
                     const ImVec2 TypeSize = ImGui::CalcTextSize(TypeLabel.c_str());
                     const float TypeX = (S == 'L') ? pRow->m_X + 14.0f : pRow->m_X + pRow->m_W - 14.0f - TypeSize.x;
                     DrawText({ TypeX, CenterY - TypeSize.y * 0.5f }, Col, TypeLabel.c_str());
@@ -2046,7 +2559,20 @@ namespace nodeos
                             if (auto* pFromDesc = DescOf(FindNode(Drag.m_FromNode)))
                             {
                                 const char* pFromType = Drag.m_bFromIsOutput ? pFromDesc->getOutputs()[Drag.m_FromIndex].m_pTypeName : pFromDesc->getInputs()[Drag.m_FromIndex].m_pTypeName;
-                                bTypeMatches = std::strcmp(pFromType, P.m_pDesc->m_pTypeName) == 0;
+                                // Copied into a real std::string IMMEDIATELY, before the second
+                                // EffectiveTypeName call: ResolveNodeWildcardType's container-unwrap
+                                // path (ForEachLoop's Element/Index) returns a pointer into a shared
+                                // thread_local buffer, which the second call below would silently
+                                // overwrite out from under a still-live raw pointer from the first -
+                                // not observable with today's exact node catalog (no two "from"/"to"
+                                // pins can both hit that path in one comparison yet), but a real
+                                // aliasing hazard the moment a second Span-consuming node type exists.
+                                const std::string FromEff = EffectiveTypeName(Drag.m_FromNode, pFromDesc, pFromType, Nodes, Links);
+                                const char* pToEff = EffectiveTypeName(Id, pDesc, P.m_pDesc->m_pTypeName, Nodes, Links);
+                                // A still-open wildcard on either side (Any or Span<Any> - see
+                                // IsAnyKindOfWildcard) accepts any type - the connection is what
+                                // resolves it.
+                                bTypeMatches = IsAnyKindOfWildcard(FromEff.c_str()) || IsAnyKindOfWildcard(pToEff) || FromEff == pToEff;
                             }
                         }
                         bShowRing = !bSamePort && bOppositeDir && bDifferentNode && bTypeMatches;
@@ -2058,17 +2584,196 @@ namespace nodeos
                     }
                 }
 
-                if (!IsMeshType(P.m_pDesc->m_pTypeName))
+                if (!IsMeshType(pEffType) && !IsScopeType(pEffType) && !IsNoPreviewType(pEffType) && !P.m_bIsOutput)
                 {
                     void* pValue = P.m_bIsOutput
                         ? ((pNode->m_bHasRun && P.m_Index < (int)pNode->m_CachedOutputs.size()) ? pNode->m_CachedOutputs[P.m_Index] : nullptr)
                         : GetInputValue(Id, P.m_Index, Nodes, Links);
-                    const char* pPreview = PortTypeToPreview(P.m_pDesc->m_pTypeName, pValue);
-                    const ImVec2 ValSize = ImGui::CalcTextSize(pPreview);
-                    DrawText({ pRow->m_X + pRow->m_W * 0.5f - ValSize.x * 0.5f, RowY + geo::ROW_H }, IM_COL32(148, 163, 184, 255), pPreview);
+
+                    // Float/Int/Short are this corpus's numeric scalar types (see IsNoPreviewType's
+                    // own comment for why Bool is excluded here - it's filtered out already, above,
+                    // regardless of whether it's a fixed Bool pin or a wildcard resolved to Bool).
+                    // Checked against the EFFECTIVE type, not the raw declared one, so an Any pin
+                    // (Compare/Math Expression's A/B) resolved to one of these gets the same inline
+                    // literal an ordinarily-typed pin of that type would - this is what "the compare
+                    // node still lets you enter a value based on the known type" actually means.
+                    const bool bIsFloat = std::strcmp(pEffType, "Float") == 0;
+                    const bool bIsInt   = std::strcmp(pEffType, "Int") == 0 || std::strcmp(pEffType, "Short") == 0;
+
+                    // Gated on bConnected (an actual wire in Links), NOT on pValue - pValue only
+                    // reflects a produced runtime value, which none of these no-op-Execute() node
+                    // types ever populate, so checking it would leave the widget showing forever even
+                    // after a wire is attached. bConnected is exactly "is a wire here right now",
+                    // which is the only thing that should ever hide the inline constant.
+                    if (!P.m_bIsOutput && !bConnected && (bIsFloat || bIsInt))
+                    {
+                        // Inline constant, Unity-style: an unconnected scalar input isn't "no
+                        // value", it's "whatever's typed right here" - stored in LiteralValues,
+                        // keyed by this exact pin, independent of any wire (a literal is simply
+                        // ignored once a wire exists - see the pValue check just above).
+                        const std::uint64_t PinId = PinOf(P, Id);
+                        auto LitIt = LiteralValues.find(PinId);
+                        const std::string CurrentText = LitIt != LiteralValues.end() ? LitIt->second : "0";
+
+                        ImGui::PushID((int)PinId);
+                        ImGui::SetNextItemAllowOverlap();
+                        ImGui::SetCursorScreenPos(ToScreen({ pRow->m_X + 12.0f, RowY + geo::ROW_H }));
+                        ImGui::SetNextItemWidth(ToScreenLen(pRow->m_W - 24.0f));
+
+                        if (bIsInt)
+                        {
+                            int Val = 0; try { Val = std::stoi(CurrentText); } catch (...) {}
+                            if (ImGui::InputInt("##lit", &Val, 0, 0))
+                                commands::Run(System, commands::MakeSetLiteralValue(PinId, std::to_string(Val)));
+                        }
+                        else
+                        {
+                            float Val = 0.0f; try { Val = std::stof(CurrentText); } catch (...) {}
+                            if (ImGui::InputFloat("##lit", &Val, 0.0f, 0.0f, "%.3f"))
+                                commands::Run(System, commands::MakeSetLiteralValue(PinId, std::format("{}", Val)));
+                        }
+                        ImGui::PopID();
+                    }
+                    else
+                    {
+                        const char* pPreview = PortTypeToPreview(pEffType, pValue);
+                        if (pPreview[0] != '\0')
+                        {
+                            const ImVec2 ValSize = ImGui::CalcTextSize(pPreview);
+                            DrawText({ pRow->m_X + pRow->m_W * 0.5f - ValSize.x * 0.5f, RowY + geo::ROW_H }, IM_COL32(148, 163, 184, 255), pPreview);
+                        }
+                    }
                 }
 
                 RowY += RH;
+            }
+
+            // Inline enum-property widgets, directly in the node body - e.g. Compare's own Operator
+            // choice, not only reachable through the side properties panel. Reuses the exact same
+            // xproperty reflection every other property path already uses; a change goes through the
+            // same undo-safe SetProperties command the side panel issues (see DrawNodePropertiesPanel).
+            if (pNode && pNode->m_pNode && HasSerializableProperties(pNode->m_pNode))
+            {
+                xnode_os_node* pRealNode = pNode->m_pNode;
+                const xproperty::type::object* pObj = pRealNode->getProperties();
+                for (auto& M : pObj->m_Members)
+                {
+                    auto* pVar = std::get_if<xproperty::type::members::var>(&M.m_Variant);
+                    if (!pVar || !pVar->m_AtomicType.m_IsEnum) continue;
+
+                    const int CurrentVal = ReadEnumAsInt(M, pRealNode);
+                    const char* pCurrentName = "?";
+                    for (auto& Item : pVar->m_AtomicType.m_RegisteredEnumSpan)
+                        if ((int)Item.m_Value == CurrentVal) { pCurrentName = Item.m_pName; break; }
+
+                    // Compare's own Operator choice narrows to Equal/Not Equal whenever its A/B pins
+                    // (see ResolveNodeWildcardType) haven't resolved to an orderable atomic type -
+                    // Float is the only one today (E27_NodeOS_Editor.cpp's IsNoPreviewType comment) -
+                    // a struct-like comparison has no meaningful </<=/>/>=. A name-based special case,
+                    // same as the "End" one already used for the Else toggle - this is UI-only
+                    // filtering of the dropdown's own choices, not a change to what's stored.
+                    const bool bIsCompareOperator = pRealNode->m_pFactory->getName() == "Compare" && std::strcmp(M.m_pName, "Operator") == 0;
+                    const char* pResolvedCompareType = bIsCompareOperator ? ResolveNodeWildcardType(Id, pDesc, Nodes, Links) : nullptr;
+                    const bool bOrderable = !bIsCompareOperator || (pResolvedCompareType && std::strcmp(pResolvedCompareType, "Float") == 0);
+
+                    ImGui::PushID((int)Id);
+                    ImGui::PushID(M.m_pName);
+                    ImGui::SetNextItemAllowOverlap();
+                    ImGui::SetCursorScreenPos(ToScreen({ pRow->m_X + 10.0f, RowY }));
+                    ImGui::SetNextItemWidth(ToScreenLen(pRow->m_W - 20.0f));
+                    if (ImGui::BeginCombo("##enum", pCurrentName))
+                    {
+                        for (auto& Item : pVar->m_AtomicType.m_RegisteredEnumSpan)
+                        {
+                            if (!bOrderable && std::strcmp(Item.m_pName, "Equal") != 0 && std::strcmp(Item.m_pName, "Not Equal") != 0)
+                                continue;
+                            const bool bIsSel = ((int)Item.m_Value == CurrentVal);
+                            if (ImGui::Selectable(Item.m_pName, bIsSel))
+                            {
+                                const std::string Before = SerializePropertiesToString(pRealNode);
+                                WriteEnumFromInt(M, pRealNode, (int)Item.m_Value);
+                                const std::string After = SerializePropertiesToString(pRealNode);
+                                if (After != Before)
+                                    commands::Run(System, commands::MakeSetProperties(Id, Before, After));
+                            }
+                            if (bIsSel) ImGui::SetItemDefaultFocus();
+                        }
+                        ImGui::EndCombo();
+                    }
+                    ImGui::PopID();
+                    ImGui::PopID();
+                    RowY += geo::ROW_H + 4.0f;
+                }
+
+                // Constant's own numeric Value, directly in the node body too - not just the side
+                // panel - same look as Compare/Math Expression's inline literal on an unconnected
+                // Any pin. A name-based special case, same as Compare's operator-filtering above:
+                // Value is stored as plain text regardless of Type (see constant_node.cpp), so
+                // picking the right WIDGET for it - a numeric spinner vs. a checkbox - needs to know
+                // this node is specifically a Constant and read its own sibling Type member; a fully
+                // generic "any string property" inline editor wouldn't know to do that.
+                if (pRealNode->m_pFactory->getName() == "Constant")
+                {
+                    const xproperty::type::members* pTypeMember  = nullptr;
+                    const xproperty::type::members* pValueMember = nullptr;
+                    for (auto& M : pObj->m_Members)
+                    {
+                        if      (std::strcmp(M.m_pName, "Type")  == 0) pTypeMember  = &M;
+                        else if (std::strcmp(M.m_pName, "Value") == 0) pValueMember = &M;
+                    }
+                    if (pTypeMember && pValueMember)
+                    {
+                        const char* pTypeName = "Float";
+                        if (auto* pTypeVar = std::get_if<xproperty::type::members::var>(&pTypeMember->m_Variant))
+                        {
+                            const int TypeVal = ReadEnumAsInt(*pTypeMember, pRealNode);
+                            for (auto& Item : pTypeVar->m_AtomicType.m_RegisteredEnumSpan)
+                                if ((int)Item.m_Value == TypeVal) { pTypeName = Item.m_pName; break; }
+                        }
+
+                        xproperty::any ValueOut; xproperty::settings::context ReadCtx;
+                        std::string CurrentText;
+                        if (pValueMember->TryRead(pRealNode, ValueOut, ReadCtx) && ValueOut.is<std::string>())
+                            CurrentText = ValueOut.get<std::string>();
+
+                        auto CommitValue = [&](const std::string& NewText)
+                        {
+                            const std::string Before = SerializePropertiesToString(pRealNode);
+                            xproperty::any In{ NewText }; xproperty::settings::context WriteCtx;
+                            (void)pValueMember->TryWrite(pRealNode, In, WriteCtx);
+                            const std::string After = SerializePropertiesToString(pRealNode);
+                            if (After != Before)
+                                commands::Run(System, commands::MakeSetProperties(Id, Before, After));
+                        };
+
+                        ImGui::PushID((int)Id);
+                        ImGui::PushID("ConstValue");
+                        ImGui::SetNextItemAllowOverlap();
+                        ImGui::SetCursorScreenPos(ToScreen({ pRow->m_X + 10.0f, RowY }));
+                        ImGui::SetNextItemWidth(ToScreenLen(pRow->m_W - 20.0f));
+                        if (std::strcmp(pTypeName, "Bool") == 0)
+                        {
+                            bool Val = (CurrentText == "1");
+                            if (ImGui::Checkbox("##constval", &Val))
+                                CommitValue(Val ? "1" : "0");
+                        }
+                        else if (std::strcmp(pTypeName, "Int") == 0 || std::strcmp(pTypeName, "Short") == 0)
+                        {
+                            int Val = 0; try { Val = std::stoi(CurrentText); } catch (...) {}
+                            if (ImGui::InputInt("##constval", &Val, 0, 0))
+                                CommitValue(std::to_string(Val));
+                        }
+                        else
+                        {
+                            float Val = 0.0f; try { Val = std::stof(CurrentText); } catch (...) {}
+                            if (ImGui::InputFloat("##constval", &Val, 0.0f, 0.0f, "%.3f"))
+                                CommitValue(std::format("{}", Val));
+                        }
+                        ImGui::PopID();
+                        ImGui::PopID();
+                        RowY += geo::ROW_H + 4.0f;
+                    }
+                }
             }
 
             if (!pNode->m_LastError.empty())
@@ -2474,8 +3179,22 @@ namespace nodeos
                 auto* pOutDesc = DescOf(FindNode(OutNode)); auto* pInDesc = DescOf(FindNode(InNode));
                 const auto OutOutputs = pOutDesc ? pOutDesc->getOutputs() : std::span<const xnode_os_port_desc>{};
                 const auto InInputs   = pInDesc   ? pInDesc->getInputs()   : std::span<const xnode_os_port_desc>{};
-                if (pOutDesc && pInDesc && OutNode != InNode && OutIdx < (int)OutOutputs.size() && InIdx < (int)InInputs.size()
-                    && std::strcmp(OutOutputs[OutIdx].m_pTypeName, InInputs[InIdx].m_pTypeName) == 0)
+                const bool bBoundsOk = pOutDesc && pInDesc && OutNode != InNode && OutIdx < (int)OutOutputs.size() && InIdx < (int)InInputs.size();
+                // A still-open wildcard on either end (Compare/Math Expression's Any pins, ForEachLoop's
+                // Span<Any> - see IsAnyKindOfWildcard) accepts whatever the other end is - the
+                // connection is what resolves it - rather than requiring an exact strcmp match the way
+                // every ordinary, concretely-typed pin still does.
+                const bool bTypesCompatible = bBoundsOk && [&]
+                {
+                    // Copied into a real std::string IMMEDIATELY - see the identical hazard/fix note
+                    // on the drag-preview ring check above (ResolveNodeWildcardType's container-
+                    // unwrap path returns a pointer into a shared thread_local buffer the second call
+                    // below could otherwise silently overwrite before this comparison runs).
+                    const std::string OutEff = EffectiveTypeName(OutNode, pOutDesc, OutOutputs[OutIdx].m_pTypeName, Nodes, Links);
+                    const char* pInEff = EffectiveTypeName(InNode, pInDesc, InInputs[InIdx].m_pTypeName, Nodes, Links);
+                    return IsAnyKindOfWildcard(OutEff.c_str()) || IsAnyKindOfWildcard(pInEff) || OutEff == pInEff;
+                }();
+                if (bBoundsOk && bTypesCompatible)
                 {
                     // Eviction of any prior link into the same target input happens inside Connect's
                     // own Redo() now (and its Undo() restores whatever got evicted) - see connect_cmd.
@@ -2674,13 +3393,21 @@ namespace nodeos
     static int ReadEnumAsInt(const xproperty::type::members& Member, void* pInstance) noexcept
     {
         xproperty::any Out; xproperty::settings::context Ctx;
-        if (!Member.TryRead(pInstance, Out, Ctx)) return 0;
-        // An enum's underlying storage type varies by declaration; probe the common widths rather
-        // than assuming one.
-        if (auto R = Out.tryGet<int>();           R) return *R.value();
-        if (auto R = Out.tryGet<unsigned int>();  R) return (int)*R.value();
-        if (auto R = Out.tryGet<std::int64_t>();  R) return (int)*R.value();
-        if (auto R = Out.tryGet<std::uint64_t>(); R) return (int)*R.value();
+        if (!Member.TryRead(pInstance, Out, Ctx) || !Out.m_pType) return 0;
+        // xproperty::any stores an enum member as its EXACT declared enum type (atomic_type = T,
+        // per xproperty.h's var_type<T>), never converted to a plain int/unsigned/int64/uint64 - so
+        // probing tryGet<those>() always misses regardless of the real value, silently falling
+        // through to 0 (which then always displays as the enum's first registered item). Read the
+        // raw bytes by width instead, exactly like the official xproperty inspector's own generic
+        // enum reader does (xPropertyImGuiInspector.cpp's draw_enums) - it doesn't know the concrete
+        // enum type either, only its size.
+        switch (Out.m_pType->m_Size)
+        {
+            case 1: return *reinterpret_cast<const std::uint8_t*>(&Out.m_Data);
+            case 2: return *reinterpret_cast<const std::uint16_t*>(&Out.m_Data);
+            case 4: return *reinterpret_cast<const std::uint32_t*>(&Out.m_Data);
+            case 8: return (int)*reinterpret_cast<const std::uint64_t*>(&Out.m_Data);
+        }
         return 0;
     }
     static void WriteEnumFromInt(const xproperty::type::members& Member, void* pInstance, int Value) noexcept
@@ -2691,6 +3418,23 @@ namespace nodeos
         if (!Found) return; // not one of the enum's registered values - reject rather than write garbage
         xproperty::any In{ std::string(Found.value()->m_pName) }; xproperty::settings::context Ctx;
         (void)Member.TryWrite(pInstance, In, Ctx);
+    }
+
+    // A plain, by-name reflected bool read - e.g. ForEachLoop's own "ReadOnlyElement" checkbox,
+    // consulted purely for DISPLAY (decorating the Element port's type label with const/& - see the
+    // per-port draw loop) rather than through the general property-snapshot machinery, since this
+    // isn't an edit/undo path, just a read.
+    static bool ReadBoolProperty(const xnode_os_node* pNode, const char* pName, bool Default) noexcept
+    {
+        const xproperty::type::object* pObj = pNode->getProperties();
+        if (!pObj) return Default;
+        for (auto& M : pObj->m_Members)
+            if (std::strcmp(M.m_pName, pName) == 0)
+            {
+                xproperty::any Out; xproperty::settings::context Ctx;
+                if (M.TryRead(pNode, Out, Ctx) && Out.is<bool>()) return Out.get<bool>();
+            }
+        return Default;
     }
 
     static bool ReflectedMemberToRow(const xproperty::type::members& Member, void* pInstance, property_row& OutRow)
@@ -3188,43 +3932,142 @@ namespace nodeos
     // makes every widget's id unstable, which looks exactly like "nothing happens when I click." Only
     // rebuild when a different node gets selected.
     //------------------------------------------------------------------------------------------------
-    static void DrawNodePropertiesPanel(std::vector<node_instance>& Nodes, const std::set<std::uint64_t>& SelectedNodes, xundo::system& System)
+    // A bool property serializes as "1"/"0" (see ReflectedMemberToRow) - a plain, generic scrape
+    // over the same Name\tKind\tValue\n rows SerializePropertiesToString already produces, so this
+    // needs no knowledge of any specific node type's own C++ layout (the host never casts a plugin's
+    // xnode_os_node* to its own concrete type - see xnode_os_plugin_api.h's cross-DLL note).
+    static bool ReadBoolPropertyFromSnapshot(const std::string& Snapshot, std::string_view Name) noexcept
     {
-        if (SelectedNodes.size() != 1)
+        std::size_t Pos = 0;
+        while (Pos < Snapshot.size())
+        {
+            const std::size_t LineEnd = Snapshot.find('\n', Pos);
+            const std::string Line = Snapshot.substr(Pos, (LineEnd == std::string::npos ? Snapshot.size() : LineEnd) - Pos);
+            Pos = (LineEnd == std::string::npos) ? Snapshot.size() : LineEnd + 1;
+            const std::size_t Tab1 = Line.find('\t');
+            if (Tab1 != std::string::npos && std::string_view(Line).substr(0, Tab1) == Name)
+            {
+                const std::size_t Tab2 = Line.find('\t', Tab1 + 1);
+                if (Tab2 != std::string::npos) return Line.substr(Tab2 + 1) == "1";
+            }
+        }
+        return false;
+    }
+
+    static void DrawNodePropertiesPanel(std::vector<node_instance>& Nodes, const std::set<std::uint64_t>& SelectedNodes, xundo::system& System, std::vector<plugin_source_entry>& Sources, std::vector<available_node_type>& AvailableTypes)
+    {
+        // A control node and its owned End/End-Else marker(s) select as one compound group now (see
+        // the click-selection cascade in DrawGraphCanvas) - so "exactly one node selected" no longer
+        // holds for them. If this selection is exactly one such group, resolve its root (the one
+        // member nobody ELSE in the group owns - rules out an EndElse marker, which is itself pointed
+        // to by the owner, in favor of the actual If/ForEachLoop) and show properties for THAT,
+        // merged with its owned marker's own properties (just "IsElse" today) - the whole group reads
+        // as one node to the user (NODE_SCRIPTING_DESIGN.md section 4.1), so an edit like the Else
+        // toggle belongs on the same panel as the owner, even though it's still physically stored on
+        // the End marker itself (getOutputs()'s dynamic "ElseEnd" pin has to read its own instance's
+        // field - see end_marker_node.cpp).
+        std::uint64_t PrimaryId = 0;
+        if (SelectedNodes.size() == 1)
+        {
+            PrimaryId = *SelectedNodes.begin();
+        }
+        else
+        {
+            for (auto Id : SelectedNodes)
+            {
+                const auto Group = commands::ExpandOwnershipCascade(Nodes, { Id });
+                if (std::set<std::uint64_t>(Group.begin(), Group.end()) != SelectedNodes) continue;
+                const bool bOwnedByOther = std::any_of(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_OwnedEndId == Id; });
+                if (!bOwnedByOther) { PrimaryId = Id; break; }
+            }
+        }
+        if (PrimaryId == 0)
         {
             DrawNodePropertiesEmptyState(SelectedNodes.empty() ? "Select a node to see its properties." : "Select a single node to see its properties.");
             return;
         }
 
-        auto It = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == *SelectedNodes.begin(); });
+        auto It = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == PrimaryId; });
         if (It == Nodes.end() || !It->m_pNode) { DrawNodePropertiesEmptyState("(node no longer exists)"); return; }
 
         xnode_os_node* pNode = It->m_pNode;
-        if (!HasSerializableProperties(pNode))
+        const std::uint64_t NodeId = It->m_Id;
+
+        xnode_os_node* pMarkerNode = nullptr;
+        std::uint64_t  MarkerNodeId = 0;
+        // The End/End-Else marker type is shared by every owner (If, ForEachLoop, ...), but "Else" -
+        // a second branch - is only a meaningful concept for If. Merging it into a ForEachLoop's own
+        // panel would show a checkbox that does nothing sensible there, so this stays scoped to the
+        // one owner type it actually applies to (same name-based special-case this function already
+        // used before the merge existed, for exactly the same reason).
+        if (It->m_OwnedEndId != 0 && pNode->m_pFactory->getName() == "If")
+        {
+            auto MarkerIt = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == It->m_OwnedEndId; });
+            if (MarkerIt != Nodes.end() && MarkerIt->m_pNode && HasSerializableProperties(MarkerIt->m_pNode))
+            {
+                pMarkerNode  = MarkerIt->m_pNode;
+                MarkerNodeId = MarkerIt->m_Id;
+            }
+        }
+
+        const bool bOwnHasProps = HasSerializableProperties(pNode);
+        if (!bOwnHasProps && !pMarkerNode)
         {
             DrawNodePropertiesEmptyState(std::format("{} has no properties.", pNode->m_pFactory->getName()).c_str());
             return;
         }
-        const std::uint64_t NodeId = It->m_Id;
 
         static xproperty::inspector s_Inspector("Node Properties");
-        static void*                s_pBoundNode = nullptr;
-        if (s_pBoundNode != pNode)
+        static void* s_pBoundNode       = nullptr;
+        static void* s_pBoundMarkerNode = nullptr;
+        if (s_pBoundNode != pNode || s_pBoundMarkerNode != pMarkerNode)
         {
             s_Inspector.clear();
             s_Inspector.AppendEntity();
-            s_Inspector.AppendEntityComponent(*pNode->getProperties(), pNode);
-            s_pBoundNode = pNode;
+            if (bOwnHasProps) s_Inspector.AppendEntityComponent(*pNode->getProperties(), pNode);
+            if (pMarkerNode)  s_Inspector.AppendEntityComponent(*pMarkerNode->getProperties(), pMarkerNode);
+            s_pBoundNode       = pNode;
+            s_pBoundMarkerNode = pMarkerNode;
         }
 
-        const std::string Before = SerializePropertiesToString(pNode);
+        const std::string Before       = bOwnHasProps ? SerializePropertiesToString(pNode)       : std::string{};
+        const std::string MarkerBefore = pMarkerNode  ? SerializePropertiesToString(pMarkerNode)  : std::string{};
         xproperty::settings::context Context;
         ImGui::SetNextWindowPos(ImVec2(1265, 90), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(300, 300), ImGuiCond_FirstUseEver);
         s_Inspector.Show(Context, [] {});
-        const std::string After = SerializePropertiesToString(pNode);
-        if (After != Before)
+        const std::string After       = bOwnHasProps ? SerializePropertiesToString(pNode)      : std::string{};
+        const std::string MarkerAfter = pMarkerNode  ? SerializePropertiesToString(pMarkerNode) : std::string{};
+
+        if (bOwnHasProps && After != Before)
             commands::Run(System, commands::MakeSetProperties(NodeId, Before, After));
+
+        if (pMarkerNode && MarkerAfter != MarkerBefore)
+        {
+            // The End node's own "IsElse" checkbox (NODE_SCRIPTING_DESIGN.md section 4.2) is the one
+            // property edit that means more than "just store this value" - it also creates or
+            // removes a further, paired End marker. Detected generically off the serialized snapshot
+            // rather than casting pMarkerNode to any concrete plugin type (never safe across the
+            // plugin DLL boundary - see xnode_os_plugin_api.h).
+            // SetProperties always runs FIRST: SetEndElseState's own Redo() reads the marker's live
+            // getOutputs() to find its new "ElseEnd" pin index, which only reliably reflects
+            // IsElse==true if SetProperties (whose Redo() actually applies the After snapshot via
+            // ApplyPropertiesFromString) has already run - true during this initial edit only because
+            // the ImGui widget mutated pMarkerNode directly, but not guaranteed during a later redo
+            // replay unless the ordering is explicit here too.
+            commands::Run(System, commands::MakeSetProperties(MarkerNodeId, MarkerBefore, MarkerAfter));
+
+            const bool bWasElse = ReadBoolPropertyFromSnapshot(MarkerBefore, "IsElse");
+            const bool bIsElse  = ReadBoolPropertyFromSnapshot(MarkerAfter,  "IsElse");
+            if (bIsElse && !bWasElse)
+            {
+                auto* pEndSrc = commands::FindSourceByDirName(Sources, "End");
+                if (pEndSrc && EnsureLoadedAndGetType(*pEndSrc, AvailableTypes))
+                    commands::Run(System, commands::MakeSetEndElseEnable(MarkerNodeId, xresource::guid_generator::Instance64(), pEndSrc->m_DirName, xresource::guid_generator::Instance64()));
+            }
+            else if (!bIsElse && bWasElse)
+                commands::Run(System, commands::MakeSetEndElseDisable(MarkerNodeId));
+        }
     }
 
     //================================================================================================
@@ -3259,6 +4102,12 @@ namespace nodeos
             bool&                              m_bDirty;
             std::vector<spine>&                 m_Spines;
             std::vector<column>&                m_Columns;
+            // Inline constants on an unconnected scalar input pin (Float/Int/Bool), Unity-style - "no
+            // wire" no longer means "no value", it means "whatever's typed right here". Keyed by
+            // InPinOf(NodeId, PinIndex); stored as plain text (same convention property_row already
+            // uses) so one map covers every scalar type without a tagged union. Rendering-only for
+            // now - not read by ExecuteGraph/the live data pipeline yet, only by the canvas widget.
+            std::unordered_map<std::uint64_t, std::string>& m_LiteralValues;
         };
 
         // Shared by select_cmd and clear_selection_cmd - both snapshot/restore the exact same set.
@@ -3405,6 +4254,319 @@ namespace nodeos
         };
 
         //================================================================================================
+        // CreateOwnedPair - creates a control node (If/ForEachLoop) together with its owned End/
+        // End-Else marker in one command, the marker always landing right after the owner in the same
+        // spine. Placement (-After/-Before/-InSpine) addresses the OWNER, exactly like CreateNode -
+        // the marker's own position is never independently specified, since it isn't independently
+        // meaningful (NODE_SCRIPTING_DESIGN.md section 4.1: the marker is non-detachable, created and
+        // destroyed with its owner - see DeleteNodes' cascade for the other half of that invariant).
+        //================================================================================================
+        struct create_owned_pair_cmd : xundo::command_base
+        {
+            create_owned_pair_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "CreateOwnedPair", pDataBase) { RegisterArguments(); }
+
+            const char* getCommandHelp() const noexcept override { return "Creates a control node with its owned End marker. Usage: CreateOwnedPair -Id N -PluginDir dirname -EndId N -EndPluginDir dirname [-After id | -Before id | -InSpine spineid]"; }
+            void RegisterArguments() noexcept override
+            {
+                m_hId           = m_Parser.addOption("Id",           "Owner node id",                                     true,  1);
+                m_hPluginDir    = m_Parser.addOption("PluginDir",    "Owner's plugin folder name",                        true,  1);
+                m_hEndId        = m_Parser.addOption("EndId",        "Marker node id",                                    true,  1);
+                m_hEndPluginDir = m_Parser.addOption("EndPluginDir", "Marker's plugin folder name",                       true,  1);
+                m_hLinkId       = m_Parser.addOption("LinkId",       "Read-only owner<->End link id",                     true,  1);
+                m_hAfter        = m_Parser.addOption("After",        "Insert the owner right after this node id",         false, 1);
+                m_hBefore       = m_Parser.addOption("Before",       "Insert the owner right before this node id",        false, 1);
+                m_hInSpine      = m_Parser.addOption("InSpine",      "Append the owner to this (currently empty) spine",  false, 1);
+            }
+
+            // Identical placement logic to create_node_cmd::ResolveTargetOrder - duplicated rather than
+            // shared, since the two commands' parser handles are distinct members.
+            std::string ResolveTargetOrder(node_os_command_context& Ctx, int& OutTargetOrder, std::uint64_t& OutTargetSpineId) const noexcept
+            {
+                const bool bHasAfter   = m_Parser.hasOption(m_hAfter);
+                const bool bHasBefore  = m_Parser.hasOption(m_hBefore);
+                const bool bHasInSpine = m_Parser.hasOption(m_hInSpine);
+                if ((bHasAfter ? 1 : 0) + (bHasBefore ? 1 : 0) + (bHasInSpine ? 1 : 0) > 1)
+                    return "CreateOwnedPair: -After, -Before and -InSpine are mutually exclusive";
+
+                if (bHasInSpine)
+                {
+                    auto RefArg = m_Parser.getOptionArgAs<std::string>(m_hInSpine, 0);
+                    if (std::holds_alternative<xerr>(RefArg)) return "CreateOwnedPair: bad arguments";
+                    const auto SpineId = ParseGuid(std::get<std::string>(RefArg));
+                    bool bFound = false;
+                    for (auto& S : Ctx.m_Spines) if (S.m_Id == SpineId) { bFound = true; break; }
+                    if (!bFound) return "CreateOwnedPair: -InSpine spine no longer exists";
+                    int Count = 0;
+                    for (auto& N : Ctx.m_Nodes) if (N.m_SpineId == SpineId) ++Count;
+                    OutTargetOrder = Count; OutTargetSpineId = SpineId; return {};
+                }
+
+                if (!bHasAfter && !bHasBefore)
+                {
+                    for (auto& S : Ctx.m_Spines)
+                        if (S.m_bIsRoot)
+                        {
+                            int Count = 0;
+                            for (auto& N : Ctx.m_Nodes) if (N.m_SpineId == S.m_Id) ++Count;
+                            OutTargetOrder = Count; OutTargetSpineId = S.m_Id; return {};
+                        }
+                    return "CreateOwnedPair: no root spine exists";
+                }
+
+                auto RefArg = m_Parser.getOptionArgAs<std::string>(bHasAfter ? m_hAfter : m_hBefore, 0);
+                if (std::holds_alternative<xerr>(RefArg)) return "CreateOwnedPair: bad arguments";
+                const auto RefId = ParseGuid(std::get<std::string>(RefArg));
+
+                std::uint64_t RefSpineId = 0; int RefOrder = 0;
+                if (!ResolveNodeSpineAndOrder(Ctx.m_Nodes, RefId, RefSpineId, RefOrder)) return "CreateOwnedPair: -After/-Before node no longer exists";
+                OutTargetSpineId = RefSpineId; OutTargetOrder = bHasAfter ? RefOrder + 1 : RefOrder; return {};
+            }
+
+            std::string Redo() noexcept override
+            {
+                auto Id           = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
+                auto PluginDir    = m_Parser.getOptionArgAs<std::string>(m_hPluginDir, 0);
+                auto EndId        = m_Parser.getOptionArgAs<std::string>(m_hEndId, 0);
+                auto EndPluginDir = m_Parser.getOptionArgAs<std::string>(m_hEndPluginDir, 0);
+                auto LinkId       = m_Parser.getOptionArgAs<std::string>(m_hLinkId, 0);
+                if (std::holds_alternative<xerr>(Id) || std::holds_alternative<xerr>(PluginDir) || std::holds_alternative<xerr>(EndId) || std::holds_alternative<xerr>(EndPluginDir) || std::holds_alternative<xerr>(LinkId))
+                    return "CreateOwnedPair: bad arguments";
+
+                auto& Ctx = get<node_os_command_context>();
+                int TargetOrder = 0; std::uint64_t TargetSpineId = 0;
+                if (auto Err = ResolveTargetOrder(Ctx, TargetOrder, TargetSpineId); !Err.empty()) return Err;
+
+                auto* pOwnerSrc = FindSourceByDirName(Ctx.m_Sources, std::get<std::string>(PluginDir));
+                if (!pOwnerSrc) return "CreateOwnedPair: unknown owner plugin directory";
+                auto* pOwnerType = EnsureLoadedAndGetType(*pOwnerSrc, Ctx.m_AvailableTypes);
+                if (!pOwnerType) return "CreateOwnedPair: failed to compile/load owner plugin";
+
+                auto* pEndSrc = FindSourceByDirName(Ctx.m_Sources, std::get<std::string>(EndPluginDir));
+                if (!pEndSrc) return "CreateOwnedPair: unknown marker plugin directory";
+                auto* pEndType = EnsureLoadedAndGetType(*pEndSrc, Ctx.m_AvailableTypes);
+                if (!pEndType) return "CreateOwnedPair: failed to compile/load marker plugin";
+
+                // Both nodes land together - shift everything at/after TargetOrder by TWO, not one.
+                for (auto& N : Ctx.m_Nodes) if (N.m_SpineId == TargetSpineId && N.m_Order >= TargetOrder) N.m_Order += 2;
+
+                const auto OwnerId  = ParseGuid(std::get<std::string>(Id));
+                const auto MarkerId = ParseGuid(std::get<std::string>(EndId));
+                const auto LinkIdVal = ParseGuid(std::get<std::string>(LinkId));
+
+                Ctx.m_Nodes.push_back(CreateNodeInstance(OwnerId, pOwnerType, TargetOrder, TargetSpineId));
+                Ctx.m_Nodes.back().m_OwnedEndId = MarkerId;
+                // The read-only ownership link - always the owner's LAST output pin (its dedicated
+                // "End" pin, appended after any real data outputs it declares) to the marker's own
+                // first (and only) input pin. Read the count off the just-created real instance
+                // (captured now, before the next push_back can reallocate Ctx.m_Nodes and invalidate
+                // this reference) rather than a throwaway instance that would need its own cleanup.
+                const int OwnerOutputIdx = Ctx.m_Nodes.back().m_pNode ? (int)Ctx.m_Nodes.back().m_pNode->getOutputs().size() - 1 : 0;
+
+                Ctx.m_Nodes.push_back(CreateNodeInstance(MarkerId, pEndType, TargetOrder + 1, TargetSpineId));
+                Ctx.m_Links.push_back(link_instance{ LinkIdVal, OwnerId, std::max(OwnerOutputIdx, 0), MarkerId, 0, true });
+
+                Ctx.m_bDirty = true;
+                return {};
+            }
+
+            void BackupCurrenState(xundo::undo_file& File) noexcept override
+            {
+                auto Id    = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
+                auto EndId = m_Parser.getOptionArgAs<std::string>(m_hEndId, 0);
+                File.Write(std::holds_alternative<xerr>(Id)    ? std::uint64_t{0} : ParseGuid(std::get<std::string>(Id)));
+                File.Write(std::holds_alternative<xerr>(EndId) ? std::uint64_t{0} : ParseGuid(std::get<std::string>(EndId)));
+
+                auto& Ctx = get<node_os_command_context>();
+                File.Write(static_cast<std::uint32_t>(Ctx.m_Nodes.size()));
+                for (auto& N : Ctx.m_Nodes) { File.Write(N.m_Id); File.Write(N.m_Order); }
+            }
+
+            void Undo(xundo::undo_file& File) noexcept override
+            {
+                std::uint64_t Id = 0, EndId = 0; File.Read(Id); File.Read(EndId);
+                auto& Ctx = get<node_os_command_context>();
+                std::erase_if(Ctx.m_Links, [&](auto& L) { return L.m_SourceNode == Id || L.m_TargetNode == Id || L.m_SourceNode == EndId || L.m_TargetNode == EndId; });
+                for (auto& N : Ctx.m_Nodes) if (N.m_Id == Id || N.m_Id == EndId) DestroyNodeInstance(N);
+                std::erase_if(Ctx.m_Nodes, [&](auto& N) { return N.m_Id == Id || N.m_Id == EndId; });
+                Ctx.m_Selection.m_SelectedNodes.erase(Id);
+                Ctx.m_Selection.m_SelectedNodes.erase(EndId);
+
+                std::uint32_t Count = 0; File.Read(Count);
+                for (std::uint32_t i = 0; i < Count; ++i)
+                {
+                    std::uint64_t NId = 0; int Order = 0; File.Read(NId); File.Read(Order);
+                    for (auto& N : Ctx.m_Nodes) if (N.m_Id == NId) { N.m_Order = Order; break; }
+                }
+                Ctx.m_bDirty = true;
+            }
+
+            xcmdline::parser::handle m_hId, m_hPluginDir, m_hEndId, m_hEndPluginDir, m_hLinkId, m_hAfter, m_hBefore, m_hInSpine;
+        };
+
+        //================================================================================================
+        // SetEndElseState - the one bespoke command behind an End node's own "IsElse" checkbox
+        // (NODE_SCRIPTING_DESIGN.md section 4.2). Enabling it creates a further, plain End marker
+        // right after this node plus a read-only link from this node's now-appearing "ElseEnd" pin
+        // to it (mirroring CreateOwnedPair, but the "owner" here already exists rather than being
+        // created by this same command); disabling it removes that paired End again. The two arms
+        // share one command because they're two faces of the exact same user action - one checkbox.
+        //================================================================================================
+        struct set_end_else_state_cmd : xundo::command_base
+        {
+            set_end_else_state_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "SetEndElseState", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "Toggles an End node's else-pairing. Usage: SetEndElseState -OwnerId N -Enable 0|1 [-EndId N -EndPluginDir dirname -LinkId N]"; }
+            void RegisterArguments() noexcept override
+            {
+                m_hOwnerId      = m_Parser.addOption("OwnerId",      "The End node whose else-pairing is changing",           true,  1);
+                m_hEnable       = m_Parser.addOption("Enable",       "1 = create the paired End, 0 = remove it",              true,  1);
+                m_hEndId        = m_Parser.addOption("EndId",        "New marker node id - only used when -Enable 1",         false, 1);
+                m_hEndPluginDir = m_Parser.addOption("EndPluginDir", "New marker's plugin folder - only used when -Enable 1", false, 1);
+                m_hLinkId       = m_Parser.addOption("LinkId",       "New read-only link id - only used when -Enable 1",      false, 1);
+            }
+
+            std::string Redo() noexcept override
+            {
+                auto OwnerArg  = m_Parser.getOptionArgAs<std::string>(m_hOwnerId, 0);
+                auto EnableArg = m_Parser.getOptionArgAs<std::int64_t>(m_hEnable, 0);
+                if (std::holds_alternative<xerr>(OwnerArg) || std::holds_alternative<xerr>(EnableArg)) return "SetEndElseState: bad arguments";
+                auto& Ctx = get<node_os_command_context>();
+                const auto OwnerId = ParseGuid(std::get<std::string>(OwnerArg));
+                const bool bEnable = std::get<std::int64_t>(EnableArg) != 0;
+
+                node_instance* pOwnerNode = nullptr;
+                for (auto& N : Ctx.m_Nodes) if (N.m_Id == OwnerId) { pOwnerNode = &N; break; }
+                if (!pOwnerNode) return "SetEndElseState: owner node no longer exists";
+
+                if (bEnable)
+                {
+                    if (pOwnerNode->m_OwnedEndId != 0) return {}; // already paired - idempotent no-op
+
+                    auto EndIdArg        = m_Parser.getOptionArgAs<std::string>(m_hEndId, 0);
+                    auto EndPluginDirArg = m_Parser.getOptionArgAs<std::string>(m_hEndPluginDir, 0);
+                    auto LinkIdArg       = m_Parser.getOptionArgAs<std::string>(m_hLinkId, 0);
+                    if (std::holds_alternative<xerr>(EndIdArg) || std::holds_alternative<xerr>(EndPluginDirArg) || std::holds_alternative<xerr>(LinkIdArg))
+                        return "SetEndElseState: -EndId/-EndPluginDir/-LinkId required when -Enable 1";
+
+                    auto* pEndSrc = FindSourceByDirName(Ctx.m_Sources, std::get<std::string>(EndPluginDirArg));
+                    if (!pEndSrc) return "SetEndElseState: unknown marker plugin directory";
+                    auto* pEndType = EnsureLoadedAndGetType(*pEndSrc, Ctx.m_AvailableTypes);
+                    if (!pEndType) return "SetEndElseState: failed to compile/load marker plugin";
+
+                    const auto EndId       = ParseGuid(std::get<std::string>(EndIdArg));
+                    const auto LinkIdVal   = ParseGuid(std::get<std::string>(LinkIdArg));
+                    const auto TargetSpineId = pOwnerNode->m_SpineId;
+                    const int  TargetOrder   = pOwnerNode->m_Order + 1;
+                    for (auto& N : Ctx.m_Nodes) if (N.m_SpineId == TargetSpineId && N.m_Order >= TargetOrder) ++N.m_Order;
+
+                    // pOwnerNode is re-resolved after this push_back, since it may reallocate Ctx.m_Nodes.
+                    Ctx.m_Nodes.push_back(CreateNodeInstance(EndId, pEndType, TargetOrder, TargetSpineId));
+                    for (auto& N : Ctx.m_Nodes) if (N.m_Id == OwnerId) { pOwnerNode = &N; break; }
+                    pOwnerNode->m_OwnedEndId = EndId;
+
+                    // By the time this command runs, the owner's own IsElse property (a plain
+                    // reflected bool on its own node type - see Plugins/End) has already been set by
+                    // the SetProperties command issued alongside this one, so getOutputs() already
+                    // reports its extra "ElseEnd" pin - always the last one.
+                    const int OwnerOutputIdx = pOwnerNode->m_pNode ? (int)pOwnerNode->m_pNode->getOutputs().size() - 1 : 0;
+                    Ctx.m_Links.push_back(link_instance{ LinkIdVal, OwnerId, std::max(OwnerOutputIdx, 0), EndId, 0, true });
+                }
+                else
+                {
+                    const auto OldEndId = pOwnerNode->m_OwnedEndId;
+                    if (OldEndId == 0) return {}; // nothing paired - idempotent no-op
+
+                    std::erase_if(Ctx.m_Links, [&](auto& L) { return L.m_SourceNode == OldEndId || L.m_TargetNode == OldEndId; });
+                    std::uint64_t RemovedSpineId = 0; int RemovedOrder = 0;
+                    for (auto& N : Ctx.m_Nodes) if (N.m_Id == OldEndId) { RemovedSpineId = N.m_SpineId; RemovedOrder = N.m_Order; DestroyNodeInstance(N); break; }
+                    std::erase_if(Ctx.m_Nodes, [&](auto& N) { return N.m_Id == OldEndId; });
+                    for (auto& N : Ctx.m_Nodes) if (N.m_SpineId == RemovedSpineId && N.m_Order > RemovedOrder) --N.m_Order;
+                    for (auto& N : Ctx.m_Nodes) if (N.m_Id == OwnerId) { N.m_OwnedEndId = 0; break; }
+                }
+                Ctx.m_bDirty = true;
+                return {};
+            }
+
+            void BackupCurrenState(xundo::undo_file& File) noexcept override
+            {
+                auto& Ctx = get<node_os_command_context>();
+                auto OwnerArg = m_Parser.getOptionArgAs<std::string>(m_hOwnerId, 0);
+                const auto OwnerId = std::holds_alternative<xerr>(OwnerArg) ? std::uint64_t{0} : ParseGuid(std::get<std::string>(OwnerArg));
+
+                File.Write(static_cast<std::uint32_t>(Ctx.m_Nodes.size()));
+                for (auto& N : Ctx.m_Nodes) { File.Write(N.m_Id); File.Write(N.m_Order); File.Write(N.m_OwnedEndId); }
+
+                // Snapshot the currently-paired End (if any) in full, so Undo can recreate it if
+                // Redo's -Enable 0 arm went on to delete it.
+                std::uint64_t OldEndId = 0;
+                for (auto& N : Ctx.m_Nodes) if (N.m_Id == OwnerId) { OldEndId = N.m_OwnedEndId; break; }
+                if (!OldEndId) { File.Write(std::uint8_t{0}); return; }
+
+                for (auto& N : Ctx.m_Nodes)
+                {
+                    if (N.m_Id != OldEndId) continue;
+                    std::string PluginDir;
+                    for (auto& T : Ctx.m_AvailableTypes) if (N.m_pNode && T.m_pFactory == N.m_pNode->m_pFactory) { PluginDir = T.m_DirName; break; }
+                    File.Write(std::uint8_t{1});
+                    File.Write(N.m_Id); WriteString(File, PluginDir); File.Write(N.m_Order); File.Write(N.m_SpineId);
+                    link_instance FoundLink{}; bool bHasLink = false;
+                    for (auto& L : Ctx.m_Links) if (L.m_TargetNode == OldEndId) { FoundLink = L; bHasLink = true; break; }
+                    File.Write(bHasLink ? std::uint8_t{1} : std::uint8_t{0});
+                    if (bHasLink) File.Write(FoundLink);
+                    return;
+                }
+                File.Write(std::uint8_t{0});
+            }
+
+            void Undo(xundo::undo_file& File) noexcept override
+            {
+                auto& Ctx = get<node_os_command_context>();
+
+                struct prior_row { std::uint64_t m_Id; int m_Order; std::uint64_t m_OwnedEndId; };
+                std::uint32_t Count = 0; File.Read(Count);
+                std::vector<prior_row> PriorState(Count);
+                for (auto& R : PriorState) { File.Read(R.m_Id); File.Read(R.m_Order); File.Read(R.m_OwnedEndId); }
+
+                auto WasThereBefore = [&](std::uint64_t Id) { for (auto& R : PriorState) if (R.m_Id == Id) return true; return false; };
+
+                // Remove whatever the -Enable 1 arm might have added (an id absent from PriorState).
+                std::erase_if(Ctx.m_Nodes, [&](auto& N) { if (WasThereBefore(N.m_Id)) return false; DestroyNodeInstance(N); return true; });
+                std::erase_if(Ctx.m_Links, [&](auto& L) { return !WasThereBefore(L.m_SourceNode) || !WasThereBefore(L.m_TargetNode); });
+
+                std::uint8_t bHadOldEnd = 0; File.Read(bHadOldEnd);
+                if (bHadOldEnd)
+                {
+                    std::uint64_t EndId = 0; File.Read(EndId);
+                    const std::string PluginDir = ReadString(File);
+                    int Order = 0; File.Read(Order);
+                    std::uint64_t SpineId = 0; File.Read(SpineId);
+                    std::uint8_t bHasLink = 0; File.Read(bHasLink);
+                    link_instance L{};
+                    if (bHasLink) File.Read(L);
+
+                    const bool bAlreadyThere = std::any_of(Ctx.m_Nodes.begin(), Ctx.m_Nodes.end(), [&](auto& N) { return N.m_Id == EndId; });
+                    if (!bAlreadyThere)
+                    {
+                        auto* pSrc = FindSourceByDirName(Ctx.m_Sources, PluginDir);
+                        auto* pFactory = pSrc ? EnsureLoadedAndGetType(*pSrc, Ctx.m_AvailableTypes) : nullptr;
+                        if (pFactory)
+                        {
+                            Ctx.m_Nodes.push_back(CreateNodeInstance(EndId, pFactory, Order, SpineId));
+                            if (bHasLink) Ctx.m_Links.push_back(L);
+                        }
+                    }
+                }
+
+                for (auto& R : PriorState)
+                    for (auto& N : Ctx.m_Nodes)
+                        if (N.m_Id == R.m_Id) { N.m_Order = R.m_Order; N.m_OwnedEndId = R.m_OwnedEndId; break; }
+
+                Ctx.m_bDirty = true;
+            }
+
+            xcmdline::parser::handle m_hOwnerId, m_hEnable, m_hEndId, m_hEndPluginDir, m_hLinkId;
+        };
+
+        //================================================================================================
         // DeleteNodes - the heaviest command: must fully snapshot each deleted node's identity, order,
         // and complete property block (via SerializePropertiesToString) plus every cascade-deleted
         // link, so Undo can reconstruct all of it exactly - this is the "resize 10 entries down to 3"
@@ -3421,9 +4583,9 @@ namespace nodeos
             {
                 auto IdsArg = m_Parser.getOptionArgAs<std::string>(m_hIds, 0);
                 if (std::holds_alternative<xerr>(IdsArg)) return "DeleteNodes: bad arguments";
-                const auto Ids = SplitIds(std::get<std::string>(IdsArg));
-
                 auto& Ctx = get<node_os_command_context>();
+                const auto Ids = ExpandOwnershipCascade(Ctx.m_Nodes, SplitIds(std::get<std::string>(IdsArg)));
+
                 auto IsDoomed = [&](std::uint64_t Id) { return std::find(Ids.begin(), Ids.end(), Id) != Ids.end(); };
                 std::erase_if(Ctx.m_Links, [&](auto& L) { return IsDoomed(L.m_SourceNode) || IsDoomed(L.m_TargetNode); });
                 for (auto& N : Ctx.m_Nodes) if (IsDoomed(N.m_Id)) DestroyNodeInstance(N);
@@ -3436,11 +4598,11 @@ namespace nodeos
             void BackupCurrenState(xundo::undo_file& File) noexcept override
             {
                 auto IdsArg = m_Parser.getOptionArgAs<std::string>(m_hIds, 0);
-                const auto Ids = std::holds_alternative<xerr>(IdsArg) ? std::vector<std::uint64_t>{} : SplitIds(std::get<std::string>(IdsArg));
                 auto& Ctx = get<node_os_command_context>();
+                const auto Ids = std::holds_alternative<xerr>(IdsArg) ? std::vector<std::uint64_t>{} : ExpandOwnershipCascade(Ctx.m_Nodes, SplitIds(std::get<std::string>(IdsArg)));
                 auto IsDoomed = [&](std::uint64_t Id) { return std::find(Ids.begin(), Ids.end(), Id) != Ids.end(); };
 
-                struct node_snap { std::uint64_t m_Id; std::string m_PluginDir; int m_Order; std::uint64_t m_SpineId; std::string m_Properties; };
+                struct node_snap { std::uint64_t m_Id; std::string m_PluginDir; int m_Order; std::uint64_t m_SpineId; std::string m_Properties; std::uint64_t m_OwnedEndId; };
                 std::vector<node_snap> NodeSnaps;
                 for (auto& N : Ctx.m_Nodes)
                 {
@@ -3450,7 +4612,7 @@ namespace nodeos
                     std::string Properties;
                     if (HasSerializableProperties(N.m_pNode))
                         Properties = SerializePropertiesToString(N.m_pNode);
-                    NodeSnaps.push_back({ N.m_Id, PluginDir, N.m_Order, N.m_SpineId, Properties });
+                    NodeSnaps.push_back({ N.m_Id, PluginDir, N.m_Order, N.m_SpineId, Properties, N.m_OwnedEndId });
                 }
                 std::vector<link_instance> LinkSnaps;
                 for (auto& L : Ctx.m_Links)
@@ -3458,7 +4620,7 @@ namespace nodeos
                         LinkSnaps.push_back(L);
 
                 File.Write(static_cast<std::uint32_t>(NodeSnaps.size()));
-                for (auto& S : NodeSnaps) { File.Write(S.m_Id); WriteString(File, S.m_PluginDir); File.Write(S.m_Order); File.Write(S.m_SpineId); WriteString(File, S.m_Properties); }
+                for (auto& S : NodeSnaps) { File.Write(S.m_Id); WriteString(File, S.m_PluginDir); File.Write(S.m_Order); File.Write(S.m_SpineId); WriteString(File, S.m_Properties); File.Write(S.m_OwnedEndId); }
                 File.Write(static_cast<std::uint32_t>(LinkSnaps.size()));
                 for (auto& L : LinkSnaps) File.Write(L);
             }
@@ -3474,11 +4636,13 @@ namespace nodeos
                     int Order = 0; File.Read(Order);
                     std::uint64_t SpineId = 0; File.Read(SpineId);
                     const std::string Properties = ReadString(File);
+                    std::uint64_t OwnedEndId = 0; File.Read(OwnedEndId);
 
                     auto* pSrc = FindSourceByDirName(Ctx.m_Sources, PluginDir);
                     auto* pFactory = pSrc ? EnsureLoadedAndGetType(*pSrc, Ctx.m_AvailableTypes) : nullptr;
                     if (!pFactory) continue; // plugin source no longer resolvable - best effort, matching LoadGraph's own tolerance
                     Ctx.m_Nodes.push_back(CreateNodeInstance(Id, pFactory, Order, SpineId));
+                    Ctx.m_Nodes.back().m_OwnedEndId = OwnedEndId;
                     if (!Properties.empty())
                         ApplyPropertiesFromString(Ctx.m_Nodes.back().m_pNode, Properties);
                 }
@@ -3509,6 +4673,8 @@ namespace nodeos
                 if (std::holds_alternative<xerr>(Id)) return "DeleteLink: bad arguments";
                 auto& Ctx = get<node_os_command_context>();
                 const auto IdVal = ParseGuid(std::get<std::string>(Id));
+                for (auto& L : Ctx.m_Links)
+                    if (L.m_Id == IdVal && L.m_bReadOnly) return "DeleteLink: this is an owner<->End ownership link - it can't be removed on its own, only by deleting one of the two nodes";
                 std::erase_if(Ctx.m_Links, [&](auto& L) { return L.m_Id == IdVal; });
                 if (Ctx.m_Selection.m_SelectedLink == IdVal) Ctx.m_Selection.m_SelectedLink = 0;
                 Ctx.m_bDirty = true;
@@ -3587,6 +4753,11 @@ namespace nodeos
                 auto SourceIt = std::find_if(Ctx.m_Nodes.begin(), Ctx.m_Nodes.end(), [&](auto& N) { return N.m_Id == L.m_SourceNode; });
                 auto TargetIt = std::find_if(Ctx.m_Nodes.begin(), Ctx.m_Nodes.end(), [&](auto& N) { return N.m_Id == L.m_TargetNode; });
                 if (SourceIt == Ctx.m_Nodes.end() || TargetIt == Ctx.m_Nodes.end()) return "Connect: source/target node no longer exists";
+                // An owner<->End ownership link is read-only - dragging a new wire onto that same
+                // target input must not silently evict it the way an ordinary rewire would.
+                for (auto& X : Ctx.m_Links)
+                    if (X.m_TargetNode == L.m_TargetNode && X.m_TargetInput == L.m_TargetInput && X.m_bReadOnly)
+                        return "Connect: that input is a read-only owner<->End ownership pin - it can't be rewired";
                 std::erase_if(Ctx.m_Links, [&](auto& X) { return X.m_TargetNode == L.m_TargetNode && X.m_TargetInput == L.m_TargetInput; });
                 Ctx.m_Links.push_back(L);
                 Ctx.m_bDirty = true;
@@ -3622,6 +4793,60 @@ namespace nodeos
             }
 
             xcmdline::parser::handle m_hId, m_hSourceNode, m_hSourceOutput, m_hTargetNode, m_hTargetInput;
+        };
+
+        //================================================================================================
+        // SetLiteralValue - the inline constant on an unconnected scalar input pin (Float/Int/Bool),
+        // Unity-style: "no wire" no longer means "no value", just "whatever's typed right here".
+        // Stored as plain text keyed by the pin id (InPinOf), same convention property_row already
+        // uses, so one command/map covers every scalar type. Never touches m_Links - a literal and a
+        // wire are independent; the pin just prefers the wire's value when one exists (see
+        // GetInputValue's own caller in the canvas draw loop).
+        //================================================================================================
+        struct set_literal_value_cmd : xundo::command_base
+        {
+            set_literal_value_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "SetLiteralValue", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "Sets an unconnected input pin's inline constant. Usage: SetLiteralValue -Pin N -Value text"; }
+            void RegisterArguments() noexcept override
+            {
+                m_hPin   = m_Parser.addOption("Pin",   "Pin id (InPinOf(NodeId, Index))", true, 1);
+                m_hValue = m_Parser.addOption("Value",  "New literal text",               true, 1);
+            }
+
+            std::string Redo() noexcept override
+            {
+                auto PinArg   = m_Parser.getOptionArgAs<std::string>(m_hPin, 0);
+                auto ValueArg = m_Parser.getOptionArgAs<std::string>(m_hValue, 0);
+                if (std::holds_alternative<xerr>(PinArg) || std::holds_alternative<xerr>(ValueArg)) return "SetLiteralValue: bad arguments";
+                auto& Ctx = get<node_os_command_context>();
+                Ctx.m_LiteralValues[ParseGuid(std::get<std::string>(PinArg))] = std::get<std::string>(ValueArg);
+                Ctx.m_bDirty = true;
+                return {};
+            }
+
+            void BackupCurrenState(xundo::undo_file& File) noexcept override
+            {
+                auto PinArg = m_Parser.getOptionArgAs<std::string>(m_hPin, 0);
+                const auto PinId = std::holds_alternative<xerr>(PinArg) ? std::uint64_t{0} : ParseGuid(std::get<std::string>(PinArg));
+                auto& Ctx = get<node_os_command_context>();
+                auto It = Ctx.m_LiteralValues.find(PinId);
+                File.Write(It != Ctx.m_LiteralValues.end() ? std::uint8_t{1} : std::uint8_t{0});
+                if (It != Ctx.m_LiteralValues.end()) WriteString(File, It->second);
+            }
+
+            void Undo(xundo::undo_file& File) noexcept override
+            {
+                auto PinArg = m_Parser.getOptionArgAs<std::string>(m_hPin, 0);
+                if (std::holds_alternative<xerr>(PinArg)) return;
+                const auto PinId = ParseGuid(std::get<std::string>(PinArg));
+                auto& Ctx = get<node_os_command_context>();
+                std::uint8_t bHadPrior = 0; File.Read(bHadPrior);
+                if (bHadPrior) Ctx.m_LiteralValues[PinId] = ReadString(File);
+                else            Ctx.m_LiteralValues.erase(PinId);
+                Ctx.m_bDirty = true;
+            }
+
+            xcmdline::parser::handle m_hPin, m_hValue;
         };
 
         //================================================================================================
@@ -4500,6 +5725,7 @@ int E27_Example()
     std::vector<nodeos::available_node_type> AvailableTypes;
     std::vector<nodeos::node_instance>       Nodes;
     std::vector<nodeos::link_instance>       Links;
+    std::unordered_map<std::uint64_t, std::string> LiteralValues; // inline constants on unconnected scalar pins
 
     // There is always exactly one root spine living in exactly one root column - every other spine/
     // column this session ever creates starts out attached next to one of the existing ones via
@@ -4529,14 +5755,17 @@ int E27_Example()
     // identically to how the ImGui code below calls it. bAutoLoadSave=false - a fresh undo stack each
     // run, since a stale on-disk history from a previous, differently-shaped graph would be more
     // confusing than useful for this example.
-    nodeos::commands::node_os_command_context CmdContext{ Nodes, Links, Selection, Sources, AvailableTypes, bDirty, Spines, Columns };
+    nodeos::commands::node_os_command_context CmdContext{ Nodes, Links, Selection, Sources, AvailableTypes, bDirty, Spines, Columns, LiteralValues };
     xundo::system NodeOsUndo;
     if (auto Err = NodeOsUndo.Init("D:/LIONant/xGPU/source/Examples/E27_NodeOS/UndoHistory", false); !Err.empty())
         nodeos::Debugger(std::format("Node OS: xundo Init failed: {}", Err));
     nodeos::commands::create_node_cmd     CmdCreateNode(NodeOsUndo, &CmdContext);
+    nodeos::commands::create_owned_pair_cmd CmdCreateOwnedPair(NodeOsUndo, &CmdContext);
+    nodeos::commands::set_end_else_state_cmd CmdSetEndElseState(NodeOsUndo, &CmdContext);
     nodeos::commands::delete_nodes_cmd    CmdDeleteNodes(NodeOsUndo, &CmdContext);
     nodeos::commands::delete_link_cmd     CmdDeleteLink(NodeOsUndo, &CmdContext);
     nodeos::commands::connect_cmd         CmdConnect(NodeOsUndo, &CmdContext);
+    nodeos::commands::set_literal_value_cmd CmdSetLiteralValue(NodeOsUndo, &CmdContext);
     nodeos::commands::reorder_nodes_cmd   CmdReorderNodes(NodeOsUndo, &CmdContext);
     nodeos::commands::move_nodes_to_spine_cmd CmdMoveNodesToSpine(NodeOsUndo, &CmdContext);
     nodeos::commands::set_properties_cmd  CmdSetProperties(NodeOsUndo, &CmdContext);
@@ -4581,8 +5810,8 @@ int E27_Example()
         // every mesh preview reflects it - no manual "Execute Graph" click required for the common
         // case; the button below remains for a manual force-rerun.
         nodeos::DrawNodeLibraryPanel(Sources, AvailableTypes, bDirty);
-        nodeos::DrawGraphCanvas(Sources, AvailableTypes, Nodes, Links, MeshPreview, Drag, Selection, View, NodeDrag, SpineDrag, DeleteSpineConfirm, Spines, Columns, bDirty, NodeOsUndo);
-        nodeos::DrawNodePropertiesPanel(Nodes, Selection.m_SelectedNodes, NodeOsUndo);
+        nodeos::DrawGraphCanvas(Sources, AvailableTypes, Nodes, Links, MeshPreview, Drag, Selection, View, NodeDrag, SpineDrag, DeleteSpineConfirm, Spines, Columns, LiteralValues, bDirty, NodeOsUndo);
+        nodeos::DrawNodePropertiesPanel(Nodes, Selection.m_SelectedNodes, NodeOsUndo, Sources, AvailableTypes);
 
         ImGui::SetNextWindowPos(ImVec2(1265, 0), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(200, 80), ImGuiCond_FirstUseEver);

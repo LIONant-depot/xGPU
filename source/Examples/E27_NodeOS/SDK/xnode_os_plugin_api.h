@@ -112,6 +112,15 @@ struct xnode_os_node_factory : xproperty::base
     virtual xnode_os_node& CreateNodeInstance()                = 0;
     virtual void           DestroyNodeInstance(xnode_os_node&) = 0;
 
+    // Scripting control-flow node types (If, ForEachLoop) own a paired "End" marker node,
+    // created and destroyed together with them - see NODE_SCRIPTING_DESIGN.md section 4.1.
+    // Default false/empty is correct for every ordinary data-flow node type; only a plugin
+    // that genuinely needs this pairing overrides it, naming the marker's OWN plugin folder
+    // (never hardcoded by the host - this is how the host discovers which folder to pair
+    // without knowing "If"/"ForEachLoop" by name).
+    virtual bool             needsOwnedEndMarker()        const noexcept { return false; }
+    virtual std::string_view getOwnedEndMarkerPluginDir() const noexcept { return {}; }
+
 protected:
     ~xnode_os_node_factory() noexcept = default; // never through this pointer - see NodeOS_DestroyFactory
 };

@@ -1,0 +1,92 @@
+// Math Expression (formerly "Math") - one node, an Operator dropdown, instead of a separate
+// Add/Subtract/Multiply/Divide box each - same consolidation as Compare/Bool Expression.
+//
+// A, B, and Result are all typed "Any" - a wildcard, not one fixed concrete type (see
+// E27_NodeOS_Editor.cpp's ResolveNodeWildcardType) - exactly like Compare's A/B, one level further:
+// here the OUTPUT is wildcard too, since a math expression's result is naturally the same type as
+// its operands (int + int is int, float + float is float) - once either A or B gets wired, the whole
+// node - both inputs AND the output - resolves to that one type, no separate rule needed: Result is
+// just another "Any" pin as far as ResolveNodeWildcardType is concerned, so it picks up the same
+// resolution automatically.
+//
+// Subtraction and division get BOTH orderings as separate enum entries (A-B vs B-A, A/B vs B/A)
+// rather than a "swap inputs" gesture, since they aren't commutative - the same reasoning Compare
+// doesn't need (a Greater-Than/Less-Than pair would be redundant with two input orderings already).
+//
+// Once compilation is wired up, this needs no branching in the compiler either: the design doc's
+// _prop[N] substitution can splice this property's own stored value as the literal C++ operator
+// token straight into the template text, so long as each enum value's registered name IS (or maps
+// to) the operator token. Execute() is a no-op for now, same as every other node type in this corpus.
+#include "../../SDK/xnode_os_plugin_api.h"
+#include "../../SDK/xnode_os_shared_types.h"
+#include <array>
+
+namespace
+{
+    enum class math_expr_op : std::uint8_t { ADD, SUBTRACT, SUBTRACT_REVERSE, MULTIPLY, DIVIDE, DIVIDE_REVERSE };
+
+    static constexpr auto math_expr_op_v = std::array
+    { xproperty::settings::enum_item("A + B", math_expr_op::ADD)
+    , xproperty::settings::enum_item("A - B", math_expr_op::SUBTRACT)
+    , xproperty::settings::enum_item("B - A", math_expr_op::SUBTRACT_REVERSE)
+    , xproperty::settings::enum_item("A * B", math_expr_op::MULTIPLY)
+    , xproperty::settings::enum_item("A / B", math_expr_op::DIVIDE)
+    , xproperty::settings::enum_item("B / A", math_expr_op::DIVIDE_REVERSE)
+    };
+
+    struct math_expression_node : xnode_os_node
+    {
+        math_expr_op m_Operator = math_expr_op::ADD;
+
+        XPROPERTY_VDEF
+        ( "math_expression_node", math_expression_node
+        , obj_member<"Operator", &math_expression_node::m_Operator, member_enum_span<math_expr_op_v>>
+        )
+
+        std::span<const xnode_os_port_desc> getInputs() const noexcept override
+        {
+            static const xnode_os_port_desc s_Inputs[2] = { { "A", "Any" }, { "B", "Any" } };
+            return s_Inputs;
+        }
+        std::span<const xnode_os_port_desc> getOutputs() const noexcept override
+        {
+            static const xnode_os_port_desc s_Outputs[1] = { { "Result", "Any" } };
+            return s_Outputs;
+        }
+        void Execute(void** /*Inputs*/, void** /*Outputs*/) noexcept override {}
+    };
+}
+XPROPERTY_VREG(math_expression_node)
+
+namespace
+{
+    struct math_expression_node_factory : xnode_os_node_factory
+    {
+        XPROPERTY_VDEF("math_expression_node_factory", math_expression_node_factory)
+
+        std::string_view getVersion()  const noexcept override { return "1.0"; }
+        std::string_view getName()     const noexcept override { return "Math Expression"; }
+        std::string_view getCategory() const noexcept override { return "Math"; }
+
+        xnode_os_node& CreateNodeInstance() override
+        {
+            auto* pNode = new math_expression_node();
+            pNode->m_pFactory = this;
+            return *pNode;
+        }
+        void DestroyNodeInstance(xnode_os_node& Node) override
+        {
+            delete static_cast<math_expression_node*>(&Node);
+        }
+    };
+}
+XPROPERTY_VREG(math_expression_node_factory)
+
+extern "C" XNODE_OS_EXPORT xnode_os_node_factory& NodeOS_CreateFactory(ixnode_os_host& /*Host*/) noexcept
+{
+    return *new math_expression_node_factory();
+}
+extern "C" XNODE_OS_EXPORT void NodeOS_DestroyFactory(xnode_os_node_factory& Factory) noexcept
+{
+    delete static_cast<math_expression_node_factory*>(&Factory);
+}

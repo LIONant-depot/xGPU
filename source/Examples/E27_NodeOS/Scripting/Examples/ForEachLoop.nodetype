@@ -1,0 +1,14 @@
+
+[ NodeType : 1 ]
+{ Guid:G             DisplayName:s    Category:s      SchemaVersion:d  SemanticHash:G  OwnerExtension:s   HeaderColor:s  Width:d  Template:s                                                                                                                                 }
+//-----------------  ---------------  --------------  ---------------  --------------  -----------------  -------------  -------  ------------------------------------------------------------------------------------------------------------------------------------------
+  #BD85637D94828964  "For Each Loop"  "Flow Control"         1               #0        "xnode.scripting"       ""          200    "for (std::size_t __idx_$id = 0; __idx_$id < $input[Array].size(); ++__idx_$id) {
+  float Element_$id = $input[Array][__idx_$id];
+$body}
+"
+
+[ Pins : 2 ]
+{ Id:s       Kind:s     TypeGuid:G        }
+//---------  ---------  -----------------
+  "Array"    "DataIn"   #91DDCBDCEE844826
+  "Element"  "DataOut"  #47310D98A9040840
