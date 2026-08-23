@@ -57,6 +57,8 @@
 #include <cctype>
 #include <cstdlib>
 #include <climits>
+#include <cfloat>
+#include <cmath>
 #include <fstream>
 #include <sstream>
 #include <filesystem>
@@ -98,6 +100,28 @@
 
 namespace nodeos
 {
+    // The editor's own chrome palette - neutral Unity-Editor-style dark grays instead of the
+    // previous navy/slate-blue scheme, so TypeColor's own much more saturated per-type pin/wire
+    // colors have a quiet, recessive background to actually stand out against, the same
+    // relationship Unity's own node editors (Shader Graph, Visual Scripting) keep between chrome
+    // and content. Named and centralized here - rather than the scattered inline IM_COL32 literals
+    // every other color in this file still uses - specifically because "give the editor a real
+    // theme" is the point of this block; approximate hand-picked values, not a pixel-exact Unity
+    // palette, refine on request if exact parity matters. Declared at the very top of the namespace,
+    // ahead of everything else, so every function below (including small early ones like mesh_
+    // preview_system's own border color) can reference it regardless of where it's defined.
+    namespace theme
+    {
+        constexpr ImU32 NodeBg     = IM_COL32(58, 58, 58, 255);    // node body fill
+        constexpr ImU32 NodeHeader = IM_COL32(85, 85, 85, 255);    // node title-row strip - brighter than the body, so the name/category line reads as its own header at a glance
+        constexpr ImU32 NodeBorder = IM_COL32(8, 8, 8, 255);       // node outline / Scope-pin color - near-black, a crisp line against the body rather than a soft slate blend
+        constexpr ImU32 CanvasDark = IM_COL32(28, 28, 28, 255);    // unconnected-pin fill / darkest recesses
+        constexpr ImU32 Rail       = IM_COL32(46, 46, 46, 255);    // per-column background rail lines
+        constexpr ImU32 Selected   = IM_COL32(58, 121, 187, 255);  // Unity's own selection-outline blue
+        constexpr ImU32 Canvas     = IM_COL32(16, 16, 16, 255);    // the graph window's own backdrop, behind the dot grid and every node
+        constexpr ImU32 Grid       = IM_COL32(32, 32, 32, 255);    // grid dots - a shade lighter than Canvas, subtle, never competing with node/wire content
+    }
+
     // printf() alone is not reliable here: this is a GUI-subsystem executable, and stdout redirection
     // from a shell does not reliably reach it (confirmed empirically - every captured log this session
     // was silently empty regardless of what actually ran). Appending to a real file on disk is the only
@@ -1332,8 +1356,8 @@ namespace nodeos
             auto It = m_Entries.find(PinId);
             if (It == m_Entries.end() || !It->second.m_bTextureReady || It->second.m_VertexCount == 0)
             {
-                ImGui::GetWindowDrawList()->AddRectFilled(P0, P1, IM_COL32(6, 9, 20, 255), 4.0f * Scale);
-                ImGui::GetWindowDrawList()->AddRect(P0, P1, IM_COL32(51, 65, 85, 255), 4.0f * Scale);
+                ImGui::GetWindowDrawList()->AddRectFilled(P0, P1, theme::CanvasDark, 0.0f);
+                ImGui::GetWindowDrawList()->AddRect(P0, P1, theme::NodeBorder, 0.0f);
                 ImGui::Dummy(ImVec2(Size, Size));
                 return;
             }
@@ -1357,6 +1381,18 @@ namespace nodeos
         constexpr float NODE_GAP        = 28.0f;
         constexpr float TOP             = 10.0f;
         constexpr float PORT_PAD        = 14.0f;
+        // The "[Type]" label next to a pin reads as an annotation, not a name - smaller than the
+        // row/title text and tucked in close to its own pin, rather than sharing the row-name's
+        // full size and PORT_PAD's wider inset (which still governs how much column width a port
+        // reserves overall - a smaller, closer label needs less of it, hence *_FONT_SCALE feeding
+        // back into NodeWidth's own PortColW measurement too).
+        constexpr float PIN_TYPE_FONT_SCALE = 0.72f;
+        constexpr float PIN_TYPE_INSET      = 6.0f;
+        // The node title is the one piece of text meant to read first at a glance - a bit bigger
+        // than every other label on the node (row names, pin types, category). NodeWidth's own
+        // TitleW measurement scales by the same factor so the box reserves exactly enough room for
+        // the bigger rendered title, never less (see MinForHeader).
+        constexpr float TITLE_FONT_SCALE = 1.3f;
         constexpr float GLYPH           = 9.0f;
         constexpr float ICON_CLEARANCE  = 16.0f;
         constexpr float LANE_GAP        = 14.0f;
@@ -1590,7 +1626,10 @@ namespace nodeos
         if (P.m_bIsOutput && pDesc->m_pFactory->getName() == "ForEachLoop" && std::strcmp(P.m_pDesc->m_pName, "Element") == 0)
         {
             const bool bReadOnly = ReadBoolProperty(pDesc, "ReadOnlyElement", true);
-            return (bReadOnly ? std::string("const ") : std::string()) + pEffType + "&";
+            // "RO Float", not "const Float&" - this label is user-facing, not a C++ declaration; the
+            // read-only/mutable distinction still matters here (it's the whole point of the checkbox
+            // this reflects), but nothing about reference syntax should leak into the canvas.
+            return (bReadOnly ? std::string("RO ") : std::string()) + pEffType;
         }
         // A Function's local-mirrored outputs (the function body's own view of its parameters) carry
         // Required/ReadOnly directly on the port descriptor itself (see function_node.cpp), unlike
@@ -1600,24 +1639,70 @@ namespace nodeos
         // "const Int&" would misdescribe the eventual codegen shape. Scoped to Function specifically,
         // where a mirrored output genuinely is a reference into the caller's own argument.
         if (P.m_bIsOutput && P.m_pDesc->m_bLocalScope && pDesc->m_pFactory->getName() == "Function")
-            return (P.m_pDesc->m_bReadOnly ? std::string("const ") : std::string()) + pEffType + "&";
+            // "RO Float", not "const Float&" - same reasoning as ForEachLoop's Element just above:
+            // this is a user-facing canvas label, not a C++ declaration.
+            return (P.m_pDesc->m_bReadOnly ? std::string("RO ") : std::string()) + pEffType;
         // "?" for Optional - every pre-existing static port_desc defaults m_bRequired to true (see
         // xnode_os_plugin_api.h), so this is a no-op everywhere except a Function's user-configured
         // pins, the only place m_bRequired can actually be false today.
         return P.m_pDesc->m_bRequired ? std::string(pEffType) : std::string(pEffType) + "?";
     }
+    // Per-TYPE color, not per-pin - every Float pin/wire in the graph reads the same color at a
+    // glance, same convention Unity's own node-based editors (Shader Graph, Visual Scripting) use:
+    // a value's TYPE is what the color encodes, not which node or which side of a wire it's on.
+    // Approximate hand-picked values, not a pixel-exact Unity palette - the numeric family (Bool/
+    // Float/Int/Short) shares one recognizable hue family the way Unity's own "number" types do,
+    // while staying distinguishable from each other; refine on request if exact parity matters.
     static ImU32 TypeColor(const char* pType) noexcept
     {
-        if (IsMeshType(pType))                    return IM_COL32(167, 139, 250, 255);
-        if (std::strcmp(pType, "Text") == 0)      return IM_COL32(74, 222, 128, 255);
-        // A Scope pin (owner<->End ownership, NODE_SCRIPTING_DESIGN.md section 4.1) matches the box
-        // border color, not the generic default - it's part of the box's own structure, not a value.
-        if (IsScopeType(pType))                   return IM_COL32(51, 65, 85, 255);
+        if (IsMeshType(pType))                    return IM_COL32(167, 139, 250, 255); // purple
+        if (std::strcmp(pType, "Text") == 0)      return IM_COL32(74, 222, 128, 255);  // green
+        // A Scope pin (owner<->End ownership, NODE_SCRIPTING_DESIGN.md section 4.1) matches the box's
+        // own BACKGROUND fill, not the generic default and not the border either - it's part of the
+        // box's own structure, not a value, and both the pin-glyph code and the link-drawing loop
+        // already darken this per scope depth (DarkenForDepth) to keep matching the actual box at
+        // whatever nesting level it sits at - this is the one shared base color both read from.
+        if (IsScopeType(pType))                   return theme::NodeBg;
         // Exec pins get their own distinct color (a plain white, matching the long-established
         // convention for control-flow pins elsewhere) so a glance at the glyph tells data from
         // control flow apart, same as Scope already does for ownership.
         if (IsExecType(pType))                    return IM_COL32(241, 245, 249, 255);
+        // NOT red - this editor already uses red for its own "scope-invalid link" warning
+        // (bScopeInvalid in the link-drawing loop), and a near-identical red for Bool would make a
+        // perfectly valid Bool wire indistinguishable from a broken one at a glance. A deeper,
+        // more saturated green than "Text"'s own minty green just above - close enough in hue to
+        // read as "green" on request, far enough in value/saturation not to recreate that same
+        // collision one type over.
+        if (std::strcmp(pType, "Bool") == 0)      return IM_COL32(22, 163, 74, 255);   // green (deep, distinct from Text's mint green)
+        if (std::strcmp(pType, "Float") == 0)     return IM_COL32(101, 210, 235, 255); // cyan
+        if (std::strcmp(pType, "Int") == 0)       return IM_COL32(66, 153, 225, 255);  // blue
+        if (std::strcmp(pType, "Short") == 0)     return IM_COL32(56, 178, 165, 255);  // teal
+        // A container type (Span<Any>/Span<Float>/...) is a distinct SHAPE, not a value of the type
+        // it holds - its own amber/orange marks it apart from a plain scalar pin of the same element
+        // type, same spirit as Scope getting its own color rather than inheriting from whatever it
+        // wraps. IsContainerType matches on the "Span<" prefix regardless of what's inside.
+        if (IsContainerType(pType))               return IM_COL32(245, 158, 11, 255);  // amber
+        // "Any" (never wired, still fully open) and anything else unrecognized share this neutral
+        // gray - an unresolved wildcard genuinely has no type yet to color by.
         return IM_COL32(148, 163, 184, 255);
+    }
+    // A node's header strip tints by its own factory category (Flow Control/Math/Logic/...), same
+    // spirit as Unity's own category-colored node headers. The title text drawn on top is always
+    // near-white (see the title draw call) - every color here is kept dark and roughly matched in
+    // luminance to the plain theme::NodeHeader gray it replaces, so white text stays legible and no
+    // one category's box reads as jarringly brighter than its neighbors on the same canvas. New
+    // categories not listed here just fall back to the old neutral header gray - nothing breaks if
+    // a future plugin introduces one.
+    static ImU32 CategoryColor(std::string_view Category) noexcept
+    {
+        if (Category == "Flow Control") return IM_COL32(52, 71, 94, 255);  // slate blue
+        if (Category == "Logic")        return IM_COL32(38, 82, 74, 255);  // teal green
+        if (Category == "Math")         return IM_COL32(92, 68, 32, 255);  // amber brown
+        if (Category == "Debug")        return IM_COL32(94, 46, 46, 255);  // muted red
+        if (Category == "Variables")    return IM_COL32(70, 50, 92, 255);  // purple
+        if (Category == "Output")       return IM_COL32(30, 76, 86, 255);  // cyan teal
+        if (Category == "Geometry")     return IM_COL32(66, 68, 32, 255);  // olive
+        return theme::NodeHeader;
     }
     // A Bool pin never has anything to preview - it dropped the inline-constant checkbox (a
     // hardcoded true/false doesn't fit how Condition/And/Or/Not are meant to be used - they're wired
@@ -1690,9 +1775,12 @@ namespace nodeos
     static bool IsEndMarkerType(const xnode_os_node* pNode) noexcept { return pNode->m_pFactory->getName() == "End"; }
     static float NodeWidth(const xnode_os_node* pNode, std::uint64_t NodeId, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links)
     {
-        if (IsEndMarkerType(pNode)) return 190.0f;
+        // Scaled by TITLE_FONT_SCALE too - an End marker's title renders at the same bigger size as
+        // every other node's, so its fixed width needs the same proportional headroom.
+        if (IsEndMarkerType(pNode)) return 190.0f * geo::TITLE_FONT_SCALE;
         const auto NodeName = pNode->m_pFactory->getName();
-        float NameW = ImGui::CalcTextSize(NodeName.data(), NodeName.data() + NodeName.size()).x;
+        const float TitleW = ImGui::CalcTextSize(NodeName.data(), NodeName.data() + NodeName.size()).x;
+        float NameW = TitleW;
         float PortColW = 40.0f;
         for (auto& P : FlatPorts(pNode))
         {
@@ -1702,10 +1790,24 @@ namespace nodeos
             // the shorter placeholder "Any" text.
             const char* pEffType = EffectiveTypeName(NodeId, pNode, P.m_pDesc->m_pTypeName, Nodes, Links);
             const std::string TypeLabel = std::string("[") + DisplayTypeText(pNode, P, pEffType) + "]";
-            PortColW = std::max(PortColW, ImGui::CalcTextSize(TypeLabel.c_str()).x + geo::PORT_PAD);
+            PortColW = std::max(PortColW, ImGui::CalcTextSize(TypeLabel.c_str()).x * geo::PIN_TYPE_FONT_SCALE + geo::PIN_TYPE_INSET);
         }
         const float MinForPreview = MeshPortCount(pNode) > 0 ? mesh_preview_system::s_PreviewSize + 24.0f : 0.0f;
-        return std::max(NameW + 2.0f * PortColW + 40.0f, MinForPreview);
+        // The header row carries BOTH the title (left-aligned) and the category label (right-
+        // aligned, e.g. "Flow Control") - neither the port-column formula above nor MinForPreview
+        // ever reserved room for the two of them to coexist, which is exactly the bug behind
+        // "Function"/"If"'s title colliding with their own "Flow Control" category text. TitleW
+        // (NOT the port-loop-mutated NameW) is the true title width; End markers never reach this
+        // point at all (early return above), so DisplayName == NodeName always holds here - no
+        // string-mismatch risk between what's measured and what's drawn.
+        const auto NodeCategory = pNode->m_pFactory->getCategory();
+        const float CategoryW = ImGui::CalcTextSize(NodeCategory.data(), NodeCategory.data() + NodeCategory.size()).x;
+        // TitleW scaled by TITLE_FONT_SCALE to match the actual bigger rendered title (see the
+        // title draw call) - reserving room at the OLD, smaller size here would silently reopen the
+        // title/category overlap bug the bigger title was supposed to have no part in.
+        const float MinForHeader = 10.0f + TitleW * geo::TITLE_FONT_SCALE + 16.0f + CategoryW + 10.0f;
+        const float Result = std::max({ NameW + 2.0f * PortColW + 40.0f, MinForPreview, MinForHeader });
+        return Result;
     }
     // Extra vertical space at the ONE point a node's port list switches from external (caller-
     // facing) to local-scope (body-facing) - FlatPorts already groups every external pin first, then
@@ -2614,6 +2716,37 @@ namespace nodeos
         ImDrawList* pDraw = ImGui::GetWindowDrawList();
         const ImVec2 MouseLocal{ SpineX + (ImGui::GetIO().MousePos.x - WindowCenterX - View.m_PanX) / View.m_Zoom, (ImGui::GetIO().MousePos.y - WindowOrigin.y - View.m_PanY) / View.m_Zoom };
 
+        // Backdrop + dot grid, drawn before anything else so every node/wire sits on top of it - the
+        // same visual signature Unity's own node editors (Shader Graph, Visual Scripting) use: a dark
+        // charcoal canvas with a faint, evenly-spaced dot grid, never a plain flat fill. Dots are laid
+        // out in WORLD space (inverting ToScreen for the window's own visible rect) so they pan and
+        // zoom together with the graph instead of scrolling independently of it, but drawn at a fixed
+        // on-screen size regardless of zoom - the same reason grid lines in most editors stay a
+        // constant weight rather than getting thicker/thinner as you zoom.
+        {
+            const ImVec2 WinMax{ WindowOrigin.x + AvailWidth, WindowOrigin.y + AvailHeight };
+            pDraw->AddRectFilled(WindowOrigin, WinMax, theme::Canvas);
+
+            constexpr float GridStep = 32.0f; // world units between dots
+            const float WorldXMin = (WindowOrigin.x - WindowCenterX - View.m_PanX) / View.m_Zoom + SpineX;
+            const float WorldXMax = (WinMax.x - WindowCenterX - View.m_PanX) / View.m_Zoom + SpineX;
+            const float WorldYMin = (WindowOrigin.y - WindowOrigin.y - View.m_PanY) / View.m_Zoom;
+            const float WorldYMax = (WinMax.y - WindowOrigin.y - View.m_PanY) / View.m_Zoom;
+            const int FirstCol = (int)std::floor(WorldXMin / GridStep), LastCol = (int)std::ceil(WorldXMax / GridStep);
+            const int FirstRow = (int)std::floor(WorldYMin / GridStep), LastRow = (int)std::ceil(WorldYMax / GridStep);
+            // Zoomed out far enough to need more than this many dots in either direction, skip the
+            // grid entirely rather than looping tens of thousands of times - it would be so dense at
+            // that point it'd just read as a gray wash anyway.
+            if (LastCol - FirstCol < 400 && LastRow - FirstRow < 400)
+            {
+                pDraw->PushClipRect(WindowOrigin, WinMax, true);
+                for (int Row = FirstRow; Row <= LastRow; ++Row)
+                    for (int Col = FirstCol; Col <= LastCol; ++Col)
+                        pDraw->AddCircleFilled(ToScreen({ Col * GridStep, Row * GridStep }), 1.5f, theme::Grid, 6);
+                pDraw->PopClipRect();
+            }
+        }
+
         // Background catcher, submitted first so it sits "under" every node/pin/button widget
         // (each marked AllowOverlap below to win hover/clicks over this) - gives click-on-empty-space
         // (deselect), left-drag-to-pan, and right-click-for-Add-Node without needing per-region
@@ -2669,8 +2802,8 @@ namespace nodeos
         {
             const int LOuter = std::max(0, LaneCountOf(Co.m_Id, 0) - 1);
             const int ROuter = std::max(0, LaneCountOf(Co.m_Id, 1) - 1);
-            pDraw->AddLine(ToScreen({ HighwayX(Co.m_Id, 'L', LOuter), 0 }), ToScreen({ HighwayX(Co.m_Id, 'L', LOuter), TotalH }), IM_COL32(30, 38, 58, 255));
-            pDraw->AddLine(ToScreen({ HighwayX(Co.m_Id, 'R', ROuter), 0 }), ToScreen({ HighwayX(Co.m_Id, 'R', ROuter), TotalH }), IM_COL32(30, 38, 58, 255));
+            pDraw->AddLine(ToScreen({ HighwayX(Co.m_Id, 'L', LOuter), 0 }), ToScreen({ HighwayX(Co.m_Id, 'L', LOuter), TotalH }), theme::Rail);
+            pDraw->AddLine(ToScreen({ HighwayX(Co.m_Id, 'R', ROuter), 0 }), ToScreen({ HighwayX(Co.m_Id, 'R', ROuter), TotalH }), theme::Rail);
         }
 
         const auto ScopeDepths     = ComputeScopeDepths(Nodes);
@@ -2691,7 +2824,12 @@ namespace nodeos
             // the same depth by construction (an owner and its End marker both resolve to the same
             // stack size in ComputeScopeDepths), so either endpoint's depth darkens the whole wire,
             // matching the boxes it connects.
-            ImU32 Col = bSelected ? IM_COL32(253, 224, 71, 255) : TypeColor(OutP.m_pDesc->m_pTypeName);
+            // EffectiveTypeName, not the source pin's raw declared type - a wire out of a wildcard
+            // output (Math Expression/Compare's own "Any" Result) must show the type it actually
+            // RESOLVED to, matching what the pin glyph on either end already colors itself by, not
+            // the perpetually-neutral "Any" gray every such wire would otherwise be stuck showing
+            // even once it's carrying, say, a real Float.
+            ImU32 Col = bSelected ? theme::Selected : TypeColor(EffectiveTypeName(Link.m_SourceNode, pSrcDesc, OutP.m_pDesc->m_pTypeName, Nodes, Links));
             if (!bSelected && Link.m_bReadOnly)
             {
                 auto DepthIt = ScopeDepths.find(Link.m_SourceNode);
@@ -2783,6 +2921,15 @@ namespace nodeos
             return false;
         };
 
+        // Native ImGui widgets (the inline-literal InputFloat/InputInt boxes, the enum Combo dropdown)
+        // have no notion of this canvas's own pan/zoom transform - left alone, their text stays
+        // pinned at the base font size no matter how far the graph is zoomed, drifting out of step
+        // with every hand-drawn label around them (row names, titles, pin types) the instant Zoom
+        // isn't exactly 1.0. SetWindowFontScale is ImGui's own mechanism for exactly this: scales
+        // every widget's text drawn while it's active, for the rest of this window. Reset back to
+        // 1.0 right after the node loop, before any popup menu below it - a right-click "Add Node"
+        // menu should stay a fixed, comfortable size regardless of how zoomed-in the canvas is.
+        ImGui::SetWindowFontScale(View.m_Zoom);
         for (size_t oi = 0; oi < Order.size(); ++oi)
         {
             const auto Id = Order[oi];
@@ -2802,10 +2949,33 @@ namespace nodeos
             const auto DepthIt = ScopeDepths.find(Id);
             const int  Depth   = DepthIt == ScopeDepths.end() ? 0 : DepthIt->second;
             const bool bInHighlightedSpan = HighlightedScopeSpan.contains(Id);
-            pDraw->AddRectFilled(P0, P1, DarkenForDepth(IM_COL32(17, 24, 39, 255), Depth), ToScreenLen(10.0f));
-            pDraw->AddRect(P0, P1, bBeingDragged ? IM_COL32(56, 189, 248, 255) : (bSelected ? IM_COL32(253, 224, 71, 255) : (bInHighlightedSpan ? IM_COL32(125, 211, 252, 255) : IM_COL32(51, 65, 85, 255)))
-                          , ToScreenLen(10.0f), 0, ToScreenLen((bSelected || bBeingDragged || bInHighlightedSpan) ? 2.5f : 1.5f));
-            const float TitleY = pRow->m_Y + (geo::HEADER_H - ImGui::GetFontSize()) * 0.5f;
+            const bool bIsEndMarker = IsEndMarkerType(pDesc);
+            pDraw->AddRectFilled(P0, P1, DarkenForDepth(theme::NodeBg, Depth), 0.0f);
+            // Title-row strip, brighter than the body beneath it - drawn as its own rect ON TOP of
+            // the body fill (not a separate widget), so the node's name/category line reads as a
+            // real header at a glance instead of just floating text over the same flat body color.
+            // Tinted by the node's own category (CategoryColor) rather than one flat gray for every
+            // node, Unity-style - falls back to the old neutral gray for any category not listed
+            // there. An End marker draws no header at all - it's deliberately just a plain title bar
+            // with no body/ports beneath it, nothing to visually separate a "header" from, and no
+            // category of its own to tint by.
+            const auto NodeCategory = bIsEndMarker ? std::string_view{} : pDesc->m_pFactory->getCategory();
+            if (!bIsEndMarker)
+                pDraw->AddRectFilled(P0, { P1.x, P0.y + ToScreenLen(geo::HEADER_H) }, DarkenForDepth(CategoryColor(NodeCategory), Depth), 0.0f);
+            pDraw->AddRect(P0, P1, bBeingDragged ? IM_COL32(56, 189, 248, 255) : (bSelected ? theme::Selected : (bInHighlightedSpan ? IM_COL32(125, 211, 252, 255) : theme::NodeBorder))
+                          , 0.0f, 0, ToScreenLen((bSelected || bBeingDragged || bInHighlightedSpan) ? 2.5f : 1.5f));
+            // Screen-space: title/category text is measured and positioned entirely in screen
+            // pixels at the EXACT font size passed to AddText below. Measuring via unscaled
+            // ImGui::CalcTextSize/GetFontSize here would silently pick up SetWindowFontScale's
+            // zoom-scaled font (it's active for this whole loop, for native widgets' benefit) and
+            // then get scaled AGAIN by ToScreen - a double-scale that's invisible at Zoom=1.0 (a
+            // no-op) but drifts/overlaps at any other zoom. Same fix as the pin-type label below.
+            // The title reads first at a glance, so it renders a bit bigger than every other label
+            // on the node (row names, pin types, category) - TITLE_FONT_SCALE, matched by
+            // NodeWidth's own TitleW reservation so a bigger title never re-collides with the
+            // category text the way the original bug did.
+            const float TitleFontSize = FontSize * geo::TITLE_FONT_SCALE;
+            const float TitleYPx = P0.y + (ToScreenLen(geo::HEADER_H) - TitleFontSize) * 0.5f;
             const auto NodeName = pDesc->m_pFactory->getName();
             // An End marker's own factory name is just "End" for every instance - not clear enough
             // on its own (NODE_SCRIPTING_DESIGN.md section 4.2). Its actual displayed title is
@@ -2828,16 +2998,20 @@ namespace nodeos
                     }
                 }
             }
-            const bool bIsEndMarker = IsEndMarkerType(pDesc);
-            DrawText({ pRow->m_X + (bIsEndMarker ? pRow->m_W * 0.5f - ImGui::CalcTextSize(DisplayName.c_str()).x * 0.5f : 10.0f), TitleY }, IM_COL32(226, 232, 240, 255), DisplayName.c_str());
+            const ImVec2 NameSizePx = ImGui::GetFont()->CalcTextSizeA(TitleFontSize, FLT_MAX, 0.0f, DisplayName.c_str());
+            const float TitleXPx = bIsEndMarker
+                ? P0.x + (P1.x - P0.x) * 0.5f - NameSizePx.x * 0.5f
+                : P0.x + ToScreenLen(10.0f);
+            pDraw->AddText(nullptr, TitleFontSize, ImVec2(TitleXPx, TitleYPx), IM_COL32(226, 232, 240, 255), DisplayName.c_str());
             // An End marker's title bar shows only its name - no category label, no header/body
-            // divider line (it has no body to divide from).
+            // divider line (it has no body to divide from). The category label stays at the normal
+            // (non-title) font size - it's an annotation next to the title, not a second title.
             if (!bIsEndMarker)
             {
-                const auto NodeCategory = pDesc->m_pFactory->getCategory();
-                const ImVec2 CatSize = ImGui::CalcTextSize(NodeCategory.data(), NodeCategory.data() + NodeCategory.size());
-                DrawText({ pRow->m_X + pRow->m_W - CatSize.x - 10, TitleY }, IM_COL32(100, 116, 139, 255), NodeCategory.data());
-                pDraw->AddLine(ToScreen({ pRow->m_X, pRow->m_Y + geo::HEADER_H }), ToScreen({ pRow->m_X + pRow->m_W, pRow->m_Y + geo::HEADER_H }), IM_COL32(51, 65, 85, 255));
+                const ImVec2 CatSizePx = ImGui::GetFont()->CalcTextSizeA(FontSize, FLT_MAX, 0.0f, NodeCategory.data(), NodeCategory.data() + NodeCategory.size());
+                const float CatXPx = P1.x - CatSizePx.x - ToScreenLen(10.0f);
+                pDraw->AddText(nullptr, FontSize, ImVec2(CatXPx, P0.y + (ToScreenLen(geo::HEADER_H) - FontSize) * 0.5f), IM_COL32(100, 116, 139, 255), NodeCategory.data());
+                pDraw->AddLine(ToScreen({ pRow->m_X, pRow->m_Y + geo::HEADER_H }), ToScreen({ pRow->m_X + pRow->m_W, pRow->m_Y + geo::HEADER_H }), theme::NodeBorder);
             }
 
             ImGui::PushID((int)Id);
@@ -2928,7 +3102,7 @@ namespace nodeos
                     const float BorderInset = ToScreenLen(1.5f);
                     const ImVec2 TintMin = { ToScreen({ pRow->m_X, LineY }).x + BorderInset, ToScreen({ pRow->m_X, LineY }).y };
                     const ImVec2 TintMax = { P1.x - BorderInset, P1.y - ToScreenLen(1.0f) };
-                    pDraw->AddRectFilled(TintMin, TintMax, DarkenForDepth(IM_COL32(17, 24, 39, 255), Depth + 1), ToScreenLen(10.0f), ImDrawFlags_RoundCornersBottom);
+                    pDraw->AddRectFilled(TintMin, TintMax, DarkenForDepth(theme::NodeBg, Depth + 1), 0.0f);
                     pDraw->AddLine(ToScreen({ pRow->m_X + 6.0f, LineY }), ToScreen({ pRow->m_X + pRow->m_W - 6.0f, LineY }), IM_COL32(100, 116, 139, 255), ToScreenLen(1.5f));
                     DrawText({ pRow->m_X + 8.0f, LineY + 2.0f }, IM_COL32(100, 116, 139, 255), "locals");
                     RowY += geo::SECTION_GAP;
@@ -2944,7 +3118,7 @@ namespace nodeos
                 // A Scope pin darkens with its own node's depth too, matching the box and the wire.
                 ImU32 Col = IsScopeType(pEffType) ? DarkenForDepth(TypeColor(pEffType), Depth) : TypeColor(pEffType);
                 const bool bConnected = PortSides.contains(PinOf(P, Id));
-                ImU32 Fill = bConnected ? Col : IM_COL32(11, 16, 33, 255);
+                ImU32 Fill = bConnected ? Col : theme::CanvasDark;
 
                 // Fade the SMALLEST thing that's actually invalid: a candidate pin (opposite
                 // direction from the drag, different node) that fails type or scope dims on its own,
@@ -2965,8 +3139,10 @@ namespace nodeos
                 // it lets every OTHER port's own name stand out more.
                 if (std::strcmp(P.m_pDesc->m_pName, "End") != 0)
                 {
-                    const ImVec2 NameSize = ImGui::CalcTextSize(P.m_pDesc->m_pName);
-                    DrawText({ pRow->m_X + pRow->m_W * 0.5f - NameSize.x * 0.5f, CenterY - NameSize.y * 0.5f }, NameCol, P.m_pDesc->m_pName);
+                    // Screen-space, same reasoning as the title/category fix above.
+                    const ImVec2 PinNameSizePx = ImGui::GetFont()->CalcTextSizeA(FontSize, FLT_MAX, 0.0f, P.m_pDesc->m_pName);
+                    const ImVec2 RowCenterPx = ToScreen({ pRow->m_X + pRow->m_W * 0.5f, CenterY });
+                    pDraw->AddText(nullptr, FontSize, ImVec2(RowCenterPx.x - PinNameSizePx.x * 0.5f, RowCenterPx.y - PinNameSizePx.y * 0.5f), NameCol, P.m_pDesc->m_pName);
                 }
 
                 // A pin used by links going both up and down the stack needs a glyph on BOTH sides -
@@ -2986,10 +3162,26 @@ namespace nodeos
                     pDraw->AddTriangleFilled(Tip, B1, B2, Fill);
                     pDraw->AddTriangle(Tip, B1, B2, Col, ToScreenLen(1.5f));
 
+                    // Screen-space anchoring throughout, not a world-space position built from a
+                    // screen-space width and then re-transformed - measure the label at the EXACT
+                    // font size AddText will use, anchor from the row edge AFTER ToScreen (not
+                    // before), and do the whole left/right offset in already-zoomed pixels. Round-
+                    // tripping a width through world space and back was the earlier (unreliable)
+                    // approach; this is the one that can't drift as View.m_Zoom changes, since
+                    // nothing here mixes the two coordinate spaces.
+                    // Reads as an annotation, not a name - smaller than the row/title text and
+                    // tucked in close to its own pin (PIN_TYPE_FONT_SCALE/PIN_TYPE_INSET, matched by
+                    // NodeWidth's own PortColW reservation so the box stays exactly as wide as this
+                    // smaller, closer label actually needs).
                     const std::string TypeLabel = std::string("[") + DisplayTypeText(pDesc, P, pEffType) + "]";
-                    const ImVec2 TypeSize = ImGui::CalcTextSize(TypeLabel.c_str());
-                    const float TypeX = (S == 'L') ? pRow->m_X + 14.0f : pRow->m_X + pRow->m_W - 14.0f - TypeSize.x;
-                    DrawText({ TypeX, CenterY - TypeSize.y * 0.5f }, Col, TypeLabel.c_str());
+                    const float PinTypeFontSize = FontSize * geo::PIN_TYPE_FONT_SCALE;
+                    const ImVec2 TypeSizePx = ImGui::GetFont()->CalcTextSizeA(PinTypeFontSize, FLT_MAX, 0.0f, TypeLabel.c_str());
+                    const ImVec2 RowEdgePx = ToScreen({ S == 'L' ? pRow->m_X : pRow->m_X + pRow->m_W, CenterY });
+                    const float InsetPx = ToScreenLen(geo::PIN_TYPE_INSET);
+                    const ImVec2 TypePosPx = (S == 'L')
+                        ? ImVec2(RowEdgePx.x + InsetPx, RowEdgePx.y - TypeSizePx.y * 0.5f)
+                        : ImVec2(RowEdgePx.x - InsetPx - TypeSizePx.x, RowEdgePx.y - TypeSizePx.y * 0.5f);
+                    pDraw->AddText(nullptr, PinTypeFontSize, TypePosPx, Col, TypeLabel.c_str());
 
                     // Drag-to-connect hit target - generous, bigger than the visible glyph (rslgraph-ui's
                     // own NodeView.tsx uses a 13px-radius invisible circle over each port; this is wider
@@ -3094,8 +3286,10 @@ namespace nodeos
                         const char* pPreview = PortTypeToPreview(pEffType, pValue);
                         if (pPreview[0] != '\0')
                         {
-                            const ImVec2 ValSize = ImGui::CalcTextSize(pPreview);
-                            DrawText({ pRow->m_X + pRow->m_W * 0.5f - ValSize.x * 0.5f, RowY + geo::ROW_H }, IM_COL32(148, 163, 184, 255), pPreview);
+                            // Screen-space, same reasoning as the title/category fix above.
+                            const ImVec2 ValSizePx = ImGui::GetFont()->CalcTextSizeA(FontSize, FLT_MAX, 0.0f, pPreview);
+                            const ImVec2 AnchorPx = ToScreen({ pRow->m_X + pRow->m_W * 0.5f, RowY + geo::ROW_H });
+                            pDraw->AddText(nullptr, FontSize, ImVec2(AnchorPx.x - ValSizePx.x * 0.5f, AnchorPx.y), IM_COL32(148, 163, 184, 255), pPreview);
                         }
                     }
                 }
@@ -3248,7 +3442,7 @@ namespace nodeos
             // color computed above - far less invasive than threading an alpha factor through this
             // whole block, and just as effective visually.
             if (Drag.m_bActive && !NodeAcceptsDrag(Id))
-                pDraw->AddRectFilled(P0, P1, IM_COL32(11, 16, 33, 195), ToScreenLen(10.0f));
+                pDraw->AddRectFilled(P0, P1, WithAlpha(theme::CanvasDark, 195.0f / 255.0f), 0.0f);
 
             ImGui::PopID();
         }
@@ -3281,9 +3475,9 @@ namespace nodeos
                 // outside the + itself, selects it the same way clicking a node does - a future Ctrl+V
                 // paste will target the current selection) and the + button (always opens the insert
                 // popup, regardless of selection state - pressing it never itself selects the box).
-                pDraw->AddRectFilled(BoxMin, BoxMax, IM_COL32(17, 24, 39, 255), ToScreenLen(4.0f));
-                pDraw->AddRect(BoxMin, BoxMax, bSelected ? IM_COL32(253, 224, 71, 255) : IM_COL32(51, 65, 85, 255)
-                              , ToScreenLen(4.0f), 0, ToScreenLen(bSelected ? 2.0f : 1.2f));
+                pDraw->AddRectFilled(BoxMin, BoxMax, theme::NodeBg, 0.0f);
+                pDraw->AddRect(BoxMin, BoxMax, bSelected ? theme::Selected : theme::NodeBorder
+                              , 0.0f, 0, ToScreenLen(bSelected ? 2.0f : 1.2f));
 
                 pDraw->AddCircleFilled(Center, PlusR, bPlusHovered ? IM_COL32(56, 130, 246, 255) : IM_COL32(30, 41, 59, 255));
                 pDraw->AddCircle(Center, PlusR, IM_COL32(100, 116, 139, 255), 0, ToScreenLen(1.2f));
@@ -3367,7 +3561,7 @@ namespace nodeos
                         }
                         if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 3.0f))
                             SpineDrag.m_bActive = true;
-                        pDraw->AddCircleFilled(CircleCenters[Side], CircleR, bHovered ? IM_COL32(94, 234, 212, 255) : IM_COL32(51, 65, 85, 255));
+                        pDraw->AddCircleFilled(CircleCenters[Side], CircleR, bHovered ? IM_COL32(94, 234, 212, 255) : theme::NodeBorder);
                         pDraw->AddCircle(CircleCenters[Side], CircleR, IM_COL32(148, 163, 184, 255), 0, ToScreenLen(1.2f));
                         ImGui::PopID();
                     }
@@ -3381,6 +3575,7 @@ namespace nodeos
             for (int GapIndex = 0; GapIndex <= (int)SL.m_Order.size(); ++GapIndex)
                 DrawInsertMarker(GapIndex);
         }
+        ImGui::SetWindowFontScale(1.0f); // matches the SetWindowFontScale(View.m_Zoom) set before this loop began
 
         // Resolve a node-drag drop by direct distance to MouseLocal, same pattern as the pin-to-pin
         // drag-to-connect resolution below - NOT the marker's own ImGui hover state. A marker sitting
@@ -7097,6 +7292,45 @@ int E27_Example()
         return xgpu::getErrorInt(Err);
 
     xgpu::tools::imgui::CreateInstance(MainWindow);
+
+    // Overrides ImGui's own default dark theme's blue accent (Button/Header/FrameBg/Tab/CheckMark/
+    // SliderGrab/ResizeGrip/ScrollbarGrab all default to a saturated blue) with neutral dark grays,
+    // matching the rest of this editor's own Unity-inspired chrome (theme::* above) - a real style
+    // EDIT, not a PushStyleColor scope, since this is meant to hold for the app's entire lifetime,
+    // not one widget/frame. E27 is the only example this build actually runs (see main.cpp), so
+    // there's no other example's own look to preserve by scoping this more narrowly.
+    {
+        ImGuiStyle& Style = ImGui::GetStyle();
+        Style.Colors[ImGuiCol_Button]              = ImVec4(0.24f, 0.24f, 0.24f, 1.0f);
+        Style.Colors[ImGuiCol_ButtonHovered]       = ImVec4(0.32f, 0.32f, 0.32f, 1.0f);
+        Style.Colors[ImGuiCol_ButtonActive]        = ImVec4(0.40f, 0.40f, 0.40f, 1.0f);
+        Style.Colors[ImGuiCol_FrameBg]             = ImVec4(0.12f, 0.12f, 0.12f, 1.0f);
+        Style.Colors[ImGuiCol_FrameBgHovered]      = ImVec4(0.18f, 0.18f, 0.18f, 1.0f);
+        Style.Colors[ImGuiCol_FrameBgActive]       = ImVec4(0.24f, 0.24f, 0.24f, 1.0f);
+        // A combo box's own closed button uses FrameBg, but the dropdown LIST it opens is a
+        // separate ImGui color (PopupBg) - left at ImGui's own default (a different near-black,
+        // slightly-transparent shade) it made every open dropdown visibly mismatch every other edit
+        // box's background. Pinned to the exact same opaque color as FrameBg so every edit
+        // surface - closed or open - reads as one consistent background.
+        Style.Colors[ImGuiCol_PopupBg]             = ImVec4(0.12f, 0.12f, 0.12f, 1.0f);
+        Style.Colors[ImGuiCol_Header]              = ImVec4(0.24f, 0.24f, 0.24f, 1.0f);
+        Style.Colors[ImGuiCol_HeaderHovered]       = ImVec4(0.32f, 0.32f, 0.32f, 1.0f);
+        Style.Colors[ImGuiCol_HeaderActive]        = ImVec4(0.40f, 0.40f, 0.40f, 1.0f);
+        Style.Colors[ImGuiCol_CheckMark]           = ImVec4(0.85f, 0.85f, 0.85f, 1.0f);
+        Style.Colors[ImGuiCol_SliderGrab]          = ImVec4(0.45f, 0.45f, 0.45f, 1.0f);
+        Style.Colors[ImGuiCol_SliderGrabActive]    = ImVec4(0.55f, 0.55f, 0.55f, 1.0f);
+        Style.Colors[ImGuiCol_Tab]                 = ImVec4(0.20f, 0.20f, 0.20f, 1.0f);
+        Style.Colors[ImGuiCol_TabHovered]          = ImVec4(0.32f, 0.32f, 0.32f, 1.0f);
+        Style.Colors[ImGuiCol_TabActive]           = ImVec4(0.33f, 0.33f, 0.33f, 1.0f);
+        Style.Colors[ImGuiCol_TabUnfocused]        = ImVec4(0.15f, 0.15f, 0.15f, 1.0f);
+        Style.Colors[ImGuiCol_TabUnfocusedActive]  = ImVec4(0.24f, 0.24f, 0.24f, 1.0f);
+        Style.Colors[ImGuiCol_ResizeGrip]          = ImVec4(0.35f, 0.35f, 0.35f, 0.5f);
+        Style.Colors[ImGuiCol_ResizeGripHovered]   = ImVec4(0.45f, 0.45f, 0.45f, 0.7f);
+        Style.Colors[ImGuiCol_ResizeGripActive]    = ImVec4(0.55f, 0.55f, 0.55f, 0.9f);
+        Style.Colors[ImGuiCol_ScrollbarGrab]       = ImVec4(0.35f, 0.35f, 0.35f, 1.0f);
+        Style.Colors[ImGuiCol_ScrollbarGrabHovered]= ImVec4(0.45f, 0.45f, 0.45f, 1.0f);
+        Style.Colors[ImGuiCol_ScrollbarGrabActive] = ImVec4(0.55f, 0.55f, 0.55f, 1.0f);
+    }
 
     // Auto-discovered, not hardcoded: every Plugins/<Folder>/*.cpp here becomes an Add Node menu entry
     // immediately, in its not-yet-compiled state - dropping a new plugin folder in is the entire
