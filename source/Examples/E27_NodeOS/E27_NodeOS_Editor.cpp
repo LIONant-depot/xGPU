@@ -116,10 +116,19 @@ namespace nodeos
         constexpr ImU32 NodeHeader = IM_COL32(85, 85, 85, 255);    // node title-row strip - brighter than the body, so the name/category line reads as its own header at a glance
         constexpr ImU32 NodeBorder = IM_COL32(8, 8, 8, 255);       // node outline / Scope-pin color - near-black, a crisp line against the body rather than a soft slate blend
         constexpr ImU32 CanvasDark = IM_COL32(28, 28, 28, 255);    // unconnected-pin fill / darkest recesses
-        constexpr ImU32 Rail       = IM_COL32(46, 46, 46, 255);    // per-column background rail lines
+        // A muted, dark steel blue, not gray - once the grid (below) filled the canvas with its own
+        // thin gray lines, the rail's old flat gray made it blend into the grid instead of reading
+        // as a structural column boundary. Kept dark enough to stay well behind the bright per-type
+        // wire colors (cyan/green/etc.) rather than competing with them for attention. Also drawn
+        // thicker than a grid line (see the AddLine call) for the same reason.
+        constexpr ImU32 Rail       = IM_COL32(24, 42, 64, 255);   // per-column background rail lines
         constexpr ImU32 Selected   = IM_COL32(58, 121, 187, 255);  // Unity's own selection-outline blue
         constexpr ImU32 Canvas     = IM_COL32(16, 16, 16, 255);    // the graph window's own backdrop, behind the dot grid and every node
-        constexpr ImU32 Grid       = IM_COL32(32, 32, 32, 255);    // grid dots - a shade lighter than Canvas, subtle, never competing with node/wire content
+        constexpr ImU32 Grid       = IM_COL32(20, 20, 20, 255);    // grid lines (minor) - a shade lighter than Canvas, subtle, never competing with node/wire content
+        // TEST: minor/major line-grid look borrowed from E25/E21's own ground-grid shader
+        // (E21_GridShader_frag.glsl - BaseColor/LineColor/MajorLineWidth) - a bit brighter than the
+        // minor lines above, still well below node/wire brightness.
+        constexpr ImU32 GridMajor  = IM_COL32(27, 27, 27, 255);
     }
 
     // printf() alone is not reliable here: this is a GUI-subsystem executable, and stdout redirection
@@ -2716,33 +2725,45 @@ namespace nodeos
         ImDrawList* pDraw = ImGui::GetWindowDrawList();
         const ImVec2 MouseLocal{ SpineX + (ImGui::GetIO().MousePos.x - WindowCenterX - View.m_PanX) / View.m_Zoom, (ImGui::GetIO().MousePos.y - WindowOrigin.y - View.m_PanY) / View.m_Zoom };
 
-        // Backdrop + dot grid, drawn before anything else so every node/wire sits on top of it - the
-        // same visual signature Unity's own node editors (Shader Graph, Visual Scripting) use: a dark
-        // charcoal canvas with a faint, evenly-spaced dot grid, never a plain flat fill. Dots are laid
-        // out in WORLD space (inverting ToScreen for the window's own visible rect) so they pan and
-        // zoom together with the graph instead of scrolling independently of it, but drawn at a fixed
-        // on-screen size regardless of zoom - the same reason grid lines in most editors stay a
-        // constant weight rather than getting thicker/thinner as you zoom.
+        // Backdrop + grid, drawn before anything else so every node/wire sits on top of it. TEST:
+        // swapped the old dot grid for a minor/major LINE grid, borrowing the visual language of
+        // E25/E21's own ground-grid shader (E21_GridShader_frag.glsl) - a subtle minor line every
+        // GridStep, a brighter major line every MajorGridDiv-th one (matching that shader's own
+        // grid_uniform::m_MajorGridDiv default of 10). This is a hand-drawn ImGui approximation, not
+        // the actual GPU shader - E27's canvas is a plain ImGui draw-list with no render-target/mesh
+        // pass of its own to host a real pipeline in. Lines are laid out in WORLD space (inverting
+        // ToScreen for the window's own visible rect) so they pan/zoom with the graph, same as the
+        // dot grid did.
         {
             const ImVec2 WinMax{ WindowOrigin.x + AvailWidth, WindowOrigin.y + AvailHeight };
             pDraw->AddRectFilled(WindowOrigin, WinMax, theme::Canvas);
 
-            constexpr float GridStep = 32.0f; // world units between dots
+            constexpr float GridStep     = 32.0f; // world units between minor lines
+            constexpr int   MajorGridDiv = 10;    // every Nth line is a major line
             const float WorldXMin = (WindowOrigin.x - WindowCenterX - View.m_PanX) / View.m_Zoom + SpineX;
             const float WorldXMax = (WinMax.x - WindowCenterX - View.m_PanX) / View.m_Zoom + SpineX;
             const float WorldYMin = (WindowOrigin.y - WindowOrigin.y - View.m_PanY) / View.m_Zoom;
             const float WorldYMax = (WinMax.y - WindowOrigin.y - View.m_PanY) / View.m_Zoom;
             const int FirstCol = (int)std::floor(WorldXMin / GridStep), LastCol = (int)std::ceil(WorldXMax / GridStep);
             const int FirstRow = (int)std::floor(WorldYMin / GridStep), LastRow = (int)std::ceil(WorldYMax / GridStep);
-            // Zoomed out far enough to need more than this many dots in either direction, skip the
-            // grid entirely rather than looping tens of thousands of times - it would be so dense at
-            // that point it'd just read as a gray wash anyway.
+            // Zoomed out far enough to need more than this many lines in either direction, skip the
+            // grid entirely rather than drawing thousands of them - it would be so dense at that
+            // point it'd just read as a gray wash anyway.
             if (LastCol - FirstCol < 400 && LastRow - FirstRow < 400)
             {
                 pDraw->PushClipRect(WindowOrigin, WinMax, true);
+                for (int Col = FirstCol; Col <= LastCol; ++Col)
+                {
+                    const bool  bMajor = (Col % MajorGridDiv) == 0;
+                    const float X = ToScreen({ Col * GridStep, 0.0f }).x;
+                    pDraw->AddLine({ X, WindowOrigin.y }, { X, WinMax.y }, bMajor ? theme::GridMajor : theme::Grid, bMajor ? 1.5f : 1.0f);
+                }
                 for (int Row = FirstRow; Row <= LastRow; ++Row)
-                    for (int Col = FirstCol; Col <= LastCol; ++Col)
-                        pDraw->AddCircleFilled(ToScreen({ Col * GridStep, Row * GridStep }), 1.5f, theme::Grid, 6);
+                {
+                    const bool  bMajor = (Row % MajorGridDiv) == 0;
+                    const float Y = ToScreen({ 0.0f, Row * GridStep }).y;
+                    pDraw->AddLine({ WindowOrigin.x, Y }, { WinMax.x, Y }, bMajor ? theme::GridMajor : theme::Grid, bMajor ? 1.5f : 1.0f);
+                }
                 pDraw->PopClipRect();
             }
         }
@@ -2802,8 +2823,8 @@ namespace nodeos
         {
             const int LOuter = std::max(0, LaneCountOf(Co.m_Id, 0) - 1);
             const int ROuter = std::max(0, LaneCountOf(Co.m_Id, 1) - 1);
-            pDraw->AddLine(ToScreen({ HighwayX(Co.m_Id, 'L', LOuter), 0 }), ToScreen({ HighwayX(Co.m_Id, 'L', LOuter), TotalH }), theme::Rail);
-            pDraw->AddLine(ToScreen({ HighwayX(Co.m_Id, 'R', ROuter), 0 }), ToScreen({ HighwayX(Co.m_Id, 'R', ROuter), TotalH }), theme::Rail);
+            pDraw->AddLine(ToScreen({ HighwayX(Co.m_Id, 'L', LOuter), 0 }), ToScreen({ HighwayX(Co.m_Id, 'L', LOuter), TotalH }), theme::Rail, ToScreenLen(2.0f));
+            pDraw->AddLine(ToScreen({ HighwayX(Co.m_Id, 'R', ROuter), 0 }), ToScreen({ HighwayX(Co.m_Id, 'R', ROuter), TotalH }), theme::Rail, ToScreenLen(2.0f));
         }
 
         const auto ScopeDepths     = ComputeScopeDepths(Nodes);
@@ -2975,7 +2996,7 @@ namespace nodeos
             // NodeWidth's own TitleW reservation so a bigger title never re-collides with the
             // category text the way the original bug did.
             const float TitleFontSize = FontSize * geo::TITLE_FONT_SCALE;
-            const float TitleYPx = P0.y + (ToScreenLen(geo::HEADER_H) - TitleFontSize) * 0.5f;
+            const float TitleYPx = P0.y + (ToScreenLen(geo::HEADER_H) - TitleFontSize) * 0.5f + 2.0f;
             const auto NodeName = pDesc->m_pFactory->getName();
             // An End marker's own factory name is just "End" for every instance - not clear enough
             // on its own (NODE_SCRIPTING_DESIGN.md section 4.2). Its actual displayed title is
@@ -3226,8 +3247,14 @@ namespace nodeos
                     }
                     if (bShowRing)
                     {
-                        const float HR = geo::PORT_HIT_RADIUS * 1.4f;
-                        pDraw->AddCircle(ToScreen({ CX, CenterY }), ToScreenLen(HR), IM_COL32(125, 211, 252, 255), 0, ToScreenLen(1.5f));
+                        // Sized off the glyph's own radius (R, above) rather than the generous
+                        // PORT_HIT_RADIUS hit-test area - a close-fitting halo around the actual pin,
+                        // not a big loose circle - and colored to match the pin's own type color
+                        // (Col, same one the glyph and its "[Type]" label already use) instead of a
+                        // fixed light blue, so the ring reads as "this pin" rather than a generic
+                        // hover indicator that happens to not match what's being highlighted.
+                        const float HR = R * 2.2f;
+                        pDraw->AddCircle(ToScreen({ CX, CenterY }), ToScreenLen(HR), Col, 0, ToScreenLen(1.5f));
                     }
                 }
 
