@@ -13,13 +13,15 @@
 // rather than a "swap inputs" gesture, since they aren't commutative - the same reasoning Compare
 // doesn't need (a Greater-Than/Less-Than pair would be redundant with two input orderings already).
 //
-// Once compilation is wired up, this needs no branching in the compiler either: the design doc's
-// _prop[N] substitution can splice this property's own stored value as the literal C++ operator
-// token straight into the template text, so long as each enum value's registered name IS (or maps
-// to) the operator token. Execute() is a no-op for now, same as every other node type in this corpus.
+// Execute() (interpreter) and the codegen backend's own EmitOrdinaryNode "Math Expression" case
+// (E27_NodeOS_Editor.cpp) both switch on m_Operator independently, working from the Operator
+// property's raw serialized form - ReflectedMemberToRow stores an enum as ReadEnumAsInt's numeric
+// value, never the display name - and, unlike Compare's single infix-operator-token substitution,
+// the REVERSE variants (B-A, B/A) need the operand ORDER swapped too, not just a different token.
 #include "../../SDK/xnode_os_plugin_api.h"
 #include "../../SDK/xnode_os_shared_types.h"
 #include <array>
+#include <cstdlib>
 
 namespace
 {
@@ -53,7 +55,31 @@ namespace
             static const xnode_os_port_desc s_Outputs[1] = { { "Result", "Any" } };
             return s_Outputs;
         }
-        void Execute(void** /*Inputs*/, void** /*Outputs*/) noexcept override {}
+        // A/B/Result are wildcard "Any" pins at the wiring/UI level, but every concrete producer this
+        // corpus has today resolves that wildcard to Float - reading both as float* is the same "the
+        // only real width so far" simplification Compare's own Execute() already leans on.
+        void Execute(void** Inputs, void** Outputs) noexcept override
+        {
+            const float A = Inputs[0] ? *static_cast<float*>(Inputs[0]) : 0.0f;
+            const float B = Inputs[1] ? *static_cast<float*>(Inputs[1]) : 0.0f;
+            float Result = 0.0f;
+            switch (m_Operator)
+            {
+                case math_expr_op::ADD:             Result = A + B; break;
+                case math_expr_op::SUBTRACT:        Result = A - B; break;
+                case math_expr_op::SUBTRACT_REVERSE: Result = B - A; break;
+                case math_expr_op::MULTIPLY:        Result = A * B; break;
+                case math_expr_op::DIVIDE:          Result = A / B; break;
+                case math_expr_op::DIVIDE_REVERSE:   Result = B / A; break;
+            }
+            auto* p = static_cast<float*>(std::malloc(sizeof(float)));
+            *p = Result;
+            Outputs[0] = p;
+        }
+        void FreeOutputs(void** Outputs) noexcept override
+        {
+            std::free(Outputs[0]);
+        }
     };
 }
 XPROPERTY_VREG(math_expression_node)

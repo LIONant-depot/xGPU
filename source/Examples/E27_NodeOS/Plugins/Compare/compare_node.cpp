@@ -14,27 +14,27 @@
 // The host also narrows the Operator dropdown to Equal/Not-Equal whenever the resolved type isn't
 // an orderable atomic (Float today) - a struct-like comparison has no meaningful < or >.
 //
-// Once compilation is wired up, this needs no branching in the compiler either: the design doc's
-// existing _prop[N] substitution (already proven by the material graph) can just splice this
-// property's own stored value as the literal C++ operator token straight into the template text -
-// e.g. "bool Result_$id = ($input[A] _prop[Operator] $input[B]);\n" - so long as each enum value's
-// registered name IS the operator token. Left for when the compiler side is actually revisited;
-// Execute() is a no-op for now, same as every other node type in this corpus so far.
+// Execute() (interpreter) and the codegen backend's own EmitOrdinaryNode "Compare" case
+// (E27_NodeOS_Editor.cpp) both switch on m_Operator independently rather than sharing one text-
+// substitution table - codegen reads the reflected Operator property back as its raw serialized
+// integer (ReflectedMemberToRow stores an enum as ReadEnumAsInt's numeric value, never the display
+// name), and maps that same 0..5 ordering to a literal C++ operator token.
 #include "../../SDK/xnode_os_plugin_api.h"
 #include "../../SDK/xnode_os_shared_types.h"
 #include <array>
+#include <cstdlib>
 
 namespace
 {
     enum class compare_op : std::uint8_t { GREATER, LESS, EQUAL, NOT_EQUAL, GREATER_OR_EQUAL, LESS_OR_EQUAL };
 
     static constexpr auto compare_op_v = std::array
-    { xproperty::settings::enum_item("Greater Than",     compare_op::GREATER)
-    , xproperty::settings::enum_item("Less Than",        compare_op::LESS)
-    , xproperty::settings::enum_item("Equal",            compare_op::EQUAL)
-    , xproperty::settings::enum_item("Not Equal",        compare_op::NOT_EQUAL)
-    , xproperty::settings::enum_item("Greater Or Equal", compare_op::GREATER_OR_EQUAL)
-    , xproperty::settings::enum_item("Less Or Equal",    compare_op::LESS_OR_EQUAL)
+    { xproperty::settings::enum_item("A Greater Than B",         compare_op::GREATER)
+    , xproperty::settings::enum_item("A Less Than B",            compare_op::LESS)
+    , xproperty::settings::enum_item("A Equal to B",             compare_op::EQUAL)
+    , xproperty::settings::enum_item("A Not Equal to B",         compare_op::NOT_EQUAL)
+    , xproperty::settings::enum_item("A Greater Or Equal Than B", compare_op::GREATER_OR_EQUAL)
+    , xproperty::settings::enum_item("A Less Or Equal Than B",    compare_op::LESS_OR_EQUAL)
     };
 
     struct compare_node : xnode_os_node
@@ -56,7 +56,32 @@ namespace
             static const xnode_os_port_desc s_Outputs[1] = { { "Result", "Bool" } };
             return s_Outputs;
         }
-        void Execute(void** /*Inputs*/, void** /*Outputs*/) noexcept override {}
+        // A/B are wildcard "Any" pins at the wiring/UI level, but every concrete producer this corpus
+        // has today (Constant, Compare's own A/B mirrors) resolves that wildcard to Float - reading
+        // both as float* is the same "the only real width so far" simplification Constant's own
+        // Execute() already leans on for its own Bool/Int/Short branches.
+        void Execute(void** Inputs, void** Outputs) noexcept override
+        {
+            const float A = Inputs[0] ? *static_cast<float*>(Inputs[0]) : 0.0f;
+            const float B = Inputs[1] ? *static_cast<float*>(Inputs[1]) : 0.0f;
+            bool Result = false;
+            switch (m_Operator)
+            {
+                case compare_op::GREATER:          Result = A >  B; break;
+                case compare_op::LESS:             Result = A <  B; break;
+                case compare_op::EQUAL:            Result = A == B; break;
+                case compare_op::NOT_EQUAL:        Result = A != B; break;
+                case compare_op::GREATER_OR_EQUAL: Result = A >= B; break;
+                case compare_op::LESS_OR_EQUAL:    Result = A <= B; break;
+            }
+            auto* p = static_cast<bool*>(std::malloc(sizeof(bool)));
+            *p = Result;
+            Outputs[0] = p;
+        }
+        void FreeOutputs(void** Outputs) noexcept override
+        {
+            std::free(Outputs[0]);
+        }
     };
 }
 XPROPERTY_VREG(compare_node)

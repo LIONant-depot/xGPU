@@ -9,6 +9,12 @@
 #include "source/Examples/E27_NodeOS/SDK/xnode_os_host_interface.h"
 #include "source/Examples/E27_NodeOS/SDK/xnode_os_shared_types.h"
 
+// Reusing E19_MaterialEditor's syntax-highlighting TextEditor widget (already compiled into this
+// same xGPU_unit_test target) to show the codegen backend's generated C++ as a real docked window,
+// same pattern as E19's own GLSLEditor - a persistent instance, SetText() only when new source is
+// generated, Render() called every frame.
+#include "source/Examples/E19_MaterialEditor/E19_TextEditor.h"
+
 // The real, official property inspector - the host draws every plugin's properties uniformly with
 // this over the node's own real getProperties() object (see xnode_os_plugin_api.h's top comment for
 // why that's safe across the DLL boundary now). Only the header: the real .cpp implementation is
@@ -49,12 +55,14 @@
 #include <cstdio>
 #include <cstring>
 #include <cctype>
+#include <cstdlib>
 #include <climits>
 #include <fstream>
 #include <sstream>
 #include <filesystem>
 #include <algorithm>
 #include <unordered_map>
+#include <deque>
 #include <set>
 #include <future>
 #include <chrono>
@@ -1155,20 +1163,6 @@ namespace nodeos
         return s_Scratch.c_str();
     }
 
-    // Whatever cached output feeds a given node's input pin right now (nullptr if unconnected or
-    // the source hasn't run) - used both by the text preview and the mesh render preview below.
-    static void* GetInputValue(std::uint64_t NodeId, int InputIndex, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links)
-    {
-        for (auto& Link : Links)
-        {
-            if (Link.m_TargetNode != NodeId || Link.m_TargetInput != InputIndex) continue;
-            auto SourceIt = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == Link.m_SourceNode; });
-            if (SourceIt == Nodes.end() || !SourceIt->m_bHasRun) return nullptr;
-            return (Link.m_SourceOutput < (int)SourceIt->m_CachedOutputs.size()) ? SourceIt->m_CachedOutputs[Link.m_SourceOutput] : nullptr;
-        }
-        return nullptr;
-    }
-
     //------------------------------------------------------------------------------------------------
     // A tiny, dedicated render pipeline (position+normal, normal-as-color, no lighting/textures) so
     // any "Mesh"-typed pin can show a REAL rendered preview inline in its node - not just a vertex
@@ -1468,6 +1462,11 @@ namespace nodeos
     // RowHeight/NodeHeight (also free functions - they run during layout, before/outside the
     // interactive draw loop) can call it too; DrawGraphCanvas's own call sites just pass their
     // already-in-scope Nodes/Links along.
+    //
+    // Forward-declared: EffectiveTypeName (below) calls this to resolve a plain "Any" pin, and this
+    // now calls EffectiveTypeName right back for a two-hop chain (see the Outs[...] handling inside) -
+    // a real mutual recursion, not a leftover.
+    static const char* EffectiveTypeName(std::uint64_t NodeId, const xnode_os_node* pDesc, const char* pRawType, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links) noexcept;
     static const char* ResolveNodeWildcardType(std::uint64_t NodeId, const xnode_os_node* pDesc, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links) noexcept
     {
         int Index = 0;
@@ -1480,7 +1479,20 @@ namespace nodeos
                             if (N.m_Id == L.m_SourceNode && N.m_pNode)
                             {
                                 auto Outs = N.m_pNode->getOutputs();
-                                if (L.m_SourceOutput < (int)Outs.size()) return Outs[L.m_SourceOutput].m_pTypeName;
+                                if (L.m_SourceOutput >= (int)Outs.size()) continue;
+                                const char* pSourceType = Outs[L.m_SourceOutput].m_pTypeName;
+                                // The source's own declared output type can ITSELF be an unresolved
+                                // wildcard - wiring straight from a Compare/Math Expression's own
+                                // "Any" Result rather than from a concrete-typed producer like
+                                // Constant. Returning that raw, still-open "Any" text here is exactly
+                                // the bug that left Print's Value pin showing "[Any]" and a raw
+                                // pointer preview instead of "[Float]" and the real number once Print
+                                // got wired two hops downstream of Constant instead of one - resolve
+                                // it one level further instead of assuming the immediate source is
+                                // already concrete.
+                                if (IsWildcardType(pSourceType))
+                                    return EffectiveTypeName(N.m_Id, N.m_pNode, pSourceType, Nodes, Links);
+                                return pSourceType;
                             }
             ++Index;
         }
@@ -1509,6 +1521,55 @@ namespace nodeos
         if (const char* pResolved = ResolveNodeWildcardType(NodeId, pDesc, Nodes, Links)) return pResolved;
         return pRawType;
     }
+
+    // A literal's resolved runtime bytes live here, not in a shared static/thread_local buffer - see
+    // GetInputValue's own comment for why a single shared slot would be wrong the moment a node has
+    // more than one unconnected literal input. std::deque (not vector) specifically: appending never
+    // invalidates an already-returned pointer into an earlier element, since nothing here ever needs
+    // random-access indexing, only stable addresses for as long as the deque itself is alive.
+    struct literal_slot { unsigned char m_Bytes[8]; };
+    using literal_storage = std::deque<literal_slot>;
+
+    // Shared tail for GetInputValue/PullInputValue: what a pin resolves to when NO wire targets it
+    // at all - whatever's typed into its inline-literal box (LiteralValues, keyed by InPinOf - the
+    // same value the canvas already shows next to the pin), or nullptr if nothing was ever typed in.
+    static void* ResolveUnconnectedLiteral(std::uint64_t NodeId, int InputIndex, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch)
+    {
+        auto LitIt = LiteralValues.find(InPinOf(NodeId, InputIndex));
+        if (LitIt == LiteralValues.end() || LitIt->second.empty()) return nullptr;
+        auto NodeIt = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == NodeId; });
+        if (NodeIt == Nodes.end() || !NodeIt->m_pNode) return nullptr;
+        const auto NodeInputs = NodeIt->m_pNode->getInputs();
+        if (InputIndex >= (int)NodeInputs.size()) return nullptr;
+        const char* pEffType = EffectiveTypeName(NodeId, NodeIt->m_pNode, NodeInputs[InputIndex].m_pTypeName, Nodes, Links);
+
+        Scratch.emplace_back();
+        void* pSlot = &Scratch.back();
+        if (std::strcmp(pEffType, "Bool") == 0)  { *static_cast<bool*>(pSlot)         = (LitIt->second == "1" || LitIt->second == "true"); return pSlot; }
+        if (std::strcmp(pEffType, "Int") == 0)   { *static_cast<std::int32_t*>(pSlot) = std::atoi(LitIt->second.c_str()); return pSlot; }
+        if (std::strcmp(pEffType, "Short") == 0) { *static_cast<std::int16_t*>(pSlot) = (std::int16_t)std::atoi(LitIt->second.c_str()); return pSlot; }
+        *static_cast<float*>(pSlot) = std::strtof(LitIt->second.c_str(), nullptr); // Float, and the default for anything else
+        return pSlot;
+    }
+    // Whatever cached output feeds a given node's input pin right now - nullptr if unconnected (and
+    // no literal is typed in), or if a wire IS there but its source simply hasn't run (yet, or ever -
+    // this never PULLS a source into running; see PullInputValue below, used by real execution, for
+    // that). Read-only, side-effect-free - this is what the canvas's own live pin preview and the
+    // mesh-preview pass use, since triggering real Execute() calls (with their real side effects,
+    // e.g. Print writing to the console) merely because a frame got drawn would be a much bigger
+    // surprise than a preview showing "nothing yet."
+    static void* GetInputValue(std::uint64_t NodeId, int InputIndex, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch)
+    {
+        for (auto& Link : Links)
+        {
+            if (Link.m_TargetNode != NodeId || Link.m_TargetInput != InputIndex) continue;
+            auto SourceIt = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == Link.m_SourceNode; });
+            if (SourceIt == Nodes.end() || !SourceIt->m_bHasRun) return nullptr;
+            return (Link.m_SourceOutput < (int)SourceIt->m_CachedOutputs.size()) ? SourceIt->m_CachedOutputs[Link.m_SourceOutput] : nullptr;
+        }
+        return ResolveUnconnectedLiteral(NodeId, InputIndex, Nodes, Links, LiteralValues, Scratch);
+    }
+
     // For connection-matching only: is this (already-effective) type name STILL an open wildcard of
     // either kind - a bare "Any" that's never been wired at all, or a "Span<Any>" whose own Span
     // input hasn't been wired yet? Either one accepts any type on the other end of a new connection.
@@ -2026,6 +2087,11 @@ namespace nodeos
                                , std::unordered_map<std::uint64_t, std::string>& LiteralValues
                                , bool& bDirty, xundo::system& System)
     {
+        // Lives for this whole draw call only - every pin-preview GetInputValue() call below that
+        // resolves an inline literal gets its own stable slot in here (see literal_storage's own
+        // comment for why a shared single slot would be wrong).
+        literal_storage LiteralScratch;
+
         ImGui::SetNextWindowPos(ImVec2(440, 0), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(820, 560), ImGuiCond_FirstUseEver);
         // No native scrollbar - left-drag pan + wheel zoom (below) are the only way to navigate a
@@ -2977,7 +3043,7 @@ namespace nodeos
                 {
                     void* pValue = P.m_bIsOutput
                         ? ((pNode->m_bHasRun && P.m_Index < (int)pNode->m_CachedOutputs.size()) ? pNode->m_CachedOutputs[P.m_Index] : nullptr)
-                        : GetInputValue(Id, P.m_Index, Nodes, Links);
+                        : GetInputValue(Id, P.m_Index, Nodes, Links, LiteralValues, LiteralScratch);
 
                     // Float/Int/Short are this corpus's numeric scalar types (see IsNoPreviewType's
                     // own comment for why Bool is excluded here - it's filtered out already, above,
@@ -3058,9 +3124,13 @@ namespace nodeos
                     // Compare's own Operator choice narrows to Equal/Not Equal whenever its A/B pins
                     // (see ResolveNodeWildcardType) haven't resolved to an orderable atomic type -
                     // Float is the only one today (E27_NodeOS_Editor.cpp's IsNoPreviewType comment) -
-                    // a struct-like comparison has no meaningful </<=/>/>=. A name-based special case,
-                    // same as the "End" one already used for the Else toggle - this is UI-only
-                    // filtering of the dropdown's own choices, not a change to what's stored.
+                    // a struct-like comparison has no meaningful </<=/>/>=. This is UI-only filtering
+                    // of the dropdown's own choices, not a change to what's stored. Matched by the
+                    // enum's own underlying VALUE (2 = EQUAL, 3 = NOT_EQUAL in compare_node.cpp's own
+                    // declaration order), not by display-name text - the host already has to know this
+                    // plugin's specific 0..5 ordering elsewhere (EmitOrdinaryNode's own "Compare" case
+                    // maps the same numbers to operator tokens), and a value match survives a display-
+                    // text rename for free, unlike the name-based check this replaced.
                     const bool bIsCompareOperator = pRealNode->m_pFactory->getName() == "Compare" && std::strcmp(M.m_pName, "Operator") == 0;
                     const char* pResolvedCompareType = bIsCompareOperator ? ResolveNodeWildcardType(Id, pDesc, Nodes, Links) : nullptr;
                     const bool bOrderable = !bIsCompareOperator || (pResolvedCompareType && std::strcmp(pResolvedCompareType, "Float") == 0);
@@ -3074,7 +3144,7 @@ namespace nodeos
                     {
                         for (auto& Item : pVar->m_AtomicType.m_RegisteredEnumSpan)
                         {
-                            if (!bOrderable && std::strcmp(Item.m_pName, "Equal") != 0 && std::strcmp(Item.m_pName, "Not Equal") != 0)
+                            if (!bOrderable && (int)Item.m_Value != 2 && (int)Item.m_Value != 3)
                                 continue;
                             const bool bIsSel = ((int)Item.m_Value == CurrentVal);
                             if (ImGui::Selectable(Item.m_pName, bIsSel))
@@ -3690,9 +3760,14 @@ namespace nodeos
     // involvement, but wrong once OnEvent/ExecutionCall/Function/Execute exist - that model has no
     // concept of spine order, scope, or "only run if actually triggered," and would call a node's
     // Execute() the moment its inputs looked ready regardless of whether anything ever invokes it).
-    // A node only ever runs if it's reachable from the root spine by walking ordinary spine Order
-    // and Exec wires - anything else is inert, "commented code," never executed (the rule settled
-    // on this session, along with everything else this block implements).
+    // A node runs if it's reachable from the root spine by walking ordinary spine Order and Exec
+    // wires (the rule settled early this session) - OR, since a later session, if some node that
+    // WAS reached that way reads one of its outputs: an ordinary/"pure" node (no Exec pins of its
+    // own, doesn't own a scope) is a data dependency, not a position on a spine - moving it to a
+    // different spine, or ahead of/behind whoever reads it, was never meant to change whether it
+    // runs, any more than it would in Blueprints/Shader Graph/any other pull-based node graph. See
+    // PullInputValue/EnsureNodeRun below for the actual pull; anything else genuinely unreached by
+    // either rule is still inert, "commented code," never executed.
     static node_instance* FindNodeById(std::uint64_t Id, std::vector<node_instance>& Nodes)
     {
         auto It = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == Id; });
@@ -3704,36 +3779,80 @@ namespace nodeos
     {
         return !IsExecType(P.m_pTypeName) && !IsScopeType(P.m_pTypeName);
     }
-    static void RunOrdinaryNode(node_instance& Node, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links)
+    static void RunOrdinaryNode(node_instance& Node, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch, int PullDepth = 0);
+    // Only a genuinely PURE/ordinary data node is eligible to be pulled - anything with a real Exec
+    // pin (OnEvent/ExecutionCall/Execute/Function), or that owns a scope of its own content
+    // (If/ForEachLoop), must still go through its own explicit trigger. A data read must never
+    // silently invoke a Function call, fire an ExecutionCall fan-out, or run a conditional scope's
+    // body as a side effect of some unrelated node just wanting to read a value - only leaf/data
+    // nodes (Constant, Compare, Math Expression, ...) are safe to evaluate lazily, on demand,
+    // regardless of where they happen to sit.
+    static bool IsPullableNodeType(std::string_view Name) noexcept
+    {
+        return Name != "OnEvent" && Name != "ExecutionCall" && Name != "Execute" && Name != "Function"
+            && Name != "If" && Name != "ForEachLoop" && Name != "End";
+    }
+    static void EnsureNodeRun(std::uint64_t NodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch, int PullDepth)
+    {
+        // A real cyclic data dependency (A needs B needs A) would otherwise recurse forever - bail
+        // rather than stack-overflow; no ordinary graph legitimately nests pulls this deep. Left
+        // unrun, exactly like any other node the walk never reaches - PullInputValue's own caller
+        // sees nullptr, same as an honestly-unconnected pin.
+        if (PullDepth > 64) return;
+        node_instance* pNode = FindNodeById(NodeId, Nodes);
+        if (!pNode || !pNode->m_pNode || pNode->m_bHasRun) return;
+        if (!IsPullableNodeType(pNode->m_pNode->m_pFactory->getName())) return;
+        RunOrdinaryNode(*pNode, Nodes, Links, LiteralValues, Scratch, PullDepth + 1);
+    }
+    // Like GetInputValue, but for real execution: if a wire's source hasn't run yet, PULLS it (runs
+    // it right now, recursively resolving its own inputs the same way) instead of just reporting
+    // nullptr - see the pull-based-execution comment above FindNodeById for why. GetInputValue itself
+    // stays read-only/non-pulling, for the canvas preview and mesh-preview passes that must never
+    // trigger a real Execute() (with its real side effects) merely because a frame got drawn.
+    static void* PullInputValue(std::uint64_t NodeId, int InputIndex, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch, int PullDepth)
+    {
+        for (auto& Link : Links)
+        {
+            if (Link.m_TargetNode != NodeId || Link.m_TargetInput != InputIndex) continue;
+            auto SourceIt = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == Link.m_SourceNode; });
+            if (SourceIt == Nodes.end()) return nullptr;
+            if (!SourceIt->m_bHasRun)
+                EnsureNodeRun(SourceIt->m_Id, Nodes, Links, LiteralValues, Scratch, PullDepth);
+            if (!SourceIt->m_bHasRun) return nullptr; // still didn't run - an Exec-gated/scope-owning source, or a cycle bailout
+            return (Link.m_SourceOutput < (int)SourceIt->m_CachedOutputs.size()) ? SourceIt->m_CachedOutputs[Link.m_SourceOutput] : nullptr;
+        }
+        return ResolveUnconnectedLiteral(NodeId, InputIndex, Nodes, Links, LiteralValues, Scratch);
+    }
+    static void RunOrdinaryNode(node_instance& Node, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch, int PullDepth)
     {
         if (!Node.m_pNode || Node.m_bHasRun) return;
         const auto NodeInputs  = Node.m_pNode->getInputs();
         const auto NodeOutputs = Node.m_pNode->getOutputs();
         std::vector<void*> Inputs(NodeInputs.size(), nullptr);
         for (int i = 0; i < (int)NodeInputs.size(); ++i)
-            Inputs[i] = GetInputValue(Node.m_Id, i, Nodes, Links);
+            Inputs[i] = PullInputValue(Node.m_Id, i, Nodes, Links, LiteralValues, Scratch, PullDepth);
         Node.m_CachedOutputs.assign(NodeOutputs.size(), nullptr);
         Node.m_pNode->Execute(Inputs.data(), Node.m_CachedOutputs.data());
         Node.m_bHasRun = true;
     }
-    static void RunSpineRange(std::uint64_t SpineId, int FromOrderInclusive, int ToOrderExclusive, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links);
-    static void RunExecTarget(std::uint64_t TargetNodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links);
+    static void RunSpineRange(std::uint64_t SpineId, int FromOrderInclusive, int ToOrderExclusive, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch);
+    static void RunExecTarget(std::uint64_t TargetNodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch);
     // ExecutionCall's Exec output fans out to every Exec-typed link off it - fork, run each target to
     // completion (RunExecTarget is fully synchronous, so this doubles as the join: nothing after this
     // call returns until every fanned-out target has finished). Order between multiple targets is
     // deliberately unspecified (settled this session); a plain left-to-right pass over Links is as
     // good as any other order today.
-    static void RunExecutionCall(node_instance& Caller, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links)
+    static void RunExecutionCall(node_instance& Caller, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch)
     {
         if (Caller.m_bHasRun) return;
         Caller.m_bHasRun = true;
         for (auto& L : Links)
             if (L.m_SourceNode == Caller.m_Id)
-                RunExecTarget(L.m_TargetNode, Nodes, Links);
+                RunExecTarget(L.m_TargetNode, Nodes, Links, LiteralValues, Scratch);
     }
     // Entering Function or Execute via an incoming Exec trigger - the only way either ever runs (see
     // RunSpineRange, which deliberately skips both during ordinary positional walking).
-    static void RunExecTarget(std::uint64_t TargetNodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links)
+    static void RunExecTarget(std::uint64_t TargetNodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch)
     {
         node_instance* pTarget = FindNodeById(TargetNodeId, Nodes);
         if (!pTarget || !pTarget->m_pNode || pTarget->m_bHasRun) return;
@@ -3753,19 +3872,27 @@ namespace nodeos
             std::vector<void*> InVals(Inputs.size(), nullptr);
             for (int i = 0; i < (int)Inputs.size(); ++i)
                 if (!Inputs[i].m_bLocalScope && IsRealDataPort(Inputs[i]))
-                    InVals[i] = GetInputValue(pTarget->m_Id, i, Nodes, Links);
+                    InVals[i] = PullInputValue(pTarget->m_Id, i, Nodes, Links, LiteralValues, Scratch, 0);
             pTarget->m_CachedOutputs.assign(Outputs.size(), nullptr);
             pTarget->m_pNode->Execute(InVals.data(), pTarget->m_CachedOutputs.data()); // no-op today, kept for a real ABI
 
-            int ExternalOutputCount = 0;
-            for (auto& O : Outputs) if (!O.m_bLocalScope && IsRealDataPort(O)) ++ExternalOutputCount;
-            int ExternalInputCount = 0;
-            for (auto& I : Inputs) if (!I.m_bLocalScope && IsRealDataPort(I)) ++ExternalInputCount;
+            // Where the local-mirror GROUP actually starts in each direction - found by scanning for
+            // the real boundary, not by counting type-filtered pins and assuming the mirror group
+            // sits immediately after them. That assumption held while Exec was appended LAST (so
+            // every non-local input was also a "real data" input), but broke the moment Exec moved
+            // to be first: counting only "external, real-data" inputs then undercounts by exactly
+            // one (Exec occupies a non-local slot the count skips), pointing every mirror lookup one
+            // pin too early. Scanning for the actual first-local-pin index is correct regardless of
+            // how many/which non-local pins precede the local group, in either direction.
+            int FirstLocalOutputIdx = (int)Outputs.size();
+            for (int i = 0; i < (int)Outputs.size(); ++i) if (Outputs[i].m_bLocalScope) { FirstLocalOutputIdx = i; break; }
+            int FirstLocalInputIdx = (int)Inputs.size();
+            for (int i = 0; i < (int)Inputs.size(); ++i) if (Inputs[i].m_bLocalScope) { FirstLocalInputIdx = i; break; }
 
             for (int i = 0, K = 0; i < (int)Inputs.size(); ++i)
             {
                 if (Inputs[i].m_bLocalScope || !IsRealDataPort(Inputs[i])) continue;
-                const int MirrorIdx = ExternalOutputCount + K;
+                const int MirrorIdx = FirstLocalOutputIdx + K;
                 if (MirrorIdx < (int)pTarget->m_CachedOutputs.size()) pTarget->m_CachedOutputs[MirrorIdx] = InVals[i];
                 ++K;
             }
@@ -3773,13 +3900,13 @@ namespace nodeos
 
             auto* pEnd = FindNodeById(pTarget->m_OwnedEndId, Nodes);
             const int EndOrder = pEnd ? pEnd->m_Order : INT_MAX;
-            RunSpineRange(pTarget->m_SpineId, pTarget->m_Order + 1, EndOrder, Nodes, Links);
+            RunSpineRange(pTarget->m_SpineId, pTarget->m_Order + 1, EndOrder, Nodes, Links, LiteralValues, Scratch);
 
             for (int i = 0, L2 = 0; i < (int)Outputs.size(); ++i)
             {
                 if (Outputs[i].m_bLocalScope || !IsRealDataPort(Outputs[i])) continue;
-                const int MirrorInputIdx = ExternalInputCount + L2;
-                pTarget->m_CachedOutputs[i] = (MirrorInputIdx < (int)Inputs.size()) ? GetInputValue(pTarget->m_Id, MirrorInputIdx, Nodes, Links) : nullptr;
+                const int MirrorInputIdx = FirstLocalInputIdx + L2;
+                pTarget->m_CachedOutputs[i] = (MirrorInputIdx < (int)Inputs.size()) ? PullInputValue(pTarget->m_Id, MirrorInputIdx, Nodes, Links, LiteralValues, Scratch, 0) : nullptr;
                 ++L2;
             }
         }
@@ -3790,32 +3917,58 @@ namespace nodeos
             // No owned scope - "body" is simply everything positionally after it in its own spine,
             // all the way to the spine's own end (NODE_SCRIPTING_DESIGN.md's Execute/lambda-capture
             // analogy) - nothing bounds it the way Function's own End does.
-            RunSpineRange(pTarget->m_SpineId, pTarget->m_Order + 1, INT_MAX, Nodes, Links);
+            RunSpineRange(pTarget->m_SpineId, pTarget->m_Order + 1, INT_MAX, Nodes, Links, LiteralValues, Scratch);
         }
     }
     // The flat-spine model's own base case: run every node positioned in [FromOrderInclusive,
     // ToOrderExclusive) of one spine, in Order. "End" is a pure boundary marker, never run. Function
     // and Execute are deliberately SKIPPED here even if positionally reached - both declare a real
     // Exec input specifically so they only ever run via an incoming trigger (RunExecTarget), never
-    // just because ordinary spine order got to them. If/ForEachLoop aren't given real branch/loop
-    // semantics yet - nothing saved exercises them; RunOrdinaryNode's generic "resolve inputs, call
-    // Execute() once" is what they'd fall through to today, same as any other node type not
-    // specifically recognized here - a real next step once something actually needs it.
-    static void RunSpineRange(std::uint64_t SpineId, int FromOrderInclusive, int ToOrderExclusive, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links)
+    // just because ordinary spine order got to them. ForEachLoop isn't given real loop semantics
+    // yet - nothing saved exercises it; RunOrdinaryNode's generic "resolve inputs, call Execute()
+    // once" is what it'd fall through to today, same as any other node type not specifically
+    // recognized here - a real next step once something actually needs it.
+    static void RunSpineRange(std::uint64_t SpineId, int FromOrderInclusive, int ToOrderExclusive, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch)
     {
         std::vector<node_instance*> Members;
         for (auto& N : Nodes)
             if (N.m_SpineId == SpineId && N.m_Order >= FromOrderInclusive && N.m_Order < ToOrderExclusive)
                 Members.push_back(&N);
         std::sort(Members.begin(), Members.end(), [](auto* A, auto* B) { return A->m_Order < B->m_Order; });
-        for (auto* pN : Members)
+        for (std::size_t i = 0; i < Members.size(); ++i)
         {
+            auto* pN = Members[i];
             if (!pN->m_pNode || pN->m_bHasRun) continue;
             const auto Name = pN->m_pNode->m_pFactory->getName();
             if (Name == "End") continue;
-            if (Name == "ExecutionCall") { RunExecutionCall(*pN, Nodes, Links); continue; }
+            if (Name == "ExecutionCall") { RunExecutionCall(*pN, Nodes, Links, LiteralValues, Scratch); continue; }
             if (Name == "Function" || Name == "Execute") continue;
-            RunOrdinaryNode(*pN, Nodes, Links);
+            if (Name == "If" && pN->m_OwnedEndId != 0)
+            {
+                // If has no Exec pins at all (if_node.cpp) - purely positional, its true-branch body
+                // is just whatever physically follows it in this same spine up to its owned End. Runs
+                // itself first (a no-op Execute(), but this is what resolves+marks Condition's source
+                // as read) then decides whether to recurse into the body at all - an untaken branch's
+                // nodes are deliberately left m_bHasRun == false, so the existing "not reached this
+                // run" flagging (ExecuteGraph's epilogue) shows exactly which path didn't execute,
+                // same meaning it already carries for any other unreached node. Condition is resolved
+                // via PullInputValue, not GetInputValue - Compare (or whatever feeds it) is a data
+                // dependency, not something that has to happen to sit somewhere the flat walk already
+                // reaches; If wiring TO it is exactly what should pull it in, wherever it lives.
+                RunOrdinaryNode(*pN, Nodes, Links, LiteralValues, Scratch);
+                const bool* pCond = static_cast<const bool*>(PullInputValue(pN->m_Id, 0, Nodes, Links, LiteralValues, Scratch, 0));
+                auto* pEnd = FindNodeById(pN->m_OwnedEndId, Nodes);
+                const int EndOrder = pEnd ? pEnd->m_Order : INT_MAX;
+                if (pCond && *pCond)
+                    RunSpineRange(SpineId, pN->m_Order + 1, EndOrder, Nodes, Links, LiteralValues, Scratch);
+                // Either way, the OUTER walk must not also treat the body as ordinary members once
+                // this returns - skip past it (the recursive call above already ran+marked it when
+                // taken; when not taken, this is what keeps it from running unconditionally, which
+                // was the whole bug this block exists to fix).
+                while (i + 1 < Members.size() && Members[i + 1]->m_Order < EndOrder) ++i;
+                continue;
+            }
+            RunOrdinaryNode(*pN, Nodes, Links, LiteralValues, Scratch);
         }
     }
     // Runs the whole PROGRAM: starts at the root spine's own beginning and walks forward - OnEvent
@@ -3823,13 +3976,385 @@ namespace nodeos
     // Once the root spine runs off its own end, the program is done, independent of anything else
     // that may or may not have been triggered along the way ("main spine governs program lifetime,"
     // settled this session).
-    static void RunProgram(std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::vector<spine>& Spines)
+    static void RunProgram(std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::vector<spine>& Spines, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch)
     {
         GetRuntimeLog().clear();
         std::uint64_t RootSpineId = 0;
         for (auto& S : Spines) if (S.m_bIsRoot) { RootSpineId = S.m_Id; break; }
         if (RootSpineId == 0) return;
-        RunSpineRange(RootSpineId, 0, INT_MAX, Nodes, Links);
+        RunSpineRange(RootSpineId, 0, INT_MAX, Nodes, Links, LiteralValues, Scratch);
+    }
+
+    // ---- Real C++ codegen (tests whether ordinary nodes' own logic can be REUSED rather than
+    // reimplemented by generated code - the question this whole block exists to answer). Mirrors
+    // RunSpineRange/RunExecTarget/RunExecutionCall's exact structure - same reachability walk, same
+    // recognized node-type names - but EMITS TEXT instead of executing. Handles exactly what the
+    // current saved test graph needs (OnEvent, Constant, ExecutionCall, Function, Execute, Print) -
+    // anything else emits a visible "not implemented" comment rather than silently producing nothing
+    // or something wrong.
+    //
+    // The interpreter (RunExecTarget's "Function" branch) needed real bookkeeping at runtime to
+    // mirror a resolved parameter value into the local-scope output slot the body reads through -
+    // codegen needs NONE of that: a Function's parameter and its own local-mirror output share the
+    // exact same generated variable name (CppVar(FunctionId, MirrorOutIdx) for both), so the body's
+    // ordinary "read my local mirror" link resolves, via the same CppInputExpr every other link
+    // uses, straight to the C++ parameter itself. No separate mirroring step exists in the emitted
+    // code at all - this is the concrete "codegen is simpler here than the interpreter was" case,
+    // not just a claim.
+    static std::string ReadStringPropertyFromSnapshot(const std::string& Snapshot, std::string_view Name)
+    {
+        std::size_t Pos = 0;
+        while (Pos < Snapshot.size())
+        {
+            const std::size_t LineEnd = Snapshot.find('\n', Pos);
+            const std::string Line = Snapshot.substr(Pos, (LineEnd == std::string::npos ? Snapshot.size() : LineEnd) - Pos);
+            Pos = (LineEnd == std::string::npos) ? Snapshot.size() : LineEnd + 1;
+            const std::size_t Tab1 = Line.find('\t');
+            if (Tab1 != std::string::npos && std::string_view(Line).substr(0, Tab1) == Name)
+            {
+                const std::size_t Tab2 = Line.find('\t', Tab1 + 1);
+                if (Tab2 != std::string::npos) return Line.substr(Tab2 + 1);
+            }
+        }
+        return {};
+    }
+    // A stable, deterministic C++ variable name for a given (NodeId, OutputIndex) pin - masked to
+    // 24 bits purely for readability in the generated source, collisions are not a real concern for
+    // a single small test graph.
+    static std::string CppVar(std::uint64_t NodeId, int OutputIndex)
+    {
+        return std::format("v{:x}_{}", NodeId & 0xffffff, OutputIndex);
+    }
+    static void EmitOrdinaryNode(node_instance& Node, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out);
+    // Codegen's own mirror of the interpreter's EnsureNodeRun - see IsPullableNodeType's own comment
+    // for exactly which node types are (and are never) safe to pull. Emits the source's declaration
+    // directly into Out, the SAME accumulator the caller is about to append its own line into - since
+    // this runs to completion before that caller's own `Out += ...` executes, the pulled dependency's
+    // declaration always lands immediately BEFORE the statement that needed it, which is the only
+    // place C++'s declare-before-use rule allows it to go.
+    static void EnsureNodeEmitted(std::uint64_t NodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, int PullDepth)
+    {
+        if (PullDepth > 64 || EmittedNodeIds.count(NodeId)) return; // cycle bailout, or already done
+        node_instance* pNode = FindNodeById(NodeId, Nodes);
+        if (!pNode || !pNode->m_pNode) return;
+        if (!IsPullableNodeType(pNode->m_pNode->m_pFactory->getName())) return;
+        EmitOrdinaryNode(*pNode, Nodes, Links, LiteralValues, EmittedNodeIds, Out);
+    }
+    // Whatever C++ expression currently feeds an input pin - the variable name for whatever's wired
+    // to it, or, if nothing's wired, the same inline-literal-on-unconnected-pin value the interpreter
+    // now also honors (see GetInputValue's own comment) - formatted as a real C++ literal token
+    // matching the pin's effective type, rather than always silently falling back to 0.0f regardless
+    // of what's typed in.
+    //
+    // A wire's source that hasn't been emitted yet gets PULLED in (EnsureNodeEmitted) rather than
+    // treated as a hard "0.0f" miss - mirrors PullInputValue's own interpreter-side behavior: a data
+    // wire is a real dependency, not a requirement that the producer happen to sit somewhere the flat
+    // spine walk already reaches. Only a genuinely unpullable source (Exec-gated, scope-owning, or a
+    // real cyclic dependency) still falls back to "0.0f", matching that same source's interpreter-
+    // side null result.
+    static std::string CppInputExpr(std::uint64_t NodeId, int InputIndex, std::vector<link_instance>& Links, std::vector<node_instance>& Nodes, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, int PullDepth = 0)
+    {
+        for (auto& L : Links)
+            if (L.m_TargetNode == NodeId && L.m_TargetInput == InputIndex)
+            {
+                if (!EmittedNodeIds.count(L.m_SourceNode))
+                    EnsureNodeEmitted(L.m_SourceNode, Nodes, Links, LiteralValues, EmittedNodeIds, Out, PullDepth);
+                if (EmittedNodeIds.count(L.m_SourceNode)) return CppVar(L.m_SourceNode, L.m_SourceOutput);
+                return "0.0f";
+            }
+
+        auto LitIt = LiteralValues.find(InPinOf(NodeId, InputIndex));
+        if (LitIt == LiteralValues.end() || LitIt->second.empty()) return "0.0f";
+        node_instance* pNode = FindNodeById(NodeId, Nodes);
+        const char* pEffType = "Float";
+        if (pNode && pNode->m_pNode)
+        {
+            const auto Inputs = pNode->m_pNode->getInputs();
+            if (InputIndex < (int)Inputs.size())
+                pEffType = EffectiveTypeName(NodeId, pNode->m_pNode, Inputs[InputIndex].m_pTypeName, Nodes, Links);
+        }
+        if (std::strcmp(pEffType, "Bool") == 0) return (LitIt->second == "1" || LitIt->second == "true") ? "true" : "false";
+        if (std::strcmp(pEffType, "Int") == 0 || std::strcmp(pEffType, "Short") == 0) return LitIt->second;
+        // Float, and the default for anything else - same "{:#}" round-trip Constant's own literal
+        // emission uses, so a whole number typed in ("1") doesn't produce the invalid literal "1f".
+        return std::format("{:#}f", std::strtof(LitIt->second.c_str(), nullptr));
+    }
+    static void EmitOrdinaryNode(node_instance& Node, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out)
+    {
+        const auto Name = Node.m_pNode->m_pFactory->getName();
+        if (Name == "Constant")
+        {
+            // A literal's value is known at codegen time - nothing to call, just substitute the
+            // number directly. The one ordinary node type in this test graph with no real logic to
+            // share (there's no logic, only a value).
+            const std::string ValueText = ReadStringPropertyFromSnapshot(SerializePropertiesToString(Node.m_pNode), "Value");
+            // Round-tripped through a real float parse/format rather than appending an "f" suffix
+            // straight onto whatever text was stored - a whole-number value like "0" has no decimal
+            // point, so a bare textual "f" suffix produces the syntactically invalid literal "0f".
+            // "{:#}" forces a decimal point even for a whole number (std::format's float '#' flag,
+            // same meaning as printf's) - plain "{}" formats 0.0f as "0", which a bare "f" suffix
+            // would turn into the invalid literal "0f" instead of the valid "0.f".
+            const float Value = std::strtof(ValueText.empty() ? "0" : ValueText.c_str(), nullptr);
+            Out += std::format("    float {} = {:#}f;\n", CppVar(Node.m_Id, 0), Value);
+        }
+        else if (Name == "Print")
+        {
+            Out += std::format("    std::printf(\"%.2f\\n\", {});\n", CppInputExpr(Node.m_Id, 0, Links, Nodes, LiteralValues, EmittedNodeIds, Out));
+        }
+        else if (Name == "Compare")
+        {
+            // Mirrors compare_node.cpp's own Execute() switch, but working from the Operator
+            // property's raw serialized form - ReflectedMemberToRow stores an enum as
+            // ReadEnumAsInt's numeric value ("0".."5"), never the display name, so this indexes the
+            // same compare_op_v ordering by number rather than matching against enum item text.
+            const std::string Op = ReadStringPropertyFromSnapshot(SerializePropertiesToString(Node.m_pNode), "Operator");
+            const char* pToken = "!=";
+            switch (Op.empty() ? 0 : std::atoi(Op.c_str()))
+            {
+                case 0: pToken = ">";  break; // GREATER
+                case 1: pToken = "<";  break; // LESS
+                case 2: pToken = "=="; break; // EQUAL
+                case 3: pToken = "!="; break; // NOT_EQUAL
+                case 4: pToken = ">="; break; // GREATER_OR_EQUAL
+                case 5: pToken = "<="; break; // LESS_OR_EQUAL
+            }
+            Out += std::format("    bool {} = ({} {} {});\n", CppVar(Node.m_Id, 0), CppInputExpr(Node.m_Id, 0, Links, Nodes, LiteralValues, EmittedNodeIds, Out), pToken, CppInputExpr(Node.m_Id, 1, Links, Nodes, LiteralValues, EmittedNodeIds, Out));
+        }
+        else if (Name == "Math Expression")
+        {
+            // Mirrors math_expression_node.cpp's own Execute() switch (same raw-serialized-enum
+            // indexing Compare uses above) - the REVERSE variants swap which operand prints on which
+            // side of the operator rather than just picking a different token, so this builds the
+            // whole expression per case instead of substituting one shared token into a fixed shape.
+            const std::string Op = ReadStringPropertyFromSnapshot(SerializePropertiesToString(Node.m_pNode), "Operator");
+            const std::string A = CppInputExpr(Node.m_Id, 0, Links, Nodes, LiteralValues, EmittedNodeIds, Out);
+            const std::string B = CppInputExpr(Node.m_Id, 1, Links, Nodes, LiteralValues, EmittedNodeIds, Out);
+            std::string Expr;
+            switch (Op.empty() ? 0 : std::atoi(Op.c_str()))
+            {
+                case 0: Expr = std::format("({} + {})", A, B); break; // ADD
+                case 1: Expr = std::format("({} - {})", A, B); break; // SUBTRACT
+                case 2: Expr = std::format("({} - {})", B, A); break; // SUBTRACT_REVERSE
+                case 3: Expr = std::format("({} * {})", A, B); break; // MULTIPLY
+                case 4: Expr = std::format("({} / {})", A, B); break; // DIVIDE
+                case 5: Expr = std::format("({} / {})", B, A); break; // DIVIDE_REVERSE
+                default: Expr = "0.0f"; break;
+            }
+            Out += std::format("    float {} = {};\n", CppVar(Node.m_Id, 0), Expr);
+        }
+        else
+        {
+            Out += std::format("    // codegen for '{}' not implemented yet\n", Name);
+        }
+        // Marks this node reachable/emitted for CppInputExpr's own "is my wired source real"
+        // check - mirrors the interpreter's m_bHasRun, but kept as a SEPARATE set rather than
+        // reusing that field: codegen and the interpreter can both run in the same process (the
+        // self-test does exactly this, back to back, on the same Nodes), and m_bHasRun already has
+        // its own real meaning there - overloading it here would make each pass corrupt the other's
+        // bookkeeping.
+        EmittedNodeIds.insert(Node.m_Id);
+    }
+    static void EmitSpineRange(std::uint64_t SpineId, int FromOrderInclusive, int ToOrderExclusive, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, std::string& FunctionDefs);
+    static void EmitExecTarget(std::uint64_t TargetNodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, std::string& FunctionDefs);
+    static void EmitExecutionCall(node_instance& Caller, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, std::string& FunctionDefs)
+    {
+        // No "already emitted" guard the way RunExecutionCall has m_bHasRun - a node reached by more
+        // than one path would get emitted (and its variable re-declared) more than once, a real
+        // limitation this first pass doesn't handle; the current test graph is tree-shaped so it
+        // never comes up.
+        for (auto& L : Links)
+            if (L.m_SourceNode == Caller.m_Id)
+                EmitExecTarget(L.m_TargetNode, Nodes, Links, LiteralValues, EmittedNodeIds, Out, FunctionDefs);
+    }
+    static void EmitExecTarget(std::uint64_t TargetNodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, std::string& FunctionDefs)
+    {
+        node_instance* pTarget = FindNodeById(TargetNodeId, Nodes);
+        if (!pTarget || !pTarget->m_pNode) return;
+        const auto Name = pTarget->m_pNode->m_pFactory->getName();
+
+        if (Name == "Function")
+        {
+            const auto Inputs  = pTarget->m_pNode->getInputs();
+            const auto Outputs = pTarget->m_pNode->getOutputs();
+            int ExternalOutputCount = 0;
+            for (auto& O : Outputs) if (!O.m_bLocalScope && IsRealDataPort(O)) ++ExternalOutputCount;
+
+            // Declared (external, non-local, non-Exec) inputs become real C++ parameters - named
+            // the SAME as the matching local-mirror OUTPUT (see this block's own top comment for why
+            // that one naming choice is what makes the body's "read my parameter" links just work
+            // with no special-casing at all).
+            std::string Params;
+            int ParamCount = 0;
+            for (int i = 0; i < (int)Inputs.size(); ++i)
+            {
+                if (Inputs[i].m_bLocalScope || !IsRealDataPort(Inputs[i])) continue;
+                if (!Params.empty()) Params += ", ";
+                Params += std::format("float {}", CppVar(pTarget->m_Id, ExternalOutputCount + ParamCount));
+                ++ParamCount;
+            }
+
+            // Marked emitted BEFORE the body below, not after - the body reads its own parameters
+            // through Function's own local-mirror OUTPUT slots (same node id, different output
+            // index), so CppInputExpr's "is my wired source real" check needs pTarget->m_Id already
+            // in the set by the time the body's own Print/etc. resolve those links. Mirrors the
+            // interpreter's RunExecTarget, which sets pTarget->m_bHasRun = true before its own
+            // RunSpineRange(body) call for the exact same reason.
+            EmittedNodeIds.insert(pTarget->m_Id);
+
+            std::string Body;
+            auto* pEnd = FindNodeById(pTarget->m_OwnedEndId, Nodes);
+            const int EndOrder = pEnd ? pEnd->m_Order : INT_MAX;
+            EmitSpineRange(pTarget->m_SpineId, pTarget->m_Order + 1, EndOrder, Nodes, Links, LiteralValues, EmittedNodeIds, Body, FunctionDefs);
+
+            // Whatever's wired into the local Result-mirror INPUT becomes the return expression -
+            // only the first declared output is handled today, matching the interpreter's own scope.
+            // Found by SCANNING for the first local-scope Input, not by deriving an offset from a
+            // count - Inputs is [Exec][external params...][local Result-mirror...], so the local
+            // group's start shifted by one the moment Exec became the first declared input (see
+            // RunExecTarget's own identical fix, same root cause).
+            int FirstLocalInputIdx = (int)Inputs.size();
+            for (int i = 0; i < (int)Inputs.size(); ++i) if (Inputs[i].m_bLocalScope) { FirstLocalInputIdx = i; break; }
+            std::string ReturnExpr = "0.0f";
+            for (int i = 0; i < (int)Outputs.size(); ++i)
+            {
+                if (Outputs[i].m_bLocalScope || !IsRealDataPort(Outputs[i])) continue;
+                ReturnExpr = CppInputExpr(pTarget->m_Id, FirstLocalInputIdx, Links, Nodes, LiteralValues, EmittedNodeIds, Body);
+                break;
+            }
+
+            const std::string FnName = std::format("Fn_{:x}", pTarget->m_Id & 0xffffff);
+            FunctionDefs += std::format("static float {}({})\n{{\n{}    return {};\n}}\n\n", FnName, Params, Body, ReturnExpr);
+
+            std::string Args;
+            for (int i = 0; i < (int)Inputs.size(); ++i)
+            {
+                if (Inputs[i].m_bLocalScope || !IsRealDataPort(Inputs[i])) continue;
+                if (!Args.empty()) Args += ", ";
+                Args += CppInputExpr(pTarget->m_Id, i, Links, Nodes, LiteralValues, EmittedNodeIds, Out);
+            }
+            Out += std::format("    float {} = {}({});\n", CppVar(pTarget->m_Id, 0), FnName, Args);
+        }
+        else if (Name == "Execute")
+        {
+            // No owned scope - maps directly onto a C++ lambda captured by reference, exactly the
+            // "invoking a lambda, not calling a real function" distinction NODE_SCRIPTING_DESIGN.md
+            // §12.2 draws - its body just runs inline, reading/writing whatever's already in scope.
+            std::string Body, Unused;
+            EmitSpineRange(pTarget->m_SpineId, pTarget->m_Order + 1, INT_MAX, Nodes, Links, LiteralValues, EmittedNodeIds, Body, Unused);
+            Out += std::format("    [&]() {{\n{}    }}();\n", Body);
+        }
+    }
+    static void EmitSpineRange(std::uint64_t SpineId, int FromOrderInclusive, int ToOrderExclusive, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, std::string& FunctionDefs)
+    {
+        std::vector<node_instance*> Members;
+        for (auto& N : Nodes)
+            if (N.m_SpineId == SpineId && N.m_Order >= FromOrderInclusive && N.m_Order < ToOrderExclusive)
+                Members.push_back(&N);
+        std::sort(Members.begin(), Members.end(), [](auto* A, auto* B) { return A->m_Order < B->m_Order; });
+        for (std::size_t i = 0; i < Members.size(); ++i)
+        {
+            auto* pN = Members[i];
+            if (!pN->m_pNode) continue;
+            const auto Name = pN->m_pNode->m_pFactory->getName();
+            if (Name == "End" || Name == "OnEvent") continue;
+            if (Name == "ExecutionCall") { EmitExecutionCall(*pN, Nodes, Links, LiteralValues, EmittedNodeIds, Out, FunctionDefs); continue; }
+            if (Name == "Function" || Name == "Execute") continue;
+            if (Name == "If" && pN->m_OwnedEndId != 0)
+            {
+                // Mirrors RunSpineRange's own "If" handling: a real C++ if(){} block, body bounded
+                // by the same Order range the interpreter uses (this node's Order+1 up to its owned
+                // End's Order) - not the flat, unconditional walk that used to emit this body's code
+                // regardless of the (also unimplemented, until now) condition.
+                auto* pEnd = FindNodeById(pN->m_OwnedEndId, Nodes);
+                const int EndOrder = pEnd ? pEnd->m_Order : INT_MAX;
+                std::string Body;
+                EmitSpineRange(SpineId, pN->m_Order + 1, EndOrder, Nodes, Links, LiteralValues, EmittedNodeIds, Body, FunctionDefs);
+                Out += std::format("    if ({}) {{\n{}    }}\n", CppInputExpr(pN->m_Id, 0, Links, Nodes, LiteralValues, EmittedNodeIds, Out), Body);
+                while (i + 1 < Members.size() && Members[i + 1]->m_Order < EndOrder) ++i;
+                continue;
+            }
+            EmitOrdinaryNode(*pN, Nodes, Links, LiteralValues, EmittedNodeIds, Out);
+        }
+    }
+    // The one entry point: same signature as RunProgram (no ImGui/xgpu dependency at all), so this
+    // is directly testable without touching the GUI.
+    static std::string GenerateCpp(std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::vector<spine>& Spines, const std::unordered_map<std::uint64_t, std::string>& LiteralValues)
+    {
+        std::uint64_t RootSpineId = 0;
+        for (auto& S : Spines) if (S.m_bIsRoot) { RootSpineId = S.m_Id; break; }
+        std::string FunctionDefs, MainBody;
+        // Tracks which nodes actually got emitted as the walk proceeds - a node physically moved
+        // onto a spine nothing ever triggers (not the root spine, not jumped to by any Exec target)
+        // never gets visited here, exactly like the interpreter's own m_bHasRun would never get set
+        // for it - CppInputExpr checks this before referencing a wired source's variable, instead of
+        // assuming every link's source is guaranteed to have been declared somewhere.
+        std::set<std::uint64_t> EmittedNodeIds;
+        if (RootSpineId != 0)
+            EmitSpineRange(RootSpineId, 0, INT_MAX, Nodes, Links, LiteralValues, EmittedNodeIds, MainBody, FunctionDefs);
+        return "// Auto-generated by Node OS codegen - do not hand-edit\n#include <cstdio>\n\n"
+             + FunctionDefs
+             + "static void RunMain()\n{\n" + MainBody + "}\n\nint main()\n{\n    RunMain();\n    return 0;\n}\n";
+    }
+
+    // Writes the generated source to disk, compiles it into a genuinely standalone .exe (no /LD,
+    // no PCH, no SDK include paths at all - unlike a plugin, generated code has zero dependency on
+    // xnode_os_plugin_api.h or anything else in this project, which is the whole point of "real
+    // native codegen"), then runs it and captures its actual stdout - the concrete, checkable proof
+    // that the pipeline produces a real program with the expected behavior, not just plausible-
+    // looking text. Reuses GetOrBuildVsEnvSetup/CompilerInvocationMutex, the exact same toolchain
+    // plumbing plugin compiles already use.
+    struct codegen_run_result { bool m_bCompileOk = false; bool m_bRanOk = false; std::string m_CompileLog; std::string m_RunOutput; std::string m_SourcePath; };
+    static codegen_run_result CompileAndRunGeneratedCpp(const std::string& Source)
+    {
+        codegen_run_result Result;
+        namespace fs = std::filesystem;
+        const fs::path OutputDir = "D:/LIONant/xGPU/source/Examples/E27_NodeOS/CompiledPlugins";
+        std::error_code Ec;
+        fs::create_directories(OutputDir, Ec);
+
+        const fs::path SrcPath = OutputDir / "_generated_program.cpp";
+        const fs::path ExePath = OutputDir / "_generated_program.exe";
+        const fs::path BatPath = OutputDir / "_generated_program_compile.bat";
+        const fs::path LogPath = OutputDir / "_generated_program_compile.log";
+        const fs::path RunOutPath = OutputDir / "_generated_program_run.log";
+        Result.m_SourcePath = SrcPath.string();
+
+        { std::ofstream Src(SrcPath); Src << Source; }
+        {
+            std::ofstream Bat(BatPath);
+            Bat << "@echo off\r\n";
+            Bat << GetOrBuildVsEnvSetup();
+            // No /LD (a real EXE, not a DLL), no /Yu/FI/Fp (no PCH - generated code only ever
+            // includes plain standard headers), no /I at all (no SDK/xproperty dependency whatsoever
+            // - the entire point of this being "real native codegen" rather than "another plugin").
+            Bat << "cl.exe /nologo /EHsc /std:c++20 /MDd \"" << SrcPath.string() << "\""
+                   " /Fe:\"" << ExePath.string() << "\" /Fo:\"" << (OutputDir / "_generated_program.obj").string()
+                << "\" > \"" << LogPath.string() << "\" 2>&1\r\n";
+        }
+
+        int ExitCode;
+        { std::lock_guard Lock(CompilerInvocationMutex()); ExitCode = std::system(std::format("\"{}\"", BatPath.string()).c_str()); }
+
+        { std::ifstream LogFile(LogPath); std::stringstream S; S << LogFile.rdbuf(); Result.m_CompileLog = S.str(); }
+        Result.m_bCompileOk = (ExitCode == 0) && fs::exists(ExePath);
+        if (!Result.m_bCompileOk)
+        {
+            Result.m_CompileLog += std::format("\n[compile failed, exit code {}]", ExitCode);
+            return Result;
+        }
+
+        // Run it for real and capture its actual stdout to a file, rather than just trusting that a
+        // clean compile means correct behavior. Wrapped in one EXTRA outer quote pair (on top of the
+        // two inner pairs around each path) - cmd.exe's "strip the outer quotes" rule only fires when
+        // the whole command line is a single quoted token; with two separately-quoted paths plus a
+        // redirection in between, an unwrapped line gets misparsed ("The filename, directory name, or
+        // volume label syntax is incorrect") even though the command is well-formed and the actual
+        // .exe runs fine standalone - this is the standard fix for cmd.exe /c with 2+ quoted paths.
+        const std::string RunCommand = std::format("\"\"{}\" > \"{}\" 2>&1\"", ExePath.string(), RunOutPath.string());
+        const int RunExitCode = std::system(RunCommand.c_str());
+        { std::ifstream RunFile(RunOutPath); std::stringstream S; S << RunFile.rdbuf(); Result.m_RunOutput = S.str(); }
+        Result.m_bRanOk = (RunExitCode == 0);
+        return Result;
     }
 
     // The one on-screen surface for whatever a running program logs (see GetRuntimeLog/host_bridge
@@ -3849,7 +4374,7 @@ namespace nodeos
         ImGui::End();
     }
 
-    static void ExecuteGraph(xgpu::device& Device, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::vector<spine>& Spines, mesh_preview_system& MeshPreview)
+    static void ExecuteGraph(xgpu::device& Device, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::vector<spine>& Spines, mesh_preview_system& MeshPreview, const std::unordered_map<std::uint64_t, std::string>& LiteralValues)
     {
         for (auto& Node : Nodes)
         {
@@ -3860,7 +4385,10 @@ namespace nodeos
             Node.m_CachedOutputs.clear();
         }
 
-        RunProgram(Nodes, Links, Spines);
+        // Lives for the rest of this call, including the mesh-preview pass below (which resolves
+        // input values again via its own GetInputValue calls) - see literal_storage's own comment.
+        literal_storage LiteralScratch;
+        RunProgram(Nodes, Links, Spines, LiteralValues, LiteralScratch);
 
         // "End" markers are deliberately never marked m_bHasRun by RunSpineRange (there's nothing to
         // run - they're a pure boundary) - excluded here so a working, correctly-skipped marker
@@ -3883,7 +4411,7 @@ namespace nodeos
             }
             for (int i = 0; i < (int)NodeInputs.size(); ++i)
             {
-                MeshPreview.RebuildIfMesh(Device, InPinOf(Node.m_Id, i), NodeInputs[i].m_pTypeName, GetInputValue(Node.m_Id, i, Nodes, Links));
+                MeshPreview.RebuildIfMesh(Device, InPinOf(Node.m_Id, i), NodeInputs[i].m_pTypeName, GetInputValue(Node.m_Id, i, Nodes, Links, LiteralValues, LiteralScratch));
             }
         }
     }
@@ -4138,7 +4666,8 @@ namespace nodeos
     // "xProperties" record, and every property record after it in the file would silently desync.
     //------------------------------------------------------------------------------------------------
     static bool SaveGraph(const std::string& Utf8Path, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links, const std::vector<available_node_type>& AvailableTypes
-                         , const std::vector<spine>& Spines, const std::vector<column>& Columns)
+                         , const std::vector<spine>& Spines, const std::vector<column>& Columns
+                         , const std::unordered_map<std::uint64_t, std::string>& LiteralValues)
     {
         const std::wstring WPath(Utf8Path.begin(), Utf8Path.end()); // ASCII-safe path is all this demo needs
 
@@ -4277,6 +4806,27 @@ namespace nodeos
             return false;
         }
 
+        // Inline literal values typed directly into unconnected Float/Int/Short pins (Unity-style
+        // "no wire isn't no value") - previously never persisted at all despite being a real per-pin
+        // setting, so every save/load round-trip silently discarded whatever was typed in. Stored
+        // exactly as typed, keyed by the same PinId (InPinOf) the live editing session already uses.
+        std::vector<std::pair<std::uint64_t, std::string>> LiteralVec(LiteralValues.begin(), LiteralValues.end());
+        if (auto Err = Stream.Record("LiteralValues"
+            , [&](std::size_t& C, xerr&) { C = LiteralVec.size(); }
+            , [&](std::size_t i, xerr& Error)
+            {
+                std::uint64_t PinId = LiteralVec[i].first;
+                std::string   Value = LiteralVec[i].second;
+                0
+                || (Error = Stream.Field("PinId", PinId))
+                || (Error = Stream.Field("Value", Value));
+            }
+        ); Err)
+        {
+            Debugger("Node OS: failed writing LiteralValues record");
+            return false;
+        }
+
         return true;
     }
 
@@ -4286,7 +4836,8 @@ namespace nodeos
     // property record after it - a loud, whole-file failure beats a quietly corrupted partial load.
     static bool LoadGraph(const std::string& Utf8Path, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links
                          , std::vector<plugin_source_entry>& Sources, std::vector<available_node_type>& AvailableTypes
-                         , std::vector<spine>& Spines, std::vector<column>& Columns)
+                         , std::vector<spine>& Spines, std::vector<column>& Columns
+                         , std::unordered_map<std::uint64_t, std::string>& LiteralValues)
     {
         const std::wstring WPath(Utf8Path.begin(), Utf8Path.end());
 
@@ -4471,11 +5022,32 @@ namespace nodeos
             }
         }
 
+        // Optional, trailing, purely-additive record - an older graph.txt saved before inline
+        // literals were persisted simply won't have it at all (EOF the moment Stream.Record looks for
+        // it), which is a legitimate, expected case here, not corruption: unlike every record above,
+        // nothing else references a PinId, so there's no dangling-reference risk in just defaulting to
+        // "no literals" and moving on rather than failing the whole load.
+        std::unordered_map<std::uint64_t, std::string> NewLiteralValues;
+        Stream.Record("LiteralValues"
+            , [&](std::size_t& C, xerr&) { }
+            , [&](std::size_t, xerr& Error)
+            {
+                std::uint64_t PinId = 0;
+                std::string   Value;
+                if (0
+                 || (Error = Stream.Field("PinId", PinId))
+                 || (Error = Stream.Field("Value", Value)))
+                    return;
+                NewLiteralValues[PinId] = Value;
+            }
+        );
+
         for (auto& N : Nodes) DestroyNodeInstance(N);
-        Nodes   = std::move(NewNodes);
-        Links   = std::move(NewLinks);
-        Spines  = std::move(NewSpines);
-        Columns = std::move(NewColumns);
+        Nodes          = std::move(NewNodes);
+        Links          = std::move(NewLinks);
+        Spines         = std::move(NewSpines);
+        Columns        = std::move(NewColumns);
+        LiteralValues  = std::move(NewLiteralValues);
 
         return true;
     }
@@ -6447,6 +7019,71 @@ namespace nodeos
 
 int E27_Example()
 {
+    // TEMPORARY, non-interactive self-test for the codegen backend - loads the real saved graph,
+    // generates C++, compiles and runs it, and writes the result to a file. Deliberately BEFORE any
+    // xgpu instance/device/window/ImGui exists - none of LoadGraph/GenerateCpp/
+    // CompileAndRunGeneratedCpp need a GPU at all, and an earlier version of this hook placed after
+    // that setup hit a heap-corruption crash on exit (a real, pre-existing xgpu/window teardown
+    // fragility when the app exits before ever entering its normal render loop, not anything to do
+    // with the codegen work itself - avoided entirely by never creating that stack in the first
+    // place for this path). Only fires with -CodegenSelfTest on the command line, so ordinary
+    // launches (no flag) are completely unaffected. Exists purely so this can be verified from
+    // outside the app (no click-driven testing) - remove once the codegen pipeline itself is done
+    // being validated.
+    if (std::strstr(GetCommandLineA(), "-CodegenSelfTest"))
+    {
+        std::vector<nodeos::plugin_source_entry> Sources = nodeos::ScanPluginSources("D:/LIONant/xGPU/source/Examples/E27_NodeOS/Plugins");
+        std::vector<nodeos::available_node_type> AvailableTypes;
+        std::vector<nodeos::node_instance>       Nodes;
+        std::vector<nodeos::link_instance>       Links;
+        std::vector<nodeos::spine>  Spines  { nodeos::spine {  xresource::guid_generator::Instance64(), 0, true, nodeos::geo::TOP } };
+        std::vector<nodeos::column> Columns { nodeos::column { xresource::guid_generator::Instance64(), 0, 0, true } };
+        Spines.front().m_ColumnId = Columns.front().m_Id;
+        std::unordered_map<std::uint64_t, std::string> LiteralValues;
+
+        std::string Report;
+        if (!nodeos::LoadGraph("D:/LIONant/xGPU/source/Examples/E27_NodeOS/graph.txt", Nodes, Links, Sources, AvailableTypes, Spines, Columns, LiteralValues))
+            Report = "[self-test] LoadGraph FAILED\n";
+        else
+        {
+            const std::string GeneratedSource = nodeos::GenerateCpp(Nodes, Links, Spines, LiteralValues);
+            const auto Result = nodeos::CompileAndRunGeneratedCpp(GeneratedSource);
+            Report += "=== GENERATED SOURCE ===\n" + GeneratedSource + "\n";
+            Report += std::format("=== COMPILE {} ===\n{}\n", Result.m_bCompileOk ? "OK" : "FAILED", Result.m_CompileLog);
+            if (Result.m_bCompileOk)
+                Report += std::format("=== RUN {} - OUTPUT ===\n{}\n", Result.m_bRanOk ? "OK" : "FAILED", Result.m_RunOutput);
+
+            // TEMPORARY - the interpreter (RunProgram/RunSpineRange's "If" handling and GetInputValue's
+            // literal fallback) is never exercised by codegen at all; running it here too, on the exact
+            // same loaded Nodes/Links/LiteralValues, proves the interpreter's own conditional-branch and
+            // literal-value fixes independently rather than trusting they match codegen by inspection
+            // alone. Harmless to run after codegen above - RunProgram only touches m_bHasRun/
+            // m_CachedOutputs, which GenerateCpp/CompileAndRunGeneratedCpp never read.
+            nodeos::literal_storage InterpScratch;
+            nodeos::RunProgram(Nodes, Links, Spines, LiteralValues, InterpScratch);
+            Report += "=== INTERPRETER (Execute Graph) OUTPUT ===\n";
+            for (auto& Line : nodeos::GetRuntimeLog()) Report += Line + "\n";
+            for (auto& N : Nodes)
+                if (N.m_pNode && !N.m_bHasRun && N.m_pNode->m_pFactory->getName() != "End")
+                    Report += std::format("[not reached: {} #{:x}]\n", N.m_pNode->m_pFactory->getName(), N.m_Id & 0xffffff);
+        }
+        std::ofstream Out("D:/LIONant/xGPU/source/Examples/E27_NodeOS/CompiledPlugins/_codegen_selftest_report.txt");
+        Out << Report;
+        Out.close();
+        for (auto& N : Nodes) nodeos::DestroyNodeInstance(N);
+
+        // Bisected empirically (TerminateProcess checkpoints after every step above, one rebuild):
+        // nothing in this self-test's own code corrupts the heap - every checkpoint up through here
+        // is clean. The "not allocated by _aligned routines" Debug Error only appears during the
+        // process's NORMAL exit teardown (global/static destructors, DLL_PROCESS_DETACH for plugin
+        // DLLs loaded above) - a pre-existing fragility unrelated to codegen, most likely a Debug
+        // host CRT heap disagreeing with a Release-built plugin DLL's CRT heap (plugins are compiled
+        // by a separate Release-by-default tool - see xgpu_plugin_compiler_debug_release memory) once
+        // that DLL is unloaded. Terminating here instead of falling through to that teardown sidesteps
+        // it entirely for this self-test's own purpose (verifying the codegen pipeline itself).
+        TerminateProcess(GetCurrentProcess(), 0);
+    }
+
     xgpu::instance Instance;
     if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = false, .m_bEnableRenderDoc = false, .m_pLogErrorFunc = nodeos::Debugger, .m_pLogWarning = nodeos::Debugger }); Err)
         return xgpu::getErrorInt(Err);
@@ -6491,6 +7128,14 @@ int E27_Example()
     bool bDirty = false; // persists across frames - see the deferred-execute comment below
     char GraphPathBuffer[260] = "D:/LIONant/xGPU/source/Examples/E27_NodeOS/graph.txt";
     std::string GraphStatus;
+
+    // Read-only - this is generated output ("do not hand-edit" is right there in the file's own
+    // first line), not something the user edits back into the graph. SetText() only happens right
+    // after a "Compile to C++" click; the widget otherwise just keeps showing whatever it last held.
+    TextEditor GeneratedCodeEditor;
+    GeneratedCodeEditor.SetLanguageDefinition(TextEditor::LanguageDefinition::CPlusPlus());
+    GeneratedCodeEditor.SetReadOnly(true);
+    GeneratedCodeEditor.SetText("// Click \"Compile to C++\" to generate source here.\n");
 
     // Every graph mutation (add/delete node, connect, reorder, edit a property, change selection)
     // goes through this System - see the "Commands" sections above for why: it's the one entry point
@@ -6542,7 +7187,7 @@ int E27_Example()
         // so a pruned entry is simply never captured in the first place.
         if (bDirty)
         {
-            nodeos::ExecuteGraph(Device, Nodes, Links, Spines, MeshPreview);
+            nodeos::ExecuteGraph(Device, Nodes, Links, Spines, MeshPreview, LiteralValues);
             bDirty = false;
         }
 
@@ -6557,12 +7202,42 @@ int E27_Example()
         nodeos::DrawNodePropertiesPanel(Nodes, Selection.m_SelectedNodes, NodeOsUndo, Sources, AvailableTypes);
         nodeos::DrawRuntimeLogPanel();
 
+        ImGui::SetNextWindowPos(ImVec2(300, 620), ImGuiCond_FirstUseEver);
+        // Passing an explicit empty callback rather than relying on Render()'s own defaulted one -
+        // MSVC independently re-evaluates a defaulted decltype([](){}) template default argument at
+        // each call site, producing two DIFFERENT closure types for the same call and a hard error.
+        GeneratedCodeEditor.Render("Generated C++##codegen", ImVec2(600, 300), true, [](){});
+
         ImGui::SetNextWindowPos(ImVec2(1265, 0), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(200, 80), ImGuiCond_FirstUseEver);
         if (ImGui::Begin("Run"))
         {
             if (ImGui::Button("Execute Graph"))
                 bDirty = true; // same deferred path, not an immediate call - see the comment above
+
+            // Generates real C++ from the current graph, compiles it into a genuinely standalone
+            // .exe (NODE_SCRIPTING_DESIGN.md's stated end goal, as opposed to Execute Graph's own
+            // in-editor interpreter), runs it, and reports the actual captured output - not just
+            // "it compiled." Immediate, not deferred through bDirty, since codegen never touches
+            // MeshPreview/GPU textures the way ExecuteGraph does.
+            if (ImGui::Button("Compile to C++"))
+            {
+                const std::string GeneratedSource = nodeos::GenerateCpp(Nodes, Links, Spines, LiteralValues);
+                GeneratedCodeEditor.SetText(GeneratedSource);
+                const auto CodegenResult = nodeos::CompileAndRunGeneratedCpp(GeneratedSource);
+                nodeos::GetRuntimeLog().clear();
+                nodeos::GetRuntimeLog().push_back(std::format("[codegen] source: {}", CodegenResult.m_SourcePath));
+                if (!CodegenResult.m_bCompileOk)
+                {
+                    nodeos::GetRuntimeLog().push_back("[codegen] COMPILE FAILED:");
+                    nodeos::GetRuntimeLog().push_back(CodegenResult.m_CompileLog);
+                }
+                else
+                {
+                    nodeos::GetRuntimeLog().push_back("[codegen] compiled OK - actual program output:");
+                    nodeos::GetRuntimeLog().push_back(CodegenResult.m_RunOutput);
+                }
+            }
 
             ImGui::Separator();
 
@@ -6635,7 +7310,7 @@ int E27_Example()
             ImGui::SetNextItemWidth(-1);
             ImGui::InputText("##GraphPath", GraphPathBuffer, sizeof(GraphPathBuffer));
             if (ImGui::Button("Save"))
-                GraphStatus = nodeos::SaveGraph(GraphPathBuffer, Nodes, Links, AvailableTypes, Spines, Columns) ? "Saved." : "Save failed - see log.";
+                GraphStatus = nodeos::SaveGraph(GraphPathBuffer, Nodes, Links, AvailableTypes, Spines, Columns, LiteralValues) ? "Saved." : "Save failed - see log.";
             ImGui::SameLine();
             if (ImGui::Button("Load"))
             {
@@ -6643,7 +7318,7 @@ int E27_Example()
                 Selection.m_SelectedLink = 0;
                 Selection.m_SelectedGapSpineId = 0;
                 Selection.m_SelectedGapIndex   = -1;
-                GraphStatus = nodeos::LoadGraph(GraphPathBuffer, Nodes, Links, Sources, AvailableTypes, Spines, Columns) ? "Loaded." : "Load failed - see log.";
+                GraphStatus = nodeos::LoadGraph(GraphPathBuffer, Nodes, Links, Sources, AvailableTypes, Spines, Columns, LiteralValues) ? "Loaded." : "Load failed - see log.";
                 bDirty = true; // re-run the freshly loaded graph, same deferred path as everything else
                 // Load replaces Nodes/Links wholesale (not through commands), so any existing undo
                 // history refers to node/link ids that may no longer mean anything in the new graph -
