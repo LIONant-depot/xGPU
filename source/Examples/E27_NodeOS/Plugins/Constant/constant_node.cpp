@@ -13,6 +13,8 @@
 #include "../../SDK/xnode_os_shared_types.h"
 #include <array>
 #include <string>
+#include <cstdlib>
+#include <cstdint>
 
 namespace
 {
@@ -62,7 +64,26 @@ namespace
             m_OutputDesc[0] = { "Value", TypeNameOf(m_Type) };
             return m_OutputDesc;
         }
-        void Execute(void** /*Inputs*/, void** /*Outputs*/) noexcept override {}
+        // Allocates a real value matching m_Type, parsed from m_Value - same malloc/FreeOutputs
+        // convention cube_node.cpp already established (the host frees this via FreeOutputs before
+        // the next Execute or on teardown, never this instance directly). Bool/Int/Short are stored
+        // at their own real width even though the pin-typing/wiring side of this corpus treats every
+        // scalar as interchangeable "Float" for connection purposes - Execute() still needs to hand
+        // back the ACTUAL width Print (or anything else) would read.
+        void Execute(void** /*Inputs*/, void** Outputs) noexcept override
+        {
+            switch (m_Type)
+            {
+                case const_type::FLOAT: { auto* p = static_cast<float*>(std::malloc(sizeof(float))); *p = std::strtof(m_Value.c_str(), nullptr); Outputs[0] = p; break; }
+                case const_type::INT:   { auto* p = static_cast<std::int32_t*>(std::malloc(sizeof(std::int32_t))); *p = std::atoi(m_Value.c_str()); Outputs[0] = p; break; }
+                case const_type::SHORT: { auto* p = static_cast<std::int16_t*>(std::malloc(sizeof(std::int16_t))); *p = static_cast<std::int16_t>(std::atoi(m_Value.c_str())); Outputs[0] = p; break; }
+                case const_type::BOOL:  { auto* p = static_cast<bool*>(std::malloc(sizeof(bool))); *p = (m_Value == "1" || m_Value == "true"); Outputs[0] = p; break; }
+            }
+        }
+        void FreeOutputs(void** Outputs) noexcept override
+        {
+            std::free(Outputs[0]);
+        }
     };
 }
 XPROPERTY_VREG(constant_node)

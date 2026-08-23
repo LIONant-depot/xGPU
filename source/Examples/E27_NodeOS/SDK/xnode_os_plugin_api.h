@@ -70,6 +70,9 @@ struct xnode_os_port_desc
 {
     const char* m_pName;
     const char* m_pTypeName;
+    bool        m_bRequired   = true;   // Optional == nullable/pointer-shaped (T*); Required == reference/value-shaped (T&) - independent of ReadOnly
+    bool        m_bReadOnly   = true;   // const-ness - independent of Required/Optional
+    bool        m_bLocalScope = false;  // This pin's value only has meaning strictly INSIDE the scope its OWN node opens (a scope-owning node's m_OwnedEndId must be non-zero for this to mean anything) - e.g. ForEachLoop's Element/Index, or a Function's mirrored parameter/return pins. The host restricts any link touching a flagged pin to the other endpoint being physically within that owning node's own scope span (see E27_NodeOS_Editor.cpp's IsDataLinkScopeValid), regardless of whether the flagged pin is the link's source or target.
 };
 
 //------------------------------------------------------------------------------------------------

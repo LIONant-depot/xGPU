@@ -2,7 +2,9 @@
 
 Status: **frozen for implementation** (converged 2026-08-22, now on its third execution model — see
 §9 for the full history of what changed and why, across all three pivots; §11, added 2026-08-23,
-reconciles §2's typing rule with the live editor's wildcard-pin mechanism built since). This is the
+reconciles §2's typing rule with the live editor's wildcard-pin mechanism built since; §12, added
+2026-08-23, brings exec pins back narrowly for spine/scope invocation and describes the first real
+interpreter that runs a saved graph). This is the
 authoritative reference for building the native-codegen visual scripting layer on top of E27 Node
 OS. Update it in place as decisions change during implementation — do not let it drift out of sync
 with the code, and do not re-litigate a frozen decision without recording why here.
@@ -454,10 +456,12 @@ do not let a future pass silently reuse `End` for both meanings.
       `If`'s own `End` cannot see a value only computed inside one branch, without an explicit
       "declare before, assign inside" pattern the author has to build themselves. Worth a worked
       example before this is trusted at scale.
-- [ ] **Do multiple spines interact at all?** §3's deliberately-open question — whether reaching a
-      spine's own end ever means "continue into a sibling spine" based on column/Y position, or
-      whether spines are always fully independent units. Explicitly not decided; keep spines
-      independent until this is revisited.
+- [x] **Do multiple spines interact at all? — resolved, see §11.5.** Not by reaching a spine's own
+      end (that's still not a thing - column/Y position never implies "continue into a sibling
+      spine"), but through data: a spine's own TOP-LEVEL content (never nested inside a local scope)
+      is shared/global state any other spine can read too, the same role a Blueprint Variable plays
+      across Event Graphs. Content inside a local scope stays trapped in its own spine, same as
+      before.
 - [ ] Whether a script can have more than one top-level entry point (e.g. one per lifecycle event) —
       presumably yes, one designated spine and one generated entry function per event, but not
       spelled out in detail yet.
@@ -568,7 +572,41 @@ container, that's a graph-validation error at compile time ("this loop wants to 
 type-compatibility check in §2 already works, not by inventing `SpanConst<T>`/`SpanMutable<T>` as
 separate concrete types.
 
-### 11.5 What's still genuinely open after this section
+### 11.5 Cross-spine data: the boundary is scope depth, not spine identity
+
+§3 left "do multiple spines interact at all" deliberately open and defaulted to "no, keep them
+independent." Building against a real graph with two spines side by side (two `ForEachLoop`s in
+separate columns) surfaced the actual question immediately: a first pass at validating this flagged
+*every* cross-spine data link as invalid, unconditionally — too strict, and not what "independent
+units" was actually meant to rule out.
+
+**Resolved**: the boundary is scope depth, not spine identity. A node sitting at a spine's own TOP
+level — its enclosing-scope chain is empty, meaning it's never nested inside any `If`/`ForEachLoop`
+body — is **world scope**: conceptually shared/global state, valid as a data source for *any* node
+anywhere, in any spine, at any depth. A node nested inside a local scope, by contrast, produces a
+value trapped in whatever block its own spine compiles to - readable only from the same or a more
+deeply nested scope in that *same* spine, never from a different spine at all, and (§4.4, unchanged)
+never from a sibling or already-exited scope even within its own spine.
+
+This is precisely the shape of the split Unreal Blueprint already draws between a **Blueprint
+Variable** (class member state — any Event Graph can read or write it) and an ordinary **local pin
+value** inside one Event Graph (Blueprint doesn't even let you attempt a wire between two different
+Event Graphs at all - there's no shared canvas space to drag one on). "World scope" here plays the
+Blueprint Variable's role without needing a distinct node/variable concept of its own - it falls
+straight out of "not nested in anything," which the editor already tracks for every node.
+
+**Left open, and worth resolving before compilation is wired up**: a same-spine read is always
+guaranteed fresh, because flat sequential/nested execution order makes "already computed by the time
+this reads it" automatic. A cross-spine world-scope read has no equivalent guarantee - it's really a
+"last value written" read against some kind of persisted/shared storage, and if spines become
+separate generated functions (one per entry point, per §10's still-open "more than one top-level
+entry point" item), *which* function actually owns that storage, and what "fresh" even means when
+the reading spine might run before the writing one ever has, isn't designed yet. The editor's own
+validation (`IsDataLinkScopeValid` in `E27_NodeOS_Editor.cpp`) only decides whether a link is
+*legal* to draw without becoming a dangling reference in generated code — it says nothing about
+timing, and shouldn't be read as having settled that question.
+
+### 11.6 What's still genuinely open after this section
 
 This section resolves the *conceptual* tension, not the implementation. Still undesigned:
 
@@ -585,3 +623,154 @@ This section resolves the *conceptual* tension, not the implementation. Still un
   currently-executing native plugins (`CubeNode`, `ExportMeshNode`, `InspectMeshNode`) — none of
   them have one yet, and none of this section's reconciliation changes that design, only confirms
   it's still the right mechanism to use when that work happens.
+
+## 12. Exec pins, revived narrowly — triggering spines and scopes explicitly
+
+§4's flat-spine model already answers "what runs next" for ordinary content: whatever's positionally
+next in the same spine. It never answered "what makes a *different* spine start running at all" —
+every spine was an island, and nothing could invoke one from an event or from another spine's own
+logic. This section adds exactly that capability back, using the same "Exec" pin concept §4.4 and
+§9.2's history describe as removed — but bound to a small, fixed set of node types instead of
+threaded through every node the way the old Blueprint-style model (and this project's own first
+execution-model draft, §9.2) did.
+
+### 12.1 Why this doesn't reopen §9's decision to remove exec pins
+
+§9.2 removed exec pins because *ordinary* sequencing doesn't need them — a plain node's "next" is
+just whatever follows it in the same spine. That's still true and unchanged: `Compare`,
+`MathExpression`, `Print`, `Constant`, and every other ordinary node type has zero exec pins, exactly
+as before. What's new is a *different* problem exec pins turn out to be the right tool for: crossing
+a spine or scope boundary on purpose. Four new/changed node types carry the entire mechanism; nothing
+else does.
+
+### 12.2 The four node types
+
+- **`OnEvent`** (`Plugins/OnEvent/on_event_node.cpp`) — zero inputs, zero outputs. A pure
+  documentation marker: it labels which event a nearby spine conceptually responds to, with no
+  wiring implications at all. It is never reached, never runs, and carries no data — purely for a
+  human reading the graph.
+- **`ExecutionCall`** (`Plugins/ExecutionCall/execution_call_node.cpp`) — zero inputs, one `Exec`
+  output. The thing that actually fires: a manually/externally triggerable spine entry point. (This
+  was originally named `OnEvent`, before the empty pure-label node above needed the name instead.)
+- **`Execute`** (`Plugins/Execute/execute_node.cpp`) — one `Exec` input, zero outputs, and
+  deliberately owns **no scope** (`needsOwnedEndMarker()` is the inherited default, `false`). Its
+  "body" is simply everything positionally after it in its own spine, running via the spine's
+  ordinary Order-based sequencing, all the way to the spine's own end — there is no paired `End`
+  marker bounding it the way `If`/`ForEachLoop`/`Function` have. This is the key distinction a
+  `Call` into an `Execute` vs. a `Call` into a `Function` will draw: `Execute` behaves like invoking
+  a C++ lambda captured by reference (`[&]`) — it reads/writes whatever's already reachable from
+  where it sits, with no isolated parameter/local scope of its own — while a `Function` call is a
+  real subroutine call with its own encapsulated scope. Two `Execute`s (or unrelated content) sharing
+  one column/spine is not something the model disambiguates for you — same as leaving unrelated
+  functions back to back in one file — it's the graph author's responsibility to keep them
+  organized, not the runtime's.
+- **`Function`'s new `Exec` input** (`Plugins/Function/function_node.cpp`) — `Function` already
+  owns a real scope (§11's reconciliation); it now also requires an explicit `Exec` pulse to run its
+  body, appended as the last input so an already-wired declared input's index never shifts. Input
+  only, no matching output: **the caller** (a `Call` node, once built — see §12.7) is what regains
+  control once the function returns; `Function` itself has no notion of "what comes after."
+
+`Call` — the node that actually invokes a `Function` or an `Execute` from elsewhere in the graph — is
+deliberately **not built yet**. See §12.7.
+
+### 12.3 Fork-join: one Exec output, several wires
+
+An `Exec` output pin can fan out to more than one target (`ExecutionCall`'s single output wired to
+both a `Function`'s and an `Execute`'s `Exec` input is the worked example this session actually
+built and ran). The settled semantics: **every fanned-out target must finish before the caller's own
+spine continues past the triggering node** — a join, not fire-and-forget. The *order* in which
+multiple targets run relative to each other is deliberately left unspecified; nothing in this design
+depends on it, and the current interpreter (§12.6) just runs them left-to-right over `Links` for lack
+of any reason to do otherwise.
+
+### 12.4 Program lifetime: the root spine governs it
+
+Once the **root spine** — the one spine flagged `m_bIsRoot` in the `Spines` table, the one `OnEvent`
+conventionally labels — runs off its own end, **the program is done**, independent of whether every
+other spine or `Function` it triggered along the way ever actually got reached. This mirrors a plain
+`main()`: once it returns, the program ends regardless of what else was ever defined but never
+called.
+
+### 12.5 Columns remain pure organization; reachability is what actually matters
+
+Exec wiring (§12.3) and each spine's own Order (§3) are now the **only** two things that determine
+execution — not which column something happens to sit in. The entire worked example in this section
+could be redrawn in a single column and behave identically; splitting it across columns is purely for
+human readability, the same reason real code gets split across files even though the compiler
+wouldn't care if it weren't. A direct consequence, also settled this session: **anything not
+reachable from the root spine by walking Exec wires and spine Order is inert** — present in the
+graph, never executed, exactly like commented-out code. This is not an error case. Remove the wire
+from `ExecutionCall` to `Execute` in the worked example and `Execute` (and everything after it in its
+own spine) simply never runs — nothing else changes.
+
+### 12.6 A first real interpreter — implemented
+
+`E27_NodeOS_Editor.cpp` now contains an actual implementation of §12.1–§12.5, replacing the older
+`ExecuteGraph` body that used to run everything with a naive "run whatever's data-ready" fixed point
+(a model with no concept of spine order, scope, or "only run if actually triggered" — it would have
+called `Function`'s own `Execute()` the moment its declared inputs looked resolvable, regardless of
+whether anything ever invoked it). The replacement:
+
+- `RunProgram` finds the root spine and calls `RunSpineRange` on it from Order 0 — the single entry
+  point for running the whole program.
+- `RunSpineRange` walks one spine's nodes in `[FromOrder, ToOrder)`, in Order — the flat-spine base
+  case. `End` is skipped (pure boundary marker). `ExecutionCall` triggers `RunExecutionCall`.
+  `Function` and `Execute` are deliberately **skipped** here even when positionally reached — both
+  declare a real `Exec` input specifically so they only ever run via an incoming trigger, never
+  merely because spine order got to them. Everything else falls through to `RunOrdinaryNode` (resolve
+  declared inputs from wherever they're wired, call `Execute()` once, cache outputs) — the same
+  one-shot model `If`/`ForEachLoop` would also get today, since neither has been given real
+  branch/loop semantics yet (see §12.7).
+- `RunExecutionCall` implements §12.3: fires every Exec-typed link off its own output, synchronously
+  (so the loop itself is the join), then lets its own spine continue.
+- `RunExecTarget` is where `Function` and `Execute` actually run once triggered. For `Function`: it
+  resolves the declared (external, non-local, non-`Exec`) inputs, mirrors each one into the matching
+  local-scope *output* slot (`function_node.cpp`'s `Rebuild` always places the K-th declared input's
+  mirror at output index `[ExternalOutputCount + K]` — the body's own view of its parameters), runs
+  the body between itself and its own `End` via `RunSpineRange`, then mirrors whatever the body wrote
+  into the local Result-mirror *input* back out to the matching declared external output (the reverse
+  direction, same indexing scheme). For `Execute`: no scope to set up at all — it just runs
+  `RunSpineRange` from the node right after it to the spine's own end.
+- `Constant` and `Print` got real (non-stub) `Execute()` bodies to make the worked example actually
+  observable: `Constant` allocates and returns a real value matching its `Type`/`Value` properties
+  (same `malloc`/`FreeOutputs` convention `CubeNode` already established); `Print` reads its `Value`
+  input as a `float` and routes it through `ixnode_os_host::Log()` — the one sanctioned host callback
+  a plugin can reach (stored from the reference `NodeOS_CreateFactory` receives once at load, handed
+  to each instance in `CreateNodeInstance()`). `host_bridge::Log()` now also appends to a small
+  on-screen "Console" panel (`GetRuntimeLog()`), cleared at the start of every run — previously
+  `Log()` only reached the OS debugger, invisible to the user.
+
+### 12.7 What's still genuinely open after this section
+
+- **`Call` itself is not built.** It needs to invoke a `Function` or `Execute` node from elsewhere in
+  the graph, which means dynamically mirroring a *different* node's live signature onto itself — a
+  real new mechanism, since the plugin-isolation rule (§6/`xnode_os_plugin_api.h`'s own top comment)
+  means `Call` can't just reach into another instance's live state. This needs host-side
+  synchronization analogous to what `ResyncLocalConnections` used to do for `Function`/
+  `LocalConnections` before those merged into one instance (§11) — except `Call`'s target is a loose,
+  user-changeable reference rather than an owned pair, so the sync can't be designed away by merging
+  instances this time. Expected shape, not yet built: mirrors the target's declared inputs/outputs as
+  real data pins when targeting a `Function`, plus its own `Exec` in/out pair; mirrors nothing but
+  `Exec` in/out when targeting an `Execute` (nothing else to mirror — `Execute` has no scope, no
+  parameters).
+- **`If`/`ForEachLoop` have no real branch/loop semantics in the interpreter yet.** `RunOrdinaryNode`
+  gives them the same generic one-shot treatment as any other node type not specifically recognized —
+  correct for nothing that actually branches or repeats. Nothing saved so far exercises either; this
+  is the next concrete extension once something does.
+- **`Print` (and anything else with an `Any`-typed pin) assumes Float.** The resolved wildcard type
+  isn't threaded into `Execute()`'s type-erased `void**` signature at all — genuinely dispatching on
+  it would mean adding that plumbing to the plugin ABI itself (`xnode_os_plugin_api.h`), which is a
+  more invasive change than anything else in this section. Deferred until a real second value type
+  actually needs printing.
+- **Inline literals typed into an unconnected pin are UI-only, never fed into real execution.** They
+  live in `DrawGraphCanvas`'s own `LiteralValues` map (keyed by pin, populated as the user types),
+  not in `node_instance`/the saved graph at all — `GetInputValue` only ever resolves from an actual
+  wire. No saved test graph currently depends on an unconnected pin's typed literal mattering for its
+  computed result, so this has been deferred rather than solved; it will need resolving before an
+  unconnected numeric input can mean anything at runtime.
+- **Cross-spine data freshness (§11.5's own left-open item) is unaffected by any of this.** The
+  interpreter above only ever reads a value that's already been computed earlier in the *same*
+  synchronous call chain (Constant runs before `ExecutionCall` triggers anything that reads it,
+  because it's positioned earlier in the same spine) — it does not yet address what "fresh" means for
+  a spine that reads world-scope state written by a *different* spine that may or may not have run
+  yet.

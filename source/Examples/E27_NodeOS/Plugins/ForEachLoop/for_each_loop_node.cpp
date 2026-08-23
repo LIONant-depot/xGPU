@@ -44,7 +44,13 @@ namespace
         // SetEndElseState in E27_NodeOS_Editor.cpp).
         std::span<const xnode_os_port_desc> getOutputs() const noexcept override
         {
-            static const xnode_os_port_desc s_Outputs[3] = { { "Element", "Any" }, { "Index", "Int" }, { "End", "Scope" } };
+            // Element/Index only have meaning inside this loop's own body - flagged m_bLocalScope so
+            // E27_NodeOS_Editor.cpp's IsDataLinkScopeValid restricts them to links whose other
+            // endpoint is physically inside this node's own scope span. Previously unflagged, which
+            // let a wire from Element/Index reach ANY node anywhere (including after the loop closes,
+            // or a completely unrelated spine) - a real bug, now fixed by the same mechanism a
+            // Function's mirrored parameter pins use.
+            static const xnode_os_port_desc s_Outputs[3] = { { "Element", "Any", true, true, true }, { "Index", "Int", true, true, true }, { "End", "Scope" } };
             return s_Outputs;
         }
 

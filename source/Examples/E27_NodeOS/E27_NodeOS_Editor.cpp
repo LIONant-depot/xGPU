@@ -49,6 +49,7 @@
 #include <cstdio>
 #include <cstring>
 #include <cctype>
+#include <climits>
 #include <fstream>
 #include <sstream>
 #include <filesystem>
@@ -239,12 +240,25 @@ namespace nodeos
     // shared instance safely serves every plugin's CreateFactory call - there is nothing here a second
     // caller could ever clobber.
     //------------------------------------------------------------------------------------------------
+    // A plain, growing line buffer for whatever a running program logs (Print's real Execute(),
+    // eventually anything else) - the ONLY user-visible surface for ixnode_os_host::Log today; the
+    // OS debug output Debugger() also writes to isn't visible to the user at all. Cleared once at
+    // the start of each RunProgram (see below) so every run starts from a clean trace, not appended
+    // across runs.
+    static std::vector<std::string>& GetRuntimeLog()
+    {
+        static std::vector<std::string> s_Log;
+        return s_Log;
+    }
+
     class host_bridge final : public ixnode_os_host
     {
     public:
         void Log(const char* pMessage) noexcept override
         {
-            if (pMessage) Debugger(pMessage);
+            if (!pMessage) return;
+            Debugger(pMessage);
+            GetRuntimeLog().emplace_back(pMessage);
         }
     };
 
@@ -836,21 +850,31 @@ namespace nodeos
         // link is never something the user drags into existence - the system wires it automatically,
         // and it's rendered read-only (Connect/DeleteLink both refuse to touch it) specifically
         // because it isn't an ordinary, user-editable connection.
-        inline std::string MakeCreateOwnedPairAppend(std::uint64_t Id, const std::string& PluginDir, std::uint64_t EndId, const std::string& EndPluginDir, std::uint64_t LinkId)
+        // Optional 2nd hop (Owner -> Mid -> End2) - see create_owned_pair_cmd's own comment. Nothing
+        // uses this today (Function used to, before it merged its owned marker into itself), kept as
+        // generic plumbing for a future owner type that genuinely needs a 2-level marker chain.
+        // End2Id == 0 means "no second hop", the common (currently the only) case.
+        struct owned_pair_2nd_hop { std::uint64_t m_End2Id = 0; std::string m_End2PluginDir; std::uint64_t m_Link2Id = 0; };
+        inline std::string Opt2ndHopSuffix(const owned_pair_2nd_hop& Hop2)
         {
-            return std::format("CreateOwnedPair -Id {} -PluginDir {} -EndId {} -EndPluginDir {} -LinkId {}", FormatGuid(Id), PluginDir, FormatGuid(EndId), EndPluginDir, FormatGuid(LinkId));
+            if (Hop2.m_End2Id == 0) return {};
+            return std::format(" -End2Id {} -End2PluginDir {} -Link2Id {}", FormatGuid(Hop2.m_End2Id), Hop2.m_End2PluginDir, FormatGuid(Hop2.m_Link2Id));
         }
-        inline std::string MakeCreateOwnedPairAfter(std::uint64_t Id, const std::string& PluginDir, std::uint64_t EndId, const std::string& EndPluginDir, std::uint64_t LinkId, std::uint64_t AfterNodeId)
+        inline std::string MakeCreateOwnedPairAppend(std::uint64_t Id, const std::string& PluginDir, std::uint64_t EndId, const std::string& EndPluginDir, std::uint64_t LinkId, const owned_pair_2nd_hop& Hop2 = {})
         {
-            return std::format("CreateOwnedPair -Id {} -PluginDir {} -EndId {} -EndPluginDir {} -LinkId {} -After {}", FormatGuid(Id), PluginDir, FormatGuid(EndId), EndPluginDir, FormatGuid(LinkId), FormatGuid(AfterNodeId));
+            return std::format("CreateOwnedPair -Id {} -PluginDir {} -EndId {} -EndPluginDir {} -LinkId {}", FormatGuid(Id), PluginDir, FormatGuid(EndId), EndPluginDir, FormatGuid(LinkId)) + Opt2ndHopSuffix(Hop2);
         }
-        inline std::string MakeCreateOwnedPairBefore(std::uint64_t Id, const std::string& PluginDir, std::uint64_t EndId, const std::string& EndPluginDir, std::uint64_t LinkId, std::uint64_t BeforeNodeId)
+        inline std::string MakeCreateOwnedPairAfter(std::uint64_t Id, const std::string& PluginDir, std::uint64_t EndId, const std::string& EndPluginDir, std::uint64_t LinkId, std::uint64_t AfterNodeId, const owned_pair_2nd_hop& Hop2 = {})
         {
-            return std::format("CreateOwnedPair -Id {} -PluginDir {} -EndId {} -EndPluginDir {} -LinkId {} -Before {}", FormatGuid(Id), PluginDir, FormatGuid(EndId), EndPluginDir, FormatGuid(LinkId), FormatGuid(BeforeNodeId));
+            return std::format("CreateOwnedPair -Id {} -PluginDir {} -EndId {} -EndPluginDir {} -LinkId {} -After {}", FormatGuid(Id), PluginDir, FormatGuid(EndId), EndPluginDir, FormatGuid(LinkId), FormatGuid(AfterNodeId)) + Opt2ndHopSuffix(Hop2);
         }
-        inline std::string MakeCreateOwnedPairInSpine(std::uint64_t Id, const std::string& PluginDir, std::uint64_t EndId, const std::string& EndPluginDir, std::uint64_t LinkId, std::uint64_t SpineId)
+        inline std::string MakeCreateOwnedPairBefore(std::uint64_t Id, const std::string& PluginDir, std::uint64_t EndId, const std::string& EndPluginDir, std::uint64_t LinkId, std::uint64_t BeforeNodeId, const owned_pair_2nd_hop& Hop2 = {})
         {
-            return std::format("CreateOwnedPair -Id {} -PluginDir {} -EndId {} -EndPluginDir {} -LinkId {} -InSpine {}", FormatGuid(Id), PluginDir, FormatGuid(EndId), EndPluginDir, FormatGuid(LinkId), FormatGuid(SpineId));
+            return std::format("CreateOwnedPair -Id {} -PluginDir {} -EndId {} -EndPluginDir {} -LinkId {} -Before {}", FormatGuid(Id), PluginDir, FormatGuid(EndId), EndPluginDir, FormatGuid(LinkId), FormatGuid(BeforeNodeId)) + Opt2ndHopSuffix(Hop2);
+        }
+        inline std::string MakeCreateOwnedPairInSpine(std::uint64_t Id, const std::string& PluginDir, std::uint64_t EndId, const std::string& EndPluginDir, std::uint64_t LinkId, std::uint64_t SpineId, const owned_pair_2nd_hop& Hop2 = {})
+        {
+            return std::format("CreateOwnedPair -Id {} -PluginDir {} -EndId {} -EndPluginDir {} -LinkId {} -InSpine {}", FormatGuid(Id), PluginDir, FormatGuid(EndId), EndPluginDir, FormatGuid(LinkId), FormatGuid(SpineId)) + Opt2ndHopSuffix(Hop2);
         }
 
         // -InSpine is the only way to place a node into a currently-empty spine - there's no existing
@@ -881,16 +905,43 @@ namespace nodeos
             {
                 const std::string EndDir(pOwnerType->getOwnedEndMarkerPluginDir());
                 auto* pEndSrc = FindSourceByDirName(Sources, EndDir);
-                if (pEndSrc && EnsureLoadedAndGetType(*pEndSrc, AvailableTypes))
+                if (pEndSrc)
                 {
-                    const auto EndId  = xresource::guid_generator::Instance64();
-                    const auto LinkId = xresource::guid_generator::Instance64();
-                    switch (Kind)
+                    auto* pEndType = EnsureLoadedAndGetType(*pEndSrc, AvailableTypes);
+                    if (pEndType)
                     {
-                    case node_placement_kind::Append:  return MakeCreateOwnedPairAppend (NewId, OwnerSrc.m_DirName, EndId, EndDir, LinkId);
-                    case node_placement_kind::After:   return MakeCreateOwnedPairAfter  (NewId, OwnerSrc.m_DirName, EndId, EndDir, LinkId, RefId);
-                    case node_placement_kind::Before:  return MakeCreateOwnedPairBefore (NewId, OwnerSrc.m_DirName, EndId, EndDir, LinkId, RefId);
-                    case node_placement_kind::InSpine: return MakeCreateOwnedPairInSpine(NewId, OwnerSrc.m_DirName, EndId, EndDir, LinkId, RefId);
+                        const auto EndId  = xresource::guid_generator::Instance64();
+                        const auto LinkId = xresource::guid_generator::Instance64();
+
+                        // Discover an optional 2nd hop the same generic way the 1st hop was found -
+                        // no hardcoded node-name check here (see create_owned_pair_cmd's own comment
+                        // for why this stays a 2-hop special case rather than a general N-way chain;
+                        // nothing currently needs it, Function included, now that its owned marker is
+                        // merged into itself).
+                        owned_pair_2nd_hop Hop2;
+                        if (pEndType->needsOwnedEndMarker())
+                        {
+                            const std::string End2Dir(pEndType->getOwnedEndMarkerPluginDir());
+                            auto* pEnd2Src = FindSourceByDirName(Sources, End2Dir);
+                            if (pEnd2Src && EnsureLoadedAndGetType(*pEnd2Src, AvailableTypes))
+                            {
+                                Hop2.m_End2Id        = xresource::guid_generator::Instance64();
+                                Hop2.m_End2PluginDir = End2Dir;
+                                Hop2.m_Link2Id       = xresource::guid_generator::Instance64();
+                            }
+                            // Second-level plugin missing/failed to compile - fall through with
+                            // Hop2 empty rather than failing the whole placement; the user still gets
+                            // the owner + its immediate marker, same "never do nothing" policy as the
+                            // 1st-hop fallback below.
+                        }
+
+                        switch (Kind)
+                        {
+                        case node_placement_kind::Append:  return MakeCreateOwnedPairAppend (NewId, OwnerSrc.m_DirName, EndId, EndDir, LinkId, Hop2);
+                        case node_placement_kind::After:   return MakeCreateOwnedPairAfter  (NewId, OwnerSrc.m_DirName, EndId, EndDir, LinkId, RefId, Hop2);
+                        case node_placement_kind::Before:  return MakeCreateOwnedPairBefore (NewId, OwnerSrc.m_DirName, EndId, EndDir, LinkId, RefId, Hop2);
+                        case node_placement_kind::InSpine: return MakeCreateOwnedPairInSpine(NewId, OwnerSrc.m_DirName, EndId, EndDir, LinkId, RefId, Hop2);
+                        }
                     }
                 }
                 // Marker plugin missing/failed to compile - fall through to a plain create rather than
@@ -1091,6 +1142,15 @@ namespace nodeos
             s_Scratch = std::format("{} verts / {} tris", pMesh->m_VertexCount, pMesh->m_IndexCount / 3);
             return s_Scratch.c_str();
         }
+        // Float/Int/Short - now that RunProgram (NODE_SCRIPTING_DESIGN.md §12.6) actually produces
+        // real values instead of every Execute() being a no-op, this path is finally reachable with
+        // a genuine numeric pValue - dereference it properly instead of falling through to the raw-
+        // pointer placeholder below, which used to be harmless only because nothing ever got here
+        // with a real value to show.
+        if (std::strcmp(pTypeName, "Float") == 0) { s_Scratch = std::format("{:.3f}", *static_cast<float*>(pValue)); return s_Scratch.c_str(); }
+        if (std::strcmp(pTypeName, "Int")   == 0) { s_Scratch = std::to_string(*static_cast<std::int32_t*>(pValue)); return s_Scratch.c_str(); }
+        if (std::strcmp(pTypeName, "Short") == 0) { s_Scratch = std::to_string(*static_cast<std::int16_t*>(pValue)); return s_Scratch.c_str(); }
+        // Anything else genuinely unrecognized - the raw pointer as a placeholder, same as before.
         s_Scratch = std::format("<{:#x}>", (std::uintptr_t)pValue);
         return s_Scratch.c_str();
     }
@@ -1309,6 +1369,7 @@ namespace nodeos
         constexpr float PORT_HIT_RADIUS = 16.0f;
         constexpr float LINK_HIT_DIST   = 6.0f;
         constexpr float PREVIEW_GAP     = 10.0f;
+        constexpr float SECTION_GAP     = 24.0f; // extra breathing room (line + "locals" caption) where a node's ports switch from external (caller-facing) to local-scope (body-facing) - see LocalSectionGapTotal
         constexpr float COLUMN_MARGIN     = 60.0f; // world-space gap between two adjacent columns' own highway extents
         constexpr float COLUMN_CLEAR_GAP  = 24.0f; // extra world-space distance, past a column's own extent, a spine-control drag must clear before a new-column drop target appears
         constexpr float SPINE_CIRCLE_R    = 7.0f;  // the two spine-control circles' own radius (screen-space, scales with zoom like everything else here)
@@ -1326,6 +1387,20 @@ namespace nodeos
         const auto Outputs = pNode->getOutputs();
         for (int i = 0; i < (int)Inputs.size();  ++i) Out.push_back({ false, i, &Inputs[i] });
         for (int i = 0; i < (int)Outputs.size(); ++i) Out.push_back({ true,  i, &Outputs[i] });
+        // Visual/anchor row order groups by scope-locality FIRST (every external/caller-facing pin,
+        // then every local/body-facing one), direction second within each group - a stable partition,
+        // so a mixed node like Function reads as one coherent "signature" block followed by one
+        // "body view" block, needing exactly one divider (see the draw loop's SECTION_GAP handling)
+        // instead of one per direction. The trailing ownership "End" pin (always last - see
+        // for_each_loop_node.cpp's own comment on why) is excluded from the partition and
+        // re-appended after: it's structural, not part of either interface, and must stay last
+        // regardless of its own m_bLocalScope value (false, same as every external pin, which would
+        // otherwise pull it up into the external group).
+        const bool bHasTrailingEnd = !Out.empty() && Out.back().m_bIsOutput && std::strcmp(Out.back().m_pDesc->m_pTypeName, "Scope") == 0;
+        port_ref EndPort{};
+        if (bHasTrailingEnd) { EndPort = Out.back(); Out.pop_back(); }
+        std::stable_partition(Out.begin(), Out.end(), [](const port_ref& P) { return !P.m_pDesc->m_bLocalScope; });
+        if (bHasTrailingEnd) Out.push_back(EndPort);
         return Out;
     }
     static std::uint64_t PinOf(const port_ref& P, std::uint64_t NodeId) { return P.m_bIsOutput ? OutPinOf(NodeId, P.m_Index) : InPinOf(NodeId, P.m_Index); }
@@ -1334,6 +1409,11 @@ namespace nodeos
     // carries a runtime value at all - it exists purely to draw the read-only ownership wire, so it
     // gets the same no-value-line treatment as Mesh below, never a "(none)" placeholder.
     static bool IsScopeType(const char* pType) noexcept { return std::strcmp(pType, "Scope") == 0; }
+    // An "Exec" pin (OnEvent's output, Execute/Function/Call's input, Call's output -
+    // NODE_SCRIPTING_DESIGN.md's exec-flow addition) carries no data at all, same as Scope - it's a
+    // pure control-flow trigger, never wired to a Float/Bool/etc. pin and never assigned an inline
+    // literal.
+    static bool IsExecType(const char* pType) noexcept { return std::strcmp(pType, "Exec") == 0; }
     // An "Any" pin (Compare/Math Expression's A/B/Result, Print's Value) is a scalar wildcard - it
     // resolves DIRECTLY to whatever's wired to it. A "Span<Any>" pin (ForEachLoop's own Span input -
     // named for std::span, since that's what actually accepts a std::vector, std::array, C array, or
@@ -1451,7 +1531,19 @@ namespace nodeos
             const bool bReadOnly = ReadBoolProperty(pDesc, "ReadOnlyElement", true);
             return (bReadOnly ? std::string("const ") : std::string()) + pEffType + "&";
         }
-        return pEffType;
+        // A Function's local-mirrored outputs (the function body's own view of its parameters) carry
+        // Required/ReadOnly directly on the port descriptor itself (see function_node.cpp), unlike
+        // ForEachLoop's bespoke per-instance property above - same const/& treatment, but deliberately
+        // NOT keyed off m_bLocalScope alone: ForEachLoop's Index is also flagged m_bLocalScope (for
+        // the scope-containment check) but is a plain value, never a reference - showing it as
+        // "const Int&" would misdescribe the eventual codegen shape. Scoped to Function specifically,
+        // where a mirrored output genuinely is a reference into the caller's own argument.
+        if (P.m_bIsOutput && P.m_pDesc->m_bLocalScope && pDesc->m_pFactory->getName() == "Function")
+            return (P.m_pDesc->m_bReadOnly ? std::string("const ") : std::string()) + pEffType + "&";
+        // "?" for Optional - every pre-existing static port_desc defaults m_bRequired to true (see
+        // xnode_os_plugin_api.h), so this is a no-op everywhere except a Function's user-configured
+        // pins, the only place m_bRequired can actually be false today.
+        return P.m_pDesc->m_bRequired ? std::string(pEffType) : std::string(pEffType) + "?";
     }
     static ImU32 TypeColor(const char* pType) noexcept
     {
@@ -1460,20 +1552,25 @@ namespace nodeos
         // A Scope pin (owner<->End ownership, NODE_SCRIPTING_DESIGN.md section 4.1) matches the box
         // border color, not the generic default - it's part of the box's own structure, not a value.
         if (IsScopeType(pType))                   return IM_COL32(51, 65, 85, 255);
+        // Exec pins get their own distinct color (a plain white, matching the long-established
+        // convention for control-flow pins elsewhere) so a glance at the glyph tells data from
+        // control flow apart, same as Scope already does for ownership.
+        if (IsExecType(pType))                    return IM_COL32(241, 245, 249, 255);
         return IM_COL32(148, 163, 184, 255);
     }
     // A Bool pin never has anything to preview - it dropped the inline-constant checkbox (a
     // hardcoded true/false doesn't fit how Condition/And/Or/Not are meant to be used - they're wired
-    // from Compare, not typed directly). No point reserving a value line it will never use. (There
-    // used to be an "Exec" pin shape here too, under the old Blueprint-style exec-flow model; the
-    // flat-spine execution model - NODE_SCRIPTING_DESIGN.md section 4 - makes it unnecessary, since a
-    // node's "next" is simply whatever follows it in the same spine, so it was removed entirely along
-    // with the plugins that used it. There's also deliberately no separate "Int"/"Short" scalar pin
+    // from Compare, not typed directly). No point reserving a value line it will never use. An Exec
+    // pin is the same - pure control flow, never a value. (The original flat-spine design removed
+    // Blueprint-style exec pins entirely, since a plain node's "next" is just whatever follows it in
+    // the same spine - still true today. Exec pins came back narrowly for OnEvent/Execute/Call/
+    // Function's own new input, to let a SPINE be triggered by an event or invoked from elsewhere;
+    // ordinary nodes still have none. There's also deliberately no separate "Int"/"Short" scalar pin
     // type: minimizing node/type proliferation matters more than nominal precision here, so every
     // scalar numeric value in this corpus - including ForEachLoop's own Element/index - is just
     // "Float", the same principle already applied to Compare (one enum-driven node instead of a
     // GreaterThan/LessThan/Equals box each).)
-    static bool IsNoPreviewType(const char* pType) noexcept { return std::strcmp(pType, "Bool") == 0; }
+    static bool IsNoPreviewType(const char* pType) noexcept { return std::strcmp(pType, "Bool") == 0 || IsExecType(pType); }
     // A Mesh-typed port's live render lives in one shared preview block at the TOP of the node (right
     // under the header), not inline per-row - so its row never prints a value-preview line below the
     // glyph and doesn't need the VALUE_LINE_H space reserved for one (leaving it in produced a visible
@@ -1498,16 +1595,18 @@ namespace nodeos
         // ResolveNodeWildcardType) has nothing to preview or enter yet either - same no-line
         // treatment as Mesh/Scope/Bool above, until it resolves to something.
         if (IsWildcardType(pEffType)) return geo::ROW_H;
-        // A numeric input's extra line is reserved only for its own inline literal-constant widget
-        // (the Unity-style default input) - once a wire connects the pin the widget disappears (see
-        // the inline-literal draw block below) and nothing else takes its place (no node executes
-        // yet, so a connected pin has no live value to preview either), so the reserved space needs
-        // to disappear along with the widget or a blank gap is left behind. Checked against the
-        // EFFECTIVE type so an Any pin resolved to one of these gets the exact same treatment an
-        // ordinarily-typed pin of that type would.
-        const bool bIsNumeric = std::strcmp(pEffType, "Float") == 0 || std::strcmp(pEffType, "Int") == 0 || std::strcmp(pEffType, "Short") == 0;
-        if (bIsNumeric && IsPinConnected(NodeId, P.m_Index, false, Links))
-            return geo::ROW_H;
+        // A numeric input's extra line holds either its own inline literal-constant widget (while
+        // unconnected) or, once a wire connects it AND the graph has actually run (RunProgram -
+        // NODE_SCRIPTING_DESIGN.md §12.6), the real resolved value via PortTypeToPreview - either
+        // way something wants that line, so it's reserved unconditionally rather than trying to
+        // predict "will there be a value to show this frame," which would need Nodes threaded all
+        // the way through here just to ask GetInputValue. The only cost is a occasionally-blank line
+        // under a connected-but-not-yet-run pin - far better than the line disappearing and letting
+        // the row below it collide with real preview text, which is what happened before RunProgram
+        // ever produced a real value to show here (this path used to be dead: nothing ever executed,
+        // so a connected numeric pin never actually needed the space it was skipping). Checked
+        // against the EFFECTIVE type so an Any pin resolved to one of these gets the exact same
+        // treatment an ordinarily-typed pin of that type would.
         return geo::ROW_H + geo::VALUE_LINE_H;
     }
     static int MeshPortCount(const xnode_os_node* pNode)
@@ -1547,10 +1646,32 @@ namespace nodeos
         const float MinForPreview = MeshPortCount(pNode) > 0 ? mesh_preview_system::s_PreviewSize + 24.0f : 0.0f;
         return std::max(NameW + 2.0f * PortColW + 40.0f, MinForPreview);
     }
+    // Extra vertical space at the ONE point a node's port list switches from external (caller-
+    // facing) to local-scope (body-facing) - FlatPorts already groups every external pin first, then
+    // every local one (direction-agnostic), so there is exactly one such boundary total, not one per
+    // direction. "End" is also flagged !m_bLocalScope (it's a structural ownership marker, not part
+    // of either interface) but FlatPorts keeps it trailing after the local group, so checking only
+    // the false->true direction (never true->false) never mistakes local-into-End for a second
+    // boundary. Shared between NodeHeight (so the box is sized to fit it) and the draw loop (so RowY
+    // actually leaves the gap) - see function_node.cpp for the only node type with a mixed port list
+    // today.
+    static float LocalSectionGapTotal(const xnode_os_node* pNode)
+    {
+        float Total = 0.0f;
+        bool bHavePrev = false, bPrevLocal = false;
+        for (auto& P : FlatPorts(pNode))
+        {
+            if (bHavePrev && P.m_pDesc->m_bLocalScope && !bPrevLocal)
+                Total += geo::SECTION_GAP;
+            bPrevLocal = P.m_pDesc->m_bLocalScope;
+            bHavePrev = true;
+        }
+        return Total;
+    }
     static float NodeHeight(const xnode_os_node* pNode, std::uint64_t NodeId, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links)
     {
         if (IsEndMarkerType(pNode)) return geo::HEADER_H;
-        float H = geo::HEADER_H + PreviewAreaHeight(pNode);
+        float H = geo::HEADER_H + PreviewAreaHeight(pNode) + LocalSectionGapTotal(pNode);
         for (auto& P : FlatPorts(pNode)) H += RowHeight(P, NodeId, Links, EffectiveTypeName(NodeId, pNode, P.m_pDesc->m_pTypeName, Nodes, Links));
         // Reserve room for each enum property's own inline dropdown, drawn directly in the node body
         // (not just the side properties panel) - see the inline-enum-widget block in the draw loop.
@@ -1589,6 +1710,158 @@ namespace nodeos
         }
         return Depth;
     }
+    // The ordered chain of enclosing owner ids (If/ForEachLoop) for each node, outermost first - e.g.
+    // {ForEachLoopId, IfId} for a node nested inside an If nested inside a ForEachLoop. Exact same
+    // per-spine stack walk as ComputeScopeDepths just above, only keeping the stack's actual contents
+    // instead of collapsing it to a count - used by IsDataLinkScopeValid below to check whether a
+    // data link's source is something the target could actually reference in real nested C++.
+    static std::unordered_map<std::uint64_t, std::vector<std::uint64_t>> ComputeEnclosingChains(const std::vector<node_instance>& Nodes)
+    {
+        std::unordered_map<std::uint64_t, std::vector<std::uint64_t>> Chains;
+        std::map<std::uint64_t, std::vector<const node_instance*>> BySpine;
+        for (auto& N : Nodes) BySpine[N.m_SpineId].push_back(&N);
+        for (auto& [SpineId, SpineNodes] : BySpine)
+        {
+            std::vector<const node_instance*> Sorted = SpineNodes;
+            std::sort(Sorted.begin(), Sorted.end(), [](const node_instance* A, const node_instance* B) { return A->m_Order < B->m_Order; });
+            std::vector<std::uint64_t> Stack;
+            for (auto* N : Sorted)
+            {
+                if (!Stack.empty() && Stack.back() == N->m_Id) Stack.pop_back();
+                Chains[N->m_Id] = Stack;
+                if (N->m_OwnedEndId != 0) Stack.push_back(N->m_OwnedEndId);
+            }
+        }
+        return Chains;
+    }
+    // Every node id from an owner (If/ForEachLoop) through its own End marker, inclusive, by walking
+    // its spine in Order - used to highlight "what does this scope actually contain" when its
+    // ownership link is selected. A visual highlight only, deliberately not an actual selection (see
+    // the call site) - inspecting a scope shouldn't make its boxes eligible for Delete/drag. Also
+    // used by IsDataLinkScopeValid below for any m_bLocalScope-flagged pin's containment check.
+    // Walks m_OwnedEndId repeatedly (Owner -> its marker -> that marker's OWN marker -> ...) until
+    // reaching a node that doesn't own anything further - handles an owner with a multi-hop marker
+    // chain (create_owned_pair_cmd's optional 2nd hop) exactly like a plain single-hop owner (If/
+    // ForEachLoop/Function all resolve to their direct marker today, nothing currently uses 2 hops).
+    static std::uint64_t ResolveTerminalMarker(const std::vector<node_instance>& Nodes, std::uint64_t OwnerId)
+    {
+        std::uint64_t Cur = OwnerId;
+        for (int Guard = 0; Guard < (int)Nodes.size() + 1; ++Guard)
+        {
+            const node_instance* pCur = nullptr;
+            for (auto& N : Nodes) if (N.m_Id == Cur) { pCur = &N; break; }
+            if (!pCur || pCur->m_OwnedEndId == 0) return Cur;
+            Cur = pCur->m_OwnedEndId;
+        }
+        return Cur; // malformed cycle - shouldn't happen, bail out rather than loop forever
+    }
+    static std::vector<std::uint64_t> ComputeScopeSpan(const std::vector<node_instance>& Nodes, std::uint64_t OwnerId)
+    {
+        const node_instance* pOwner = nullptr;
+        for (auto& N : Nodes) if (N.m_Id == OwnerId) { pOwner = &N; break; }
+        if (!pOwner || pOwner->m_OwnedEndId == 0) return {};
+        const std::uint64_t TerminalId = ResolveTerminalMarker(Nodes, OwnerId);
+
+        std::vector<const node_instance*> Sorted;
+        for (auto& N : Nodes) if (N.m_SpineId == pOwner->m_SpineId) Sorted.push_back(&N);
+        std::sort(Sorted.begin(), Sorted.end(), [](const node_instance* A, const node_instance* B) { return A->m_Order < B->m_Order; });
+
+        std::vector<std::uint64_t> Span;
+        bool bInside = false;
+        for (auto* N : Sorted)
+        {
+            if (N->m_Id == OwnerId) bInside = true;
+            if (bInside) Span.push_back(N->m_Id);
+            if (bInside && N->m_Id == TerminalId) break;
+        }
+        return Span;
+    }
+    // Whether a data link's SOURCE is something the TARGET could actually reference once this
+    // compiles to real nested C++ (NODE_SCRIPTING_DESIGN.md section 4.4/11.6): the boundary is SCOPE
+    // depth, not spine identity. A source sitting at a spine's own TOP level (an empty enclosing
+    // chain - never nested inside any If/ForEachLoop body) is "world scope": conceptually shared/
+    // global state any node anywhere can read, the same role a Blueprint Variable plays for cross-
+    // Event-Graph communication in Unreal (you can't wire one Event Graph's local pin into a
+    // different Event Graph at all, but both can read/write a shared class member). A source nested
+    // inside a local scope, by contrast, is trapped in whatever function/block its OWN spine compiles
+    // to - readable only from the same or a more deeply nested scope in that SAME spine, never from a
+    // different spine at all, and never from a sibling or already-exited scope even in the same
+    // spine (the exact §4.4 gap: a value from inside one branch isn't visible after it, or inside an
+    // unrelated one).
+    //
+    // Blueprint/Unity Visual Scripting don't block drawing an invalid wire either - both let you draw
+    // it, then refuse to compile it (Blueprint's own diagnostic: "X is not in scope due to a network
+    // of execution and data flow errors"). There's no compiler wired up to this editor yet, so this
+    // is surfaced as an immediate visual flag (see the link-drawing loop below) instead of a deferred
+    // compile error - strictly more helpful than staying silent about it until a compiler exists.
+    //
+    // Left deliberately unaddressed here (a compiler-design question, not an editor-validation one):
+    // a same-spine read is always guaranteed fresh (flat sequential/nested execution order makes
+    // "already computed by the time this reads it" automatic), but a cross-spine world-scope read
+    // has no such guarantee - it's a persisted "last value written" read, with real questions about
+    // which spine runs first/how often. Worth resolving before compilation is actually wired up.
+    static bool IsDataLinkScopeValid(std::uint64_t SourceNode, int SourceOutputIndex, std::uint64_t TargetNode, int TargetInputIndex, const std::vector<node_instance>& Nodes, const std::unordered_map<std::uint64_t, std::vector<std::uint64_t>>& Chains)
+    {
+        const node_instance* pSrc = nullptr; const node_instance* pTgt = nullptr;
+        for (auto& N : Nodes) { if (N.m_Id == SourceNode) pSrc = &N; if (N.m_Id == TargetNode) pTgt = &N; }
+        if (!pSrc || !pTgt) return true; // dangling reference - not this check's concern
+
+        // A pin flagged m_bLocalScope (a Function's mirrored parameter/return pins; ForEachLoop's
+        // Element/Index) only has meaning strictly INSIDE the scope its OWN node opens - regardless
+        // of whether the flagged pin is this link's source (the body READS it) or target (the body
+        // WRITES it), the OTHER endpoint must be physically within the flagged pin's owning node's
+        // own scope span. Same containment question either direction, so one rule covers both -
+        // replaces the old node-position-based "mid-chain" test now that the flag is per-pin.
+        if (pSrc->m_pNode)
+        {
+            const auto Outs = pSrc->m_pNode->getOutputs();
+            if (SourceOutputIndex >= 0 && SourceOutputIndex < (int)Outs.size() && Outs[SourceOutputIndex].m_bLocalScope)
+            {
+                const auto Span = ComputeScopeSpan(Nodes, SourceNode);
+                return std::find(Span.begin(), Span.end(), TargetNode) != Span.end();
+            }
+        }
+        if (pTgt->m_pNode)
+        {
+            const auto Ins = pTgt->m_pNode->getInputs();
+            if (TargetInputIndex >= 0 && TargetInputIndex < (int)Ins.size() && Ins[TargetInputIndex].m_bLocalScope)
+            {
+                const auto Span = ComputeScopeSpan(Nodes, TargetNode);
+                return std::find(Span.begin(), Span.end(), SourceNode) != Span.end();
+            }
+        }
+
+        // Reaching here means the source port is NOT itself local-scope-flagged (that returned
+        // above) - but if the source node owns a scope at all, its own EXTERNAL output is still that
+        // scope's finished result, never available until the ENTIRE body has run. The ordinary
+        // chain-prefix check below would otherwise treat it like any other enclosing-scope value
+        // available from entry (e.g. a ForEachLoop's Span, an If's Condition) - correct for those,
+        // wrong for a return value. So nothing PHYSICALLY INSIDE the owner's own span may read it,
+        // regardless of nesting depth elsewhere; anything at or above the owner's own scope still can
+        // (checked generically off m_OwnedEndId - only Function has an external output shaped this
+        // way today, but this isn't specific to it by name).
+        if (pSrc->m_OwnedEndId != 0)
+        {
+            const auto OwnSpan = ComputeScopeSpan(Nodes, SourceNode);
+            if (std::find(OwnSpan.begin(), OwnSpan.end(), TargetNode) != OwnSpan.end()) return false;
+        }
+
+        auto SrcIt = Chains.find(SourceNode); auto TgtIt = Chains.find(TargetNode);
+        if (SrcIt == Chains.end() || TgtIt == Chains.end()) return true;
+        const auto& SrcChain = SrcIt->second; const auto& TgtChain = TgtIt->second;
+        if (pSrc->m_SpineId != pTgt->m_SpineId) return SrcChain.empty() || TgtChain.empty(); // local-to-local across spines is invalid; either end being world scope is fine
+        if (SrcChain.size() > TgtChain.size()) return false;
+        for (std::size_t i = 0; i < SrcChain.size(); ++i) if (SrcChain[i] != TgtChain[i]) return false;
+        // Chain compatibility alone isn't enough - two nodes at the SAME nesting depth (including
+        // both unnested, "world scope") have IDENTICAL chains regardless of which one was actually
+        // placed first, so the check above can't tell a forward link from a backward one. The spine's
+        // own Order IS execution order in this flat model - a source that comes AFTER its target
+        // would be read before it's ever computed. Cross-spine order isn't comparable this way (each
+        // spine numbers its own Order independently), which is why this sits after the cross-spine
+        // branch above rather than folded into it.
+        if (pSrc->m_Order > pTgt->m_Order) return false;
+        return true;
+    }
     // Diminishing-returns darken, never marching to pure black - the fill is already very dark
     // (17,24,39) against a near-black canvas, so an unbounded per-level darken would make deeply
     // nested boxes blend into the background, defeating the point.
@@ -1601,29 +1874,14 @@ namespace nodeos
         const int B = (int)(((BaseCol >> IM_COL32_B_SHIFT) & 0xFF) * Factor);
         return IM_COL32(R, G, B, 255);
     }
-    // Every node id from an owner (If/ForEachLoop) through its own End marker, inclusive, by walking
-    // its spine in Order - used to highlight "what does this scope actually contain" when its
-    // ownership link is selected. A visual highlight only, deliberately not an actual selection (see
-    // the call site) - inspecting a scope shouldn't make its boxes eligible for Delete/drag.
-    static std::vector<std::uint64_t> ComputeScopeSpan(const std::vector<node_instance>& Nodes, std::uint64_t OwnerId)
+    // Scales just the alpha channel, leaving hue/brightness untouched - used to dim a single
+    // ineligible PIN during a drag without touching the whole node's own DarkenForDepth-based fill
+    // (a node can carry both eligible and ineligible pins at once, e.g. a Function's external vs
+    // local-mirrored ports - see the per-pin dim in the port-row loop below).
+    static ImU32 WithAlpha(ImU32 BaseCol, float Factor) noexcept
     {
-        const node_instance* pOwner = nullptr;
-        for (auto& N : Nodes) if (N.m_Id == OwnerId) { pOwner = &N; break; }
-        if (!pOwner || pOwner->m_OwnedEndId == 0) return {};
-
-        std::vector<const node_instance*> Sorted;
-        for (auto& N : Nodes) if (N.m_SpineId == pOwner->m_SpineId) Sorted.push_back(&N);
-        std::sort(Sorted.begin(), Sorted.end(), [](const node_instance* A, const node_instance* B) { return A->m_Order < B->m_Order; });
-
-        std::vector<std::uint64_t> Span;
-        bool bInside = false;
-        for (auto* N : Sorted)
-        {
-            if (N->m_Id == OwnerId) bInside = true;
-            if (bInside) Span.push_back(N->m_Id);
-            if (bInside && N->m_Id == pOwner->m_OwnedEndId) break;
-        }
-        return Span;
+        const int A = (int)(((BaseCol >> IM_COL32_A_SHIFT) & 0xFF) * Factor);
+        return (BaseCol & ~((ImU32)0xFF << IM_COL32_A_SHIFT)) | ((ImU32)A << IM_COL32_A_SHIFT);
     }
     // An If/ForEachLoop and everything in its scope - including its own End (or End/End-Else pair)
     // and anything nested inside, else-branch content included - is one piece, never separable by an
@@ -2110,8 +2368,16 @@ namespace nodeos
             if (IsEndMarkerType(pDesc))
                 return { (S == 'L') ? pRow->m_X : pRow->m_X + pRow->m_W, pRow->m_Y + geo::HEADER_H * 0.5f };
             float Y = pRow->m_Y + geo::HEADER_H + PreviewAreaHeight(pDesc);
+            bool bHavePrevQ = false, bPrevQLocal = false;
             for (auto& Q : FlatPorts(pDesc))
             {
+                // Same SECTION_GAP insertion as the draw loop (see LocalSectionGapTotal) - the anchor
+                // walk has to reproduce every bit of the draw loop's own RowY accumulation, or a wire
+                // ends up terminating above/below the glyph it's actually meant to touch, worse the
+                // further down the port list the target sits.
+                if (bHavePrevQ && Q.m_pDesc->m_bLocalScope && !bPrevQLocal) Y += geo::SECTION_GAP;
+                bPrevQLocal = Q.m_pDesc->m_bLocalScope;
+                bHavePrevQ = true;
                 // Half of ROW_H specifically, matching the drawing loop's own CenterY (RowY +
                 // ROW_H*0.5) - NOT half of RowHeight(), which also counts the value-line space below
                 // the glyph and would anchor wires visibly below the actual drawn pin.
@@ -2128,11 +2394,18 @@ namespace nodeos
         // something already there. Pooled PER COLUMN, keyed by OwnerColumnOf(Link) - a connection can
         // now span any two columns, but its vertical run only ever lives in ONE of them at a time (see
         // OwnerColumnOf's own comment) - no two columns' highways ever interact.
-        struct link_lane_interval { float m_Lo, m_Hi; };
+        //
+        // Two spans that share the same SOURCE pin (one output fanning out to several inputs, e.g. a
+        // Cube's Mesh feeding both Export Mesh and Inspect Mesh) are never considered to "overlap"
+        // each other, even when their Y-ranges do - they're the same trunk visually, just splitting
+        // off toward different destinations, not independent wires that happen to cross. Without this,
+        // every fan-out target claimed its own parallel lane for the full length of the shared run,
+        // which is exactly the "too many highways" the fan-out case was producing.
+        struct link_lane_interval { float m_Lo, m_Hi; std::uint64_t m_SourcePin; };
         std::unordered_map<std::uint64_t, std::vector<std::vector<link_lane_interval>>> LaneIntervalsBySide[2]; // [0]=L, [1]=R, keyed by column id
         std::unordered_map<std::uint64_t, int> LaneOfLink;
         {
-            struct link_span { std::uint64_t m_LinkId, m_ColumnId; int m_Side; float m_Lo, m_Hi; };
+            struct link_span { std::uint64_t m_LinkId, m_ColumnId; int m_Side; float m_Lo, m_Hi; std::uint64_t m_SourcePin; };
             std::vector<link_span> Spans;
             for (auto& Link : Links)
             {
@@ -2146,22 +2419,49 @@ namespace nodeos
                 LinkSides(Link, SourceSide, TargetSide, RailSide);
                 const float FromY = PortAnchor(Link.m_SourceNode, OutP, SourceSide).y, ToY = PortAnchor(Link.m_TargetNode, InP, TargetSide).y;
                 const int Side2 = (RailSide == 'R') ? 1 : 0;
-                Spans.push_back({ Link.m_Id, OwnerColumnOf(Link), Side2, std::min(FromY, ToY), std::max(FromY, ToY) });
+                Spans.push_back({ Link.m_Id, OwnerColumnOf(Link), Side2, std::min(FromY, ToY), std::max(FromY, ToY), PinOf(OutP, Link.m_SourceNode) });
             }
-            std::sort(Spans.begin(), Spans.end(), [](auto& A, auto& B) { return (A.m_Hi - A.m_Lo) < (B.m_Hi - B.m_Lo); });
+            // Fan-out from one source pin (e.g. a Cube's Mesh feeding both Export Mesh and Inspect
+            // Mesh) is one trunk, not several independent wires - a lane it claims has to be reserved
+            // across the FULL combined range of every branch, not just whichever branch is being
+            // placed at the moment. Without grouping branches together BEFORE lane assignment, a
+            // short branch (the same source feeding a nearby target) can let an unrelated, different-
+            // source link slot into the gap right after it, only for a LONGER branch of the same
+            // trunk to collide with that unrelated link later and get bounced to its own lane anyway
+            // - the short branch reused the lane fine, but the long one couldn't, because something
+            // else had already moved into the space it needed too.
+            struct span_group { std::uint64_t m_ColumnId; int m_Side; std::uint64_t m_SourcePin; float m_Lo, m_Hi; std::vector<std::uint64_t> m_LinkIds; };
+            std::vector<span_group> Groups;
             for (auto& S : Spans)
             {
-                auto& Lanes = LaneIntervalsBySide[S.m_Side][S.m_ColumnId];
+                auto It = std::find_if(Groups.begin(), Groups.end(), [&](auto& G) { return G.m_ColumnId == S.m_ColumnId && G.m_Side == S.m_Side && G.m_SourcePin == S.m_SourcePin; });
+                if (It == Groups.end())
+                    Groups.push_back({ S.m_ColumnId, S.m_Side, S.m_SourcePin, S.m_Lo, S.m_Hi, { S.m_LinkId } });
+                else
+                {
+                    It->m_Lo = std::min(It->m_Lo, S.m_Lo);
+                    It->m_Hi = std::max(It->m_Hi, S.m_Hi);
+                    It->m_LinkIds.push_back(S.m_LinkId);
+                }
+            }
+            std::sort(Groups.begin(), Groups.end(), [](auto& A, auto& B) { return (A.m_Hi - A.m_Lo) < (B.m_Hi - B.m_Lo); });
+            for (auto& G : Groups)
+            {
+                auto& Lanes = LaneIntervalsBySide[G.m_Side][G.m_ColumnId];
                 int ChosenLane = -1;
                 for (int L = 0; L < (int)Lanes.size(); ++L)
                 {
                     bool bOverlaps = false;
-                    for (auto& Iv : Lanes[L]) if (S.m_Lo <= Iv.m_Hi && S.m_Hi >= Iv.m_Lo) { bOverlaps = true; break; }
+                    for (auto& Iv : Lanes[L])
+                    {
+                        if (Iv.m_SourcePin == G.m_SourcePin) continue; // same trunk - never blocks sharing a lane (groups are already merged by source pin, kept as a safety net)
+                        if (G.m_Lo <= Iv.m_Hi && G.m_Hi >= Iv.m_Lo) { bOverlaps = true; break; }
+                    }
                     if (!bOverlaps) { ChosenLane = L; break; }
                 }
                 if (ChosenLane < 0) { ChosenLane = (int)Lanes.size(); Lanes.push_back({}); }
-                Lanes[ChosenLane].push_back({ S.m_Lo, S.m_Hi });
-                LaneOfLink[S.m_LinkId] = ChosenLane;
+                Lanes[ChosenLane].push_back({ G.m_Lo, G.m_Hi, G.m_SourcePin });
+                for (auto LinkId : G.m_LinkIds) LaneOfLink[LinkId] = ChosenLane;
             }
         }
         auto LaneCountOf = [&](std::uint64_t ColId, int Side01) -> int
@@ -2307,7 +2607,8 @@ namespace nodeos
             pDraw->AddLine(ToScreen({ HighwayX(Co.m_Id, 'R', ROuter), 0 }), ToScreen({ HighwayX(Co.m_Id, 'R', ROuter), TotalH }), IM_COL32(30, 38, 58, 255));
         }
 
-        const auto ScopeDepths = ComputeScopeDepths(Nodes);
+        const auto ScopeDepths     = ComputeScopeDepths(Nodes);
+        const auto EnclosingChains = ComputeEnclosingChains(Nodes);
 
         for (auto& Link : Links)
         {
@@ -2330,7 +2631,16 @@ namespace nodeos
                 auto DepthIt = ScopeDepths.find(Link.m_SourceNode);
                 Col = DarkenForDepth(Col, DepthIt == ScopeDepths.end() ? 0 : DepthIt->second);
             }
-            const float Thickness = bSelected ? 3.0f : (Link.m_bReadOnly ? 4.0f : 2.0f);
+            // A data link (never a read-only ownership wire, which is always structurally valid by
+            // construction) whose source the target could never actually reference in real nested
+            // C++ - see IsDataLinkScopeValid - flags in a clear warning color regardless of type or
+            // selection state. There's no compiler to catch this yet; this is the honest stand-in for
+            // the diagnostic one would eventually give (matching how Unreal Blueprint/Unity Visual
+            // Scripting both let the wire get drawn and only flag it later - just surfaced immediately
+            // here instead of deferred, since there's nothing else to defer it to today).
+            const bool bScopeInvalid = !Link.m_bReadOnly && !IsDataLinkScopeValid(Link.m_SourceNode, Link.m_SourceOutput, Link.m_TargetNode, Link.m_TargetInput, Nodes, EnclosingChains);
+            if (bScopeInvalid) Col = IM_COL32(239, 68, 68, 255);
+            const float Thickness = bScopeInvalid ? 3.0f : bSelected ? 3.0f : (Link.m_bReadOnly ? 4.0f : 2.0f);
             char SourceSide = 'R', TargetSide = 'R', RailSide = 'R';
             LinkSides(Link, SourceSide, TargetSide, RailSide);
             DrawHighwayPath(OwnerColumnOf(Link), PortAnchor(Link.m_SourceNode, OutP, SourceSide), PortAnchor(Link.m_TargetNode, InP, TargetSide)
@@ -2359,6 +2669,53 @@ namespace nodeos
 
         const float FontSize = ImGui::GetFontSize() * View.m_Zoom;
         auto DrawText = [&](ImVec2 Pos, ImU32 Col, const char* pText) { pDraw->AddText(nullptr, FontSize, ToScreen(Pos), Col, pText); };
+
+        // The drag origin's own effective type, fixed for the whole drag - computed once per frame
+        // rather than once per candidate pin.
+        auto* pFromDescForDrag = Drag.m_bActive ? DescOf(FindNode(Drag.m_FromNode)) : nullptr;
+        std::string FromEffForDrag;
+        if (pFromDescForDrag)
+        {
+            const char* pFromType = Drag.m_bFromIsOutput ? pFromDescForDrag->getOutputs()[Drag.m_FromIndex].m_pTypeName : pFromDescForDrag->getInputs()[Drag.m_FromIndex].m_pTypeName;
+            FromEffForDrag = EffectiveTypeName(Drag.m_FromNode, pFromDescForDrag, pFromType, Nodes, Links);
+        }
+
+        // Whether a SPECIFIC candidate pin (opposite direction from the drag's own origin, PortIndex
+        // into that direction's own port list) would actually accept the drop - by type AND scope
+        // (IsDataLinkScopeValid). A node can carry both eligible and ineligible pins at once (a
+        // Function's external vs. local-mirrored ports; ForEachLoop's Span vs. Element/Index), so
+        // this is checked per-pin - both to dim one ineligible pin without fading its whole node (see
+        // the port-row loop below) and, aggregated across a node's full port list in
+        // NodeAcceptsDrag, to fade a node that has NO eligible pin anywhere on it.
+        auto PortAcceptsDrag = [&](std::uint64_t CandidateId, int PortIndex) -> bool
+        {
+            if (!Drag.m_bActive || CandidateId == Drag.m_FromNode || !pFromDescForDrag) return true;
+            auto* pCandDesc = DescOf(FindNode(CandidateId));
+            if (!pCandDesc) return true;
+            const auto CandPorts = Drag.m_bFromIsOutput ? pCandDesc->getInputs() : pCandDesc->getOutputs();
+            if (PortIndex < 0 || PortIndex >= (int)CandPorts.size()) return true;
+            const std::string ToEff = EffectiveTypeName(CandidateId, pCandDesc, CandPorts[PortIndex].m_pTypeName, Nodes, Links);
+            if (!IsAnyKindOfWildcard(FromEffForDrag.c_str()) && !IsAnyKindOfWildcard(ToEff.c_str()) && FromEffForDrag != ToEff) return false;
+            const std::uint64_t SrcForScope    = Drag.m_bFromIsOutput ? Drag.m_FromNode  : CandidateId;
+            const std::uint64_t TgtForScope    = Drag.m_bFromIsOutput ? CandidateId      : Drag.m_FromNode;
+            const int           SrcOutForScope = Drag.m_bFromIsOutput ? Drag.m_FromIndex : PortIndex;
+            const int           TgtInForScope  = Drag.m_bFromIsOutput ? PortIndex        : Drag.m_FromIndex;
+            return IsDataLinkScopeValid(SrcForScope, SrcOutForScope, TgtForScope, TgtInForScope, Nodes, EnclosingChains);
+        };
+
+        // A node fades out (in the draw loop below) only when NOT ONE of its ports would accept the
+        // drop - if even one pin qualifies, the node stays visible and the per-pin dim below marks
+        // its other, ineligible pins instead.
+        auto NodeAcceptsDrag = [&](std::uint64_t CandidateId) -> bool
+        {
+            if (!Drag.m_bActive || CandidateId == Drag.m_FromNode) return true;
+            auto* pCandDesc = DescOf(FindNode(CandidateId));
+            if (!pCandDesc) return true;
+            const auto CandPorts = Drag.m_bFromIsOutput ? pCandDesc->getInputs() : pCandDesc->getOutputs();
+            for (int i = 0; i < (int)CandPorts.size(); ++i)
+                if (PortAcceptsDrag(CandidateId, i)) return true;
+            return false;
+        };
 
         for (size_t oi = 0; oi < Order.size(); ++oi)
         {
@@ -2481,21 +2838,70 @@ namespace nodeos
 
             // An End marker draws no port rows at all - no glyph, no label, nothing to drag - its
             // pin is purely the title-bar anchor point PortAnchor already computes above.
+            const auto PortsForRow = FlatPorts(pDesc);
+            bool bHavePrevPort = false, bPrevPortLocal = false;
             if (!IsEndMarkerType(pDesc))
-            for (auto& P : FlatPorts(pDesc))
+            for (std::size_t PortIdx = 0; PortIdx < PortsForRow.size(); ++PortIdx)
             {
+                auto& P = PortsForRow[PortIdx];
+                // At the ONE point this node's ports switch from external to local-scope: a visible
+                // gap (not just a color/line cue - see LocalSectionGapTotal, which reserves the
+                // matching space in NodeHeight), a background tint matching what a node physically
+                // INSIDE this scope would get from DarkenForDepth (same visual language as the rest
+                // of this file's depth-based dimming), and a small caption so the transition reads
+                // without having to infer it from the const/& type annotations alone. The tint runs
+                // all the way to the node's own bottom edge (through the End row) rather than
+                // stopping at the local ports' own extent, so there's no hard edge partway down.
+                if (bHavePrevPort && P.m_pDesc->m_bLocalScope && !bPrevPortLocal)
+                {
+                    const float LineY = RowY + geo::SECTION_GAP * 0.5f;
+                    // Inset from the node's own left/right border by a hair, and stop a hair short of
+                    // the bottom border, so the tint sits INSIDE the node's outline rather than
+                    // painting over it - reaches the very bottom (through the End row) rather than
+                    // stopping at the local ports' own extent, so there's no hard edge partway down.
+                    const float BorderInset = ToScreenLen(1.5f);
+                    const ImVec2 TintMin = { ToScreen({ pRow->m_X, LineY }).x + BorderInset, ToScreen({ pRow->m_X, LineY }).y };
+                    const ImVec2 TintMax = { P1.x - BorderInset, P1.y - ToScreenLen(1.0f) };
+                    pDraw->AddRectFilled(TintMin, TintMax, DarkenForDepth(IM_COL32(17, 24, 39, 255), Depth + 1), ToScreenLen(10.0f), ImDrawFlags_RoundCornersBottom);
+                    pDraw->AddLine(ToScreen({ pRow->m_X + 6.0f, LineY }), ToScreen({ pRow->m_X + pRow->m_W - 6.0f, LineY }), IM_COL32(100, 116, 139, 255), ToScreenLen(1.5f));
+                    DrawText({ pRow->m_X + 8.0f, LineY + 2.0f }, IM_COL32(100, 116, 139, 255), "locals");
+                    RowY += geo::SECTION_GAP;
+                }
+                bPrevPortLocal = P.m_pDesc->m_bLocalScope;
+                bHavePrevPort = true;
+
                 // An Any pin (Compare's A/B) shows and colors as whatever it's currently resolved to
                 // (see ResolveNodeWildcardType) - "Any" itself only while nothing has locked it in yet.
                 const char* pEffType = EffectiveTypeName(Id, pDesc, P.m_pDesc->m_pTypeName, Nodes, Links);
                 const float RH = RowHeight(P, Id, Links, pEffType);
                 const float CenterY = RowY + geo::ROW_H * 0.5f;
                 // A Scope pin darkens with its own node's depth too, matching the box and the wire.
-                const ImU32 Col = IsScopeType(pEffType) ? DarkenForDepth(TypeColor(pEffType), Depth) : TypeColor(pEffType);
+                ImU32 Col = IsScopeType(pEffType) ? DarkenForDepth(TypeColor(pEffType), Depth) : TypeColor(pEffType);
                 const bool bConnected = PortSides.contains(PinOf(P, Id));
-                const ImU32 Fill = bConnected ? Col : IM_COL32(11, 16, 33, 255);
+                ImU32 Fill = bConnected ? Col : IM_COL32(11, 16, 33, 255);
 
-                const ImVec2 NameSize = ImGui::CalcTextSize(P.m_pDesc->m_pName);
-                DrawText({ pRow->m_X + pRow->m_W * 0.5f - NameSize.x * 0.5f, CenterY - NameSize.y * 0.5f }, IM_COL32(203, 213, 225, 255), P.m_pDesc->m_pName);
+                // Fade the SMALLEST thing that's actually invalid: a candidate pin (opposite
+                // direction from the drag, different node) that fails type or scope dims on its own,
+                // rather than only ever fading the whole node - a node can mix eligible and
+                // ineligible pins on the same box (a Function's external vs. local-mirrored ports;
+                // ForEachLoop's Span vs. its own Element/Index), and the whole-node overlay below
+                // only fires when NOTHING on the node qualifies.
+                ImU32 NameCol = IM_COL32(203, 213, 225, 255);
+                if (Drag.m_bActive && Id != Drag.m_FromNode && P.m_bIsOutput != Drag.m_bFromIsOutput && !PortAcceptsDrag(Id, P.m_Index))
+                {
+                    Col     = WithAlpha(Col, 0.35f);
+                    Fill    = WithAlpha(Fill, 0.35f);
+                    NameCol = WithAlpha(NameCol, 0.35f);
+                }
+
+                // "End" gets no name label at all - it's the one port name that's the same on every
+                // owner type, adds no information ("[Scope]" already says what it is), and dropping
+                // it lets every OTHER port's own name stand out more.
+                if (std::strcmp(P.m_pDesc->m_pName, "End") != 0)
+                {
+                    const ImVec2 NameSize = ImGui::CalcTextSize(P.m_pDesc->m_pName);
+                    DrawText({ pRow->m_X + pRow->m_W * 0.5f - NameSize.x * 0.5f, CenterY - NameSize.y * 0.5f }, NameCol, P.m_pDesc->m_pName);
+                }
 
                 // A pin used by links going both up and down the stack needs a glyph on BOTH sides -
                 // one per side actually in use (SidesOf), not just whichever link happened to be
@@ -2550,32 +2956,15 @@ namespace nodeos
                     bool bShowRing = bPinHovered;
                     if (bPinHovered && Drag.m_bActive)
                     {
-                        const bool bSamePort   = (Id == Drag.m_FromNode && P.m_bIsOutput == Drag.m_bFromIsOutput && P.m_Index == Drag.m_FromIndex);
-                        const bool bOppositeDir = (P.m_bIsOutput != Drag.m_bFromIsOutput);
+                        const bool bSamePort      = (Id == Drag.m_FromNode && P.m_bIsOutput == Drag.m_bFromIsOutput && P.m_Index == Drag.m_FromIndex);
+                        const bool bOppositeDir   = (P.m_bIsOutput != Drag.m_bFromIsOutput);
                         const bool bDifferentNode = (Id != Drag.m_FromNode);
-                        bool bTypeMatches = false;
-                        if (!bSamePort && bOppositeDir && bDifferentNode)
-                        {
-                            if (auto* pFromDesc = DescOf(FindNode(Drag.m_FromNode)))
-                            {
-                                const char* pFromType = Drag.m_bFromIsOutput ? pFromDesc->getOutputs()[Drag.m_FromIndex].m_pTypeName : pFromDesc->getInputs()[Drag.m_FromIndex].m_pTypeName;
-                                // Copied into a real std::string IMMEDIATELY, before the second
-                                // EffectiveTypeName call: ResolveNodeWildcardType's container-unwrap
-                                // path (ForEachLoop's Element/Index) returns a pointer into a shared
-                                // thread_local buffer, which the second call below would silently
-                                // overwrite out from under a still-live raw pointer from the first -
-                                // not observable with today's exact node catalog (no two "from"/"to"
-                                // pins can both hit that path in one comparison yet), but a real
-                                // aliasing hazard the moment a second Span-consuming node type exists.
-                                const std::string FromEff = EffectiveTypeName(Drag.m_FromNode, pFromDesc, pFromType, Nodes, Links);
-                                const char* pToEff = EffectiveTypeName(Id, pDesc, P.m_pDesc->m_pTypeName, Nodes, Links);
-                                // A still-open wildcard on either side (Any or Span<Any> - see
-                                // IsAnyKindOfWildcard) accepts any type - the connection is what
-                                // resolves it.
-                                bTypeMatches = IsAnyKindOfWildcard(FromEff.c_str()) || IsAnyKindOfWildcard(pToEff) || FromEff == pToEff;
-                            }
-                        }
-                        bShowRing = !bSamePort && bOppositeDir && bDifferentNode && bTypeMatches;
+                        // PortAcceptsDrag checks type AND scope now - a scope-forbidden pin (e.g. a
+                        // Function's local-mirrored input reached from outside its own body) used to
+                        // still ring here on type alone, inviting a drop the commit logic would then
+                        // silently refuse; folded into the one shared check so the ring and the
+                        // eventual drop-resolution never disagree.
+                        bShowRing = !bSamePort && bOppositeDir && bDifferentNode && PortAcceptsDrag(Id, P.m_Index);
                     }
                     if (bShowRing)
                     {
@@ -2782,6 +3171,15 @@ namespace nodeos
                 ImGui::SetCursorScreenPos(ToScreen({ pRow->m_X + 8.0f, pRow->m_Y + pRow->m_H - 16.0f }));
                 ImGui::TextColored(ImVec4(0.9f, 0.4f, 0.4f, 1.0f), "%s", pNode->m_LastError.c_str());
             }
+            // Fades the WHOLE node - drawn last, on top of everything else just rendered for it
+            // (header, ports, inline widgets, error text) - when it has no port that could legally
+            // accept the connection currently being dragged (see NodeAcceptsDrag). A dark, mostly-
+            // opaque overlay matching the canvas background rather than touching every individual
+            // color computed above - far less invasive than threading an alpha factor through this
+            // whole block, and just as effective visually.
+            if (Drag.m_bActive && !NodeAcceptsDrag(Id))
+                pDraw->AddRectFilled(P0, P1, IM_COL32(11, 16, 33, 195), ToScreenLen(10.0f));
+
             ImGui::PopID();
         }
 
@@ -3286,7 +3684,172 @@ namespace nodeos
     // the small acyclic graphs this proof of concept cares about. No longer needs AvailableTypes at
     // all - each node instance carries its own behavior directly (node_instance::m_pNode).
     //------------------------------------------------------------------------------------------------
-    static void ExecuteGraph(xgpu::device& Device, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, mesh_preview_system& MeshPreview)
+    // ---- Real spine/exec-flow interpreter (NODE_SCRIPTING_DESIGN.md's exec-flow addition) ----
+    // This is what actually RUNS the program, replacing the older pure-dataflow "run whatever's
+    // ready" fixed point that used to live in ExecuteGraph (still fine for graphs with zero exec
+    // involvement, but wrong once OnEvent/ExecutionCall/Function/Execute exist - that model has no
+    // concept of spine order, scope, or "only run if actually triggered," and would call a node's
+    // Execute() the moment its inputs looked ready regardless of whether anything ever invokes it).
+    // A node only ever runs if it's reachable from the root spine by walking ordinary spine Order
+    // and Exec wires - anything else is inert, "commented code," never executed (the rule settled
+    // on this session, along with everything else this block implements).
+    static node_instance* FindNodeById(std::uint64_t Id, std::vector<node_instance>& Nodes)
+    {
+        auto It = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == Id; });
+        return It == Nodes.end() ? nullptr : &*It;
+    }
+    // A port that carries a real, resolvable value at runtime - excludes Exec (pure control-flow
+    // trigger, never a value) and Scope (the owner<->End ownership pin, likewise never a value).
+    static bool IsRealDataPort(const xnode_os_port_desc& P) noexcept
+    {
+        return !IsExecType(P.m_pTypeName) && !IsScopeType(P.m_pTypeName);
+    }
+    static void RunOrdinaryNode(node_instance& Node, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links)
+    {
+        if (!Node.m_pNode || Node.m_bHasRun) return;
+        const auto NodeInputs  = Node.m_pNode->getInputs();
+        const auto NodeOutputs = Node.m_pNode->getOutputs();
+        std::vector<void*> Inputs(NodeInputs.size(), nullptr);
+        for (int i = 0; i < (int)NodeInputs.size(); ++i)
+            Inputs[i] = GetInputValue(Node.m_Id, i, Nodes, Links);
+        Node.m_CachedOutputs.assign(NodeOutputs.size(), nullptr);
+        Node.m_pNode->Execute(Inputs.data(), Node.m_CachedOutputs.data());
+        Node.m_bHasRun = true;
+    }
+    static void RunSpineRange(std::uint64_t SpineId, int FromOrderInclusive, int ToOrderExclusive, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links);
+    static void RunExecTarget(std::uint64_t TargetNodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links);
+    // ExecutionCall's Exec output fans out to every Exec-typed link off it - fork, run each target to
+    // completion (RunExecTarget is fully synchronous, so this doubles as the join: nothing after this
+    // call returns until every fanned-out target has finished). Order between multiple targets is
+    // deliberately unspecified (settled this session); a plain left-to-right pass over Links is as
+    // good as any other order today.
+    static void RunExecutionCall(node_instance& Caller, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links)
+    {
+        if (Caller.m_bHasRun) return;
+        Caller.m_bHasRun = true;
+        for (auto& L : Links)
+            if (L.m_SourceNode == Caller.m_Id)
+                RunExecTarget(L.m_TargetNode, Nodes, Links);
+    }
+    // Entering Function or Execute via an incoming Exec trigger - the only way either ever runs (see
+    // RunSpineRange, which deliberately skips both during ordinary positional walking).
+    static void RunExecTarget(std::uint64_t TargetNodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links)
+    {
+        node_instance* pTarget = FindNodeById(TargetNodeId, Nodes);
+        if (!pTarget || !pTarget->m_pNode || pTarget->m_bHasRun) return;
+        const auto Name = pTarget->m_pNode->m_pFactory->getName();
+
+        if (Name == "Function")
+        {
+            // Real subroutine call: resolve its own declared (external, non-local, non-Exec) inputs
+            // from wherever they're wired, mirror each one into the matching local-scope OUTPUT slot
+            // (the body's own view of its parameters - function_node.cpp's Rebuild always places the
+            // K-th declared input's mirror at output index [ExternalOutputCount + K]), run the body
+            // (everything between this node and its own End, in Order), then mirror whatever the
+            // body wrote into the local Result-mirror INPUT back out to the matching declared
+            // external OUTPUT (the reverse direction, same indexing scheme).
+            const auto Inputs  = pTarget->m_pNode->getInputs();
+            const auto Outputs = pTarget->m_pNode->getOutputs();
+            std::vector<void*> InVals(Inputs.size(), nullptr);
+            for (int i = 0; i < (int)Inputs.size(); ++i)
+                if (!Inputs[i].m_bLocalScope && IsRealDataPort(Inputs[i]))
+                    InVals[i] = GetInputValue(pTarget->m_Id, i, Nodes, Links);
+            pTarget->m_CachedOutputs.assign(Outputs.size(), nullptr);
+            pTarget->m_pNode->Execute(InVals.data(), pTarget->m_CachedOutputs.data()); // no-op today, kept for a real ABI
+
+            int ExternalOutputCount = 0;
+            for (auto& O : Outputs) if (!O.m_bLocalScope && IsRealDataPort(O)) ++ExternalOutputCount;
+            int ExternalInputCount = 0;
+            for (auto& I : Inputs) if (!I.m_bLocalScope && IsRealDataPort(I)) ++ExternalInputCount;
+
+            for (int i = 0, K = 0; i < (int)Inputs.size(); ++i)
+            {
+                if (Inputs[i].m_bLocalScope || !IsRealDataPort(Inputs[i])) continue;
+                const int MirrorIdx = ExternalOutputCount + K;
+                if (MirrorIdx < (int)pTarget->m_CachedOutputs.size()) pTarget->m_CachedOutputs[MirrorIdx] = InVals[i];
+                ++K;
+            }
+            pTarget->m_bHasRun = true;
+
+            auto* pEnd = FindNodeById(pTarget->m_OwnedEndId, Nodes);
+            const int EndOrder = pEnd ? pEnd->m_Order : INT_MAX;
+            RunSpineRange(pTarget->m_SpineId, pTarget->m_Order + 1, EndOrder, Nodes, Links);
+
+            for (int i = 0, L2 = 0; i < (int)Outputs.size(); ++i)
+            {
+                if (Outputs[i].m_bLocalScope || !IsRealDataPort(Outputs[i])) continue;
+                const int MirrorInputIdx = ExternalInputCount + L2;
+                pTarget->m_CachedOutputs[i] = (MirrorInputIdx < (int)Inputs.size()) ? GetInputValue(pTarget->m_Id, MirrorInputIdx, Nodes, Links) : nullptr;
+                ++L2;
+            }
+        }
+        else if (Name == "Execute")
+        {
+            pTarget->m_CachedOutputs.assign(pTarget->m_pNode->getOutputs().size(), nullptr);
+            pTarget->m_bHasRun = true;
+            // No owned scope - "body" is simply everything positionally after it in its own spine,
+            // all the way to the spine's own end (NODE_SCRIPTING_DESIGN.md's Execute/lambda-capture
+            // analogy) - nothing bounds it the way Function's own End does.
+            RunSpineRange(pTarget->m_SpineId, pTarget->m_Order + 1, INT_MAX, Nodes, Links);
+        }
+    }
+    // The flat-spine model's own base case: run every node positioned in [FromOrderInclusive,
+    // ToOrderExclusive) of one spine, in Order. "End" is a pure boundary marker, never run. Function
+    // and Execute are deliberately SKIPPED here even if positionally reached - both declare a real
+    // Exec input specifically so they only ever run via an incoming trigger (RunExecTarget), never
+    // just because ordinary spine order got to them. If/ForEachLoop aren't given real branch/loop
+    // semantics yet - nothing saved exercises them; RunOrdinaryNode's generic "resolve inputs, call
+    // Execute() once" is what they'd fall through to today, same as any other node type not
+    // specifically recognized here - a real next step once something actually needs it.
+    static void RunSpineRange(std::uint64_t SpineId, int FromOrderInclusive, int ToOrderExclusive, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links)
+    {
+        std::vector<node_instance*> Members;
+        for (auto& N : Nodes)
+            if (N.m_SpineId == SpineId && N.m_Order >= FromOrderInclusive && N.m_Order < ToOrderExclusive)
+                Members.push_back(&N);
+        std::sort(Members.begin(), Members.end(), [](auto* A, auto* B) { return A->m_Order < B->m_Order; });
+        for (auto* pN : Members)
+        {
+            if (!pN->m_pNode || pN->m_bHasRun) continue;
+            const auto Name = pN->m_pNode->m_pFactory->getName();
+            if (Name == "End") continue;
+            if (Name == "ExecutionCall") { RunExecutionCall(*pN, Nodes, Links); continue; }
+            if (Name == "Function" || Name == "Execute") continue;
+            RunOrdinaryNode(*pN, Nodes, Links);
+        }
+    }
+    // Runs the whole PROGRAM: starts at the root spine's own beginning and walks forward - OnEvent
+    // is a pure label (zero pins, does nothing on its own); ExecutionCall is what actually fires.
+    // Once the root spine runs off its own end, the program is done, independent of anything else
+    // that may or may not have been triggered along the way ("main spine governs program lifetime,"
+    // settled this session).
+    static void RunProgram(std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::vector<spine>& Spines)
+    {
+        GetRuntimeLog().clear();
+        std::uint64_t RootSpineId = 0;
+        for (auto& S : Spines) if (S.m_bIsRoot) { RootSpineId = S.m_Id; break; }
+        if (RootSpineId == 0) return;
+        RunSpineRange(RootSpineId, 0, INT_MAX, Nodes, Links);
+    }
+
+    // The one on-screen surface for whatever a running program logs (see GetRuntimeLog/host_bridge
+    // above) - Print's real output lands here. Cleared automatically at the start of every run
+    // (RunProgram), not accumulated across runs, so each click shows exactly that run's own trace.
+    static void DrawRuntimeLogPanel()
+    {
+        ImGui::SetNextWindowPos(ImVec2(1265, 440), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(200, 150), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Console"))
+        {
+            if (ImGui::SmallButton("Clear")) GetRuntimeLog().clear();
+            ImGui::Separator();
+            for (auto& Line : GetRuntimeLog())
+                ImGui::TextUnformatted(Line.c_str());
+        }
+        ImGui::End();
+    }
+
+    static void ExecuteGraph(xgpu::device& Device, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::vector<spine>& Spines, mesh_preview_system& MeshPreview)
     {
         for (auto& Node : Nodes)
         {
@@ -3297,39 +3860,14 @@ namespace nodeos
             Node.m_CachedOutputs.clear();
         }
 
-        bool bProgress = true;
-        int  Guard = 0;
-        while (bProgress && Guard++ < (int)Nodes.size() + 1)
-        {
-            bProgress = false;
-            for (auto& Node : Nodes)
-            {
-                if (Node.m_bHasRun || !Node.m_pNode) continue;
-                const auto NodeInputs  = Node.m_pNode->getInputs();
-                const auto NodeOutputs = Node.m_pNode->getOutputs();
+        RunProgram(Nodes, Links, Spines);
 
-                std::vector<void*> Inputs(NodeInputs.size(), nullptr);
-                bool bReady = true;
-                for (auto& Link : Links)
-                {
-                    if (Link.m_TargetNode != Node.m_Id) continue;
-                    auto SourceIt = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == Link.m_SourceNode; });
-                    if (SourceIt == Nodes.end() || !SourceIt->m_bHasRun) { bReady = false; break; }
-                    if (Link.m_TargetInput < (int)Inputs.size())
-                        Inputs[Link.m_TargetInput] = (Link.m_SourceOutput < (int)SourceIt->m_CachedOutputs.size()) ? SourceIt->m_CachedOutputs[Link.m_SourceOutput] : nullptr;
-                }
-                if (!bReady) continue;
-
-                Node.m_CachedOutputs.assign(NodeOutputs.size(), nullptr);
-                Node.m_pNode->Execute(Inputs.data(), Node.m_CachedOutputs.data());
-                Node.m_bHasRun = true;
-                bProgress = true;
-            }
-        }
-
+        // "End" markers are deliberately never marked m_bHasRun by RunSpineRange (there's nothing to
+        // run - they're a pure boundary) - excluded here so a working, correctly-skipped marker
+        // doesn't get flagged as an error alongside genuinely unreached content.
         for (auto& Node : Nodes)
-            if (!Node.m_bHasRun)
-                Node.m_LastError = "not executed - missing/cyclic input";
+            if (!Node.m_bHasRun && Node.m_pNode && Node.m_pNode->m_pFactory->getName() != "End")
+                Node.m_LastError = "not reached this run - unconnected to the main exec/spine flow";
 
         // Rebuild the GPU mesh preview for every pin currently carrying a "Mesh" value - both a
         // producer's output (Cube) and a consumer's input (Inspect Mesh) get a live render.
@@ -3631,6 +4169,13 @@ namespace nodeos
                 std::string   TypeName      = N.m_pNode ? std::string(N.m_pNode->m_pFactory->getName()) : "";
                 int           Order         = N.m_Order;
                 std::uint64_t SpineId       = N.m_SpineId;
+                // The owner->marker relationship (If/ForEachLoop -> its own End/End-Else) - 0 if this
+                // node doesn't own one. Without this, every save/load round-trip silently flattened
+                // the whole graph's nesting: a reloaded owner would show as owning nothing, which
+                // desyncs cascading delete/drag/select AND (once IsDataLinkScopeValid existed) makes
+                // every node look like unnested "world scope", since ComputeEnclosingChains/
+                // ComputeScopeDepths both derive nesting purely from this one field.
+                std::uint64_t OwnedEndId    = N.m_OwnedEndId;
                 // Not merely "does the node have properties at all" - a property struct whose every
                 // member falls outside the serializable atomic vocabulary would exist but reflect zero
                 // rows, and SerializeReflectedMembers would then write no "xProperties" record at all,
@@ -3643,6 +4188,7 @@ namespace nodeos
                 || (Error = Stream.Field("Type",          TypeName))
                 || (Error = Stream.Field("Order",         Order))
                 || (Error = Stream.Field("SpineId",       SpineId))
+                || (Error = Stream.Field("OwnedEndId",    OwnedEndId))
                 || (Error = Stream.Field("HasProperties", HasProperties));
             }
         ); Err)
@@ -3762,6 +4308,7 @@ namespace nodeos
                 std::string   Source, TypeName;
                 int           Order = 0;
                 std::uint64_t SpineId = 0;
+                std::uint64_t OwnedEndId = 0;
                 bool          HasProperties = false;
 
                 if (0
@@ -3769,8 +4316,20 @@ namespace nodeos
                  || (Error = Stream.Field("Source",        Source))
                  || (Error = Stream.Field("Type",          TypeName))
                  || (Error = Stream.Field("Order",         Order))
-                 || (Error = Stream.Field("SpineId",       SpineId))
-                 || (Error = Stream.Field("HasProperties", HasProperties)))
+                 || (Error = Stream.Field("SpineId",       SpineId)))
+                    return;
+
+                // Added after some graphs were already saved without it - tolerate its absence
+                // (defaulting to "doesn't own a marker") instead of failing the whole load, since an
+                // older file's header simply won't have this column yet.
+                if (Error = Stream.Field("OwnedEndId", OwnedEndId); Error)
+                {
+                    if (Error.getState<xtextfile::state>() != xtextfile::state::FIELD_NOT_FOUND) return;
+                    Error.clear();
+                    OwnedEndId = 0;
+                }
+
+                if (Error = Stream.Field("HasProperties", HasProperties); Error)
                     return;
 
                 auto SrcIt = std::find_if(Sources.begin(), Sources.end(), [&](auto& S) { return S.m_DirName == Source; });
@@ -3788,6 +4347,7 @@ namespace nodeos
                 }
 
                 NewNodes.push_back(CreateNodeInstance(Id, pFactory, Order, SpineId));
+                NewNodes.back().m_OwnedEndId = OwnedEndId;
             }
         ); Err)
         {
@@ -3832,6 +4392,17 @@ namespace nodeos
             for (auto& N : NewNodes) DestroyNodeInstance(N);
             return false;
         }
+
+        // m_bReadOnly isn't persisted at all (not even as a column) - an ownership link's read-only-
+        // ness is fully implied by whether some node's own m_OwnedEndId matches it, so re-deriving
+        // here can never drift out of sync with the Nodes record the way storing it a second time
+        // could. Without this, every save/load round-trip silently downgraded every owner<->End
+        // ownership link to an ordinary, user-editable/deletable one - and, since bScopeInvalid's red
+        // coloring explicitly skips read-only links, made them wrongly subject to that check too
+        // (an End marker is always inside its owner's own ComputeScopeSpan by construction).
+        for (auto& L : NewLinks)
+            for (auto& N : NewNodes)
+                if (N.m_Id == L.m_SourceNode && N.m_OwnedEndId == L.m_TargetNode) { L.m_bReadOnly = true; break; }
 
         std::vector<column> NewColumns;
         if (auto Err = Stream.Record("Columns"
@@ -3905,6 +4476,7 @@ namespace nodeos
         Links   = std::move(NewLinks);
         Spines  = std::move(NewSpines);
         Columns = std::move(NewColumns);
+
         return true;
     }
 
@@ -3952,6 +4524,127 @@ namespace nodeos
             }
         }
         return false;
+    }
+
+    // Function's own pin-list encoding, decoded/re-encoded HOST-SIDE for the pin editor below - a
+    // duplicate of function_node.cpp's identical private DecodePins, since plugin internals never
+    // cross the DLL boundary (xnode_os_plugin_api.h's top comment); the host only ever reads/writes
+    // the InputsSpec/OutputsSpec STRING PROPERTY through reflection, same as every other inline
+    // widget in this file touches a node's properties.
+    struct host_pin_spec { std::string m_Name, m_Type; bool m_bRequired = true; bool m_bReadOnly = true; };
+    static std::vector<host_pin_spec> DecodeHostPinSpec(const std::string& Spec)
+    {
+        std::vector<host_pin_spec> Out;
+        std::size_t Pos = 0;
+        while (Pos < Spec.size())
+        {
+            const std::size_t Bar = Spec.find('|', Pos);
+            const std::string Entry = Spec.substr(Pos, Bar == std::string::npos ? std::string::npos : Bar - Pos);
+            const std::size_t C1 = Entry.find(':');
+            const std::size_t C2 = (C1 == std::string::npos) ? std::string::npos : Entry.find(':', C1 + 1);
+            const std::size_t C3 = (C2 == std::string::npos) ? std::string::npos : Entry.find(':', C2 + 1);
+            if (C1 != std::string::npos && C2 != std::string::npos && C3 != std::string::npos)
+            {
+                host_pin_spec Pin;
+                Pin.m_Name      = Entry.substr(0, C1);
+                Pin.m_Type      = Entry.substr(C1 + 1, C2 - C1 - 1);
+                Pin.m_bRequired = Entry[C2 + 1] == '1';
+                Pin.m_bReadOnly = Entry[C3 + 1] == '1';
+                Out.push_back(std::move(Pin));
+            }
+            if (Bar == std::string::npos) break;
+            Pos = Bar + 1;
+        }
+        return Out;
+    }
+    static std::string EncodeHostPinSpec(const std::vector<host_pin_spec>& Pins)
+    {
+        std::string Out;
+        for (auto& P : Pins)
+        {
+            if (!Out.empty()) Out += '|';
+            Out += P.m_Name; Out += ':'; Out += P.m_Type; Out += ':';
+            Out += (P.m_bRequired ? '1' : '0'); Out += ':'; Out += (P.m_bReadOnly ? '1' : '0');
+        }
+        return Out;
+    }
+    static constexpr const char* s_FunctionPinTypes[] = { "Float", "Int", "Short", "Bool", "Any", "Span<Any>" };
+
+    // Draws one Add/Remove/edit pin table (Inputs or Outputs) for a Function node, directly in the
+    // properties panel - Function's port COUNT is user-editable, unlike every other node type here,
+    // so it needs real table UI rather than the single inline widget Constant/Compare use for their
+    // one fixed slot. Every edit re-encodes the whole spec string and commits it through the same
+    // undo-safe SetProperties command the rest of this panel uses - the node's own getInputs()/
+    // getOutputs() derive the local-mirrored pins from this same spec directly (see
+    // function_node.cpp), so there's no separate instance to keep in sync anymore.
+    static void DrawFunctionPinEditor(xundo::system& System, xnode_os_node* pFnNode, std::uint64_t FnNodeId, const char* pSpecMemberName, const char* pLabel)
+    {
+        const xproperty::type::object* pObj = pFnNode->getProperties();
+        const xproperty::type::members* pSpecMember = nullptr;
+        for (auto& M : pObj->m_Members) if (std::strcmp(M.m_pName, pSpecMemberName) == 0) { pSpecMember = &M; break; }
+        if (!pSpecMember) return;
+
+        xproperty::any SpecOut; xproperty::settings::context ReadCtx;
+        std::string SpecText;
+        if (pSpecMember->TryRead(pFnNode, SpecOut, ReadCtx) && SpecOut.is<std::string>())
+            SpecText = SpecOut.get<std::string>();
+        auto Pins = DecodeHostPinSpec(SpecText);
+
+        auto Commit = [&](std::vector<host_pin_spec>& NewPins)
+        {
+            const std::string Before = SerializePropertiesToString(pFnNode);
+            xproperty::any In{ EncodeHostPinSpec(NewPins) }; xproperty::settings::context WriteCtx;
+            (void)pSpecMember->TryWrite(pFnNode, In, WriteCtx);
+            const std::string After = SerializePropertiesToString(pFnNode);
+            if (After != Before)
+                commands::Run(System, commands::MakeSetProperties(FnNodeId, Before, After));
+        };
+
+        ImGui::TextUnformatted(pLabel);
+        int RemoveIndex = -1;
+        for (int i = 0; i < (int)Pins.size(); ++i)
+        {
+            ImGui::PushID(i);
+            auto& Pin = Pins[i];
+            char NameBuf[64]; strncpy_s(NameBuf, Pin.m_Name.c_str(), _TRUNCATE);
+            ImGui::SetNextItemWidth(90.0f);
+            if (ImGui::InputText("##name", NameBuf, sizeof(NameBuf)))
+            {
+                Pin.m_Name = NameBuf;
+                Commit(Pins);
+            }
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(80.0f);
+            if (ImGui::BeginCombo("##type", Pin.m_Type.c_str()))
+            {
+                for (auto* pTypeName : s_FunctionPinTypes)
+                {
+                    const bool bSel = Pin.m_Type == pTypeName;
+                    if (ImGui::Selectable(pTypeName, bSel)) { Pin.m_Type = pTypeName; Commit(Pins); }
+                    if (bSel) ImGui::SetItemDefaultFocus();
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+            bool bReq = Pin.m_bRequired;
+            if (ImGui::Checkbox("Req", &bReq)) { Pin.m_bRequired = bReq; Commit(Pins); }
+            ImGui::SameLine();
+            bool bRO = Pin.m_bReadOnly;
+            if (ImGui::Checkbox("RO", &bRO)) { Pin.m_bReadOnly = bRO; Commit(Pins); }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("x")) RemoveIndex = i;
+            ImGui::PopID();
+        }
+        if (RemoveIndex >= 0)
+        {
+            Pins.erase(Pins.begin() + RemoveIndex);
+            Commit(Pins);
+        }
+        if (ImGui::SmallButton(std::format("+ Add {}", pLabel).c_str()))
+        {
+            Pins.push_back({ std::format("{}{}", pLabel[0], Pins.size() + 1), "Float", true, true });
+            Commit(Pins);
+        }
     }
 
     static void DrawNodePropertiesPanel(std::vector<node_instance>& Nodes, const std::set<std::uint64_t>& SelectedNodes, xundo::system& System, std::vector<plugin_source_entry>& Sources, std::vector<available_node_type>& AvailableTypes)
@@ -4067,6 +4760,18 @@ namespace nodeos
             }
             else if (!bIsElse && bWasElse)
                 commands::Run(System, commands::MakeSetEndElseDisable(MarkerNodeId));
+        }
+
+        // Function's signature is user-editable (add/remove/rename/retype pins, toggle Required/
+        // ReadOnly) - the raw InputsSpec/OutputsSpec text fields above are a harmless power-user
+        // escape hatch (same "the encoded string is still just an ordinary property" spirit as
+        // Constant's Value), but this table is the real, intended editing surface.
+        if (pNode->m_pFactory->getName() == "Function")
+        {
+            ImGui::Separator();
+            DrawFunctionPinEditor(System, pNode, NodeId, "InputsSpec",  "Inputs");
+            ImGui::Separator();
+            DrawFunctionPinEditor(System, pNode, NodeId, "OutputsSpec", "Outputs");
         }
     }
 
@@ -4276,6 +4981,13 @@ namespace nodeos
                 m_hAfter        = m_Parser.addOption("After",        "Insert the owner right after this node id",         false, 1);
                 m_hBefore       = m_Parser.addOption("Before",       "Insert the owner right before this node id",        false, 1);
                 m_hInSpine      = m_Parser.addOption("InSpine",      "Append the owner to this (currently empty) spine",  false, 1);
+                // Optional 2nd hop - a minimal, non-generic extension rather than a full N-way chain,
+                // since nothing needs more than 2 hops today (Function used to, before its owned
+                // marker merged into itself). When given, EndId/EndPluginDir describe the MIDDLE node (owned by the owner,
+                // itself owning End2Id) instead of the terminal marker.
+                m_hEnd2Id        = m_Parser.addOption("End2Id",        "Second-level marker id, owned by the first marker - only when the first marker itself needs one", false, 1);
+                m_hEnd2PluginDir = m_Parser.addOption("End2PluginDir", "Second-level marker's plugin folder name",                                                        false, 1);
+                m_hLink2Id       = m_Parser.addOption("Link2Id",       "Read-only first-marker<->second-marker link id",                                                  false, 1);
             }
 
             // Identical placement logic to create_node_cmd::ResolveTargetOrder - duplicated rather than
@@ -4346,8 +5058,24 @@ namespace nodeos
                 auto* pEndType = EnsureLoadedAndGetType(*pEndSrc, Ctx.m_AvailableTypes);
                 if (!pEndType) return "CreateOwnedPair: failed to compile/load marker plugin";
 
-                // Both nodes land together - shift everything at/after TargetOrder by TWO, not one.
-                for (auto& N : Ctx.m_Nodes) if (N.m_SpineId == TargetSpineId && N.m_Order >= TargetOrder) N.m_Order += 2;
+                const bool bHasEnd2 = m_Parser.hasOption(m_hEnd2Id);
+                xnode_os_node_factory* pEnd2Type = nullptr;
+                std::string End2PluginDirStr;
+                if (bHasEnd2)
+                {
+                    auto End2PluginDirArg = m_Parser.getOptionArgAs<std::string>(m_hEnd2PluginDir, 0);
+                    if (std::holds_alternative<xerr>(End2PluginDirArg)) return "CreateOwnedPair: bad arguments";
+                    End2PluginDirStr = std::get<std::string>(End2PluginDirArg);
+                    auto* pEnd2Src = FindSourceByDirName(Ctx.m_Sources, End2PluginDirStr);
+                    if (!pEnd2Src) return "CreateOwnedPair: unknown second-level marker plugin directory";
+                    pEnd2Type = EnsureLoadedAndGetType(*pEnd2Src, Ctx.m_AvailableTypes);
+                    if (!pEnd2Type) return "CreateOwnedPair: failed to compile/load second-level marker plugin";
+                }
+
+                // All nodes land together - shift everything at/after TargetOrder by however many
+                // we're inserting (2, or 3 when a second hop is present).
+                const int NodeCount = bHasEnd2 ? 3 : 2;
+                for (auto& N : Ctx.m_Nodes) if (N.m_SpineId == TargetSpineId && N.m_Order >= TargetOrder) N.m_Order += NodeCount;
 
                 const auto OwnerId  = ParseGuid(std::get<std::string>(Id));
                 const auto MarkerId = ParseGuid(std::get<std::string>(EndId));
@@ -4365,16 +5093,28 @@ namespace nodeos
                 Ctx.m_Nodes.push_back(CreateNodeInstance(MarkerId, pEndType, TargetOrder + 1, TargetSpineId));
                 Ctx.m_Links.push_back(link_instance{ LinkIdVal, OwnerId, std::max(OwnerOutputIdx, 0), MarkerId, 0, true });
 
+                if (bHasEnd2)
+                {
+                    const auto End2IdVal  = ParseGuid(std::get<std::string>(m_Parser.getOptionArgAs<std::string>(m_hEnd2Id, 0)));
+                    const auto Link2IdVal = ParseGuid(std::get<std::string>(m_Parser.getOptionArgAs<std::string>(m_hLink2Id, 0)));
+                    Ctx.m_Nodes.back().m_OwnedEndId = End2IdVal; // the just-created middle marker owns the terminal one
+                    const int MidOutputIdx = Ctx.m_Nodes.back().m_pNode ? (int)Ctx.m_Nodes.back().m_pNode->getOutputs().size() - 1 : 0;
+                    Ctx.m_Nodes.push_back(CreateNodeInstance(End2IdVal, pEnd2Type, TargetOrder + 2, TargetSpineId));
+                    Ctx.m_Links.push_back(link_instance{ Link2IdVal, MarkerId, std::max(MidOutputIdx, 0), End2IdVal, 0, true });
+                }
+
                 Ctx.m_bDirty = true;
                 return {};
             }
 
             void BackupCurrenState(xundo::undo_file& File) noexcept override
             {
-                auto Id    = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
-                auto EndId = m_Parser.getOptionArgAs<std::string>(m_hEndId, 0);
-                File.Write(std::holds_alternative<xerr>(Id)    ? std::uint64_t{0} : ParseGuid(std::get<std::string>(Id)));
-                File.Write(std::holds_alternative<xerr>(EndId) ? std::uint64_t{0} : ParseGuid(std::get<std::string>(EndId)));
+                auto Id     = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
+                auto EndId  = m_Parser.getOptionArgAs<std::string>(m_hEndId, 0);
+                auto End2Id = m_Parser.getOptionArgAs<std::string>(m_hEnd2Id, 0);
+                File.Write(std::holds_alternative<xerr>(Id)     ? std::uint64_t{0} : ParseGuid(std::get<std::string>(Id)));
+                File.Write(std::holds_alternative<xerr>(EndId)  ? std::uint64_t{0} : ParseGuid(std::get<std::string>(EndId)));
+                File.Write(std::holds_alternative<xerr>(End2Id) ? std::uint64_t{0} : ParseGuid(std::get<std::string>(End2Id)));
 
                 auto& Ctx = get<node_os_command_context>();
                 File.Write(static_cast<std::uint32_t>(Ctx.m_Nodes.size()));
@@ -4383,13 +5123,15 @@ namespace nodeos
 
             void Undo(xundo::undo_file& File) noexcept override
             {
-                std::uint64_t Id = 0, EndId = 0; File.Read(Id); File.Read(EndId);
+                std::uint64_t Id = 0, EndId = 0, End2Id = 0; File.Read(Id); File.Read(EndId); File.Read(End2Id);
                 auto& Ctx = get<node_os_command_context>();
-                std::erase_if(Ctx.m_Links, [&](auto& L) { return L.m_SourceNode == Id || L.m_TargetNode == Id || L.m_SourceNode == EndId || L.m_TargetNode == EndId; });
-                for (auto& N : Ctx.m_Nodes) if (N.m_Id == Id || N.m_Id == EndId) DestroyNodeInstance(N);
-                std::erase_if(Ctx.m_Nodes, [&](auto& N) { return N.m_Id == Id || N.m_Id == EndId; });
+                auto IsDoomed = [&](std::uint64_t X) { return X == Id || X == EndId || X == End2Id; };
+                std::erase_if(Ctx.m_Links, [&](auto& L) { return IsDoomed(L.m_SourceNode) || IsDoomed(L.m_TargetNode); });
+                for (auto& N : Ctx.m_Nodes) if (IsDoomed(N.m_Id)) DestroyNodeInstance(N);
+                std::erase_if(Ctx.m_Nodes, [&](auto& N) { return IsDoomed(N.m_Id); });
                 Ctx.m_Selection.m_SelectedNodes.erase(Id);
                 Ctx.m_Selection.m_SelectedNodes.erase(EndId);
+                Ctx.m_Selection.m_SelectedNodes.erase(End2Id);
 
                 std::uint32_t Count = 0; File.Read(Count);
                 for (std::uint32_t i = 0; i < Count; ++i)
@@ -4401,6 +5143,7 @@ namespace nodeos
             }
 
             xcmdline::parser::handle m_hId, m_hPluginDir, m_hEndId, m_hEndPluginDir, m_hLinkId, m_hAfter, m_hBefore, m_hInSpine;
+            xcmdline::parser::handle m_hEnd2Id, m_hEnd2PluginDir, m_hLink2Id;
         };
 
         //================================================================================================
@@ -5799,7 +6542,7 @@ int E27_Example()
         // so a pruned entry is simply never captured in the first place.
         if (bDirty)
         {
-            nodeos::ExecuteGraph(Device, Nodes, Links, MeshPreview);
+            nodeos::ExecuteGraph(Device, Nodes, Links, Spines, MeshPreview);
             bDirty = false;
         }
 
@@ -5812,6 +6555,7 @@ int E27_Example()
         nodeos::DrawNodeLibraryPanel(Sources, AvailableTypes, bDirty);
         nodeos::DrawGraphCanvas(Sources, AvailableTypes, Nodes, Links, MeshPreview, Drag, Selection, View, NodeDrag, SpineDrag, DeleteSpineConfirm, Spines, Columns, LiteralValues, bDirty, NodeOsUndo);
         nodeos::DrawNodePropertiesPanel(Nodes, Selection.m_SelectedNodes, NodeOsUndo, Sources, AvailableTypes);
+        nodeos::DrawRuntimeLogPanel();
 
         ImGui::SetNextWindowPos(ImVec2(1265, 0), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(200, 80), ImGuiCond_FirstUseEver);
