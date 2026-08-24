@@ -4618,7 +4618,7 @@ namespace nodeos
             const float Value = (TypeVal == 3)
                 ? ((ValueText == "1" || ValueText == "true") ? 1.0f : 0.0f)
                 : std::strtof(ValueText.empty() ? "0" : ValueText.c_str(), nullptr);
-            Out += std::format("    float {} = {:#}f;\n", CppVar(Node.m_Id, 0), Value);
+            Out += std::format("    const float {} = {:#}f;\n", CppVar(Node.m_Id, 0), Value);
         }
         else if (Name == "Print")
         {
@@ -4641,7 +4641,7 @@ namespace nodeos
                 case 4: pToken = ">="; break; // GREATER_OR_EQUAL
                 case 5: pToken = "<="; break; // LESS_OR_EQUAL
             }
-            Out += std::format("    bool {} = ({} {} {});\n", CppVar(Node.m_Id, 0), CppInputExpr(Node.m_Id, 0, Links, Nodes, EmittedNodeIds, Out), pToken, CppInputExpr(Node.m_Id, 1, Links, Nodes, EmittedNodeIds, Out));
+            Out += std::format("    const bool {} = ({} {} {});\n", CppVar(Node.m_Id, 0), CppInputExpr(Node.m_Id, 0, Links, Nodes, EmittedNodeIds, Out), pToken, CppInputExpr(Node.m_Id, 1, Links, Nodes, EmittedNodeIds, Out));
         }
         else if (Name == "Math Expression")
         {
@@ -4663,7 +4663,7 @@ namespace nodeos
                 case 5: Expr = std::format("({} / {})", B, A); break; // DIVIDE_REVERSE
                 default: Expr = "0.0f"; break;
             }
-            Out += std::format("    float {} = {};\n", CppVar(Node.m_Id, 0), Expr);
+            Out += std::format("    const float {} = {};\n", CppVar(Node.m_Id, 0), Expr);
         }
         else if (Name == "Sin" || Name == "Cos" || Name == "Tan")
         {
@@ -4672,7 +4672,7 @@ namespace nodeos
             // types are otherwise identical in shape, see that file's own comment on why they're not
             // one templated node).
             const char* pFn = Name == "Sin" ? "sin" : Name == "Cos" ? "cos" : "tan";
-            Out += std::format("    float {} = std::{}({});\n", CppVar(Node.m_Id, 0), pFn, CppInputExpr(Node.m_Id, 0, Links, Nodes, EmittedNodeIds, Out));
+            Out += std::format("    const float {} = std::{}({});\n", CppVar(Node.m_Id, 0), pFn, CppInputExpr(Node.m_Id, 0, Links, Nodes, EmittedNodeIds, Out));
         }
         else if (Name == "Random")
         {
@@ -4683,8 +4683,8 @@ namespace nodeos
             // just "a real random value in the right range").
             const std::string Min = CppInputExpr(Node.m_Id, 0, Links, Nodes, EmittedNodeIds, Out);
             const std::string Max = CppInputExpr(Node.m_Id, 1, Links, Nodes, EmittedNodeIds, Out);
-            Out += std::format("    float {0}_lo = std::min({1}, {2}), {0}_hi = std::max({1}, {2});\n", CppVar(Node.m_Id, 0), Min, Max);
-            Out += std::format("    float {0} = {0}_lo + ({0}_hi - {0}_lo) * (static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX));\n", CppVar(Node.m_Id, 0));
+            Out += std::format("    const float {0}_lo = std::min({1}, {2}), {0}_hi = std::max({1}, {2});\n", CppVar(Node.m_Id, 0), Min, Max);
+            Out += std::format("    const float {0} = {0}_lo + ({0}_hi - {0}_lo) * (static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX));\n", CppVar(Node.m_Id, 0));
         }
         else if (Name == "Clamp")
         {
@@ -4693,8 +4693,8 @@ namespace nodeos
             const std::string Value = CppInputExpr(Node.m_Id, 0, Links, Nodes, EmittedNodeIds, Out);
             const std::string Min   = CppInputExpr(Node.m_Id, 1, Links, Nodes, EmittedNodeIds, Out);
             const std::string Max   = CppInputExpr(Node.m_Id, 2, Links, Nodes, EmittedNodeIds, Out);
-            Out += std::format("    float {0}_lo = std::min({1}, {2}), {0}_hi = std::max({1}, {2});\n", CppVar(Node.m_Id, 0), Min, Max);
-            Out += std::format("    float {0} = std::min(std::max({1}, {0}_lo), {0}_hi);\n", CppVar(Node.m_Id, 0), Value);
+            Out += std::format("    const float {0}_lo = std::min({1}, {2}), {0}_hi = std::max({1}, {2});\n", CppVar(Node.m_Id, 0), Min, Max);
+            Out += std::format("    const float {0} = std::min(std::max({1}, {0}_lo), {0}_hi);\n", CppVar(Node.m_Id, 0), Value);
         }
         else
         {
@@ -4786,7 +4786,7 @@ namespace nodeos
                 if (!Args.empty()) Args += ", ";
                 Args += CppInputExpr(pTarget->m_Id, i, Links, Nodes, EmittedNodeIds, Out);
             }
-            Out += std::format("    float {} = {}({});\n", CppVar(pTarget->m_Id, 0), FnName, Args);
+            Out += std::format("    const float {} = {}({});\n", CppVar(pTarget->m_Id, 0), FnName, Args);
         }
         else if (Name == "Execute")
         {
