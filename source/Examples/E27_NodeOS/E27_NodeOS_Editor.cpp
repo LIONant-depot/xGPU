@@ -8172,6 +8172,12 @@ namespace nodeos
                 }
                 const bool bOk = LoadGraph(Path, Ctx.m_Nodes, Ctx.m_Links, Ctx.m_Sources, Ctx.m_AvailableTypes, Ctx.m_Spines, Ctx.m_Columns);
                 Ctx.m_bDirty = true; // re-run the freshly loaded graph, same deferred path the UI's own Load button relies on
+                // The UI's own Load button always did this (its own comment: "any existing undo
+                // history refers to node/link ids that may no longer mean anything in the new graph")
+                // - this CLI/pipe path had been missing it, a real gap since a fresh set of Edit
+                // commands issued right after a Load would otherwise accumulate against a History
+                // still shaped around the PREVIOUS graph.
+                m_System.Reset();
                 return bOk ? std::format("Loaded '{}' - {} nodes, {} links", Path, Ctx.m_Nodes.size(), Ctx.m_Links.size())
                            : std::format("Load failed for '{}' - see log", Path);
             }
@@ -8409,7 +8415,14 @@ namespace nodeos
                 Ctx.m_Spines.push_back({ xresource::guid_generator::Instance64(), Ctx.m_Columns.front().m_Id, true, geo::TOP });
 
                 Ctx.m_bDirty = true;
-                return std::format("Cleared {} node(s) - graph reset to a single empty root spine/column", NodeCount);
+                // Every id ClearGraph just wiped is now meaningless to any undo/redo entry recorded
+                // before this point - the exact same reasoning the UI's own Load button already
+                // applies after replacing the whole graph (see its own comment). Safe to call from
+                // inside a Query() dispatched BY this same m_System: Reset() only touches
+                // m_History/m_LRU/m_UndoIndex, never the registered-command maps the outer Query()
+                // call is currently iterating.
+                m_System.Reset();
+                return std::format("Cleared {} node(s) - graph reset to a single empty root spine/column (undo history reset too)", NodeCount);
             }
         };
 
@@ -8559,6 +8572,7 @@ namespace nodeos
                 Ctx.m_Selection.m_SelectedLink       = 0;
                 Ctx.m_Selection.m_SelectedGapSpineId = 0;
                 Ctx.m_Selection.m_SelectedGapIndex   = -1;
+                m_System.Reset(); // see clear_graph_query_cmd's own comment - every id just wiped is meaningless to any earlier undo entry
                 Out += "2. Cleared the editor.\n";
 
                 // 3. Unload - a plugin that was never loaded yet (first reload after a fresh launch)
