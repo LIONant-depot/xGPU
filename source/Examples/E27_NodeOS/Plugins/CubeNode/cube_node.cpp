@@ -36,9 +36,9 @@ namespace
 
         XPROPERTY_VDEF
         ( "cube_node", cube_node
-        , obj_member<"Width",  &cube_node::m_Width>
-        , obj_member<"Height", &cube_node::m_Height>
-        , obj_member<"Depth",  &cube_node::m_Depth>
+        , obj_member<"Width",  &cube_node::m_Width,  member_help<"Size along X. Halved on each side of the box's own center to place its 8 corner vertices.">>
+        , obj_member<"Height", &cube_node::m_Height, member_help<"Size along Y. Halved on each side of the box's own center to place its 8 corner vertices.">>
+        , obj_member<"Depth",  &cube_node::m_Depth,  member_help<"Size along Z. Halved on each side of the box's own center to place its 8 corner vertices.">>
         )
 
         std::span<const xnode_os_port_desc> getInputs() const noexcept override

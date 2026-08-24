@@ -23,6 +23,8 @@
 #include "../../SDK/xnode_os_shared_types.h"
 #include <array>
 #include <cstdlib>
+#include <string>
+#include <cassert>
 
 namespace
 {
@@ -39,11 +41,33 @@ namespace
 
     struct compare_node : xnode_os_node
     {
-        compare_op m_Operator = compare_op::GREATER;
+        compare_op  m_Operator     = compare_op::GREATER;
+        float       m_A            = 0.0f;    // used only while A is unconnected - see E27_NodeOS_Editor.cpp's FindMemberByName
+        float       m_B            = 0.0f;    // used only while B is unconnected - see E27_NodeOS_Editor.cpp's FindMemberByName
+        bool        m_bAConnected  = false;   // pushed by the host each frame - see "A Connected"/PushPinConnectedFlags below
+        bool        m_bBConnected  = false;   // pushed by the host each frame - see "B Connected"/PushPinConnectedFlags below
+        bool        m_LastResult   = false;   // set by Execute() - live debug info, see "Last Result" below
+        std::string m_ResolvedType = "Any";   // pushed in by the host each frame - see "Resolved Type" below
 
         XPROPERTY_VDEF
         ( "compare_node", compare_node
-        , obj_member<"Operator", &compare_node::m_Operator, member_enum_span<compare_op_v>>
+        , obj_member<"Operator", &compare_node::m_Operator, member_enum_span<compare_op_v>
+            , member_help<"Which comparison A and B are checked against.">>
+        , obj_member<"A", &compare_node::m_A
+            , member_dynamic_flags<+[](const compare_node& O) { xproperty::flags::type F{}; F.m_bDontShow = F.m_bDontSave = O.m_bAConnected; return F; }>
+            , member_help<"A's own value while its pin is unconnected - hidden once a wire is attached, since the wire overrides it. Named to match the pin itself, so the host's generic 'find a property with the same name as this pin' hook picks it up automatically.">>
+        , obj_member<"B", &compare_node::m_B
+            , member_dynamic_flags<+[](const compare_node& O) { xproperty::flags::type F{}; F.m_bDontShow = F.m_bDontSave = O.m_bBConnected; return F; }>
+            , member_help<"B's own value while its pin is unconnected - hidden once a wire is attached, since the wire overrides it. Named to match the pin itself, so the host's generic 'find a property with the same name as this pin' hook picks it up automatically.">>
+        , obj_member<"A Connected", &compare_node::m_bAConnected, member_flags<xproperty::flags::DONT_SAVE, xproperty::flags::DONT_SHOW>>
+        , obj_member<"B Connected", &compare_node::m_bBConnected, member_flags<xproperty::flags::DONT_SAVE, xproperty::flags::DONT_SHOW>>
+        , obj_member<"Resolved Type", &compare_node::m_ResolvedType
+            , member_flags<xproperty::flags::SHOW_READONLY, xproperty::flags::DONT_SAVE>
+            , member_help<"The concrete type A/B currently resolve to, based on what's wired in right now - live debug info, pushed in by the host each frame, never itself saved.">>
+        , obj_member<"Last Result"
+            , +[](const compare_node& O, bool bRead, std::string& Value) { assert(bRead); Value = O.m_LastResult ? "true" : "false"; }
+            , member_flags<xproperty::flags::SHOW_READONLY, xproperty::flags::DONT_SAVE>
+            , member_help<"The result of the most recent Execute() - live debug info, never itself saved.">>
         )
 
         std::span<const xnode_os_port_desc> getInputs() const noexcept override
@@ -74,6 +98,7 @@ namespace
                 case compare_op::GREATER_OR_EQUAL: Result = A >= B; break;
                 case compare_op::LESS_OR_EQUAL:    Result = A <= B; break;
             }
+            m_LastResult = Result;
             auto* p = static_cast<bool*>(std::malloc(sizeof(bool)));
             *p = Result;
             Outputs[0] = p;

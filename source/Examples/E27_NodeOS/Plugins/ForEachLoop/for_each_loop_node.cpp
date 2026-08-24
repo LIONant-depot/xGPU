@@ -19,16 +19,22 @@
 // yet.
 #include "../../SDK/xnode_os_plugin_api.h"
 #include "../../SDK/xnode_os_shared_types.h"
+#include <string>
 
 namespace
 {
     struct for_each_loop_node : xnode_os_node
     {
-        bool m_bReadOnlyElement = true;
+        bool        m_bReadOnlyElement = true;
+        std::string m_ResolvedType     = "Any"; // pushed in by the host each frame - see "Resolved Type" below
 
         XPROPERTY_VDEF
         ( "for_each_loop_node2", for_each_loop_node
-        , obj_member<"ReadOnlyElement", &for_each_loop_node::m_bReadOnlyElement>
+        , obj_member<"ReadOnlyElement", &for_each_loop_node::m_bReadOnlyElement
+            , member_help<"Whether the loop body can write back through Element (false) or only read it (true, the default) - shown directly on the Element pin's own const/& label, not just here.">>
+        , obj_member<"Resolved Type", &for_each_loop_node::m_ResolvedType
+            , member_flags<xproperty::flags::SHOW_READONLY, xproperty::flags::DONT_SAVE>
+            , member_help<"The element type Element/Index currently resolve to, unwrapped from whatever's wired into Span - live debug info, pushed in by the host each frame, never itself saved.">>
         )
 
         std::span<const xnode_os_port_desc> getInputs() const noexcept override

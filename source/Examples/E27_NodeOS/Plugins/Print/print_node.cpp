@@ -18,14 +18,23 @@
 #include "../../SDK/xnode_os_plugin_api.h"
 #include "../../SDK/xnode_os_shared_types.h"
 #include <cstdio>
+#include <string>
+#include <cassert>
 
 namespace
 {
     struct print_node : xnode_os_node
     {
-        ixnode_os_host* m_pHost = nullptr;
+        ixnode_os_host* m_pHost      = nullptr; // wiring infra, set in CreateNodeInstance - not user state, stays unreflected like m_pFactory
+        std::string     m_LastPrinted;          // set by Execute() - live debug info, see "Last Printed" below
 
-        XPROPERTY_VDEF("print_node", print_node)
+        XPROPERTY_VDEF
+        ( "print_node", print_node
+        , obj_member<"Last Printed"
+            , +[](const print_node& O, bool bRead, std::string& Value) { assert(bRead); Value = O.m_LastPrinted; }
+            , member_flags<xproperty::flags::SHOW_READONLY, xproperty::flags::DONT_SAVE>
+            , member_help<"What this node actually printed the last time it ran - live debug info, never itself saved. Empty until Execute() runs at least once.">>
+        )
 
         std::span<const xnode_os_port_desc> getInputs() const noexcept override
         {
@@ -41,6 +50,7 @@ namespace
             if (!m_pHost || !Inputs[0]) return;
             char Buf[64];
             std::snprintf(Buf, sizeof(Buf), "%.2f", *static_cast<const float*>(Inputs[0]));
+            m_LastPrinted = Buf;
             m_pHost->Log(Buf);
         }
     };

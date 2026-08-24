@@ -39,7 +39,8 @@ namespace
 
         XPROPERTY_VDEF
         ( "bool_expression_node", bool_expression_node
-        , obj_member<"Operator", &bool_expression_node::m_Operator, member_enum_span<bool_expr_op_v>>
+        , obj_member<"Operator", &bool_expression_node::m_Operator, member_enum_span<bool_expr_op_v>
+            , member_help<"Which fixed boolean combination of A and B (with an optional NOT on either) this node computes.">>
         )
 
         std::span<const xnode_os_port_desc> getInputs() const noexcept override

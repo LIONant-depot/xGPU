@@ -22,6 +22,9 @@
 #include "../../SDK/xnode_os_shared_types.h"
 #include <array>
 #include <cstdlib>
+#include <string>
+#include <format>
+#include <cassert>
 
 namespace
 {
@@ -38,11 +41,33 @@ namespace
 
     struct math_expression_node : xnode_os_node
     {
-        math_expr_op m_Operator = math_expr_op::ADD;
+        math_expr_op m_Operator     = math_expr_op::ADD;
+        float        m_A            = 0.0f;  // used only while A is unconnected - see E27_NodeOS_Editor.cpp's FindMemberByName
+        float        m_B            = 0.0f;  // used only while B is unconnected - see E27_NodeOS_Editor.cpp's FindMemberByName
+        bool         m_bAConnected  = false; // pushed by the host each frame - see "A Connected"/PushPinConnectedFlags below
+        bool         m_bBConnected  = false; // pushed by the host each frame - see "B Connected"/PushPinConnectedFlags below
+        float        m_LastResult   = 0.0f;  // set by Execute() - live debug info, see "Last Result" below
+        std::string  m_ResolvedType = "Any"; // pushed in by the host each frame - see "Resolved Type" below
 
         XPROPERTY_VDEF
         ( "math_expression_node", math_expression_node
-        , obj_member<"Operator", &math_expression_node::m_Operator, member_enum_span<math_expr_op_v>>
+        , obj_member<"Operator", &math_expression_node::m_Operator, member_enum_span<math_expr_op_v>
+            , member_help<"Which arithmetic operation A and B are combined with.">>
+        , obj_member<"A", &math_expression_node::m_A
+            , member_dynamic_flags<+[](const math_expression_node& O) { xproperty::flags::type F{}; F.m_bDontShow = F.m_bDontSave = O.m_bAConnected; return F; }>
+            , member_help<"A's own value while its pin is unconnected - hidden once a wire is attached, since the wire overrides it. Named to match the pin itself, so the host's generic 'find a property with the same name as this pin' hook picks it up automatically.">>
+        , obj_member<"B", &math_expression_node::m_B
+            , member_dynamic_flags<+[](const math_expression_node& O) { xproperty::flags::type F{}; F.m_bDontShow = F.m_bDontSave = O.m_bBConnected; return F; }>
+            , member_help<"B's own value while its pin is unconnected - hidden once a wire is attached, since the wire overrides it. Named to match the pin itself, so the host's generic 'find a property with the same name as this pin' hook picks it up automatically.">>
+        , obj_member<"A Connected", &math_expression_node::m_bAConnected, member_flags<xproperty::flags::DONT_SAVE, xproperty::flags::DONT_SHOW>>
+        , obj_member<"B Connected", &math_expression_node::m_bBConnected, member_flags<xproperty::flags::DONT_SAVE, xproperty::flags::DONT_SHOW>>
+        , obj_member<"Resolved Type", &math_expression_node::m_ResolvedType
+            , member_flags<xproperty::flags::SHOW_READONLY, xproperty::flags::DONT_SAVE>
+            , member_help<"The concrete type A/B/Result currently resolve to, based on what's wired in right now - live debug info, pushed in by the host each frame, never itself saved.">>
+        , obj_member<"Last Result"
+            , +[](const math_expression_node& O, bool bRead, std::string& Value) { assert(bRead); Value = std::format("{}", O.m_LastResult); }
+            , member_flags<xproperty::flags::SHOW_READONLY, xproperty::flags::DONT_SAVE>
+            , member_help<"The value produced by the most recent Execute() - live debug info, never itself saved.">>
         )
 
         std::span<const xnode_os_port_desc> getInputs() const noexcept override
@@ -72,6 +97,7 @@ namespace
                 case math_expr_op::DIVIDE:          Result = A / B; break;
                 case math_expr_op::DIVIDE_REVERSE:   Result = B / A; break;
             }
+            m_LastResult = Result;
             auto* p = static_cast<float*>(std::malloc(sizeof(float)));
             *p = Result;
             Outputs[0] = p;

@@ -15,6 +15,8 @@
 #include "../../SDK/xnode_os_shared_types.h"
 #include <cstdio>
 #include <fstream>
+#include <format>
+#include <cassert>
 
 namespace
 {
@@ -34,10 +36,16 @@ namespace
         // Windows file picker, instead of the plain type-a-path text field the default std::string
         // style draws (which also only commits on Enter, unlike the picker's immediate commit).
         std::wstring m_Path = L"D:/LIONant/xGPU/source/Examples/E27_NodeOS/exported_mesh.obj";
+        std::string  m_LastExportResult; // set by Execute() - live debug info, see "Last Export Result" below
 
         XPROPERTY_VDEF
         ( "export_mesh_node", export_mesh_node
-        , obj_member<"Path", &export_mesh_node::m_Path, member_ui<std::wstring>::file_dialog<s_ExportFilter>>
+        , obj_member<"Path", &export_mesh_node::m_Path, member_ui<std::wstring>::file_dialog<s_ExportFilter>
+            , member_help<"Where the incoming mesh gets written as a Wavefront .obj file, each time this node runs.">>
+        , obj_member<"Last Export Result"
+            , +[](const export_mesh_node& O, bool bRead, std::string& Value) { assert(bRead); Value = O.m_LastExportResult; }
+            , member_flags<xproperty::flags::SHOW_READONLY, xproperty::flags::DONT_SAVE>
+            , member_help<"Outcome of the most recent Execute() - success with counts, or why it failed - live debug info, never itself saved. Empty until Execute() runs at least once.">>
         )
 
         std::span<const xnode_os_port_desc> getInputs() const noexcept override
@@ -54,16 +62,19 @@ namespace
         void Execute(void** Inputs, void** /*Outputs*/) noexcept override
         {
             const auto* pMesh = static_cast<const xnode_os_mesh_data*>(Inputs[0]);
-            if (m_Path.empty() || !pMesh) return;
+            if (!pMesh)          { m_LastExportResult = "Failed: no mesh connected"; return; }
+            if (m_Path.empty())  { m_LastExportResult = "Failed: Path is empty"; return; }
 
             std::ofstream File(m_Path.c_str()); // MSVC's wchar_t* fstream constructor overload
-            if (!File.is_open()) return;
+            if (!File.is_open()) { m_LastExportResult = "Failed: could not open the path for writing"; return; }
 
             File << "# Exported by Node OS - " << pMesh->m_VertexCount << " vertices, " << (pMesh->m_IndexCount / 3) << " triangles\n";
             for (unsigned int i = 0; i < pMesh->m_VertexCount; ++i)
                 File << "v " << pMesh->m_pPositions[i * 3 + 0] << ' ' << pMesh->m_pPositions[i * 3 + 1] << ' ' << pMesh->m_pPositions[i * 3 + 2] << '\n';
             for (unsigned int i = 0; i + 2 < pMesh->m_IndexCount; i += 3)
                 File << "f " << (pMesh->m_pIndices[i + 0] + 1) << ' ' << (pMesh->m_pIndices[i + 1] + 1) << ' ' << (pMesh->m_pIndices[i + 2] + 1) << '\n';
+
+            m_LastExportResult = std::format("Wrote {} vertices, {} triangles", pMesh->m_VertexCount, pMesh->m_IndexCount / 3);
         }
     };
 }

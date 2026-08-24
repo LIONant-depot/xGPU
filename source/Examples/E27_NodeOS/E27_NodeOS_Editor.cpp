@@ -25,6 +25,11 @@
 // For the whole graph file (Nodes/Links/xProperties records) - see SaveGraph/LoadGraph/
 // SerializeReflectedMembers below.
 #include "dependencies/xtextfile/source/xtextfile.h"
+// The official reflected-object <-> xtextfile serializer (xproperty::sprop::serializer::Stream) -
+// SerializeReflectedMembers below delegates straight to this rather than hand-walking properties,
+// same as every other editor in this codebase (E10/E20/E21/E23/E24/E25) already does for its own
+// descriptors.
+#include "dependencies/xproperty/source/sprop/property_sprop_xtextfile_serializer.h"
 
 // The command/undo layer: every graph mutation (add/delete node, connect, reorder, edit a property,
 // change selection) becomes a string command executed through xundo::system::Execute(), which has
@@ -32,6 +37,8 @@
 // the same entry point a future headless runner or driver plugin would call. See the Commands
 // section near the bottom of this file, right before E27_Example().
 #include "dependencies/xundo/source/xundo_system.h"
+#include "dependencies/xundo/source/xundo_history.h"
+#include "dependencies/xstrtool/source/xstrtool.h"
 
 // Node/link ids are random 64-bit instance guids (xresource::guid_generator::Instance64()), not a
 // sequential counter - this engine's own established identity convention (see e.g. xmaterial.plugin's
@@ -159,6 +166,16 @@ namespace nodeos
         std::string                         m_DirName;       // the plugin's Plugins/<DirName>/ folder name - the actual identity (see plugin_source_entry)
     };
 
+    // Both are plain std::uint64_t underneath (xresource::guid_generator::Instance64's own return
+    // type) - these don't add compile-time type safety, a node_guid still converts freely to/from a
+    // raw uint64_t or a link_guid. What they buy is self-documentation at the call site: a function
+    // signature or struct field written in terms of node_guid/link_guid says what KIND of id it is
+    // without a reader having to trace back to whichever generator produced it.
+    using node_guid   = std::uint64_t;
+    using link_guid   = std::uint64_t;
+    using spine_guid  = std::uint64_t;
+    using column_guid = std::uint64_t;
+
     //------------------------------------------------------------------------------------------------
     // One instance of a node type dropped on the canvas. m_pNode IS the node - its own property
     // members, ports, and Execute all live on the polymorphic object itself (see
@@ -168,23 +185,72 @@ namespace nodeos
     //------------------------------------------------------------------------------------------------
     struct node_instance
     {
-        std::uint64_t                    m_Id = 0;
+        node_guid                        m_Id = 0;
         xnode_os_node*                   m_pNode = nullptr;
-        std::uint64_t                    m_SpineId = 0;       // which spine (see `spine` below) this box belongs to
+        spine_guid                       m_SpineId = 0;       // which spine (see `spine` below) this box belongs to
         int                              m_Order = 0;         // stacking rank, dense WITHIN m_SpineId only (never across the whole graph) - reorder with the header's up/down buttons, never freely dragged
         std::vector<void*>                m_CachedOutputs;      // filled after a successful Execute
         bool                              m_bHasRun = false;
         std::string                       m_LastError;
-        std::uint64_t                    m_OwnedEndId = 0;    // 0 = doesn't own a marker. A control-flow node (If/ForEachLoop, see NODE_SCRIPTING_DESIGN.md section 4.1) owns a paired End/End-Else marker node, created and destroyed together with it - never an ordinary, independently-editable link.
+        node_guid                        m_OwnedEndId = 0;    // 0 = doesn't own a marker. A control-flow node (If/ForEachLoop, see NODE_SCRIPTING_DESIGN.md section 4.1) owns a paired End/End-Else marker node, created and destroyed together with it - never an ordinary, independently-editable link.
     };
 
+    // The host-owned half of a node_instance (Id/Source/Type/Order/SpineId/OwnedEndId) as an ordinary
+    // reflected type, plain (no xproperty::base, same XPROPERTY_DEF/XPROPERTY_REG pattern
+    // InspectMeshNode's own mesh_stats already proves in this codebase) rather than hand-rolled
+    // Stream.Field calls. Each node now serializes ITSELF as one self-contained, self-describing unit
+    // - this record, immediately followed by the plugin's own "xProperties" record if it has one -
+    // instead of one shared "Nodes" table (fixed columns, one row per node) kept in lockstep-by-array-
+    // order with a separately-counted sequence of per-node property blocks. That two-sequence design
+    // is what actually caused the real bug this replaces: a node's reflected shape gaining a new
+    // DONT_SAVE-only member made the OLD HasAnyProperties predicate ("has any member at all") say a
+    // property block would follow when the real serializer's collector (which skips DONT_SAVE) wrote
+    // zero bytes for it - so the reader consumed the NEXT node's own block instead, silently cascading
+    // a misalignment through the rest of the file. A plain per-node reflected record sidesteps the
+    // whole class of bug: xproperty's own "Name"/"Value" row format means a missing/renamed field is
+    // just a missing row, not a positional-column desync - no more hand-rolled tolerant-missing-field
+    // checks needed either (see OwnedEndId's old FIELD_NOT_FOUND tolerance in LoadGraph, now moot).
+    struct node_topology
+    {
+        std::uint64_t Id         = 0;
+        std::string   Source;    // plugin's Plugins/<DirName>/ folder name, not a full path
+        std::string   Type;      // factory's getName()
+        std::int32_t  Order      = 0;
+        std::uint64_t SpineId    = 0;
+        std::uint64_t OwnedEndId = 0; // 0 = doesn't own a marker - see node_instance::m_OwnedEndId
+
+        XPROPERTY_DEF
+        ( "node_topology", node_topology
+        , obj_member<"Id",         &node_topology::Id>
+        , obj_member<"Source",     &node_topology::Source>
+        , obj_member<"Type",       &node_topology::Type>
+        , obj_member<"Order",      &node_topology::Order>
+        , obj_member<"SpineId",    &node_topology::SpineId>
+        , obj_member<"OwnedEndId", &node_topology::OwnedEndId>
+        )
+    };
+    XPROPERTY_REG(node_topology)
+
+    // m_bReadOnly is deliberately NOT an obj_member below (so it's never reflected/serialized) - it's
+    // always re-derived on load from whether some node's own m_OwnedEndId matches this link (see
+    // LoadGraph), never stored a second time.
     struct link_instance
     {
-        std::uint64_t m_Id = 0;
-        std::uint64_t m_SourceNode = 0; int m_SourceOutput = 0;
-        std::uint64_t m_TargetNode = 0; int m_TargetInput  = 0;
-        bool          m_bReadOnly  = false; // an owner<->End ownership link (NODE_SCRIPTING_DESIGN.md section 4.1) - can never be dragged loose or deleted independently; only removed when one of its two nodes is deleted (which removes both, via DeleteNodes' cascade)
+        link_guid m_Id = 0;
+        node_guid m_SourceNode = 0; int m_SourceOutput = 0;
+        node_guid m_TargetNode = 0; int m_TargetInput  = 0;
+        bool      m_bReadOnly  = false; // an owner<->End ownership link (NODE_SCRIPTING_DESIGN.md section 4.1) - can never be dragged loose or deleted independently; only removed when one of its two nodes is deleted (which removes both, via DeleteNodes' cascade)
+
+        XPROPERTY_DEF
+        ( "link_instance", link_instance
+        , obj_member<"Id",           &link_instance::m_Id>
+        , obj_member<"SourceNode",   &link_instance::m_SourceNode>
+        , obj_member<"SourceOutput", &link_instance::m_SourceOutput>
+        , obj_member<"TargetNode",   &link_instance::m_TargetNode>
+        , obj_member<"TargetInput",  &link_instance::m_TargetInput>
+        )
     };
+    XPROPERTY_REG(link_instance)
 
     //------------------------------------------------------------------------------------------------
     // The horizontal container a spine (or several) lives in. Columns form a plain doubly-linked
@@ -194,11 +260,20 @@ namespace nodeos
     //------------------------------------------------------------------------------------------------
     struct column
     {
-        std::uint64_t m_Id      = 0;
-        std::uint64_t m_LeftId  = 0;  // 0 = no neighbor yet
-        std::uint64_t m_RightId = 0;  // 0 = no neighbor yet
-        bool          m_bIsRoot = false; // exactly one column ever has this set
+        column_guid m_Id      = 0;
+        column_guid m_LeftId  = 0;  // 0 = no neighbor yet
+        column_guid m_RightId = 0;  // 0 = no neighbor yet
+        bool        m_bIsRoot = false; // exactly one column ever has this set - the layout walk's fixed anchor (RootColumnId, used throughout DrawGraphCanvas/command Redo()s); not vestigial, see the many m_bIsRoot call sites elsewhere in this file
+
+        XPROPERTY_DEF
+        ( "column", column
+        , obj_member<"Id",      &column::m_Id>
+        , obj_member<"LeftId",  &column::m_LeftId>
+        , obj_member<"RightId", &column::m_RightId>
+        , obj_member<"IsRoot",  &column::m_bIsRoot>
+        )
     };
+    XPROPERTY_REG(column)
 
     //------------------------------------------------------------------------------------------------
     // A vertical chain of boxes connected up/down - pure connectivity, doesn't know or care about
@@ -211,11 +286,20 @@ namespace nodeos
     //------------------------------------------------------------------------------------------------
     struct spine
     {
-        std::uint64_t m_Id       = 0;
-        std::uint64_t m_ColumnId = 0;
-        bool          m_bIsRoot  = false; // exactly one spine
-        float         m_Y        = 0.0f;  // absolute world Y of this spine's own top slot (root ignores this - always geo::TOP)
+        spine_guid  m_Id       = 0;
+        column_guid m_ColumnId = 0;
+        bool        m_bIsRoot  = false; // exactly one spine
+        float       m_Y        = 0.0f;  // absolute world Y of this spine's own top slot (root ignores this - always geo::TOP)
+
+        XPROPERTY_DEF
+        ( "spine", spine
+        , obj_member<"Id",       &spine::m_Id>
+        , obj_member<"ColumnId", &spine::m_ColumnId>
+        , obj_member<"IsRoot",   &spine::m_bIsRoot>
+        , obj_member<"Y",        &spine::m_Y>
+        )
     };
+    XPROPERTY_REG(spine)
 
     //------------------------------------------------------------------------------------------------
     // The result of compiling+loading one plugin - a plain value (no shared state touched while
@@ -1006,12 +1090,6 @@ namespace nodeos
             return std::format("Connect -Id {} -SourceNode {} -SourceOutput {} -TargetNode {} -TargetInput {}"
                                , FormatGuid(Id), FormatGuid(SourceNode), SourceOutput, FormatGuid(TargetNode), TargetInput);
         }
-        // Value is a plain scalar token (a Float/Int/Bool literal), never containing spaces - no
-        // Base64 needed here, unlike SetProperties' own arbitrary multi-line blobs.
-        inline std::string MakeSetLiteralValue(std::uint64_t PinId, const std::string& Value)
-        {
-            return std::format("SetLiteralValue -Pin {} -Value {}", FormatGuid(PinId), Value);
-        }
         inline std::string MakeReorderNodes(const std::vector<std::uint64_t>& NewOrder) { return std::format("ReorderNodes -Ids {}", JoinIds(NewOrder)); }
         // Moves node(s) into a DIFFERENT spine at a given position - addressed the same way CreateNode
         // addresses insertion (-After/-Before an existing node, or -InSpine to append to a spine
@@ -1575,26 +1653,41 @@ namespace nodeos
     struct literal_slot { unsigned char m_Bytes[8]; };
     using literal_storage = std::deque<literal_slot>;
 
-    // Shared tail for GetInputValue/PullInputValue: what a pin resolves to when NO wire targets it
-    // at all - whatever's typed into its inline-literal box (LiteralValues, keyed by InPinOf - the
-    // same value the canvas already shows next to the pin), or nullptr if nothing was ever typed in.
-    static void* ResolveUnconnectedLiteral(std::uint64_t NodeId, int InputIndex, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch)
+    // Generic, node-type-agnostic: does this node reflect a property with the SAME NAME as one of
+    // its own pins (e.g. Compare/Math Expression's "A"/"B", same idea as Constant's Value* fields)?
+    // If so, THAT property is the pin's real, typed, undoable, saved literal. A node opts into this
+    // just by declaring a same-named property; the host never needs to know which node types did -
+    // every node type with a literal-editable pin now does (see SetVariable's own "Value"), so this
+    // is the ONLY mechanism, not a fallback path.
+    static const xproperty::type::members* FindMemberByName(const xproperty::type::object* pObj, const char* pName) noexcept
     {
-        auto LitIt = LiteralValues.find(InPinOf(NodeId, InputIndex));
-        if (LitIt == LiteralValues.end() || LitIt->second.empty()) return nullptr;
+        for (auto& M : pObj->m_Members)
+            if (std::strcmp(M.m_pName, pName) == 0) return &M;
+        return nullptr;
+    }
+    // Shared tail for GetInputValue/PullInputValue: what a pin resolves to when NO wire targets it
+    // at all - a same-named reflected property (see FindMemberByName), read directly and already
+    // correctly typed, or nullptr if the node doesn't declare one for this pin.
+    static void* ResolveUnconnectedLiteral(std::uint64_t NodeId, int InputIndex, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links, literal_storage& Scratch)
+    {
         auto NodeIt = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == NodeId; });
         if (NodeIt == Nodes.end() || !NodeIt->m_pNode) return nullptr;
         const auto NodeInputs = NodeIt->m_pNode->getInputs();
         if (InputIndex >= (int)NodeInputs.size()) return nullptr;
-        const char* pEffType = EffectiveTypeName(NodeId, NodeIt->m_pNode, NodeInputs[InputIndex].m_pTypeName, Nodes, Links);
+
+        auto* pMember = FindMemberByName(NodeIt->m_pNode->getProperties(), NodeInputs[InputIndex].m_pName);
+        if (!pMember) return nullptr;
+
+        xproperty::any Out; xproperty::settings::context Ctx;
+        if (!pMember->TryRead(NodeIt->m_pNode, Out, Ctx)) return nullptr;
 
         Scratch.emplace_back();
         void* pSlot = &Scratch.back();
-        if (std::strcmp(pEffType, "Bool") == 0)  { *static_cast<bool*>(pSlot)         = (LitIt->second == "1" || LitIt->second == "true"); return pSlot; }
-        if (std::strcmp(pEffType, "Int") == 0)   { *static_cast<std::int32_t*>(pSlot) = std::atoi(LitIt->second.c_str()); return pSlot; }
-        if (std::strcmp(pEffType, "Short") == 0) { *static_cast<std::int16_t*>(pSlot) = (std::int16_t)std::atoi(LitIt->second.c_str()); return pSlot; }
-        *static_cast<float*>(pSlot) = std::strtof(LitIt->second.c_str(), nullptr); // Float, and the default for anything else
-        return pSlot;
+        if (Out.is<float>())        { *static_cast<float*>(pSlot)        = Out.get<float>();        return pSlot; }
+        if (Out.is<bool>())         { *static_cast<bool*>(pSlot)         = Out.get<bool>();         return pSlot; }
+        if (Out.is<std::int32_t>()) { *static_cast<std::int32_t*>(pSlot) = Out.get<std::int32_t>(); return pSlot; }
+        if (Out.is<std::int16_t>()) { *static_cast<std::int16_t*>(pSlot) = Out.get<std::int16_t>(); return pSlot; }
+        return nullptr;
     }
     // Whatever cached output feeds a given node's input pin right now - nullptr if unconnected (and
     // no literal is typed in), or if a wire IS there but its source simply hasn't run (yet, or ever -
@@ -1603,7 +1696,7 @@ namespace nodeos
     // mesh-preview pass use, since triggering real Execute() calls (with their real side effects,
     // e.g. Print writing to the console) merely because a frame got drawn would be a much bigger
     // surprise than a preview showing "nothing yet."
-    static void* GetInputValue(std::uint64_t NodeId, int InputIndex, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch)
+    static void* GetInputValue(std::uint64_t NodeId, int InputIndex, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links, literal_storage& Scratch)
     {
         for (auto& Link : Links)
         {
@@ -1612,7 +1705,7 @@ namespace nodeos
             if (SourceIt == Nodes.end() || !SourceIt->m_bHasRun) return nullptr;
             return (Link.m_SourceOutput < (int)SourceIt->m_CachedOutputs.size()) ? SourceIt->m_CachedOutputs[Link.m_SourceOutput] : nullptr;
         }
-        return ResolveUnconnectedLiteral(NodeId, InputIndex, Nodes, Links, LiteralValues, Scratch);
+        return ResolveUnconnectedLiteral(NodeId, InputIndex, Nodes, Links, Scratch);
     }
 
     // For connection-matching only: is this (already-effective) type name STILL an open wildcard of
@@ -2184,6 +2277,9 @@ namespace nodeos
     static std::string SerializePropertiesToString(xnode_os_node* pNode);
     static bool ReadBoolPropertyFromSnapshot(const std::string& Snapshot, std::string_view Name) noexcept;
     static bool HasSerializableProperties(xnode_os_node* pNode);
+    static xerr SerializeReflectedMembers(xtextfile::stream& Stream, xnode_os_node* pNode);
+    static void PushResolvedTypeDebugProperty(const xnode_os_node* pNode, const char* pTypeName);
+    static void PushPinConnectedFlags(const xnode_os_node* pNode, std::uint64_t NodeId, const std::vector<link_instance>& Links);
     static int ReadEnumAsInt(const xproperty::type::members& Member, void* pInstance) noexcept;
     static void WriteEnumFromInt(const xproperty::type::members& Member, void* pInstance, int Value) noexcept;
     static bool ReadBoolProperty(const xnode_os_node* pNode, const char* pName, bool Default) noexcept;
@@ -2195,7 +2291,7 @@ namespace nodeos
                                , canvas_node_drag& NodeDrag, canvas_spine_drag& SpineDrag
                                , canvas_delete_spine_confirm& DeleteSpineConfirm
                                , std::vector<spine>& Spines, std::vector<column>& Columns
-                               , std::unordered_map<std::uint64_t, std::string>& LiteralValues
+                               
                                , bool& bDirty, xundo::system& System)
     {
         // Lives for this whole draw call only - every pin-preview GetInputValue() call below that
@@ -2959,6 +3055,16 @@ namespace nodeos
             auto* pDesc = DescOf(pNode);
             if (!pRow || !pDesc) continue;
 
+            // Push this node's own live-resolved wildcard type (if it has one worth tracking - see
+            // PushResolvedTypeDebugProperty) into its "Resolved Type" debug property, every frame -
+            // cheap (a single by-name lookup that no-ops for every node type that doesn't declare
+            // one) and keeps it current as the user rewires things.
+            {
+                const char* pResolved = ResolveNodeWildcardType(Id, pDesc, Nodes, Links);
+                PushResolvedTypeDebugProperty(pDesc, pResolved ? pResolved : "Any");
+            }
+            PushPinConnectedFlags(pDesc, Id, Links);
+
             const ImVec2 P0 = ToScreen({ pRow->m_X, pRow->m_Y });
             const ImVec2 P1 = ToScreen({ pRow->m_X + pRow->m_W, pRow->m_Y + pRow->m_H });
             const bool bSelected      = Selection.m_SelectedNodes.contains(Id);
@@ -3262,7 +3368,7 @@ namespace nodeos
                 {
                     void* pValue = P.m_bIsOutput
                         ? ((pNode->m_bHasRun && P.m_Index < (int)pNode->m_CachedOutputs.size()) ? pNode->m_CachedOutputs[P.m_Index] : nullptr)
-                        : GetInputValue(Id, P.m_Index, Nodes, Links, LiteralValues, LiteralScratch);
+                        : GetInputValue(Id, P.m_Index, Nodes, Links, LiteralScratch);
 
                     // Float/Int/Short are this corpus's numeric scalar types (see IsNoPreviewType's
                     // own comment for why Bool is excluded here - it's filtered out already, above,
@@ -3282,12 +3388,37 @@ namespace nodeos
                     if (!P.m_bIsOutput && !bConnected && (bIsFloat || bIsInt))
                     {
                         // Inline constant, Unity-style: an unconnected scalar input isn't "no
-                        // value", it's "whatever's typed right here" - stored in LiteralValues,
-                        // keyed by this exact pin, independent of any wire (a literal is simply
-                        // ignored once a wire exists - see the pValue check just above).
+                        // value", it's "whatever's typed right here". A same-named reflected
+                        // property (see FindMemberByName - Compare/Math Expression's own "A"/"B",
+                        // SetVariable's own "Value", same idea as Constant's Value* fields) is the
+                        // pin's real, typed, undoable, saved backing store - every node type with a
+                        // literal-editable pin declares one, so this is the only mechanism, not a
+                        // fallback path (a literal is simply ignored once a wire exists either way,
+                        // see the pValue check just above).
                         const std::uint64_t PinId = PinOf(P, Id);
-                        auto LitIt = LiteralValues.find(PinId);
-                        const std::string CurrentText = LitIt != LiteralValues.end() ? LitIt->second : "0";
+                        auto* pLiteralMember = FindMemberByName(pNode->m_pNode->getProperties(), P.m_pDesc->m_pName);
+                        std::string CurrentText = "0";
+                        if (pLiteralMember)
+                        {
+                            xproperty::any Out; xproperty::settings::context ReadCtx;
+                            if (pLiteralMember->TryRead(pNode->m_pNode, Out, ReadCtx))
+                            {
+                                if (Out.is<float>())             CurrentText = std::format("{}", Out.get<float>());
+                                else if (Out.is<std::int32_t>()) CurrentText = std::to_string(Out.get<std::int32_t>());
+                                else if (Out.is<std::int16_t>()) CurrentText = std::to_string(Out.get<std::int16_t>());
+                            }
+                        }
+
+                        auto CommitLiteral = [&](const std::string&, const xproperty::any& TypedValue)
+                        {
+                            if (!pLiteralMember) return;
+                            const std::string Before = SerializePropertiesToString(pNode->m_pNode);
+                            xproperty::any In = TypedValue; xproperty::settings::context WriteCtx;
+                            (void)pLiteralMember->TryWrite(pNode->m_pNode, In, WriteCtx);
+                            const std::string After = SerializePropertiesToString(pNode->m_pNode);
+                            if (After != Before)
+                                commands::Run(System, commands::MakeSetProperties(Id, Before, After));
+                        };
 
                         ImGui::PushID((int)PinId);
                         ImGui::SetNextItemAllowOverlap();
@@ -3298,13 +3429,13 @@ namespace nodeos
                         {
                             int Val = 0; try { Val = std::stoi(CurrentText); } catch (...) {}
                             if (ImGui::InputInt("##lit", &Val, 0, 0))
-                                commands::Run(System, commands::MakeSetLiteralValue(PinId, std::to_string(Val)));
+                                CommitLiteral(std::to_string(Val), xproperty::any{ static_cast<std::int32_t>(Val) });
                         }
                         else
                         {
                             float Val = 0.0f; try { Val = std::stof(CurrentText); } catch (...) {}
                             if (ImGui::InputFloat("##lit", &Val, 0.0f, 0.0f, "%.3f"))
-                                commands::Run(System, commands::MakeSetLiteralValue(PinId, std::format("{}", Val)));
+                                CommitLiteral(std::format("{}", Val), xproperty::any{ Val });
                         }
                         ImGui::PopID();
                     }
@@ -3388,20 +3519,17 @@ namespace nodeos
                 // Constant's own numeric Value, directly in the node body too - not just the side
                 // panel - same look as Compare/Math Expression's inline literal on an unconnected
                 // Any pin. A name-based special case, same as Compare's operator-filtering above:
-                // Value is stored as plain text regardless of Type (see constant_node.cpp), so
-                // picking the right WIDGET for it - a numeric spinner vs. a checkbox - needs to know
-                // this node is specifically a Constant and read its own sibling Type member; a fully
-                // generic "any string property" inline editor wouldn't know to do that.
+                // constant_node.cpp now reflects one PROPERLY-TYPED member per Type (Value Float/
+                // Value Int/Value Short/Value Bool, each shown/saved only when active - see that
+                // file), rather than one shared string - picking the right widget AND the right
+                // member name both need to know this node is specifically a Constant and read its
+                // own sibling Type member; a fully generic "any property" inline editor wouldn't.
                 if (pRealNode->m_pFactory->getName() == "Constant")
                 {
-                    const xproperty::type::members* pTypeMember  = nullptr;
-                    const xproperty::type::members* pValueMember = nullptr;
+                    const xproperty::type::members* pTypeMember = nullptr;
                     for (auto& M : pObj->m_Members)
-                    {
-                        if      (std::strcmp(M.m_pName, "Type")  == 0) pTypeMember  = &M;
-                        else if (std::strcmp(M.m_pName, "Value") == 0) pValueMember = &M;
-                    }
-                    if (pTypeMember && pValueMember)
+                        if (std::strcmp(M.m_pName, "Type") == 0) { pTypeMember = &M; break; }
+                    if (pTypeMember)
                     {
                         const char* pTypeName = "Float";
                         if (auto* pTypeVar = std::get_if<xproperty::type::members::var>(&pTypeMember->m_Variant))
@@ -3411,47 +3539,63 @@ namespace nodeos
                                 if ((int)Item.m_Value == TypeVal) { pTypeName = Item.m_pName; break; }
                         }
 
-                        xproperty::any ValueOut; xproperty::settings::context ReadCtx;
-                        std::string CurrentText;
-                        if (pValueMember->TryRead(pRealNode, ValueOut, ReadCtx) && ValueOut.is<std::string>())
-                            CurrentText = ValueOut.get<std::string>();
+                        const bool  bIsBool  = std::strcmp(pTypeName, "Bool")  == 0;
+                        const bool  bIsInt   = std::strcmp(pTypeName, "Int")   == 0;
+                        const bool  bIsShort = std::strcmp(pTypeName, "Short") == 0;
+                        const char* pValueName = bIsBool ? "Value Bool" : bIsInt ? "Value Int" : bIsShort ? "Value Short" : "Value Float";
 
-                        auto CommitValue = [&](const std::string& NewText)
-                        {
-                            const std::string Before = SerializePropertiesToString(pRealNode);
-                            xproperty::any In{ NewText }; xproperty::settings::context WriteCtx;
-                            (void)pValueMember->TryWrite(pRealNode, In, WriteCtx);
-                            const std::string After = SerializePropertiesToString(pRealNode);
-                            if (After != Before)
-                                commands::Run(System, commands::MakeSetProperties(Id, Before, After));
-                        };
+                        const xproperty::type::members* pValueMember = nullptr;
+                        for (auto& M : pObj->m_Members)
+                            if (std::strcmp(M.m_pName, pValueName) == 0) { pValueMember = &M; break; }
 
-                        ImGui::PushID((int)Id);
-                        ImGui::PushID("ConstValue");
-                        ImGui::SetNextItemAllowOverlap();
-                        ImGui::SetCursorScreenPos(ToScreen({ pRow->m_X + 10.0f, RowY }));
-                        ImGui::SetNextItemWidth(ToScreenLen(pRow->m_W - 20.0f));
-                        if (std::strcmp(pTypeName, "Bool") == 0)
+                        if (pValueMember)
                         {
-                            bool Val = (CurrentText == "1");
-                            if (ImGui::Checkbox("##constval", &Val))
-                                CommitValue(Val ? "1" : "0");
+                            auto CommitValue = [&](const xproperty::any& NewValue)
+                            {
+                                const std::string Before = SerializePropertiesToString(pRealNode);
+                                xproperty::any In = NewValue; xproperty::settings::context WriteCtx;
+                                (void)pValueMember->TryWrite(pRealNode, In, WriteCtx);
+                                const std::string After = SerializePropertiesToString(pRealNode);
+                                if (After != Before)
+                                    commands::Run(System, commands::MakeSetProperties(Id, Before, After));
+                            };
+
+                            xproperty::any Out; xproperty::settings::context ReadCtx;
+                            (void)pValueMember->TryRead(pRealNode, Out, ReadCtx);
+
+                            ImGui::PushID((int)Id);
+                            ImGui::PushID("ConstValue");
+                            ImGui::SetNextItemAllowOverlap();
+                            ImGui::SetCursorScreenPos(ToScreen({ pRow->m_X + 10.0f, RowY }));
+                            ImGui::SetNextItemWidth(ToScreenLen(pRow->m_W - 20.0f));
+                            if (bIsBool)
+                            {
+                                bool Val = Out.is<bool>() && Out.get<bool>();
+                                if (ImGui::Checkbox("##constval", &Val))
+                                    CommitValue(xproperty::any{ Val });
+                            }
+                            else if (bIsInt)
+                            {
+                                int Val = Out.is<std::int32_t>() ? Out.get<std::int32_t>() : 0;
+                                if (ImGui::InputInt("##constval", &Val, 0, 0))
+                                    CommitValue(xproperty::any{ static_cast<std::int32_t>(Val) });
+                            }
+                            else if (bIsShort)
+                            {
+                                int Val = Out.is<std::int16_t>() ? Out.get<std::int16_t>() : 0;
+                                if (ImGui::InputInt("##constval", &Val, 0, 0))
+                                    CommitValue(xproperty::any{ static_cast<std::int16_t>(Val) });
+                            }
+                            else
+                            {
+                                float Val = Out.is<float>() ? Out.get<float>() : 0.0f;
+                                if (ImGui::InputFloat("##constval", &Val, 0.0f, 0.0f, "%.3f"))
+                                    CommitValue(xproperty::any{ Val });
+                            }
+                            ImGui::PopID();
+                            ImGui::PopID();
+                            RowY += geo::ROW_H + 4.0f;
                         }
-                        else if (std::strcmp(pTypeName, "Int") == 0 || std::strcmp(pTypeName, "Short") == 0)
-                        {
-                            int Val = 0; try { Val = std::stoi(CurrentText); } catch (...) {}
-                            if (ImGui::InputInt("##constval", &Val, 0, 0))
-                                CommitValue(std::to_string(Val));
-                        }
-                        else
-                        {
-                            float Val = 0.0f; try { Val = std::stof(CurrentText); } catch (...) {}
-                            if (ImGui::InputFloat("##constval", &Val, 0.0f, 0.0f, "%.3f"))
-                                CommitValue(std::format("{}", Val));
-                        }
-                        ImGui::PopID();
-                        ImGui::PopID();
-                        RowY += geo::ROW_H + 4.0f;
                     }
                 }
             }
@@ -4001,7 +4145,7 @@ namespace nodeos
     {
         return !IsExecType(P.m_pTypeName) && !IsScopeType(P.m_pTypeName);
     }
-    static void RunOrdinaryNode(node_instance& Node, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch, int PullDepth = 0);
+    static void RunOrdinaryNode(node_instance& Node, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, literal_storage& Scratch, int PullDepth = 0);
     // Only a genuinely PURE/ordinary data node is eligible to be pulled - anything with a real Exec
     // pin (OnEvent/ExecutionCall/Execute/Function), or that owns a scope of its own content
     // (If/ForEachLoop), must still go through its own explicit trigger. A data read must never
@@ -4014,7 +4158,7 @@ namespace nodeos
         return Name != "OnEvent" && Name != "ExecutionCall" && Name != "Execute" && Name != "Function"
             && Name != "If" && Name != "ForEachLoop" && Name != "End";
     }
-    static void EnsureNodeRun(std::uint64_t NodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch, int PullDepth)
+    static void EnsureNodeRun(std::uint64_t NodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, literal_storage& Scratch, int PullDepth)
     {
         // A real cyclic data dependency (A needs B needs A) would otherwise recurse forever - bail
         // rather than stack-overflow; no ordinary graph legitimately nests pulls this deep. Left
@@ -4024,14 +4168,14 @@ namespace nodeos
         node_instance* pNode = FindNodeById(NodeId, Nodes);
         if (!pNode || !pNode->m_pNode || pNode->m_bHasRun) return;
         if (!IsPullableNodeType(pNode->m_pNode->m_pFactory->getName())) return;
-        RunOrdinaryNode(*pNode, Nodes, Links, LiteralValues, Scratch, PullDepth + 1);
+        RunOrdinaryNode(*pNode, Nodes, Links, Scratch, PullDepth + 1);
     }
     // Like GetInputValue, but for real execution: if a wire's source hasn't run yet, PULLS it (runs
     // it right now, recursively resolving its own inputs the same way) instead of just reporting
     // nullptr - see the pull-based-execution comment above FindNodeById for why. GetInputValue itself
     // stays read-only/non-pulling, for the canvas preview and mesh-preview passes that must never
     // trigger a real Execute() (with its real side effects) merely because a frame got drawn.
-    static void* PullInputValue(std::uint64_t NodeId, int InputIndex, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch, int PullDepth)
+    static void* PullInputValue(std::uint64_t NodeId, int InputIndex, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, literal_storage& Scratch, int PullDepth)
     {
         for (auto& Link : Links)
         {
@@ -4039,42 +4183,42 @@ namespace nodeos
             auto SourceIt = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == Link.m_SourceNode; });
             if (SourceIt == Nodes.end()) return nullptr;
             if (!SourceIt->m_bHasRun)
-                EnsureNodeRun(SourceIt->m_Id, Nodes, Links, LiteralValues, Scratch, PullDepth);
+                EnsureNodeRun(SourceIt->m_Id, Nodes, Links, Scratch, PullDepth);
             if (!SourceIt->m_bHasRun) return nullptr; // still didn't run - an Exec-gated/scope-owning source, or a cycle bailout
             return (Link.m_SourceOutput < (int)SourceIt->m_CachedOutputs.size()) ? SourceIt->m_CachedOutputs[Link.m_SourceOutput] : nullptr;
         }
-        return ResolveUnconnectedLiteral(NodeId, InputIndex, Nodes, Links, LiteralValues, Scratch);
+        return ResolveUnconnectedLiteral(NodeId, InputIndex, Nodes, Links, Scratch);
     }
-    static void RunOrdinaryNode(node_instance& Node, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch, int PullDepth)
+    static void RunOrdinaryNode(node_instance& Node, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, literal_storage& Scratch, int PullDepth)
     {
         if (!Node.m_pNode || Node.m_bHasRun) return;
         const auto NodeInputs  = Node.m_pNode->getInputs();
         const auto NodeOutputs = Node.m_pNode->getOutputs();
         std::vector<void*> Inputs(NodeInputs.size(), nullptr);
         for (int i = 0; i < (int)NodeInputs.size(); ++i)
-            Inputs[i] = PullInputValue(Node.m_Id, i, Nodes, Links, LiteralValues, Scratch, PullDepth);
+            Inputs[i] = PullInputValue(Node.m_Id, i, Nodes, Links, Scratch, PullDepth);
         Node.m_CachedOutputs.assign(NodeOutputs.size(), nullptr);
         Node.m_pNode->Execute(Inputs.data(), Node.m_CachedOutputs.data());
         Node.m_bHasRun = true;
     }
-    static void RunSpineRange(std::uint64_t SpineId, int FromOrderInclusive, int ToOrderExclusive, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch);
-    static void RunExecTarget(std::uint64_t TargetNodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch);
+    static void RunSpineRange(std::uint64_t SpineId, int FromOrderInclusive, int ToOrderExclusive, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, literal_storage& Scratch);
+    static void RunExecTarget(std::uint64_t TargetNodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, literal_storage& Scratch);
     // ExecutionCall's Exec output fans out to every Exec-typed link off it - fork, run each target to
     // completion (RunExecTarget is fully synchronous, so this doubles as the join: nothing after this
     // call returns until every fanned-out target has finished). Order between multiple targets is
     // deliberately unspecified (settled this session); a plain left-to-right pass over Links is as
     // good as any other order today.
-    static void RunExecutionCall(node_instance& Caller, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch)
+    static void RunExecutionCall(node_instance& Caller, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, literal_storage& Scratch)
     {
         if (Caller.m_bHasRun) return;
         Caller.m_bHasRun = true;
         for (auto& L : Links)
             if (L.m_SourceNode == Caller.m_Id)
-                RunExecTarget(L.m_TargetNode, Nodes, Links, LiteralValues, Scratch);
+                RunExecTarget(L.m_TargetNode, Nodes, Links, Scratch);
     }
     // Entering Function or Execute via an incoming Exec trigger - the only way either ever runs (see
     // RunSpineRange, which deliberately skips both during ordinary positional walking).
-    static void RunExecTarget(std::uint64_t TargetNodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch)
+    static void RunExecTarget(std::uint64_t TargetNodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, literal_storage& Scratch)
     {
         node_instance* pTarget = FindNodeById(TargetNodeId, Nodes);
         if (!pTarget || !pTarget->m_pNode || pTarget->m_bHasRun) return;
@@ -4094,7 +4238,7 @@ namespace nodeos
             std::vector<void*> InVals(Inputs.size(), nullptr);
             for (int i = 0; i < (int)Inputs.size(); ++i)
                 if (!Inputs[i].m_bLocalScope && IsRealDataPort(Inputs[i]))
-                    InVals[i] = PullInputValue(pTarget->m_Id, i, Nodes, Links, LiteralValues, Scratch, 0);
+                    InVals[i] = PullInputValue(pTarget->m_Id, i, Nodes, Links, Scratch, 0);
             pTarget->m_CachedOutputs.assign(Outputs.size(), nullptr);
             pTarget->m_pNode->Execute(InVals.data(), pTarget->m_CachedOutputs.data()); // no-op today, kept for a real ABI
 
@@ -4122,13 +4266,13 @@ namespace nodeos
 
             auto* pEnd = FindNodeById(pTarget->m_OwnedEndId, Nodes);
             const int EndOrder = pEnd ? pEnd->m_Order : INT_MAX;
-            RunSpineRange(pTarget->m_SpineId, pTarget->m_Order + 1, EndOrder, Nodes, Links, LiteralValues, Scratch);
+            RunSpineRange(pTarget->m_SpineId, pTarget->m_Order + 1, EndOrder, Nodes, Links, Scratch);
 
             for (int i = 0, L2 = 0; i < (int)Outputs.size(); ++i)
             {
                 if (Outputs[i].m_bLocalScope || !IsRealDataPort(Outputs[i])) continue;
                 const int MirrorInputIdx = FirstLocalInputIdx + L2;
-                pTarget->m_CachedOutputs[i] = (MirrorInputIdx < (int)Inputs.size()) ? PullInputValue(pTarget->m_Id, MirrorInputIdx, Nodes, Links, LiteralValues, Scratch, 0) : nullptr;
+                pTarget->m_CachedOutputs[i] = (MirrorInputIdx < (int)Inputs.size()) ? PullInputValue(pTarget->m_Id, MirrorInputIdx, Nodes, Links, Scratch, 0) : nullptr;
                 ++L2;
             }
         }
@@ -4139,7 +4283,7 @@ namespace nodeos
             // No owned scope - "body" is simply everything positionally after it in its own spine,
             // all the way to the spine's own end (NODE_SCRIPTING_DESIGN.md's Execute/lambda-capture
             // analogy) - nothing bounds it the way Function's own End does.
-            RunSpineRange(pTarget->m_SpineId, pTarget->m_Order + 1, INT_MAX, Nodes, Links, LiteralValues, Scratch);
+            RunSpineRange(pTarget->m_SpineId, pTarget->m_Order + 1, INT_MAX, Nodes, Links, Scratch);
         }
     }
     // The flat-spine model's own base case: run every node positioned in [FromOrderInclusive,
@@ -4150,7 +4294,7 @@ namespace nodeos
     // yet - nothing saved exercises it; RunOrdinaryNode's generic "resolve inputs, call Execute()
     // once" is what it'd fall through to today, same as any other node type not specifically
     // recognized here - a real next step once something actually needs it.
-    static void RunSpineRange(std::uint64_t SpineId, int FromOrderInclusive, int ToOrderExclusive, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch)
+    static void RunSpineRange(std::uint64_t SpineId, int FromOrderInclusive, int ToOrderExclusive, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, literal_storage& Scratch)
     {
         std::vector<node_instance*> Members;
         for (auto& N : Nodes)
@@ -4163,7 +4307,7 @@ namespace nodeos
             if (!pN->m_pNode || pN->m_bHasRun) continue;
             const auto Name = pN->m_pNode->m_pFactory->getName();
             if (Name == "End") continue;
-            if (Name == "ExecutionCall") { RunExecutionCall(*pN, Nodes, Links, LiteralValues, Scratch); continue; }
+            if (Name == "ExecutionCall") { RunExecutionCall(*pN, Nodes, Links, Scratch); continue; }
             if (Name == "Function" || Name == "Execute") continue;
             if (Name == "If" && pN->m_OwnedEndId != 0)
             {
@@ -4177,12 +4321,12 @@ namespace nodeos
                 // via PullInputValue, not GetInputValue - Compare (or whatever feeds it) is a data
                 // dependency, not something that has to happen to sit somewhere the flat walk already
                 // reaches; If wiring TO it is exactly what should pull it in, wherever it lives.
-                RunOrdinaryNode(*pN, Nodes, Links, LiteralValues, Scratch);
-                const bool* pCond = static_cast<const bool*>(PullInputValue(pN->m_Id, 0, Nodes, Links, LiteralValues, Scratch, 0));
+                RunOrdinaryNode(*pN, Nodes, Links, Scratch);
+                const bool* pCond = static_cast<const bool*>(PullInputValue(pN->m_Id, 0, Nodes, Links, Scratch, 0));
                 auto* pEnd = FindNodeById(pN->m_OwnedEndId, Nodes);
                 const int EndOrder = pEnd ? pEnd->m_Order : INT_MAX;
                 if (pCond && *pCond)
-                    RunSpineRange(SpineId, pN->m_Order + 1, EndOrder, Nodes, Links, LiteralValues, Scratch);
+                    RunSpineRange(SpineId, pN->m_Order + 1, EndOrder, Nodes, Links, Scratch);
                 // Either way, the OUTER walk must not also treat the body as ordinary members once
                 // this returns - skip past it (the recursive call above already ran+marked it when
                 // taken; when not taken, this is what keeps it from running unconditionally, which
@@ -4190,7 +4334,7 @@ namespace nodeos
                 while (i + 1 < Members.size() && Members[i + 1]->m_Order < EndOrder) ++i;
                 continue;
             }
-            RunOrdinaryNode(*pN, Nodes, Links, LiteralValues, Scratch);
+            RunOrdinaryNode(*pN, Nodes, Links, Scratch);
         }
     }
     // Runs the whole PROGRAM: starts at the root spine's own beginning and walks forward - OnEvent
@@ -4198,13 +4342,13 @@ namespace nodeos
     // Once the root spine runs off its own end, the program is done, independent of anything else
     // that may or may not have been triggered along the way ("main spine governs program lifetime,"
     // settled this session).
-    static void RunProgram(std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::vector<spine>& Spines, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, literal_storage& Scratch)
+    static void RunProgram(std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::vector<spine>& Spines, literal_storage& Scratch)
     {
         GetRuntimeLog().clear();
         std::uint64_t RootSpineId = 0;
         for (auto& S : Spines) if (S.m_bIsRoot) { RootSpineId = S.m_Id; break; }
         if (RootSpineId == 0) return;
-        RunSpineRange(RootSpineId, 0, INT_MAX, Nodes, Links, LiteralValues, Scratch);
+        RunSpineRange(RootSpineId, 0, INT_MAX, Nodes, Links, Scratch);
     }
 
     // ---- Real C++ codegen (tests whether ordinary nodes' own logic can be REUSED rather than
@@ -4247,20 +4391,20 @@ namespace nodeos
     {
         return std::format("v{:x}_{}", NodeId & 0xffffff, OutputIndex);
     }
-    static void EmitOrdinaryNode(node_instance& Node, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out);
+    static void EmitOrdinaryNode(node_instance& Node, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out);
     // Codegen's own mirror of the interpreter's EnsureNodeRun - see IsPullableNodeType's own comment
     // for exactly which node types are (and are never) safe to pull. Emits the source's declaration
     // directly into Out, the SAME accumulator the caller is about to append its own line into - since
     // this runs to completion before that caller's own `Out += ...` executes, the pulled dependency's
     // declaration always lands immediately BEFORE the statement that needed it, which is the only
     // place C++'s declare-before-use rule allows it to go.
-    static void EnsureNodeEmitted(std::uint64_t NodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, int PullDepth)
+    static void EnsureNodeEmitted(std::uint64_t NodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, int PullDepth)
     {
         if (PullDepth > 64 || EmittedNodeIds.count(NodeId)) return; // cycle bailout, or already done
         node_instance* pNode = FindNodeById(NodeId, Nodes);
         if (!pNode || !pNode->m_pNode) return;
         if (!IsPullableNodeType(pNode->m_pNode->m_pFactory->getName())) return;
-        EmitOrdinaryNode(*pNode, Nodes, Links, LiteralValues, EmittedNodeIds, Out);
+        EmitOrdinaryNode(*pNode, Nodes, Links, EmittedNodeIds, Out);
     }
     // Whatever C++ expression currently feeds an input pin - the variable name for whatever's wired
     // to it, or, if nothing's wired, the same inline-literal-on-unconnected-pin value the interpreter
@@ -4274,34 +4418,46 @@ namespace nodeos
     // spine walk already reaches. Only a genuinely unpullable source (Exec-gated, scope-owning, or a
     // real cyclic dependency) still falls back to "0.0f", matching that same source's interpreter-
     // side null result.
-    static std::string CppInputExpr(std::uint64_t NodeId, int InputIndex, std::vector<link_instance>& Links, std::vector<node_instance>& Nodes, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, int PullDepth = 0)
+    static std::string CppInputExpr(std::uint64_t NodeId, int InputIndex, std::vector<link_instance>& Links, std::vector<node_instance>& Nodes, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, int PullDepth = 0)
     {
         for (auto& L : Links)
             if (L.m_TargetNode == NodeId && L.m_TargetInput == InputIndex)
             {
                 if (!EmittedNodeIds.count(L.m_SourceNode))
-                    EnsureNodeEmitted(L.m_SourceNode, Nodes, Links, LiteralValues, EmittedNodeIds, Out, PullDepth);
+                    EnsureNodeEmitted(L.m_SourceNode, Nodes, Links, EmittedNodeIds, Out, PullDepth);
                 if (EmittedNodeIds.count(L.m_SourceNode)) return CppVar(L.m_SourceNode, L.m_SourceOutput);
                 return "0.0f";
             }
 
-        auto LitIt = LiteralValues.find(InPinOf(NodeId, InputIndex));
-        if (LitIt == LiteralValues.end() || LitIt->second.empty()) return "0.0f";
         node_instance* pNode = FindNodeById(NodeId, Nodes);
-        const char* pEffType = "Float";
+
+        // Same-named reflected property (see FindMemberByName/ResolveUnconnectedLiteral's own
+        // comment) - read directly and already correctly typed. Every node type with a literal-
+        // editable pin declares one, so a miss here just means genuinely nothing is there.
         if (pNode && pNode->m_pNode)
         {
             const auto Inputs = pNode->m_pNode->getInputs();
             if (InputIndex < (int)Inputs.size())
-                pEffType = EffectiveTypeName(NodeId, pNode->m_pNode, Inputs[InputIndex].m_pTypeName, Nodes, Links);
+            {
+                if (auto* pMember = FindMemberByName(pNode->m_pNode->getProperties(), Inputs[InputIndex].m_pName))
+                {
+                    xproperty::any Out; xproperty::settings::context Ctx;
+                    if (pMember->TryRead(pNode->m_pNode, Out, Ctx))
+                    {
+                        if (Out.is<bool>())         return Out.get<bool>() ? "true" : "false";
+                        if (Out.is<std::int32_t>()) return std::to_string(Out.get<std::int32_t>());
+                        if (Out.is<std::int16_t>()) return std::to_string(Out.get<std::int16_t>());
+                        // Float, and the default for anything else - same "{:#}" round-trip Constant's
+                        // own literal emission uses, so a whole number ("1") doesn't produce "1f".
+                        if (Out.is<float>())        return std::format("{:#}f", Out.get<float>());
+                    }
+                }
+            }
         }
-        if (std::strcmp(pEffType, "Bool") == 0) return (LitIt->second == "1" || LitIt->second == "true") ? "true" : "false";
-        if (std::strcmp(pEffType, "Int") == 0 || std::strcmp(pEffType, "Short") == 0) return LitIt->second;
-        // Float, and the default for anything else - same "{:#}" round-trip Constant's own literal
-        // emission uses, so a whole number typed in ("1") doesn't produce the invalid literal "1f".
-        return std::format("{:#}f", std::strtof(LitIt->second.c_str(), nullptr));
+
+        return "0.0f";
     }
-    static void EmitOrdinaryNode(node_instance& Node, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out)
+    static void EmitOrdinaryNode(node_instance& Node, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out)
     {
         const auto Name = Node.m_pNode->m_pFactory->getName();
         if (Name == "Constant")
@@ -4309,19 +4465,31 @@ namespace nodeos
             // A literal's value is known at codegen time - nothing to call, just substitute the
             // number directly. The one ordinary node type in this test graph with no real logic to
             // share (there's no logic, only a value).
-            const std::string ValueText = ReadStringPropertyFromSnapshot(SerializePropertiesToString(Node.m_pNode), "Value");
+            const std::string Snapshot = SerializePropertiesToString(Node.m_pNode);
+            const std::string TypeText = ReadStringPropertyFromSnapshot(Snapshot, "Type");
+            const int TypeVal = TypeText.empty() ? 0 : std::atoi(TypeText.c_str()); // const_type: 0=Float,1=Int,2=Short,3=Bool
+            // constant_node.cpp reflects one properly-typed member per Type (Value Float/Value Int/
+            // Value Short/Value Bool - see that file) rather than one shared string, so which
+            // property to read now depends on Type too, same as the canvas's own inline editor does.
+            const char* pValueName = TypeVal == 3 ? "Value Bool" : TypeVal == 1 ? "Value Int" : TypeVal == 2 ? "Value Short" : "Value Float";
+            const std::string ValueText = ReadStringPropertyFromSnapshot(Snapshot, pValueName);
             // Round-tripped through a real float parse/format rather than appending an "f" suffix
             // straight onto whatever text was stored - a whole-number value like "0" has no decimal
             // point, so a bare textual "f" suffix produces the syntactically invalid literal "0f".
             // "{:#}" forces a decimal point even for a whole number (std::format's float '#' flag,
             // same meaning as printf's) - plain "{}" formats 0.0f as "0", which a bare "f" suffix
-            // would turn into the invalid literal "0f" instead of the valid "0.f".
-            const float Value = std::strtof(ValueText.empty() ? "0" : ValueText.c_str(), nullptr);
+            // would turn into the invalid literal "0f" instead of the valid "0.f". Codegen only ever
+            // emits a float literal regardless of Type - a pre-existing limitation shared with every
+            // other scalar pin in this corpus (see DisplayTypeText's own note on why there's no
+            // separate Int/Short pin type) - so Bool reads back as 0.0f/1.0f rather than `false`/`true`.
+            const float Value = (TypeVal == 3)
+                ? ((ValueText == "1" || ValueText == "true") ? 1.0f : 0.0f)
+                : std::strtof(ValueText.empty() ? "0" : ValueText.c_str(), nullptr);
             Out += std::format("    float {} = {:#}f;\n", CppVar(Node.m_Id, 0), Value);
         }
         else if (Name == "Print")
         {
-            Out += std::format("    std::printf(\"%.2f\\n\", {});\n", CppInputExpr(Node.m_Id, 0, Links, Nodes, LiteralValues, EmittedNodeIds, Out));
+            Out += std::format("    std::printf(\"%.2f\\n\", {});\n", CppInputExpr(Node.m_Id, 0, Links, Nodes, EmittedNodeIds, Out));
         }
         else if (Name == "Compare")
         {
@@ -4340,7 +4508,7 @@ namespace nodeos
                 case 4: pToken = ">="; break; // GREATER_OR_EQUAL
                 case 5: pToken = "<="; break; // LESS_OR_EQUAL
             }
-            Out += std::format("    bool {} = ({} {} {});\n", CppVar(Node.m_Id, 0), CppInputExpr(Node.m_Id, 0, Links, Nodes, LiteralValues, EmittedNodeIds, Out), pToken, CppInputExpr(Node.m_Id, 1, Links, Nodes, LiteralValues, EmittedNodeIds, Out));
+            Out += std::format("    bool {} = ({} {} {});\n", CppVar(Node.m_Id, 0), CppInputExpr(Node.m_Id, 0, Links, Nodes, EmittedNodeIds, Out), pToken, CppInputExpr(Node.m_Id, 1, Links, Nodes, EmittedNodeIds, Out));
         }
         else if (Name == "Math Expression")
         {
@@ -4349,8 +4517,8 @@ namespace nodeos
             // side of the operator rather than just picking a different token, so this builds the
             // whole expression per case instead of substituting one shared token into a fixed shape.
             const std::string Op = ReadStringPropertyFromSnapshot(SerializePropertiesToString(Node.m_pNode), "Operator");
-            const std::string A = CppInputExpr(Node.m_Id, 0, Links, Nodes, LiteralValues, EmittedNodeIds, Out);
-            const std::string B = CppInputExpr(Node.m_Id, 1, Links, Nodes, LiteralValues, EmittedNodeIds, Out);
+            const std::string A = CppInputExpr(Node.m_Id, 0, Links, Nodes, EmittedNodeIds, Out);
+            const std::string B = CppInputExpr(Node.m_Id, 1, Links, Nodes, EmittedNodeIds, Out);
             std::string Expr;
             switch (Op.empty() ? 0 : std::atoi(Op.c_str()))
             {
@@ -4376,9 +4544,9 @@ namespace nodeos
         // bookkeeping.
         EmittedNodeIds.insert(Node.m_Id);
     }
-    static void EmitSpineRange(std::uint64_t SpineId, int FromOrderInclusive, int ToOrderExclusive, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, std::string& FunctionDefs);
-    static void EmitExecTarget(std::uint64_t TargetNodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, std::string& FunctionDefs);
-    static void EmitExecutionCall(node_instance& Caller, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, std::string& FunctionDefs)
+    static void EmitSpineRange(std::uint64_t SpineId, int FromOrderInclusive, int ToOrderExclusive, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, std::string& FunctionDefs);
+    static void EmitExecTarget(std::uint64_t TargetNodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, std::string& FunctionDefs);
+    static void EmitExecutionCall(node_instance& Caller, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, std::string& FunctionDefs)
     {
         // No "already emitted" guard the way RunExecutionCall has m_bHasRun - a node reached by more
         // than one path would get emitted (and its variable re-declared) more than once, a real
@@ -4386,9 +4554,9 @@ namespace nodeos
         // never comes up.
         for (auto& L : Links)
             if (L.m_SourceNode == Caller.m_Id)
-                EmitExecTarget(L.m_TargetNode, Nodes, Links, LiteralValues, EmittedNodeIds, Out, FunctionDefs);
+                EmitExecTarget(L.m_TargetNode, Nodes, Links, EmittedNodeIds, Out, FunctionDefs);
     }
-    static void EmitExecTarget(std::uint64_t TargetNodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, std::string& FunctionDefs)
+    static void EmitExecTarget(std::uint64_t TargetNodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, std::string& FunctionDefs)
     {
         node_instance* pTarget = FindNodeById(TargetNodeId, Nodes);
         if (!pTarget || !pTarget->m_pNode) return;
@@ -4426,7 +4594,7 @@ namespace nodeos
             std::string Body;
             auto* pEnd = FindNodeById(pTarget->m_OwnedEndId, Nodes);
             const int EndOrder = pEnd ? pEnd->m_Order : INT_MAX;
-            EmitSpineRange(pTarget->m_SpineId, pTarget->m_Order + 1, EndOrder, Nodes, Links, LiteralValues, EmittedNodeIds, Body, FunctionDefs);
+            EmitSpineRange(pTarget->m_SpineId, pTarget->m_Order + 1, EndOrder, Nodes, Links, EmittedNodeIds, Body, FunctionDefs);
 
             // Whatever's wired into the local Result-mirror INPUT becomes the return expression -
             // only the first declared output is handled today, matching the interpreter's own scope.
@@ -4440,7 +4608,7 @@ namespace nodeos
             for (int i = 0; i < (int)Outputs.size(); ++i)
             {
                 if (Outputs[i].m_bLocalScope || !IsRealDataPort(Outputs[i])) continue;
-                ReturnExpr = CppInputExpr(pTarget->m_Id, FirstLocalInputIdx, Links, Nodes, LiteralValues, EmittedNodeIds, Body);
+                ReturnExpr = CppInputExpr(pTarget->m_Id, FirstLocalInputIdx, Links, Nodes, EmittedNodeIds, Body);
                 break;
             }
 
@@ -4452,7 +4620,7 @@ namespace nodeos
             {
                 if (Inputs[i].m_bLocalScope || !IsRealDataPort(Inputs[i])) continue;
                 if (!Args.empty()) Args += ", ";
-                Args += CppInputExpr(pTarget->m_Id, i, Links, Nodes, LiteralValues, EmittedNodeIds, Out);
+                Args += CppInputExpr(pTarget->m_Id, i, Links, Nodes, EmittedNodeIds, Out);
             }
             Out += std::format("    float {} = {}({});\n", CppVar(pTarget->m_Id, 0), FnName, Args);
         }
@@ -4462,11 +4630,11 @@ namespace nodeos
             // "invoking a lambda, not calling a real function" distinction NODE_SCRIPTING_DESIGN.md
             // §12.2 draws - its body just runs inline, reading/writing whatever's already in scope.
             std::string Body, Unused;
-            EmitSpineRange(pTarget->m_SpineId, pTarget->m_Order + 1, INT_MAX, Nodes, Links, LiteralValues, EmittedNodeIds, Body, Unused);
+            EmitSpineRange(pTarget->m_SpineId, pTarget->m_Order + 1, INT_MAX, Nodes, Links, EmittedNodeIds, Body, Unused);
             Out += std::format("    [&]() {{\n{}    }}();\n", Body);
         }
     }
-    static void EmitSpineRange(std::uint64_t SpineId, int FromOrderInclusive, int ToOrderExclusive, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::unordered_map<std::uint64_t, std::string>& LiteralValues, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, std::string& FunctionDefs)
+    static void EmitSpineRange(std::uint64_t SpineId, int FromOrderInclusive, int ToOrderExclusive, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, std::set<std::uint64_t>& EmittedNodeIds, std::string& Out, std::string& FunctionDefs)
     {
         std::vector<node_instance*> Members;
         for (auto& N : Nodes)
@@ -4479,7 +4647,7 @@ namespace nodeos
             if (!pN->m_pNode) continue;
             const auto Name = pN->m_pNode->m_pFactory->getName();
             if (Name == "End" || Name == "OnEvent") continue;
-            if (Name == "ExecutionCall") { EmitExecutionCall(*pN, Nodes, Links, LiteralValues, EmittedNodeIds, Out, FunctionDefs); continue; }
+            if (Name == "ExecutionCall") { EmitExecutionCall(*pN, Nodes, Links, EmittedNodeIds, Out, FunctionDefs); continue; }
             if (Name == "Function" || Name == "Execute") continue;
             if (Name == "If" && pN->m_OwnedEndId != 0)
             {
@@ -4490,17 +4658,17 @@ namespace nodeos
                 auto* pEnd = FindNodeById(pN->m_OwnedEndId, Nodes);
                 const int EndOrder = pEnd ? pEnd->m_Order : INT_MAX;
                 std::string Body;
-                EmitSpineRange(SpineId, pN->m_Order + 1, EndOrder, Nodes, Links, LiteralValues, EmittedNodeIds, Body, FunctionDefs);
-                Out += std::format("    if ({}) {{\n{}    }}\n", CppInputExpr(pN->m_Id, 0, Links, Nodes, LiteralValues, EmittedNodeIds, Out), Body);
+                EmitSpineRange(SpineId, pN->m_Order + 1, EndOrder, Nodes, Links, EmittedNodeIds, Body, FunctionDefs);
+                Out += std::format("    if ({}) {{\n{}    }}\n", CppInputExpr(pN->m_Id, 0, Links, Nodes, EmittedNodeIds, Out), Body);
                 while (i + 1 < Members.size() && Members[i + 1]->m_Order < EndOrder) ++i;
                 continue;
             }
-            EmitOrdinaryNode(*pN, Nodes, Links, LiteralValues, EmittedNodeIds, Out);
+            EmitOrdinaryNode(*pN, Nodes, Links, EmittedNodeIds, Out);
         }
     }
     // The one entry point: same signature as RunProgram (no ImGui/xgpu dependency at all), so this
     // is directly testable without touching the GUI.
-    static std::string GenerateCpp(std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::vector<spine>& Spines, const std::unordered_map<std::uint64_t, std::string>& LiteralValues)
+    static std::string GenerateCpp(std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::vector<spine>& Spines)
     {
         std::uint64_t RootSpineId = 0;
         for (auto& S : Spines) if (S.m_bIsRoot) { RootSpineId = S.m_Id; break; }
@@ -4512,7 +4680,7 @@ namespace nodeos
         // assuming every link's source is guaranteed to have been declared somewhere.
         std::set<std::uint64_t> EmittedNodeIds;
         if (RootSpineId != 0)
-            EmitSpineRange(RootSpineId, 0, INT_MAX, Nodes, Links, LiteralValues, EmittedNodeIds, MainBody, FunctionDefs);
+            EmitSpineRange(RootSpineId, 0, INT_MAX, Nodes, Links, EmittedNodeIds, MainBody, FunctionDefs);
         return "// Auto-generated by Node OS codegen - do not hand-edit\n#include <cstdio>\n\n"
              + FunctionDefs
              + "static void RunMain()\n{\n" + MainBody + "}\n\nint main()\n{\n    RunMain();\n    return 0;\n}\n";
@@ -4596,7 +4764,301 @@ namespace nodeos
         ImGui::End();
     }
 
-    static void ExecuteGraph(xgpu::device& Device, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::vector<spine>& Spines, mesh_preview_system& MeshPreview, const std::unordered_map<std::uint64_t, std::string>& LiteralValues)
+    // Debugging/AI-facing entry point for xundo::history::Route (xundo_history.h) - a plain text box
+    // for "Namespace/Edit-or-Query/Command -args..." strings, e.g. "NodeOS/Query/ListNodes" or
+    // "NodeOS/Edit/Connect -Id ... ". Exists specifically so a query command never NEEDS a bespoke
+    // ImGui widget to be reachable - the same text protocol an AI or a script would use to drive this
+    // works here too, with the same self-documenting "-h" help every command already exposes.
+    //
+    // Help and autocomplete both key off xundo::history::GetRoutableCommands() - every registered
+    // command's fully-qualified name ("NodeOS/Edit/Connect") paired with its own one-line
+    // getCommandHelp() text, gathered fresh each call (command counts here are small - dozens, not
+    // thousands - so there's no need to cache this across frames).
+    //
+    // Autocomplete scoring reuses the same weighted substring/prefix Damerau-Levenshtein distance
+    // E10_TextureResourcePipeline's asset browser already uses for its own fuzzy search box
+    // (E10_asset_browser_virtual_tree_tab.h) - xstrtool::SubstringDamerauLevenshteinDistanceI - rather
+    // than inventing a second fuzzy-match convention. The result UI is deliberately much lighter than
+    // that asset browser's icon grid/popup: a plain Selectable() list under the input is all a text
+    // command needs.
+    // UserData for CommandConsoleCallback, below - built fresh each frame from DrawCommandConsolePanel's
+    // own local state, since a single free-function callback can't capture anything.
+    struct command_console_nav_state
+    {
+        const std::vector<const xundo::history::routable_command*>* m_pScored;
+        std::vector<std::string>*                                   m_pCmdHistory;
+        int*                                                         m_pHighlighted;
+        int*                                                         m_pHistoryPos;
+        std::string*                                                 m_pHistoryStash;
+        bool*                                                        m_pJustFilled;
+        bool*                                                        m_pForceCursorEnd;
+    };
+
+    // Two jobs, dispatched by pData->EventFlag:
+    //
+    // CallbackAlways fires every frame the widget is active - forces the cursor to the end of the text
+    // right after a programmatic buffer rewrite (a suggestion click, applied on the NEXT frame via
+    // DrawCommandConsolePanel's own bApplyPendingFill/SetKeyboardFocusHere dance), since ImGui doesn't
+    // reliably land it there on every version/path by default.
+    //
+    // CallbackHistory fires specifically when the WIDGET ITSELF is active and Up/Down are pressed -
+    // this is the one correct way to handle arrow-key history/suggestion nav in an InputText. Polling
+    // ImGui::IsKeyPressed(ImGuiKey_DownArrow) after the fact does NOT work here: this app has ImGui's
+    // keyboard navigation enabled, which claims Up/Down globally to move focus between WIDGETS unless
+    // something has already claimed those keys for itself - CallbackHistory is InputText's own,
+    // documented way to make that claim, exactly for shell-style history use cases like this one.
+    // Mutating the buffer via pData->DeleteChars/InsertChars (rather than writing CmdBuffer directly)
+    // is what makes the change take effect immediately, from inside the widget's own active edit
+    // session - no deferred "next frame" trick needed here, unlike the mouse-click pick path.
+    static int CommandConsoleCallback(ImGuiInputTextCallbackData* pData)
+    {
+        auto* pState = static_cast<command_console_nav_state*>(pData->UserData);
+
+        if (pData->EventFlag == ImGuiInputTextFlags_CallbackAlways)
+        {
+            if (*pState->m_pForceCursorEnd)
+            {
+                pData->CursorPos = pData->SelectionStart = pData->SelectionEnd = pData->BufTextLen;
+                *pState->m_pForceCursorEnd = false;
+            }
+            return 0;
+        }
+
+        if (pData->EventFlag == ImGuiInputTextFlags_CallbackHistory)
+        {
+            auto& Scored       = *pState->m_pScored;
+            auto& CmdHistory   = *pState->m_pCmdHistory;
+            auto& Highlighted  = *pState->m_pHighlighted;
+            auto& HistoryPos   = *pState->m_pHistoryPos;
+            auto& HistoryStash = *pState->m_pHistoryStash;
+
+            const bool bUp              = pData->EventKey == ImGuiKey_UpArrow;
+            const bool bBrowsingHistory = HistoryPos != -1;
+
+            // Prioritizes continuing an already-open history browse (so it doesn't flip back to
+            // suggestion-nav just because a recalled line happens to also fuzzy-match something),
+            // otherwise: text with live suggestions browses THOSE, an empty box walks CmdHistory.
+            if ((bBrowsingHistory || Scored.empty()) && !CmdHistory.empty())
+            {
+                std::string NewText;
+                if (bUp)
+                {
+                    if (HistoryPos == -1) { HistoryStash.assign(pData->Buf, pData->BufTextLen); HistoryPos = (int)CmdHistory.size() - 1; }
+                    else                    HistoryPos = std::max(0, HistoryPos - 1);
+                    NewText = CmdHistory[HistoryPos];
+                }
+                else // Down
+                {
+                    if (!bBrowsingHistory) return 0; // nothing to recall forward to - stay put
+                    ++HistoryPos;
+                    if (HistoryPos >= (int)CmdHistory.size()) { HistoryPos = -1; NewText = HistoryStash; }
+                    else                                        NewText = CmdHistory[HistoryPos];
+                }
+                pData->DeleteChars(0, pData->BufTextLen);
+                pData->InsertChars(0, NewText.c_str()); // also advances CursorPos to the end - "ready to add whatever you like"
+                *pState->m_pJustFilled = true;
+            }
+            else if (!Scored.empty())
+            {
+                if (bUp) Highlighted = (Highlighted <= 0) ? (int)Scored.size() - 1 : Highlighted - 1;
+                else     Highlighted = (Highlighted + 1 >= (int)Scored.size()) ? 0 : Highlighted + 1;
+            }
+            return 0;
+        }
+
+        return 0;
+    }
+
+    static void DrawCommandConsolePanel(xundo::history& History)
+    {
+        static char                     CmdBuffer[256] = "";
+        static std::string              PrevCmdBuffer;      // detects genuine typing vs. a programmatic fill, below
+        static std::string              LogText;            // rendered via a read-only InputTextMultiline, below - the
+                                                              // only way to get real mouse-drag selection + Ctrl+C copy
+                                                              // out of ImGui; plain Text/TextWrapped calls aren't
+                                                              // selectable at all, they're just static labels.
+        static std::string              PendingFill;        // value to apply into CmdBuffer, see bApplyPendingFill
+        static bool                     bApplyPendingFill = false;
+        static bool                     bRefocus  = false;
+        static bool                     bForceCursorEnd = false; // consumed by CommandConsoleCallback's CallbackAlways branch, above
+        static int                      Highlighted = -1;   // keyboard-selected suggestion row, -1 = none
+        static std::vector<std::string> CmdHistory;         // previously RUN command lines, oldest first - shell-style recall
+        static int                      HistoryPos = -1;    // index into CmdHistory currently shown, -1 = not browsing (fresh line)
+        static std::string              HistoryStash;       // what was typed before Up first opened history browsing, restored on Down past the newest entry
+
+        ImGui::SetNextWindowPos(ImVec2(1265, 610), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(340, 260), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Command Console"))
+        {
+            ImGui::TextDisabled("NodeOS/Edit/<Cmd> or NodeOS/Query/<Cmd> - Down/Up: suggestions, or history when empty");
+
+            // Applying a picked suggestion/history entry (or refocusing) must happen HERE, immediately
+            // before InputText is drawn - ImGui's InputText owns its own internal edit buffer once
+            // active, and silently ignores an external write to CmdBuffer made AFTER it's already been
+            // submitted this frame. SetKeyboardFocusHere(0) right before the call is what makes
+            // InputText reload from CmdBuffer instead of keeping its own stale internal copy; the
+            // paired bForceCursorEnd/callback (above) is what puts the cursor at the end of the newly
+            // filled text. A dedicated bApplyPendingFill bool (rather than just checking
+            // "!PendingFill.empty()") is what lets history-Down restore an EMPTY stashed line - an
+            // empty PendingFill string still needs to be applied, it's not "nothing to do".
+            if (bApplyPendingFill)
+            {
+                std::snprintf(CmdBuffer, sizeof(CmdBuffer), "%s", PendingFill.c_str());
+                bApplyPendingFill = false;
+                bRefocus = true;
+                bForceCursorEnd = true;
+            }
+            if (bRefocus)
+            {
+                ImGui::SetKeyboardFocusHere(0);
+                bRefocus = false;
+            }
+
+            const auto Routable = History.GetRoutableCommands(); // {m_FullName, m_Help} per command - see xundo_history.h
+
+            // Computed BEFORE InputText (not after, as a first version of this did) specifically so
+            // CommandConsoleCallback's CallbackHistory handling - which fires DURING the InputText
+            // call below - has this frame's ranking ready when Up/Down are pressed. The one cost is
+            // that the rendered suggestion list can lag a single frame behind a just-typed character;
+            // arrow-key nav actually working is worth that trade.
+            std::vector<const xundo::history::routable_command*> Scored;
+            if (CmdBuffer[0])
+            {
+                struct scored_t { const xundo::history::routable_command* m_pCmd; std::size_t m_Distance; };
+                std::vector<scored_t> Ranked;
+                Ranked.reserve(Routable.size());
+                for (auto& Cmd : Routable)
+                    Ranked.push_back({ &Cmd, xstrtool::SubstringDamerauLevenshteinDistanceI(CmdBuffer, Cmd.m_FullName) });
+                std::sort(Ranked.begin(), Ranked.end(), [](auto& A, auto& B) { return A.m_Distance < B.m_Distance; });
+
+                const int MaxSuggestions = 8;
+                Scored.reserve(std::min<std::size_t>(Ranked.size(), MaxSuggestions));
+                for (int i = 0; i < (int)Ranked.size() && i < MaxSuggestions; ++i)
+                    Scored.push_back(Ranked[i].m_pCmd);
+            }
+
+            static bool bJustFilled = false; // set by CommandConsoleCallback's history branch, or the mouse-pick paths below
+            command_console_nav_state NavState{ &Scored, &CmdHistory, &Highlighted, &HistoryPos, &HistoryStash, &bJustFilled, &bForceCursorEnd };
+
+            bool bEnter = ImGui::InputText("##cmd", CmdBuffer, sizeof(CmdBuffer)
+                , ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_CallbackAlways | ImGuiInputTextFlags_CallbackHistory
+                , CommandConsoleCallback, &NavState);
+            const bool bInputActive = ImGui::IsItemActive();
+            ImGui::SameLine();
+            bool bRunClicked = ImGui::SmallButton("Run");
+            if (ImGui::SmallButton("Clear")) LogText.clear();
+
+            // Distinguishes genuine typing from a programmatic fill (either CommandConsoleCallback's
+            // own history-recall, just above, or a mouse-pick below) - only real typing should drop
+            // the keyboard-highlighted suggestion and exit history-browsing mode.
+            const bool bUserEdited = (CmdBuffer != PrevCmdBuffer) && !bJustFilled;
+            bJustFilled = false;
+            if (bUserEdited) { Highlighted = -1; HistoryPos = -1; }
+
+            if (bInputActive && ImGui::IsKeyPressed(ImGuiKey_Escape))
+            {
+                CmdBuffer[0] = 0;
+                Highlighted = -1;
+                HistoryPos  = -1;
+            }
+
+            bool bPickedByKeyboard = false;
+            if (!Scored.empty())
+            {
+                const float RowH = 18.0f;
+                if (ImGui::BeginChild("##suggestions", ImVec2(0, std::min<float>(8, (float)Scored.size()) * RowH + 4), true))
+                {
+                    for (int i = 0; i < (int)Scored.size(); ++i)
+                    {
+                        auto& Cmd = *Scored[i];
+                        ImGui::PushID(i);
+                        if (ImGui::Selectable(Cmd.m_FullName.c_str(), Highlighted == i))
+                        {
+                            PendingFill = Cmd.m_FullName + " "; // trailing space - cursor lands ready for -args
+                            bApplyPendingFill = true; bJustFilled = true;
+                            Highlighted = -1;
+                        }
+                        if (Highlighted == i) ImGui::SetScrollHereY();
+                        if (ImGui::IsItemHovered() && !Cmd.m_Help.empty())
+                            ImGui::SetTooltip("%s", Cmd.m_Help.c_str());
+                        ImGui::PopID();
+                    }
+                }
+                ImGui::EndChild();
+
+                // Enter while a row is highlighted confirms THAT row instead of running the raw text -
+                // matches how every other autocomplete (shell, IDE, address bar) treats Enter-on-a-
+                // highlighted-item as "accept the suggestion," not "submit whatever's literally typed."
+                if (bEnter && Highlighted >= 0)
+                {
+                    PendingFill = Scored[Highlighted]->m_FullName + " ";
+                    bApplyPendingFill = true; bJustFilled = true;
+                    Highlighted = -1;
+                    bPickedByKeyboard = true;
+                }
+            }
+
+            PrevCmdBuffer.assign(CmdBuffer);
+
+            if (!bPickedByKeyboard && (bEnter || bRunClicked) && CmdBuffer[0])
+            {
+                std::string_view Cmd(CmdBuffer);
+                // Trim trailing whitespace the autocomplete fill-in leaves behind.
+                while (!Cmd.empty() && Cmd.back() == ' ') Cmd.remove_suffix(1);
+
+                if (CmdHistory.empty() || CmdHistory.back() != Cmd)
+                    CmdHistory.emplace_back(Cmd);
+                HistoryPos = -1;
+
+                LogText += std::format("> {}\n", Cmd);
+                if (Cmd == "help" || Cmd == "Help" || Cmd == "?")
+                {
+                    for (auto& C : Routable)
+                        LogText += (C.m_Help.empty() ? C.m_FullName : std::format("{} - {}", C.m_FullName, C.m_Help)) + "\n";
+                }
+                else if (Cmd.size() > 2 && Cmd.substr(Cmd.size() - 2) == "-h")
+                {
+                    // Bypasses Route() here on purpose: the underlying command's own "-h" handling
+                    // (xundo::system::Execute/Query) writes straight to std::cout via xcmdline::
+                    // parser::printHelp() - nothing this GUI process's console window shows - so look
+                    // the help text up directly instead of dispatching.
+                    std::string_view FullName = Cmd.substr(0, Cmd.find(' '));
+                    LogText += History.GetCommandHelpFor(FullName) + "\n";
+                }
+                else
+                {
+                    // Route()'s empty-string return is ambiguous on purpose for Edit commands ("ran
+                    // fine, nothing worth reporting" - xundo::system::Execute's own convention), but
+                    // that's wrong for a Query: an empty answer ("no nodes") is itself real, useful
+                    // information, not "nothing happened" - silently swallowing it here is exactly
+                    // what made a genuinely-empty ListNodes result look like the command did nothing
+                    // at all. Only Query commands get an explicit placeholder for an empty answer;
+                    // Edit commands keep the existing silent-success convention.
+                    std::string Result = History.Route(Cmd);
+                    if (!Result.empty())
+                        LogText += Result + "\n";
+                    else if (Cmd.find("/Query/") != std::string_view::npos)
+                        LogText += "(empty result)\n";
+                }
+                CmdBuffer[0] = 0;
+                Highlighted = -1;
+                bRefocus = true; // applied at the top of the panel on the NEXT frame - see bApplyPendingFill's own comment above
+            }
+
+            ImGui::Separator();
+            // Read-only InputTextMultiline, not Text/TextWrapped - this is the one ImGui idiom that
+            // gives real mouse-drag selection, double-click word-select, Ctrl+A, and Ctrl+C copy on a
+            // block of output text; plain Text calls are static labels with no selection at all.
+            // LogText.data() is safe to pass as a mutable buffer (C++17 std::string guarantees a
+            // writable, null-terminated buffer of size()+1) - ReadOnly means InputText never actually
+            // writes through it.
+            ImGui::InputTextMultiline("##output", LogText.data(), LogText.size() + 1
+                , ImGui::GetContentRegionAvail(), ImGuiInputTextFlags_ReadOnly);
+        }
+        ImGui::End();
+    }
+
+    static void ExecuteGraph(xgpu::device& Device, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::vector<spine>& Spines, mesh_preview_system& MeshPreview)
     {
         for (auto& Node : Nodes)
         {
@@ -4610,7 +5072,7 @@ namespace nodeos
         // Lives for the rest of this call, including the mesh-preview pass below (which resolves
         // input values again via its own GetInputValue calls) - see literal_storage's own comment.
         literal_storage LiteralScratch;
-        RunProgram(Nodes, Links, Spines, LiteralValues, LiteralScratch);
+        RunProgram(Nodes, Links, Spines, LiteralScratch);
 
         // "End" markers are deliberately never marked m_bHasRun by RunSpineRange (there's nothing to
         // run - they're a pure boundary) - excluded here so a working, correctly-skipped marker
@@ -4633,7 +5095,7 @@ namespace nodeos
             }
             for (int i = 0; i < (int)NodeInputs.size(); ++i)
             {
-                MeshPreview.RebuildIfMesh(Device, InPinOf(Node.m_Id, i), NodeInputs[i].m_pTypeName, GetInputValue(Node.m_Id, i, Nodes, Links, LiteralValues, LiteralScratch));
+                MeshPreview.RebuildIfMesh(Device, InPinOf(Node.m_Id, i), NodeInputs[i].m_pTypeName, GetInputValue(Node.m_Id, i, Nodes, Links, LiteralScratch));
             }
         }
     }
@@ -4725,10 +5187,32 @@ namespace nodeos
         return Default;
     }
 
+    // Mirrors xPropertyImGuiInspector.cpp's own flag-resolution order (dynamic flags win outright if
+    // present, else static member_flags, else all-zero) - ReflectedMemberToRow (below) used to
+    // ignore both entirely, silently persisting every atomic member regardless of m_bDontSave. That
+    // isn't just extra bytes in the save file: a button property's write side (e.g. constant_node.
+    // cpp's "Reset") would fire for REAL the moment a saved graph reloads and replays that row
+    // through ApplyRowToMember - respecting m_bDontSave here is what makes DontSave an actual
+    // guarantee instead of a UI-only hint.
+    static xproperty::flags::type GetEffectiveFlags(const xproperty::type::members& Member, const void* pInstance) noexcept
+    {
+        xproperty::settings::context Ctx;
+        if (auto* pDynamic = Member.getUserData<xproperty::settings::member_dynamic_flags_t>())
+            return pDynamic->m_pCallback(pInstance, Ctx);
+        if (auto* pStatic = Member.getUserData<xproperty::settings::member_flags_t>())
+            return pStatic->m_Flags;
+        return xproperty::flags::type{ .m_Value = 0 };
+    }
     static bool ReflectedMemberToRow(const xproperty::type::members& Member, void* pInstance, property_row& OutRow)
     {
         auto* pVar = std::get_if<xproperty::type::members::var>(&Member.m_Variant);
         if (!pVar) return false; // COMPOUND/LIST - not serialized generically, see comment above
+        // A const member (e.g. obj_member_ro) is skipped by the official serializer too
+        // (property_sprop_xtextfile_serializer.h's own "Flags.m_bDontSave || isConst || ..." gate) -
+        // there's no setter to round-trip through on load, so writing a row for it would just be
+        // dead weight at best.
+        if (Member.m_bConst) return false;
+        if (GetEffectiveFlags(Member, pInstance).m_bDontSave) return false; // see GetEffectiveFlags above
 
         OutRow.m_Name = Member.m_pName;
         if (pVar->m_AtomicType.m_IsEnum)
@@ -4782,7 +5266,14 @@ namespace nodeos
         }
     }
 
-    // Only atomic ("var") members are serializable - see this block's top comment.
+    // Only atomic ("var") members count here - used to predict, BEFORE writing the "Nodes" record's
+    // own HasProperties flag, whether a node's own "xProperties" record will be non-empty. This is
+    // narrower than what the real serializer (SerializeReflectedMembers, below) can actually write -
+    // it walks scopes/lists/nested compound objects too - so a future Node OS plugin whose ONLY
+    // reflected data lives inside an obj_scope or a list would have HasProperties come back false
+    // here and its (real, serializable) properties would silently never get written. Not an active
+    // bug - no plugin uses scope/list today - but worth fixing THIS function (not the real
+    // serializer) the day one does, by asking sprop's own collector rather than this narrower walk.
     static std::vector<std::uint32_t> SerializableMemberIndices(const xproperty::type::object* pObj)
     {
         std::vector<std::uint32_t> Out;
@@ -4796,37 +5287,118 @@ namespace nodeos
         return pNode && !SerializableMemberIndices(pNode->getProperties()).empty();
     }
 
-    // Thin xtextfile-backed wrapper around the row conversion above.
-    static bool SerializeReflectedMembers(xtextfile::stream& Stream, xnode_os_node* pNode)
+    // Unlike HasSerializableProperties (var-only, for the in-memory undo row-list which genuinely
+    // can't walk anything else), this asks the only question that matters for (a) whether to attempt
+    // writing/reading a node's real "xProperties" file record and (b) whether the side panel's real
+    // xproperty::inspector has anything to show.
+    //
+    // This must count only members the real serializer will actually SAVE - not "has any reflected
+    // member at all". xproperty::sprop::serializer::Stream's write path (property_sprop_xtextfile_
+    // serializer.h) builds its row list through xproperty::sprop::collector, which skips any member
+    // whose flags (static member_flags, or the live result of member_dynamic_flags) have m_bDontSave
+    // set. When a node's ENTIRE member list is such (e.g. print_node's sole member, "Last Printed",
+    // is SHOW_READONLY+DONT_SAVE), that row list ends up with zero entries - and, verified directly in
+    // xtextfile's own WriteRecord/WriteLine, a zero-row Record() call writes NOTHING at all, not even
+    // an empty "[ xProperties : 0 ]" header (the header is only flushed lazily, from inside WriteLine,
+    // which a zero-iteration per-row loop never calls). The original version of this function counted
+    // "any member at all", which said true for print_node - so SaveGraph wrote HasProperties=1 into
+    // the Nodes record while the real serializer silently wrote zero bytes for it, and LoadGraph then
+    // tried to read an "xProperties" record that was never there, silently consuming the NEXT node's
+    // block instead and cascading a misalignment through the rest of the file (root-caused by reading
+    // the vendored serializer source directly, matching the user's own "if it has 0 entries I believe
+    // it does nothing" observation from earlier in this same investigation).
+    //
+    // Recomputing this fresh from live node state (rather than persisting a save-time answer) is safe
+    // here because every current Node OS plugin either has zero dynamically-flagged members (Print/
+    // ExportMeshNode: always false; everything else: always true) or has at least one ALWAYS-saveable
+    // member alongside its dynamic ones (Compare/MathExpression's Operator, alongside dynamic A/B) -
+    // so the answer this function gives is identical whether asked right before a save (live wiring
+    // state) or right after a fresh load (before any per-frame PushPinConnectedFlags has run). A
+    // future plugin whose ENTIRE member list is dynamically-flagged would need this reasoned through
+    // again.
+    static bool HasAnyProperties(xnode_os_node* pNode)
     {
-        const xproperty::type::object* pObj = pNode->getProperties();
-        const auto Indices = SerializableMemberIndices(pObj);
-        if (auto Err = Stream.Record("xProperties"
-            , [&](std::size_t& C, xerr&) { if (!Stream.isReading()) C = Indices.size(); }
-            , [&](std::size_t i, xerr& Error)
-            {
-                property_row Row;
-
-                // On write, i indexes Indices (the filtered, serializable subset) in order. On read,
-                // i is just this row's position in the file - ApplyRowToMember looks the member up by
-                // name instead.
-                if (!Stream.isReading())
-                    ReflectedMemberToRow(pObj->m_Members[Indices[i]], pNode, Row);
-
-                0
-                || (Error = Stream.Field("Name",  Row.m_Name))
-                || (Error = Stream.Field("Kind",  Row.m_Kind))
-                || (Error = Stream.Field("Value", Row.m_Value));
-                if (Error) return;
-
-                if (Stream.isReading())
-                    ApplyRowToMember(pObj, pNode, Row);
-            }
-        ); Err)
+        if (!pNode || !pNode->getProperties()) return false;
+        xproperty::settings::context Context;
+        for (auto& M : pNode->getProperties()->m_Members)
         {
-            return false;
+            xproperty::flags::type Flags{};
+            if (auto* pDynamicFlags = M.getUserData<xproperty::settings::member_dynamic_flags_t>(); pDynamicFlags)
+                Flags = pDynamicFlags->m_pCallback(pNode, Context);
+            else if (auto* pStaticFlags = M.getUserData<xproperty::settings::member_flags_t>(); pStaticFlags)
+                Flags = pStaticFlags->m_Flags;
+            if (!Flags.m_bDontSave) return true;
         }
-        return true;
+        return false;
+    }
+
+    // Pushes a live, host-computed value straight into a node's own reflected debug property, if it
+    // declares one named "Resolved Type" (silently does nothing otherwise - most node types don't).
+    // This is how Compare/Math Expression/ForEachLoop's own effective type (see
+    // ResolveNodeWildcardType - resolved purely from wiring, something the plugin itself has no way
+    // to know) becomes inspectable directly on the node, without needing graph context to re-derive
+    // it. A direct TryWrite, not routed through commands::MakeSetProperties - this is the host
+    // reflecting its OWN computed state into the node for display, every frame, not a user edit, so
+    // it has no business being undoable or triggering a dirty/save-changed flag.
+    static void PushResolvedTypeDebugProperty(const xnode_os_node* pNode, const char* pTypeName)
+    {
+        if (!pNode) return;
+        // TryWrite needs a non-const instance pointer - the object itself is never actually const
+        // here (this whole call exists specifically to mutate its "Resolved Type" field), it's only
+        // DescOf's declared return type that's const; same pattern already used elsewhere in this
+        // file for writing through a property obtained via a const-typed descriptor.
+        auto* pMutableNode = const_cast<xnode_os_node*>(pNode);
+        const xproperty::type::object* pObj = pNode->getProperties();
+        for (auto& M : pObj->m_Members)
+            if (std::strcmp(M.m_pName, "Resolved Type") == 0)
+            {
+                xproperty::any In{ std::string(pTypeName) }; xproperty::settings::context Ctx;
+                (void)M.TryWrite(pMutableNode, In, Ctx);
+                return;
+            }
+    }
+
+    // Pushes "is this input pin currently wired" into a node's own reflected "<PinName> Connected"
+    // bool property, if it declares one (silently does nothing otherwise) - always DONT_SHOW itself
+    // (host-internal bookkeeping, never meant to be seen), but a real reflected member so this by-
+    // name TryWrite can reach it. This is what lets a same-named literal property (Compare/Math
+    // Expression's "A"/"B" - see FindMemberByName) hide itself and stop being saved the moment a
+    // wire attaches, via its own member_dynamic_flags reading this flag - same host-computed-state-
+    // into-a-property idea as PushResolvedTypeDebugProperty, just per-pin connectivity instead of a
+    // resolved type string.
+    static void PushPinConnectedFlags(const xnode_os_node* pNode, std::uint64_t NodeId, const std::vector<link_instance>& Links)
+    {
+        if (!pNode) return;
+        auto* pMutableNode = const_cast<xnode_os_node*>(pNode);
+        const auto Inputs = pNode->getInputs();
+        const xproperty::type::object* pObj = pNode->getProperties();
+        for (int i = 0; i < (int)Inputs.size(); ++i)
+        {
+            const std::string FlagName = std::string(Inputs[i].m_pName) + " Connected";
+            for (auto& M : pObj->m_Members)
+                if (FlagName == M.m_pName)
+                {
+                    bool bConnected = false;
+                    for (auto& L : Links) if (L.m_TargetNode == NodeId && L.m_TargetInput == i) { bConnected = true; break; }
+                    xproperty::any In{ bConnected }; xproperty::settings::context Ctx;
+                    (void)M.TryWrite(pMutableNode, In, Ctx);
+                    break;
+                }
+        }
+    }
+
+    // Thin wrapper delegating straight to the OFFICIAL xproperty::sprop::serializer::Stream - every
+    // other editor in this codebase (E10/E20/E21/E23/E24/E25) already saves its own descriptors this
+    // way. It walks the real getProperties() object directly (nested scopes/lists included, which
+    // the row-conversion functions above never supported), and it already knows about m_bDontSave/
+    // dynamic-flags/const-ness - the same three things ReflectedMemberToRow had to be patched to
+    // respect by hand. Node OS's own row-based conversion (above) is kept ONLY for the in-memory
+    // undo-snapshot format (SerializePropertiesToString, below) - the one job the official
+    // serializer genuinely can't do, since xtextfile::stream is fopen-backed with no in-memory mode.
+    static xerr SerializeReflectedMembers(xtextfile::stream& Stream, xnode_os_node* pNode)
+    {
+        xproperty::settings::context Context;
+        return xproperty::sprop::serializer::Stream(Stream, pNode, *pNode->getProperties(), Context);
     }
 
     // In-memory, xtextfile-free snapshot of a whole properties block - for xundo command payloads,
@@ -4870,26 +5442,72 @@ namespace nodeos
         }
     }
 
+    // Generic "self-serializing list" writer/reader, shared by Links/Columns/Spines (node_instance
+    // can't use this directly - it needs the topology/plugin-properties split, see node_topology and
+    // SaveGraph/LoadGraph's own per-node loops). Writes/reads one reflected xProperties record per
+    // item via T's own XPROPERTY_DEF (link_instance/column/spine) - the item count itself lives in the
+    // single combined "Header" record (see SaveGraph's own top comment), not here.
+    template< typename T >
+    static xerr SaveGraphItems(xtextfile::stream& Stream, const std::vector<T>& Items)
+    {
+        for (auto& Item : Items)
+        {
+            xproperty::settings::context Context;
+            if (auto Err = xproperty::sprop::serializer::Stream(Stream, const_cast<T&>(Item), Context); Err)
+                return Err;
+        }
+        return {};
+    }
+
+    // Mirrors SaveGraphItems - Count comes from the file's own Header record, read once up front.
+    template< typename T >
+    static xerr LoadGraphItems(xtextfile::stream& Stream, std::int32_t Count, std::vector<T>& Items)
+    {
+        Items.clear();
+        Items.reserve(static_cast<std::size_t>(Count));
+        for (std::int32_t i = 0; i < Count; ++i)
+        {
+            T Item{};
+            xproperty::settings::context Context;
+            if (auto Err = xproperty::sprop::serializer::Stream(Stream, Item, Context); Err)
+                return Err;
+            Items.push_back(std::move(Item));
+        }
+        return {};
+    }
+
     //------------------------------------------------------------------------------------------------
     // Save/load the whole graph (nodes + their properties + links) as a plain xtextfile - the same
     // text-file convention every other engine tool uses.
     //
-    // File shape - each Record() call is its own separate, sequential top-level record (xtextfile has
-    // no notion of nesting one record inside another's per-row callback), so a node's property block is
-    // written/read as its own "xProperties" record (via SerializeReflectedMembers, above) immediately
-    // after the "Nodes" record, once per node that has one, in the same Nodes-array order on both sides:
-    //   Record "Nodes": Id, Source (plugin's Plugins/<DirName>/ folder name, not a full path), Type (name), Order, HasProperties
-    //   [ one "xProperties" record per node with HasProperties==true, in Nodes order ]
-    //   Record "Links" : Id, SourceNode, SourceOutput, TargetNode, TargetInput
+    // File shape - a single leading "Header" record (one plain row, no per-node/link/column/spine
+    // bookkeeping in it) states how many of each follow:
+    //   [ Header ]
+    //   { ColumnCount:d SpineCount:d NodeCount:d LinkCount:d }
+    // ...then, in that same Column/Spine/Node/Link order (dependency order - see below):
+    //   [ column's own "xProperties" record ]   x ColumnCount
+    //   [ spine's own "xProperties" record ]    x SpineCount
+    // ...and per node, self-contained:
+    //   [ node_topology's own "xProperties" record ]                  <- once per node, always present
+    //   [ the plugin's own "xProperties" record, if HasAnyProperties ] <- once per node, conditional
+    // ...repeated NodeCount times, then:
+    //   [ link_instance's own "xProperties" record ]  x LinkCount
     //
-    // HasProperties is recorded explicitly (not re-derived from the type on load) because it must stay
-    // correct even when a node's plugin source can no longer be resolved at load time - otherwise the
-    // reader would have no way to know whether to expect (and thus stay aligned past) that node's
-    // "xProperties" record, and every property record after it in the file would silently desync.
+    // Deliberately NOT one shared "Nodes" table (fixed columns, one row per node) kept in lockstep-by-
+    // array-order with a separately-counted sequence of per-node property blocks, the way this used to
+    // work - that two-parallel-sequences design is what caused a real, previously-shipped bug: a
+    // node's reflected shape gaining a new DONT_SAVE-only member made the OLD HasAnyProperties
+    // predicate ("has any member at all") say a property block would follow when the real serializer's
+    // collector (which skips DONT_SAVE members) actually wrote zero bytes for it - so the reader
+    // consumed the NEXT node's own block instead, silently cascading a misalignment through the rest
+    // of the file. Serializing each node as its own self-describing record sidesteps the whole class
+    // of bug: xproperty's own "Name"/"Value" row format means a missing/renamed field is just a
+    // missing row, not a positional-column desync - no hand-rolled tolerant-missing-field checks
+    // needed either (OwnedEndId's old FIELD_NOT_FOUND tolerance is gone, now moot for the same reason).
     //------------------------------------------------------------------------------------------------
     static bool SaveGraph(const std::string& Utf8Path, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links, const std::vector<available_node_type>& AvailableTypes
                          , const std::vector<spine>& Spines, const std::vector<column>& Columns
-                         , const std::unordered_map<std::uint64_t, std::string>& LiteralValues)
+                         )
     {
         const std::wstring WPath(Utf8Path.begin(), Utf8Path.end()); // ASCII-safe path is all this demo needs
 
@@ -4910,142 +5528,80 @@ namespace nodeos
             return {};
         };
 
-        if (auto Err = Stream.Record("Nodes"
-            , [&](std::size_t& C, xerr&) { C = Nodes.size(); }
-            , [&](std::size_t i, xerr& Error)
+        // One combined header up front - see SaveGraph's own top comment for the file shape.
+        if (auto Err = Stream.Record("Header"
+            , [&](xerr& Error)
             {
-                auto&         N             = Nodes[i];
-                std::uint64_t Id            = N.m_Id;
-                std::string   Source        = N.m_pNode ? FindSourcePath(N.m_pNode->m_pFactory) : std::string{};
-                std::string   TypeName      = N.m_pNode ? std::string(N.m_pNode->m_pFactory->getName()) : "";
-                int           Order         = N.m_Order;
-                std::uint64_t SpineId       = N.m_SpineId;
-                // The owner->marker relationship (If/ForEachLoop -> its own End/End-Else) - 0 if this
-                // node doesn't own one. Without this, every save/load round-trip silently flattened
-                // the whole graph's nesting: a reloaded owner would show as owning nothing, which
-                // desyncs cascading delete/drag/select AND (once IsDataLinkScopeValid existed) makes
-                // every node look like unnested "world scope", since ComputeEnclosingChains/
-                // ComputeScopeDepths both derive nesting purely from this one field.
-                std::uint64_t OwnedEndId    = N.m_OwnedEndId;
-                // Not merely "does the node have properties at all" - a property struct whose every
-                // member falls outside the serializable atomic vocabulary would exist but reflect zero
-                // rows, and SerializeReflectedMembers would then write no "xProperties" record at all,
-                // desyncing the reader if HasProperties still claimed one was coming.
-                bool          HasProperties = HasSerializableProperties(N.m_pNode);
-
+                std::int32_t ColumnCount = static_cast<std::int32_t>(Columns.size());
+                std::int32_t SpineCount  = static_cast<std::int32_t>(Spines.size());
+                std::int32_t NodeCount   = static_cast<std::int32_t>(Nodes.size());
+                std::int32_t LinkCount   = static_cast<std::int32_t>(Links.size());
                 0
-                || (Error = Stream.Field("Id",            Id))
-                || (Error = Stream.Field("Source",        Source))
-                || (Error = Stream.Field("Type",          TypeName))
-                || (Error = Stream.Field("Order",         Order))
-                || (Error = Stream.Field("SpineId",       SpineId))
-                || (Error = Stream.Field("OwnedEndId",    OwnedEndId))
-                || (Error = Stream.Field("HasProperties", HasProperties));
+                || (Error = Stream.Field("ColumnCount", ColumnCount))
+                || (Error = Stream.Field("SpineCount",  SpineCount))
+                || (Error = Stream.Field("NodeCount",   NodeCount))
+                || (Error = Stream.Field("LinkCount",   LinkCount));
             }
         ); Err)
         {
-            Debugger("Node OS: failed writing Nodes record");
+            Debugger("Node OS: failed writing Header record");
+            return false;
+        }
+
+        // Dependency order: Columns -> Spines (references ColumnId) -> Nodes (references SpineId) ->
+        // Links (references node ids) - so LoadGraph can validate each cross-reference immediately
+        // against what's already been loaded, rather than loading everything blind and only checking
+        // at the very end.
+        if (auto Err = SaveGraphItems(Stream, Columns); Err)
+        {
+            Debugger(std::format("Node OS: failed writing Columns: {}", Err.getMessage()));
+            return false;
+        }
+
+        if (auto Err = SaveGraphItems(Stream, Spines); Err)
+        {
+            Debugger(std::format("Node OS: failed writing Spines: {}", Err.getMessage()));
             return false;
         }
 
         for (auto& N : Nodes)
         {
-            if (HasSerializableProperties(N.m_pNode))
+            node_topology Topology;
+            Topology.Id         = N.m_Id;
+            Topology.Source     = N.m_pNode ? FindSourcePath(N.m_pNode->m_pFactory) : std::string{};
+            Topology.Type       = N.m_pNode ? std::string(N.m_pNode->m_pFactory->getName()) : std::string{};
+            Topology.Order      = N.m_Order;
+            Topology.SpineId    = N.m_SpineId;
+            // The owner->marker relationship (If/ForEachLoop -> its own End/End-Else) - 0 if this node
+            // doesn't own one. Without this, every save/load round-trip silently flattened the whole
+            // graph's nesting: a reloaded owner would show as owning nothing, which desyncs cascading
+            // delete/drag/select AND (once IsDataLinkScopeValid existed) makes every node look like
+            // unnested "world scope", since ComputeEnclosingChains/ComputeScopeDepths both derive
+            // nesting purely from this one field.
+            Topology.OwnedEndId = N.m_OwnedEndId;
+
+            xproperty::settings::context TopologyContext;
+            if (auto Err = xproperty::sprop::serializer::Stream(Stream, Topology, TopologyContext); Err)
             {
-                if (!SerializeReflectedMembers(Stream, N.m_pNode))
+                Debugger(std::format("Node OS: failed writing topology for node {}: {}", N.m_Id, Err.getMessage()));
+                return false;
+            }
+
+            if (HasAnyProperties(N.m_pNode))
+            {
+                if (auto Err = SerializeReflectedMembers(Stream, N.m_pNode); Err)
                 {
-                    Debugger(std::format("Node OS: failed writing properties for node {}", N.m_Id));
+                    Debugger(std::format("Node OS: failed writing properties for node {}: {}", N.m_Id, Err.getMessage()));
                     return false;
                 }
             }
         }
 
-        if (auto Err = Stream.Record("Links"
-            , [&](std::size_t& C, xerr&) { C = Links.size(); }
-            , [&](std::size_t i, xerr& Error)
-            {
-                auto&         L            = Links[i];
-                std::uint64_t Id           = L.m_Id;
-                std::uint64_t SourceNode   = L.m_SourceNode;
-                int           SourceOutput = L.m_SourceOutput;
-                std::uint64_t TargetNode   = L.m_TargetNode;
-                int           TargetInput  = L.m_TargetInput;
-
-                0
-                || (Error = Stream.Field("Id",           Id))
-                || (Error = Stream.Field("SourceNode",   SourceNode))
-                || (Error = Stream.Field("SourceOutput", SourceOutput))
-                || (Error = Stream.Field("TargetNode",   TargetNode))
-                || (Error = Stream.Field("TargetInput",  TargetInput));
-            }
-        ); Err)
+        // Links last - they reference node ids, so this is the last thing that needs Nodes to already
+        // exist (see SaveGraphItems/link_instance's own XPROPERTY_DEF).
+        if (auto Err = SaveGraphItems(Stream, Links); Err)
         {
-            Debugger("Node OS: failed writing Links record");
-            return false;
-        }
-
-        if (auto Err = Stream.Record("Columns"
-            , [&](std::size_t& C, xerr&) { C = Columns.size(); }
-            , [&](std::size_t i, xerr& Error)
-            {
-                auto&         Co      = Columns[i];
-                std::uint64_t Id      = Co.m_Id;
-                std::uint64_t LeftId  = Co.m_LeftId;
-                std::uint64_t RightId = Co.m_RightId;
-                bool          IsRoot  = Co.m_bIsRoot;
-
-                0
-                || (Error = Stream.Field("Id",      Id))
-                || (Error = Stream.Field("LeftId",  LeftId))
-                || (Error = Stream.Field("RightId", RightId))
-                || (Error = Stream.Field("IsRoot",  IsRoot));
-            }
-        ); Err)
-        {
-            Debugger("Node OS: failed writing Columns record");
-            return false;
-        }
-
-        if (auto Err = Stream.Record("Spines"
-            , [&](std::size_t& C, xerr&) { C = Spines.size(); }
-            , [&](std::size_t i, xerr& Error)
-            {
-                auto&         Sp       = Spines[i];
-                std::uint64_t Id       = Sp.m_Id;
-                std::uint64_t ColumnId = Sp.m_ColumnId;
-                bool          IsRoot   = Sp.m_bIsRoot;
-                float         Y        = Sp.m_Y;
-
-                0
-                || (Error = Stream.Field("Id",       Id))
-                || (Error = Stream.Field("ColumnId", ColumnId))
-                || (Error = Stream.Field("IsRoot",   IsRoot))
-                || (Error = Stream.Field("Y",        Y));
-            }
-        ); Err)
-        {
-            Debugger("Node OS: failed writing Spines record");
-            return false;
-        }
-
-        // Inline literal values typed directly into unconnected Float/Int/Short pins (Unity-style
-        // "no wire isn't no value") - previously never persisted at all despite being a real per-pin
-        // setting, so every save/load round-trip silently discarded whatever was typed in. Stored
-        // exactly as typed, keyed by the same PinId (InPinOf) the live editing session already uses.
-        std::vector<std::pair<std::uint64_t, std::string>> LiteralVec(LiteralValues.begin(), LiteralValues.end());
-        if (auto Err = Stream.Record("LiteralValues"
-            , [&](std::size_t& C, xerr&) { C = LiteralVec.size(); }
-            , [&](std::size_t i, xerr& Error)
-            {
-                std::uint64_t PinId = LiteralVec[i].first;
-                std::string   Value = LiteralVec[i].second;
-                0
-                || (Error = Stream.Field("PinId", PinId))
-                || (Error = Stream.Field("Value", Value));
-            }
-        ); Err)
-        {
-            Debugger("Node OS: failed writing LiteralValues record");
+            Debugger(std::format("Node OS: failed writing Links: {}", Err.getMessage()));
             return false;
         }
 
@@ -5053,15 +5609,20 @@ namespace nodeos
     }
 
     // Mirrors SaveGraph. A node whose recorded Source/Type can no longer be resolved fails the WHOLE
-    // load rather than silently skipping just that node: skipping it would still leave its
-    // "xProperties" record (if HasProperties was true) sitting unread in the file, desyncing every
-    // property record after it - a loud, whole-file failure beats a quietly corrupted partial load.
+    // load rather than silently skipping just that node: skipping it would still leave its own
+    // "xProperties" record (if HasAnyProperties said it had one) sitting unread in the file, desyncing
+    // every record after it - a loud, whole-file failure beats a quietly corrupted partial load.
     static bool LoadGraph(const std::string& Utf8Path, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links
                          , std::vector<plugin_source_entry>& Sources, std::vector<available_node_type>& AvailableTypes
                          , std::vector<spine>& Spines, std::vector<column>& Columns
-                         , std::unordered_map<std::uint64_t, std::string>& LiteralValues)
+                         )
     {
         const std::wstring WPath(Utf8Path.begin(), Utf8Path.end());
+
+        std::vector<node_instance> NewNodes;
+        std::vector<link_instance> NewLinks;
+        std::vector<column>        NewColumns;
+        std::vector<spine>         NewSpines;
 
         xtextfile::stream Stream;
         if (auto Err = Stream.Open(true, WPath, xtextfile::file_type::TEXT); Err)
@@ -5070,98 +5631,124 @@ namespace nodeos
             return false;
         }
 
-        std::vector<node_instance> NewNodes;
-        std::vector<link_instance> NewLinks;
-
-        if (auto Err = Stream.Record("Nodes"
-            , [&](std::size_t& C, xerr&) { NewNodes.reserve(C); }
-            , [&](std::size_t, xerr& Error)
+        std::int32_t ColumnCount = 0, SpineCount = 0, NodeCount = 0, LinkCount = 0;
+        if (auto Err = Stream.Record("Header"
+            , [&](xerr& Error)
             {
-                std::uint64_t Id = 0;
-                std::string   Source, TypeName;
-                int           Order = 0;
-                std::uint64_t SpineId = 0;
-                std::uint64_t OwnedEndId = 0;
-                bool          HasProperties = false;
-
-                if (0
-                 || (Error = Stream.Field("Id",            Id))
-                 || (Error = Stream.Field("Source",        Source))
-                 || (Error = Stream.Field("Type",          TypeName))
-                 || (Error = Stream.Field("Order",         Order))
-                 || (Error = Stream.Field("SpineId",       SpineId)))
-                    return;
-
-                // Added after some graphs were already saved without it - tolerate its absence
-                // (defaulting to "doesn't own a marker") instead of failing the whole load, since an
-                // older file's header simply won't have this column yet.
-                if (Error = Stream.Field("OwnedEndId", OwnedEndId); Error)
-                {
-                    if (Error.getState<xtextfile::state>() != xtextfile::state::FIELD_NOT_FOUND) return;
-                    Error.clear();
-                    OwnedEndId = 0;
-                }
-
-                if (Error = Stream.Field("HasProperties", HasProperties); Error)
-                    return;
-
-                auto SrcIt = std::find_if(Sources.begin(), Sources.end(), [&](auto& S) { return S.m_DirName == Source; });
-                if (SrcIt == Sources.end())
-                {
-                    Error = xerr::create<xtextfile::state::FIELD_NOT_FOUND, "Node OS: a saved node's plugin source no longer exists">();
-                    return;
-                }
-
-                auto* pFactory = EnsureLoadedAndGetType(*SrcIt, AvailableTypes);
-                if (!pFactory || TypeName != pFactory->getName())
-                {
-                    Error = xerr::create<xtextfile::state::FIELD_NOT_FOUND, "Node OS: a saved node's type no longer matches its plugin source">();
-                    return;
-                }
-
-                NewNodes.push_back(CreateNodeInstance(Id, pFactory, Order, SpineId));
-                NewNodes.back().m_OwnedEndId = OwnedEndId;
+                0
+                || (Error = Stream.Field("ColumnCount", ColumnCount))
+                || (Error = Stream.Field("SpineCount",  SpineCount))
+                || (Error = Stream.Field("NodeCount",   NodeCount))
+                || (Error = Stream.Field("LinkCount",   LinkCount));
             }
         ); Err)
         {
-            Debugger("Node OS: failed reading Nodes record");
-            for (auto& N : NewNodes) DestroyNodeInstance(N);
+            Debugger(std::format("Node OS: failed reading Header record: {}", Err.getMessage()));
             return false;
         }
 
-        for (auto& N : NewNodes)
+        // Dependency order mirrors SaveGraph: Columns -> Spines (validates ColumnId immediately
+        // against the just-loaded Columns) -> Nodes (validates SpineId immediately against the
+        // just-loaded Spines) -> Links (references node ids, so it comes last).
+        if (auto Err = LoadGraphItems(Stream, ColumnCount, NewColumns); Err)
         {
-            if (HasSerializableProperties(N.m_pNode))
+            Debugger(std::format("Node OS: failed reading Columns: {}", Err.getMessage()));
+            return false;
+        }
+
+        // Every Left/RightId a column claims must resolve among the columns just loaded - a dangling
+        // reference fails the whole load, same policy as every check below (a loud failure beats a
+        // quietly corrupted graph).
+        {
+            auto HasColumn = [&](std::uint64_t Id) { return std::any_of(NewColumns.begin(), NewColumns.end(), [&](auto& Co) { return Co.m_Id == Id; }); };
+            for (auto& Co : NewColumns)
             {
-                if (!SerializeReflectedMembers(Stream, N.m_pNode))
+                if ((Co.m_LeftId != 0 && !HasColumn(Co.m_LeftId)) || (Co.m_RightId != 0 && !HasColumn(Co.m_RightId)))
                 {
-                    Debugger(std::format("Node OS: failed reading properties for node {}", N.m_Id));
-                    for (auto& M : NewNodes) DestroyNodeInstance(M);
+                    Debugger("Node OS: failed loading - a Column's Left/RightId does not resolve");
                     return false;
                 }
             }
         }
 
-        if (auto Err = Stream.Record("Links"
-            , [&](std::size_t& C, xerr&) { NewLinks.reserve(C); }
-            , [&](std::size_t, xerr& Error)
-            {
-                std::uint64_t Id = 0, SourceNode = 0, TargetNode = 0;
-                int           SourceOutput = 0, TargetInput = 0;
-
-                if (0
-                 || (Error = Stream.Field("Id",           Id))
-                 || (Error = Stream.Field("SourceNode",   SourceNode))
-                 || (Error = Stream.Field("SourceOutput", SourceOutput))
-                 || (Error = Stream.Field("TargetNode",   TargetNode))
-                 || (Error = Stream.Field("TargetInput",  TargetInput)))
-                    return;
-
-                NewLinks.push_back({ Id, SourceNode, SourceOutput, TargetNode, TargetInput });
-            }
-        ); Err)
+        if (auto Err = LoadGraphItems(Stream, SpineCount, NewSpines); Err)
         {
-            Debugger("Node OS: failed reading Links record");
+            Debugger(std::format("Node OS: failed reading Spines: {}", Err.getMessage()));
+            return false;
+        }
+
+        // Every ColumnId a spine claims must resolve among the columns already loaded above.
+        {
+            auto HasColumn = [&](std::uint64_t Id) { return std::any_of(NewColumns.begin(), NewColumns.end(), [&](auto& Co) { return Co.m_Id == Id; }); };
+            for (auto& Sp : NewSpines)
+                if (!HasColumn(Sp.m_ColumnId))
+                {
+                    Debugger("Node OS: failed loading - a Spine's ColumnId does not resolve");
+                    return false;
+                }
+        }
+
+        NewNodes.reserve(static_cast<std::size_t>(NodeCount));
+
+        // Each node is its own self-contained unit - its own node_topology record, immediately
+        // followed by its own plugin-reflected "xProperties" record if it has one - so this is a plain
+        // manual loop, not Stream.Record's per-row iteration (that's for many rows of ONE record; here
+        // every node is a SEPARATE record).
+        {
+            auto HasSpine = [&](std::uint64_t Id) { return std::any_of(NewSpines.begin(), NewSpines.end(), [&](auto& Sp) { return Sp.m_Id == Id; }); };
+            for (std::int32_t i = 0; i < NodeCount; ++i)
+            {
+                node_topology Topology;
+                xproperty::settings::context TopologyContext;
+                if (auto Err = xproperty::sprop::serializer::Stream(Stream, Topology, TopologyContext); Err)
+                {
+                    Debugger(std::format("Node OS: failed reading topology for node index {}: {}", i, Err.getMessage()));
+                    for (auto& M : NewNodes) DestroyNodeInstance(M);
+                    return false;
+                }
+
+                if (!HasSpine(Topology.SpineId))
+                {
+                    Debugger(std::format("Node OS: failed loading - node {}'s SpineId does not resolve", Topology.Id));
+                    for (auto& M : NewNodes) DestroyNodeInstance(M);
+                    return false;
+                }
+
+                auto SrcIt = std::find_if(Sources.begin(), Sources.end(), [&](auto& S) { return S.m_DirName == Topology.Source; });
+                if (SrcIt == Sources.end())
+                {
+                    Debugger(std::format("Node OS: a saved node's plugin source no longer exists: {}", Topology.Source));
+                    for (auto& M : NewNodes) DestroyNodeInstance(M);
+                    return false;
+                }
+
+                auto* pFactory = EnsureLoadedAndGetType(*SrcIt, AvailableTypes);
+                if (!pFactory || Topology.Type != pFactory->getName())
+                {
+                    Debugger(std::format("Node OS: a saved node's type no longer matches its plugin source: {}", Topology.Type));
+                    for (auto& M : NewNodes) DestroyNodeInstance(M);
+                    return false;
+                }
+
+                NewNodes.push_back(CreateNodeInstance(Topology.Id, pFactory, Topology.Order, Topology.SpineId));
+                NewNodes.back().m_OwnedEndId = Topology.OwnedEndId;
+
+                if (HasAnyProperties(NewNodes.back().m_pNode))
+                {
+                    if (auto Err = SerializeReflectedMembers(Stream, NewNodes.back().m_pNode); Err)
+                    {
+                        Debugger(std::format("Node OS: failed reading properties for node {}: {}", Topology.Id, Err.getMessage()));
+                        for (auto& M : NewNodes) DestroyNodeInstance(M);
+                        return false;
+                    }
+                }
+            }
+        }
+
+        // Links last - they reference node ids, so Nodes must already be loaded to validate against.
+        if (auto Err = LoadGraphItems(Stream, LinkCount, NewLinks); Err)
+        {
+            Debugger(std::format("Node OS: failed reading Links: {}", Err.getMessage()));
             for (auto& N : NewNodes) DestroyNodeInstance(N);
             return false;
         }
@@ -5177,99 +5764,11 @@ namespace nodeos
             for (auto& N : NewNodes)
                 if (N.m_Id == L.m_SourceNode && N.m_OwnedEndId == L.m_TargetNode) { L.m_bReadOnly = true; break; }
 
-        std::vector<column> NewColumns;
-        if (auto Err = Stream.Record("Columns"
-            , [&](std::size_t& C, xerr&) { NewColumns.reserve(C); }
-            , [&](std::size_t, xerr& Error)
-            {
-                column Co{};
-                if (0
-                 || (Error = Stream.Field("Id",      Co.m_Id))
-                 || (Error = Stream.Field("LeftId",  Co.m_LeftId))
-                 || (Error = Stream.Field("RightId", Co.m_RightId))
-                 || (Error = Stream.Field("IsRoot",  Co.m_bIsRoot)))
-                    return;
-                NewColumns.push_back(Co);
-            }
-        ); Err)
-        {
-            Debugger("Node OS: failed reading Columns record");
-            for (auto& N : NewNodes) DestroyNodeInstance(N);
-            return false;
-        }
-
-        std::vector<spine> NewSpines;
-        if (auto Err = Stream.Record("Spines"
-            , [&](std::size_t& C, xerr&) { NewSpines.reserve(C); }
-            , [&](std::size_t, xerr& Error)
-            {
-                spine Sp{};
-                if (0
-                 || (Error = Stream.Field("Id",       Sp.m_Id))
-                 || (Error = Stream.Field("ColumnId", Sp.m_ColumnId))
-                 || (Error = Stream.Field("IsRoot",   Sp.m_bIsRoot))
-                 || (Error = Stream.Field("Y",        Sp.m_Y)))
-                    return;
-                NewSpines.push_back(Sp);
-            }
-        ); Err)
-        {
-            Debugger("Node OS: failed reading Spines record");
-            for (auto& N : NewNodes) DestroyNodeInstance(N);
-            return false;
-        }
-
-        // Cross-reference validation: every SpineId a node claims, every ColumnId a spine claims, and
-        // every Left/RightId a column claims must resolve among the freshly-loaded sets - a dangling
-        // reference fails the WHOLE load, same policy as the "plugin source no longer exists" check
-        // above (a loud failure beats a quietly corrupted graph).
-        {
-            auto HasSpine  = [&](std::uint64_t Id) { return std::any_of(NewSpines.begin(),  NewSpines.end(),  [&](auto& Sp) { return Sp.m_Id == Id; }); };
-            auto HasColumn = [&](std::uint64_t Id) { return std::any_of(NewColumns.begin(), NewColumns.end(), [&](auto& Co) { return Co.m_Id == Id; }); };
-
-            bool bValid = true;
-            for (auto& N : NewNodes) if (!HasSpine(N.m_SpineId)) { bValid = false; break; }
-            if (bValid) for (auto& Sp : NewSpines)
-                if (!HasColumn(Sp.m_ColumnId)) { bValid = false; break; }
-            if (bValid) for (auto& Co : NewColumns)
-            {
-                if (Co.m_LeftId  != 0 && !HasColumn(Co.m_LeftId))  { bValid = false; break; }
-                if (Co.m_RightId != 0 && !HasColumn(Co.m_RightId)) { bValid = false; break; }
-            }
-            if (!bValid)
-            {
-                Debugger("Node OS: failed loading - a Spine/Column reference does not resolve");
-                for (auto& N : NewNodes) DestroyNodeInstance(N);
-                return false;
-            }
-        }
-
-        // Optional, trailing, purely-additive record - an older graph.txt saved before inline
-        // literals were persisted simply won't have it at all (EOF the moment Stream.Record looks for
-        // it), which is a legitimate, expected case here, not corruption: unlike every record above,
-        // nothing else references a PinId, so there's no dangling-reference risk in just defaulting to
-        // "no literals" and moving on rather than failing the whole load.
-        std::unordered_map<std::uint64_t, std::string> NewLiteralValues;
-        Stream.Record("LiteralValues"
-            , [&](std::size_t& C, xerr&) { }
-            , [&](std::size_t, xerr& Error)
-            {
-                std::uint64_t PinId = 0;
-                std::string   Value;
-                if (0
-                 || (Error = Stream.Field("PinId", PinId))
-                 || (Error = Stream.Field("Value", Value)))
-                    return;
-                NewLiteralValues[PinId] = Value;
-            }
-        );
-
         for (auto& N : Nodes) DestroyNodeInstance(N);
         Nodes          = std::move(NewNodes);
         Links          = std::move(NewLinks);
         Spines         = std::move(NewSpines);
         Columns        = std::move(NewColumns);
-        LiteralValues  = std::move(NewLiteralValues);
 
         return true;
     }
@@ -5490,14 +5989,20 @@ namespace nodeos
         if (It->m_OwnedEndId != 0 && pNode->m_pFactory->getName() == "If")
         {
             auto MarkerIt = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == It->m_OwnedEndId; });
-            if (MarkerIt != Nodes.end() && MarkerIt->m_pNode && HasSerializableProperties(MarkerIt->m_pNode))
+            if (MarkerIt != Nodes.end() && MarkerIt->m_pNode && HasAnyProperties(MarkerIt->m_pNode))
             {
                 pMarkerNode  = MarkerIt->m_pNode;
                 MarkerNodeId = MarkerIt->m_Id;
             }
         }
 
-        const bool bOwnHasProps = HasSerializableProperties(pNode);
+        // HasAnyProperties, not the narrower HasSerializableProperties - the real xproperty::inspector
+        // below can render scopes/lists/anything reflected, so gating its own visibility on the
+        // var-only check would incorrectly show "has no properties" for a node whose reflected data
+        // is entirely, say, a list. (SerializePropertiesToString further down, used only for the
+        // undo Before/After diff, stays var-only on its own - that's the one job it genuinely can't
+        // do more of yet - but it degrades safely to an empty snapshot rather than failing.)
+        const bool bOwnHasProps = HasAnyProperties(pNode);
         if (!bOwnHasProps && !pMarkerNode)
         {
             DrawNodePropertiesEmptyState(std::format("{} has no properties.", pNode->m_pFactory->getName()).c_str());
@@ -5601,12 +6106,6 @@ namespace nodeos
             bool&                              m_bDirty;
             std::vector<spine>&                 m_Spines;
             std::vector<column>&                m_Columns;
-            // Inline constants on an unconnected scalar input pin (Float/Int/Bool), Unity-style - "no
-            // wire" no longer means "no value", it means "whatever's typed right here". Keyed by
-            // InPinOf(NodeId, PinIndex); stored as plain text (same convention property_row already
-            // uses) so one map covers every scalar type without a tagged union. Rendering-only for
-            // now - not read by ExecuteGraph/the live data pipeline yet, only by the canvas widget.
-            std::unordered_map<std::uint64_t, std::string>& m_LiteralValues;
         };
 
         // Shared by select_cmd and clear_selection_cmd - both snapshot/restore the exact same set.
@@ -6330,60 +6829,6 @@ namespace nodeos
             }
 
             xcmdline::parser::handle m_hId, m_hSourceNode, m_hSourceOutput, m_hTargetNode, m_hTargetInput;
-        };
-
-        //================================================================================================
-        // SetLiteralValue - the inline constant on an unconnected scalar input pin (Float/Int/Bool),
-        // Unity-style: "no wire" no longer means "no value", just "whatever's typed right here".
-        // Stored as plain text keyed by the pin id (InPinOf), same convention property_row already
-        // uses, so one command/map covers every scalar type. Never touches m_Links - a literal and a
-        // wire are independent; the pin just prefers the wire's value when one exists (see
-        // GetInputValue's own caller in the canvas draw loop).
-        //================================================================================================
-        struct set_literal_value_cmd : xundo::command_base
-        {
-            set_literal_value_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "SetLiteralValue", pDataBase) { RegisterArguments(); }
-            const char* getCommandHelp() const noexcept override { return "Sets an unconnected input pin's inline constant. Usage: SetLiteralValue -Pin N -Value text"; }
-            void RegisterArguments() noexcept override
-            {
-                m_hPin   = m_Parser.addOption("Pin",   "Pin id (InPinOf(NodeId, Index))", true, 1);
-                m_hValue = m_Parser.addOption("Value",  "New literal text",               true, 1);
-            }
-
-            std::string Redo() noexcept override
-            {
-                auto PinArg   = m_Parser.getOptionArgAs<std::string>(m_hPin, 0);
-                auto ValueArg = m_Parser.getOptionArgAs<std::string>(m_hValue, 0);
-                if (std::holds_alternative<xerr>(PinArg) || std::holds_alternative<xerr>(ValueArg)) return "SetLiteralValue: bad arguments";
-                auto& Ctx = get<node_os_command_context>();
-                Ctx.m_LiteralValues[ParseGuid(std::get<std::string>(PinArg))] = std::get<std::string>(ValueArg);
-                Ctx.m_bDirty = true;
-                return {};
-            }
-
-            void BackupCurrenState(xundo::undo_file& File) noexcept override
-            {
-                auto PinArg = m_Parser.getOptionArgAs<std::string>(m_hPin, 0);
-                const auto PinId = std::holds_alternative<xerr>(PinArg) ? std::uint64_t{0} : ParseGuid(std::get<std::string>(PinArg));
-                auto& Ctx = get<node_os_command_context>();
-                auto It = Ctx.m_LiteralValues.find(PinId);
-                File.Write(It != Ctx.m_LiteralValues.end() ? std::uint8_t{1} : std::uint8_t{0});
-                if (It != Ctx.m_LiteralValues.end()) WriteString(File, It->second);
-            }
-
-            void Undo(xundo::undo_file& File) noexcept override
-            {
-                auto PinArg = m_Parser.getOptionArgAs<std::string>(m_hPin, 0);
-                if (std::holds_alternative<xerr>(PinArg)) return;
-                const auto PinId = ParseGuid(std::get<std::string>(PinArg));
-                auto& Ctx = get<node_os_command_context>();
-                std::uint8_t bHadPrior = 0; File.Read(bHadPrior);
-                if (bHadPrior) Ctx.m_LiteralValues[PinId] = ReadString(File);
-                else            Ctx.m_LiteralValues.erase(PinId);
-                Ctx.m_bDirty = true;
-            }
-
-            xcmdline::parser::handle m_hPin, m_hValue;
         };
 
         //================================================================================================
@@ -7234,6 +7679,30 @@ namespace nodeos
             void BackupCurrenState(xundo::undo_file& File) noexcept override { BackupSelection(get<node_os_command_context>(), File); }
             void Undo(xundo::undo_file& File) noexcept override { RestoreSelection(get<node_os_command_context>(), File); }
         };
+
+        //================================================================================================
+        // ListNodes - first proof-of-concept query command: read-only, no Redo/Undo/BackupCurrenState,
+        // registered against xundo::query_command_base (not command_base) so it can never become an
+        // undo step and never needs a database mutation to answer. Reached via the central router as
+        // "NodeOS/Query/ListNodes" (see xundo::history::Route, xundo_history.h) - this is deliberately
+        // the simplest possible query, meant to prove the routing plumbing end-to-end before designing
+        // richer ones (resolved wildcard type, scope/nesting, a full node dump, a Validate pass).
+        //================================================================================================
+        struct list_nodes_query_cmd : xundo::query_command_base
+        {
+            list_nodes_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "ListNodes", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "Lists every node's Id and Type. Usage: ListNodes"; }
+            void RegisterArguments() noexcept override {} // takes no arguments at all
+
+            std::string Query() noexcept override
+            {
+                auto& Ctx = get<node_os_command_context>();
+                std::string Out;
+                for (auto& N : Ctx.m_Nodes)
+                    Out += std::format("{:#x}  {}\n", N.m_Id, N.m_pNode ? std::string(N.m_pNode->m_pFactory->getName()) : std::string("?"));
+                return Out;
+            }
+        };
     }
 }
 
@@ -7261,14 +7730,13 @@ int E27_Example()
         std::vector<nodeos::spine>  Spines  { nodeos::spine {  xresource::guid_generator::Instance64(), 0, true, nodeos::geo::TOP } };
         std::vector<nodeos::column> Columns { nodeos::column { xresource::guid_generator::Instance64(), 0, 0, true } };
         Spines.front().m_ColumnId = Columns.front().m_Id;
-        std::unordered_map<std::uint64_t, std::string> LiteralValues;
 
         std::string Report;
-        if (!nodeos::LoadGraph("D:/LIONant/xGPU/source/Examples/E27_NodeOS/graph.txt", Nodes, Links, Sources, AvailableTypes, Spines, Columns, LiteralValues))
+        if (!nodeos::LoadGraph("D:/LIONant/xGPU/source/Examples/E27_NodeOS/graph.txt", Nodes, Links, Sources, AvailableTypes, Spines, Columns))
             Report = "[self-test] LoadGraph FAILED\n";
         else
         {
-            const std::string GeneratedSource = nodeos::GenerateCpp(Nodes, Links, Spines, LiteralValues);
+            const std::string GeneratedSource = nodeos::GenerateCpp(Nodes, Links, Spines);
             const auto Result = nodeos::CompileAndRunGeneratedCpp(GeneratedSource);
             Report += "=== GENERATED SOURCE ===\n" + GeneratedSource + "\n";
             Report += std::format("=== COMPILE {} ===\n{}\n", Result.m_bCompileOk ? "OK" : "FAILED", Result.m_CompileLog);
@@ -7277,12 +7745,12 @@ int E27_Example()
 
             // TEMPORARY - the interpreter (RunProgram/RunSpineRange's "If" handling and GetInputValue's
             // literal fallback) is never exercised by codegen at all; running it here too, on the exact
-            // same loaded Nodes/Links/LiteralValues, proves the interpreter's own conditional-branch and
+            // same loaded Nodes/Links, proves the interpreter's own conditional-branch and
             // literal-value fixes independently rather than trusting they match codegen by inspection
             // alone. Harmless to run after codegen above - RunProgram only touches m_bHasRun/
             // m_CachedOutputs, which GenerateCpp/CompileAndRunGeneratedCpp never read.
             nodeos::literal_storage InterpScratch;
-            nodeos::RunProgram(Nodes, Links, Spines, LiteralValues, InterpScratch);
+            nodeos::RunProgram(Nodes, Links, Spines, InterpScratch);
             Report += "=== INTERPRETER (Execute Graph) OUTPUT ===\n";
             for (auto& Line : nodeos::GetRuntimeLog()) Report += Line + "\n";
             for (auto& N : Nodes)
@@ -7366,7 +7834,6 @@ int E27_Example()
     std::vector<nodeos::available_node_type> AvailableTypes;
     std::vector<nodeos::node_instance>       Nodes;
     std::vector<nodeos::link_instance>       Links;
-    std::unordered_map<std::uint64_t, std::string> LiteralValues; // inline constants on unconnected scalar pins
 
     // There is always exactly one root spine living in exactly one root column - every other spine/
     // column this session ever creates starts out attached next to one of the existing ones via
@@ -7404,7 +7871,7 @@ int E27_Example()
     // identically to how the ImGui code below calls it. bAutoLoadSave=false - a fresh undo stack each
     // run, since a stale on-disk history from a previous, differently-shaped graph would be more
     // confusing than useful for this example.
-    nodeos::commands::node_os_command_context CmdContext{ Nodes, Links, Selection, Sources, AvailableTypes, bDirty, Spines, Columns, LiteralValues };
+    nodeos::commands::node_os_command_context CmdContext{ Nodes, Links, Selection, Sources, AvailableTypes, bDirty, Spines, Columns };
     xundo::system NodeOsUndo;
     if (auto Err = NodeOsUndo.Init("D:/LIONant/xGPU/source/Examples/E27_NodeOS/UndoHistory", false); !Err.empty())
         nodeos::Debugger(std::format("Node OS: xundo Init failed: {}", Err));
@@ -7414,7 +7881,6 @@ int E27_Example()
     nodeos::commands::delete_nodes_cmd    CmdDeleteNodes(NodeOsUndo, &CmdContext);
     nodeos::commands::delete_link_cmd     CmdDeleteLink(NodeOsUndo, &CmdContext);
     nodeos::commands::connect_cmd         CmdConnect(NodeOsUndo, &CmdContext);
-    nodeos::commands::set_literal_value_cmd CmdSetLiteralValue(NodeOsUndo, &CmdContext);
     nodeos::commands::reorder_nodes_cmd   CmdReorderNodes(NodeOsUndo, &CmdContext);
     nodeos::commands::move_nodes_to_spine_cmd CmdMoveNodesToSpine(NodeOsUndo, &CmdContext);
     nodeos::commands::set_properties_cmd  CmdSetProperties(NodeOsUndo, &CmdContext);
@@ -7423,6 +7889,14 @@ int E27_Example()
     nodeos::commands::create_spine_cmd    CmdCreateSpine(NodeOsUndo, &CmdContext);
     nodeos::commands::delete_spine_cmd    CmdDeleteSpine(NodeOsUndo, &CmdContext);
     nodeos::commands::set_spine_position_cmd CmdSetSpinePosition(NodeOsUndo, &CmdContext);
+    nodeos::commands::list_nodes_query_cmd CmdListNodes(NodeOsUndo, &CmdContext);
+
+    // Central command router (xundo::history::Route, xundo_history.h) - addresses NodeOsUndo's
+    // commands through one namespaced string ("NodeOS/Edit/<Cmd>" for mutations, "NodeOS/Query/<Cmd>"
+    // for read-only introspection) instead of a caller needing this xundo::system reference directly.
+    // The debugging/AI-facing entry point this whole mechanism exists for - see DrawCommandConsolePanel.
+    xundo::history NodeOsHistory;
+    NodeOsHistory.AddSystem("NodeOS", 1, NodeOsUndo);
 
     while (Instance.ProcessInputEvents())
     {
@@ -7448,7 +7922,7 @@ int E27_Example()
         // so a pruned entry is simply never captured in the first place.
         if (bDirty)
         {
-            nodeos::ExecuteGraph(Device, Nodes, Links, Spines, MeshPreview, LiteralValues);
+            nodeos::ExecuteGraph(Device, Nodes, Links, Spines, MeshPreview);
             bDirty = false;
         }
 
@@ -7459,9 +7933,10 @@ int E27_Example()
         // every mesh preview reflects it - no manual "Execute Graph" click required for the common
         // case; the button below remains for a manual force-rerun.
         nodeos::DrawNodeLibraryPanel(Sources, AvailableTypes, bDirty);
-        nodeos::DrawGraphCanvas(Sources, AvailableTypes, Nodes, Links, MeshPreview, Drag, Selection, View, NodeDrag, SpineDrag, DeleteSpineConfirm, Spines, Columns, LiteralValues, bDirty, NodeOsUndo);
+        nodeos::DrawGraphCanvas(Sources, AvailableTypes, Nodes, Links, MeshPreview, Drag, Selection, View, NodeDrag, SpineDrag, DeleteSpineConfirm, Spines, Columns, bDirty, NodeOsUndo);
         nodeos::DrawNodePropertiesPanel(Nodes, Selection.m_SelectedNodes, NodeOsUndo, Sources, AvailableTypes);
         nodeos::DrawRuntimeLogPanel();
+        nodeos::DrawCommandConsolePanel(NodeOsHistory);
 
         ImGui::SetNextWindowPos(ImVec2(300, 620), ImGuiCond_FirstUseEver);
         // Passing an explicit empty callback rather than relying on Render()'s own defaulted one -
@@ -7483,7 +7958,7 @@ int E27_Example()
             // MeshPreview/GPU textures the way ExecuteGraph does.
             if (ImGui::Button("Compile to C++"))
             {
-                const std::string GeneratedSource = nodeos::GenerateCpp(Nodes, Links, Spines, LiteralValues);
+                const std::string GeneratedSource = nodeos::GenerateCpp(Nodes, Links, Spines);
                 GeneratedCodeEditor.SetText(GeneratedSource);
                 const auto CodegenResult = nodeos::CompileAndRunGeneratedCpp(GeneratedSource);
                 nodeos::GetRuntimeLog().clear();
@@ -7571,7 +8046,7 @@ int E27_Example()
             ImGui::SetNextItemWidth(-1);
             ImGui::InputText("##GraphPath", GraphPathBuffer, sizeof(GraphPathBuffer));
             if (ImGui::Button("Save"))
-                GraphStatus = nodeos::SaveGraph(GraphPathBuffer, Nodes, Links, AvailableTypes, Spines, Columns, LiteralValues) ? "Saved." : "Save failed - see log.";
+                GraphStatus = nodeos::SaveGraph(GraphPathBuffer, Nodes, Links, AvailableTypes, Spines, Columns) ? "Saved." : "Save failed - see log.";
             ImGui::SameLine();
             if (ImGui::Button("Load"))
             {
@@ -7579,7 +8054,7 @@ int E27_Example()
                 Selection.m_SelectedLink = 0;
                 Selection.m_SelectedGapSpineId = 0;
                 Selection.m_SelectedGapIndex   = -1;
-                GraphStatus = nodeos::LoadGraph(GraphPathBuffer, Nodes, Links, Sources, AvailableTypes, Spines, Columns, LiteralValues) ? "Loaded." : "Load failed - see log.";
+                GraphStatus = nodeos::LoadGraph(GraphPathBuffer, Nodes, Links, Sources, AvailableTypes, Spines, Columns) ? "Loaded." : "Load failed - see log.";
                 bDirty = true; // re-run the freshly loaded graph, same deferred path as everything else
                 // Load replaces Nodes/Links wholesale (not through commands), so any existing undo
                 // history refers to node/link ids that may no longer mean anything in the new graph -

@@ -11,11 +11,17 @@ namespace
 {
     struct set_variable_node : xnode_os_node
     {
-        std::string m_Name = "MyVariable";
+        std::string m_Name          = "MyVariable";
+        float       m_Value         = 0.0f;   // used only while Value is unconnected - see E27_NodeOS_Editor.cpp's FindMemberByName
+        bool        m_bValueConnected = false; // pushed by the host each frame - see "Value Connected"/PushPinConnectedFlags
 
         XPROPERTY_VDEF
         ( "set_variable_node", set_variable_node
-        , obj_member<"Name", &set_variable_node::m_Name>
+        , obj_member<"Name", &set_variable_node::m_Name, member_help<"The variable's name to write to. Must match a GetVariable node's own Name to resolve to the same storage slot once variable resolution is wired up.">>
+        , obj_member<"Value", &set_variable_node::m_Value
+            , member_dynamic_flags<+[](const set_variable_node& O) { xproperty::flags::type F{}; F.m_bDontShow = F.m_bDontSave = O.m_bValueConnected; return F; }>
+            , member_help<"Value's own value while its pin is unconnected - hidden once a wire is attached, since the wire overrides it. Named to match the pin itself, so the host's generic 'find a property with the same name as this pin' hook picks it up automatically.">>
+        , obj_member<"Value Connected", &set_variable_node::m_bValueConnected, member_flags<xproperty::flags::DONT_SAVE, xproperty::flags::DONT_SHOW>>
         )
 
         std::span<const xnode_os_port_desc> getInputs() const noexcept override

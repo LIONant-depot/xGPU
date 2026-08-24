@@ -23,7 +23,7 @@ namespace
 
         XPROPERTY_VDEF
         ( "end_marker_node", end_marker_node
-        , obj_member<"IsElse", &end_marker_node::m_bIsElse>
+        , obj_member<"IsElse", &end_marker_node::m_bIsElse, member_help<"Turns a plain End into an End-Else. When checked, this marker owns a further End of its own and grows a second, read-only 'ElseEnd' output pin connecting to it.">>
         )
 
         // "Owner" is the read-only ownership pin - the host connects it automatically, to whichever

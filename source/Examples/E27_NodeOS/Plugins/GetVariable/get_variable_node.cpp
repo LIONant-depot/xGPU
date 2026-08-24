@@ -18,7 +18,7 @@ namespace
 
         XPROPERTY_VDEF
         ( "get_variable_node", get_variable_node
-        , obj_member<"Name", &get_variable_node::m_Name>
+        , obj_member<"Name", &get_variable_node::m_Name, member_help<"The variable's name to read from. Must match a SetVariable node's own Name to resolve to the same storage slot once variable resolution is wired up.">>
         )
 
         std::span<const xnode_os_port_desc> getInputs() const noexcept override
