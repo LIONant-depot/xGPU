@@ -4241,6 +4241,27 @@ namespace nodeos
         }
         return ResolveUnconnectedLiteral(NodeId, InputIndex, Nodes, Links, Scratch);
     }
+    // A dedicated, minimal function - no local C++ objects requiring unwinding (MSVC's C2712 forbids
+    // mixing __try with those in the same function) - just the raw call and SEH's own catch-and-
+    // report. Catches hardware faults (access violation, divide-by-zero, etc.) a buggy or still-
+    // being-developed plugin's Execute() might trigger. NOT a sandbox: per Microsoft's own guidance,
+    // the process's heap/global state may already be corrupted by the time this returns - this is
+    // "log it and skip this node," never "guaranteed safe to keep running normally" - but it's
+    // strictly better than the whole editor going down over one bad node, which is the actual goal
+    // (see [[xgpu_plugin_dll_hotreload]] for the companion "don't need to restart to fix it" half).
+    static unsigned long SEH_CallExecute(xnode_os_node* pNode, void** Inputs, void** Outputs) noexcept
+    {
+        __try
+        {
+            pNode->Execute(Inputs, Outputs);
+            return 0;
+        }
+        __except (EXCEPTION_EXECUTE_HANDLER)
+        {
+            return GetExceptionCode();
+        }
+    }
+
     static void RunOrdinaryNode(node_instance& Node, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, literal_storage& Scratch, int PullDepth)
     {
         if (!Node.m_pNode || Node.m_bHasRun) return;
@@ -4250,7 +4271,21 @@ namespace nodeos
         for (int i = 0; i < (int)NodeInputs.size(); ++i)
             Inputs[i] = PullInputValue(Node.m_Id, i, Nodes, Links, Scratch, PullDepth);
         Node.m_CachedOutputs.assign(NodeOutputs.size(), nullptr);
-        Node.m_pNode->Execute(Inputs.data(), Node.m_CachedOutputs.data());
+
+        // __except alone (SEH) does NOT catch a plain C++ throw under this project's /EHsc - only
+        // hardware faults. Wrapping the SEH call in an ordinary try/catch here (not inside
+        // SEH_CallExecute itself, where it would trip C2712) covers both failure modes a plugin's
+        // Execute() could hit, each reported through the same m_LastError the UI already renders in
+        // red on the node itself (see line ~3655) - a crashing node is visible at a glance, not a
+        // silent gap in the graph.
+        try
+        {
+            if (const unsigned long ExCode = SEH_CallExecute(Node.m_pNode, Inputs.data(), Node.m_CachedOutputs.data()); ExCode != 0)
+                Node.m_LastError = std::format("Execute() crashed (exception code {:#x}) - node skipped this run", ExCode);
+        }
+        catch (const std::exception& Ex) { Node.m_LastError = std::format("Execute() threw: {}", Ex.what()); }
+        catch (...)                      { Node.m_LastError = "Execute() threw a non-standard exception"; }
+
         Node.m_bHasRun = true;
     }
     static void RunSpineRange(std::uint64_t SpineId, int FromOrderInclusive, int ToOrderExclusive, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, literal_storage& Scratch);
@@ -8358,6 +8393,42 @@ namespace nodeos
         };
 
         //================================================================================================
+        // RescanPlugins - ScanPluginSources only ever runs once, at E27_Example startup, so a plugin
+        // folder dropped onto disk AFTER the editor is already running is invisible to it until this
+        // is called (or the editor restarts) - the other half of "adding a new DLL shouldn't require
+        // exiting the editor" alongside ReloadPlugin (which handles the "I edited an EXISTING
+        // plugin's source" case; this handles "I just added a BRAND NEW plugin type"). Purely
+        // additive: an already-known DirName's entry (m_bLoaded/m_Module/m_CompileLog) is left
+        // completely untouched, so this can never disturb a plugin that's already loaded and in use.
+        //================================================================================================
+        struct rescan_plugins_query_cmd : xundo::query_command_base
+        {
+            rescan_plugins_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "RescanPlugins", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "Re-scans Plugins/ for folders added since the editor started (or the last RescanPlugins) and makes them addable - no restart needed. Usage: RescanPlugins"; }
+            void RegisterArguments() noexcept override {}
+
+            std::string Query() noexcept override
+            {
+                auto& Ctx = get<node_os_command_context>();
+                auto Fresh = ScanPluginSources("D:/LIONant/xGPU/source/Examples/E27_NodeOS/Plugins");
+
+                std::vector<std::string> NewlyFound;
+                for (auto& F : Fresh)
+                {
+                    if (FindSourceByDirName(Ctx.m_Sources, F.m_DirName)) continue;
+                    NewlyFound.push_back(F.m_DirName);
+                    Ctx.m_Sources.push_back(std::move(F));
+                }
+                std::sort(Ctx.m_Sources.begin(), Ctx.m_Sources.end(), [](auto& A, auto& B) { return A.m_DisplayName < B.m_DisplayName; });
+
+                if (NewlyFound.empty()) return "No new plugin folders found.";
+                std::string Out = std::format("Found {} new plugin folder(s) - addable now via CreateNode/the Node Library:\n", NewlyFound.size());
+                for (auto& Name : NewlyFound) Out += "  " + Name + "\n";
+                return Out;
+            }
+        };
+
+        //================================================================================================
         // ReloadPlugin - the full safe hot-reload sequence in one call, for when a plugin's own .cpp
         // source just changed and the running session needs to pick that up without restarting:
         //   1. Save  - the graph is about to be torn down; must reflect what's on the canvas NOW.
@@ -8686,6 +8757,7 @@ int E27_Example()
     nodeos::commands::get_node_values_query_cmd CmdGetNodeValues(NodeOsUndo, &CmdContext);
     nodeos::commands::clear_graph_query_cmd    CmdClearGraph(NodeOsUndo, &CmdContext);
     nodeos::commands::unload_plugin_query_cmd  CmdUnloadPlugin(NodeOsUndo, &CmdContext);
+    nodeos::commands::rescan_plugins_query_cmd CmdRescanPlugins(NodeOsUndo, &CmdContext);
     nodeos::commands::reload_plugin_query_cmd  CmdReloadPlugin(NodeOsUndo, &CmdContext);
     nodeos::commands::screenshot_query_cmd     CmdScreenshot(NodeOsUndo, &CmdContext);
 
