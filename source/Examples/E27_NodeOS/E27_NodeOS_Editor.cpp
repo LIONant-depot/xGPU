@@ -2,8 +2,10 @@
 #include "source/tools/xgpu_imgui_breach.h"
 #include "source/tools/xgpu_view.h"
 
-#include <atomic> // std::atomic<int> compile counter, see CompilePluginWorker
-#include <mutex>  // guards the shared plugin PCH rebuild, see EnsurePluginPchFresh
+#include <atomic>              // std::atomic<int> compile counter, see CompilePluginWorker
+#include <mutex>               // guards the shared plugin PCH rebuild, see EnsurePluginPchFresh; also command_console_pipe_bridge
+#include <thread>              // CommandConsolePipeThreadMain's own background thread
+#include <condition_variable>  // command_console_pipe_bridge's request/response handoff
 
 #include "source/Examples/E27_NodeOS/SDK/xnode_os_plugin_api.h"
 #include "source/Examples/E27_NodeOS/SDK/xnode_os_host_interface.h"
@@ -4781,6 +4783,101 @@ namespace nodeos
     // than inventing a second fuzzy-match convention. The result UI is deliberately much lighter than
     // that asset browser's icon grid/popup: a plain Selectable() list under the input is all a text
     // command needs.
+    // Who authored a Command Console log entry - the log's own "> Cmd" echo line is colored by this
+    // (User=green if typed into the UI, Pipe=teal if it arrived over NodeOSCLI's named pipe - an
+    // AI-facing color on purpose); the RESULT that follows is always logged as its own separate
+    // System-sourced entry (white), since the app authored that text, not whoever typed the command.
+    // DrawCommandConsolePanel and PumpCommandConsolePipe both push an echo entry then, if non-empty,
+    // a result entry - never one blended entry.
+    enum class console_log_source { System, User, Pipe };
+    struct console_log_entry
+    {
+        std::string         m_Text;
+        console_log_source  m_Source;
+    };
+
+    // TextEditor (E19_TextEditor.h, already used for the "Generated C++" panel) is a real code-editor
+    // widget: unlike InputTextMultiline it can color individual lines AND still give one continuous
+    // mouse-drag/copy selection across the whole log - the two things a naive "one InputTextMultiline
+    // per colored entry" approach couldn't do at once. Coloring is keyed off a plain-text marker
+    // prefixed onto each User/Pipe echo line ("> "/"$ ") rather than any out-of-band per-line state,
+    // because TextEditor's own tokenizer callback (LanguageDefinition::mTokenize) is a stateless C
+    // function pointer with no way to be told which log entry a line came from - the marker IS the
+    // only channel available. System lines carry no marker and fall through to the Default color.
+    static bool ConsoleLogTokenize(const char* in_begin, const char* in_end, const char*& out_begin, const char*& out_end, TextEditor::PaletteIndex& paletteIndex)
+    {
+        const size_t Len = static_cast<size_t>(in_end - in_begin);
+        if (Len >= 2 && in_begin[0] == '>' && in_begin[1] == ' ')
+        {
+            out_begin = in_begin; out_end = in_end; paletteIndex = TextEditor::PaletteIndex::KnownIdentifier; // green - User, see BuildConsoleLogPalette
+            return true;
+        }
+        if (Len >= 2 && in_begin[0] == '$' && in_begin[1] == ' ')
+        {
+            out_begin = in_begin; out_end = in_end; paletteIndex = TextEditor::PaletteIndex::Preprocessor; // teal - Pipe, the AI's "favorite color"
+            return true;
+        }
+        return false; // System line - falls through to Default
+    }
+
+    // A from-scratch LanguageDefinition rather than repurposing CPlusPlus()'s - this text isn't code,
+    // it just needs mTokenize wired up and comment-detection neutralized. Leaving mCommentStart/
+    // mCommentEnd/mSingleLineComment at their default EMPTY strings is a trap, not a no-op:
+    // ColorizeInternal's comment scan treats an empty marker as matching at every position, which
+    // would flag the entire log as "inside a multi-line comment" and force everything to the Comment
+    // palette color ahead of mTokenize's own result (TextEditor::GetGlyphColor checks mComment/
+    // mMultiLineComment first, before mColorIndex) - pointing all three at a marker that will never
+    // appear in real log text sidesteps that entirely.
+    static const TextEditor::LanguageDefinition& ConsoleLogLanguageDefinition() noexcept
+    {
+        static const TextEditor::LanguageDefinition LangDef = [] {
+            TextEditor::LanguageDefinition Def;
+            Def.mName            = "ConsoleLog";
+            Def.mTokenize        = ConsoleLogTokenize;
+            Def.mAutoIndentation = false;
+            Def.mCommentStart = Def.mCommentEnd = Def.mSingleLineComment = "\x01\x01\x01__no_console_log_comment_marker__\x01\x01\x01";
+            return Def;
+        }();
+        return LangDef;
+    }
+
+    static TextEditor::Palette BuildConsoleLogPalette() noexcept
+    {
+        TextEditor::Palette Pal = TextEditor::GetDarkPalette();
+        Pal[(int)TextEditor::PaletteIndex::KnownIdentifier] = IM_COL32(115, 217, 115, 255); // green - User
+        Pal[(int)TextEditor::PaletteIndex::Preprocessor]    = IM_COL32( 51, 191, 191, 255); // teal  - Pipe (AI)
+        return Pal;
+    }
+
+    // The one place that decides what marker a line gets, so DrawCommandConsolePanel's rendering and
+    // get_log_query_cmd's flattened CLI text agree - m_Text itself is always the RAW command/result
+    // text with no marker baked in, exactly so there's only one place this happens, not two.
+    static const char* ConsoleLogLinePrefix(console_log_source Source) noexcept
+    {
+        switch (Source)
+        {
+            case console_log_source::User: return "> ";
+            case console_log_source::Pipe: return "$ ";
+            default:                       return "";
+        }
+    }
+
+    // Splits on '\n' without a regex/stream detour - SetTextLines wants one entry per line, and a log
+    // entry's text is plain, host-authored strings, never anything exotic enough to need more than this.
+    static std::vector<std::string> SplitLines(std::string_view Text)
+    {
+        std::vector<std::string> Out;
+        std::size_t Start = 0;
+        for (;;)
+        {
+            const std::size_t Nl = Text.find('\n', Start);
+            Out.emplace_back(Text.substr(Start, Nl == std::string_view::npos ? std::string_view::npos : Nl - Start));
+            if (Nl == std::string_view::npos) break;
+            Start = Nl + 1;
+        }
+        return Out;
+    }
+
     // UserData for CommandConsoleCallback, below - built fresh each frame from DrawCommandConsolePanel's
     // own local state, since a single free-function callback can't capture anything.
     struct command_console_nav_state
@@ -4869,14 +4966,52 @@ namespace nodeos
         return 0;
     }
 
-    static void DrawCommandConsolePanel(xundo::history& History)
+    // Shared by DrawCommandConsolePanel's own Enter/Run handling AND the named-pipe server (below) -
+    // one place implementing "help"/"<cmd> -h"/plain routing, so a pipe-driven command (from
+    // NodeOSCLI, or any other external caller) behaves identically to one typed into the UI, not a
+    // second, silently-drifting copy of the same dispatch logic.
+    static std::string ProcessConsoleCommand(std::string_view Cmd, xundo::history& History, const std::vector<xundo::history::routable_command>& Routable)
+    {
+        std::string Out;
+        if (Cmd == "help" || Cmd == "Help" || Cmd == "?")
+        {
+            for (auto& C : Routable)
+                Out += (C.m_Help.empty() ? C.m_FullName : std::format("{} - {}", C.m_FullName, C.m_Help)) + "\n";
+        }
+        else if (Cmd.size() > 2 && Cmd.substr(Cmd.size() - 2) == "-h")
+        {
+            // Bypasses Route() here on purpose: the underlying command's own "-h" handling
+            // (xundo::system::Execute/Query) writes straight to std::cout via xcmdline::
+            // parser::printHelp() - nothing this GUI process's console window (or a pipe client)
+            // ever sees - so look the help text up directly instead of dispatching.
+            std::string_view FullName = Cmd.substr(0, Cmd.find(' '));
+            Out = History.GetCommandHelpFor(FullName) + "\n";
+        }
+        else
+        {
+            // Route()'s empty-string return is ambiguous on purpose for Edit commands ("ran fine,
+            // nothing worth reporting" - xundo::system::Execute's own convention), but that's wrong
+            // for a Query: an empty answer ("no nodes") is itself real, useful information, not
+            // "nothing happened" - silently swallowing it here is exactly what made a genuinely-
+            // empty ListNodes result look like the command did nothing at all. Only Query commands
+            // get an explicit placeholder for an empty answer; Edit commands keep the existing
+            // silent-success convention.
+            std::string Result = History.Route(Cmd);
+            if (!Result.empty())
+                Out = Result + "\n";
+            else if (Cmd.find("/Query/") != std::string_view::npos)
+                Out = "(empty result)\n";
+        }
+        return Out;
+    }
+
+    static void DrawCommandConsolePanel(xundo::history& History, std::vector<console_log_entry>& LogEntries)
     {
         static char                     CmdBuffer[256] = "";
         static std::string              PrevCmdBuffer;      // detects genuine typing vs. a programmatic fill, below
-        static std::string              LogText;            // rendered via a read-only InputTextMultiline, below - the
-                                                              // only way to get real mouse-drag selection + Ctrl+C copy
-                                                              // out of ImGui; plain Text/TextWrapped calls aren't
-                                                              // selectable at all, they're just static labels.
+        // LogEntries is owned by the caller (E27_Example), not a local static here - the named-pipe
+        // server (below) needs to append to the SAME visible log a pipe-driven command isn't a
+        // secret side-channel from a UI reading over your shoulder.
         static std::string              PendingFill;        // value to apply into CmdBuffer, see bApplyPendingFill
         static bool                     bApplyPendingFill = false;
         static bool                     bRefocus  = false;
@@ -4885,6 +5020,25 @@ namespace nodeos
         static std::vector<std::string> CmdHistory;         // previously RUN command lines, oldest first - shell-style recall
         static int                      HistoryPos = -1;    // index into CmdHistory currently shown, -1 = not browsing (fresh line)
         static std::string              HistoryStash;       // what was typed before Up first opened history browsing, restored on Down past the newest entry
+
+        // One persistent TextEditor for the whole log's lifetime - matching the established
+        // "Inspector must persist across frames" pattern (rebuilding a widget like this every frame
+        // makes its internal state, here the colorizer's cached ranges and the scroll position,
+        // unstable). SetImGuiChildIgnored(true) is what lets Render() below draw straight into a
+        // BeginChild WE own (so it lives inside this "Command Console" panel, not as its own
+        // separate top-level window - contrast with GeneratedCodeEditor, which IS its own window).
+        static TextEditor LogEditor;
+        static bool       bLogEditorInit = false;
+        static size_t     LastRenderedEntryCount = ~size_t(0); // forces the first-frame build below
+        if (!bLogEditorInit)
+        {
+            LogEditor.SetLanguageDefinition(ConsoleLogLanguageDefinition());
+            LogEditor.SetPalette(BuildConsoleLogPalette());
+            LogEditor.SetReadOnly(true);
+            LogEditor.SetImGuiChildIgnored(true);
+            LogEditor.SetShowWhitespaces(false);
+            bLogEditorInit = true;
+        }
 
         ImGui::SetNextWindowPos(ImVec2(1265, 610), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(340, 260), ImGuiCond_FirstUseEver);
@@ -4946,7 +5100,7 @@ namespace nodeos
             const bool bInputActive = ImGui::IsItemActive();
             ImGui::SameLine();
             bool bRunClicked = ImGui::SmallButton("Run");
-            if (ImGui::SmallButton("Clear")) LogText.clear();
+            if (ImGui::SmallButton("Clear")) LogEntries.clear();
 
             // Distinguishes genuine typing from a programmatic fill (either CommandConsoleCallback's
             // own history-recall, just above, or a mouse-pick below) - only real typing should drop
@@ -5010,52 +5164,157 @@ namespace nodeos
                     CmdHistory.emplace_back(Cmd);
                 HistoryPos = -1;
 
-                LogText += std::format("> {}\n", Cmd);
-                if (Cmd == "help" || Cmd == "Help" || Cmd == "?")
-                {
-                    for (auto& C : Routable)
-                        LogText += (C.m_Help.empty() ? C.m_FullName : std::format("{} - {}", C.m_FullName, C.m_Help)) + "\n";
-                }
-                else if (Cmd.size() > 2 && Cmd.substr(Cmd.size() - 2) == "-h")
-                {
-                    // Bypasses Route() here on purpose: the underlying command's own "-h" handling
-                    // (xundo::system::Execute/Query) writes straight to std::cout via xcmdline::
-                    // parser::printHelp() - nothing this GUI process's console window shows - so look
-                    // the help text up directly instead of dispatching.
-                    std::string_view FullName = Cmd.substr(0, Cmd.find(' '));
-                    LogText += History.GetCommandHelpFor(FullName) + "\n";
-                }
-                else
-                {
-                    // Route()'s empty-string return is ambiguous on purpose for Edit commands ("ran
-                    // fine, nothing worth reporting" - xundo::system::Execute's own convention), but
-                    // that's wrong for a Query: an empty answer ("no nodes") is itself real, useful
-                    // information, not "nothing happened" - silently swallowing it here is exactly
-                    // what made a genuinely-empty ListNodes result look like the command did nothing
-                    // at all. Only Query commands get an explicit placeholder for an empty answer;
-                    // Edit commands keep the existing silent-success convention.
-                    std::string Result = History.Route(Cmd);
-                    if (!Result.empty())
-                        LogText += Result + "\n";
-                    else if (Cmd.find("/Query/") != std::string_view::npos)
-                        LogText += "(empty result)\n";
-                }
+                LogEntries.push_back({ std::string(Cmd), console_log_source::User });
+                if (std::string Result = ProcessConsoleCommand(Cmd, History, Routable); !Result.empty())
+                    LogEntries.push_back({ std::move(Result), console_log_source::System });
                 CmdBuffer[0] = 0;
                 Highlighted = -1;
                 bRefocus = true; // applied at the top of the panel on the NEXT frame - see bApplyPendingFill's own comment above
             }
 
             ImGui::Separator();
-            // Read-only InputTextMultiline, not Text/TextWrapped - this is the one ImGui idiom that
-            // gives real mouse-drag selection, double-click word-select, Ctrl+A, and Ctrl+C copy on a
-            // block of output text; plain Text calls are static labels with no selection at all.
-            // LogText.data() is safe to pass as a mutable buffer (C++17 std::string guarantees a
-            // writable, null-terminated buffer of size()+1) - ReadOnly means InputText never actually
-            // writes through it.
-            ImGui::InputTextMultiline("##output", LogText.data(), LogText.size() + 1
-                , ImGui::GetContentRegionAvail(), ImGuiInputTextFlags_ReadOnly);
+
+            // Rebuilt only when the log actually grew/shrank (not every frame) - SetTextLines resets
+            // TextEditor's internal colorizer range and scroll position, so doing it unconditionally
+            // would fight the user's own scrolling every single frame.
+            if (LogEntries.size() != LastRenderedEntryCount)
+            {
+                std::vector<std::string> Lines;
+                for (auto& Entry : LogEntries)
+                {
+                    const char* Prefix = ConsoleLogLinePrefix(Entry.m_Source);
+                    for (auto& Line : SplitLines(Entry.m_Text))
+                        Lines.push_back(Prefix + Line);
+                }
+                LogEditor.SetTextLines(Lines);
+                LogEditor.SetCursorPosition(TextEditor::Coordinates((int)Lines.size(), 0)); // scrolls to the newest entry
+                LastRenderedEntryCount = LogEntries.size();
+            }
+
+            // Own BeginChild (rather than letting Render() open its own top-level window) is what
+            // SetImGuiChildIgnored(true), above, expects - this way the log lives inside the Command
+            // Console panel, sharing space with the input box and suggestions above it.
+            if (ImGui::BeginChild("##ConsoleLogChild", ImGui::GetContentRegionAvail(), true))
+            {
+                // Explicit empty callback, not Render's own defaulted decltype([](){}) - MSVC
+                // independently re-evaluates a defaulted template default argument at each call
+                // site, producing two DIFFERENT closure types for the same call and a hard error
+                // (same issue GeneratedCodeEditor.Render's own call site works around).
+                LogEditor.Render("##output", ImVec2(0, 0), false, [](){});
+            }
+            ImGui::EndChild();
         }
         ImGui::End();
+    }
+
+    //------------------------------------------------------------------------------------------------
+    // Named-pipe server for NodeOSCLI.cpp - lets an external process (a script, an AI) drive the same
+    // Route()/help dispatch the Command Console panel uses, without any UI automation at all: connect
+    // to \\.\pipe\E27_NodeOS_Console, write one command line, read back the response, disconnect.
+    //
+    // Runs on its own background thread for the app's whole lifetime (launched once from E27_Example,
+    // detached - this is a local dev/debug feature, not something that needs a graceful shutdown path;
+    // the thread dies with the process). CreateNamedPipe/ConnectNamedPipe/ReadFile/WriteFile all block,
+    // which is fine on a DEDICATED thread but must never run on the main render thread.
+    //
+    // The actual command dispatch can't happen on this pipe thread, though: Route() ultimately calls
+    // into Redo()/Query() implementations that read/mutate the SAME Nodes/Links/etc. the main thread
+    // is drawing and editing every frame - running that from a second thread would race. So this
+    // thread only ever reads the request text and hands it to the main thread via a small mutex+
+    // condition_variable bridge (command_console_pipe_bridge, below); the main loop's own per-frame
+    // check (see E27_Example) does the actual ProcessConsoleCommand() call and posts the answer back.
+    //------------------------------------------------------------------------------------------------
+    struct command_console_pipe_bridge
+    {
+        std::mutex              m_Mutex;
+        std::condition_variable m_Cond;
+        bool                    m_bHasRequest  = false; // pipe thread -> main thread: a command is waiting
+        bool                    m_bHasResponse = false; // main thread -> pipe thread: the answer is ready
+        std::string             m_Request;
+        std::string             m_Response;
+    };
+
+    static void CommandConsolePipeThreadMain(command_console_pipe_bridge& Bridge)
+    {
+        for (;;)
+        {
+            HANDLE hPipe = CreateNamedPipeA(
+                "\\\\.\\pipe\\E27_NodeOS_Console",
+                PIPE_ACCESS_DUPLEX,
+                PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
+                1,      // one client at a time - NodeOSCLI is a one-shot connect/send/read/exit tool
+                65536, 65536,
+                0, nullptr);
+            if (hPipe == INVALID_HANDLE_VALUE)
+            {
+                std::this_thread::sleep_for(std::chrono::seconds(1));
+                continue;
+            }
+
+            const BOOL bConnected = ConnectNamedPipe(hPipe, nullptr) ? TRUE : (GetLastError() == ERROR_PIPE_CONNECTED);
+            if (bConnected)
+            {
+                std::string Request;
+                char        Buf[4096];
+                DWORD       BytesRead = 0;
+                while (ReadFile(hPipe, Buf, sizeof(Buf) - 1, &BytesRead, nullptr) && BytesRead > 0)
+                {
+                    Buf[BytesRead] = 0;
+                    Request += Buf;
+                    if (Request.find('\n') != std::string::npos) break;
+                }
+                while (!Request.empty() && (Request.back() == '\n' || Request.back() == '\r')) Request.pop_back();
+
+                std::string Response;
+                if (!Request.empty())
+                {
+                    std::unique_lock<std::mutex> Lock(Bridge.m_Mutex);
+                    Bridge.m_Request      = Request;
+                    Bridge.m_bHasRequest  = true;
+                    Bridge.m_bHasResponse = false;
+                    Bridge.m_Cond.notify_all();
+                    Bridge.m_Cond.wait(Lock, [&] { return Bridge.m_bHasResponse; });
+                    Response = Bridge.m_Response;
+                }
+
+                DWORD BytesWritten = 0;
+                WriteFile(hPipe, Response.data(), static_cast<DWORD>(Response.size()), &BytesWritten, nullptr);
+                FlushFileBuffers(hPipe);
+            }
+            DisconnectNamedPipe(hPipe);
+            CloseHandle(hPipe);
+        }
+    }
+
+    // Called once per frame from E27_Example's main loop - the only place that's actually safe to run
+    // ProcessConsoleCommand() from, since it touches the same graph data the rest of the frame does.
+    // Appends into LogEntries too (the SAME vector DrawCommandConsolePanel renders) so a pipe-driven
+    // command is visible in the UI exactly like one typed there - never a silent side-channel. Tagged
+    // console_log_source::Pipe rather than User so it renders in its own distinct color ("$ " marker,
+    // teal) - see console_log_source's own comment for why that's a real, meaningful distinction and
+    // not just decoration.
+    static void PumpCommandConsolePipe(command_console_pipe_bridge& Bridge, xundo::history& History, std::vector<console_log_entry>& LogEntries)
+    {
+        std::unique_lock<std::mutex> Lock(Bridge.m_Mutex, std::try_to_lock);
+        if (!Lock.owns_lock() || !Bridge.m_bHasRequest || Bridge.m_bHasResponse)
+            return;
+
+        const std::string Cmd = Bridge.m_Request;
+        Lock.unlock();
+
+        const auto Routable = History.GetRoutableCommands();
+        const std::string Result = ProcessConsoleCommand(Cmd, History, Routable);
+
+        LogEntries.push_back({ Cmd, console_log_source::Pipe });
+        if (!Result.empty())
+            LogEntries.push_back({ Result, console_log_source::System });
+
+        Lock.lock();
+        Bridge.m_Response     = Result;
+        Bridge.m_bHasResponse = true;
+        Bridge.m_bHasRequest  = false;
+        Lock.unlock();
+        Bridge.m_Cond.notify_all();
     }
 
     static void ExecuteGraph(xgpu::device& Device, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::vector<spine>& Spines, mesh_preview_system& MeshPreview)
@@ -6106,6 +6365,9 @@ namespace nodeos
             bool&                              m_bDirty;
             std::vector<spine>&                 m_Spines;
             std::vector<column>&                m_Columns;
+            std::vector<console_log_entry>&     m_ConsoleLog;     // the SAME log DrawCommandConsolePanel renders and
+                                                                    // PumpCommandConsolePipe appends to - see get_log_query_cmd,
+                                                                    // below, for why a query needs to read this back.
         };
 
         // Shared by select_cmd and clear_selection_cmd - both snapshot/restore the exact same set.
@@ -7703,6 +7965,179 @@ namespace nodeos
                 return Out;
             }
         };
+
+        //================================================================================================
+        // GetLog - returns the Command Console's own full log verbatim: every command run through it
+        // so far, whether typed into the UI or sent over NodeOSCLI's pipe (both paths append to the
+        // exact same m_ConsoleLog, tagged with a "$ " vs. "> " echo marker for the latter - see
+        // PumpCommandConsolePipe/DrawCommandConsolePanel). This is what makes the pipe genuinely
+        // two-way: NodeOSCLI already lets an external caller send a command the human sees; this is
+        // how that caller can also see what the human just did, without any UI automation - just
+        // another Query, over the same pipe, using the exact same getCommandHelp()/routing
+        // conventions as every other command.
+        //================================================================================================
+        struct get_log_query_cmd : xundo::query_command_base
+        {
+            get_log_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "GetLog", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "Returns the Command Console's full log (UI-typed and pipe-driven commands alike). Usage: GetLog"; }
+            void RegisterArguments() noexcept override {} // takes no arguments at all
+
+            std::string Query() noexcept override
+            {
+                // Flattened back into plain text here - color is a UI-only concern, meaningless to a
+                // CLI response - see console_log_entry's own comment. ConsoleLogLinePrefix() is the
+                // same "> "/"$ " marker DrawCommandConsolePanel colors on render, applied here in
+                // plain text so the actor that authored each line is still visible, just uncolored.
+                std::string Out;
+                for (auto& Entry : get<node_os_command_context>().m_ConsoleLog)
+                    Out += std::string(ConsoleLogLinePrefix(Entry.m_Source)) + Entry.m_Text + "\n";
+                return Out;
+            }
+        };
+
+        //================================================================================================
+        // Load/Save - the SAME LoadGraph/SaveGraph the UI's own Load/Save buttons already call
+        // directly (bypassing xundo entirely - neither button was ever routed through command_base's
+        // Redo/Undo), just reachable over the pipe too. Registered as queries (not edits) for exactly
+        // that reason: there's no undo/backup behavior to give up by skipping command_base, since the
+        // existing UI path never had any either. Mainly here so an external caller can force a reload
+        // without clicking the UI button - useful when a fresh launch doesn't auto-load for whatever
+        // reason (a real, still-open question - see this session's own notes on it).
+        //================================================================================================
+        struct load_graph_query_cmd : xundo::query_command_base
+        {
+            load_graph_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "Load", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "Reloads the graph from disk, replacing everything currently in memory. Usage: Load [-Path filepath]"; }
+            void RegisterArguments() noexcept override
+            {
+                m_hPath = m_Parser.addOption("Path", "Graph file path (defaults to the checked-in example graph)", false, 1);
+            }
+
+            std::string Query() noexcept override
+            {
+                auto& Ctx = get<node_os_command_context>();
+                std::string Path = "D:/LIONant/xGPU/source/Examples/E27_NodeOS/graph.txt";
+                if (m_Parser.hasOption(m_hPath))
+                {
+                    auto PathArg = m_Parser.getOptionArgAs<std::string>(m_hPath, 0);
+                    if (!std::holds_alternative<xerr>(PathArg)) Path = std::get<std::string>(PathArg);
+                }
+                const bool bOk = LoadGraph(Path, Ctx.m_Nodes, Ctx.m_Links, Ctx.m_Sources, Ctx.m_AvailableTypes, Ctx.m_Spines, Ctx.m_Columns);
+                Ctx.m_bDirty = true; // re-run the freshly loaded graph, same deferred path the UI's own Load button relies on
+                return bOk ? std::format("Loaded '{}' - {} nodes, {} links", Path, Ctx.m_Nodes.size(), Ctx.m_Links.size())
+                           : std::format("Load failed for '{}' - see log", Path);
+            }
+            xcmdline::parser::handle m_hPath;
+        };
+
+        struct save_graph_query_cmd : xundo::query_command_base
+        {
+            save_graph_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "Save", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "Saves the current graph to disk. Usage: Save [-Path filepath]"; }
+            void RegisterArguments() noexcept override
+            {
+                m_hPath = m_Parser.addOption("Path", "Graph file path (defaults to the checked-in example graph)", false, 1);
+            }
+
+            std::string Query() noexcept override
+            {
+                auto& Ctx = get<node_os_command_context>();
+                std::string Path = "D:/LIONant/xGPU/source/Examples/E27_NodeOS/graph.txt";
+                if (m_Parser.hasOption(m_hPath))
+                {
+                    auto PathArg = m_Parser.getOptionArgAs<std::string>(m_hPath, 0);
+                    if (!std::holds_alternative<xerr>(PathArg)) Path = std::get<std::string>(PathArg);
+                }
+                const bool bOk = SaveGraph(Path, Ctx.m_Nodes, Ctx.m_Links, Ctx.m_AvailableTypes, Ctx.m_Spines, Ctx.m_Columns);
+                return bOk ? std::format("Saved '{}' - {} nodes, {} links", Path, Ctx.m_Nodes.size(), Ctx.m_Links.size())
+                           : std::format("Save failed for '{}' - see log", Path);
+            }
+            xcmdline::parser::handle m_hPath;
+        };
+
+        //================================================================================================
+        // GetNodeProperties - a node's reflected property values, verbatim (Name/Kind/Value rows, the
+        // same format SerializePropertiesToString already produces for undo snapshots - reused as-is
+        // rather than inventing a second, prettier-but-redundant text format).
+        //================================================================================================
+        struct get_node_properties_query_cmd : xundo::query_command_base
+        {
+            get_node_properties_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "GetNodeProperties", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "Returns a node's reflected properties as Name/Kind/Value rows. Usage: GetNodeProperties -Id N"; }
+            void RegisterArguments() noexcept override { m_hId = m_Parser.addOption("Id", "Node id", true, 1); }
+
+            std::string Query() noexcept override
+            {
+                auto IdArg = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
+                if (std::holds_alternative<xerr>(IdArg)) return "GetNodeProperties: bad arguments";
+                const auto Id = ParseGuid(std::get<std::string>(IdArg));
+
+                auto& Ctx = get<node_os_command_context>();
+                auto It = std::find_if(Ctx.m_Nodes.begin(), Ctx.m_Nodes.end(), [&](auto& N) { return N.m_Id == Id; });
+                if (It == Ctx.m_Nodes.end())  return std::format("GetNodeProperties: no such node {:#x}", Id);
+                if (!It->m_pNode)              return std::format("GetNodeProperties: node {:#x} has no resolved plugin", Id);
+                if (!HasAnyProperties(It->m_pNode)) return "(no properties)";
+                return SerializePropertiesToString(It->m_pNode);
+            }
+            xcmdline::parser::handle m_hId;
+        };
+
+        //================================================================================================
+        // GetNodeInfo - type/topology plus every pin's effective (wildcard-resolved) type and what's
+        // actually wired to it - the "am I looking at the right node, and is it connected the way I
+        // think" situational-awareness query GetNodeProperties alone can't answer (property VALUES
+        // don't say anything about topology/wiring).
+        //================================================================================================
+        struct get_node_info_query_cmd : xundo::query_command_base
+        {
+            get_node_info_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "GetNodeInfo", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "Returns a node's type, topology, and pin wiring. Usage: GetNodeInfo -Id N"; }
+            void RegisterArguments() noexcept override { m_hId = m_Parser.addOption("Id", "Node id", true, 1); }
+
+            std::string Query() noexcept override
+            {
+                auto IdArg = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
+                if (std::holds_alternative<xerr>(IdArg)) return "GetNodeInfo: bad arguments";
+                const auto Id = ParseGuid(std::get<std::string>(IdArg));
+
+                auto& Ctx = get<node_os_command_context>();
+                auto It = std::find_if(Ctx.m_Nodes.begin(), Ctx.m_Nodes.end(), [&](auto& N) { return N.m_Id == Id; });
+                if (It == Ctx.m_Nodes.end()) return std::format("GetNodeInfo: no such node {:#x}", Id);
+                if (!It->m_pNode)             return std::format("GetNodeInfo: node {:#x} has no resolved plugin", Id);
+
+                std::string Out = std::format("Id: {:#x}\nType: {}\nOrder: {}\nSpineId: {:#x}\nOwnedEndId: {:#x}\n"
+                    , It->m_Id, It->m_pNode->m_pFactory->getName(), It->m_Order, It->m_SpineId, It->m_OwnedEndId);
+
+                const auto Inputs = It->m_pNode->getInputs();
+                Out += "Inputs:\n";
+                for (int i = 0; i < (int)Inputs.size(); ++i)
+                {
+                    const char* pEffType = EffectiveTypeName(Id, It->m_pNode, Inputs[i].m_pTypeName, Ctx.m_Nodes, Ctx.m_Links);
+                    std::string Wire = "(unconnected)";
+                    for (auto& L : Ctx.m_Links)
+                        if (L.m_TargetNode == Id && L.m_TargetInput == i)
+                        {
+                            auto SrcIt = std::find_if(Ctx.m_Nodes.begin(), Ctx.m_Nodes.end(), [&](auto& N) { return N.m_Id == L.m_SourceNode; });
+                            Wire = std::format("<- {:#x}[{}] ({})", L.m_SourceNode, L.m_SourceOutput
+                                , (SrcIt != Ctx.m_Nodes.end() && SrcIt->m_pNode) ? std::string(SrcIt->m_pNode->m_pFactory->getName()) : std::string("?"));
+                            break;
+                        }
+                    Out += std::format("  {} : {} {}\n", Inputs[i].m_pName, pEffType, Wire);
+                }
+
+                const auto Outputs = It->m_pNode->getOutputs();
+                Out += "Outputs:\n";
+                for (int i = 0; i < (int)Outputs.size(); ++i)
+                {
+                    const char* pEffType = EffectiveTypeName(Id, It->m_pNode, Outputs[i].m_pTypeName, Ctx.m_Nodes, Ctx.m_Links);
+                    int ConnectedCount = 0;
+                    for (auto& L : Ctx.m_Links) if (L.m_SourceNode == Id && L.m_SourceOutput == i) ++ConnectedCount;
+                    Out += std::format("  {} : {} ({} connection{})\n", Outputs[i].m_pName, pEffType, ConnectedCount, ConnectedCount == 1 ? "" : "s");
+                }
+                return Out;
+            }
+            xcmdline::parser::handle m_hId;
+        };
     }
 }
 
@@ -7865,13 +8300,20 @@ int E27_Example()
     GeneratedCodeEditor.SetReadOnly(true);
     GeneratedCodeEditor.SetText("// Click \"Compile to C++\" to generate source here.\n");
 
+    // Owned here (not as a DrawCommandConsolePanel local static) so both the pipe server's own
+    // per-frame pump (PumpCommandConsolePipe) AND get_log_query_cmd (reached through CmdContext,
+    // just below) can reach the SAME visible log a UI-typed command uses - see all three call sites'
+    // own comments for why. The TextEditor widget that actually RENDERS this is a DrawCommandConsolePanel
+    // local static instead (nothing outside that function ever needs the widget itself, only this data).
+    std::vector<nodeos::console_log_entry> ConsoleLog;
+
     // Every graph mutation (add/delete node, connect, reorder, edit a property, change selection)
     // goes through this System - see the "Commands" sections above for why: it's the one entry point
     // with zero ImGui/xgpu dependency that a future headless runner or driver plugin could call
     // identically to how the ImGui code below calls it. bAutoLoadSave=false - a fresh undo stack each
     // run, since a stale on-disk history from a previous, differently-shaped graph would be more
     // confusing than useful for this example.
-    nodeos::commands::node_os_command_context CmdContext{ Nodes, Links, Selection, Sources, AvailableTypes, bDirty, Spines, Columns };
+    nodeos::commands::node_os_command_context CmdContext{ Nodes, Links, Selection, Sources, AvailableTypes, bDirty, Spines, Columns, ConsoleLog };
     xundo::system NodeOsUndo;
     if (auto Err = NodeOsUndo.Init("D:/LIONant/xGPU/source/Examples/E27_NodeOS/UndoHistory", false); !Err.empty())
         nodeos::Debugger(std::format("Node OS: xundo Init failed: {}", Err));
@@ -7890,6 +8332,11 @@ int E27_Example()
     nodeos::commands::delete_spine_cmd    CmdDeleteSpine(NodeOsUndo, &CmdContext);
     nodeos::commands::set_spine_position_cmd CmdSetSpinePosition(NodeOsUndo, &CmdContext);
     nodeos::commands::list_nodes_query_cmd CmdListNodes(NodeOsUndo, &CmdContext);
+    nodeos::commands::get_log_query_cmd   CmdGetLog(NodeOsUndo, &CmdContext);
+    nodeos::commands::load_graph_query_cmd CmdLoadGraph(NodeOsUndo, &CmdContext);
+    nodeos::commands::save_graph_query_cmd CmdSaveGraph(NodeOsUndo, &CmdContext);
+    nodeos::commands::get_node_properties_query_cmd CmdGetNodeProperties(NodeOsUndo, &CmdContext);
+    nodeos::commands::get_node_info_query_cmd CmdGetNodeInfo(NodeOsUndo, &CmdContext);
 
     // Central command router (xundo::history::Route, xundo_history.h) - addresses NodeOsUndo's
     // commands through one namespaced string ("NodeOS/Edit/<Cmd>" for mutations, "NodeOS/Query/<Cmd>"
@@ -7898,10 +8345,20 @@ int E27_Example()
     xundo::history NodeOsHistory;
     NodeOsHistory.AddSystem("NodeOS", 1, NodeOsUndo);
 
+    // NodeOSCLI.cpp's server half - one background thread, detached, for the app's whole lifetime.
+    // Detached rather than joined at shutdown on purpose: this is a local dev/debug feature, and
+    // ConnectNamedPipe blocks indefinitely with no client connected, so there's no clean way to wake
+    // it for a graceful join without real cancellation plumbing that nothing here needs - the thread
+    // simply dies with the process, like the plugin-compile worker threads elsewhere in this file.
+    nodeos::command_console_pipe_bridge CommandConsolePipeBridge;
+    std::thread(nodeos::CommandConsolePipeThreadMain, std::ref(CommandConsolePipeBridge)).detach();
+
     while (Instance.ProcessInputEvents())
     {
         if (xgpu::tools::imgui::BeginRendering(true))
             continue;
+
+        nodeos::PumpCommandConsolePipe(CommandConsolePipeBridge, NodeOsHistory, ConsoleLog);
 
         // Ctrl+Z / Ctrl+Y (also Ctrl+Shift+Z for Redo) - guarded by WantTextInput so typing "z" into a
         // property text field never gets mistaken for an undo shortcut.
@@ -7936,7 +8393,7 @@ int E27_Example()
         nodeos::DrawGraphCanvas(Sources, AvailableTypes, Nodes, Links, MeshPreview, Drag, Selection, View, NodeDrag, SpineDrag, DeleteSpineConfirm, Spines, Columns, bDirty, NodeOsUndo);
         nodeos::DrawNodePropertiesPanel(Nodes, Selection.m_SelectedNodes, NodeOsUndo, Sources, AvailableTypes);
         nodeos::DrawRuntimeLogPanel();
-        nodeos::DrawCommandConsolePanel(NodeOsHistory);
+        nodeos::DrawCommandConsolePanel(NodeOsHistory, ConsoleLog);
 
         ImGui::SetNextWindowPos(ImVec2(300, 620), ImGuiCond_FirstUseEver);
         // Passing an explicit empty callback rather than relying on Render()'s own defaulted one -

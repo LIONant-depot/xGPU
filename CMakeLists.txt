@@ -756,6 +756,13 @@ endif()
 
 
 
+# NodeOSCLI - a tiny, standalone client for E27_NodeOS's Command Console named pipe (see the
+# top comment in NodeOSCLI.cpp). Deliberately its own add_executable, not folded into
+# ${TARGET_PROJECT}: it has zero dependency on Vulkan/ImGui/xproperty/etc., just Win32 + iostream,
+# so it stays a genuinely separate, fast-building CLI tool.
+add_executable(NodeOSCLI "source/Examples/E27_NodeOS/NodeOSCLI.cpp")
+set_target_properties(NodeOSCLI PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+
 # Add dependency subdirectory
 add_subdirectory("build/dependency" "${CMAKE_CURRENT_BINARY_DIR}/xGPUExamples")
 
