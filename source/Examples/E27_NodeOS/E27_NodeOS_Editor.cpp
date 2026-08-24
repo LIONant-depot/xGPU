@@ -8192,6 +8192,92 @@ namespace nodeos
         };
 
         //================================================================================================
+        // RunGraph - forces a re-run through the SAME deferred path an edit already triggers
+        // (Ctx.m_bDirty=true -> nodeos::ExecuteGraph at the top of the next frame). Exists so
+        // GetNodeValues (below) has something fresh to read without needing a UI click - two separate
+        // NodeOSCLI invocations are two separate pipe connections, each landing on a different frame
+        // of PumpCommandConsolePipe, so by the time a follow-up GetNodeValues call arrives the run has
+        // already happened - no deferred-response bridge needed here (contrast with Screenshot).
+        //================================================================================================
+        struct run_graph_query_cmd : xundo::query_command_base
+        {
+            run_graph_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "RunGraph", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "Forces the graph to re-run (same deferred path as any edit) - run this before GetNodeValues to see fresh results. Usage: RunGraph"; }
+            void RegisterArguments() noexcept override {}
+
+            std::string Query() noexcept override
+            {
+                get<node_os_command_context>().m_bDirty = true;
+                return "Graph will re-run at the top of the next frame.";
+            }
+        };
+
+        //================================================================================================
+        // GetNodeValues - GetNodeInfo shows STRUCTURE (type, wiring, declared types); this shows the
+        // actual runtime VALUES flowing through a node right now - what an input currently resolves to
+        // (a live wire's upstream output, or an unconnected pin's own literal), and what an output
+        // actually produced on the last run (node.m_CachedOutputs, populated by Execute()). Reuses
+        // GetInputValue/PortTypeToPreview - the exact same value-resolution and type-dispatch-to-text
+        // logic the canvas's own pin-hover preview already uses, so this reports the same thing a
+        // human looking at the graph would see, never a second, drifting formatting path.
+        //================================================================================================
+        struct get_node_values_query_cmd : xundo::query_command_base
+        {
+            get_node_values_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "GetNodeValues", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "Returns a node's actual runtime input/output values (not just wiring) - run RunGraph first if the graph hasn't executed since your last edit. Usage: GetNodeValues -Id N"; }
+            void RegisterArguments() noexcept override { m_hId = m_Parser.addOption("Id", "Node id", true, 1); }
+
+            std::string Query() noexcept override
+            {
+                auto IdArg = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
+                if (std::holds_alternative<xerr>(IdArg)) return "GetNodeValues: bad arguments";
+                const auto Id = ParseGuid(std::get<std::string>(IdArg));
+
+                auto& Ctx = get<node_os_command_context>();
+                auto It = std::find_if(Ctx.m_Nodes.begin(), Ctx.m_Nodes.end(), [&](auto& N) { return N.m_Id == Id; });
+                if (It == Ctx.m_Nodes.end()) return std::format("GetNodeValues: no such node {:#x}", Id);
+                if (!It->m_pNode)            return std::format("GetNodeValues: node {:#x} has no resolved plugin", Id);
+
+                std::string Out = std::format("Id: {:#x}\nType: {}\nHasRun: {}\n"
+                    , It->m_Id, It->m_pNode->m_pFactory->getName()
+                    , It->m_bHasRun ? "yes" : "no (run RunGraph first to get fresh values)");
+                if (!It->m_LastError.empty())
+                    Out += std::format("LastError: {}\n", It->m_LastError);
+
+                // A fresh scratch per call, not shared with anything else running this same frame -
+                // GetInputValue's own literal-resolution needs live storage for the duration of these
+                // reads, same as ExecuteGraph's own LiteralScratch.
+                literal_storage Scratch;
+
+                const auto Inputs = It->m_pNode->getInputs();
+                Out += "Inputs:\n";
+                for (int i = 0; i < (int)Inputs.size(); ++i)
+                {
+                    const char* pEffType = EffectiveTypeName(Id, It->m_pNode, Inputs[i].m_pTypeName, Ctx.m_Nodes, Ctx.m_Links);
+                    void* pValue = GetInputValue(Id, i, Ctx.m_Nodes, Ctx.m_Links, Scratch);
+                    // Copied into a real std::string immediately - PortTypeToPreview's return is
+                    // backed by a shared thread_local scratch buffer, so holding onto the raw
+                    // const char* across another call (the NEXT iteration's own PortTypeToPreview,
+                    // below) would silently corrupt this one - see [[xgpu_thread_local_pointer_aliasing]].
+                    const std::string Preview = PortTypeToPreview(pEffType, pValue);
+                    Out += std::format("  {} : {} = {}\n", Inputs[i].m_pName, pEffType, Preview.empty() ? "(none)" : Preview);
+                }
+
+                const auto Outputs = It->m_pNode->getOutputs();
+                Out += "Outputs:\n";
+                for (int i = 0; i < (int)Outputs.size(); ++i)
+                {
+                    const char* pEffType = EffectiveTypeName(Id, It->m_pNode, Outputs[i].m_pTypeName, Ctx.m_Nodes, Ctx.m_Links);
+                    void* pValue = (It->m_bHasRun && i < (int)It->m_CachedOutputs.size()) ? It->m_CachedOutputs[i] : nullptr;
+                    const std::string Preview = PortTypeToPreview(pEffType, pValue);
+                    Out += std::format("  {} : {} = {}\n", Outputs[i].m_pName, pEffType, Preview.empty() ? "(none)" : Preview);
+                }
+                return Out;
+            }
+            xcmdline::parser::handle m_hId;
+        };
+
+        //================================================================================================
         // ClearGraph - destroys every node/link and resets Spines/Columns to a single empty root, the
         // same baseline -CodegenSelfTest's own standalone setup starts from. This is step 2 of the
         // safe plugin-reload sequence (see ReloadPlugin, below, and [[xgpu_plugin_dll_hotreload]]):
@@ -8596,6 +8682,8 @@ int E27_Example()
     nodeos::commands::save_graph_query_cmd CmdSaveGraph(NodeOsUndo, &CmdContext);
     nodeos::commands::get_node_properties_query_cmd CmdGetNodeProperties(NodeOsUndo, &CmdContext);
     nodeos::commands::get_node_info_query_cmd CmdGetNodeInfo(NodeOsUndo, &CmdContext);
+    nodeos::commands::run_graph_query_cmd      CmdRunGraph(NodeOsUndo, &CmdContext);
+    nodeos::commands::get_node_values_query_cmd CmdGetNodeValues(NodeOsUndo, &CmdContext);
     nodeos::commands::clear_graph_query_cmd    CmdClearGraph(NodeOsUndo, &CmdContext);
     nodeos::commands::unload_plugin_query_cmd  CmdUnloadPlugin(NodeOsUndo, &CmdContext);
     nodeos::commands::reload_plugin_query_cmd  CmdReloadPlugin(NodeOsUndo, &CmdContext);
