@@ -33,8 +33,19 @@ namespace
         , obj_member<"Max", &random_node::m_Max
             , member_dynamic_flags<+[](const random_node& O) { xproperty::flags::type F{}; F.m_bDontShow = F.m_bDontSave = O.m_bMaxConnected; return F; }>
             , member_help<"Max's own value while its pin is unconnected - hidden once a wire is attached.">>
-        , obj_member<"Min Connected", &random_node::m_bMinConnected, member_flags<xproperty::flags::DONT_SAVE, xproperty::flags::DONT_SHOW>>
-        , obj_member<"Max Connected", &random_node::m_bMaxConnected, member_flags<xproperty::flags::DONT_SAVE, xproperty::flags::DONT_SHOW>>
+        // Deliberately NOT DONT_SAVE, unlike the other "<Pin> Connected" flags in this corpus
+        // (Compare/MathExpression's own) - those always have an unconditional property alongside
+        // them (their own "Operator"), so HasAnyProperties() is never false for them regardless of
+        // wiring. Random has no such anchor, and both its own Min/Max can legitimately be
+        // simultaneously wired (m_bDontSave for both), which would otherwise make this node's
+        // record-writing skip its own properties block entirely - two nodes with no properties block
+        // land back-to-back with nothing distinguishing their generic "xProperties" record headers,
+        // which the file format's record reader cannot round-trip (confirmed by direct repro: Random
+        // feeding two "Trig" nodes, both Sin AND Cos leaving their own Angle connected, broke Load
+        // outright). The saved value itself is inconsequential either way - PushPinConnectedFlags
+        // overwrites it fresh every frame regardless of what a stale on-disk value says.
+        , obj_member<"Min Connected", &random_node::m_bMinConnected, member_flags<xproperty::flags::DONT_SHOW>>
+        , obj_member<"Max Connected", &random_node::m_bMaxConnected, member_flags<xproperty::flags::DONT_SHOW>>
         , obj_member<"Last Result"
             , +[](const random_node& O, bool bRead, std::string& Value) { assert(bRead); Value = std::format("{}", O.m_LastResult); }
             , member_flags<xproperty::flags::SHOW_READONLY, xproperty::flags::DONT_SAVE>

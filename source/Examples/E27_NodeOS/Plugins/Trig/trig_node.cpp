@@ -31,7 +31,10 @@ namespace
         , obj_member<"Angle", &sin_node::m_Angle
             , member_dynamic_flags<+[](const sin_node& O) { xproperty::flags::type F{}; F.m_bDontShow = F.m_bDontSave = O.m_bAngleConnected; return F; }>
             , member_help<"Angle in radians, while its pin is unconnected - hidden once a wire is attached.">>
-        , obj_member<"Angle Connected", &sin_node::m_bAngleConnected, member_flags<xproperty::flags::DONT_SAVE, xproperty::flags::DONT_SHOW>>
+        // Deliberately NOT DONT_SAVE - see random_node.cpp's own comment on why (a node with only
+        // ONE input, always DontSave once connected, has nothing else keeping HasAnyProperties()
+        // true - exactly the case that broke Load when this and cos_node's own Angle were both wired).
+        , obj_member<"Angle Connected", &sin_node::m_bAngleConnected, member_flags<xproperty::flags::DONT_SHOW>>
         , obj_member<"Last Result"
             , +[](const sin_node& O, bool bRead, std::string& Value) { assert(bRead); Value = std::format("{}", O.m_LastResult); }
             , member_flags<xproperty::flags::SHOW_READONLY, xproperty::flags::DONT_SAVE>
@@ -71,7 +74,8 @@ namespace
         , obj_member<"Angle", &cos_node::m_Angle
             , member_dynamic_flags<+[](const cos_node& O) { xproperty::flags::type F{}; F.m_bDontShow = F.m_bDontSave = O.m_bAngleConnected; return F; }>
             , member_help<"Angle in radians, while its pin is unconnected - hidden once a wire is attached.">>
-        , obj_member<"Angle Connected", &cos_node::m_bAngleConnected, member_flags<xproperty::flags::DONT_SAVE, xproperty::flags::DONT_SHOW>>
+        // Deliberately NOT DONT_SAVE - see sin_node's own comment on why.
+        , obj_member<"Angle Connected", &cos_node::m_bAngleConnected, member_flags<xproperty::flags::DONT_SHOW>>
         , obj_member<"Last Result"
             , +[](const cos_node& O, bool bRead, std::string& Value) { assert(bRead); Value = std::format("{}", O.m_LastResult); }
             , member_flags<xproperty::flags::SHOW_READONLY, xproperty::flags::DONT_SAVE>
@@ -111,7 +115,8 @@ namespace
         , obj_member<"Angle", &tan_node::m_Angle
             , member_dynamic_flags<+[](const tan_node& O) { xproperty::flags::type F{}; F.m_bDontShow = F.m_bDontSave = O.m_bAngleConnected; return F; }>
             , member_help<"Angle in radians, while its pin is unconnected - hidden once a wire is attached.">>
-        , obj_member<"Angle Connected", &tan_node::m_bAngleConnected, member_flags<xproperty::flags::DONT_SAVE, xproperty::flags::DONT_SHOW>>
+        // Deliberately NOT DONT_SAVE - see sin_node's own comment on why.
+        , obj_member<"Angle Connected", &tan_node::m_bAngleConnected, member_flags<xproperty::flags::DONT_SHOW>>
         , obj_member<"Last Result"
             , +[](const tan_node& O, bool bRead, std::string& Value) { assert(bRead); Value = std::format("{}", O.m_LastResult); }
             , member_flags<xproperty::flags::SHOW_READONLY, xproperty::flags::DONT_SAVE>

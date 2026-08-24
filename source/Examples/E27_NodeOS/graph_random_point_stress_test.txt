@@ -2,7 +2,7 @@
 [ Header ]
 { ColumnCount:d  SpineCount:d  NodeCount:d  LinkCount:d }
 //-------------  ------------  -----------  -----------
-        1             1            13           14     
+        1             1            14           14     
 
 // New Types
 < s32:d u32:g s16:C u16:H s8:c u8:h f32:f f64:F string:s wstring:S u64:G s64:D bool:c full_guid:GG enum:s >
@@ -10,7 +10,7 @@
 [ xProperties : 4 ]
 { Name:s            Value:?                 }
 //----------------  -----------------------
-  "column/Id"       ;u64  #5028C0C6074C0009
+  "column/Id"       ;u64  #936140C608A6C009
   "column/LeftId"   ;u64  #0               
   "column/RightId"  ;u64  #0               
   "column/IsRoot"   ;bool 1                
@@ -18,8 +18,8 @@
 [ xProperties : 4 ]
 { Name:s            Value:?                 }
 //----------------  -----------------------
-  "spine/Id"        ;u64  #A028C0C6074C000B
-  "spine/ColumnId"  ;u64  #5028C0C6074C0009
+  "spine/Id"        ;u64  #2B6140C608A6C00B
+  "spine/ColumnId"  ;u64  #936140C608A6C009
   "spine/IsRoot"    ;bool 1                
   "spine/Y"         ;f32  #41200000        
 
@@ -30,14 +30,16 @@
   "node_topology/Source"      ;string "Random"         
   "node_topology/Type"        ;string "Random"         
   "node_topology/Order"       ;s32    0                
-  "node_topology/SpineId"     ;u64    #A028C0C6074C000B
+  "node_topology/SpineId"     ;u64    #2B6140C608A6C00B
   "node_topology/OwnedEndId"  ;u64    #0               
 
-[ xProperties : 2 ]
-{ Name:s             Value:?        }
-//-----------------  --------------
-  "random_node/Min"  ;f32 #0       
-  "random_node/Max"  ;f32 #40C8F5C3
+[ xProperties : 4 ]
+{ Name:s                       Value:?         }
+//---------------------------  ---------------
+  "random_node/Min"            ;f32  #0       
+  "random_node/Max"            ;f32  #40C8F5C3
+  "random_node/Min Connected"  ;bool 0        
+  "random_node/Max Connected"  ;bool 0        
 
 [ xProperties : 6 ]
 { Name:s                      Value:?                   }
@@ -46,8 +48,13 @@
   "node_topology/Source"      ;string "Trig"           
   "node_topology/Type"        ;string "Sin"            
   "node_topology/Order"       ;s32    1                
-  "node_topology/SpineId"     ;u64    #A028C0C6074C000B
+  "node_topology/SpineId"     ;u64    #2B6140C608A6C00B
   "node_topology/OwnedEndId"  ;u64    #0               
+
+[ xProperties : 1 ]
+{ Name:s                      Value:? }
+//--------------------------  -------
+  "sin_node/Angle Connected"  ;bool 1
 
 [ xProperties : 6 ]
 { Name:s                      Value:?                   }
@@ -56,8 +63,13 @@
   "node_topology/Source"      ;string "Trig"           
   "node_topology/Type"        ;string "Cos"            
   "node_topology/Order"       ;s32    2                
-  "node_topology/SpineId"     ;u64    #A028C0C6074C000B
+  "node_topology/SpineId"     ;u64    #2B6140C608A6C00B
   "node_topology/OwnedEndId"  ;u64    #0               
+
+[ xProperties : 1 ]
+{ Name:s                      Value:? }
+//--------------------------  -------
+  "cos_node/Angle Connected"  ;bool 1
 
 [ xProperties : 6 ]
 { Name:s                      Value:?                   }
@@ -66,7 +78,7 @@
   "node_topology/Source"      ;string "Constant"       
   "node_topology/Type"        ;string "Constant"       
   "node_topology/Order"       ;s32    3                
-  "node_topology/SpineId"     ;u64    #A028C0C6074C000B
+  "node_topology/SpineId"     ;u64    #2B6140C608A6C00B
   "node_topology/OwnedEndId"  ;u64    #0               
 
 [ xProperties : 2 ]
@@ -82,7 +94,7 @@
   "node_topology/Source"      ;string "MathExpression" 
   "node_topology/Type"        ;string "Math Expression"
   "node_topology/Order"       ;s32    4                
-  "node_topology/SpineId"     ;u64    #A028C0C6074C000B
+  "node_topology/SpineId"     ;u64    #2B6140C608A6C00B
   "node_topology/OwnedEndId"  ;u64    #0               
 
 [ xProperties : 1 ]
@@ -97,7 +109,7 @@
   "node_topology/Source"      ;string "MathExpression" 
   "node_topology/Type"        ;string "Math Expression"
   "node_topology/Order"       ;s32    5                
-  "node_topology/SpineId"     ;u64    #A028C0C6074C000B
+  "node_topology/SpineId"     ;u64    #2B6140C608A6C00B
   "node_topology/OwnedEndId"  ;u64    #0               
 
 [ xProperties : 1 ]
@@ -112,23 +124,42 @@
   "node_topology/Source"      ;string "Clamp"          
   "node_topology/Type"        ;string "Clamp"          
   "node_topology/Order"       ;s32    6                
-  "node_topology/SpineId"     ;u64    #A028C0C6074C000B
+  "node_topology/SpineId"     ;u64    #2B6140C608A6C00B
   "node_topology/OwnedEndId"  ;u64    #0               
 
-[ xProperties : 2 ]
-{ Name:s            Value:?        }
-//----------------  --------------
-  "clamp_node/Min"  ;f32 #C0C00000
-  "clamp_node/Max"  ;f32 #40C00000
+[ xProperties : 5 ]
+{ Name:s                        Value:?         }
+//----------------------------  ---------------
+  "clamp_node/Min"              ;f32  #C0C00000
+  "clamp_node/Max"              ;f32  #40C00000
+  "clamp_node/Value Connected"  ;bool 1        
+  "clamp_node/Min Connected"    ;bool 0        
+  "clamp_node/Max Connected"    ;bool 0        
 
 [ xProperties : 6 ]
 { Name:s                      Value:?                   }
 //--------------------------  -------------------------
   "node_topology/Id"          ;u64    #9000000000000008
+  "node_topology/Source"      ;string "Constant"       
+  "node_topology/Type"        ;string "Constant"       
+  "node_topology/Order"       ;s32    7                
+  "node_topology/SpineId"     ;u64    #2B6140C608A6C00B
+  "node_topology/OwnedEndId"  ;u64    #0               
+
+[ xProperties : 2 ]
+{ Name:s                       Value:?         }
+//---------------------------  ---------------
+  "constant_node/Type"         ;enum "Float"  
+  "constant_node/Value Float"  ;f32  #40A00000
+
+[ xProperties : 6 ]
+{ Name:s                      Value:?                   }
+//--------------------------  -------------------------
+  "node_topology/Id"          ;u64    #9000000000000009
   "node_topology/Source"      ;string "Compare"        
   "node_topology/Type"        ;string "Compare"        
-  "node_topology/Order"       ;s32    7                
-  "node_topology/SpineId"     ;u64    #A028C0C6074C000B
+  "node_topology/Order"       ;s32    8                
+  "node_topology/SpineId"     ;u64    #2B6140C608A6C00B
   "node_topology/OwnedEndId"  ;u64    #0               
 
 [ xProperties : 1 ]
@@ -139,21 +170,21 @@
 [ xProperties : 6 ]
 { Name:s                      Value:?                   }
 //--------------------------  -------------------------
-  "node_topology/Id"          ;u64    #9000000000000009
+  "node_topology/Id"          ;u64    #900000000000000A
   "node_topology/Source"      ;string "If"             
   "node_topology/Type"        ;string "If"             
-  "node_topology/Order"       ;s32    8                
-  "node_topology/SpineId"     ;u64    #A028C0C6074C000B
-  "node_topology/OwnedEndId"  ;u64    #900000000000000A
+  "node_topology/Order"       ;s32    9                
+  "node_topology/SpineId"     ;u64    #2B6140C608A6C00B
+  "node_topology/OwnedEndId"  ;u64    #900000000000000B
 
 [ xProperties : 6 ]
 { Name:s                      Value:?                   }
 //--------------------------  -------------------------
-  "node_topology/Id"          ;u64    #900000000000000A
+  "node_topology/Id"          ;u64    #900000000000000B
   "node_topology/Source"      ;string "End"            
   "node_topology/Type"        ;string "End"            
-  "node_topology/Order"       ;s32    10               
-  "node_topology/SpineId"     ;u64    #A028C0C6074C000B
+  "node_topology/Order"       ;s32    11               
+  "node_topology/SpineId"     ;u64    #2B6140C608A6C00B
   "node_topology/OwnedEndId"  ;u64    #0               
 
 [ xProperties : 1 ]
@@ -164,21 +195,11 @@
 [ xProperties : 6 ]
 { Name:s                      Value:?                   }
 //--------------------------  -------------------------
-  "node_topology/Id"          ;u64    #900000000000000B
-  "node_topology/Source"      ;string "Print"          
-  "node_topology/Type"        ;string "Print"          
-  "node_topology/Order"       ;s32    9                
-  "node_topology/SpineId"     ;u64    #A028C0C6074C000B
-  "node_topology/OwnedEndId"  ;u64    #0               
-
-[ xProperties : 6 ]
-{ Name:s                      Value:?                   }
-//--------------------------  -------------------------
   "node_topology/Id"          ;u64    #900000000000000C
   "node_topology/Source"      ;string "Print"          
   "node_topology/Type"        ;string "Print"          
-  "node_topology/Order"       ;s32    11               
-  "node_topology/SpineId"     ;u64    #A028C0C6074C000B
+  "node_topology/Order"       ;s32    10               
+  "node_topology/SpineId"     ;u64    #2B6140C608A6C00B
   "node_topology/OwnedEndId"  ;u64    #0               
 
 [ xProperties : 6 ]
@@ -188,7 +209,17 @@
   "node_topology/Source"      ;string "Print"          
   "node_topology/Type"        ;string "Print"          
   "node_topology/Order"       ;s32    12               
-  "node_topology/SpineId"     ;u64    #A028C0C6074C000B
+  "node_topology/SpineId"     ;u64    #2B6140C608A6C00B
+  "node_topology/OwnedEndId"  ;u64    #0               
+
+[ xProperties : 6 ]
+{ Name:s                      Value:?                   }
+//--------------------------  -------------------------
+  "node_topology/Id"          ;u64    #900000000000000E
+  "node_topology/Source"      ;string "Print"          
+  "node_topology/Type"        ;string "Print"          
+  "node_topology/Order"       ;s32    13               
+  "node_topology/SpineId"     ;u64    #2B6140C608A6C00B
   "node_topology/OwnedEndId"  ;u64    #0               
 
 [ xProperties : 5 ]
@@ -260,7 +291,7 @@
   "link_instance/Id"            ;u64 #A000000000000008
   "link_instance/SourceNode"    ;u64 #9000000000000006
   "link_instance/SourceOutput"  ;s32 0                
-  "link_instance/TargetNode"    ;u64 #9000000000000008
+  "link_instance/TargetNode"    ;u64 #9000000000000009
   "link_instance/TargetInput"   ;s32 0                
 
 [ xProperties : 5 ]
@@ -269,13 +300,22 @@
   "link_instance/Id"            ;u64 #A000000000000009
   "link_instance/SourceNode"    ;u64 #9000000000000007
   "link_instance/SourceOutput"  ;s32 0                
-  "link_instance/TargetNode"    ;u64 #9000000000000008
+  "link_instance/TargetNode"    ;u64 #9000000000000009
   "link_instance/TargetInput"   ;s32 1                
 
 [ xProperties : 5 ]
 { Name:s                        Value:?                }
 //----------------------------  ----------------------
   "link_instance/Id"            ;u64 #A00000000000000A
+  "link_instance/SourceNode"    ;u64 #900000000000000A
+  "link_instance/SourceOutput"  ;s32 0                
+  "link_instance/TargetNode"    ;u64 #900000000000000B
+  "link_instance/TargetInput"   ;s32 0                
+
+[ xProperties : 5 ]
+{ Name:s                        Value:?                }
+//----------------------------  ----------------------
+  "link_instance/Id"            ;u64 #A00000000000000B
   "link_instance/SourceNode"    ;u64 #9000000000000009
   "link_instance/SourceOutput"  ;s32 0                
   "link_instance/TargetNode"    ;u64 #900000000000000A
@@ -284,19 +324,10 @@
 [ xProperties : 5 ]
 { Name:s                        Value:?                }
 //----------------------------  ----------------------
-  "link_instance/Id"            ;u64 #A00000000000000B
-  "link_instance/SourceNode"    ;u64 #9000000000000008
-  "link_instance/SourceOutput"  ;s32 0                
-  "link_instance/TargetNode"    ;u64 #9000000000000009
-  "link_instance/TargetInput"   ;s32 0                
-
-[ xProperties : 5 ]
-{ Name:s                        Value:?                }
-//----------------------------  ----------------------
   "link_instance/Id"            ;u64 #A00000000000000C
   "link_instance/SourceNode"    ;u64 #9000000000000006
   "link_instance/SourceOutput"  ;s32 0                
-  "link_instance/TargetNode"    ;u64 #900000000000000B
+  "link_instance/TargetNode"    ;u64 #900000000000000C
   "link_instance/TargetInput"   ;s32 0                
 
 [ xProperties : 5 ]
@@ -305,7 +336,7 @@
   "link_instance/Id"            ;u64 #A00000000000000D
   "link_instance/SourceNode"    ;u64 #9000000000000005
   "link_instance/SourceOutput"  ;s32 0                
-  "link_instance/TargetNode"    ;u64 #900000000000000C
+  "link_instance/TargetNode"    ;u64 #900000000000000D
   "link_instance/TargetInput"   ;s32 0                
 
 [ xProperties : 5 ]
@@ -314,5 +345,5 @@
   "link_instance/Id"            ;u64 #A00000000000000E
   "link_instance/SourceNode"    ;u64 #9000000000000007
   "link_instance/SourceOutput"  ;s32 0                
-  "link_instance/TargetNode"    ;u64 #900000000000000D
+  "link_instance/TargetNode"    ;u64 #900000000000000E
   "link_instance/TargetInput"   ;s32 0                

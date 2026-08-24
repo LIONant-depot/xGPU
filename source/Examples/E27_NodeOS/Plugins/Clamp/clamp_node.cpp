@@ -32,9 +32,12 @@ namespace
         , obj_member<"Max", &clamp_node::m_Max
             , member_dynamic_flags<+[](const clamp_node& O) { xproperty::flags::type F{}; F.m_bDontShow = F.m_bDontSave = O.m_bMaxConnected; return F; }>
             , member_help<"Max's own value while its pin is unconnected - hidden once a wire is attached.">>
-        , obj_member<"Value Connected", &clamp_node::m_bValueConnected, member_flags<xproperty::flags::DONT_SAVE, xproperty::flags::DONT_SHOW>>
-        , obj_member<"Min Connected",   &clamp_node::m_bMinConnected,   member_flags<xproperty::flags::DONT_SAVE, xproperty::flags::DONT_SHOW>>
-        , obj_member<"Max Connected",   &clamp_node::m_bMaxConnected,   member_flags<xproperty::flags::DONT_SAVE, xproperty::flags::DONT_SHOW>>
+        // Deliberately NOT DONT_SAVE - see random_node.cpp's own comment on why. Clamp has three
+        // inputs that can all be simultaneously wired, unlike MathExpression/Compare's own two,
+        // making it even more likely to hit the "zero saved properties" case this guards against.
+        , obj_member<"Value Connected", &clamp_node::m_bValueConnected, member_flags<xproperty::flags::DONT_SHOW>>
+        , obj_member<"Min Connected",   &clamp_node::m_bMinConnected,   member_flags<xproperty::flags::DONT_SHOW>>
+        , obj_member<"Max Connected",   &clamp_node::m_bMaxConnected,   member_flags<xproperty::flags::DONT_SHOW>>
         , obj_member<"Last Result"
             , +[](const clamp_node& O, bool bRead, std::string& Value) { assert(bRead); Value = std::format("{}", O.m_LastResult); }
             , member_flags<xproperty::flags::SHOW_READONLY, xproperty::flags::DONT_SAVE>
