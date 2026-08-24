@@ -145,4 +145,23 @@ using xnode_os_pfn_destroy_factory = void(xnode_os_node_factory&);
 #define XNODE_OS_CREATE_FACTORY_NAME  "NodeOS_CreateFactory"
 #define XNODE_OS_DESTROY_FACTORY_NAME "NodeOS_DestroyFactory"
 
+//------------------------------------------------------------------------------------------------
+// OPTIONAL second entry point, additive to the two above - a plugin with more than one node type
+// (Sin/Cos/Tan, say) can register all of them from ONE DLL instead of needing one folder/DLL per
+// type, which was becoming a real scaling problem as the node catalog grew. The host tries
+// NodeOS_CreateFactories FIRST (via GetProcAddress); if a plugin doesn't export it, the host falls
+// straight back to the original single-factory NodeOS_CreateFactory unchanged - so every existing
+// plugin needs zero changes, this is purely additive.
+//
+// A callback-based registration (the plugin calls RegisterFn once per factory it wants to expose)
+// rather than returning a container (std::vector/std::span) across the DLL boundary on purpose -
+// container internals are CRT-sensitive even when both sides use the same compiler, and this avoids
+// the whole question of which side allocates/frees the container's storage. pUserData is opaque to
+// the plugin; the host passes its own accumulator through it.
+//------------------------------------------------------------------------------------------------
+using xnode_os_pfn_register_factory  = void(void* pUserData, xnode_os_node_factory& Factory);
+using xnode_os_pfn_create_factories  = void(ixnode_os_host&, void* pUserData, xnode_os_pfn_register_factory* RegisterFn);
+
+#define XNODE_OS_CREATE_FACTORIES_NAME "NodeOS_CreateFactories"
+
 #endif

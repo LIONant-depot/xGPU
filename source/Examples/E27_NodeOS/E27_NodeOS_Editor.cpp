@@ -317,10 +317,10 @@ namespace nodeos
     //------------------------------------------------------------------------------------------------
     struct plugin_compile_result
     {
-        bool                     m_bSuccess = false;
-        std::string               m_Log;
-        HMODULE                   m_Module   = nullptr;
-        xnode_os_node_factory*    m_pFactory = nullptr;
+        bool                                  m_bSuccess = false;
+        std::string                            m_Log;
+        HMODULE                                m_Module   = nullptr;
+        std::vector<xnode_os_node_factory*>    m_Factories; // one or more - see NodeOS_CreateFactories in xnode_os_plugin_api.h
     };
 
     // A source file the Node Library panel offers to compile - just a display name + path to a .cpp
@@ -655,10 +655,32 @@ namespace nodeos
             return Result;
         }
 
+        // Tried FIRST, purely additive - see xnode_os_plugin_api.h's own comment. A plugin that
+        // doesn't export this (every existing single-type plugin) falls straight through to the
+        // original NodeOS_CreateFactory path below, unchanged.
+        if (auto* pCreateFactories = (xnode_os_pfn_create_factories*)GetProcAddress(Module, XNODE_OS_CREATE_FACTORIES_NAME))
+        {
+            auto RegisterFn = +[](void* pUserData, xnode_os_node_factory& F) { static_cast<std::vector<xnode_os_node_factory*>*>(pUserData)->push_back(&F); };
+            pCreateFactories(GetHostBridge(), &Result.m_Factories, RegisterFn);
+            if (Result.m_Factories.empty())
+            {
+                Result.m_Log += "\n[DLL exports " XNODE_OS_CREATE_FACTORIES_NAME " but registered zero node types]";
+                FreeLibrary(Module);
+                return Result;
+            }
+
+            std::string Names;
+            for (auto* pF : Result.m_Factories) Names += (Names.empty() ? "" : ", ") + std::string(pF->getName());
+            Result.m_Log += std::format("\n[compiled and loaded successfully - {} node type(s) registered: {}]", Result.m_Factories.size(), Names);
+            Result.m_bSuccess = true;
+            Result.m_Module   = Module;
+            return Result;
+        }
+
         auto pCreateFactory = (xnode_os_pfn_create_factory*)GetProcAddress(Module, XNODE_OS_CREATE_FACTORY_NAME);
         if (!pCreateFactory)
         {
-            Result.m_Log += "\n[DLL loaded but does not export " XNODE_OS_CREATE_FACTORY_NAME "]";
+            Result.m_Log += "\n[DLL loaded but does not export " XNODE_OS_CREATE_FACTORY_NAME " or " XNODE_OS_CREATE_FACTORIES_NAME "]";
             FreeLibrary(Module);
             return Result;
         }
@@ -668,7 +690,7 @@ namespace nodeos
         Result.m_Log += std::format("\n[compiled and loaded successfully - '{}' node type registered]", Factory.getName());
         Result.m_bSuccess = true;
         Result.m_Module   = Module;
-        Result.m_pFactory = &Factory;
+        Result.m_Factories.push_back(&Factory);
         return Result;
     }
 
@@ -689,7 +711,10 @@ namespace nodeos
         if (Entry.m_Module)
             std::erase_if(OutTypes, [&](auto& T) { return T.m_Module == Entry.m_Module; });
 
-        OutTypes.push_back({ std::format("{} :: {}", Entry.m_DisplayName, Result.m_pFactory->getName()), Result.m_Module, Result.m_pFactory, Entry.m_SourcePath, Entry.m_DirName });
+        // One or more - see xnode_os_plugin_api.h's NodeOS_CreateFactories - all sharing this same
+        // Entry (m_DirName/m_Module/m_SourcePath), distinguished only by their own factory's getName().
+        for (auto* pFactory : Result.m_Factories)
+            OutTypes.push_back({ std::format("{} :: {}", Entry.m_DisplayName, pFactory->getName()), Result.m_Module, pFactory, Entry.m_SourcePath, Entry.m_DirName });
 
         Entry.m_bLoaded = true;
         Entry.m_Module  = Result.m_Module;
@@ -1007,17 +1032,21 @@ namespace nodeos
         // has from having just created or observed that node, so no separate discovery/query step is
         // ever needed to place a new node relative to one that's already there. Neither flag given
         // means "append at the end" (or "the only node", if the graph is empty).
-        inline std::string MakeCreateNodeAppend(std::uint64_t Id, const std::string& PluginDir)
+        // TypeName defaults to empty ("-TypeName" omitted entirely), preserving the exact old command
+        // string for the common single-type-per-plugin case - only a multi-type plugin (see
+        // xnode_os_plugin_api.h's NodeOS_CreateFactories) needs it, to say WHICH of its registered
+        // types this particular node is, since -PluginDir alone is now ambiguous between them.
+        inline std::string MakeCreateNodeAppend(std::uint64_t Id, const std::string& PluginDir, const std::string& TypeName = {})
         {
-            return std::format("CreateNode -Id {} -PluginDir {}", FormatGuid(Id), PluginDir);
+            return std::format("CreateNode -Id {} -PluginDir {}", FormatGuid(Id), PluginDir) + (TypeName.empty() ? "" : std::format(" -TypeName {}", TypeName));
         }
-        inline std::string MakeCreateNodeAfter(std::uint64_t Id, const std::string& PluginDir, std::uint64_t AfterNodeId)
+        inline std::string MakeCreateNodeAfter(std::uint64_t Id, const std::string& PluginDir, std::uint64_t AfterNodeId, const std::string& TypeName = {})
         {
-            return std::format("CreateNode -Id {} -PluginDir {} -After {}", FormatGuid(Id), PluginDir, FormatGuid(AfterNodeId));
+            return std::format("CreateNode -Id {} -PluginDir {} -After {}", FormatGuid(Id), PluginDir, FormatGuid(AfterNodeId)) + (TypeName.empty() ? "" : std::format(" -TypeName {}", TypeName));
         }
-        inline std::string MakeCreateNodeBefore(std::uint64_t Id, const std::string& PluginDir, std::uint64_t BeforeNodeId)
+        inline std::string MakeCreateNodeBefore(std::uint64_t Id, const std::string& PluginDir, std::uint64_t BeforeNodeId, const std::string& TypeName = {})
         {
-            return std::format("CreateNode -Id {} -PluginDir {} -Before {}", FormatGuid(Id), PluginDir, FormatGuid(BeforeNodeId));
+            return std::format("CreateNode -Id {} -PluginDir {} -Before {}", FormatGuid(Id), PluginDir, FormatGuid(BeforeNodeId)) + (TypeName.empty() ? "" : std::format(" -TypeName {}", TypeName));
         }
         // Same four placements as CreateNode, for a control node (If/ForEachLoop) that owns a
         // paired End/End-Else marker (NODE_SCRIPTING_DESIGN.md section 4.1) - the marker is always
@@ -1056,9 +1085,9 @@ namespace nodeos
 
         // -InSpine is the only way to place a node into a currently-empty spine - there's no existing
         // node in it yet to address -After/-Before relative to.
-        inline std::string MakeCreateNodeInSpine(std::uint64_t Id, const std::string& PluginDir, std::uint64_t SpineId)
+        inline std::string MakeCreateNodeInSpine(std::uint64_t Id, const std::string& PluginDir, std::uint64_t SpineId, const std::string& TypeName = {})
         {
-            return std::format("CreateNode -Id {} -PluginDir {} -InSpine {}", FormatGuid(Id), PluginDir, FormatGuid(SpineId));
+            return std::format("CreateNode -Id {} -PluginDir {} -InSpine {}", FormatGuid(Id), PluginDir, FormatGuid(SpineId)) + (TypeName.empty() ? "" : std::format(" -TypeName {}", TypeName));
         }
 
         enum class node_placement_kind { Append, After, Before, InSpine };
@@ -1125,12 +1154,17 @@ namespace nodeos
                 // silently doing nothing, so the user sees the node and a compile error in the log
                 // instead of the "+" click appearing to do nothing at all.
             }
+            // Always passed through (not just when OwnerSrc has multiple types) - harmless for the
+            // common single-type case (create_node_cmd's own -TypeName lookup finds the same one
+            // type either way) and means the persisted command is unambiguous regardless of whether
+            // this source ever gains a second type later.
+            const std::string TypeName(pOwnerType->getName());
             switch (Kind)
             {
-            case node_placement_kind::Append:  return MakeCreateNodeAppend (NewId, OwnerSrc.m_DirName);
-            case node_placement_kind::After:   return MakeCreateNodeAfter  (NewId, OwnerSrc.m_DirName, RefId);
-            case node_placement_kind::Before:  return MakeCreateNodeBefore (NewId, OwnerSrc.m_DirName, RefId);
-            case node_placement_kind::InSpine: return MakeCreateNodeInSpine(NewId, OwnerSrc.m_DirName, RefId);
+            case node_placement_kind::Append:  return MakeCreateNodeAppend (NewId, OwnerSrc.m_DirName, TypeName);
+            case node_placement_kind::After:   return MakeCreateNodeAfter  (NewId, OwnerSrc.m_DirName, RefId, TypeName);
+            case node_placement_kind::Before:  return MakeCreateNodeBefore (NewId, OwnerSrc.m_DirName, RefId, TypeName);
+            case node_placement_kind::InSpine: return MakeCreateNodeInSpine(NewId, OwnerSrc.m_DirName, RefId, TypeName);
             }
             return {};
         }
@@ -6502,11 +6536,12 @@ namespace nodeos
         {
             create_node_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "CreateNode", pDataBase) { RegisterArguments(); }
 
-            const char* getCommandHelp() const noexcept override { return "Creates a node. Usage: CreateNode -Id N -PluginDir dirname [-After id | -Before id | -InSpine spineid]"; }
+            const char* getCommandHelp() const noexcept override { return "Creates a node. Usage: CreateNode -Id N -PluginDir dirname [-TypeName name] [-After id | -Before id | -InSpine spineid]"; }
             void RegisterArguments() noexcept override
             {
                 m_hId        = m_Parser.addOption("Id",        "Node id",                                           true,  1);
                 m_hPluginDir = m_Parser.addOption("PluginDir", "Plugin folder name under Plugins/ (e.g. CubeNode)",  true,  1);
+                m_hTypeName  = m_Parser.addOption("TypeName",  "Which node type this plugin registers (only needed when it registers more than one - see NodeOS_CreateFactories; defaults to the first/only one)", false, 1);
                 m_hAfter     = m_Parser.addOption("After",     "Insert right after this node id",                   false, 1);
                 m_hBefore    = m_Parser.addOption("Before",    "Insert right before this node id - neither -After nor -Before means append at the end", false, 1);
                 m_hInSpine   = m_Parser.addOption("InSpine",   "Append to this (currently empty) spine id - mutually exclusive with -After/-Before, the only way to place a node into a spine with no nodes yet", false, 1);
@@ -6573,8 +6608,21 @@ namespace nodeos
 
                 auto* pSrc = FindSourceByDirName(Ctx.m_Sources, std::get<std::string>(PluginDir));
                 if (!pSrc) return "CreateNode: unknown plugin directory";
+                // EnsureLoadedAndGetType's return is exactly what's wanted when -TypeName is omitted
+                // (the first/only type) - also doubles as "make sure this source is actually compiled
+                // and loaded" before the -TypeName lookup below, which only searches AvailableTypes.
                 auto* pType = EnsureLoadedAndGetType(*pSrc, Ctx.m_AvailableTypes);
                 if (!pType) return "CreateNode: failed to compile/load plugin";
+                if (m_Parser.hasOption(m_hTypeName))
+                {
+                    auto TypeNameArg = m_Parser.getOptionArgAs<std::string>(m_hTypeName, 0);
+                    if (std::holds_alternative<xerr>(TypeNameArg)) return "CreateNode: bad arguments";
+                    const std::string& WantedName = std::get<std::string>(TypeNameArg);
+                    pType = nullptr;
+                    for (auto& T : Ctx.m_AvailableTypes)
+                        if (T.m_DirName == pSrc->m_DirName && T.m_pFactory->getName() == WantedName) { pType = T.m_pFactory; break; }
+                    if (!pType) return std::format("CreateNode: plugin '{}' has no node type named '{}'", pSrc->m_DirName, WantedName);
+                }
 
                 for (auto& N : Ctx.m_Nodes) if (N.m_SpineId == TargetSpineId && N.m_Order >= TargetOrder) ++N.m_Order;
                 Ctx.m_Nodes.push_back(CreateNodeInstance(ParseGuid(std::get<std::string>(Id)), pType, TargetOrder, TargetSpineId));
@@ -6610,7 +6658,7 @@ namespace nodeos
                 Ctx.m_bDirty = true;
             }
 
-            xcmdline::parser::handle m_hId, m_hPluginDir, m_hAfter, m_hBefore, m_hInSpine;
+            xcmdline::parser::handle m_hId, m_hPluginDir, m_hTypeName, m_hAfter, m_hBefore, m_hInSpine;
         };
 
         //================================================================================================
@@ -8371,6 +8419,19 @@ namespace nodeos
         // just the offending nodes) first is what makes this safe, never something this command can
         // skip past. See ReloadPlugin, below, for the one-shot version of the full safe sequence.
         //================================================================================================
+        // Calls the plugin's own NodeOS_DestroyFactory on every factory it registered (never `delete`
+        // through the abstract base - see xnode_os_plugin_api.h's own comment on why), THEN
+        // FreeLibrary's the module. Shared by UnloadPlugin and ReloadPlugin so this ordering is never
+        // duplicated - skipping the destroy step would leak each factory object (a small, real leak:
+        // /MDd means the plugin's own `new` goes through the SAME shared CRT heap as the host, so
+        // FreeLibrary alone does not reclaim it).
+        inline void DestroyFactoriesAndFreeModule(HMODULE Module, const std::vector<xnode_os_node_factory*>& Factories) noexcept
+        {
+            if (auto* pDestroy = (xnode_os_pfn_destroy_factory*)GetProcAddress(Module, XNODE_OS_DESTROY_FACTORY_NAME))
+                for (auto* pFactory : Factories) pDestroy(*pFactory);
+            FreeLibrary(Module);
+        }
+
         struct unload_plugin_query_cmd : xundo::query_command_base
         {
             unload_plugin_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "UnloadPlugin", pDataBase) { RegisterArguments(); }
@@ -8397,7 +8458,7 @@ namespace nodeos
                     return std::format("UnloadPlugin: refused - {} node(s) still use '{}'. Run ClearGraph first.", StillInUse, DirName);
 
                 std::erase_if(Ctx.m_AvailableTypes, [&](auto& T) { return T.m_Module == pSrc->m_Module; });
-                FreeLibrary(pSrc->m_Module);
+                DestroyFactoriesAndFreeModule(pSrc->m_Module, DoomedFactories);
                 pSrc->m_Module  = nullptr;
                 pSrc->m_bLoaded = false;
                 return std::format("Unloaded '{}'", DirName);
@@ -8504,8 +8565,10 @@ namespace nodeos
                 //    just skips this step rather than failing.
                 if (pSrc->m_bLoaded && pSrc->m_Module)
                 {
+                    std::vector<xnode_os_node_factory*> OldFactories;
+                    for (auto& T : Ctx.m_AvailableTypes) if (T.m_Module == pSrc->m_Module) OldFactories.push_back(T.m_pFactory);
                     std::erase_if(Ctx.m_AvailableTypes, [&](auto& T) { return T.m_Module == pSrc->m_Module; });
-                    FreeLibrary(pSrc->m_Module);
+                    DestroyFactoriesAndFreeModule(pSrc->m_Module, OldFactories);
                     pSrc->m_Module  = nullptr;
                     pSrc->m_bLoaded = false;
                     Out += "3. Unloaded the old DLL.\n";
