@@ -17,6 +17,11 @@
 // generated, Render() called every frame.
 #include "source/Examples/E19_MaterialEditor/E19_TextEditor.h"
 
+// For WriteScreenshotImage - already compiled into this same xGPU_unit_test target (E05's own
+// bitmap inspector uses it identically) - real PNG output via xbmp::tools::writers::SaveSTDImage,
+// not a hand-rolled TGA writer.
+#include "dependencies/xbmp_tools/src/xbmp_tools.h"
+
 // The real, official property inspector - the host draws every plugin's properties uniformly with
 // this over the node's own real getProperties() object (see xnode_os_plugin_api.h's top comment for
 // why that's safe across the DLL boundary now). Only the header: the real .cpp implementation is
@@ -777,6 +782,51 @@ namespace nodeos
         if (Node.m_pNode && Node.m_pNode->m_pFactory)
             Node.m_pNode->m_pFactory->DestroyNodeInstance(*Node.m_pNode);
         Node.m_pNode = nullptr;
+    }
+
+    //------------------------------------------------------------------------------------------------
+    // Wraps the captured backbuffer as an xbitmap (via setup()) and hands it to
+    // xbmp::tools::writers::SaveSTDImage, which dispatches to stb_image_write by the path's own
+    // extension (.png/.bmp/.tga/.jpg). Captured format is B8G8R8A8 packed uint32
+    // (xgpu_vulkan_window.cpp's CaptureBackbuffer) - xbitmap::format::B8G8R8A8 names that exact byte
+    // order, so no channel-swap/conversion is needed.
+    //
+    // xbitmap::setup() (see xbitmap.cpp) treats the VERY FIRST slot of the data span as a
+    // mip-offset-table entry (an xbitmap::mip{ m_Offset }), not pixel payload - the same trap the
+    // raw-span CONSTRUCTOR has (see [[xgpu_screenshot_capture]] memory), just less obvious since
+    // setup() looks like a plain "here's my buffer" call. Confirmed by hand against setup()'s own
+    // asserts and getMipPtr's offset math: one extra uint32 slot at the front holding
+    // sizeof(xbitmap::mip) (the byte offset to skip past this one-entry table) is what a correct
+    // 1-mip/1-frame image needs - skipping it is what actually crashed (abort(), not a silent
+    // wrong-image) the first time this was written without it.
+    //------------------------------------------------------------------------------------------------
+    static bool WriteScreenshotImage(const std::string& Path, const std::vector<std::uint32_t>& Pixels, int Width, int Height)
+    {
+        if (Width <= 0 || Height <= 0 || Pixels.empty()) return false;
+
+        // Every writer path SaveSTDImage(xbitmap&) can take ends up emitting all 4 captured channels
+        // (see xbmp_tools_std_image_writer.cpp - B8G8R8A8 isn't one of the 3 fast-pathed formats, so
+        // it always goes through the generic per-pixel xcolor conversion, which is 32bpp/RGBA
+        // unconditionally). Unlike the hand-rolled TGA writer this replaced, there's no "write 24bpp
+        // instead" option here - so the swapchain's real-but-compositor-ignored alpha (see this
+        // memory's own gotcha 2) has to be forced opaque explicitly, or PNG viewers that DO honor
+        // alpha render exactly the "corrupted text" artifact that gotcha describes. B8G8R8A8 means A
+        // is the top byte of the packed uint32.
+        std::vector<std::uint32_t> Padded(1 + static_cast<std::size_t>(Width) * Height);
+        Padded[0] = sizeof(xbitmap::mip);
+        std::transform(Pixels.begin(), Pixels.end(), Padded.begin() + 1, [](std::uint32_t Px) { return Px | 0xFF000000u; });
+
+        xbitmap Bitmap;
+        Bitmap.setup(static_cast<std::uint32_t>(Width), static_cast<std::uint32_t>(Height)
+            , xbitmap::format::B8G8R8A8
+            , static_cast<std::uint64_t>(Width) * Height * sizeof(std::uint32_t) // FaceSize - pixel payload only, excludes the header slot
+            , std::as_writable_bytes(std::span(Padded))
+            , false // bFreeMemoryOnDestruction - Padded stays vector-owned
+            , 1, 1  // nMips, nFrames
+            );
+
+        const std::wstring WPath(Path.begin(), Path.end());
+        return !xbmp::tools::writers::SaveSTDImage(WPath, Bitmap);
     }
 
     //================================================================================================
@@ -6368,6 +6418,8 @@ namespace nodeos
             std::vector<console_log_entry>&     m_ConsoleLog;     // the SAME log DrawCommandConsolePanel renders and
                                                                     // PumpCommandConsolePipe appends to - see get_log_query_cmd,
                                                                     // below, for why a query needs to read this back.
+            bool&                               m_bScreenshotRequested; // arms the capture - see screenshot_query_cmd and
+            std::string&                        m_ScreenshotPath;       // E27_Example's PageFlip hook, which actually writes the file.
         };
 
         // Shared by select_cmd and clear_selection_cmd - both snapshot/restore the exact same set.
@@ -8138,6 +8190,205 @@ namespace nodeos
             }
             xcmdline::parser::handle m_hId;
         };
+
+        //================================================================================================
+        // ClearGraph - destroys every node/link and resets Spines/Columns to a single empty root, the
+        // same baseline -CodegenSelfTest's own standalone setup starts from. This is step 2 of the
+        // safe plugin-reload sequence (see ReloadPlugin, below, and [[xgpu_plugin_dll_hotreload]]):
+        // every node's m_pNode is destroyed through its OWN factory's DestroyNodeInstance while that
+        // factory's module is still loaded - not just abandoned - so nothing is left holding a
+        // dangling vtable pointer once UnloadPlugin actually FreeLibrary's it. Exposed standalone
+        // too (not just folded into ReloadPlugin) since "wipe the canvas back to empty" is also
+        // useful entirely on its own, independent of any plugin work.
+        //================================================================================================
+        struct clear_graph_query_cmd : xundo::query_command_base
+        {
+            clear_graph_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "ClearGraph", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "Destroys every node/link and resets to a single empty root spine/column - the safe first step before unloading a plugin DLL still referenced by live nodes. Usage: ClearGraph"; }
+            void RegisterArguments() noexcept override {}
+
+            std::string Query() noexcept override
+            {
+                auto& Ctx = get<node_os_command_context>();
+                const std::size_t NodeCount = Ctx.m_Nodes.size();
+
+                for (auto& N : Ctx.m_Nodes) DestroyNodeInstance(N);
+                Ctx.m_Nodes.clear();
+                Ctx.m_Links.clear();
+
+                Ctx.m_Selection.m_SelectedNodes.clear();
+                Ctx.m_Selection.m_SelectedLink        = 0;
+                Ctx.m_Selection.m_SelectedGapSpineId  = 0;
+                Ctx.m_Selection.m_SelectedGapIndex    = -1;
+
+                Ctx.m_Columns.clear();
+                Ctx.m_Spines.clear();
+                Ctx.m_Columns.push_back({ xresource::guid_generator::Instance64(), 0, 0, true });
+                Ctx.m_Spines.push_back({ xresource::guid_generator::Instance64(), Ctx.m_Columns.front().m_Id, true, geo::TOP });
+
+                Ctx.m_bDirty = true;
+                return std::format("Cleared {} node(s) - graph reset to a single empty root spine/column", NodeCount);
+            }
+        };
+
+        //================================================================================================
+        // UnloadPlugin - FreeLibrary's a plugin's currently-loaded DLL. Refuses (rather than crashing)
+        // if any live node's m_pNode->m_pFactory still lives in that module - ClearGraph (or deleting
+        // just the offending nodes) first is what makes this safe, never something this command can
+        // skip past. See ReloadPlugin, below, for the one-shot version of the full safe sequence.
+        //================================================================================================
+        struct unload_plugin_query_cmd : xundo::query_command_base
+        {
+            unload_plugin_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "UnloadPlugin", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "Frees a plugin's currently-loaded DLL from memory - refuses if any live node still uses it (ClearGraph first). Usage: UnloadPlugin -DirName dirname"; }
+            void RegisterArguments() noexcept override { m_hDirName = m_Parser.addOption("DirName", "The plugin's Plugins/<DirName>/ folder name", true, 1); }
+
+            std::string Query() noexcept override
+            {
+                auto DirNameArg = m_Parser.getOptionArgAs<std::string>(m_hDirName, 0);
+                if (std::holds_alternative<xerr>(DirNameArg)) return "UnloadPlugin: bad arguments";
+                const std::string DirName = std::get<std::string>(DirNameArg);
+
+                auto& Ctx = get<node_os_command_context>();
+                auto* pSrc = FindSourceByDirName(Ctx.m_Sources, DirName);
+                if (!pSrc)                              return std::format("UnloadPlugin: no such plugin source '{}'", DirName);
+                if (!pSrc->m_bLoaded || !pSrc->m_Module) return std::format("UnloadPlugin: '{}' is not currently loaded", DirName);
+
+                std::vector<xnode_os_node_factory*> DoomedFactories;
+                for (auto& T : Ctx.m_AvailableTypes)
+                    if (T.m_Module == pSrc->m_Module) DoomedFactories.push_back(T.m_pFactory);
+                const std::size_t StillInUse = std::count_if(Ctx.m_Nodes.begin(), Ctx.m_Nodes.end(), [&](auto& N)
+                    { return N.m_pNode && std::find(DoomedFactories.begin(), DoomedFactories.end(), N.m_pNode->m_pFactory) != DoomedFactories.end(); });
+                if (StillInUse > 0)
+                    return std::format("UnloadPlugin: refused - {} node(s) still use '{}'. Run ClearGraph first.", StillInUse, DirName);
+
+                std::erase_if(Ctx.m_AvailableTypes, [&](auto& T) { return T.m_Module == pSrc->m_Module; });
+                FreeLibrary(pSrc->m_Module);
+                pSrc->m_Module  = nullptr;
+                pSrc->m_bLoaded = false;
+                return std::format("Unloaded '{}'", DirName);
+            }
+            xcmdline::parser::handle m_hDirName;
+        };
+
+        //================================================================================================
+        // ReloadPlugin - the full safe hot-reload sequence in one call, for when a plugin's own .cpp
+        // source just changed and the running session needs to pick that up without restarting:
+        //   1. Save  - the graph is about to be torn down; must reflect what's on the canvas NOW.
+        //   2. Clear - destroy every node instance via its OWN (still-loaded) factory.
+        //   3. Unload - safe now that nothing references the module.
+        //   4+5. Recompile + load - CompileAndLoadPlugin always does both in one shot; this codebase
+        //        has no "compiled but not yet loaded" state to split into two separate steps (a fresh,
+        //        never-reused .dll filename is written, then immediately LoadLibrary'd).
+        //   6. Reload - LoadGraph's own EnsureLoadedAndGetType resolves every saved node against
+        //        whatever's loaded now, including the plugin just swapped.
+        // Each step after Save is best-effort-continue rather than abort-on-failure past that point:
+        // by the time step 2 has run, the canvas is already empty, so getting back to a WORKING
+        // graph (even the old one) matters more than stopping halfway through.
+        //================================================================================================
+        struct reload_plugin_query_cmd : xundo::query_command_base
+        {
+            reload_plugin_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "ReloadPlugin", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "Hot-reloads a plugin whose source just changed: Save, ClearGraph, UnloadPlugin, recompile+load the DLL, then reload the saved graph. Usage: ReloadPlugin -DirName dirname [-Path filepath]"; }
+            void RegisterArguments() noexcept override
+            {
+                m_hDirName = m_Parser.addOption("DirName", "The plugin's Plugins/<DirName>/ folder name", true, 1);
+                m_hPath    = m_Parser.addOption("Path", "Graph file path (defaults to the checked-in example graph)", false, 1);
+            }
+
+            std::string Query() noexcept override
+            {
+                auto DirNameArg = m_Parser.getOptionArgAs<std::string>(m_hDirName, 0);
+                if (std::holds_alternative<xerr>(DirNameArg)) return "ReloadPlugin: bad arguments";
+                const std::string DirName = std::get<std::string>(DirNameArg);
+
+                auto& Ctx = get<node_os_command_context>();
+                std::string Path = "D:/LIONant/xGPU/source/Examples/E27_NodeOS/graph.txt";
+                if (m_Parser.hasOption(m_hPath))
+                {
+                    auto PathArg = m_Parser.getOptionArgAs<std::string>(m_hPath, 0);
+                    if (!std::holds_alternative<xerr>(PathArg)) Path = std::get<std::string>(PathArg);
+                }
+
+                auto* pSrc = FindSourceByDirName(Ctx.m_Sources, DirName);
+                if (!pSrc) return std::format("ReloadPlugin: no such plugin source '{}'", DirName);
+
+                std::string Out;
+
+                // 1. Save
+                if (!SaveGraph(Path, Ctx.m_Nodes, Ctx.m_Links, Ctx.m_AvailableTypes, Ctx.m_Spines, Ctx.m_Columns))
+                    return std::format("ReloadPlugin: save to '{}' failed - aborting before touching anything", Path);
+                Out += std::format("1. Saved '{}'.\n", Path);
+
+                // 2. Clear
+                for (auto& N : Ctx.m_Nodes) DestroyNodeInstance(N);
+                Ctx.m_Nodes.clear();
+                Ctx.m_Links.clear();
+                Ctx.m_Selection.m_SelectedNodes.clear();
+                Ctx.m_Selection.m_SelectedLink       = 0;
+                Ctx.m_Selection.m_SelectedGapSpineId = 0;
+                Ctx.m_Selection.m_SelectedGapIndex   = -1;
+                Out += "2. Cleared the editor.\n";
+
+                // 3. Unload - a plugin that was never loaded yet (first reload after a fresh launch)
+                //    just skips this step rather than failing.
+                if (pSrc->m_bLoaded && pSrc->m_Module)
+                {
+                    std::erase_if(Ctx.m_AvailableTypes, [&](auto& T) { return T.m_Module == pSrc->m_Module; });
+                    FreeLibrary(pSrc->m_Module);
+                    pSrc->m_Module  = nullptr;
+                    pSrc->m_bLoaded = false;
+                    Out += "3. Unloaded the old DLL.\n";
+                }
+                else
+                    Out += "3. (nothing to unload - not previously loaded).\n";
+
+                // 4+5. Recompile + load
+                if (!CompileAndLoadPlugin(*pSrc, Ctx.m_AvailableTypes))
+                    return Out + std::format("4/5. ReloadPlugin: recompile of '{}' FAILED - graph left empty; fix the source and run ReloadPlugin again, or Load to restore the old graph against whatever's still available.\n{}", DirName, pSrc->m_CompileLog);
+                Out += "4/5. Recompiled and loaded the new DLL.\n";
+
+                // 6. Reload the saved graph
+                const bool bLoadOk = LoadGraph(Path, Ctx.m_Nodes, Ctx.m_Links, Ctx.m_Sources, Ctx.m_AvailableTypes, Ctx.m_Spines, Ctx.m_Columns);
+                Ctx.m_bDirty = true;
+                Out += bLoadOk ? std::format("6. Reloaded '{}' - {} nodes, {} links.", Path, Ctx.m_Nodes.size(), Ctx.m_Links.size())
+                                : std::format("6. ReloadPlugin: reload of '{}' failed - see log", Path);
+                return Out;
+            }
+            xcmdline::parser::handle m_hDirName;
+            xcmdline::parser::handle m_hPath;
+        };
+
+        //================================================================================================
+        // Screenshot - lets an AI/CLI caller (or a human, over the pipe or the UI) see the graph
+        // without a monitor. Can't capture synchronously from inside Query(): the actual GPU readback
+        // only happens inside MainWindow.PageFlip(), called once per frame from E27_Example's main
+        // loop tail, long after this Query() call returns - see xgpu_vulkan_window.cpp's own
+        // Screenshot()/PageFlip() comments. So this only ARMS the request; E27_Example's own
+        // PageFlip hook (right after PageFlip() returns, same frame) does the actual capture+
+        // WriteScreenshotImage and clears the flag.
+        //================================================================================================
+        struct screenshot_query_cmd : xundo::query_command_base
+        {
+            screenshot_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "Screenshot", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "Captures the current window as a PNG - written right after this frame finishes rendering. Usage: Screenshot [-Path filepath]"; }
+            void RegisterArguments() noexcept override { m_hPath = m_Parser.addOption("Path", "Output image path - extension picks the format (.png/.bmp/.tga/.jpg); defaults to a fixed .png under CompiledPlugins", false, 1); }
+
+            std::string Query() noexcept override
+            {
+                auto& Ctx = get<node_os_command_context>();
+                std::string Path = "D:/LIONant/xGPU/source/Examples/E27_NodeOS/CompiledPlugins/screenshot.png";
+                if (m_Parser.hasOption(m_hPath))
+                {
+                    auto PathArg = m_Parser.getOptionArgAs<std::string>(m_hPath, 0);
+                    if (!std::holds_alternative<xerr>(PathArg)) Path = std::get<std::string>(PathArg);
+                }
+                Ctx.m_ScreenshotPath       = Path;
+                Ctx.m_bScreenshotRequested = true;
+                return std::format("Screenshot requested - will be written to '{}' right after this frame renders.", Path);
+            }
+            xcmdline::parser::handle m_hPath;
+        };
     }
 }
 
@@ -8307,13 +8558,21 @@ int E27_Example()
     // local static instead (nothing outside that function ever needs the widget itself, only this data).
     std::vector<nodeos::console_log_entry> ConsoleLog;
 
+    // The screenshot_query_cmd/PageFlip-hook bridge - see screenshot_query_cmd's own comment for why
+    // this can't just capture synchronously inside Query(). ScreenshotPixels/W/H are the actual
+    // Screenshot() destination, filled in by MainWindow.PageFlip() itself once it's called below.
+    bool                        bScreenshotRequested = false;
+    std::string                  ScreenshotPath;
+    std::vector<std::uint32_t>   ScreenshotPixels;
+    int                           ScreenshotW = 0, ScreenshotH = 0;
+
     // Every graph mutation (add/delete node, connect, reorder, edit a property, change selection)
     // goes through this System - see the "Commands" sections above for why: it's the one entry point
     // with zero ImGui/xgpu dependency that a future headless runner or driver plugin could call
     // identically to how the ImGui code below calls it. bAutoLoadSave=false - a fresh undo stack each
     // run, since a stale on-disk history from a previous, differently-shaped graph would be more
     // confusing than useful for this example.
-    nodeos::commands::node_os_command_context CmdContext{ Nodes, Links, Selection, Sources, AvailableTypes, bDirty, Spines, Columns, ConsoleLog };
+    nodeos::commands::node_os_command_context CmdContext{ Nodes, Links, Selection, Sources, AvailableTypes, bDirty, Spines, Columns, ConsoleLog, bScreenshotRequested, ScreenshotPath };
     xundo::system NodeOsUndo;
     if (auto Err = NodeOsUndo.Init("D:/LIONant/xGPU/source/Examples/E27_NodeOS/UndoHistory", false); !Err.empty())
         nodeos::Debugger(std::format("Node OS: xundo Init failed: {}", Err));
@@ -8337,6 +8596,10 @@ int E27_Example()
     nodeos::commands::save_graph_query_cmd CmdSaveGraph(NodeOsUndo, &CmdContext);
     nodeos::commands::get_node_properties_query_cmd CmdGetNodeProperties(NodeOsUndo, &CmdContext);
     nodeos::commands::get_node_info_query_cmd CmdGetNodeInfo(NodeOsUndo, &CmdContext);
+    nodeos::commands::clear_graph_query_cmd    CmdClearGraph(NodeOsUndo, &CmdContext);
+    nodeos::commands::unload_plugin_query_cmd  CmdUnloadPlugin(NodeOsUndo, &CmdContext);
+    nodeos::commands::reload_plugin_query_cmd  CmdReloadPlugin(NodeOsUndo, &CmdContext);
+    nodeos::commands::screenshot_query_cmd     CmdScreenshot(NodeOsUndo, &CmdContext);
 
     // Central command router (xundo::history::Route, xundo_history.h) - addresses NodeOsUndo's
     // commands through one namespaced string ("NodeOS/Edit/<Cmd>" for mutations, "NodeOS/Query/<Cmd>"
@@ -8523,8 +8786,25 @@ int E27_Example()
         }
         ImGui::End();
 
+        // Arms the capture - MUST be called before PageFlip() (see screenshot_query_cmd's own
+        // comment: the actual GPU readback happens inside PageFlip/EndFrame, not here). This still
+        // captures the FULL frame including everything drawn above, since nothing's been submitted
+        // to the GPU yet at this point either way.
+        if (bScreenshotRequested)
+            MainWindow.Screenshot(ScreenshotPixels, ScreenshotW, ScreenshotH);
+
         xgpu::tools::imgui::Render();
         MainWindow.PageFlip();
+
+        // ScreenshotPixels/W/H are only valid AFTER PageFlip() returns (see above) - this is the one
+        // and only place that's true, so the actual TGA write has to happen right here, not inside
+        // screenshot_query_cmd::Query() (which ran, at the earliest, at the top of THIS same frame,
+        // long before this line).
+        if (bScreenshotRequested)
+        {
+            nodeos::WriteScreenshotImage(ScreenshotPath, ScreenshotPixels, ScreenshotW, ScreenshotH);
+            bScreenshotRequested = false;
+        }
     }
 
     return 0;

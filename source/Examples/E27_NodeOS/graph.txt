@@ -1,8 +1,8 @@
 
 [ Header ]
 { ColumnCount:d  SpineCount:d  NodeCount:d  LinkCount:d }
-//-------------  ------------  -----------  ------------
-      3                3            14           14
+//-------------  ------------  -----------  -----------
+        3             3            14           14     
 
 // New Types
 < s32:d u32:g s16:C u16:H s8:c u8:h f32:f f64:F string:s wstring:S u64:G s64:D bool:c full_guid:GG enum:s >
@@ -234,7 +234,6 @@
 //-------------------------------  ---------------
   "math_expression_node/Operator"  ;enum "A + B"  
   "math_expression_node/B"         ;f32  #41B00000
-
 
 [ xProperties : 5 ]
 { Name:s                        Value:?                }
