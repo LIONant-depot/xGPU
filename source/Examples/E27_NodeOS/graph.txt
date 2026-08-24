@@ -1,0 +1,363 @@
+
+[ Header ]
+{ ColumnCount:d  SpineCount:d  NodeCount:d  LinkCount:d }
+//-------------  ------------  -----------  ------------
+      3                3            14           14
+
+// New Types
+< s32:d u32:g s16:C u16:H s8:c u8:h f32:f f64:F string:s wstring:S u64:G s64:D bool:c full_guid:GG enum:s >
+
+[ xProperties : 4 ]
+{ Name:s            Value:?                 }
+//----------------  -----------------------
+  "column/Id"       ;u64  #8A118C5A1A6C003 
+  "column/LeftId"   ;u64  #E8A118C5A1B94019
+  "column/RightId"  ;u64  #A118C5A1ACC00B  
+  "column/IsRoot"   ;bool 1                
+
+[ xProperties : 4 ]
+{ Name:s            Value:?                }
+//----------------  ----------------------
+  "column/Id"       ;u64  #A118C5A1ACC00B 
+  "column/LeftId"   ;u64  #8A118C5A1A6C003
+  "column/RightId"  ;u64  #0              
+  "column/IsRoot"   ;bool 0               
+
+[ xProperties : 4 ]
+{ Name:s            Value:?                 }
+//----------------  -----------------------
+  "column/Id"       ;u64  #E8A118C5A1B94019
+  "column/LeftId"   ;u64  #0               
+  "column/RightId"  ;u64  #8A118C5A1A6C003 
+  "column/IsRoot"   ;bool 0                
+
+[ xProperties : 4 ]
+{ Name:s            Value:?                 }
+//----------------  -----------------------
+  "spine/Id"        ;u64  #50A118C5A1A6C001
+  "spine/ColumnId"  ;u64  #8A118C5A1A6C003 
+  "spine/IsRoot"    ;bool 1                
+  "spine/Y"         ;f32  #41200000        
+
+[ xProperties : 4 ]
+{ Name:s            Value:?                 }
+//----------------  -----------------------
+  "spine/Id"        ;u64  #B0A118C5A1ACC009
+  "spine/ColumnId"  ;u64  #A118C5A1ACC00B  
+  "spine/IsRoot"    ;bool 0                
+  "spine/Y"         ;f32  #435173F8        
+
+[ xProperties : 4 ]
+{ Name:s            Value:?                 }
+//----------------  -----------------------
+  "spine/Id"        ;u64  #C8A118C5A1B94017
+  "spine/ColumnId"  ;u64  #E8A118C5A1B94019
+  "spine/IsRoot"    ;bool 0                
+  "spine/Y"         ;f32  #4353B74C        
+
+[ xProperties : 6 ]
+{ Name:s                      Value:?                   }
+//--------------------------  -------------------------
+  "node_topology/Id"          ;u64    #F0A118C5A1A8C005
+  "node_topology/Source"      ;string "OnEvent"        
+  "node_topology/Type"        ;string "OnEvent"        
+  "node_topology/Order"       ;s32    0                
+  "node_topology/SpineId"     ;u64    #50A118C5A1A6C001
+  "node_topology/OwnedEndId"  ;u64    #0               
+
+[ xProperties : 6 ]
+{ Name:s                      Value:?                   }
+//--------------------------  -------------------------
+  "node_topology/Id"          ;u64    #10A118C5A1AB4007
+  "node_topology/Source"      ;string "ExecutionCall"  
+  "node_topology/Type"        ;string "ExecutionCall"  
+  "node_topology/Order"       ;s32    2                
+  "node_topology/SpineId"     ;u64    #50A118C5A1A6C001
+  "node_topology/OwnedEndId"  ;u64    #0               
+
+[ xProperties : 6 ]
+{ Name:s                      Value:?                   }
+//--------------------------  -------------------------
+  "node_topology/Id"          ;u64    #40A118C5A1B0800D
+  "node_topology/Source"      ;string "Execute"        
+  "node_topology/Type"        ;string "Execute"        
+  "node_topology/Order"       ;s32    0                
+  "node_topology/SpineId"     ;u64    #B0A118C5A1ACC009
+  "node_topology/OwnedEndId"  ;u64    #0               
+
+[ xProperties : 6 ]
+{ Name:s                      Value:?                   }
+//--------------------------  -------------------------
+  "node_topology/Id"          ;u64    #60A118C5A1B3800F
+  "node_topology/Source"      ;string "Constant"       
+  "node_topology/Type"        ;string "Constant"       
+  "node_topology/Order"       ;s32    1                
+  "node_topology/SpineId"     ;u64    #50A118C5A1A6C001
+  "node_topology/OwnedEndId"  ;u64    #0               
+
+[ xProperties : 2 ]
+{ Name:s                       Value:?         }
+//---------------------------  ---------------
+  "constant_node/Type"         ;enum "Float"  
+  "constant_node/Value Float"  ;f32  #3FC00000
+
+[ xProperties : 6 ]
+{ Name:s                      Value:?                   }
+//--------------------------  -------------------------
+  "node_topology/Id"          ;u64    #A118C5A1B68011  
+  "node_topology/Source"      ;string "Print"          
+  "node_topology/Type"        ;string "Print"          
+  "node_topology/Order"       ;s32    1                
+  "node_topology/SpineId"     ;u64    #B0A118C5A1ACC009
+  "node_topology/OwnedEndId"  ;u64    #0               
+
+[ xProperties : 6 ]
+{ Name:s                      Value:?                   }
+//--------------------------  -------------------------
+  "node_topology/Id"          ;u64    #40A118C5A1BC401B
+  "node_topology/Source"      ;string "Function"       
+  "node_topology/Type"        ;string "Function"       
+  "node_topology/Order"       ;s32    0                
+  "node_topology/SpineId"     ;u64    #C8A118C5A1B94017
+  "node_topology/OwnedEndId"  ;u64    #28A118C5A1BC401D
+
+[ xProperties : 3 ]
+{ Name:s                       Value:?                    }
+//---------------------------  --------------------------
+  "function_node/Name"         ;string "MyFunction"      
+  "function_node/InputsSpec"   ;string "A:Float:1:1"     
+  "function_node/OutputsSpec"  ;string "Result:Float:1:0"
+
+[ xProperties : 6 ]
+{ Name:s                      Value:?                   }
+//--------------------------  -------------------------
+  "node_topology/Id"          ;u64    #28A118C5A1BC401D
+  "node_topology/Source"      ;string "End"            
+  "node_topology/Type"        ;string "End"            
+  "node_topology/Order"       ;s32    3                
+  "node_topology/SpineId"     ;u64    #C8A118C5A1B94017
+  "node_topology/OwnedEndId"  ;u64    #0               
+
+[ xProperties : 1 ]
+{ Name:s                    Value:? }
+//------------------------  -------
+  "end_marker_node/IsElse"  ;bool 0
+
+[ xProperties : 6 ]
+{ Name:s                      Value:?                   }
+//--------------------------  -------------------------
+  "node_topology/Id"          ;u64    #60A118C5A1C38025
+  "node_topology/Source"      ;string "Print"          
+  "node_topology/Type"        ;string "Print"          
+  "node_topology/Order"       ;s32    2                
+  "node_topology/SpineId"     ;u64    #C8A118C5A1B94017
+  "node_topology/OwnedEndId"  ;u64    #0               
+
+[ xProperties : 6 ]
+{ Name:s                      Value:?                   }
+//--------------------------  -------------------------
+  "node_topology/Id"          ;u64    #4114E0C5A92CC005
+  "node_topology/Source"      ;string "If"             
+  "node_topology/Type"        ;string "If"             
+  "node_topology/Order"       ;s32    4                
+  "node_topology/SpineId"     ;u64    #50A118C5A1A6C001
+  "node_topology/OwnedEndId"  ;u64    #A914E0C5A92CC007
+
+[ xProperties : 6 ]
+{ Name:s                      Value:?                   }
+//--------------------------  -------------------------
+  "node_topology/Id"          ;u64    #A914E0C5A92CC007
+  "node_topology/Source"      ;string "End"            
+  "node_topology/Type"        ;string "End"            
+  "node_topology/Order"       ;s32    7                
+  "node_topology/SpineId"     ;u64    #50A118C5A1A6C001
+  "node_topology/OwnedEndId"  ;u64    #0               
+
+[ xProperties : 1 ]
+{ Name:s                    Value:? }
+//------------------------  -------
+  "end_marker_node/IsElse"  ;bool 0
+
+[ xProperties : 6 ]
+{ Name:s                      Value:?                   }
+//--------------------------  -------------------------
+  "node_topology/Id"          ;u64    #F914E0C5A92E800B
+  "node_topology/Source"      ;string "Print"          
+  "node_topology/Type"        ;string "Print"          
+  "node_topology/Order"       ;s32    6                
+  "node_topology/SpineId"     ;u64    #50A118C5A1A6C001
+  "node_topology/OwnedEndId"  ;u64    #0               
+
+[ xProperties : 6 ]
+{ Name:s                      Value:?                   }
+//--------------------------  -------------------------
+  "node_topology/Id"          ;u64    #114E0C5A93BC00F 
+  "node_topology/Source"      ;string "Compare"        
+  "node_topology/Type"        ;string "Compare"        
+  "node_topology/Order"       ;s32    3                
+  "node_topology/SpineId"     ;u64    #50A118C5A1A6C001
+  "node_topology/OwnedEndId"  ;u64    #0               
+
+[ xProperties : 1 ]
+{ Name:s                   Value:?                        }
+//-----------------------  ------------------------------
+  "compare_node/Operator"  ;enum "A Less Or Equal Than B"
+
+[ xProperties : 6 ]
+{ Name:s                      Value:?                   }
+//--------------------------  -------------------------
+  "node_topology/Id"          ;u64    #F53620C5AB150005
+  "node_topology/Source"      ;string "MathExpression" 
+  "node_topology/Type"        ;string "Math Expression"
+  "node_topology/Order"       ;s32    5                
+  "node_topology/SpineId"     ;u64    #50A118C5A1A6C001
+  "node_topology/OwnedEndId"  ;u64    #0               
+
+[ xProperties : 2 ]
+{ Name:s                           Value:?         }
+//-------------------------------  ---------------
+  "math_expression_node/Operator"  ;enum "A * B"  
+  "math_expression_node/B"         ;f32  #40000000
+
+[ xProperties : 6 ]
+{ Name:s                      Value:?                   }
+//--------------------------  -------------------------
+  "node_topology/Id"          ;u64    #2D2558C5E4DD8007
+  "node_topology/Source"      ;string "MathExpression" 
+  "node_topology/Type"        ;string "Math Expression"
+  "node_topology/Order"       ;s32    1                
+  "node_topology/SpineId"     ;u64    #C8A118C5A1B94017
+  "node_topology/OwnedEndId"  ;u64    #0               
+
+[ xProperties : 2 ]
+{ Name:s                           Value:?         }
+//-------------------------------  ---------------
+  "math_expression_node/Operator"  ;enum "A + B"  
+  "math_expression_node/B"         ;f32  #41B00000
+
+
+[ xProperties : 5 ]
+{ Name:s                        Value:?                }
+//----------------------------  ----------------------
+  "link_instance/Id"            ;u64 #78A118C5A1B74013
+  "link_instance/SourceNode"    ;u64 #60A118C5A1B3800F
+  "link_instance/SourceOutput"  ;s32 0                
+  "link_instance/TargetNode"    ;u64 #A118C5A1B68011  
+  "link_instance/TargetInput"   ;s32 0                
+
+[ xProperties : 5 ]
+{ Name:s                        Value:?                }
+//----------------------------  ----------------------
+  "link_instance/Id"            ;u64 #A118C5A1B7C015  
+  "link_instance/SourceNode"    ;u64 #10A118C5A1AB4007
+  "link_instance/SourceOutput"  ;s32 0                
+  "link_instance/TargetNode"    ;u64 #40A118C5A1B0800D
+  "link_instance/TargetInput"   ;s32 0                
+
+[ xProperties : 5 ]
+{ Name:s                        Value:?                }
+//----------------------------  ----------------------
+  "link_instance/Id"            ;u64 #A0A118C5A1BC401F
+  "link_instance/SourceNode"    ;u64 #40A118C5A1BC401B
+  "link_instance/SourceOutput"  ;s32 2                
+  "link_instance/TargetNode"    ;u64 #28A118C5A1BC401D
+  "link_instance/TargetInput"   ;s32 0                
+
+[ xProperties : 5 ]
+{ Name:s                        Value:?                }
+//----------------------------  ----------------------
+  "link_instance/Id"            ;u64 #1F7ED0C5A5060005
+  "link_instance/SourceNode"    ;u64 #10A118C5A1AB4007
+  "link_instance/SourceOutput"  ;s32 0                
+  "link_instance/TargetNode"    ;u64 #40A118C5A1BC401B
+  "link_instance/TargetInput"   ;s32 0                
+
+[ xProperties : 5 ]
+{ Name:s                        Value:?                }
+//----------------------------  ----------------------
+  "link_instance/Id"            ;u64 #6F7ED0C5A507C007
+  "link_instance/SourceNode"    ;u64 #60A118C5A1B3800F
+  "link_instance/SourceOutput"  ;s32 0                
+  "link_instance/TargetNode"    ;u64 #40A118C5A1BC401B
+  "link_instance/TargetInput"   ;s32 1                
+
+[ xProperties : 5 ]
+{ Name:s                        Value:?                }
+//----------------------------  ----------------------
+  "link_instance/Id"            ;u64 #B114E0C5A92CC009
+  "link_instance/SourceNode"    ;u64 #4114E0C5A92CC005
+  "link_instance/SourceOutput"  ;s32 0                
+  "link_instance/TargetNode"    ;u64 #A914E0C5A92CC007
+  "link_instance/TargetInput"   ;s32 0                
+
+[ xProperties : 5 ]
+{ Name:s                        Value:?                }
+//----------------------------  ----------------------
+  "link_instance/Id"            ;u64 #D114E0C5A93E4011
+  "link_instance/SourceNode"    ;u64 #60A118C5A1B3800F
+  "link_instance/SourceOutput"  ;s32 0                
+  "link_instance/TargetNode"    ;u64 #114E0C5A93BC00F 
+  "link_instance/TargetInput"   ;s32 0                
+
+[ xProperties : 5 ]
+{ Name:s                        Value:?                }
+//----------------------------  ----------------------
+  "link_instance/Id"            ;u64 #B914E0C5A9438013
+  "link_instance/SourceNode"    ;u64 #114E0C5A93BC00F 
+  "link_instance/SourceOutput"  ;s32 0                
+  "link_instance/TargetNode"    ;u64 #4114E0C5A92CC005
+  "link_instance/TargetInput"   ;s32 0                
+
+[ xProperties : 5 ]
+{ Name:s                        Value:?                }
+//----------------------------  ----------------------
+  "link_instance/Id"            ;u64 #C53620C5AB168007
+  "link_instance/SourceNode"    ;u64 #60A118C5A1B3800F
+  "link_instance/SourceOutput"  ;s32 0                
+  "link_instance/TargetNode"    ;u64 #F53620C5AB150005
+  "link_instance/TargetInput"   ;s32 0                
+
+[ xProperties : 5 ]
+{ Name:s                        Value:?                }
+//----------------------------  ----------------------
+  "link_instance/Id"            ;u64 #FD3620C5AB19C009
+  "link_instance/SourceNode"    ;u64 #F53620C5AB150005
+  "link_instance/SourceOutput"  ;s32 0                
+  "link_instance/TargetNode"    ;u64 #F914E0C5A92E800B
+  "link_instance/TargetInput"   ;s32 0                
+
+[ xProperties : 5 ]
+{ Name:s                        Value:?                }
+//----------------------------  ----------------------
+  "link_instance/Id"            ;u64 #352558C5E4DAC005
+  "link_instance/SourceNode"    ;u64 #40A118C5A1BC401B
+  "link_instance/SourceOutput"  ;s32 0                
+  "link_instance/TargetNode"    ;u64 #114E0C5A93BC00F 
+  "link_instance/TargetInput"   ;s32 1                
+
+[ xProperties : 5 ]
+{ Name:s                        Value:?                }
+//----------------------------  ----------------------
+  "link_instance/Id"            ;u64 #152558C5E4DF4009
+  "link_instance/SourceNode"    ;u64 #40A118C5A1BC401B
+  "link_instance/SourceOutput"  ;s32 1                
+  "link_instance/TargetNode"    ;u64 #2D2558C5E4DD8007
+  "link_instance/TargetInput"   ;s32 0                
+
+[ xProperties : 5 ]
+{ Name:s                        Value:?                }
+//----------------------------  ----------------------
+  "link_instance/Id"            ;u64 #352558C5E4E3C00B
+  "link_instance/SourceNode"    ;u64 #2D2558C5E4DD8007
+  "link_instance/SourceOutput"  ;s32 0                
+  "link_instance/TargetNode"    ;u64 #60A118C5A1C38025
+  "link_instance/TargetInput"   ;s32 0                
+
+[ xProperties : 5 ]
+{ Name:s                        Value:?                }
+//----------------------------  ----------------------
+  "link_instance/Id"            ;u64 #9D2558C5E4E6000D
+  "link_instance/SourceNode"    ;u64 #2D2558C5E4DD8007
+  "link_instance/SourceOutput"  ;s32 0                
+  "link_instance/TargetNode"    ;u64 #40A118C5A1BC401B
+  "link_instance/TargetInput"   ;s32 2                

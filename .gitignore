@@ -24,10 +24,10 @@ Build/xGPUExamples.vs2022/assimp-vc143-mt.dll
 /*.tga
 
 # E27_NodeOS: plugins are compiled live by the running host, never by this project's own build -
-# the DLL/obj/lib/log/batch output has no business in source control. Debug log, undo-history
-# store, and ad-hoc save/export files produced while exercising the example are runtime output too.
+# the DLL/obj/lib/log/batch output has no business in source control. Debug log and undo-history
+# store are runtime output too. graph.txt IS checked in on purpose - it's the example graph a first
+# run opens with, not scratch output (see its own history for why this changed).
 /source/Examples/E27_NodeOS/CompiledPlugins/
 /source/Examples/E27_NodeOS/UndoHistory/
 /source/Examples/E27_NodeOS/nodeos_debug.log
-/source/Examples/E27_NodeOS/graph.txt
 /source/Examples/E27_NodeOS/exported_mesh.obj
