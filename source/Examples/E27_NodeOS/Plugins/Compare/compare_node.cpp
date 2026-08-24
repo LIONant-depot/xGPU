@@ -35,8 +35,8 @@ namespace
     , xproperty::settings::enum_item("A Less Than B",            compare_op::LESS)
     , xproperty::settings::enum_item("A Equal to B",             compare_op::EQUAL)
     , xproperty::settings::enum_item("A Not Equal to B",         compare_op::NOT_EQUAL)
-    , xproperty::settings::enum_item("A Greater Or Equal Than B", compare_op::GREATER_OR_EQUAL)
-    , xproperty::settings::enum_item("A Less Or Equal Than B",    compare_op::LESS_OR_EQUAL)
+    , xproperty::settings::enum_item("A Greater Or Equal To B",   compare_op::GREATER_OR_EQUAL)
+    , xproperty::settings::enum_item("A Less Or Equal To B",      compare_op::LESS_OR_EQUAL)
     };
 
     struct compare_node : xnode_os_node

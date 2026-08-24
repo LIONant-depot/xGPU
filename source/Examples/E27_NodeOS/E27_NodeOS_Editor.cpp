@@ -1960,7 +1960,19 @@ namespace nodeos
         // title draw call) - reserving room at the OLD, smaller size here would silently reopen the
         // title/category overlap bug the bigger title was supposed to have no part in.
         const float MinForHeader = 10.0f + TitleW * geo::TITLE_FONT_SCALE + 16.0f + CategoryW + 10.0f;
-        const float Result = std::max({ NameW + 2.0f * PortColW + 40.0f, MinForPreview, MinForHeader });
+        // The inline-enum-widget block (draw loop) sets the combo's own width to pRow->m_W - 20.0f
+        // and shows the CURRENTLY SELECTED item's full display name inside it - never previously
+        // measured here, so a node with a long enum choice (Compare's "A Greater Or Equal To B")
+        // could end up in a box too narrow to read its own dropdown without opening it. +50.0f covers
+        // the combo's own internal frame padding/dropdown arrow, on top of the same -20.0f the widget
+        // itself already reserves.
+        float MinForEnum = 0.0f;
+        if (const xproperty::type::object* pObj = pNode->getProperties())
+            for (auto& M : pObj->m_Members)
+                if (auto* pVar = std::get_if<xproperty::type::members::var>(&M.m_Variant); pVar && pVar->m_AtomicType.m_IsEnum)
+                    for (auto& Item : pVar->m_AtomicType.m_RegisteredEnumSpan)
+                        MinForEnum = std::max(MinForEnum, ImGui::CalcTextSize(Item.m_pName).x + 50.0f);
+        const float Result = std::max({ NameW + 2.0f * PortColW + 40.0f, MinForPreview, MinForHeader, MinForEnum });
         return Result;
     }
     // Extra vertical space at the ONE point a node's port list switches from external (caller-
@@ -6455,6 +6467,7 @@ namespace nodeos
                                                                     // below, for why a query needs to read this back.
             bool&                               m_bScreenshotRequested; // arms the capture - see screenshot_query_cmd and
             std::string&                        m_ScreenshotPath;       // E27_Example's PageFlip hook, which actually writes the file.
+            canvas_view&                        m_View;                 // pan/zoom - see SetView/GetView, below.
         };
 
         // Shared by select_cmd and clear_selection_cmd - both snapshot/restore the exact same set.
@@ -8546,6 +8559,59 @@ namespace nodeos
             }
             xcmdline::parser::handle m_hPath;
         };
+
+        //================================================================================================
+        // SetView/GetView - direct pan/zoom control over the graph canvas (canvas_view::m_PanX/m_PanY,
+        // screen-space pixels; m_Zoom, clamped [0.3, 2.5] same as the mouse-wheel handler in
+        // DrawGraphCanvas). Exists so a Screenshot can actually be aimed at a specific part of a large
+        // graph without needing UI mouse-drag/wheel input at all - GetView first, to see where you
+        // are, then SetView to move, then Screenshot. Plain float parsing via std::string rather than
+        // trusting xcmdline::parser's own numeric template instantiations, which aren't exercised
+        // anywhere else in this corpus.
+        //================================================================================================
+        static bool TryParseFloatArg(xcmdline::parser& Parser, xcmdline::parser::handle Handle, float& Out) noexcept
+        {
+            if (!Parser.hasOption(Handle)) return false;
+            auto Arg = Parser.getOptionArgAs<std::string>(Handle, 0);
+            if (std::holds_alternative<xerr>(Arg)) return false;
+            try { Out = std::stof(std::get<std::string>(Arg)); return true; } catch (...) { return false; }
+        }
+
+        struct set_view_query_cmd : xundo::query_command_base
+        {
+            set_view_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "SetView", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "Sets the graph canvas's pan/zoom directly - each argument optional, unset ones keep their current value. Usage: SetView [-PanX x] [-PanY y] [-Zoom z]"; }
+            void RegisterArguments() noexcept override
+            {
+                m_hPanX = m_Parser.addOption("PanX", "Screen-space X pan offset in pixels", false, 1);
+                m_hPanY = m_Parser.addOption("PanY", "Screen-space Y pan offset in pixels", false, 1);
+                m_hZoom = m_Parser.addOption("Zoom", "Zoom factor, clamped to [0.3, 2.5]", false, 1);
+            }
+
+            std::string Query() noexcept override
+            {
+                auto& Ctx = get<node_os_command_context>();
+                float V;
+                if (TryParseFloatArg(m_Parser, m_hPanX, V)) Ctx.m_View.m_PanX = V;
+                if (TryParseFloatArg(m_Parser, m_hPanY, V)) Ctx.m_View.m_PanY = V;
+                if (TryParseFloatArg(m_Parser, m_hZoom, V)) Ctx.m_View.m_Zoom = std::clamp(V, 0.3f, 2.5f);
+                return std::format("View: Pan=({:.1f}, {:.1f}) Zoom={:.2f}", Ctx.m_View.m_PanX, Ctx.m_View.m_PanY, Ctx.m_View.m_Zoom);
+            }
+            xcmdline::parser::handle m_hPanX, m_hPanY, m_hZoom;
+        };
+
+        struct get_view_query_cmd : xundo::query_command_base
+        {
+            get_view_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "GetView", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "Returns the graph canvas's current pan/zoom. Usage: GetView"; }
+            void RegisterArguments() noexcept override {}
+
+            std::string Query() noexcept override
+            {
+                auto& V = get<node_os_command_context>().m_View;
+                return std::format("Pan=({:.1f}, {:.1f}) Zoom={:.2f}", V.m_PanX, V.m_PanY, V.m_Zoom);
+            }
+        };
     }
 }
 
@@ -8729,7 +8795,7 @@ int E27_Example()
     // identically to how the ImGui code below calls it. bAutoLoadSave=false - a fresh undo stack each
     // run, since a stale on-disk history from a previous, differently-shaped graph would be more
     // confusing than useful for this example.
-    nodeos::commands::node_os_command_context CmdContext{ Nodes, Links, Selection, Sources, AvailableTypes, bDirty, Spines, Columns, ConsoleLog, bScreenshotRequested, ScreenshotPath };
+    nodeos::commands::node_os_command_context CmdContext{ Nodes, Links, Selection, Sources, AvailableTypes, bDirty, Spines, Columns, ConsoleLog, bScreenshotRequested, ScreenshotPath, View };
     xundo::system NodeOsUndo;
     if (auto Err = NodeOsUndo.Init("D:/LIONant/xGPU/source/Examples/E27_NodeOS/UndoHistory", false); !Err.empty())
         nodeos::Debugger(std::format("Node OS: xundo Init failed: {}", Err));
@@ -8760,6 +8826,8 @@ int E27_Example()
     nodeos::commands::rescan_plugins_query_cmd CmdRescanPlugins(NodeOsUndo, &CmdContext);
     nodeos::commands::reload_plugin_query_cmd  CmdReloadPlugin(NodeOsUndo, &CmdContext);
     nodeos::commands::screenshot_query_cmd     CmdScreenshot(NodeOsUndo, &CmdContext);
+    nodeos::commands::set_view_query_cmd       CmdSetView(NodeOsUndo, &CmdContext);
+    nodeos::commands::get_view_query_cmd       CmdGetView(NodeOsUndo, &CmdContext);
 
     // Central command router (xundo::history::Route, xundo_history.h) - addresses NodeOsUndo's
     // commands through one namespaced string ("NodeOS/Edit/<Cmd>" for mutations, "NodeOS/Query/<Cmd>"
