@@ -5156,7 +5156,11 @@ namespace nodeos
     // node_builder_node.cpp's own top comment. Checked here, not at Load/Save time, since an in-
     // progress graph mid-transition between purposes is not itself an error - only actually trying to
     // USE it (build a node, or run it as a program - see RunProgram/GenerateCpp's matching check) is.
-    static std::string BuildNodeFromFunction(node_instance& Builder, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, std::vector<plugin_source_entry>& Sources, std::vector<available_node_type>& AvailableTypes)
+    static bool SaveGraph(const std::string& Utf8Path, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links, const std::vector<available_node_type>& AvailableTypes
+                         , const std::vector<spine>& Spines, const std::vector<column>& Columns
+                         );
+
+    static std::string BuildNodeFromFunction(node_instance& Builder, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, std::vector<plugin_source_entry>& Sources, std::vector<available_node_type>& AvailableTypes, const std::vector<spine>& Spines, const std::vector<column>& Columns)
     {
         if (!Builder.m_pNode) return "BuildNode: NodeBuilder instance has no resolved plugin";
 
@@ -5188,6 +5192,14 @@ namespace nodeos
         std::error_code Ec;
         fs::create_directories(Dir, Ec);
         { std::ofstream Out(Path, std::ios::trunc); Out << Gen.m_SourceOrError; }
+
+        // The graph source lives right next to the artifact it produced - not a separate provenance-
+        // tracking system (no new state to keep in sync, no risk of it drifting from what actually
+        // got compiled), just SaveGraph writing to a name-addressable location, same as everything
+        // else NodeBuilder already does by convention. This is what a future "open this node, see (and
+        // recompile) its own defining graph" feature would key off - saved even if the compile below
+        // fails, so a broken attempt is still inspectable/fixable from exactly where it was published.
+        SaveGraph((Dir / (ArtifactName + "_graph.txt")).string(), Nodes, Links, AvailableTypes, Spines, Columns);
 
         // Reuse an existing Sources entry for this Name if NodeBuilder already published it once
         // before (so a second run recompiles/replaces the same plugin, rather than accumulating
@@ -8802,7 +8814,7 @@ namespace nodeos
                 // The graph already says what it is - dispatch automatically rather than making the
                 // caller separately check and know to reach for a different command.
                 if (auto* pBuilder = FindTheNodeBuilder(Ctx.m_Nodes))
-                    return BuildNodeFromFunction(*pBuilder, Ctx.m_Nodes, Ctx.m_Links, Ctx.m_Sources, Ctx.m_AvailableTypes);
+                    return BuildNodeFromFunction(*pBuilder, Ctx.m_Nodes, Ctx.m_Links, Ctx.m_Sources, Ctx.m_AvailableTypes, Ctx.m_Spines, Ctx.m_Columns);
                 const std::string Source = GenerateCpp(Ctx.m_Nodes, Ctx.m_Links, Ctx.m_Spines);
                 const auto Result = CompileAndRunGeneratedCpp(Source);
                 std::string Out = std::format("Compile: {}\n", Result.m_bCompileOk ? "OK" : "FAILED");
@@ -8839,7 +8851,7 @@ namespace nodeos
                 if (!pBuilder->m_pNode || pBuilder->m_pNode->m_pFactory->getName() != "NodeBuilder")
                     return std::format("BuildNode: node {:#x} is not a NodeBuilder", Id);
 
-                return BuildNodeFromFunction(*pBuilder, Ctx.m_Nodes, Ctx.m_Links, Ctx.m_Sources, Ctx.m_AvailableTypes);
+                return BuildNodeFromFunction(*pBuilder, Ctx.m_Nodes, Ctx.m_Links, Ctx.m_Sources, Ctx.m_AvailableTypes, Ctx.m_Spines, Ctx.m_Columns);
             }
             xcmdline::parser::handle m_hId;
         };
@@ -9329,7 +9341,7 @@ int E27_Example()
                     ? std::format("[nodebuilder-selftest] saved example to '{}'\n", ExamplePath)
                     : "[nodebuilder-selftest] SaveGraph FAILED\n";
 
-            Report += BuildNodeFromFunction(Nodes[0], Nodes, Links, Sources, AvailableTypes) + "\n";
+            Report += BuildNodeFromFunction(Nodes[0], Nodes, Links, Sources, AvailableTypes, Spines, Columns) + "\n";
 
             xnode_os_node_factory* pGenFactory = nullptr;
             for (auto& T : AvailableTypes) if (T.m_pFactory->getName() == "AddTwoGen") { pGenFactory = T.m_pFactory; break; }
@@ -9365,7 +9377,7 @@ int E27_Example()
                 // exclude it entirely (it lives in a different spine entirely, structurally outside
                 // the body range) - the generated .cpp must still be exactly the AddTwo logic, no
                 // trace of Print/Constant.
-                Report += "[nodebuilder-selftest] BuildNode with test rig present: " + BuildNodeFromFunction(Nodes[0], Nodes, Links, Sources, AvailableTypes) + "\n";
+                Report += "[nodebuilder-selftest] BuildNode with test rig present: " + BuildNodeFromFunction(Nodes[0], Nodes, Links, Sources, AvailableTypes, Spines, Columns) + "\n";
                 {
                     std::ifstream GenFile("D:/LIONant/xGPU/source/Examples/E27_NodeOS/Plugins/AddTwoGen/AddTwoGen_node.cpp");
                     std::stringstream GenBuf; GenBuf << GenFile.rdbuf();
@@ -9382,7 +9394,7 @@ int E27_Example()
             // unambiguous purpose.
             {
                 Nodes.push_back(CreateNodeInstance(7, pOnEventFactory, 3, 1)); // stray OnEvent
-                const std::string MixedResult = BuildNodeFromFunction(Nodes[0], Nodes, Links, Sources, AvailableTypes);
+                const std::string MixedResult = BuildNodeFromFunction(Nodes[0], Nodes, Links, Sources, AvailableTypes, Spines, Columns);
                 Report += std::format("[nodebuilder-selftest] BuildNode with a stray OnEvent present: {}\n", MixedResult);
 
                 DestroyNodeInstance(Nodes.back());
@@ -9408,7 +9420,7 @@ int E27_Example()
                     for (auto& N : RtNodes) if (N.m_pNode && N.m_pNode->m_pFactory->getName() == "NodeBuilder") { pRtBuilder = &N; break; }
                     Report += !pRtBuilder
                         ? "[nodebuilder-selftest] round-trip: no NodeBuilder node found after Load\n"
-                        : "[nodebuilder-selftest] round-trip: " + BuildNodeFromFunction(*pRtBuilder, RtNodes, RtLinks, RtSources, RtAvailableTypes) + "\n";
+                        : "[nodebuilder-selftest] round-trip: " + BuildNodeFromFunction(*pRtBuilder, RtNodes, RtLinks, RtSources, RtAvailableTypes, RtSpines, RtColumns) + "\n";
                 }
                 for (auto& N : RtNodes) DestroyNodeInstance(N);
             }
@@ -9652,7 +9664,7 @@ int E27_Example()
               if (auto* pBuilder = nodeos::FindTheNodeBuilder(Nodes))
               {
                 nodeos::GetRuntimeLog().clear();
-                nodeos::GetRuntimeLog().push_back("[nodebuilder] " + nodeos::BuildNodeFromFunction(*pBuilder, Nodes, Links, Sources, AvailableTypes));
+                nodeos::GetRuntimeLog().push_back("[nodebuilder] " + nodeos::BuildNodeFromFunction(*pBuilder, Nodes, Links, Sources, AvailableTypes, Spines, Columns));
               }
               else
               {
