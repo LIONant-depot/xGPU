@@ -774,4 +774,18 @@ namespace nodeos
     // header anyway.)
     struct literal_slot { unsigned char m_Bytes[8]; };
     using literal_storage = std::deque<literal_slot>;
+
+    // A "Scope" pin (NODE_SCRIPTING_DESIGN.md section 4.1's owner<->End ownership pins) never
+    // carries a runtime value at all - it exists purely to draw the read-only ownership wire, so it
+    // gets the same no-value-line treatment as Mesh in the canvas-support type-color/preview helpers.
+    // (Moved here, alongside IsExecType, specifically so the interpreter's IsRealDataPort - defined
+    // long before the canvas-support cluster in file order - has both available without a forward
+    // declaration; every other Is*Type predicate stays with the rest of that cluster in
+    // Editor/NodeOS_CanvasSupport.h.)
+    static bool IsScopeType(const char* pType) noexcept { return std::strcmp(pType, "Scope") == 0; }
+    // An "Exec" pin (OnEvent's output, Execute/Function/Call's input, Call's output -
+    // NODE_SCRIPTING_DESIGN.md's exec-flow addition) carries no data at all, same as Scope - it's a
+    // pure control-flow trigger, never wired to a Float/Bool/etc. pin and never assigned an inline
+    // literal.
+    static bool IsExecType(const char* pType) noexcept { return std::strcmp(pType, "Exec") == 0; }
 }
