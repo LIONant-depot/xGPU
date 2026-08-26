@@ -4277,6 +4277,12 @@ namespace nodeos
         return Name != "OnEvent" && Name != "ExecutionCall" && Name != "Execute" && Name != "Function"
             && Name != "If" && Name != "ForEachLoop" && Name != "End";
     }
+    // Pull-triggered "run this NodeBuilder's own body, using whatever test rig is wired to its
+    // external pins" - see this file's own RunProgram comment for the full "interpreter always runs
+    // in test mode" story. Defined after RunSpineRange/PullInputValue (needs both); declared here so
+    // EnsureNodeRun can dispatch to it.
+    static void RunNodeBuilderBody(node_instance& Builder, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, literal_storage& Scratch, int PullDepth);
+
     static void EnsureNodeRun(std::uint64_t NodeId, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, literal_storage& Scratch, int PullDepth)
     {
         // A real cyclic data dependency (A needs B needs A) would otherwise recurse forever - bail
@@ -4287,7 +4293,10 @@ namespace nodeos
         node_instance* pNode = FindNodeById(NodeId, Nodes);
         if (!pNode || !pNode->m_pNode || pNode->m_bHasRun) return;
         if (!IsPullableNodeType(pNode->m_pNode->m_pFactory->getName())) return;
-        RunOrdinaryNode(*pNode, Nodes, Links, Scratch, PullDepth + 1);
+        if (pNode->m_pNode->m_pFactory->getName() == "NodeBuilder")
+            RunNodeBuilderBody(*pNode, Nodes, Links, Scratch, PullDepth + 1);
+        else
+            RunOrdinaryNode(*pNode, Nodes, Links, Scratch, PullDepth + 1);
     }
     // Like GetInputValue, but for real execution: if a wire's source hasn't run yet, PULLS it (runs
     // it right now, recursively resolving its own inputs the same way) instead of just reporting
@@ -4337,6 +4346,17 @@ namespace nodeos
         std::vector<void*> Inputs(NodeInputs.size(), nullptr);
         for (int i = 0; i < (int)NodeInputs.size(); ++i)
             Inputs[i] = PullInputValue(Node.m_Id, i, Nodes, Links, Scratch, PullDepth);
+
+        // Re-check, not just the guard at entry: resolving an input above can recurse into a NodeBuilder
+        // pull (RunNodeBuilderBody) whose own body-walk can, in a graph shaped like this node's inputs
+        // being wired through a NodeBuilder positioned BEFORE it in the same spine, reach and run THIS
+        // node reentrantly before this call ever gets here - confirmed the hard way (a Math Expression
+        // wired to a NodeBuilder's local-mirror outputs, with the NodeBuilder itself pulled by something
+        // still earlier in the same PullInputValue chain, executed twice and leaked its first malloc'd
+        // output). Bailing here, after resolving inputs, is what makes this call a no-op instead of a
+        // real double-Execute() when that's already happened.
+        if (Node.m_bHasRun) return;
+
         Node.m_CachedOutputs.assign(NodeOutputs.size(), nullptr);
 
         // __except alone (SEH) does NOT catch a plain C++ throw under this project's /EHsc - only
@@ -4462,7 +4482,12 @@ namespace nodeos
             const auto Name = pN->m_pNode->m_pFactory->getName();
             if (Name == "End") continue;
             if (Name == "ExecutionCall") { RunExecutionCall(*pN, Nodes, Links, Scratch); continue; }
-            if (Name == "Function" || Name == "Execute") continue;
+            // NodeBuilder is skipped positionally, same as Function/Execute, but for a different
+            // reason: those two need an explicit Exec trigger; NodeBuilder has no Exec pin at all and
+            // only ever runs PULL-triggered (RunNodeBuilderBody, via EnsureNodeRun) - exactly like
+            // Constant/Math Expression already do - when something downstream needs its output. If
+            // nothing pulls it, it correctly stays !m_bHasRun ("not reached this run").
+            if (Name == "Function" || Name == "Execute" || Name == "NodeBuilder") continue;
             if (Name == "If" && pN->m_OwnedEndId != 0)
             {
                 // If has no Exec pins at all (if_node.cpp) - purely positional, its true-branch body
@@ -4491,11 +4516,103 @@ namespace nodeos
             RunOrdinaryNode(*pN, Nodes, Links, Scratch);
         }
     }
+
+    // Pull-triggered: something downstream (e.g. a Print wired to Builder's external Sum output)
+    // needed a value, EnsureNodeRun routed here instead of the generic RunOrdinaryNode. Same two-phase
+    // mirroring dance RunExecTarget's own "Function" branch uses, just PULL-triggered instead of Exec-
+    // triggered (Builder has no Exec pin), and bounded by Builder's own owned End marker exactly like
+    // Function's body is - test-rig content (a Constant feeding Builder's external inputs, a Print
+    // reading its external output) lives in the SAME spine, positioned AFTER that End marker, and is
+    // therefore never part of this walk's range at all - no exclusion list needed. An earlier version
+    // of this node had no End marker at all ("the whole graph IS the node") and instead tried to
+    // exclude test-rig nodes by which pins they were wired to; that broke the moment test content sat
+    // in the same spine as the body (positionally "inside" by range, wired-external "outside" by
+    // convention - a real contradiction, not just an edge case) - seeing node_builder_node.cpp's own
+    // top comment for the full story.
+    //   1. Resolve Builder's own EXTERNAL inputs (pulls from whatever test rig is wired in, e.g. a
+    //      Constant) and mirror each into the matching LOCAL-scope OUTPUT slot - the body's own nodes
+    //      read their "parameters" from there, same convention codegen already uses.
+    //   2. Mark m_bHasRun BEFORE running the body - the body reads through Builder's own output slots
+    //      (same node, different index), so PullInputValue's "is my source already run" check needs
+    //      this true already, exactly like RunExecTarget's own comment on the same requirement.
+    //   3. Run the body (RunSpineRange bounded to [Order+1, End's Order)) - already-run members are a
+    //      no-op the second time the OUTER walk reaches them positionally (RunOrdinaryNode's own
+    //      re-check guard, added specifically because this reentrant path exists).
+    //   4. Mirror the LOCAL-scope INPUT slots the body just wrote into (via ordinary wires) back out
+    //      to Builder's own declared EXTERNAL output slots, so the pulling caller (Print) gets a value.
+    static void RunNodeBuilderBody(node_instance& Builder, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, literal_storage& Scratch, int PullDepth)
+    {
+        if (!Builder.m_pNode || Builder.m_bHasRun) return;
+        const auto Inputs  = Builder.m_pNode->getInputs();  // external inputs + local-mirror-of-outputs
+        const auto Outputs = Builder.m_pNode->getOutputs(); // external outputs + local-mirror-of-inputs + [End]
+
+        int ExtInputCount = 0, ExtOutputCount = 0;
+        for (auto& P : Inputs)  if (!P.m_bLocalScope && IsRealDataPort(P)) ++ExtInputCount;
+        for (auto& P : Outputs) if (!P.m_bLocalScope && IsRealDataPort(P)) ++ExtOutputCount;
+
+        Builder.m_CachedOutputs.assign(Outputs.size(), nullptr);
+
+        int ExtInputSlot = 0;
+        for (int i = 0; i < (int)Inputs.size(); ++i)
+        {
+            if (Inputs[i].m_bLocalScope || !IsRealDataPort(Inputs[i])) continue;
+            Builder.m_CachedOutputs[ExtOutputCount + ExtInputSlot] = PullInputValue(Builder.m_Id, i, Nodes, Links, Scratch, PullDepth);
+            ++ExtInputSlot;
+        }
+
+        Builder.m_bHasRun = true;
+
+        auto* pEnd = FindNodeById(Builder.m_OwnedEndId, Nodes);
+        const int EndOrder = pEnd ? pEnd->m_Order : INT_MAX;
+        RunSpineRange(Builder.m_SpineId, Builder.m_Order + 1, EndOrder, Nodes, Links, Scratch);
+
+        const int FirstLocalInputIdx = ExtInputCount;
+        for (int j = 0; j < ExtOutputCount; ++j)
+            Builder.m_CachedOutputs[j] = PullInputValue(Builder.m_Id, FirstLocalInputIdx + j, Nodes, Links, Scratch, PullDepth);
+    }
+
     // Runs the whole PROGRAM: starts at the root spine's own beginning and walks forward - OnEvent
     // is a pure label (zero pins, does nothing on its own); ExecutionCall is what actually fires.
     // Once the root spine runs off its own end, the program is done, independent of anything else
     // that may or may not have been triggered along the way ("main spine governs program lifetime,"
     // settled this session).
+    // Used by the two CODEGEN paths only (CompileToCpp/"Compile to C++" and the -CodegenSelfTest
+    // hook) - both produce a standalone RunMain()-driven PROGRAM, which still isn't the right shape
+    // for a node-definition graph even now that the interpreter runs it in test mode (a "does this
+    // become a working program" check would just bake whatever test rig happens to be wired in as if
+    // it were the real thing). Refuse at the CALL SITE, before GenerateCpp/CompileAndRunGeneratedCpp
+    // ever runs - GenerateCpp itself once tried returning a one-line comment in place of source and
+    // letting the caller compile it anyway, which turned a clear refusal into a confusing LNK1561
+    // "entry point must be defined", confirmed the hard way.
+    //
+    // RunProgram (the live interpreter, "Execute Graph") does NOT use this check - see its own
+    // comment for why a NodeBuilder-declaring graph runs perfectly well there, just in test mode.
+    static bool HasNodeBuilder(const std::vector<node_instance>& Nodes) noexcept
+    {
+        return std::any_of(Nodes.begin(), Nodes.end(), [](auto& N) { return N.m_pNode && N.m_pNode->m_pFactory->getName() == "NodeBuilder"; });
+    }
+
+    // The graph itself already says what it's for - finds its own NodeBuilder so "compile this graph"
+    // (the button, the pipe command) can dispatch to the right backend automatically instead of
+    // making the caller separately check HasNodeBuilder and hunt down its id first. If more than one
+    // exists, returns the first found - BuildNodeFromFunction's own count check still catches and
+    // reports that as the real error it is; this is purely a convenience lookup, not a second place
+    // that validates graph purpose.
+    static node_instance* FindTheNodeBuilder(std::vector<node_instance>& Nodes) noexcept
+    {
+        for (auto& N : Nodes) if (N.m_pNode && N.m_pNode->m_pFactory->getName() == "NodeBuilder") return &N;
+        return nullptr;
+    }
+
+    // A NodeBuilder-declaring graph runs here in TEST MODE: NodeBuilder itself is skipped during
+    // ordinary positional walking (RunSpineRange's own dispatch) and only ever runs pull-triggered
+    // (see RunNodeBuilderBody) - exactly like Constant/Math Expression already do, not like Function/
+    // Execute's Exec-triggered model, since NodeBuilder has no Exec pin. Whatever's wired to its own
+    // EXTERNAL pins in THIS graph (e.g. a Constant feeding A/B, a Print reading Sum) drives that test
+    // run - and is completely invisible to BuildNode's own codegen (GenerateNodePluginCpp only ever
+    // reads NodeBuilder's declared InputsSpec/OutputsSpec and its body's own internal wiring, never
+    // what's wired to the external pins) - "the interpreter always runs in test mode, the C++ version
+    // compiles the final node without the test cases," exactly as confirmed.
     static void RunProgram(std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::vector<spine>& Spines, literal_storage& Scratch)
     {
         GetRuntimeLog().clear();
@@ -4829,8 +4946,16 @@ namespace nodeos
         for (std::size_t i = 0; i < Members.size(); ++i)
         {
             auto* pN = Members[i];
-            if (!pN->m_pNode) continue;
+            // Skip anything already emitted - either pulled in early via EnsureNodeEmitted (a real,
+            // if previously unexercised, gap: nothing stopped this positional walk from re-emitting
+            // the same node's declaration a second time once it reached it) or pre-marked by
+            // GenerateNodePluginCpp to exclude test-rig content wired to a NodeBuilder's own external
+            // pins (see FindNodesWiredToExternalPins) - mirrors RunSpineRange's own m_bHasRun guard.
+            if (!pN->m_pNode || EmittedNodeIds.count(pN->m_Id)) continue;
             const auto Name = pN->m_pNode->m_pFactory->getName();
+            // NodeBuilder itself can't reach this walk at all - GenerateCpp refuses upfront if the
+            // graph contains one (see its own top-of-function check) - so no case for it is needed
+            // here, unlike OnEvent.
             if (Name == "End" || Name == "OnEvent") continue;
             if (Name == "ExecutionCall") { EmitExecutionCall(*pN, Nodes, Links, EmittedNodeIds, Out, FunctionDefs); continue; }
             if (Name == "Function" || Name == "Execute") continue;
@@ -4869,6 +4994,217 @@ namespace nodeos
         return "// Auto-generated by Node OS codegen - do not hand-edit\n#include <cstdio>\n#include <cstdlib>\n#include <cmath>\n#include <algorithm>\n\n"
              + FunctionDefs
              + "static void RunMain()\n{\n" + MainBody + "}\n\nint main()\n{\n    RunMain();\n    return 0;\n}\n";
+    }
+
+    //------------------------------------------------------------------------------------------------
+    // NodeBuilder v1 - "compile a Node": a NodeBuilder node IS the definition (own InputsSpec/
+    // OutputsSpec, own owned scope/body between itself and its own End - see node_builder_node.cpp),
+    // never a reference to some other node elsewhere. This lowers that same node's own signature +
+    // owned-scope body into a genuine plugin .cpp (the same ABI every hand-written
+    // Plugins/<X>/x_node.cpp implements) - structurally the same body-lowering call EmitExecTarget's
+    // "Function" branch already uses (EmitSpineRange over an owned scope), just wrapped in a plugin-
+    // ABI harness (Inputs[i] casts up front, Outputs[i] writes at the end - multiple declared outputs
+    // all written directly) instead of a free-function-pasted-into-someone-else's-program shape.
+    //
+    // v1 type support is Float/Bool only (the only two types anything in this codegen backend has
+    // ever actually cast) - a pin declared "Int"/"Short"/"Any"/"Span<Any>" (all legal choices in
+    // NodeBuilder's own pin editor - it reuses the exact same spec format Function's does) fails
+    // generation with a clear, named diagnostic rather than emitting a cast that doesn't compile.
+    //------------------------------------------------------------------------------------------------
+    struct node_plugin_gen_result { bool m_bOk = false; std::string m_SourceOrError; };
+    static node_plugin_gen_result GenerateNodePluginCpp(node_instance& Builder, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, const std::string& ArtifactName)
+    {
+        node_plugin_gen_result Result;
+        if (!Builder.m_pNode) { Result.m_SourceOrError = "NodeBuilder instance has no resolved plugin"; return Result; }
+
+        const auto Inputs  = Builder.m_pNode->getInputs();  // external inputs + local-mirror-of-outputs
+        const auto Outputs = Builder.m_pNode->getOutputs(); // external outputs + local-mirror-of-inputs
+
+        // Only real, externally-wireable data ports become the generated node's OWN ports - every
+        // local-scope mirror (body-internal only) is never part of what a CALLER of the generated
+        // node sees.
+        struct ext_port { std::string m_Name; std::string m_Type; bool m_bRequired; bool m_bReadOnly; };
+        std::vector<ext_port> ExtInputs, ExtOutputs;
+        for (auto& P : Inputs)  if (!P.m_bLocalScope && IsRealDataPort(P)) ExtInputs.push_back({ P.m_pName, P.m_pTypeName, P.m_bRequired, P.m_bReadOnly });
+        for (auto& P : Outputs) if (!P.m_bLocalScope && IsRealDataPort(P)) ExtOutputs.push_back({ P.m_pName, P.m_pTypeName, P.m_bRequired, P.m_bReadOnly });
+
+        const auto CppTypeOf = [](const std::string& T) -> const char*
+        {
+            if (T == "Float") return "float";
+            if (T == "Bool")  return "bool";
+            return nullptr;
+        };
+        for (auto& P : ExtInputs)  if (!CppTypeOf(P.m_Type)) { Result.m_SourceOrError = std::format("input '{}' has type '{}' - NodeBuilder v1 only supports Float/Bool", P.m_Name, P.m_Type); return Result; }
+        for (auto& P : ExtOutputs) if (!CppTypeOf(P.m_Type)) { Result.m_SourceOrError = std::format("output '{}' has type '{}' - NodeBuilder v1 only supports Float/Bool", P.m_Name, P.m_Type); return Result; }
+        if (ExtOutputs.empty()) { Result.m_SourceOrError = "NodeBuilder declares zero outputs - nothing for the generated node to produce"; return Result; }
+
+        // Owns a scope (needsOwnedEndMarker, node_builder_node.cpp) - the body is [Order+1, End's
+        // Order), same shape EmitExecTarget's own "Function" branch already uses. Test-rig content
+        // (a Print reading the external Sum output for live testing, see RunNodeBuilderBody's own
+        // comment for the full story) lives in the SAME spine but AFTER the End marker, so it's simply
+        // outside this range - never swept into the compiled node, no exclusion list needed. This is
+        // what makes "the interpreter always runs in test mode, the C++ version compiles the final
+        // node without the test cases" structurally true, not true by accident because no test rig
+        // happened to exist yet.
+        std::set<std::uint64_t> EmittedNodeIds;
+        EmittedNodeIds.insert(Builder.m_Id); // body may read Builder's own local-mirror outputs
+        auto* pEnd = FindNodeById(Builder.m_OwnedEndId, Nodes);
+        const int EndOrder = pEnd ? pEnd->m_Order : INT_MAX;
+        std::string Body, UnusedFunctionDefs;
+        EmitSpineRange(Builder.m_SpineId, Builder.m_Order + 1, EndOrder, Nodes, Links, EmittedNodeIds, Body, UnusedFunctionDefs);
+
+        // Prologue: bind each external input's local name (the SAME CppVar(Builder.m_Id, ...) name the
+        // body above already references) to a cast read from this node's OWN Inputs[i].
+        std::string Prologue;
+        for (int i = 0; i < (int)ExtInputs.size(); ++i)
+            Prologue += std::format("    const {0} {1} = *static_cast<const {0}*>(Inputs[{2}]);\n", CppTypeOf(ExtInputs[i].m_Type), CppVar(Builder.m_Id, (int)ExtOutputs.size() + i), i);
+
+        // Epilogue: every declared output gets its own Outputs[i] write - the J-th external output
+        // (from Builder's own m_OutputsSpec) and the J-th local-mirror INPUT (decoded from that same
+        // spec, in the same order - see node_builder_node.cpp's Rebuild) are the same pin, so the
+        // return expression for output J is just Builder's own local-mirror input at that same
+        // relative index. No leading Exec pin to skip - Builder.getInputs() is [external inputs...]
+        // [local mirrors...] directly (see node_builder_node.cpp's own top comment for why NodeBuilder
+        // has no Exec pin at all). Matches the ABI's actual convention (Random/MathExpression, not
+        // something this generator invents): Outputs[i] starts null, Execute() mallocs its own storage
+        // and assigns the pointer, FreeOutputs() frees it - writing straight through a caller-owned
+        // Outputs[i] would assume storage nothing in this ABI ever pre-allocates (confirmed the hard
+        // way: a null-pointer write segfaulted the very first end-to-end test of this code).
+        const int FirstLocalInputIdx = (int)ExtInputs.size();
+        std::string Epilogue, FreeOutputsBody;
+        for (int j = 0; j < (int)ExtOutputs.size(); ++j)
+        {
+            const std::string Expr = CppInputExpr(Builder.m_Id, FirstLocalInputIdx + j, Links, Nodes, EmittedNodeIds, Body);
+            const char* T = CppTypeOf(ExtOutputs[j].m_Type);
+            Epilogue += std::format("    {{ auto* p = static_cast<{0}*>(std::malloc(sizeof({0}))); *p = {1}; Outputs[{2}] = p; }}\n", T, Expr, j);
+            FreeOutputsBody += std::format("            std::free(Outputs[{}]);\n", j);
+        }
+
+        std::string InputDescs, OutputDescs;
+        for (auto& P : ExtInputs)  InputDescs  += std::format("{{ \"{}\", \"{}\" }}, ", P.m_Name, P.m_Type);
+        for (auto& P : ExtOutputs) OutputDescs += std::format("{{ \"{}\", \"{}\" }}, ", P.m_Name, P.m_Type);
+
+        // One always-saved, DONT_SHOW-only dummy property is deliberately NOT needed here, unlike
+        // Random/Clamp/Trig - a GENERATED node has zero user-facing properties by construction, but
+        // that's fine: nothing about the zero-properties adjacency bug (see
+        // xgpu_zero_properties_adjacency_bug) depended on a node HAVING properties, only on whether
+        // HasAnyProperties() is stable for a type across saves - a type that always, unconditionally
+        // has zero properties is exactly as stable/distinguishable as one that always has some; the
+        // bug was specifically about a type whose HasAnyProperties() answer could flip between saves
+        // (DONT_SAVE-only members hidden by wiring state). A generated node's port list is frozen at
+        // generation time, so this can never happen.
+        const std::string StructName = ArtifactName + "_node";
+        Result.m_SourceOrError = std::format(
+            "// Auto-generated by NodeBuilder '{0}' - do not hand-edit; re-run NodeBuilder instead\n"
+            "#include \"../../SDK/xnode_os_plugin_api.h\"\n"
+            "#include \"../../SDK/xnode_os_shared_types.h\"\n"
+            "#include <cmath>\n#include <algorithm>\n#include <cstdlib>\n\n"
+            "namespace\n{{\n"
+            "    struct {1} : xnode_os_node\n"
+            "    {{\n"
+            "        XPROPERTY_VDEF(\"{1}\", {1})\n\n"
+            "        std::span<const xnode_os_port_desc> getInputs() const noexcept override\n"
+            "        {{ static const xnode_os_port_desc s_Inputs[] = {{ {2} }}; return s_Inputs; }}\n"
+            "        std::span<const xnode_os_port_desc> getOutputs() const noexcept override\n"
+            "        {{ static const xnode_os_port_desc s_Outputs[] = {{ {3} }}; return s_Outputs; }}\n"
+            "        void Execute(void** Inputs, void** Outputs) noexcept override\n"
+            "        {{\n{4}{5}{6}        }}\n"
+            "        void FreeOutputs(void** Outputs) noexcept override\n"
+            "        {{\n{8}        }}\n"
+            "    }};\n}}\n"
+            "XPROPERTY_VREG({1})\n\n"
+            "namespace\n{{\n"
+            "    struct {1}_factory : xnode_os_node_factory\n"
+            "    {{\n"
+            "        XPROPERTY_VDEF(\"{1}_factory\", {1}_factory)\n"
+            "        std::string_view getVersion()  const noexcept override {{ return \"1.0\"; }}\n"
+            "        std::string_view getName()     const noexcept override {{ return \"{7}\"; }}\n"
+            "        std::string_view getCategory() const noexcept override {{ return \"Generated\"; }}\n"
+            "        xnode_os_node& CreateNodeInstance() override {{ auto* p = new {1}(); p->m_pFactory = this; return *p; }}\n"
+            "        void DestroyNodeInstance(xnode_os_node& N) override {{ delete static_cast<{1}*>(&N); }}\n"
+            "    }};\n}}\n"
+            "XPROPERTY_VREG({1}_factory)\n\n"
+            "extern \"C\" XNODE_OS_EXPORT xnode_os_node_factory& NodeOS_CreateFactory(ixnode_os_host&) noexcept {{ return *new {1}_factory(); }}\n"
+            "extern \"C\" XNODE_OS_EXPORT void NodeOS_DestroyFactory(xnode_os_node_factory& F) noexcept {{ delete static_cast<{1}_factory*>(&F); }}\n"
+            , ArtifactName, StructName, InputDescs, OutputDescs, Prologue, Body, Epilogue, ArtifactName, FreeOutputsBody);
+        Result.m_bOk = true;
+        return Result;
+    }
+
+    // A-Z/a-z/0-9/_ only, and never starting with a digit - ArtifactName becomes a C++ struct name
+    // (via GenerateNodePluginCpp's own "_node"/"_factory" suffixing) AND a Plugins/<...>/ folder name,
+    // so it has to be valid as both at once.
+    static std::string SanitizeArtifactName(const std::string& Raw)
+    {
+        std::string Out;
+        for (char C : Raw) if (std::isalnum((unsigned char)C) || C == '_') Out += C;
+        if (Out.empty() || std::isdigit((unsigned char)Out[0])) Out = "Generated" + Out;
+        return Out;
+    }
+
+    // Orchestrates the whole "compile a Node" pipeline for one NodeBuilder instance: NodeBuilder IS
+    // the definition (no separate node to look up), lower+generate (GenerateNodePluginCpp above),
+    // write the result under a new Plugins/<Name>/ folder, and run it through the exact same
+    // compile-and-load path a hand-written plugin's "Compile & Load" button already uses
+    // (CompileAndLoadPlugin) - so a NodeBuilder-produced type is, from that point on, indistinguishable
+    // from one a human wrote by hand. Re-running against an already-published Name reuses the same
+    // Sources entry (found by DirName) rather than creating a duplicate - MergeCompileResult already
+    // knows how to prune a re-registering module's stale entries first.
+    //
+    // Enforces the "a graph has exactly one purpose" rule: a graph mixing NodeBuilder with OnEvent (a
+    // program-purpose marker), or declaring more than one NodeBuilder, can't say what it's FOR - see
+    // node_builder_node.cpp's own top comment. Checked here, not at Load/Save time, since an in-
+    // progress graph mid-transition between purposes is not itself an error - only actually trying to
+    // USE it (build a node, or run it as a program - see RunProgram/GenerateCpp's matching check) is.
+    static std::string BuildNodeFromFunction(node_instance& Builder, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, std::vector<plugin_source_entry>& Sources, std::vector<available_node_type>& AvailableTypes)
+    {
+        if (!Builder.m_pNode) return "BuildNode: NodeBuilder instance has no resolved plugin";
+
+        const bool bHasOnEvent = std::any_of(Nodes.begin(), Nodes.end(), [](auto& N) { return N.m_pNode && N.m_pNode->m_pFactory->getName() == "OnEvent"; });
+        if (bHasOnEvent) return "BuildNode: graph also contains an OnEvent node - a graph is either a program (OnEvent) or a node definition (NodeBuilder), never both";
+
+        const int NodeBuilderCount = (int)std::count_if(Nodes.begin(), Nodes.end(), [](auto& N) { return N.m_pNode && N.m_pNode->m_pFactory->getName() == "NodeBuilder"; });
+        if (NodeBuilderCount > 1) return std::format("BuildNode: graph contains {} NodeBuilder nodes - a graph defines exactly one node", NodeBuilderCount);
+
+        if (Builder.m_OwnedEndId == 0) return "BuildNode: NodeBuilder has no owned End marker (malformed)";
+
+        const auto ReadStringProp = [](xnode_os_node* pNode, const char* pName) -> std::string
+        {
+            auto* pMember = FindMemberByName(pNode->getProperties(), pName);
+            if (!pMember) return {};
+            xproperty::any Out; xproperty::settings::context Ctx;
+            if (pMember->TryRead(pNode, Out, Ctx) && Out.is<std::string>()) return Out.get<std::string>();
+            return {};
+        };
+
+        const std::string ArtifactName = SanitizeArtifactName(ReadStringProp(Builder.m_pNode, "Name"));
+
+        auto Gen = GenerateNodePluginCpp(Builder, Nodes, Links, ArtifactName);
+        if (!Gen.m_bOk) return "BuildNode: generation failed - " + Gen.m_SourceOrError;
+
+        namespace fs = std::filesystem;
+        const fs::path Dir  = fs::path("D:/LIONant/xGPU/source/Examples/E27_NodeOS/Plugins") / ArtifactName;
+        const fs::path Path = Dir / (ArtifactName + "_node.cpp");
+        std::error_code Ec;
+        fs::create_directories(Dir, Ec);
+        { std::ofstream Out(Path, std::ios::trunc); Out << Gen.m_SourceOrError; }
+
+        // Reuse an existing Sources entry for this Name if NodeBuilder already published it once
+        // before (so a second run recompiles/replaces the same plugin, rather than accumulating
+        // duplicate entries every time) - otherwise this is a brand-new, first-time publish.
+        plugin_source_entry* pEntry = nullptr;
+        for (auto& S : Sources) if (S.m_DirName == ArtifactName) { pEntry = &S; break; }
+        if (!pEntry)
+        {
+            Sources.push_back({ .m_DisplayName = ArtifactName, .m_SourcePath = Path.string(), .m_DirName = ArtifactName });
+            pEntry = &Sources.back();
+        }
+        pEntry->m_SourcePath = Path.string();
+
+        if (!CompileAndLoadPlugin(*pEntry, AvailableTypes))
+            return std::format("BuildNode: compile failed for '{}' - see log:\n{}", ArtifactName, pEntry->m_CompileLog);
+
+        return std::format("BuildNode: published '{}' - {}", ArtifactName, pEntry->m_CompileLog);
     }
 
     // Writes the generated source to disk, compiles it into a genuinely standalone .exe (no /LD,
@@ -5518,7 +5854,10 @@ namespace nodeos
 
         // "End" markers are deliberately never marked m_bHasRun by RunSpineRange (there's nothing to
         // run - they're a pure boundary) - excluded here so a working, correctly-skipped marker
-        // doesn't get flagged as an error alongside genuinely unreached content.
+        // doesn't get flagged as an error alongside genuinely unreached content. A NodeBuilder itself
+        // is also never m_bHasRun unless something actually pulled its output this run (see
+        // RunNodeBuilderBody) - "not reached" is an accurate, not misleading, message in that case:
+        // nothing tested this node's body this run.
         for (auto& Node : Nodes)
             if (!Node.m_bHasRun && Node.m_pNode && Node.m_pNode->m_pFactory->getName() != "End")
                 Node.m_LastError = "not reached this run - unconnected to the main exec/spine flow";
@@ -8454,12 +8793,16 @@ namespace nodeos
         struct compile_to_cpp_query_cmd : xundo::query_command_base
         {
             compile_to_cpp_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "CompileToCpp", pDataBase) { RegisterArguments(); }
-            const char* getCommandHelp() const noexcept override { return "Generates C++ from the current graph, compiles it standalone, and runs it - reports compile/run success and the actual program output. Usage: CompileToCpp"; }
+            const char* getCommandHelp() const noexcept override { return "Compiles the current graph - a program graph (OnEvent/ExecutionCall) generates C++, compiles it standalone, and runs it; a node-definition graph (NodeBuilder) publishes it as a real plugin instead (same as the BuildNode command) - the graph itself says which. Usage: CompileToCpp"; }
             void RegisterArguments() noexcept override {}
 
             std::string Query() noexcept override
             {
                 auto& Ctx = get<node_os_command_context>();
+                // The graph already says what it is - dispatch automatically rather than making the
+                // caller separately check and know to reach for a different command.
+                if (auto* pBuilder = FindTheNodeBuilder(Ctx.m_Nodes))
+                    return BuildNodeFromFunction(*pBuilder, Ctx.m_Nodes, Ctx.m_Links, Ctx.m_Sources, Ctx.m_AvailableTypes);
                 const std::string Source = GenerateCpp(Ctx.m_Nodes, Ctx.m_Links, Ctx.m_Spines);
                 const auto Result = CompileAndRunGeneratedCpp(Source);
                 std::string Out = std::format("Compile: {}\n", Result.m_bCompileOk ? "OK" : "FAILED");
@@ -8469,6 +8812,36 @@ namespace nodeos
                 Out += "--- Output ---\n" + Result.m_RunOutput;
                 return Out;
             }
+        };
+
+        //================================================================================================
+        // BuildNode - "compile a Node" (see BuildNodeFromFunction, NODEBUILDER_PROBLEM_STATEMENT.md).
+        // v1 is deliberately command-only, not wired into the live Exec-pin dispatch RunSpineRange/
+        // EmitSpineRange already give Function/Execute/ExecutionCall - see node_builder_node.cpp's own
+        // top comment for why. Takes the NodeBuilder INSTANCE's id (not the target Function's), same
+        // "-Id" convention GetNodeProperties/GetNodeInfo already use.
+        //================================================================================================
+        struct build_node_query_cmd : xundo::query_command_base
+        {
+            build_node_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "BuildNode", pDataBase) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "Compiles a NodeBuilder's own declared signature and body into a genuine new native node type. Usage: BuildNode -Id N"; }
+            void RegisterArguments() noexcept override { m_hId = m_Parser.addOption("Id", "NodeBuilder instance id", true, 1); }
+
+            std::string Query() noexcept override
+            {
+                auto IdArg = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
+                if (std::holds_alternative<xerr>(IdArg)) return "BuildNode: bad arguments";
+                const auto Id = ParseGuid(std::get<std::string>(IdArg));
+
+                auto& Ctx = get<node_os_command_context>();
+                auto* pBuilder = FindNodeById(Id, Ctx.m_Nodes);
+                if (!pBuilder) return std::format("BuildNode: no such node {:#x}", Id);
+                if (!pBuilder->m_pNode || pBuilder->m_pNode->m_pFactory->getName() != "NodeBuilder")
+                    return std::format("BuildNode: node {:#x} is not a NodeBuilder", Id);
+
+                return BuildNodeFromFunction(*pBuilder, Ctx.m_Nodes, Ctx.m_Links, Ctx.m_Sources, Ctx.m_AvailableTypes);
+            }
+            xcmdline::parser::handle m_hId;
         };
 
         //================================================================================================
@@ -8812,6 +9185,8 @@ int E27_Example()
         std::string Report;
         if (!nodeos::LoadGraph("D:/LIONant/xGPU/source/Examples/E27_NodeOS/graph.txt", Nodes, Links, Sources, AvailableTypes, Spines, Columns))
             Report = "[self-test] LoadGraph FAILED\n";
+        else if (nodeos::HasNodeBuilder(Nodes))
+            Report = "[self-test] refused - graph contains a NodeBuilder node (node definition, not a program)\n";
         else
         {
             const std::string GeneratedSource = nodeos::GenerateCpp(Nodes, Links, Spines);
@@ -8849,6 +9224,201 @@ int E27_Example()
         // by a separate Release-by-default tool - see xgpu_plugin_compiler_debug_release memory) once
         // that DLL is unloaded. Terminating here instead of falling through to that teardown sidesteps
         // it entirely for this self-test's own purpose (verifying the codegen pipeline itself).
+        TerminateProcess(GetCurrentProcess(), 0);
+    }
+
+    // SCRATCH, temporary v1 verification for NodeBuilder - builds a tiny self-contained NodeBuilder
+    // ("AddTwoGen": A,B:Float -> Sum:Float, body = one Math Expression node, no owned scope, no
+    // separate Function) directly in C++ (no saved-file text-format guessing), triggers
+    // BuildNodeFromFunction, then directly instantiates and Executes the freshly-published node type
+    // to confirm it actually computes the right answer, not just "compiled". Also exercises the two
+    // new graph-purpose checks (OnEvent+NodeBuilder mix, >1 NodeBuilder). Only fires with
+    // -NodeBuilderSelfTest.
+    if (std::strstr(GetCommandLineA(), "-NodeBuilderSelfTest"))
+    {
+        using namespace nodeos;
+        std::vector<plugin_source_entry> Sources = ScanPluginSources("D:/LIONant/xGPU/source/Examples/E27_NodeOS/Plugins");
+        std::vector<available_node_type> AvailableTypes;
+
+        const auto GetFactory = [&](const char* DirName) -> xnode_os_node_factory*
+        {
+            for (auto& S : Sources) if (S.m_DirName == DirName) return EnsureLoadedAndGetType(S, AvailableTypes);
+            return nullptr;
+        };
+        auto* pMathFactory    = GetFactory("MathExpression");
+        auto* pBuilderFactory = GetFactory("NodeBuilder");
+        auto* pEndFactory     = GetFactory("End");
+        auto* pOnEventFactory = GetFactory("OnEvent");
+        auto* pConstFactory   = GetFactory("Constant");
+        auto* pPrintFactory   = GetFactory("Print");
+
+        std::string Report;
+        if (!pMathFactory || !pBuilderFactory || !pEndFactory || !pOnEventFactory || !pConstFactory || !pPrintFactory)
+            Report = "[nodebuilder-selftest] failed to load one of MathExpression/NodeBuilder/End/OnEvent/Constant/Print\n";
+        else
+        {
+            const auto SetStr = [](xnode_os_node* pNode, const char* pName, const std::string& Value)
+            {
+                auto* pM = FindMemberByName(pNode->getProperties(), pName);
+                assert(pM);
+                xproperty::any In{ Value }; xproperty::settings::context Ctx;
+                (void)pM->TryWrite(pNode, In, Ctx);
+            };
+            const auto SetFloat = [](xnode_os_node* pNode, const char* pName, float Value)
+            {
+                auto* pM = FindMemberByName(pNode->getProperties(), pName);
+                assert(pM);
+                xproperty::any In{ Value }; xproperty::settings::context Ctx;
+                (void)pM->TryWrite(pNode, In, Ctx);
+            };
+
+            // Two spines, two columns - the definition (Builder+body+End) lives in its own, NON-root
+            // spine/column; the test rig (Constant/Constant/Print) lives in the ROOT spine/column.
+            // This is the layout confirmed correct: visually separates "the node's own definition"
+            // from "how it's being tested" the same way you'd keep test code in its own file - and
+            // critically, RunProgram only ever positionally walks the ROOT spine (RunSpineRange
+            // (RootSpineId, 0, INT_MAX, ...)), so Print (which has no Exec pin and only ever runs when
+            // its own spine's walk reaches it - see print_node.cpp's own comment) MUST be in the root
+            // spine or it silently never runs at all. Confirmed the hard way: putting the test rig in
+            // a NEW (necessarily non-root) spine instead left Print permanently "not reached this
+            // run" - RunNodeBuilderBody's own pull-triggered mirroring is spine-agnostic (it already
+            // works cross-spine, same as any other cross-spine data link in this graph model), so the
+            // fix is simply which of the two spines gets bIsRoot, not anything about the pull logic.
+            std::vector<column> Columns
+            { column { 10, 0, 11, true }  // root column (test rig)
+            , column { 11, 10, 0, false } // definition's own column
+            };
+            std::vector<spine> Spines
+            { spine { 1, 10, true,  0.0f } // root spine - test rig
+            , spine { 2, 11, false, 0.0f } // definition's own spine
+            };
+
+            std::vector<node_instance> Nodes;
+            std::vector<link_instance> Links;
+            Nodes.push_back(CreateNodeInstance(1, pBuilderFactory, 0, 2)); // NodeBuilder "AddTwoGen" - definition spine
+            Nodes.push_back(CreateNodeInstance(2, pMathFactory,    1, 2)); // body: A + B
+            Nodes.push_back(CreateNodeInstance(3, pEndFactory,     2, 2)); // Builder's own owned End
+            Nodes.push_back(CreateNodeInstance(4, pConstFactory,   0, 1)); // Constant A = 3 - root/test spine
+            Nodes.push_back(CreateNodeInstance(5, pConstFactory,   1, 1)); // Constant B = 4
+            Nodes.push_back(CreateNodeInstance(6, pPrintFactory,   2, 1)); // Print(Builder.Sum)
+
+            Nodes[0].m_OwnedEndId = 3;
+            SetStr(Nodes[0].m_pNode, "Name",        "AddTwoGen");
+            SetStr(Nodes[0].m_pNode, "InputsSpec",  "A:Float:1:1|B:Float:1:1");
+            SetStr(Nodes[0].m_pNode, "OutputsSpec", "Sum:Float:1:0");
+            SetFloat(Nodes[3].m_pNode, "Value Float", 3.0f);
+            SetFloat(Nodes[4].m_pNode, "Value Float", 4.0f);
+
+            // Builder.getOutputs() = [Sum(ext,0), A(mirror,1), B(mirror,2), End(3)] - body reads its
+            // parameters from the mirror outputs. Builder.getInputs() = [A(ext,0), B(ext,1), Sum
+            // (mirror,2)] - body writes its result into the Sum mirror input. No Exec pin - see
+            // node_builder_node.cpp's own top comment. The last three links cross spines - already-
+            // proven-valid, same "world scope" mechanism any other cross-spine data link uses.
+            Links.push_back({ .m_Id = 101, .m_SourceNode = 1, .m_SourceOutput = 1, .m_TargetNode = 2, .m_TargetInput = 0 }); // Builder.A -> Math.A
+            Links.push_back({ .m_Id = 102, .m_SourceNode = 1, .m_SourceOutput = 2, .m_TargetNode = 2, .m_TargetInput = 1 }); // Builder.B -> Math.B
+            Links.push_back({ .m_Id = 103, .m_SourceNode = 2, .m_SourceOutput = 0, .m_TargetNode = 1, .m_TargetInput = 2 }); // Math.Result -> Builder.Sum
+            Links.push_back({ .m_Id = 104, .m_SourceNode = 4, .m_SourceOutput = 0, .m_TargetNode = 1, .m_TargetInput = 0 }); // ConstA -> Builder.A (external, cross-spine)
+            Links.push_back({ .m_Id = 105, .m_SourceNode = 5, .m_SourceOutput = 0, .m_TargetNode = 1, .m_TargetInput = 1 }); // ConstB -> Builder.B (external, cross-spine)
+            Links.push_back({ .m_Id = 106, .m_SourceNode = 1, .m_SourceOutput = 0, .m_TargetNode = 6, .m_TargetInput = 0 }); // Builder.Sum (external, cross-spine) -> Print
+
+            // Saved as the actual example artifact - a real, loadable graph.txt-format file showing
+            // the two-spine layout: definition on one side, a working test rig on the other, exactly
+            // the state a user opening this file in the running editor would see.
+            const std::string ExamplePath = "D:/LIONant/xGPU/source/Examples/E27_NodeOS/graph_nodebuilder_example.txt";
+            Report += SaveGraph(ExamplePath, Nodes, Links, AvailableTypes, Spines, Columns)
+                    ? std::format("[nodebuilder-selftest] saved example to '{}'\n", ExamplePath)
+                    : "[nodebuilder-selftest] SaveGraph FAILED\n";
+
+            Report += BuildNodeFromFunction(Nodes[0], Nodes, Links, Sources, AvailableTypes) + "\n";
+
+            xnode_os_node_factory* pGenFactory = nullptr;
+            for (auto& T : AvailableTypes) if (T.m_pFactory->getName() == "AddTwoGen") { pGenFactory = T.m_pFactory; break; }
+            if (!pGenFactory)
+                Report += "[nodebuilder-selftest] published type 'AddTwoGen' not found in AvailableTypes\n";
+            else
+            {
+                xnode_os_node& Gen = pGenFactory->CreateNodeInstance();
+                float A = 3.0f, B = 4.0f;
+                void* Inputs[2]  = { &A, &B };
+                void* Outputs[1] = { nullptr };
+                Gen.Execute(Inputs, Outputs);
+                const float Sum = Outputs[0] ? *static_cast<float*>(Outputs[0]) : -999.0f;
+                Report += std::format("[nodebuilder-selftest] AddTwoGen(3, 4) = {} (expected 7)\n", Sum);
+                Gen.FreeOutputs(Outputs);
+                pGenFactory->DestroyNodeInstance(Gen);
+            }
+
+            // Interpreter TEST MODE, via RunProgram (NOT direct instantiate-and-Execute like above) -
+            // proves RunNodeBuilderBody's pull-triggered mirror dance actually works end to end across
+            // the two spines, AND (since Math Expression, positioned INSIDE the body range, gets
+            // reached by the OUTER positional walk BEFORE Print's own pull of Builder.Sum can reach
+            // it) exercises the reentrancy fix in RunOrdinaryNode - Math Expression's Execute() must
+            // run exactly once, not twice.
+            {
+                literal_storage TestScratch;
+                for (auto& N : Nodes) { N.m_bHasRun = false; N.m_LastError.clear(); N.m_CachedOutputs.clear(); }
+                RunProgram(Nodes, Links, Spines, TestScratch);
+                Report += "[nodebuilder-selftest] interpreter test-mode log:\n";
+                for (auto& Line : GetRuntimeLog()) Report += "  " + Line + "\n";
+
+                // The core promise, checked directly: BuildNode with the test rig STILL PRESENT must
+                // exclude it entirely (it lives in a different spine entirely, structurally outside
+                // the body range) - the generated .cpp must still be exactly the AddTwo logic, no
+                // trace of Print/Constant.
+                Report += "[nodebuilder-selftest] BuildNode with test rig present: " + BuildNodeFromFunction(Nodes[0], Nodes, Links, Sources, AvailableTypes) + "\n";
+                {
+                    std::ifstream GenFile("D:/LIONant/xGPU/source/Examples/E27_NodeOS/Plugins/AddTwoGen/AddTwoGen_node.cpp");
+                    std::stringstream GenBuf; GenBuf << GenFile.rdbuf();
+                    const std::string GenText = GenBuf.str();
+                    Report += (GenText.find("Print") == std::string::npos && GenText.find("malloc(sizeof(float)) * 2") == std::string::npos)
+                        ? "[nodebuilder-selftest] generated .cpp correctly excludes the test rig\n"
+                        : "[nodebuilder-selftest] generated .cpp LEAKED test-rig content - BUG\n";
+                }
+            }
+
+            // Graph-purpose validation check - BuildNode (publish time) still refuses a mixed graph.
+            // RunProgram (test mode) does NOT refuse this - a stray OnEvent alongside a NodeBuilder is
+            // harmless there (OnEvent is a no-op label either way) - only publishing needs a single,
+            // unambiguous purpose.
+            {
+                Nodes.push_back(CreateNodeInstance(7, pOnEventFactory, 3, 1)); // stray OnEvent
+                const std::string MixedResult = BuildNodeFromFunction(Nodes[0], Nodes, Links, Sources, AvailableTypes);
+                Report += std::format("[nodebuilder-selftest] BuildNode with a stray OnEvent present: {}\n", MixedResult);
+
+                DestroyNodeInstance(Nodes.back());
+                Nodes.pop_back();
+            }
+
+            // Round-trip check: the example file just saved is the actual artifact a user would open -
+            // load it back into FRESH containers (proves the on-disk format itself, not just the
+            // in-memory objects above, carries everything NodeBuilder needs) and run BuildNode again
+            // from there.
+            {
+                std::vector<node_instance>       RtNodes;
+                std::vector<link_instance>       RtLinks;
+                std::vector<spine>               RtSpines;
+                std::vector<column>              RtColumns;
+                std::vector<plugin_source_entry> RtSources = ScanPluginSources("D:/LIONant/xGPU/source/Examples/E27_NodeOS/Plugins");
+                std::vector<available_node_type> RtAvailableTypes;
+                if (!LoadGraph(ExamplePath, RtNodes, RtLinks, RtSources, RtAvailableTypes, RtSpines, RtColumns))
+                    Report += "[nodebuilder-selftest] round-trip LoadGraph of the saved example FAILED\n";
+                else
+                {
+                    node_instance* pRtBuilder = nullptr;
+                    for (auto& N : RtNodes) if (N.m_pNode && N.m_pNode->m_pFactory->getName() == "NodeBuilder") { pRtBuilder = &N; break; }
+                    Report += !pRtBuilder
+                        ? "[nodebuilder-selftest] round-trip: no NodeBuilder node found after Load\n"
+                        : "[nodebuilder-selftest] round-trip: " + BuildNodeFromFunction(*pRtBuilder, RtNodes, RtLinks, RtSources, RtAvailableTypes) + "\n";
+                }
+                for (auto& N : RtNodes) DestroyNodeInstance(N);
+            }
+
+            for (auto& N : Nodes) DestroyNodeInstance(N);
+        }
+
+        std::ofstream Out("D:/LIONant/xGPU/source/Examples/E27_NodeOS/CompiledPlugins/_nodebuilder_selftest_report.txt");
+        Out << Report;
+        Out.close();
         TerminateProcess(GetCurrentProcess(), 0);
     }
 
@@ -8991,6 +9561,7 @@ int E27_Example()
     nodeos::commands::run_graph_query_cmd      CmdRunGraph(NodeOsUndo, &CmdContext);
     nodeos::commands::get_node_values_query_cmd CmdGetNodeValues(NodeOsUndo, &CmdContext);
     nodeos::commands::compile_to_cpp_query_cmd  CmdCompileToCpp(NodeOsUndo, &CmdContext);
+    nodeos::commands::build_node_query_cmd     CmdBuildNode(NodeOsUndo, &CmdContext);
     nodeos::commands::clear_graph_query_cmd    CmdClearGraph(NodeOsUndo, &CmdContext);
     nodeos::commands::unload_plugin_query_cmd  CmdUnloadPlugin(NodeOsUndo, &CmdContext);
     nodeos::commands::rescan_plugins_query_cmd CmdRescanPlugins(NodeOsUndo, &CmdContext);
@@ -9076,6 +9647,15 @@ int E27_Example()
             // MeshPreview/GPU textures the way ExecuteGraph does.
             if (ImGui::Button("Compile to C++"))
             {
+              // The graph already says what it is - dispatch automatically rather than requiring a
+              // separate command/button for the NodeBuilder case.
+              if (auto* pBuilder = nodeos::FindTheNodeBuilder(Nodes))
+              {
+                nodeos::GetRuntimeLog().clear();
+                nodeos::GetRuntimeLog().push_back("[nodebuilder] " + nodeos::BuildNodeFromFunction(*pBuilder, Nodes, Links, Sources, AvailableTypes));
+              }
+              else
+              {
                 const std::string GeneratedSource = nodeos::GenerateCpp(Nodes, Links, Spines);
                 GeneratedCodeEditor.SetText(GeneratedSource);
                 const auto CodegenResult = nodeos::CompileAndRunGeneratedCpp(GeneratedSource);
@@ -9091,6 +9671,7 @@ int E27_Example()
                     nodeos::GetRuntimeLog().push_back("[codegen] compiled OK - actual program output:");
                     nodeos::GetRuntimeLog().push_back(CodegenResult.m_RunOutput);
                 }
+              }
             }
 
             ImGui::Separator();
