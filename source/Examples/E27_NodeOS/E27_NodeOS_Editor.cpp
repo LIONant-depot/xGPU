@@ -308,6 +308,27 @@ namespace nodeos
     };
     XPROPERTY_REG(spine)
 
+    // The one record in SaveGraph/LoadGraph that was still hand-rolled Stream.Record/Field calls -
+    // now the same official xproperty::sprop::serializer::Stream() every other record here already
+    // uses (node_topology/link_instance/column/spine), so the ENTIRE file goes through one
+    // serialization path, not "every record except this one".
+    struct graph_header
+    {
+        std::int32_t ColumnCount = 0;
+        std::int32_t SpineCount  = 0;
+        std::int32_t NodeCount   = 0;
+        std::int32_t LinkCount   = 0;
+
+        XPROPERTY_DEF
+        ( "graph_header", graph_header
+        , obj_member<"ColumnCount", &graph_header::ColumnCount>
+        , obj_member<"SpineCount",  &graph_header::SpineCount>
+        , obj_member<"NodeCount",   &graph_header::NodeCount>
+        , obj_member<"LinkCount",   &graph_header::LinkCount>
+        )
+    };
+    XPROPERTY_REG(graph_header)
+
     //------------------------------------------------------------------------------------------------
     // The result of compiling+loading one plugin - a plain value (no shared state touched while
     // building it) so it can be produced on a background thread via std::async and handed back to the
@@ -5901,9 +5922,11 @@ namespace nodeos
     // Save/load the whole graph (nodes + their properties + links) as a plain xtextfile - the same
     // text-file convention every other engine tool uses.
     //
-    // File shape - a single leading "Header" record (one plain row, no per-node/link/column/spine
-    // bookkeeping in it) states how many of each follow:
-    //   [ Header ]
+    // File shape - a single leading graph_header's own "xProperties" record (one plain row, no per-
+    // node/link/column/spine bookkeeping in it) states how many of each follow - same official
+    // xproperty::sprop::serializer::Stream() every other record below uses, so the whole file goes
+    // through one serialization path, not "every record except the header":
+    //   [ graph_header's own "xProperties" record ]
     //   { ColumnCount:d SpineCount:d NodeCount:d LinkCount:d }
     // ...then, in that same Column/Spine/Node/Link order (dependency order - see below):
     //   [ column's own "xProperties" record ]   x ColumnCount
@@ -5949,24 +5972,21 @@ namespace nodeos
             return {};
         };
 
-        // One combined header up front - see SaveGraph's own top comment for the file shape.
-        if (auto Err = Stream.Record("Header"
-            , [&](xerr& Error)
-            {
-                std::int32_t ColumnCount = static_cast<std::int32_t>(Columns.size());
-                std::int32_t SpineCount  = static_cast<std::int32_t>(Spines.size());
-                std::int32_t NodeCount   = static_cast<std::int32_t>(Nodes.size());
-                std::int32_t LinkCount   = static_cast<std::int32_t>(Links.size());
-                0
-                || (Error = Stream.Field("ColumnCount", ColumnCount))
-                || (Error = Stream.Field("SpineCount",  SpineCount))
-                || (Error = Stream.Field("NodeCount",   NodeCount))
-                || (Error = Stream.Field("LinkCount",   LinkCount));
-            }
-        ); Err)
+        // One combined header up front - see SaveGraph's own top comment for the file shape. Same
+        // official xproperty::sprop::serializer::Stream() every other record below uses.
         {
-            Debugger("Node OS: failed writing Header record");
-            return false;
+            graph_header Header
+            { .ColumnCount = static_cast<std::int32_t>(Columns.size())
+            , .SpineCount  = static_cast<std::int32_t>(Spines.size())
+            , .NodeCount   = static_cast<std::int32_t>(Nodes.size())
+            , .LinkCount   = static_cast<std::int32_t>(Links.size())
+            };
+            xproperty::settings::context Context;
+            if (auto Err = xproperty::sprop::serializer::Stream(Stream, Header, Context); Err)
+            {
+                Debugger(std::format("Node OS: failed writing Header record: {}", Err.getMessage()));
+                return false;
+            }
         }
 
         // Dependency order: Columns -> Spines (references ColumnId) -> Nodes (references SpineId) ->
@@ -6053,19 +6073,18 @@ namespace nodeos
         }
 
         std::int32_t ColumnCount = 0, SpineCount = 0, NodeCount = 0, LinkCount = 0;
-        if (auto Err = Stream.Record("Header"
-            , [&](xerr& Error)
-            {
-                0
-                || (Error = Stream.Field("ColumnCount", ColumnCount))
-                || (Error = Stream.Field("SpineCount",  SpineCount))
-                || (Error = Stream.Field("NodeCount",   NodeCount))
-                || (Error = Stream.Field("LinkCount",   LinkCount));
-            }
-        ); Err)
         {
-            Debugger(std::format("Node OS: failed reading Header record: {}", Err.getMessage()));
-            return false;
+            graph_header Header;
+            xproperty::settings::context Context;
+            if (auto Err = xproperty::sprop::serializer::Stream(Stream, Header, Context); Err)
+            {
+                Debugger(std::format("Node OS: failed reading Header record: {}", Err.getMessage()));
+                return false;
+            }
+            ColumnCount = Header.ColumnCount;
+            SpineCount  = Header.SpineCount;
+            NodeCount   = Header.NodeCount;
+            LinkCount   = Header.LinkCount;
         }
 
         // Dependency order mirrors SaveGraph: Columns -> Spines (validates ColumnId immediately

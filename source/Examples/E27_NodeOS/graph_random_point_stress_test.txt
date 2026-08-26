@@ -1,11 +1,14 @@
 
-[ Header ]
-{ ColumnCount:d  SpineCount:d  NodeCount:d  LinkCount:d }
-//-------------  ------------  -----------  -----------
-        1             1            14           14     
-
 // New Types
 < s32:d u32:g s16:C u16:H s8:c u8:h f32:f f64:F string:s wstring:S u64:G s64:D bool:c full_guid:GG enum:s >
+
+[ xProperties : 4 ]
+{ Name:s                     Value:? }
+//---------------------------  -------
+  "graph_header/ColumnCount"  ;s32 1
+  "graph_header/SpineCount"   ;s32 1
+  "graph_header/NodeCount"    ;s32 14
+  "graph_header/LinkCount"    ;s32 14
 
 [ xProperties : 4 ]
 { Name:s            Value:?                 }
