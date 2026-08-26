@@ -5,6 +5,19 @@
 
 namespace nodeos
 {
+    //------------------------------------------------------------------------------------------------
+    // Dependency-respecting evaluation: repeatedly execute any not-yet-run node whose every
+    // connected input already has a producer that has run, until nothing changes. Good enough for
+    // the small acyclic graphs this proof of concept cares about. No longer needs AvailableTypes at
+    // all - each node instance carries its own behavior directly (node_instance::m_pNode).
+    //------------------------------------------------------------------------------------------------
+    // ---- Real spine/exec-flow interpreter (NODE_SCRIPTING_DESIGN.md's exec-flow addition) ----
+    // This is what actually RUNS the program, replacing the older pure-dataflow "run whatever's
+    // ready" fixed point that used to live in ExecuteGraph (still fine for graphs with zero exec
+    // involvement, but wrong once OnEvent/ExecutionCall/Function/Execute exist - that model has no
+    // concept of spine order, scope, or "only run if actually triggered," and would call a node's
+    // Execute() the moment its inputs looked ready regardless of whether anything ever invokes it).
+
     // Real definition lives in Editor/NodeOS_CanvasSupport.h (header #7, included later) - forward
     // declared here exactly like the original monolith already forward-declared things defined later
     // in the same file. PullInputValue below is the only interpreter function that needs it (as the
