@@ -316,6 +316,10 @@ namespace e04
         bool m_NarrowBool    = true;
         int  m_ReplacedField = 7;
         int  m_FullRow       = 3;
+        int  m_BlockStart    = 1;
+        int  m_BlockMiddle   = 2;
+        int  m_BlockEnd      = 3;
+        int  m_AfterBlock    = 99;
 
         XPROPERTY_DEF
         ( "Custom Render Test", custom_render_smoke_test
@@ -328,8 +332,25 @@ namespace e04
             , member_help<"m_OnCustomRenderReplaceValue draws a custom button here instead of the normal numeric widget entirely - clicking it still writes through sprop::setProperty like any other commit in this file">>
         , obj_member<"Full Row Replaced (level 3)",    &custom_render_smoke_test::m_FullRow
             , member_help<"m_OnCustomRenderReplaceRow takes over BOTH the label and value columns - the normal 'Full Row Replaced (level 3)' name never even renders">>
+        , obj_member<"Block Start (level 4)",          &custom_render_smoke_test::m_BlockStart
+            , member_help<"Level 4 test: does 'replace multiple rows until resume' actually need new framework code, or does level 3 already provide it via consumer-side state? This one opens a custom block">>
+        , obj_member<"Block Middle (level 4)",         &custom_render_smoke_test::m_BlockMiddle
+            , member_help<"Should render as nothing at all - consumed into the block opened above, purely via the SAME level 3 check firing again and the consumer's own 'still in block' state saying so">>
+        , obj_member<"Block End (level 4)",            &custom_render_smoke_test::m_BlockEnd
+            , member_help<"Closes the custom block and hands control back to normal rendering">>
+        , obj_member<"After Block (normal)",           &custom_render_smoke_test::m_AfterBlock
+            , member_help<"No custom-render registration matches this one at all - should render completely normally, proving resume genuinely works">>
         )
     };
+
+    // Shared between the m_OnCustomRenderReplaceRow and m_OnCustomRenderAppend registrations below -
+    // both are captureless +[] lambdas (required for .Register<+[]...>()'s function-pointer
+    // conversion), so this can't be a local static inside just one of them; needs namespace scope to
+    // be visible to both. Without this, level 1's append (which has no Path filter of its own, by
+    // design - see its own registration comment) fires even for a level-4-suppressed "middle of block"
+    // row, which is correct/expected given the two levels are orthogonal, but makes for a less clean
+    // demo of "fully suppressed until resume" than checking this here too.
+    static bool g_bInCustomBlock = false;
 }
 XPROPERTY_REG(e04::button_smoke_test)
 XPROPERTY_REG(e04::override_demo_test)
@@ -455,6 +476,12 @@ int E04_Example()
                 // cursor correctly before calling this, no ImGui::SameLine() needed here.
                 CustomRenderInspector.m_OnCustomRenderAppend.Register<+[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view Path, const xproperty::any&)
                 {
+                    // Level 3 (registered below) already runs first each frame for the same property
+                    // and updates e04::g_bInCustomBlock, so by the time this fires for Block Start/Middle/
+                    // End it correctly reads true for all three - level 1 has no Path filter of its own
+                    // by design (see its own declaration comment), so without this check it would still
+                    // append on top of an otherwise fully-suppressed level-4 block row.
+                    if (e04::g_bInCustomBlock) return;
                     ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "<- appended");
                 }>();
 
@@ -493,15 +520,46 @@ int E04_Example()
                     }
                 }>();
 
-                // Smoke test for level 3: replace the LEFT column (label) - composes with the level 2
-                // registration above, which handles the SAME property's right column, to fully replace
-                // the row. The normal "Full Row Replaced (level 3)" name never renders at all.
+                // Smoke test for level 3 (Full Row Replaced): replace the LEFT column (label) -
+                // composes with the level 2 registration above, which handles the SAME property's
+                // right column, to fully replace the row.
+                //
+                // Smoke test for level 4 (Block Start/Middle/End): does "replace multiple rows until
+                // resume" actually need new framework code, or do levels 2/3 already provide it via
+                // consumer-side state? Block Start opens s_bInBlock, Block End closes it; Block Middle
+                // is never named explicitly at all - it's caught by the generic "while in block,
+                // suppress everything" fallback, proving the framework doesn't need to know how many
+                // rows a block spans, only the consumer does. After Block has no matching registration
+                // anywhere and should render completely normally, proving resume genuinely works.
                 CustomRenderInspector.m_OnCustomRenderReplaceRow.Register<+[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view Path, const xproperty::any&, bool& bHandled)
                 {
                     if (Path.ends_with("/Full Row Replaced (level 3)"))
                     {
                         bHandled = true;
                         ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.9f, 1.0f), "Dice");
+                        return;
+                    }
+                    if (Path.ends_with("/Block Start (level 4)"))
+                    {
+                        e04::g_bInCustomBlock = true;
+                        bHandled = true;
+                        ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.2f, 1.0f), "===== Custom Block =====");
+                        return;
+                    }
+                    if (Path.ends_with("/Block End (level 4)"))
+                    {
+                        e04::g_bInCustomBlock = false; // resume normal rendering starting with the NEXT property
+                        bHandled = true;
+                        ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.2f, 1.0f), "===== End Block =====");
+                        return;
+                    }
+                    if (e04::g_bInCustomBlock)
+                    {
+                        // Anything seen WHILE inside the block (Block Middle here, but a real consumer
+                        // wouldn't need to know its name) gets fully suppressed on both columns - level
+                        // 2's own bHandled is seeded from this one, so the right column vanishes too
+                        // with no separate registration needed.
+                        bHandled = true;
                     }
                 }>();
             }
