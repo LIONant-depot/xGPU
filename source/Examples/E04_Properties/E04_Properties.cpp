@@ -205,8 +205,32 @@ namespace e04
           >
         )
     };
+
+    //------------------------------------------------------------------------------------------------
+    // Smoke test for m_OnOverrideCheck/m_OnOverrideReset - the inspector never has a built-in notion
+    // of "overridden", it just calls out with the real (type::object&, instance) pair, the full
+    // canonical property path (a complete opaque key - array indices live inside it, e.g.
+    // "m_lTextures[G:2]", no parsing needed by the consumer), and the already-resolved current value.
+    // This demo's own check/reset logic (below, registered on the SAME inspector as button_smoke_test
+    // rather than a separate window) compares against a plain default-constructed instance - E20's
+    // real prefab/material-instance case would instead compare against (or fetch from) a real base
+    // object, using the exact same callback shape.
+    //------------------------------------------------------------------------------------------------
+    struct override_demo_test
+    {
+        float       m_Speed = 5.0f; // edit this away from 5.0 to see the override indicator + revert button appear
+        std::string m_Tag   = "default";
+
+        XPROPERTY_DEF
+        ( "Override Demo", override_demo_test
+        , obj_member<"Speed", &override_demo_test::m_Speed, member_section<"m_OnOverrideCheck / m_OnOverrideReset">
+            , member_help<"Edit away from its base value (5.0) to see the override indicator and revert button appear">>
+        , obj_member<"Tag", &override_demo_test::m_Tag>
+        )
+    };
 }
 XPROPERTY_REG(e04::button_smoke_test)
+XPROPERTY_REG(e04::override_demo_test)
 
 //------------------------------------------------------------------------------------------------
 
@@ -251,6 +275,7 @@ int E04_Example()
         //
         {
             static e04::button_smoke_test       ButtonSmokeTest;
+            static e04::override_demo_test      OverrideDemo;
             static xproperty::inspector          ButtonInspector{ "Button Smoke Test" };
             static bool                          Init = false;
             xproperty::settings::context         Context;
@@ -261,10 +286,39 @@ int E04_Example()
                 ButtonInspector.clear();
                 ButtonInspector.AppendEntity();
                 ButtonInspector.AppendEntityComponent(*xproperty::getObject(ButtonSmokeTest), &ButtonSmokeTest);
+                ButtonInspector.AppendEntityComponent(*xproperty::getObject(OverrideDemo), &OverrideDemo);
+
+                // Registered once, on this shared inspector - only reacts to paths belonging to
+                // OverrideDemo's own two members; every other row (button_smoke_test's own
+                // properties) just gets bIsOverridden left at its default false. A real consumer
+                // (E20's material-instance case) would instead compare against/fetch from a real
+                // base object rather than a plain default-constructed instance.
+                ButtonInspector.m_OnOverrideCheck.Register<+[](xproperty::inspector&, const xproperty::type::object&, void* pInstance, std::string_view Path, const xproperty::any& Value, bool& bOut)
+                {
+                    static const e04::override_demo_test k_Base{};
+                    if      (Path.ends_with("/Speed")) bOut = Value.get<float>()       != k_Base.m_Speed;
+                    else if (Path.ends_with("/Tag"))   bOut = Value.get<std::string>() != k_Base.m_Tag;
+                }>();
+                ButtonInspector.m_OnOverrideReset.Register<+[](xproperty::inspector&, const xproperty::type::object& Obj, void* pInstance, std::string_view Path)
+                {
+                    static const e04::override_demo_test k_Base{};
+                    std::string                   Error;
+                    xproperty::settings::context  Context;
+                    if (Path.ends_with("/Speed"))
+                    {
+                        xproperty::any A; A.set<float>(k_Base.m_Speed);
+                        xproperty::sprop::setProperty(Error, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), A }, Context);
+                    }
+                    else if (Path.ends_with("/Tag"))
+                    {
+                        xproperty::any A; A.set<std::string>(k_Base.m_Tag);
+                        xproperty::sprop::setProperty(Error, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), A }, Context);
+                    }
+                }>();
             }
 
             ImGui::SetNextWindowPos(ImVec2(990, 10), ImGuiCond_FirstUseEver);
-            ImGui::SetNextWindowSize(ImVec2(400, 500), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(400, 560), ImGuiCond_FirstUseEver);
             ButtonInspector.Show(Context, []{});
         }
 
