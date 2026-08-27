@@ -461,7 +461,10 @@ namespace e20
         }
         else
         {
-            bOpen = ImGui::Button(Name.c_str(), ImVec2(-1, 48));
+            // No thumbnail to show for a non-texture resource ref - a normal, single-line-height
+            // button (matching every other property value widget) instead of the 48px thumbnail-sized
+            // one, which only makes sense when there's actually an image next to it.
+            bOpen = ImGui::Button(Name.c_str(), ImVec2(-1, 0));
         }
         ImGui::PopStyleColor();
     }
@@ -828,7 +831,7 @@ int E20_Example()
     });
 
     xproperty::inspector    Inspector("Material Instance Properties");
-    auto                    RenderResourceWigzmosCallBack = [&TextureLRU](xproperty::inspector&, bool& bOpen, const xresource::full_guid& PreFullGuid) { RenderResourceWigzmos(TextureLRU, bOpen, PreFullGuid); };
+    auto                    RenderResourceWigzmosCallBack = [&TextureLRU](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view, bool& bOpen, const xresource::full_guid& PreFullGuid) { RenderResourceWigzmos(TextureLRU, bOpen, PreFullGuid); };
     Inspector.m_OnResourceWigzmos.m_Delegates.clear();
     Inspector.m_OnResourceBrowser.m_Delegates.clear();
     Inspector.m_OnResourceLeftSize.m_Delegates.clear();
@@ -868,11 +871,15 @@ int E20_Example()
     };
     Inspector.m_OnChangeEvent.Register(CallbackWhenPropsChanges);
     Inspector.m_OnResourceWigzmos.Register(RenderResourceWigzmosCallBack);
-    Inspector.m_OnResourceBrowser.Register<[](xproperty::inspector&, const void* pUID, bool& bOpen, xresource::full_guid& Out, std::span<const xresource::type_guid> Filters)
+    Inspector.m_OnResourceBrowser.Register<[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view Path, bool& bOpen, xresource::full_guid& Out, std::span<const xresource::type_guid> Filters)
     {
+        // Path is a stable, genuinely unique identity (unlike the old opaque pUID, which had to be
+        // separately derived at the call site) - hashed the same way the inspector's own default
+        // m_OnResourceLeftSize handler derives a TreeNodeEx id from a path.
+        const void* pUID = reinterpret_cast<const void*>(std::hash<std::string_view>{}(Path));
         e20::ResourceBrowserPopup(pUID, bOpen, Out, Filters);
     }>();
-    Inspector.m_OnResourceLeftSize.Register<[](xproperty::inspector& Inspector, void* pID, ImGuiTreeNodeFlags flags, const char* pName, bool& Open)
+    Inspector.m_OnResourceLeftSize.Register<[](xproperty::inspector& Inspector, const xproperty::type::object&, void* pInstance, std::string_view Path, const xproperty::any&, ImGuiTreeNodeFlags flags, const char* pName, bool& Open)
     {
         ImGuiStyle& style = ImGui::GetStyle();
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x, 18.0f));
@@ -883,24 +890,31 @@ int E20_Example()
 
         bool    bOverride   = false;
         int     Index       = 0;
-        auto    Pair        = Inspector.getComponent(0, 0);
+        bool    bIsArrayElement = false;
+
+        // Was this row's array index, if any - straight out of the real canonical property path
+        // (e.g. "...Textures[G:2]"), rather than reverse-engineering it from the RENDERED display
+        // text (the old `if (pName[0] == '[')` + manual bracket-stripping this replaces).
+        if (const auto Open2 = Path.rfind('['); Open2 != std::string_view::npos)
+        {
+            const auto Colon = Path.find(':', Open2);
+            const auto Close = Path.find(']', Open2);
+            if (Colon != std::string_view::npos && Close != std::string_view::npos && Colon < Close)
+            {
+                const auto ValueStr = Path.substr(Colon + 1, Close - Colon - 1);
+                const auto result = std::from_chars(ValueStr.data(), ValueStr.data() + ValueStr.size(), Index);
+                bIsArrayElement = (result.ec == std::errc());
+            }
+        }
 
         std::string NewName;
-        if (pName[0] == '[')
+        if (bIsArrayElement)
         {
-            auto                            View    = std::string_view(pName);
-            xmaterial_instance::descriptor* pDesc   = static_cast<xmaterial_instance::descriptor*>(Pair.second);
+            xmaterial_instance::descriptor* pDesc = static_cast<xmaterial_instance::descriptor*>(pInstance);
 
             // Change the name to point to the texture...
             if (not pDesc->m_lTextureDefaults.empty())
             {
-                // Remove the [ and ]
-                View = View.substr(1, View.size() - 2);
-
-                // get index
-                auto result = std::from_chars(View.data(), View.data() + View.size(), Index);
-                assert(result.ec == std::errc());
-
                 auto& Default = pDesc->m_lTextureDefaults[Index];
                 NewName = std::format("{} {}", pName, Default.m_Name);
                 pName = NewName.c_str();
@@ -909,29 +923,25 @@ int E20_Example()
             }
         }
 
-        if (bOverride) 
+        if (bOverride)
         {
             ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(170, 170, 255, 255));
 
             if (ImGui::Button(">"))
             {
-                xmaterial_instance::descriptor* pDesc   = static_cast<xmaterial_instance::descriptor*>(Pair.second);
+                xmaterial_instance::descriptor* pDesc   = static_cast<xmaterial_instance::descriptor*>(pInstance);
                 auto&                           Default = pDesc->m_lTextureDefaults[Index];
                 pDesc->m_lTextures[Index] = pDesc->m_lFinalTextures[Default.m_Index].m_TextureRef;
             }
 
             ImGui::SameLine();
         }
-        if (pID)
         {
+            const void* pID = reinterpret_cast<const void*>(std::hash<std::string_view>{}(Path));
             if (bOverride) Open = ImGui::TreeNodeEx(pID, ImGuiTreeNodeFlags_Framed | flags, " %s", pName);
             else           Open = ImGui::TreeNodeEx(pID, ImGuiTreeNodeFlags_Framed | flags, "  %s", pName);
         }
-        else
-        {
-            Open = ImGui::TreeNodeEx(pName, flags);
-        }
-        if (bOverride) 
+        if (bOverride)
         {
             ImGui::PopStyleColor();
         }

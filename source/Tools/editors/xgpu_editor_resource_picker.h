@@ -52,7 +52,10 @@ namespace xgpu::tools::editors
         base.y *= 0.75f;
         base.z *= 0.75f;
         ImGui::PushStyleColor(ImGuiCol_Button, base);
-        bOpen = ImGui::Button(Name.c_str(), ImVec2(-1, 48));
+        // No thumbnail to show for a non-texture resource ref (this simplified picker never has one -
+        // see this function's own comment above) - a normal, single-line-height button (matching every
+        // other property value widget) instead of a thumbnail-sized one nothing is actually filling.
+        bOpen = ImGui::Button(Name.c_str(), ImVec2(-1, 0));
         ImGui::PopStyleColor();
 
         if (ImGui::IsItemHovered() && not PreFullGuid.empty())

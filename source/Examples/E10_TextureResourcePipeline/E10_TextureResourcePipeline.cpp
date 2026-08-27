@@ -1152,7 +1152,7 @@ struct selected_desc
 
 //------------------------------------------------------------------------------------------------
 static
-void RenderResourceWigzmos(xproperty::inspector&, bool& bOpen, const xresource::full_guid& PreFullGuid)
+void RenderResourceWigzmos(xproperty::inspector&, const xproperty::type::object&, void*, std::string_view, bool& bOpen, const xresource::full_guid& PreFullGuid)
 {
     std::string Name;
 

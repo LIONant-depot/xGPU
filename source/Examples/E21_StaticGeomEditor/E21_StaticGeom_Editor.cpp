@@ -534,7 +534,10 @@ namespace e21
         }
         else
         {
-            bOpen = ImGui::Button(Name.c_str(), ImVec2(-1, 48));
+            // No thumbnail to show for a non-texture resource ref - a normal, single-line-height
+            // button (matching every other property value widget) instead of the 48px thumbnail-sized
+            // one, which only makes sense when there's actually an image next to it.
+            bOpen = ImGui::Button(Name.c_str(), ImVec2(-1, 0));
         }
         ImGui::PopStyleColor();
     }
@@ -1972,7 +1975,7 @@ int E21_Example()
     e21::static_geom_inspector   StaticGeomInspector;
     xproperty::inspector    InspectorSettings("Rendering Settings");
     xproperty::inspector    Inspector("Static Geom Properties");
-    auto                    RenderResourceWigzmosCallBack = [&TextureLRU](xproperty::inspector&, bool& bOpen, const xresource::full_guid& PreFullGuid) { RenderResourceWigzmos(TextureLRU, bOpen, PreFullGuid); };
+    auto                    RenderResourceWigzmosCallBack = [&TextureLRU](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view, bool& bOpen, const xresource::full_guid& PreFullGuid) { RenderResourceWigzmos(TextureLRU, bOpen, PreFullGuid); };
 
     // Theme the property dialogs to be more readable
     for (auto& E : std::array{ &Inspector, &InspectorSettings })
@@ -2032,11 +2035,12 @@ int E21_Example()
     {
         E->m_OnChangeEvent.Register(CallbackWhenPropsChanges);
         E->m_OnResourceWigzmos.Register(RenderResourceWigzmosCallBack);
-        E->m_OnResourceBrowser.Register<[](xproperty::inspector&, const void* pUID, bool& bOpen, xresource::full_guid& Out, std::span<const xresource::type_guid> Filters)
+        E->m_OnResourceBrowser.Register<[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view Path, bool& bOpen, xresource::full_guid& Out, std::span<const xresource::type_guid> Filters)
         {
+            const void* pUID = reinterpret_cast<const void*>(std::hash<std::string_view>{}(Path));
             e21::ResourceBrowserPopup(pUID, bOpen, Out, Filters);
         }>();
-        E->m_OnResourceLeftSize.Register<[](xproperty::inspector& Inspector, void* pID, ImGuiTreeNodeFlags flags, const char* pName, bool& Open)
+        E->m_OnResourceLeftSize.Register<[](xproperty::inspector& Inspector, const xproperty::type::object&, void* pInstance, std::string_view Path, const xproperty::any&, ImGuiTreeNodeFlags flags, const char* pName, bool& Open)
         {
             ImGuiStyle& style = ImGui::GetStyle();
             ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x, 18.0f));
@@ -2047,32 +2051,37 @@ int E21_Example()
 
             std::string NewName;
             bool bDisable = false;
-            if (pName[0] == '[')
+
+            // Array index straight out of the real canonical path (e.g. "...MaterialDetailsList[G:2]")
+            // instead of reverse-engineered from the rendered display text - also drops the old
+            // `strcmp(Inspector.getName(), "Rendering Settings") == 0 ? getComponent(0,1) :
+            // getComponent(0,0)` guess for which component owns this row: pInstance is already the
+            // exact instance for whichever component this specific entry actually belongs to.
+            if (const auto Open2 = Path.rfind('['); Open2 != std::string_view::npos)
             {
-                auto Pair    = strcmp(Inspector.getName(), "Rendering Settings") == 0 ? Inspector.getComponent(0, 1) : Inspector.getComponent(0, 0);
-                auto View    = std::string_view(pName);
-                auto pDesc   = static_cast<xgeom_static::descriptor*>(Pair.second);
-
-                // Change the name to point to the texture...
-                if (not pDesc->m_MaterialDetailsList.empty())
+                const auto Colon = Path.find(':', Open2);
+                const auto Close = Path.find(']', Open2);
+                if (Colon != std::string_view::npos && Close != std::string_view::npos && Colon < Close)
                 {
-                    // Remove the [ and ]
-                    View = View.substr(1, View.size() - 2);
-
-                    // get index
-                    int Index;
-                    auto result = std::from_chars(View.data(), View.data() + View.size(), Index);
-                    assert(result.ec == std::errc());
-
-                    NewName = std::format("{} {}", pName, pDesc->m_MaterialDetailsList[Index].m_Name);
-                    pName = NewName.c_str();
-                    bDisable = pDesc->m_MaterialDetailsList[Index].m_RefCount <= 0;
+                    auto pDesc = static_cast<xgeom_static::descriptor*>(pInstance);
+                    if (not pDesc->m_MaterialDetailsList.empty())
+                    {
+                        const auto ValueStr = Path.substr(Colon + 1, Close - Colon - 1);
+                        int        Index    = 0;
+                        if (std::from_chars(ValueStr.data(), ValueStr.data() + ValueStr.size(), Index).ec == std::errc())
+                        {
+                            NewName  = std::format("{} {}", pName, pDesc->m_MaterialDetailsList[Index].m_Name);
+                            pName    = NewName.c_str();
+                            bDisable = pDesc->m_MaterialDetailsList[Index].m_RefCount <= 0;
+                        }
+                    }
                 }
             }
 
             if (bDisable) ImGui::BeginDisabled(true);
-            if (pID)
+            if (!Path.empty())
             {
+                const void* pID = reinterpret_cast<const void*>(std::hash<std::string_view>{}(Path));
                 Open = ImGui::TreeNodeEx(pID, ImGuiTreeNodeFlags_Framed | flags, "  %s", pName);
             }
             else

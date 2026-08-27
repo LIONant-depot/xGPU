@@ -836,29 +836,40 @@ int E25_Example()
     // m_MaterialDetailsList and m_MaterialInstRefList (see xgeom_skin_descriptor.h), and grey out slots
     // no surviving mesh/node references; every other resource-ref field (SkeletonRef, PreviewAnimRef)
     // just gets the plain framed label. Ported from E21_StaticGeom_Editor.cpp.
-    auto OnResourceLeftSize = [](xproperty::inspector& Inspector, void* pID, ImGuiTreeNodeFlags flags, const char* pName, bool& Open)
+    auto OnResourceLeftSize = [](xproperty::inspector& Inspector, const xproperty::type::object&, void* pInstance, std::string_view Path, const xproperty::any&, ImGuiTreeNodeFlags flags, const char* pName, bool& Open)
     {
         std::string NewName;
         bool        bDisable = false;
-        if (pName[0] == '[' && strcmp(Inspector.getName(), "GeomSkin Properties") == 0)
+
+        // Array index straight out of the real canonical path (e.g. "...MaterialDetailsList[G:2]")
+        // instead of reverse-engineered from the rendered display text; pInstance is already the
+        // exact instance for whichever component this row belongs to, no strcmp(getName(),...) guess
+        // needed to pick which inspector/component this even is.
+        if (strcmp(Inspector.getName(), "GeomSkin Properties") == 0)
         {
-            auto Pair  = Inspector.getComponent(0, 0);
-            auto View  = std::string_view(pName);
-            auto pDesc = static_cast<xgeom_skin::descriptor*>(Pair.second);
-
-            if (not pDesc->m_MaterialDetailsList.empty())
+            if (const auto Open2 = Path.rfind('['); Open2 != std::string_view::npos)
             {
-                View = View.substr(1, View.size() - 2);
-                int Index;
-                auto result = std::from_chars(View.data(), View.data() + View.size(), Index);
-                assert(result.ec == std::errc());
-
-                NewName  = std::format("{} {}", pName, pDesc->m_MaterialDetailsList[Index].m_Name);
-                pName    = NewName.c_str();
-                bDisable = pDesc->m_MaterialDetailsList[Index].m_RefCount <= 0;
+                const auto Colon = Path.find(':', Open2);
+                const auto Close = Path.find(']', Open2);
+                if (Colon != std::string_view::npos && Close != std::string_view::npos && Colon < Close)
+                {
+                    auto pDesc = static_cast<xgeom_skin::descriptor*>(pInstance);
+                    if (not pDesc->m_MaterialDetailsList.empty())
+                    {
+                        const auto ValueStr = Path.substr(Colon + 1, Close - Colon - 1);
+                        int        Index    = 0;
+                        if (std::from_chars(ValueStr.data(), ValueStr.data() + ValueStr.size(), Index).ec == std::errc())
+                        {
+                            NewName  = std::format("{} {}", pName, pDesc->m_MaterialDetailsList[Index].m_Name);
+                            pName    = NewName.c_str();
+                            bDisable = pDesc->m_MaterialDetailsList[Index].m_RefCount <= 0;
+                        }
+                    }
+                }
             }
         }
 
+        const void* pID = Path.empty() ? nullptr : reinterpret_cast<const void*>(std::hash<std::string_view>{}(Path));
         if (bDisable) ImGui::BeginDisabled();
         Open = ImGui::TreeNodeEx(pID, ImGuiTreeNodeFlags_Framed | flags, "  %s", pName);
         if (bDisable) ImGui::EndDisabled();
@@ -870,13 +881,14 @@ int E25_Example()
         pInspector->m_OnResourceBrowser.m_Delegates.clear();
         pInspector->m_OnResourceLeftSize.m_Delegates.clear();
 
-        pInspector->m_OnResourceWigzmos.Register<[](xproperty::inspector&, bool& bOpen, const xresource::full_guid& PreFullGuid)
+        pInspector->m_OnResourceWigzmos.Register<[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view, bool& bOpen, const xresource::full_guid& PreFullGuid)
         {
             xgpu::tools::editors::RenderResourceWigzmos(bOpen, PreFullGuid);
         }>();
 
-        pInspector->m_OnResourceBrowser.Register<[](xproperty::inspector&, const void* pUID, bool& bOpen, xresource::full_guid& Out, std::span<const xresource::type_guid> Filters)
+        pInspector->m_OnResourceBrowser.Register<[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view Path, bool& bOpen, xresource::full_guid& Out, std::span<const xresource::type_guid> Filters)
         {
+            const void* pUID = reinterpret_cast<const void*>(std::hash<std::string_view>{}(Path));
             xgpu::tools::editors::ResourceBrowserPopup(pUID, bOpen, Out, Filters);
         }>();
 

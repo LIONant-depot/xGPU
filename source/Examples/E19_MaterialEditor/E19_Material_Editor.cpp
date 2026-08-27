@@ -1512,14 +1512,15 @@ int E19_Example()
     });
 
     xproperty::inspector    Inspector("Property");
-    auto                    RenderResourceWigzmosCallBack = [&TextureLRU](xproperty::inspector&, bool& bOpen, const xresource::full_guid& PreFullGuid) { RenderResourceWigzmos(TextureLRU, bOpen, PreFullGuid); };
+    auto                    RenderResourceWigzmosCallBack = [&TextureLRU](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view, bool& bOpen, const xresource::full_guid& PreFullGuid) { RenderResourceWigzmos(TextureLRU, bOpen, PreFullGuid); };
     Inspector.m_OnResourceWigzmos.Register(RenderResourceWigzmosCallBack);
-    Inspector.m_OnResourceBrowser.Register<[](xproperty::inspector&, const void* pUID, bool& bOpen, xresource::full_guid& Out, std::span<const xresource::type_guid> Filters)
+    Inspector.m_OnResourceBrowser.Register<[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view Path, bool& bOpen, xresource::full_guid& Out, std::span<const xresource::type_guid> Filters)
     {
+        const void* pUID = reinterpret_cast<const void*>(std::hash<std::string_view>{}(Path));
         ResourceBrowserPopup(pUID, bOpen, Out, Filters);
     }>();
     Inspector.m_OnResourceLeftSize.m_Delegates.clear();
-    Inspector.m_OnResourceLeftSize.Register<[](xproperty::inspector& Inspector, void* pID, ImGuiTreeNodeFlags flags, const char* pName, bool& Open)
+    Inspector.m_OnResourceLeftSize.Register<[](xproperty::inspector& Inspector, const xproperty::type::object&, void*, std::string_view Path, const xproperty::any&, ImGuiTreeNodeFlags flags, const char* pName, bool& Open)
     {
         ImGuiStyle& style = ImGui::GetStyle();
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x, 18.0f));
@@ -1528,8 +1529,9 @@ int E19_Example()
         // Get the bounding box of the last item (the tree node)
         ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(0, 0, 0, 0.2f));
 
-        if (pID)
+        if (!Path.empty())
         {
+            const void* pID = reinterpret_cast<const void*>(std::hash<std::string_view>{}(Path));
             Open = ImGui::TreeNodeEx(pID, ImGuiTreeNodeFlags_Framed | flags, "  %s", pName);
         }
         else
