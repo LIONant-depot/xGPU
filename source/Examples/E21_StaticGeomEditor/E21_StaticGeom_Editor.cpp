@@ -847,13 +847,7 @@ namespace e21
         , obj_scope < "Camera Info"
             , obj_member<"Position", +[](render_settings& O)->auto& { static xmath::fvec3 Pos; Pos = O.m_View.getPosition(); return Pos; }>
             , obj_member<"Target",   &render_settings::m_CameraTarget >
-            , obj_member<"Recenter", +[](render_settings& O, bool bRead, std::string& Value )
-            {
-                if (bRead) Value = "Recenter";
-                else       O.Recenter();
-            }
-            , member_ui<std::string>::button<>
-            >>
+            , obj_action<"Recenter", &render_settings::Recenter>>
         , obj_scope< "Lighting Info"
             , obj_member<"Direction",           &render_settings::m_LightDirection >
             , obj_member<"Position",            &render_settings::m_LightPosition >

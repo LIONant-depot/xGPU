@@ -345,11 +345,13 @@ namespace e23
 
         // Render/view settings, as a property (see the "Rendering Settings" inspector in the main
         // loop) rather than hardcoded ImGui widgets - matches E21_StaticGeomEditor's pattern. Pose
-        // is a dynamic string property rendered as a button (member_ui<std::string>::button<>,
-        // same idiom E21_StaticGeom_Editor.cpp's own "Recenter" button uses): on read, the lambda
-        // reports the pose it'll switch TO as the button's own label; on write (i.e. the button was
-        // clicked), it toggles the actual mode. This keeps it a real row in this same property grid
-        // instead of a hand-drawn ImGui::Button floating outside it.
+        // is a dynamic string property rendered as a button (member_ui<std::string>::button<>): on
+        // read, the lambda reports the pose it'll switch TO as the button's own label; on write (i.e.
+        // the button was clicked), it toggles the actual mode. A real obj_action + a separate dynamic-
+        // label tag was tried here instead and reverted - splitting "compute the label" and "do the
+        // action" across two declarations was strictly more code for no real gain over this one
+        // self-contained lambda, and this is exactly the case the lambda-based virtual-property style
+        // is good at (a small state machine expressed as one read/write function).
         XPROPERTY_DEF
         ( "Skeleton View", skeleton_state
         , obj_member<"Pose", +[](skeleton_state& O, bool bRead, std::string& Value)

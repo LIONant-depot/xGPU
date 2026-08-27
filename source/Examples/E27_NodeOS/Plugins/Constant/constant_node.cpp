@@ -14,9 +14,11 @@
 // descriptor uses for its compression-format union - only the active one is ever shown or saved).
 // "Effective Output" is a computed, read-only, never-saved property mirroring the live value this
 // node actually outputs - the debug-info idea: real-time state visible in the inspector without
-// pretending to be persistent config. "Reset" is a button (member_ui<std::string>::button) whose
-// write side zeroes whichever Value field is active - the button-as-action mechanism, same as E21's
-// render_settings::Recenter.
+// pretending to be persistent config. "Reset" is a virtual string property styled as a button
+// (member_ui<std::string>::button) whose write side zeroes whichever Value field is active -
+// deliberately not a real obj_action here, since Reset has no reason to exist as a standalone class
+// method outside the property system; the lambda keeps it self-contained instead of growing the
+// class's own API surface just to support a UI button.
 #include "../../SDK/xnode_os_plugin_api.h"
 #include "../../SDK/xnode_os_shared_types.h"
 #include <array>

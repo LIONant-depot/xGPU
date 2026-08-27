@@ -121,12 +121,43 @@ namespace e04
     }
 
     //------------------------------------------------------------------------------------------------
-    // Smoke test for reflected member functions drawing as inspector buttons (obj_member<"Name",
-    // &Class::Method> - previously reflected but never rendered, the collector just skipped it).
+    // Smoke test for the Milestone 0 surface that survived reconsideration, all in one panel:
+    //  - obj_action (sugar over obj_member<"Name", &Class::Method> - previously reflected but never
+    //    rendered, the collector just skipped it) for actions that are (or deserve to be) real class
+    //    methods, disabled via the SAME member_dynamic_flags<SHOW_READONLY> every other member already
+    //    uses - no separate action_state/action_dynamic_state mechanism, which turned out to just
+    //    duplicate what member_flags/member_dynamic_flags already did for free (E.m_Flags is resolved
+    //    generically for every member kind, function entries included; the button branch just needed
+    //    to read it, not grow a parallel enum)
+    //  - the OLDER virtual-string-property-styled-as-a-button pattern (member_ui<std::string>::button)
+    //    kept as the right tool for a genuinely dynamic/cycling label - a one-off UI action has no
+    //    business forcing a class to grow a permanent method just to support a button; the lambda
+    //    keeps compute-label-and-act self-contained instead of splitting it across a real method plus
+    //    a separate dynamic-label tag
+    //  - member_section layout separators
+    //  - a real bool member gating an entire obj_scope's visibility two different ways: as a SIBLING
+    //    row before the scope (member_dynamic_flags attached to the scope itself - no new mechanism,
+    //    obj_scope's T_ARGS pack is filtered into members_t/user_data_t exactly like obj_member's is),
+    //    and as the scope's own FIRST CHILD merged into its header row (obj_scope_toggle) - both
+    //    valid, genuinely different patterns depending on whether the toggle should visually merge
+    //    into the scope it controls or stay a separate, independently-positioned property.
     //------------------------------------------------------------------------------------------------
     struct button_smoke_test
     {
-        int m_Counter = 0;
+        static constexpr int k_Cap = 5;
+
+        int m_Counter   = 0;
+        int m_CycleMode = 0;
+
+        bool        m_bAdvancedEnabledSibling = false;
+        float       m_SpeedMultiplierA        = 1.0f;
+        int         m_MaxRetriesA             = 3;
+        std::string m_DebugTagA               = "none";
+
+        bool        m_bAdvancedEnabledToggle  = false;
+        float       m_SpeedMultiplierB        = 1.0f;
+        int         m_MaxRetriesB             = 3;
+        std::string m_DebugTagB               = "none";
 
         // Deliberately not noexcept - xproperty's reflected-function specialization only
         // matches plain T_RETURN(T_CLASS::*)(...) pointer-to-member-function types (same as
@@ -137,9 +168,41 @@ namespace e04
 
         XPROPERTY_DEF
         ( "Button Smoke Test", button_smoke_test
-        , obj_member<"Counter", &button_smoke_test::m_Counter>
-        , obj_member<"Increment", &button_smoke_test::Increment, member_help<"Should appear as a button; click adds 1 to Counter above">>
-        , obj_member<"Reset",     &button_smoke_test::Reset,     member_help<"Should appear as a button; click zeroes Counter above">>
+        , obj_member<"Counter", &button_smoke_test::m_Counter, member_section<"obj_action">>
+        , obj_action<"Increment", &button_smoke_test::Increment
+            , member_dynamic_flags<+[](const button_smoke_test& O) -> xproperty::flags::type
+                { xproperty::flags::type F{}; F.m_bShowReadOnly = O.m_Counter >= k_Cap; return F; }>
+            , member_help<"obj_action, disabled via the same member_dynamic_flags<SHOW_READONLY> every other property already uses - click adds 1 to Counter above; disables once it hits the cap">>
+        , obj_action<"Reset", &button_smoke_test::Reset
+            , member_help<"A plain obj_action - real method, real invocation, no fake read/write round-trip">>
+        , obj_member<"Cycle Mode"
+            , +[](button_smoke_test& O, bool bRead, std::string& Value)
+              {
+                  static constexpr const char* k_Names[] = { "Mode: A", "Mode: B", "Mode: C" };
+                  if (bRead) Value = k_Names[O.m_CycleMode];
+                  else       O.m_CycleMode = (O.m_CycleMode + 1) % 3;
+              }
+            , member_ui<std::string>::button<>
+            , member_flags<xproperty::flags::DONT_SAVE>
+            , member_section<"the lambda pattern">
+            , member_help<"A virtual string property styled as a button - the right tool when the label itself must cycle/reflect live state; keeps compute-label-and-act in one place instead of a real method plus a separate label tag">>
+        , obj_member<"Enable Advanced Settings", &button_smoke_test::m_bAdvancedEnabledSibling
+            , member_section<"Scope Gating - sibling bool">
+            , member_help<"A real, always-visible checkbox - toggling it shows/hides the Advanced Settings scope below">>
+        , obj_scope<"Advanced Settings A"
+            , obj_member<"Speed Multiplier", &button_smoke_test::m_SpeedMultiplierA>
+            , obj_member<"Max Retries",      &button_smoke_test::m_MaxRetriesA>
+            , obj_member<"Debug Tag",        &button_smoke_test::m_DebugTagA>
+            , member_dynamic_flags<+[](const button_smoke_test& O) -> xproperty::flags::type
+                { xproperty::flags::type F{}; F.m_bDontShow = !O.m_bAdvancedEnabledSibling; return F; }>
+          >
+        , obj_scope<"Advanced Settings B"
+            , obj_scope_toggle<"Enabled", &button_smoke_test::m_bAdvancedEnabledToggle>
+            , obj_member<"Speed Multiplier", &button_smoke_test::m_SpeedMultiplierB>
+            , obj_member<"Max Retries",      &button_smoke_test::m_MaxRetriesB>
+            , obj_member<"Debug Tag",        &button_smoke_test::m_DebugTagB>
+            , member_section<"Scope Toggle - bool as first child">
+          >
         )
     };
 }
@@ -201,7 +264,7 @@ int E04_Example()
             }
 
             ImGui::SetNextWindowPos(ImVec2(990, 10), ImGuiCond_FirstUseEver);
-            ImGui::SetNextWindowSize(ImVec2(400, 300), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(400, 500), ImGuiCond_FirstUseEver);
             ButtonInspector.Show(Context, []{});
         }
 
