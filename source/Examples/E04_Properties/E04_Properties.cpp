@@ -312,9 +312,10 @@ namespace e04
     //------------------------------------------------------------------------------------------------
     struct custom_render_smoke_test
     {
-        int  m_WideNumber   = 42;
-        bool m_NarrowBool   = true;
+        int  m_WideNumber    = 42;
+        bool m_NarrowBool    = true;
         int  m_ReplacedField = 7;
+        int  m_FullRow       = 3;
 
         XPROPERTY_DEF
         ( "Custom Render Test", custom_render_smoke_test
@@ -325,6 +326,8 @@ namespace e04
             , member_help<"No APPEND_NEW_LINE flag - default same-line append, which already has visible room after a narrow checkbox">>
         , obj_member<"Replaced Field (level 2)",       &custom_render_smoke_test::m_ReplacedField
             , member_help<"m_OnCustomRenderReplaceValue draws a custom button here instead of the normal numeric widget entirely - clicking it still writes through sprop::setProperty like any other commit in this file">>
+        , obj_member<"Full Row Replaced (level 3)",    &custom_render_smoke_test::m_FullRow
+            , member_help<"m_OnCustomRenderReplaceRow takes over BOTH the label and value columns - the normal 'Full Row Replaced (level 3)' name never even renders">>
         )
     };
 }
@@ -473,6 +476,32 @@ int E04_Example()
                             xproperty::sprop::setProperty(Error, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), NewValue }, Context);
                         }
                         ImGui::PopStyleColor();
+                    }
+                    // Right half of the level 3 smoke test below - m_OnCustomRenderReplaceRow draws the
+                    // left column; the automatic NextColumn() between the two delegates means this one
+                    // still has to separately handle the right column itself.
+                    else if (Path.ends_with("/Full Row Replaced (level 3)"))
+                    {
+                        bHandled = true;
+                        if (ImGui::Button(std::format("Roll (currently {})", Value.get<int>()).c_str(), ImVec2(-1, 0)))
+                        {
+                            std::string                   Error;
+                            xproperty::settings::context  Context;
+                            xproperty::any                NewValue; NewValue.set<int>((Value.get<int>() % 6) + 1);
+                            xproperty::sprop::setProperty(Error, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), NewValue }, Context);
+                        }
+                    }
+                }>();
+
+                // Smoke test for level 3: replace the LEFT column (label) - composes with the level 2
+                // registration above, which handles the SAME property's right column, to fully replace
+                // the row. The normal "Full Row Replaced (level 3)" name never renders at all.
+                CustomRenderInspector.m_OnCustomRenderReplaceRow.Register<+[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view Path, const xproperty::any&, bool& bHandled)
+                {
+                    if (Path.ends_with("/Full Row Replaced (level 3)"))
+                    {
+                        bHandled = true;
+                        ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.9f, 1.0f), "Dice");
                     }
                 }>();
             }
