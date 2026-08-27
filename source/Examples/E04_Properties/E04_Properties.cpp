@@ -228,9 +228,52 @@ namespace e04
         , obj_member<"Tag", &override_demo_test::m_Tag>
         )
     };
+
+    //------------------------------------------------------------------------------------------------
+    // Smoke test for this session's list-primitive additions: list_table::getCapacity (a physical slot
+    // ceiling, separate from getSize's live count) and the always-on generic Swap (both new), plus
+    // member_overwrite_list_size - which already existed in core xproperty.h but had zero real
+    // consumers anywhere in this codebase until now. It's a single bRead callback (same idiom as the
+    // lambda-styled-as-a-button pattern above) that lets a FIXED-capacity container become resizable-
+    // within-capacity by delegating its live count to a sibling field, leaving the unused tail slots
+    // just sitting there rather than deallocated.
+    //
+    // Also exercises a real, previously-latent bug fix: the Size: field's read-only gate used to check
+    // only for an (unused-anywhere) member_ui_list_size_t STYLE tag, never the list's actual
+    // m_bHasRealSetSize - so every array's Size field, vector or not, rendered permanently disabled.
+    // Both members below have no style tag attached (matching how every real array in the codebase is
+    // declared today) and should now show a genuinely editable Size: field regardless.
+    //------------------------------------------------------------------------------------------------
+    struct array_ops_smoke_test
+    {
+        std::vector<int> m_DynamicList = { 1, 2, 3 };
+
+        static constexpr int             k_FixedCapacity = 8;
+        std::array<int, k_FixedCapacity> m_FixedSlots = { 10, 20, 30 };
+        std::uint8_t                     m_UsedSlots  = 3; // how many of m_FixedSlots[] are "live" - the rest just sit there unused
+
+        XPROPERTY_DEF
+        ( "Array Ops Smoke Test", array_ops_smoke_test
+        , obj_member<"Dynamic List (std::vector)", &array_ops_smoke_test::m_DynamicList
+            , member_section<"Real resize - no UI style tag attached">
+            , member_help<"A real std::vector, no member_ui_list_size style tag attached - Size: should now be genuinely editable since the gate reads list_table::m_bHasRealSetSize instead of the tag's (previously always-absent) presence">>
+        , obj_member<"Fixed Slots (std::array, capacity 8)", &array_ops_smoke_test::m_FixedSlots
+            , member_overwrite_list_size<+[](array_ops_smoke_test& O, bool bRead, std::size_t& Size)
+                {
+                    if (bRead) Size = O.m_UsedSlots;
+                    else       O.m_UsedSlots = static_cast<std::uint8_t>(Size > static_cast<std::size_t>(array_ops_smoke_test::k_FixedCapacity) ? array_ops_smoke_test::k_FixedCapacity : Size);
+                }>
+            , member_section<"Fixed capacity + sibling live count">
+            , member_help<"std::array<int,8> - normally fixed/non-resizable. member_overwrite_list_size delegates the live count to the sibling Used Slots field below, unlocking Size: within the 8-slot capacity; slots past the live count just sit there unused, not deallocated">>
+        , obj_member<"Used Slots (sibling count, read-only mirror)", &array_ops_smoke_test::m_UsedSlots
+            , member_flags<xproperty::flags::SHOW_READONLY>
+            , member_help<"Backs Fixed Slots' live count above - shown here read-only just to make the override visible; drive it via Fixed Slots' own Size: field, not directly">>
+        )
+    };
 }
 XPROPERTY_REG(e04::button_smoke_test)
 XPROPERTY_REG(e04::override_demo_test)
+XPROPERTY_REG(e04::array_ops_smoke_test)
 
 //------------------------------------------------------------------------------------------------
 
@@ -276,6 +319,7 @@ int E04_Example()
         {
             static e04::button_smoke_test       ButtonSmokeTest;
             static e04::override_demo_test      OverrideDemo;
+            static e04::array_ops_smoke_test    ArrayOpsDemo;
             static xproperty::inspector          ButtonInspector{ "Button Smoke Test" };
             static bool                          Init = false;
             xproperty::settings::context         Context;
@@ -287,6 +331,7 @@ int E04_Example()
                 ButtonInspector.AppendEntity();
                 ButtonInspector.AppendEntityComponent(*xproperty::getObject(ButtonSmokeTest), &ButtonSmokeTest);
                 ButtonInspector.AppendEntityComponent(*xproperty::getObject(OverrideDemo), &OverrideDemo);
+                ButtonInspector.AppendEntityComponent(*xproperty::getObject(ArrayOpsDemo), &ArrayOpsDemo);
 
                 // Registered once, on this shared inspector - only reacts to paths belonging to
                 // OverrideDemo's own two members; every other row (button_smoke_test's own
