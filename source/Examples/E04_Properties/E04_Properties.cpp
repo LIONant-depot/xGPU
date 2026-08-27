@@ -252,6 +252,8 @@ namespace e04
         std::array<int, k_FixedCapacity> m_FixedSlots = { 10, 20, 30 };
         std::uint8_t                     m_UsedSlots  = 3; // how many of m_FixedSlots[] are "live" - the rest just sit there unused
 
+        std::array<int, 4> m_TrulyFixed = { 100, 200, 300, 400 }; // no override at all - genuinely non-resizable
+
         XPROPERTY_DEF
         ( "Array Ops Smoke Test", array_ops_smoke_test
         , obj_member<"Dynamic List (std::vector)", &array_ops_smoke_test::m_DynamicList
@@ -268,6 +270,9 @@ namespace e04
         , obj_member<"Used Slots (sibling count, read-only mirror)", &array_ops_smoke_test::m_UsedSlots
             , member_flags<xproperty::flags::SHOW_READONLY>
             , member_help<"Backs Fixed Slots' live count above - shown here read-only just to make the override visible; drive it via Fixed Slots' own Size: field, not directly">>
+        , obj_member<"Truly Fixed (std::array, no override)", &array_ops_smoke_test::m_TrulyFixed
+            , member_section<"Non-resizable - controls should be hidden entirely">
+            , member_help<"No member_overwrite_list_size at all - genuinely non-resizable. Size: should be read-only, and none of the per-element drag/insert/delete controls should appear on any of its rows">>
         )
     };
 }
