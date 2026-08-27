@@ -300,11 +300,36 @@ namespace e04
             , member_help<"No member_overwrite_list_size at all - genuinely non-resizable. Size: should be read-only, and none of the per-element drag/insert/delete controls should appear on any of its rows">>
         )
     };
+
+    //------------------------------------------------------------------------------------------------
+    // Small, dedicated test bed for the custom-rendering hooks (m_OnCustomRenderAppend and whatever
+    // follows it) - kept separate from button_smoke_test/array_ops_smoke_test on purpose, since a
+    // sprawling multi-purpose panel makes it hard to tell at a glance which row is even relevant (lost
+    // a debug marker in a wall of unrelated rows once already this session). Two cases specifically:
+    // a WIDE field (numeric, fills the whole value column via -1 width - the case that turned out to
+    // matter, since there's zero leftover space for anything appended via SameLine()) and a NARROW one
+    // (checkbox - already had visible room).
+    //------------------------------------------------------------------------------------------------
+    struct custom_render_smoke_test
+    {
+        int  m_WideNumber = 42;
+        bool m_NarrowBool = true;
+
+        XPROPERTY_DEF
+        ( "Custom Render Test", custom_render_smoke_test
+        , obj_member<"Wide Number (fills the column)", &custom_render_smoke_test::m_WideNumber
+            , member_flags<xproperty::flags::APPEND_NEW_LINE>
+            , member_help<"Fills the value column via -1 width, no leftover space for a same-line append - opts into APPEND_NEW_LINE so the framework starts a new line before invoking m_OnCustomRenderAppend instead">>
+        , obj_member<"Narrow Bool (checkbox)",         &custom_render_smoke_test::m_NarrowBool
+            , member_help<"No APPEND_NEW_LINE flag - default same-line append, which already has visible room after a narrow checkbox">>
+        )
+    };
 }
 XPROPERTY_REG(e04::button_smoke_test)
 XPROPERTY_REG(e04::override_demo_test)
 XPROPERTY_REG(e04::array_item)
 XPROPERTY_REG(e04::array_ops_smoke_test)
+XPROPERTY_REG(e04::custom_render_smoke_test)
 
 //------------------------------------------------------------------------------------------------
 
@@ -396,6 +421,41 @@ int E04_Example()
             ImGui::SetNextWindowPos(ImVec2(990, 10), ImGuiCond_FirstUseEver);
             ImGui::SetNextWindowSize(ImVec2(400, 560), ImGuiCond_FirstUseEver);
             ButtonInspector.Show(Context, []{});
+        }
+
+        //
+        // Smoke test: level 1 of the 4 planned custom-rendering levels (append-after-value). Own small
+        // dedicated panel/struct rather than bolted onto Button Smoke Test - a sprawling multi-purpose
+        // panel makes it hard to tell which row is even relevant (a debug marker got lost in a wall of
+        // unrelated rows once already this session, purely from the panel being too busy to scan).
+        //
+        {
+            static e04::custom_render_smoke_test CustomRenderDemo;
+            static xproperty::inspector           CustomRenderInspector{ "Custom Render Test" };
+            static bool                           Init = false;
+            xproperty::settings::context          Context;
+
+            if (Init == false)
+            {
+                Init = true;
+                CustomRenderInspector.clear();
+                CustomRenderInspector.AppendEntity();
+                CustomRenderInspector.AppendEntityComponent(*xproperty::getObject(CustomRenderDemo), &CustomRenderDemo);
+
+                // Fired unconditionally for every property on this inspector, same idiom as
+                // m_OnOverrideCheck - the consumer checks Path to decide whether to draw anything.
+                // Appends after BOTH properties, to compare same-line (Narrow Bool, default) vs new-line
+                // (Wide Number, via APPEND_NEW_LINE) layout - the framework already positioned the
+                // cursor correctly before calling this, no ImGui::SameLine() needed here.
+                CustomRenderInspector.m_OnCustomRenderAppend.Register<+[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view Path, const xproperty::any&)
+                {
+                    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "<- appended");
+                }>();
+            }
+
+            ImGui::SetNextWindowPos(ImVec2(990, 580), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(400, 160), ImGuiCond_FirstUseEver);
+            CustomRenderInspector.Show(Context, []{});
         }
 
         //
