@@ -119,7 +119,31 @@ namespace e04
     {
         printf("%s\n", View.data());
     }
+
+    //------------------------------------------------------------------------------------------------
+    // Smoke test for reflected member functions drawing as inspector buttons (obj_member<"Name",
+    // &Class::Method> - previously reflected but never rendered, the collector just skipped it).
+    //------------------------------------------------------------------------------------------------
+    struct button_smoke_test
+    {
+        int m_Counter = 0;
+
+        // Deliberately not noexcept - xproperty's reflected-function specialization only
+        // matches plain T_RETURN(T_CLASS::*)(...) pointer-to-member-function types (same as
+        // the official union_variant_properties::setValues/CheckValues example); a noexcept
+        // method is a distinct type and falls through to the wrong specialization entirely.
+        void Increment() { ++m_Counter; }
+        void Reset()     { m_Counter = 0; }
+
+        XPROPERTY_DEF
+        ( "Button Smoke Test", button_smoke_test
+        , obj_member<"Counter", &button_smoke_test::m_Counter>
+        , obj_member<"Increment", &button_smoke_test::Increment, member_help<"Should appear as a button; click adds 1 to Counter above">>
+        , obj_member<"Reset",     &button_smoke_test::Reset,     member_help<"Should appear as a button; click zeroes Counter above">>
+        )
+    };
 }
+XPROPERTY_REG(e04::button_smoke_test)
 
 //------------------------------------------------------------------------------------------------
 
@@ -157,6 +181,29 @@ int E04_Example()
         ImGui::ShowDemoWindow(&show_demo_window);
 
         DrawPropertyWindow();
+
+        //
+        // Smoke test: reflected member functions (obj_member<"Name", &Class::Method>) rendering
+        // as real inspector buttons.
+        //
+        {
+            static e04::button_smoke_test       ButtonSmokeTest;
+            static xproperty::inspector          ButtonInspector{ "Button Smoke Test" };
+            static bool                          Init = false;
+            xproperty::settings::context         Context;
+
+            if (Init == false)
+            {
+                Init = true;
+                ButtonInspector.clear();
+                ButtonInspector.AppendEntity();
+                ButtonInspector.AppendEntityComponent(*xproperty::getObject(ButtonSmokeTest), &ButtonSmokeTest);
+            }
+
+            ImGui::SetNextWindowPos(ImVec2(990, 10), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(400, 300), ImGuiCond_FirstUseEver);
+            ButtonInspector.Show(Context, []{});
+        }
 
         //
         // Render
