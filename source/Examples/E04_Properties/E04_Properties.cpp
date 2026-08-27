@@ -312,8 +312,9 @@ namespace e04
     //------------------------------------------------------------------------------------------------
     struct custom_render_smoke_test
     {
-        int  m_WideNumber = 42;
-        bool m_NarrowBool = true;
+        int  m_WideNumber   = 42;
+        bool m_NarrowBool   = true;
+        int  m_ReplacedField = 7;
 
         XPROPERTY_DEF
         ( "Custom Render Test", custom_render_smoke_test
@@ -322,6 +323,8 @@ namespace e04
             , member_help<"Fills the value column via -1 width, no leftover space for a same-line append - opts into APPEND_NEW_LINE so the framework starts a new line before invoking m_OnCustomRenderAppend instead">>
         , obj_member<"Narrow Bool (checkbox)",         &custom_render_smoke_test::m_NarrowBool
             , member_help<"No APPEND_NEW_LINE flag - default same-line append, which already has visible room after a narrow checkbox">>
+        , obj_member<"Replaced Field (level 2)",       &custom_render_smoke_test::m_ReplacedField
+            , member_help<"m_OnCustomRenderReplaceValue draws a custom button here instead of the normal numeric widget entirely - clicking it still writes through sprop::setProperty like any other commit in this file">>
         )
     };
 }
@@ -450,6 +453,27 @@ int E04_Example()
                 CustomRenderInspector.m_OnCustomRenderAppend.Register<+[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view Path, const xproperty::any&)
                 {
                     ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "<- appended");
+                }>();
+
+                // Smoke test for level 2: replace the value column's default widget entirely. Draws a
+                // custom button instead of the normal numeric drag field, and commits through
+                // sprop::setProperty on click - same write path every other commit in this file already
+                // uses, proving this isn't just a display-only replacement.
+                CustomRenderInspector.m_OnCustomRenderReplaceValue.Register<+[](xproperty::inspector&, const xproperty::type::object& Obj, void* pInstance, std::string_view Path, const xproperty::any& Value, bool& bHandled)
+                {
+                    if (Path.ends_with("/Replaced Field (level 2)"))
+                    {
+                        bHandled = true;
+                        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.1f, 0.6f, 1.0f));
+                        if (ImGui::Button(std::format("CUSTOM: {} (click to +1)", Value.get<int>()).c_str(), ImVec2(-1, 0)))
+                        {
+                            std::string                   Error;
+                            xproperty::settings::context  Context;
+                            xproperty::any                NewValue; NewValue.set<int>(Value.get<int>() + 1);
+                            xproperty::sprop::setProperty(Error, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), NewValue }, Context);
+                        }
+                        ImGui::PopStyleColor();
+                    }
                 }>();
             }
 
