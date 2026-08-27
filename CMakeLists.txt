@@ -382,6 +382,20 @@ add_executable(${TARGET_PROJECT}
   "source/Examples/E25_SkinGeomEditor/E25_SkinGeom_Editor.cpp"
   "source/Examples/E26_RTCS_Editor/E26_RTCS_Editor.cpp"
   "source/Examples/E27_NodeOS/E27_NodeOS_Editor.cpp"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_Common.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_Types.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_PropertySerialize.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_SaveLoad.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_Interpreter.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_Codegen.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_CommandBuilders.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_CanvasSupport.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_UI_Panels.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_UI_Canvas.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_UI_CommandConsole.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_CommandContext.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_Commands_Edit.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_Commands_Query.h"
   "source/Examples/E27_NodeOS/SDK/xnode_os_plugin_api.h"
   "source/Examples/E27_NodeOS/SDK/xnode_os_host_interface.h"
   "source/Examples/E27_NodeOS/SDK/xnode_os_shared_types.h"
@@ -730,6 +744,25 @@ include_directories( "${CMAKE_SOURCE_DIR}/dependencies/xcmdline/source" )
 # never by this project's own build.
 source_group("Examples/E27_NodeOS" FILES
    "source/Examples/E27_NodeOS/E27_NodeOS_Editor.cpp"
+)
+# The 13 headers E27_NodeOS_Editor.cpp was split into (plus the shared NodeOS_Common.h include
+# header) - grouped into their own Solution Explorer folder so they're easy to find/browse
+# separately from the now-much-shorter .cpp that just #includes them in dependency order.
+source_group("Examples/E27_NodeOS/Editor" FILES
+  "source/Examples/E27_NodeOS/Editor/NodeOS_Common.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_Types.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_PropertySerialize.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_SaveLoad.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_Interpreter.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_Codegen.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_CommandBuilders.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_CanvasSupport.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_UI_Panels.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_UI_Canvas.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_UI_CommandConsole.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_CommandContext.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_Commands_Edit.h"
+  "source/Examples/E27_NodeOS/Editor/NodeOS_Commands_Query.h"
 )
 source_group("Examples/E27_NodeOS/SDK" FILES
   "source/Examples/E27_NodeOS/SDK/xnode_os_plugin_api.h"
