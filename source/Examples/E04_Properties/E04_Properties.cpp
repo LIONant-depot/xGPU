@@ -230,6 +230,25 @@ namespace e04
     };
 
     //------------------------------------------------------------------------------------------------
+    // A small reflected struct used as the ELEMENT type of array_ops_smoke_test's m_ObjectList below -
+    // proves the per-element drag/insert/delete controls work for object (list_props) elements too,
+    // not just atomic/scalar ones, via the real list_table::TrySwap/TrySetSize this session added
+    // (a whole object doesn't fit in one xproperty::any the way a scalar does, so that path needs the
+    // real container pointer instead of the atomic branch's setProperty-by-path calls).
+    //------------------------------------------------------------------------------------------------
+    struct array_item
+    {
+        std::string m_Name  = "Item";
+        int         m_Value = 0;
+
+        XPROPERTY_DEF
+        ( "Array Item", array_item
+        , obj_member<"Name",  &array_item::m_Name>
+        , obj_member<"Value", &array_item::m_Value>
+        )
+    };
+
+    //------------------------------------------------------------------------------------------------
     // Smoke test for this session's list-primitive additions: list_table::getCapacity (a physical slot
     // ceiling, separate from getSize's live count) and the always-on generic Swap (both new), plus
     // member_overwrite_list_size - which already existed in core xproperty.h but had zero real
@@ -248,6 +267,8 @@ namespace e04
     {
         std::vector<int> m_DynamicList = { 1, 2, 3 };
 
+        std::vector<array_item> m_ObjectList = { { "Alpha", 1 }, { "Beta", 2 }, { "Gamma", 3 } };
+
         static constexpr int             k_FixedCapacity = 8;
         std::array<int, k_FixedCapacity> m_FixedSlots = { 10, 20, 30 };
         std::uint8_t                     m_UsedSlots  = 3; // how many of m_FixedSlots[] are "live" - the rest just sit there unused
@@ -259,6 +280,10 @@ namespace e04
         , obj_member<"Dynamic List (std::vector)", &array_ops_smoke_test::m_DynamicList
             , member_section<"Real resize - no UI style tag attached">
             , member_help<"A real std::vector, no member_ui_list_size style tag attached - Size: should now be genuinely editable since the gate reads list_table::m_bHasRealSetSize instead of the tag's (previously always-absent) presence">>
+        , obj_member<"Object List (std::vector<array_item>)", &array_ops_smoke_test::m_ObjectList
+            , member_ui_open<true>
+            , member_section<"Object elements - same controls via list_table::TrySwap">
+            , member_help<"std::vector<array_item> - each element is its own reflected struct (Name/Value), not a single scalar. Drag/insert-above/insert-below/delete should work the same as the scalar arrays above, just via real Swap on the raw objects instead of setProperty-by-path">>
         , obj_member<"Fixed Slots (std::array, capacity 8)", &array_ops_smoke_test::m_FixedSlots
             , member_overwrite_list_size<+[](array_ops_smoke_test& O, bool bRead, std::size_t& Size)
                 {
@@ -278,6 +303,7 @@ namespace e04
 }
 XPROPERTY_REG(e04::button_smoke_test)
 XPROPERTY_REG(e04::override_demo_test)
+XPROPERTY_REG(e04::array_item)
 XPROPERTY_REG(e04::array_ops_smoke_test)
 
 //------------------------------------------------------------------------------------------------
