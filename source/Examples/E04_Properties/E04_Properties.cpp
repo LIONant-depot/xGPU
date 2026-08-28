@@ -320,12 +320,17 @@ namespace e04
         int  m_BlockMiddle   = 2;
         int  m_BlockEnd      = 3;
         int  m_AfterBlock    = 99;
+        int  m_Seed          = 5;
 
         XPROPERTY_DEF
         ( "Custom Render Test", custom_render_smoke_test
         , obj_member<"Wide Number (fills the column)", &custom_render_smoke_test::m_WideNumber
             , member_flags<xproperty::flags::APPEND_NEW_LINE>
             , member_help<"Fills the value column via -1 width, no leftover space for a same-line append - opts into APPEND_NEW_LINE so the framework starts a new line before invoking m_OnCustomRenderAppend instead">>
+        , obj_member<"Seed (Odin-style inline button)", &custom_render_smoke_test::m_Seed
+            , member_dynamic_item_width<+[](const custom_render_smoke_test&) noexcept -> float
+                { return -(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x); }>
+            , member_help<"Reserves exactly one square icon button's worth of space (GetFrameHeight() + ItemSpacing.x), computed rather than a guessed pixel number - same idea as Odin's [InlineButton] attribute in Unity. The field itself stays fully usable; the Refresh button sits right after it">>
         , obj_member<"Narrow Bool (checkbox)",         &custom_render_smoke_test::m_NarrowBool
             , member_help<"No APPEND_NEW_LINE flag - default same-line append, which already has visible room after a narrow checkbox">>
         , obj_member<"Replaced Field (level 2)",       &custom_render_smoke_test::m_ReplacedField
@@ -474,8 +479,27 @@ int E04_Example()
                 // Appends after BOTH properties, to compare same-line (Narrow Bool, default) vs new-line
                 // (Wide Number, via APPEND_NEW_LINE) layout - the framework already positioned the
                 // cursor correctly before calling this, no ImGui::SameLine() needed here.
-                CustomRenderInspector.m_OnCustomRenderAppend.Register<+[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view Path, const xproperty::any&)
+                CustomRenderInspector.m_OnCustomRenderAppend.Register<+[](xproperty::inspector&, const xproperty::type::object& Obj, void* pInstance, std::string_view Path, const xproperty::any& Value)
                 {
+                    // Odin-style [InlineButton]: Seed's own member_dynamic_item_width already reserved
+                    // exactly this much room, so the button sits flush against the field with no gap
+                    // and no overlap regardless of font/DPI - nothing here needs to know or guess a
+                    // pixel number itself.
+                    if (Path.ends_with("/Seed (Odin-style inline button)"))
+                    {
+                        const float Sz = ImGui::GetFrameHeight();
+                        ImGui::SameLine();
+                        if (ImGui::Button("\xEE\x9C\xAC", ImVec2(Sz, Sz))) // Segoe MDL2 Assets Refresh (U+E72C)
+                        {
+                            std::string                   Error;
+                            xproperty::settings::context  Context;
+                            xproperty::any                NewValue; NewValue.set<int>((Value.get<int>() * 1103515245 + 12345) & 0x7fff);
+                            xproperty::sprop::setProperty(Error, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), NewValue }, Context);
+                        }
+                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Randomize");
+                        return;
+                    }
+
                     // Level 3 (registered below) already runs first each frame for the same property
                     // and updates e04::g_bInCustomBlock, so by the time this fires for Block Start/Middle/
                     // End it correctly reads true for all three - level 1 has no Path filter of its own
