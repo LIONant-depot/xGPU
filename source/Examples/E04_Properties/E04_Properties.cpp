@@ -317,10 +317,27 @@ namespace e04
         int  m_ReplacedField = 7;
         int  m_FullRow       = 3;
         int  m_BlockStart    = 1;
-        int  m_BlockMiddle   = 2;
         int  m_BlockEnd      = 3;
         int  m_AfterBlock    = 99;
         int  m_Seed          = 5;
+
+        // Dedicated fields for a SECOND copy of the block, nested one scope deep - same suffix names
+        // as the top-level ones above, so the existing m_OnCustomRenderBlock registration (which
+        // matches via Path.ends_with(), suffix-only) picks these up for free. Separate fields rather
+        // than reusing m_BlockStart/etc. directly, since reflecting the same C++ member at two
+        // different paths would confuse xproperty's per-property GUID/path resolution.
+        int  m_NestedBlockStart  = 1;
+        int  m_NestedBlockEnd    = 3;
+        int  m_NestedAfterBlock  = 44;
+        int  m_NestedFullRow     = 3;
+
+        // Backing data for Block Start's sparkline (see m_OnCustomRenderBlock below) - not itself a
+        // reflected property, just what the block's own custom widget plots. Not a real waveform,
+        // just enough shape variation to look like actual data rather than a flat placeholder line.
+        std::array<float, 24> m_Sparkline =
+        { 0.2f, 0.5f, 0.35f, 0.8f, 0.65f, 0.9f, 0.7f, 0.4f
+        , 0.3f, 0.55f, 0.75f, 0.6f, 0.45f, 0.85f, 0.95f, 0.6f
+        , 0.3f, 0.2f, 0.4f, 0.65f, 0.5f, 0.3f, 0.15f, 0.35f };
 
         XPROPERTY_DEF
         ( "Custom Render Test", custom_render_smoke_test
@@ -338,13 +355,18 @@ namespace e04
         , obj_member<"Full Row Replaced (level 3)",    &custom_render_smoke_test::m_FullRow
             , member_help<"m_OnCustomRenderReplaceRow takes over BOTH the label and value columns - the normal 'Full Row Replaced (level 3)' name never even renders">>
         , obj_member<"Block Start (level 4)",          &custom_render_smoke_test::m_BlockStart
-            , member_help<"Level 4 test: does 'replace multiple rows until resume' actually need new framework code, or does level 3 already provide it via consumer-side state? This one opens a custom block">>
-        , obj_member<"Block Middle (level 4)",         &custom_render_smoke_test::m_BlockMiddle
-            , member_help<"Should render as nothing at all - consumed into the block opened above, purely via the SAME level 3 check firing again and the consumer's own 'still in block' state saying so">>
+            , member_help<"Level 4 test: does 'replace multiple rows until resume' actually need new framework code, or does level 3 already provide it via consumer-side state? This one opens a custom block and draws its own full content (header + graph) in one shot - a block is one property, not one property per visual element">>
         , obj_member<"Block End (level 4)",            &custom_render_smoke_test::m_BlockEnd
-            , member_help<"Closes the custom block and hands control back to normal rendering">>
+            , member_help<"A second property still inside the same block - proves bInPersistentBlock's multi-property merge (no gap between Start's content and this one) without needing a third, purely-fallback-caught property in between. Closes the custom block and hands control back to normal rendering">>
         , obj_member<"After Block (normal)",           &custom_render_smoke_test::m_AfterBlock
             , member_help<"No custom-render registration matches this one at all - should render completely normally, proving resume genuinely works">>
+        , obj_scope<"Indent Test (nested block)"
+            , obj_member<"Block Start (level 4)",       &custom_render_smoke_test::m_NestedBlockStart>
+            , obj_member<"Block End (level 4)",         &custom_render_smoke_test::m_NestedBlockEnd>
+            , obj_member<"After Block (normal)",        &custom_render_smoke_test::m_NestedAfterBlock>
+            , obj_member<"Full Row Replaced (level 3)", &custom_render_smoke_test::m_NestedFullRow
+                , member_help<"Same level-3 row-replace ('Dice'), one scope deeper - m_OnCustomRenderReplaceRow draws with a plain ImGui::TextColored at whatever the current cursor position is, same as any normal label; if it lines up flush with the window edge instead of with this scope's other nested siblings, the row-replace hook is bypassing the ambient indent somehow">>
+            , member_help<"Same block, one scope deeper - the framework's own Columns(1) escape should NOT reset indentation, since ImGui's indent stack (from this scope's own real TreePush) is independent of column state. If the block text lines up flush with the window edge instead of with 'Block Start' sibling's indent, that claim was wrong">>
         )
     };
 
@@ -500,33 +522,53 @@ int E04_Example()
                         return;
                     }
 
-                    // Level 3 (registered below) already runs first each frame for the same property
-                    // and updates e04::g_bInCustomBlock, so by the time this fires for Block Start/Middle/
-                    // End it correctly reads true for all three - level 1 has no Path filter of its own
-                    // by design (see its own declaration comment), so without this check it would still
-                    // append on top of an otherwise fully-suppressed level-4 block row.
-                    if (e04::g_bInCustomBlock) return;
+                    // Diagnostic for the APPEND_NEW_LINE background-height fix: X/Y/Z are real
+                    // frame-height buttons (unlike the plain text below), so their top/bottom margin
+                    // against the row's background rect shows directly whether the appended line is
+                    // vertically centered in the space DrawBackground reserved for it, or just
+                    // flush against one edge.
+                    if (Path.ends_with("/Wide Number (fills the column)"))
+                    {
+                        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "<- appended");
+                        ImGui::SameLine();
+                        ImGui::Button("X", ImVec2(24, 0));
+                        ImGui::SameLine();
+                        ImGui::Button("Y", ImVec2(24, 0));
+                        ImGui::SameLine();
+                        ImGui::Button("Z", ImVec2(24, 0));
+                        return;
+                    }
+
+                    // Block Start/Middle/End now escape the grid entirely via m_OnCustomRenderBlock
+                    // (registered below) - Render() never reaches this hook for them at all anymore,
+                    // so no g_bInCustomBlock check is needed here any more.
                     ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "<- appended");
                 }>();
 
-                // Smoke test for level 2: replace the value column's default widget entirely. Draws a
-                // custom button instead of the normal numeric drag field, and commits through
-                // sprop::setProperty on click - same write path every other commit in this file already
-                // uses, proving this isn't just a display-only replacement.
+                // Smoke test for level 2: replace the value column's default widget entirely. A plain
+                // repainted button (same shape as a normal button, different color) doesn't actually
+                // demonstrate why custom rendering matters - an Odin-style [ProgressBar] does, since
+                // ImGui has no built-in "clickable progress bar" widget at all. ImGui::ProgressBar()
+                // itself isn't interactive, so IsItemClicked() right after it is what turns it into
+                // one - still commits through sprop::setProperty on click, same write path every other
+                // commit in this file already uses.
                 CustomRenderInspector.m_OnCustomRenderReplaceValue.Register<+[](xproperty::inspector&, const xproperty::type::object& Obj, void* pInstance, std::string_view Path, const xproperty::any& Value, bool& bHandled)
                 {
                     if (Path.ends_with("/Replaced Field (level 2)"))
                     {
                         bHandled = true;
-                        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.6f, 0.1f, 0.6f, 1.0f));
-                        if (ImGui::Button(std::format("CUSTOM: {} (click to +1)", Value.get<int>()).c_str(), ImVec2(-1, 0)))
+                        constexpr int Cap = 10;
+                        const int Val = Value.get<int>();
+                        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.6f, 0.1f, 0.6f, 1.0f));
+                        ImGui::ProgressBar(static_cast<float>(Val) / Cap, ImVec2(-1, 0), std::format("{} / {} (click to +1)", Val, Cap).c_str());
+                        ImGui::PopStyleColor();
+                        if (ImGui::IsItemClicked())
                         {
                             std::string                   Error;
                             xproperty::settings::context  Context;
-                            xproperty::any                NewValue; NewValue.set<int>(Value.get<int>() + 1);
+                            xproperty::any                NewValue; NewValue.set<int>((Val + 1) % (Cap + 1));
                             xproperty::sprop::setProperty(Error, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), NewValue }, Context);
                         }
-                        ImGui::PopStyleColor();
                     }
                     // Right half of the level 3 smoke test below - m_OnCustomRenderReplaceRow draws the
                     // left column; the automatic NextColumn() between the two delegates means this one
@@ -547,14 +589,6 @@ int E04_Example()
                 // Smoke test for level 3 (Full Row Replaced): replace the LEFT column (label) -
                 // composes with the level 2 registration above, which handles the SAME property's
                 // right column, to fully replace the row.
-                //
-                // Smoke test for level 4 (Block Start/Middle/End): does "replace multiple rows until
-                // resume" actually need new framework code, or do levels 2/3 already provide it via
-                // consumer-side state? Block Start opens s_bInBlock, Block End closes it; Block Middle
-                // is never named explicitly at all - it's caught by the generic "while in block,
-                // suppress everything" fallback, proving the framework doesn't need to know how many
-                // rows a block spans, only the consumer does. After Block has no matching registration
-                // anywhere and should render completely normally, proving resume genuinely works.
                 CustomRenderInspector.m_OnCustomRenderReplaceRow.Register<+[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view Path, const xproperty::any&, bool& bHandled)
                 {
                     if (Path.ends_with("/Full Row Replaced (level 3)"))
@@ -563,27 +597,123 @@ int E04_Example()
                         ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.9f, 1.0f), "Dice");
                         return;
                     }
+                }>();
+
+                // Smoke test for the "block" mechanism (Block Start/End): genuinely leaves the 2-column
+                // grid, unlike level 4's old approach (still inside the grid, just suppressing both
+                // columns) - full window width, no override-revert button, no help tooltip, no
+                // background stripe from the framework. Block Start opens g_bInCustomBlock and draws
+                // its ENTIRE visual content (header text + sparkline graph) in one shot - a block is
+                // one property with one callback, not one property per visual element making up the
+                // block. An earlier version split the header and the graph into two separate backing
+                // properties (Start drawing only the text, a since-removed "Block Middle" drawing only
+                // the graph) purely to prove multi-property merging worked - but that made a single
+                // logical block look, and BE, two stacked rows, which is real UX confusion for anyone
+                // wanting one cohesive block (a curve editor doesn't want its title as a separate row
+                // from the curve). Block End is still its own, second property - still proving
+                // bInPersistentBlock's multi-property merge (no gap between Start's content and End's
+                // footer) without forcing a single logical block to fragment into more rows than it has
+                // reason to.
+                //
+                // Filling the background with RowColor - the same shade the grid's own striping would
+                // have used - turns out to be the common case, not an edge case: a block is still part
+                // of the property list visually, so it should still carry the SAME row-striping look
+                // the rest of the panel has, just spanning the full width instead of one column.
+                //
+                // The graph is an actual ImGui::PlotLines sparkline instead of leaving the block body
+                // blank - a real widget that GENUINELY needs the full width a curve editor would (this
+                // is the exact motivation the block feature exists for at all), not another button or
+                // checkbox in disguise. pInstance is cast to read the smoke test's own backing array
+                // directly, same as any other consumer would reach its own live data.
+                //
+                // Fires twice per property (bDryRun true then false, see on_custom_render_block's own
+                // comment) - only the actual drawing is skipped when bDryRun is true.
+                CustomRenderInspector.m_OnCustomRenderBlock.Register<+[](xproperty::inspector&, const xproperty::type::object&, void* pInstance, std::string_view Path, const xproperty::any&, ImColor RowColor, bool bDryRun, bool& bIsBlockContent)
+                {
+                    const auto FillRow = [&](float Height)
+                    {
+                        const ImVec2 Min = ImGui::GetCursorScreenPos();
+                        const ImVec2 Max = ImVec2(Min.x + ImGui::GetContentRegionAvail().x, Min.y + Height);
+                        ImGui::GetWindowDrawList()->AddRectFilled(Min, Max, RowColor);
+                        return Min;
+                    };
+                    // A block nested inside a scope picks up a subtle light border "for free" at its
+                    // top/bottom edges - from the scope's own framed-content styling, not anything this
+                    // panel draws - while a top-level block (no enclosing scope) has no such border,
+                    // confirmed live as a real, visible inconsistency between the two. Explicit borders
+                    // here, using ImGui's own ImGuiCol_Border (matching what the framed case already
+                    // looks like rather than inventing a different color) make the treatment identical
+                    // regardless of nesting, instead of relying on incidental styling that only shows
+                    // up sometimes.
+                    const ImU32 BorderColor = ImGui::GetColorU32(ImGuiCol_Border);
+
                     if (Path.ends_with("/Block Start (level 4)"))
                     {
                         e04::g_bInCustomBlock = true;
-                        bHandled = true;
-                        ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.2f, 1.0f), "===== Custom Block =====");
+                        bIsBlockContent = true;
+                        if (bDryRun) return;
+                        constexpr float PlotHeight = 70.0f;
+                        // Every formula tried for this fill's height (GetFrameHeight(), then
+                        // GetTextLineHeightWithSpacing() + PlotHeight, then + ItemSpacing.y, then +1px)
+                        // matched the top-level copy of this block but not the nested one - confirmed
+                        // live via debug logging that the header TEXT ITEM ITSELF starts ~3.5px later
+                        // (matching this style's FramePadding.y exactly) when nested than its OWN
+                        // captured start cursor (Min.y) says it should, while PlotLines' own advance
+                        // was identical in both cases. That's some framework/ImGui baseline-offset
+                        // interaction with being the first item after a scope opens, not anything
+                        // controllable from here - no formula written up front can account for it.
+                        // Fixed properly by not guessing at all: split the draw list into two channels,
+                        // draw the REAL content (text + plot) first on the content channel, MEASURE
+                        // the actual resulting cursor advance, then paint the background on the
+                        // earlier-merged channel using that real measurement - the same deferred-
+                        // background technique the framework itself already uses for rows whose height
+                        // isn't known until their content has actually drawn (see m_RowExtraHeightCache
+                        // and its own leaf-branch call site in xPropertyImGuiInspector.cpp).
+                        ImDrawList* pDrawList = ImGui::GetWindowDrawList();
+                        const ImVec2 Min = ImGui::GetCursorScreenPos();
+                        const float  Width = ImGui::GetContentRegionAvail().x; // captured early - a late re-measure drifts once content has drawn, see the framework's own "late width measurement" fix for why
+                        pDrawList->ChannelsSplit(2);
+                        pDrawList->ChannelsSetCurrent(1);
+                        ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.2f, 1.0f), "  Custom Block (Odin-style [Curve]/[ProgressBar] area)");
+                        // PlotLines draws its own ImGuiCol_FrameBg rectangle first, which would sit on
+                        // TOP of (and hide) the manually-filled RowColor rect painted below - pushing
+                        // FrameBg to RowColor instead gives the plot the same row-striping shade for
+                        // free, no separate fill needed. Drawn right here, in the SAME property's
+                        // callback as the header text above, so the header and the graph it labels are
+                        // genuinely one row - not two properties standing in for one logical block.
+                        auto& Data = static_cast<e04::custom_render_smoke_test*>(pInstance)->m_Sparkline;
+                        ImGui::PushStyleColor(ImGuiCol_FrameBg, static_cast<ImVec4>(RowColor));
+                        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.9f, 0.7f, 0.3f, 1.0f));
+                        ImGui::PlotLines("##Sparkline", Data.data(), static_cast<int>(Data.size()), 0, nullptr, 0.0f, 1.0f, ImVec2(-1, PlotHeight));
+                        ImGui::PopStyleColor(2);
+                        const float RealBottom = ImGui::GetCursorScreenPos().y;
+                        pDrawList->ChannelsSetCurrent(0);
+                        pDrawList->AddRectFilled(Min, ImVec2(Min.x + Width, RealBottom), RowColor);
+                        pDrawList->AddLine(Min, ImVec2(Min.x + Width, Min.y), BorderColor, 1.0f);
+                        pDrawList->ChannelsMerge();
                         return;
                     }
                     if (Path.ends_with("/Block End (level 4)"))
                     {
-                        e04::g_bInCustomBlock = false; // resume normal rendering starting with the NEXT property
-                        bHandled = true;
-                        ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.2f, 1.0f), "===== End Block =====");
+                        e04::g_bInCustomBlock = false; // resume normal grid rendering starting with the NEXT property
+                        bIsBlockContent = true;
+                        if (bDryRun) return;
+                        // Just the closing border line, no reserved height/fill - a half-height
+                        // footer rect was here before, but it only ever drew to the draw list (no
+                        // real widget call), so the cursor never advanced past it and it silently
+                        // overlapped whatever the NEXT property drew (invisible while framework
+                        // backgrounds painted over both in the same shade, confirmed live as a real
+                        // overlap once those backgrounds were turned off). Rather than fix that by
+                        // making it consume real space (which just turned the invisible overlap into
+                        // a visible, unlabeled empty-looking strip - "why do we need that, makes zero
+                        // sense"), drop the fill and the reserved space entirely: draw the one line the
+                        // block actually needs to mark its own end, at zero cursor cost.
+                        const ImVec2 Min = ImGui::GetCursorScreenPos();
+                        // Plain black, not the theme's ImGuiCol_Border gray - that gray blends
+                        // differently against the top-level block's lighter background vs the nested
+                        // block's darker one, so it never read as a consistent "black line" on both.
+                        ImGui::GetForegroundDrawList()->AddLine(Min, ImVec2(Min.x + ImGui::GetContentRegionAvail().x, Min.y), IM_COL32(0, 0, 0, 255), 1.0f);
                         return;
-                    }
-                    if (e04::g_bInCustomBlock)
-                    {
-                        // Anything seen WHILE inside the block (Block Middle here, but a real consumer
-                        // wouldn't need to know its name) gets fully suppressed on both columns - level
-                        // 2's own bHandled is seeded from this one, so the right column vanishes too
-                        // with no separate registration needed.
-                        bHandled = true;
                     }
                 }>();
             }
@@ -591,6 +721,33 @@ int E04_Example()
             ImGui::SetNextWindowPos(ImVec2(990, 580), ImGuiCond_FirstUseEver);
             ImGui::SetNextWindowSize(ImVec2(400, 160), ImGuiCond_FirstUseEver);
             CustomRenderInspector.Show(Context, []{});
+
+            // A REAL xproperty::inspector targeting CustomRenderInspector's own m_Settings crashed live
+            // - 'Assertion failed: type::get_obj_info<key_t> != nullptr'. Root cause found and fixed in
+            // xPropertyImGuiInspector.h itself: xproperty::inspector::v2's own registration actually
+            // populates get_obj_info<ImVec2> (not get_obj_info<v2> - v2's XPROPERTY_DEF uses ImVec2 as
+            // its object-type argument to resolve the inherited &ImVec2::x/&ImVec2::y), so a field
+            // declared AS v2 directly (like settings::m_WindowPadding used to be) hit the
+            // never-populated get_obj_info<v2>. Fixed by declaring those fields as plain ImVec2 instead
+            // (the intended usage per the reflected_type<ImVec2> redirect's own comment) and moving
+            // that redirect's specialization to BEFORE settings uses it (an explicit specialization
+            // must be visible before its template's first implicit instantiation - declaring it after,
+            // as the original code did, silently used the wrong primary template until something
+            // actually needed it, at which point moving the specialization later became a hard
+            // compile error instead). A real inspector now works here, using the reflection registry
+            // for real instead of a hand-rolled text dump.
+            static xproperty::inspector MetaInspector{ "Inspector Settings" };
+            static bool                 MetaInit = false;
+            if (MetaInit == false)
+            {
+                MetaInit = true;
+                MetaInspector.clear();
+                MetaInspector.AppendEntity();
+                MetaInspector.AppendEntityComponent(*xproperty::getObject(CustomRenderInspector.m_Settings), &CustomRenderInspector.m_Settings);
+            }
+            ImGui::SetNextWindowPos(ImVec2(60, 60), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(400, 300), ImGuiCond_FirstUseEver);
+            MetaInspector.Show(Context, []{});
         }
 
         //
