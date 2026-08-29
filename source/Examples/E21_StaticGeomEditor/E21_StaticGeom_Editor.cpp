@@ -319,6 +319,12 @@ namespace e21
         */
     }
 
+    // The material-slot rows (m_OnResourceLeftSize, below) inflate their own FramePadding.y to this
+    // value to make room for the relabeled tree-node text - RenderResourceWigzmos's plain-button
+    // branch needs the SAME number so its button fills that same row height instead of rendering
+    // short (default single-line height) inside a row the left column already made taller.
+    constexpr float kMaterialRowFramePaddingY = 18.0f;
+
     void RemapGUIDToString(std::string& Name, const xresource::full_guid& PreFullGuid)
     {
         // if it is empty the just print empty
@@ -534,10 +540,10 @@ namespace e21
         }
         else
         {
-            // No thumbnail to show for a non-texture resource ref - a normal, single-line-height
-            // button (matching every other property value widget) instead of the 48px thumbnail-sized
-            // one, which only makes sense when there's actually an image next to it.
-            bOpen = ImGui::Button(Name.c_str(), ImVec2(-1, 0));
+            // No thumbnail to show for a non-texture resource ref. Matches the row height the left
+            // column establishes (see kMaterialRowFramePaddingY) rather than the default single-line
+            // height, so the button fills the whole row instead of floating short inside it.
+            bOpen = ImGui::Button(Name.c_str(), ImVec2(-1, ImGui::GetTextLineHeight() + 2.0f * kMaterialRowFramePaddingY));
         }
         ImGui::PopStyleColor();
     }
@@ -2017,6 +2023,15 @@ int E21_Example()
                 }
                 else
                 {
+                    // Bracketed so this side-effect (resetting the texture list to the new material's
+                    // defaults) is a real, restorable undo step instead of an untracked mutation - it
+                    // couldn't be folded into the SAME step as the MaterialRef assignment itself, since
+                    // this whole callback only runs AFTER that assignment already committed through the
+                    // normal per-row path (m_OnChangeEvent is a notification of a completed commit, not
+                    // an in-progress one) - so reverting a material pick today takes two Undo clicks
+                    // (first the texture reset, then the MaterialRef itself), not one. Still strictly
+                    // better than the previous behavior, where this mutation had no undo step at all.
+                    Inspector.BeginEdit(*Pair.first, Pair.second, "Reset Material Textures to Defaults");
                     xmaterial_instance::descriptor* pDesc = static_cast<xmaterial_instance::descriptor*>(Pair.second);
                     pDesc->m_lTextures.resize(pDesc->m_lTextureDefaults.size());
 
@@ -2026,6 +2041,7 @@ int E21_Example()
                     {
                         pDesc->m_lTextures[Index++] = pDesc->m_lFinalTextures[ E.m_Index ].m_TextureRef;
                     }
+                    Inspector.CommitEdit(C);
                 }
             }
         }
@@ -2040,10 +2056,10 @@ int E21_Example()
             const void* pUID = reinterpret_cast<const void*>(std::hash<std::string_view>{}(Path));
             e21::ResourceBrowserPopup(pUID, bOpen, Out, Filters);
         }>();
-        E->m_OnResourceLeftSize.Register<[](xproperty::inspector& Inspector, const xproperty::type::object&, void* pInstance, std::string_view Path, const xproperty::any&, ImGuiTreeNodeFlags flags, const char* pName, bool& Open)
+        E->m_OnResourceLeftSize.Register<[](xproperty::inspector& Inspector, const xproperty::type::object& Obj, void* pInstance, std::string_view Path, const xproperty::any&, ImGuiTreeNodeFlags flags, const char* pName, bool& Open)
         {
             ImGuiStyle& style = ImGui::GetStyle();
-            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x, 18.0f));
+            ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(style.FramePadding.x, e21::kMaterialRowFramePaddingY));
             Inspector.RenderBackground();
 
             // Get the bounding box of the last item (the tree node)
@@ -2057,22 +2073,33 @@ int E21_Example()
             // `strcmp(Inspector.getName(), "Rendering Settings") == 0 ? getComponent(0,1) :
             // getComponent(0,0)` guess for which component owns this row: pInstance is already the
             // exact instance for whichever component this specific entry actually belongs to.
-            if (const auto Open2 = Path.rfind('['); Open2 != std::string_view::npos)
+            //
+            // This delegate is type-wide (fires for EVERY array row in BOTH Inspector and
+            // InspectorSettings), but the &pDesc->m_MaterialDetailsList relabeling only makes sense
+            // for xgeom_static::descriptor's own array - the &Obj == getObjectByType<> check below is
+            // required, not optional, before the cast: without it, ANY other array-typed row shown by
+            // either inspector (there's no guarantee only one struct type is ever displayed) would
+            // reinterpret pInstance as the wrong type and read whatever bytes happen to be at
+            // m_MaterialDetailsList's offset - confirmed as a real, live gap, not a hypothetical one.
+            if (&Obj == xproperty::getObjectByType<xgeom_static::descriptor>())
             {
-                const auto Colon = Path.find(':', Open2);
-                const auto Close = Path.find(']', Open2);
-                if (Colon != std::string_view::npos && Close != std::string_view::npos && Colon < Close)
+                if (const auto Open2 = Path.rfind('['); Open2 != std::string_view::npos)
                 {
-                    auto pDesc = static_cast<xgeom_static::descriptor*>(pInstance);
-                    if (not pDesc->m_MaterialDetailsList.empty())
+                    const auto Colon = Path.find(':', Open2);
+                    const auto Close = Path.find(']', Open2);
+                    if (Colon != std::string_view::npos && Close != std::string_view::npos && Colon < Close)
                     {
-                        const auto ValueStr = Path.substr(Colon + 1, Close - Colon - 1);
-                        int        Index    = 0;
-                        if (std::from_chars(ValueStr.data(), ValueStr.data() + ValueStr.size(), Index).ec == std::errc())
+                        auto pDesc = static_cast<xgeom_static::descriptor*>(pInstance);
+                        if (not pDesc->m_MaterialDetailsList.empty())
                         {
-                            NewName  = std::format("{} {}", pName, pDesc->m_MaterialDetailsList[Index].m_Name);
-                            pName    = NewName.c_str();
-                            bDisable = pDesc->m_MaterialDetailsList[Index].m_RefCount <= 0;
+                            const auto ValueStr = Path.substr(Colon + 1, Close - Colon - 1);
+                            int        Index    = 0;
+                            if (std::from_chars(ValueStr.data(), ValueStr.data() + ValueStr.size(), Index).ec == std::errc())
+                            {
+                                NewName  = std::format("{} {}", pName, pDesc->m_MaterialDetailsList[Index].m_Name);
+                                pName    = NewName.c_str();
+                                bDisable = pDesc->m_MaterialDetailsList[Index].m_RefCount <= 0;
+                            }
                         }
                     }
                 }
@@ -2094,6 +2121,21 @@ int E21_Example()
             ImGui::PopStyleVar();
         }>();
     }
+
+    // Neither inspector had any undo/redo wired up at all before this - every edit (including the
+    // MaterialRef-driven texture reset bracketed with BeginEdit/CommitEdit above) went straight
+    // through with no way to revert it. Two separate systems, not one shared, since Inspector and
+    // InspectorSettings show two genuinely different components - sharing one would let an edit in
+    // either panel undo into the wrong one.
+    xproperty::ui::undo::system InspectorUndo;
+    xproperty::ui::undo::system InspectorSettingsUndo;
+    // Register(...) below binds a T_CLASS& (it calls through operator() like a member function), so
+    // this needs a named lvalue - same reason CallbackWhenPropsChanges above is a named local rather
+    // than an inline lambda expression passed directly.
+    auto CallbackAddToInspectorUndo         = [&](xproperty::inspector&, const xproperty::ui::undo::cmd& Cmd) { InspectorUndo.Add(Cmd); };
+    auto CallbackAddToInspectorSettingsUndo = [&](xproperty::inspector&, const xproperty::ui::undo::cmd& Cmd) { InspectorSettingsUndo.Add(Cmd); };
+    Inspector.m_OnChangeEvent.Register(CallbackAddToInspectorUndo);
+    InspectorSettings.m_OnChangeEvent.Register(CallbackAddToInspectorSettingsUndo);
 
     bool ResetAssetBroswerPosiotion = false;
 
@@ -2893,9 +2935,19 @@ int E21_Example()
 
 
         xproperty::settings::context Context;
-        InspectorSettings.Show(Context, []{});
+        InspectorSettings.Show(Context, [&]
+        {
+            if (ImGui::Button("  Undo  ")) InspectorSettingsUndo.Undo(Context);
+            ImGui::SameLine();
+            if (ImGui::Button("  Redo  ")) InspectorSettingsUndo.Redo(Context);
+        });
         Inspector.Show(Context, [&]
         {
+            if (ImGui::Button("  Undo  ")) InspectorUndo.Undo(Context);
+            ImGui::SameLine();
+            if (ImGui::Button("  Redo  ")) InspectorUndo.Redo(Context);
+            ImGui::Separator();
+
             if (not GeomStaticDetails.m_RootNode.m_Children.empty() || not GeomStaticDetails.m_RootNode.m_MeshList.empty() && SelectedDescriptor.m_pDescriptor)
             {
                 if (ImGui::CollapsingHeader("Scene Hierarchy", ImGuiTreeNodeFlags_DefaultOpen))

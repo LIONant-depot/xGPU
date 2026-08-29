@@ -652,6 +652,117 @@ namespace e24
         State.m_Radius        = Radius;
         State.m_bNeedsReframe = true;
     }
+
+    //-----------------------------------------------------------------------------------
+    // Resource-picker wiring for the "AnimPackage Properties" inspector's SkeletonRef row - without
+    // this, xresource::full_guid-typed properties still resolve/dispatch correctly (var_type<def_guid<>>
+    // shares full_guid's own GUID), but draw<full_guid, style::defaulted>::Render only ever calls
+    // m_OnResourceWigzmos.NotifyAll()/m_OnResourceBrowser.NotifyAll() - with zero delegates registered
+    // (E24 never wired these up), NotifyAll is a no-op and the value column renders nothing at all, so
+    // the row's label ("SkeletonRef") shows with a blank value next to it. Mirrors
+    // E21_StaticGeom_Editor's RemapGUIDToString/RenderResourceWigzmos/ResourceBrowserPopup trio (same
+    // pattern, this file's own copy per this codebase's convention of not sharing these across examples).
+
+    void RemapGUIDToString(std::string& Name, const xresource::full_guid& PreFullGuid)
+    {
+        if (PreFullGuid.empty())
+        {
+            Name = "empty";
+        }
+        else
+        {
+            auto FullGuid = xresource::g_Mgr.getFullGuid(PreFullGuid);
+            e10::g_LibMgr.getNodeInfo(FullGuid, [&](e10::library_db::info_node& Node)
+                {
+                    Name = Node.m_Info.m_Name;
+                });
+            if (Name.empty()) Name = std::format("{:X}", FullGuid.m_Instance.m_Value);
+        }
+    }
+
+    void RenderResourceWigzmos(bool& bOpen, const xresource::full_guid& PreFullGuid)
+    {
+        std::string Name;
+        RemapGUIDToString(Name, PreFullGuid);
+
+        ImVec4 base = ImGui::GetStyleColorVec4(ImGuiCol_Button);
+        base.w = 1;
+        base.x *= 0.75f;
+        base.y *= 0.75f;
+        base.z *= 0.75f;
+        ImGui::PushStyleColor(ImGuiCol_Button, base);
+        bOpen = ImGui::Button(Name.c_str(), ImVec2(-1, 0));
+        ImGui::PopStyleColor();
+    }
+
+    e10::assert_browser g_AssetBrowserPopup;
+
+    void ResourceBrowserPopup(const void* pUID, bool& Open, xresource::full_guid& Output, std::span<const xresource::type_guid> Filters)
+    {
+        if (ImGui::BeginDragDropTarget())
+        {
+            struct drag_and_drop_folder_payload_t
+            {
+                e10::folder::guid           m_Parent;
+                xresource::full_guid        m_Source;
+                bool                        m_bSelection;
+            };
+
+            const ImGuiPayload* payload = ImGui::GetDragDropPayload();
+            if (payload && payload->IsDataType("DESCRIPTOR_GUID"))
+            {
+                IM_ASSERT(payload->DataSize == sizeof(drag_and_drop_folder_payload_t));
+                auto& payload_n = *static_cast<const drag_and_drop_folder_payload_t*>(payload->Data);
+
+                bool bFound = Output.m_Type == payload_n.m_Source.m_Type;
+                if (not bFound) for (auto& Type : Filters)
+                {
+                    if (payload_n.m_Source.m_Type == Type)
+                    {
+                        bFound = true;
+                        break;
+                    }
+                }
+
+                if (bFound)
+                {
+                    if (const ImGuiPayload* accepted = ImGui::AcceptDragDropPayload("DESCRIPTOR_GUID"))
+                    {
+                        Output = payload_n.m_Source;
+                        if (g_AssetBrowserPopup.isVisible()) g_AssetBrowserPopup.ClosePopup();
+                        Open = false;
+                    }
+                }
+            }
+            ImGui::EndDragDropTarget();
+        }
+
+        if (g_AssetBrowserPopup.getCurrentID() != nullptr && g_AssetBrowserPopup.getCurrentID() != pUID)
+            return;
+
+        if (Open && not g_AssetBrowserPopup.isVisible())
+        {
+            g_AssetBrowserPopup.ShowAsPopup(e10::g_LibMgr, pUID, Filters, Output.m_Type);
+        }
+
+        if (auto SelectedAsset = g_AssetBrowserPopup.getSelectedAsset(); SelectedAsset.empty() == false)
+        {
+            if (Output.m_Type == SelectedAsset.m_Type)
+            {
+                Output = SelectedAsset;
+            }
+            else for (auto& Type : Filters)
+            {
+                if (SelectedAsset.m_Type == Type)
+                {
+                    Output = SelectedAsset;
+                    break;
+                }
+            }
+        }
+
+        Open = g_AssetBrowserPopup.isVisible();
+    }
 }
 
 //-----------------------------------------------------------------------------------
@@ -889,6 +1000,18 @@ int E24_Example()
     Inspector.m_Settings.m_ColorSScalar  = 0.26f * 1.4f;
     Inspector.AppendEntity();
     Inspector.AppendEntityComponent(*AnimState.m_Descriptor.getProperties(), &AnimState.m_Descriptor);
+
+    // Without this, SkeletonRef's row renders with a blank value (see e24::RenderResourceWigzmos's own
+    // comment) - m_OnResourceWigzmos/m_OnResourceBrowser were never registered on this inspector at all.
+    Inspector.m_OnResourceWigzmos.Register<[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view, bool& bOpen, const xresource::full_guid& PreFullGuid)
+    {
+        e24::RenderResourceWigzmos(bOpen, PreFullGuid);
+    }>();
+    Inspector.m_OnResourceBrowser.Register<[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view Path, bool& bOpen, xresource::full_guid& Out, std::span<const xresource::type_guid> Filters)
+    {
+        const void* pUID = reinterpret_cast<const void*>(std::hash<std::string_view>{}(Path));
+        e24::ResourceBrowserPopup(pUID, bOpen, Out, Filters);
+    }>();
 
     //
     // Setup Imgui interface
@@ -1237,6 +1360,10 @@ int E24_Example()
         }
 
         AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
+
+        // Drives the SkeletonRef resource-picker popup registered on Inspector above - the asset
+        // browser decides on its own each frame whether it needs to actually show anything.
+        e24::g_AssetBrowserPopup.RenderAsPopup(e10::g_LibMgr, xresource::g_Mgr);
 
         if (auto SelAsset = AsserBrowser.getSelectedAsset(); SelAsset.empty() == false && SelAsset.m_Type == xanim_package_desc::resource_type_guid_v)
         {
