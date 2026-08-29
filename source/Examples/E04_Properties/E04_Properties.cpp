@@ -1,5 +1,6 @@
 #include "source/xGPU.h"
 #include "source/tools/xgpu_imgui_breach.h"
+#include <algorithm>
 
 //
 // We want to use this version as our core properties
@@ -223,9 +224,40 @@ namespace e04
 
         XPROPERTY_DEF
         ( "Override Demo", override_demo_test
-        , obj_member<"Speed", &override_demo_test::m_Speed, member_section<"m_OnOverrideCheck / m_OnOverrideReset">
-            , member_help<"Edit away from its base value (5.0) to see the override indicator and revert button appear">>
-        , obj_member<"Tag", &override_demo_test::m_Tag>
+        , obj_member<"Speed", &override_demo_test::m_Speed
+            , member_override_check<+[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view, const xproperty::any& Value, bool& bOut) noexcept
+                {
+                    static const override_demo_test k_Base{};
+                    bOut = Value.get<float>() != k_Base.m_Speed;
+                }>
+            , member_override_reset<+[](xproperty::inspector& Inspector, const xproperty::type::object& Obj, void* pInstance, std::string_view Path) noexcept
+                {
+                    static const override_demo_test k_Base{};
+                    std::string                   Error;
+                    xproperty::settings::context  Context;
+                    xproperty::any                A; A.set<float>(k_Base.m_Speed);
+                    Inspector.BeginEdit(Obj, pInstance, "Reset Override");
+                    xproperty::sprop::setProperty(Error, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), A }, Context);
+                    Inspector.CommitEdit(Context);
+                }>
+            , member_section<"m_OnOverrideCheck / m_OnOverrideReset">
+            , member_help<"Edit away from its base value (5.0) to see the override indicator and revert button appear - declares its own override check/reset directly via member_override_check/member_override_reset">>
+        , obj_member<"Tag", &override_demo_test::m_Tag
+            , member_override_check<+[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view, const xproperty::any& Value, bool& bOut) noexcept
+                {
+                    static const override_demo_test k_Base{};
+                    bOut = Value.get<std::string>() != k_Base.m_Tag;
+                }>
+            , member_override_reset<+[](xproperty::inspector& Inspector, const xproperty::type::object& Obj, void* pInstance, std::string_view Path) noexcept
+                {
+                    static const override_demo_test k_Base{};
+                    std::string                   Error;
+                    xproperty::settings::context  Context;
+                    xproperty::any                A; A.set<std::string>(k_Base.m_Tag);
+                    Inspector.BeginEdit(Obj, pInstance, "Reset Override");
+                    xproperty::sprop::setProperty(Error, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), A }, Context);
+                    Inspector.CommitEdit(Context);
+                }>>
         )
     };
 
@@ -245,6 +277,133 @@ namespace e04
         ( "Array Item", array_item
         , obj_member<"Name",  &array_item::m_Name>
         , obj_member<"Value", &array_item::m_Value>
+        )
+    };
+
+    // Forward declared so custom_render_smoke_test's own XPROPERTY_DEF (below) can attach it directly
+    // via member_custom_render_block - the property declares its own rendering right where it's
+    // declared, instead of a separate shared registration lambda having to Path.ends_with()-match it
+    // out of every other property in the inspector. A DECLARATION is enough here (a function call
+    // only needs one) - the full DEFINITION, which needs custom_render_smoke_test's complete type to
+    // read m_Keyframes, stays below it, after the struct it's defined in terms of.
+    struct custom_render_smoke_test;
+    static void DrawCurveEditor(xproperty::inspector& Inspector, const xproperty::type::object& Obj, void* pInstance, ImColor RowColor);
+
+    // Named (not a +[] lambda at each declaration site) specifically so the top-level Block Start/End
+    // properties AND their "Indent Test" nested copies can share one implementation via
+    // member_custom_render_block<DrawBlockStartContent>/<DrawBlockEndContent> at both declaration
+    // sites, instead of duplicating this body. Matches member_custom_render_block_t::callback's
+    // signature exactly, so it converts to the tag's stored function pointer with no wrapper needed.
+    static void DrawBlockStartContent(xproperty::inspector&, const xproperty::type::object&, void*, std::string_view, const xproperty::any&, std::uint32_t RowColorU32, bool bDryRun, bool& bIsBlockContent) noexcept
+    {
+        bIsBlockContent = true;
+        if (bDryRun) return;
+        const ImColor RowColor = ImColor(RowColorU32);
+        // A block nested inside a scope picks up a subtle light border "for free" at its top/bottom
+        // edges - from the scope's own framed-content styling, not anything this panel draws - while a
+        // top-level block (no enclosing scope) has no such border, confirmed live as a real, visible
+        // inconsistency between the two. Explicit border here, using ImGui's own ImGuiCol_Border
+        // (matching what the framed case already looks like rather than inventing a different color)
+        // makes the treatment identical regardless of nesting, instead of relying on incidental styling
+        // that only shows up sometimes.
+        const ImU32 BorderColor = ImGui::GetColorU32(ImGuiCol_Border);
+        // Every formula tried for this fill's height (GetFrameHeight(), then
+        // GetTextLineHeightWithSpacing(), then + ItemSpacing.y, then +1px) matched the top-level copy
+        // of this block but not one nested inside a scope - confirmed live via debug logging that the
+        // header TEXT ITEM ITSELF starts ~3.5px later (matching this style's FramePadding.y exactly)
+        // when nested than its own captured start cursor (Min.y) says it should. That's some
+        // framework/ImGui baseline-offset interaction with being the first item after a scope opens,
+        // not anything controllable from here - no formula written up front can account for it. Fixed
+        // properly by not guessing at all: split the draw list into two channels, draw the REAL content
+        // first on the content channel, MEASURE the actual resulting cursor advance, then paint the
+        // background on the earlier-merged channel using that real measurement - the same deferred-
+        // background technique the framework itself already uses for rows whose height isn't known
+        // until their content has actually drawn (see m_RowExtraHeightCache and its own leaf-branch
+        // call site in xPropertyImGuiInspector.cpp).
+        ImDrawList* pDrawList = ImGui::GetWindowDrawList();
+        const ImVec2 Min   = ImGui::GetCursorScreenPos();
+        const float  Width = ImGui::GetContentRegionAvail().x; // captured early - a late re-measure drifts once content has drawn, see the framework's own "late width measurement" fix for why
+        pDrawList->ChannelsSplit(2);
+        pDrawList->ChannelsSetCurrent(1);
+        ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.2f, 1.0f), "  Custom Block (Odin-style area) - see the real curve editor further down for the full version of this");
+        const float RealBottom = ImGui::GetCursorScreenPos().y;
+        pDrawList->ChannelsSetCurrent(0);
+        pDrawList->AddRectFilled(Min, ImVec2(Min.x + Width, RealBottom), RowColor);
+        pDrawList->AddLine(Min, ImVec2(Min.x + Width, Min.y), BorderColor, 1.0f);
+        pDrawList->ChannelsMerge();
+    }
+
+    static void DrawBlockEndContent(xproperty::inspector&, const xproperty::type::object&, void*, std::string_view, const xproperty::any&, std::uint32_t, bool bDryRun, bool& bIsBlockContent) noexcept
+    {
+        bIsBlockContent = true;
+        if (bDryRun) return;
+        // Just the closing border line, no reserved height/fill - a half-height footer rect was here
+        // before, but it only ever drew to the draw list (no real widget call), so the cursor never
+        // advanced past it and it silently overlapped whatever the NEXT property drew (invisible while
+        // framework backgrounds painted over both in the same shade, confirmed live as a real overlap
+        // once those backgrounds were turned off). Rather than fix that by making it consume real space
+        // (which just turned the invisible overlap into a visible, unlabeled empty-looking strip - "why
+        // do we need that, makes zero sense"), drop the fill and the reserved space entirely: draw the
+        // one line the block actually needs to mark its own end, at zero cursor cost.
+        const ImVec2 Min = ImGui::GetCursorScreenPos();
+        // Plain black, not the theme's ImGuiCol_Border gray - that gray blends differently against the
+        // top-level block's lighter background vs a nested block's darker one, so it never read as a
+        // consistent "black line" on both.
+        ImGui::GetForegroundDrawList()->AddLine(Min, ImVec2(Min.x + ImGui::GetContentRegionAvail().x, Min.y), IM_COL32(0, 0, 0, 255), 1.0f);
+    }
+
+    // Named for the same reason as DrawBlockStartContent/DrawBlockEndContent above - shared between
+    // the top-level "Full Row Replaced (level 3)" property and its "Indent Test" nested copy via
+    // member_custom_render_replace_value<DrawFullRowReplaceValue>/member_custom_render_replace_row<
+    // DrawFullRowReplaceRow> at both declaration sites, instead of duplicating the body.
+    static void DrawFullRowReplaceValue(xproperty::inspector& Inspector, const xproperty::type::object& Obj, void* pInstance, std::string_view Path, const xproperty::any& Value, bool& bHandled) noexcept
+    {
+        // Right half of this level-3 smoke test - the sibling member_custom_render_replace_row tag
+        // draws the left column; the automatic NextColumn() between the two levels means this one
+        // still has to separately handle the right column itself.
+        bHandled = true;
+        if (ImGui::Button(std::format("Roll (currently {})", Value.get<int>()).c_str(), ImVec2(-1, 0)))
+        {
+            std::string                   Error;
+            xproperty::settings::context  Context;
+            xproperty::any                NewValue; NewValue.set<int>((Value.get<int>() % 6) + 1);
+            Inspector.BeginEdit(Obj, pInstance, "Roll Dice");
+            xproperty::sprop::setProperty(Error, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), NewValue }, Context);
+            Inspector.CommitEdit(Context);
+        }
+    }
+
+    static void DrawFullRowReplaceRow(xproperty::inspector&, const xproperty::type::object&, void*, std::string_view, const xproperty::any&, bool& bHandled) noexcept
+    {
+        bHandled = true;
+        ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.9f, 1.0f), "Dice");
+    }
+
+    //------------------------------------------------------------------------------------------------
+    // Element type for custom_render_smoke_test's curve editor (see m_Keyframes below) - reflected the
+    // same way array_item is above, so xproperty::ui::undo::SnapshotToString/ApplySnapshotFromString
+    // (walked via the same sprop::collector traversal RefreshAllProperties itself uses) can genuinely
+    // see and restore every field, not just whichever one happens to have its own visible row.
+    //------------------------------------------------------------------------------------------------
+    struct curve_keyframe
+    {
+        float m_Time          = 0.0f;
+        float m_Value          = 0.0f;
+        float m_InTangent      = 0.0f;
+        float m_OutTangent     = 0.0f;
+        // Purely cosmetic - cubic Hermite interpolation (see DrawCurveEditor) only ever reads the
+        // slope above, never this. Stored anyway (rather than a fixed constant) so the out-tangent
+        // handle's on-screen distance from its point is draggable and WYSIWYG - resting render and
+        // live drag both read this same field, so there's nothing to snap back to on release.
+        float m_OutHandleLen  = 28.0f;
+
+        XPROPERTY_DEF
+        ( "Curve Keyframe", curve_keyframe
+        , obj_member<"Time",        &curve_keyframe::m_Time>
+        , obj_member<"Value",       &curve_keyframe::m_Value>
+        , obj_member<"In Tangent",  &curve_keyframe::m_InTangent>
+        , obj_member<"Out Tangent", &curve_keyframe::m_OutTangent>
+        , obj_member<"Out Handle Length", &curve_keyframe::m_OutHandleLen>
         )
     };
 
@@ -321,67 +480,382 @@ namespace e04
         int  m_AfterBlock    = 99;
         int  m_Seed          = 5;
 
-        // Dedicated fields for a SECOND copy of the block, nested one scope deep - same suffix names
-        // as the top-level ones above, so the existing m_OnCustomRenderBlock registration (which
-        // matches via Path.ends_with(), suffix-only) picks these up for free. Separate fields rather
-        // than reusing m_BlockStart/etc. directly, since reflecting the same C++ member at two
-        // different paths would confuse xproperty's per-property GUID/path resolution.
+        // Dedicated fields for a SECOND copy of the block, nested one scope deep - their own
+        // obj_member declarations attach the SAME named tag functions (DrawBlockStartContent/
+        // DrawBlockEndContent/DrawFullRowReplaceValue/DrawFullRowReplaceRow) as the top-level ones
+        // below, proving the nested case still works. Separate fields rather than reusing
+        // m_BlockStart/etc. directly, since reflecting the same C++ member at two different paths
+        // would confuse xproperty's per-property GUID/path resolution.
         int  m_NestedBlockStart  = 1;
         int  m_NestedBlockEnd    = 3;
         int  m_NestedAfterBlock  = 44;
         int  m_NestedFullRow     = 3;
 
-        // Backing data for Block Start's sparkline (see m_OnCustomRenderBlock below) - not itself a
-        // reflected property, just what the block's own custom widget plots. Not a real waveform,
-        // just enough shape variation to look like actual data rather than a flat placeholder line.
-        std::array<float, 24> m_Sparkline =
-        { 0.2f, 0.5f, 0.35f, 0.8f, 0.65f, 0.9f, 0.7f, 0.4f
-        , 0.3f, 0.55f, 0.75f, 0.6f, 0.45f, 0.85f, 0.95f, 0.6f
-        , 0.3f, 0.2f, 0.4f, 0.65f, 0.5f, 0.3f, 0.15f, 0.35f };
+        // Backing data for Block Start's curve editor (see m_OnCustomRenderBlock/DrawCurveEditor
+        // below) - the stress test for xproperty::inspector::BeginEdit/CommitEdit: a variable-length
+        // reflected array (not a scalar), edited via direct field writes on a live pointer (not
+        // setProperty-by-path), where "one drag = one undo step" and structural inserts/deletes both
+        // need to work. Genuinely reflected (unlike the sparkline it replaces) so the whole-instance
+        // snapshot BeginEdit/CommitEdit takes can actually see and restore it; m_OnCustomRenderBlock
+        // claims its entire subtree (size marker + every element/member) so it never ALSO renders as
+        // a normal array section underneath the canvas.
+        std::vector<curve_keyframe> m_Keyframes =
+        { { 0.00f, 0.20f,  0.0f,  1.2f }
+        , { 0.25f, 0.80f,  1.0f, -0.6f }
+        , { 0.50f, 0.35f, -0.8f,  0.8f }
+        , { 0.75f, 0.90f,  0.6f, -0.3f }
+        , { 1.00f, 0.55f, -0.4f,  0.0f }
+        };
 
         XPROPERTY_DEF
         ( "Custom Render Test", custom_render_smoke_test
         , obj_member<"Wide Number (fills the column)", &custom_render_smoke_test::m_WideNumber
             , member_flags<xproperty::flags::APPEND_NEW_LINE>
-            , member_help<"Fills the value column via -1 width, no leftover space for a same-line append - opts into APPEND_NEW_LINE so the framework starts a new line before invoking m_OnCustomRenderAppend instead">>
+            , member_custom_render_append<+[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view, const xproperty::any&) noexcept
+                {
+                    // Diagnostic for the APPEND_NEW_LINE background-height fix: X/Y/Z are real
+                    // frame-height buttons (unlike the inspector's own default append-marker text),
+                    // so their top/bottom margin against the row's background rect shows directly
+                    // whether the appended line is vertically centered in the space DrawBackground
+                    // reserved for it, or just flush against one edge.
+                    ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "<- appended");
+                    ImGui::SameLine();
+                    ImGui::Button("X", ImVec2(24, 0));
+                    ImGui::SameLine();
+                    ImGui::Button("Y", ImVec2(24, 0));
+                    ImGui::SameLine();
+                    ImGui::Button("Z", ImVec2(24, 0));
+                }>
+            , member_help<"Fills the value column via -1 width, no leftover space for a same-line append - opts into APPEND_NEW_LINE so the framework starts a new line before invoking its own member_custom_render_append tag instead">>
         , obj_member<"Seed (Odin-style inline button)", &custom_render_smoke_test::m_Seed
             , member_dynamic_item_width<+[](const custom_render_smoke_test&) noexcept -> float
                 { return -(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemSpacing.x); }>
+            , member_custom_render_append<+[](xproperty::inspector& Inspector, const xproperty::type::object& Obj, void* pInstance, std::string_view Path, const xproperty::any& Value) noexcept
+                {
+                    // Odin-style [InlineButton]: this property's own member_dynamic_item_width above
+                    // already reserved exactly this much room, so the button sits flush against the
+                    // field with no gap and no overlap regardless of font/DPI - nothing here needs to
+                    // know or guess a pixel number itself.
+                    const float Sz = ImGui::GetFrameHeight();
+                    ImGui::SameLine();
+                    if (ImGui::Button("\xEE\x9C\xAC", ImVec2(Sz, Sz))) // Segoe MDL2 Assets Refresh (U+E72C)
+                    {
+                        std::string                   Error;
+                        xproperty::settings::context  Context;
+                        xproperty::any                NewValue; NewValue.set<int>((Value.get<int>() * 1103515245 + 12345) & 0x7fff);
+                        Inspector.BeginEdit(Obj, pInstance, "Randomize Seed");
+                        xproperty::sprop::setProperty(Error, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), NewValue }, Context);
+                        Inspector.CommitEdit(Context);
+                    }
+                    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Randomize");
+                }>
             , member_help<"Reserves exactly one square icon button's worth of space (GetFrameHeight() + ItemSpacing.x), computed rather than a guessed pixel number - same idea as Odin's [InlineButton] attribute in Unity. The field itself stays fully usable; the Refresh button sits right after it">>
         , obj_member<"Narrow Bool (checkbox)",         &custom_render_smoke_test::m_NarrowBool
             , member_help<"No APPEND_NEW_LINE flag - default same-line append, which already has visible room after a narrow checkbox">>
         , obj_member<"Replaced Field (level 2)",       &custom_render_smoke_test::m_ReplacedField
-            , member_help<"m_OnCustomRenderReplaceValue draws a custom button here instead of the normal numeric widget entirely - clicking it still writes through sprop::setProperty like any other commit in this file">>
+            , member_custom_render_replace_value<+[](xproperty::inspector& Inspector, const xproperty::type::object& Obj, void* pInstance, std::string_view Path, const xproperty::any& Value, bool& bHandled) noexcept
+                {
+                    bHandled = true;
+                    constexpr int Cap = 10;
+                    const int Val = Value.get<int>();
+                    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.6f, 0.1f, 0.6f, 1.0f));
+                    ImGui::ProgressBar(static_cast<float>(Val) / Cap, ImVec2(-1, 0), std::format("{} / {} (click to +1)", Val, Cap).c_str());
+                    ImGui::PopStyleColor();
+                    if (ImGui::IsItemClicked())
+                    {
+                        std::string                   Error;
+                        xproperty::settings::context  Context;
+                        xproperty::any                NewValue; NewValue.set<int>((Val + 1) % (Cap + 1));
+                        Inspector.BeginEdit(Obj, pInstance, "Increment Replaced Field");
+                        xproperty::sprop::setProperty(Error, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), NewValue }, Context);
+                        Inspector.CommitEdit(Context);
+                    }
+                }>
+            , member_help<"member_custom_render_replace_value draws a custom button here instead of the normal numeric widget entirely - clicking it writes through sprop::setProperty bracketed by BeginEdit/CommitEdit, same as every other commit in this file, so it's undoable via the Undo button above">>
         , obj_member<"Full Row Replaced (level 3)",    &custom_render_smoke_test::m_FullRow
-            , member_help<"m_OnCustomRenderReplaceRow takes over BOTH the label and value columns - the normal 'Full Row Replaced (level 3)' name never even renders">>
+            , member_custom_render_replace_value<DrawFullRowReplaceValue>
+            , member_custom_render_replace_row<DrawFullRowReplaceRow>
+            , member_help<"member_custom_render_replace_row takes over BOTH the label and value columns (the sibling member_custom_render_replace_value tag handles the value side) - the normal 'Full Row Replaced (level 3)' name never even renders">>
         , obj_member<"Block Start (level 4)",          &custom_render_smoke_test::m_BlockStart
-            , member_help<"Level 4 test: does 'replace multiple rows until resume' actually need new framework code, or does level 3 already provide it via consumer-side state? This one opens a custom block and draws its own full content (header + graph) in one shot - a block is one property, not one property per visual element">>
+            , member_custom_render_block<DrawBlockStartContent>
+            , member_help<"Level 4 test: does 'replace multiple rows until resume' actually need new framework code, or does level 3 already provide it via consumer-side state? Declares its own block rendering directly via member_custom_render_block - a block is one property, not one property per visual element">>
         , obj_member<"Block End (level 4)",            &custom_render_smoke_test::m_BlockEnd
-            , member_help<"A second property still inside the same block - proves bInPersistentBlock's multi-property merge (no gap between Start's content and this one) without needing a third, purely-fallback-caught property in between. Closes the custom block and hands control back to normal rendering">>
+            , member_custom_render_block<DrawBlockEndContent>
+            , member_help<"A second property still inside the same block - proves bInPersistentBlock's multi-property merge (no gap between Start's content and this one) without needing a third, purely-fallback-caught property in between. Its own tag closes the custom block and hands control back to normal rendering">>
         , obj_member<"After Block (normal)",           &custom_render_smoke_test::m_AfterBlock
             , member_help<"No custom-render registration matches this one at all - should render completely normally, proving resume genuinely works">>
+        , obj_member<"Keyframes (curve editor data)",  &custom_render_smoke_test::m_Keyframes
+            , member_custom_render_block<+[](xproperty::inspector& Inspector, const xproperty::type::object& Obj, void* pInstance, std::string_view Path, const xproperty::any&, std::uint32_t RowColorU32, bool bDryRun, bool& bIsBlockContent) noexcept
+                {
+                    // Claims this whole array's subtree - its own size-marker entry (".../Keyframes
+                    // (curve editor data)[]", where DrawCurveEditor actually draws) plus every
+                    // element/member entry under it - claimed but drawn as nothing, same idiom
+                    // on_custom_render_block's own comment describes for a multi-property block.
+                    bIsBlockContent = true;
+                    if (bDryRun) return;
+                    if (Path.ends_with("[]")) DrawCurveEditor(Inspector, Obj, pInstance, ImColor(RowColorU32));
+                }>
+            , member_help<"Backing data for the curve editor drawn as part of Block Start above - reflected so BeginEdit/CommitEdit's whole-instance snapshot can see it. Declares its own rendering directly via member_custom_render_block, right at this property's own declaration, instead of a shared inspector-wide delegate having to Path-match it out of every other property">>
         , obj_scope<"Indent Test (nested block)"
-            , obj_member<"Block Start (level 4)",       &custom_render_smoke_test::m_NestedBlockStart>
-            , obj_member<"Block End (level 4)",         &custom_render_smoke_test::m_NestedBlockEnd>
+            , obj_member<"Block Start (level 4)",       &custom_render_smoke_test::m_NestedBlockStart
+                , member_custom_render_block<DrawBlockStartContent>>
+            , obj_member<"Block End (level 4)",         &custom_render_smoke_test::m_NestedBlockEnd
+                , member_custom_render_block<DrawBlockEndContent>>
             , obj_member<"After Block (normal)",        &custom_render_smoke_test::m_NestedAfterBlock>
             , obj_member<"Full Row Replaced (level 3)", &custom_render_smoke_test::m_NestedFullRow
-                , member_help<"Same level-3 row-replace ('Dice'), one scope deeper - m_OnCustomRenderReplaceRow draws with a plain ImGui::TextColored at whatever the current cursor position is, same as any normal label; if it lines up flush with the window edge instead of with this scope's other nested siblings, the row-replace hook is bypassing the ambient indent somehow">>
+                , member_custom_render_replace_value<DrawFullRowReplaceValue>
+                , member_custom_render_replace_row<DrawFullRowReplaceRow>
+                , member_help<"Same level-3 row-replace ('Dice'), one scope deeper - draws with a plain ImGui::TextColored at whatever the current cursor position is, same as any normal label; if it lines up flush with the window edge instead of with this scope's other nested siblings, the row-replace hook is bypassing the ambient indent somehow">>
             , member_help<"Same block, one scope deeper - the framework's own Columns(1) escape should NOT reset indentation, since ImGui's indent stack (from this scope's own real TreePush) is independent of column state. If the block text lines up flush with the window edge instead of with 'Block Start' sibling's indent, that claim was wrong">>
         )
     };
 
-    // Shared between the m_OnCustomRenderReplaceRow and m_OnCustomRenderAppend registrations below -
-    // both are captureless +[] lambdas (required for .Register<+[]...>()'s function-pointer
-    // conversion), so this can't be a local static inside just one of them; needs namespace scope to
-    // be visible to both. Without this, level 1's append (which has no Path filter of its own, by
-    // design - see its own registration comment) fires even for a level-4-suppressed "middle of block"
-    // row, which is correct/expected given the two levels are orthogonal, but makes for a less clean
-    // demo of "fully suppressed until resume" than checking this here too.
-    static bool g_bInCustomBlock = false;
+    //------------------------------------------------------------------------------------------------
+    // Full curve editor for custom_render_smoke_test::m_Keyframes, drawn full-width via the
+    // m_OnCustomRenderBlock escape - the stress test for xproperty::inspector::BeginEdit/CommitEdit
+    // (see xPropertyImGuiInspector.h/.cpp): a real drag (one drag = one undo step, not one per frame),
+    // structural inserts/deletes on top of that, and a tangent handle that changes a property with no
+    // row of its own - all bracketed the same way ("mutate the live pointer directly, commit once").
+    // Each ImGui::IsItem*() check below refers to whichever InvisibleButton call immediately precedes
+    // it - no manual "which index is being dragged" bookkeeping needed, same idiom the framework's own
+    // per-row scalar widgets already use (Cmd.m_isEditing via IsItemActive/IsItemDeactivatedAfterEdit).
+    //------------------------------------------------------------------------------------------------
+    static void DrawCurveEditor(xproperty::inspector& Inspector, const xproperty::type::object& Obj, void* pInstance, ImColor RowColor)
+    {
+        auto&                          Keys    = static_cast<custom_render_smoke_test*>(pInstance)->m_Keyframes;
+        xproperty::settings::context   Context; // stateless per-call helper, same ad hoc construction every other one-off setProperty call in this file already uses
+
+        constexpr float CanvasHeight = 160.0f;
+        const ImVec2    Min   = ImGui::GetCursorScreenPos();
+        const float     Width = ImGui::GetContentRegionAvail().x;
+        const ImVec2    Max   = ImVec2(Min.x + Width, Min.y + CanvasHeight);
+        ImDrawList*     pDraw = ImGui::GetWindowDrawList();
+
+        pDraw->AddRectFilled(Min, Max, RowColor);
+        pDraw->AddRect(Min, Max, ImGui::GetColorU32(ImGuiCol_Border));
+        ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.2f, 1.0f), "  Curve Editor - drag a point, drag its blue tangent handle, double-click empty space to insert, double-click or right-click a point to delete, scroll to zoom, right-drag to pan");
+        ImGui::SameLine();
+        // View (zoom/pan center) is pure UI state, not curve data - a function-local static, same
+        // "single demo instance" idiom already used by the various Init flags elsewhere in this file,
+        // not reflected/undoable and not part of curve_keyframe.
+        static float  s_ViewScale  = 1.0f;
+        static ImVec2 s_ViewCenter { 0.5f, 0.5f };
+        if (ImGui::SmallButton("Reset View")) { s_ViewScale = 1.0f; s_ViewCenter = { 0.5f, 0.5f }; }
+
+        // Time/Value both map through a zoomable [center-halfSpan, center+halfSpan] window instead of
+        // a fixed [0,1] - halfSpan shrinks as s_ViewScale grows, i.e. scrolling "in" narrows the
+        // visible range. No domain clamp any more either (dragging/inserting a point can now go
+        // outside the original 0..1 box - reasonable once the view itself can pan/zoom past it).
+        // HalfSpan is recomputed INSIDE each lambda (not hoisted into an outer const) specifically so
+        // the zoom-to-cursor code below - which calls ToCurve once, mutates s_ViewScale, then calls
+        // ToCurve again - sees the NEW scale on its second call instead of a value baked in from before
+        // the mutation, which would silently turn "zoom to cursor" into "zoom to center" instead.
+        const auto ToScreen = [&](float T, float V) noexcept
+        {
+            const float HalfSpanTime  = 0.5f / s_ViewScale;
+            const float HalfSpanValue = 0.5f / s_ViewScale;
+            const float NormT = (T - (s_ViewCenter.x - HalfSpanTime))  / (2.0f * HalfSpanTime);
+            const float NormV = (V - (s_ViewCenter.y - HalfSpanValue)) / (2.0f * HalfSpanValue);
+            return ImVec2(Min.x + NormT * Width, Max.y - NormV * CanvasHeight);
+        };
+        const auto ToCurve = [&](ImVec2 Pt) noexcept
+        {
+            const float HalfSpanTime  = 0.5f / s_ViewScale;
+            const float HalfSpanValue = 0.5f / s_ViewScale;
+            const float NormT = (Pt.x - Min.x) / Width;
+            const float NormV = (Max.y - Pt.y) / CanvasHeight;
+            return ImVec2( (s_ViewCenter.x - HalfSpanTime)  + NormT * (2.0f * HalfSpanTime)
+                         , (s_ViewCenter.y - HalfSpanValue) + NormV * (2.0f * HalfSpanValue) );
+        };
+
+        // The catch-all "##CurveCanvas" button (below, AFTER the keyframe loop) is submitted LAST on
+        // purpose: ImGui resolves overlapping items by submission order - the FIRST item submitted at
+        // a given pixel permanently owns hover there for the rest of the frame (confirmed against this
+        // exact vendored ImGui's own ItemHoverable(), imgui.cpp ~4942-4972 - SetNextItemAllowOverlap()
+        // on a LATER small item does NOT let it steal hover from an EARLIER plain InvisibleButton; it
+        // only matters between two items that both opt in, which isn't this shape). Submitting the
+        // small per-keyframe buttons first, and the big background button last, means the small ones
+        // simply claim their pixels before the big one ever gets a chance to - no AllowOverlap needed,
+        // and it also gives the right BEHAVIOR for free: canvas correctly reads as NOT hovered directly
+        // on top of a keyframe, so double-click-to-insert can't fire exactly where a point already is.
+        const ImVec2 Mouse = ImGui::GetIO().MousePos;
+
+        // Now that the view can zoom/pan, the curve and its keyframes can genuinely land outside the
+        // canvas box (zoomed out, or panned) - without an explicit clip they'd bleed into whatever
+        // property row sits above/below this one. PushClipRect scopes ONLY the drawing (it doesn't
+        // affect widget hit-testing - InvisibleButton placement/interaction below is unaffected),
+        // popped right after the keyframe loop, before the catch-all canvas button and the header
+        // text/button above (which should stay visible regardless of the current zoom/pan).
+        pDraw->PushClipRect(Min, Max, true);
+
+        // Hermite curve through consecutive (already time-sorted) keyframes, using each one's own
+        // in/out tangent - same interpolation Unity's AnimationCurve/InspectorCurveEditor uses.
+        if (Keys.size() >= 2)
+        {
+            constexpr int Steps = 24;
+            for (std::size_t i = 0; i + 1 < Keys.size(); ++i)
+            {
+                const auto& K0 = Keys[i];
+                const auto& K1 = Keys[i + 1];
+                const float dt = K1.m_Time - K0.m_Time;
+                ImVec2 Prev = ToScreen(K0.m_Time, K0.m_Value);
+                for (int s = 1; s <= Steps; ++s)
+                {
+                    const float t  = s / float(Steps);
+                    const float t2 = t * t, t3 = t2 * t;
+                    const float V  = (2*t3 - 3*t2 + 1) * K0.m_Value + (t3 - 2*t2 + t) * dt * K0.m_OutTangent
+                                    + (-2*t3 + 3*t2)    * K1.m_Value + (t3 - t2)      * dt * K1.m_InTangent;
+                    const ImVec2 Cur = ToScreen(K0.m_Time + t * dt, V);
+                    pDraw->AddLine(Prev, Cur, IM_COL32(240, 180, 80, 255), 2.0f);
+                    Prev = Cur;
+                }
+            }
+        }
+
+        for (std::size_t i = 0; i < Keys.size(); ++i)
+        {
+            auto&      K = Keys[i];
+            const ImVec2 P = ToScreen(K.m_Time, K.m_Value);
+
+            ImGui::PushID(static_cast<int>(i));
+
+            // Tangent handle - m_OutTangent is a single scalar slope (rise/run); the handle's on-screen
+            // DISTANCE from its point is a separate, purely cosmetic field (m_OutHandleLen - Hermite
+            // interpolation below never reads it) precisely so it can be dragged shorter or longer,
+            // not pinned to one fixed length. SlopeAndLenToHandle is the ONE formula used for both the
+            // nominal (not being dragged) position AND the live drag preview, both derived the same
+            // way from whatever K.m_OutTangent/m_OutHandleLen currently hold - using two DIFFERENT
+            // formulas (raw mouse position while dragging, a fixed assumed length at rest) was the
+            // earlier bug: any drag ending at a different distance than the fixed assumption left the
+            // resting position somewhere else entirely, reading as an unexplained "snap."
+            const auto SlopeAndLenToHandle = [&](float Slope, float Len) noexcept -> ImVec2
+            {
+                // Slope is in logical (Value/Time) units; converting to screen-space rise/run first
+                // (via the canvas's own Time->X / Value->Y scale) keeps a steep LOGICAL slope reading
+                // as a steep SCREEN angle too, rather than being stretched/squashed by Width vs
+                // CanvasHeight being different sizes.
+                const float ScreenSlope = -Slope * (CanvasHeight / Width);
+                const float InvNorm     = 1.0f / std::sqrt(1.0f + ScreenSlope * ScreenSlope);
+                return ImVec2(P.x + Len * InvNorm, P.y + Len * ScreenSlope * InvNorm);
+            };
+
+            ImVec2 TangentP = SlopeAndLenToHandle(K.m_OutTangent, K.m_OutHandleLen);
+            ImGui::SetCursorScreenPos(ImVec2(TangentP.x - 5, TangentP.y - 5));
+            ImGui::InvisibleButton("##Tangent", ImVec2(10, 10));
+            const bool bTangentActive = ImGui::IsItemActive();
+            const bool bTangentHot    = ImGui::IsItemHovered() || bTangentActive;
+            if (ImGui::IsItemActivated())                                        Inspector.BeginEdit(Obj, pInstance, "Edit Keyframe Tangent");
+            if (bTangentActive && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+            {
+                const float Dx = Mouse.x - P.x;
+                const float Dy = Mouse.y - P.y;
+                const float DistSqr = Dx * Dx + Dy * Dy;
+                if (DistSqr > 4.0f) // ignore right on top of P - angle AND length are undefined there
+                {
+                    const float ScreenSlope = Dy / (std::abs(Dx) > 0.01f ? Dx : (Dx < 0.0f ? -0.01f : 0.01f));
+                    K.m_OutTangent   = std::clamp(-ScreenSlope * (Width / CanvasHeight), -5.0f, 5.0f);
+                    K.m_OutHandleLen = std::clamp(std::sqrt(DistSqr), 10.0f, 90.0f);
+                }
+                TangentP = SlopeAndLenToHandle(K.m_OutTangent, K.m_OutHandleLen); // re-derive from this frame's update, not last frame's, so the preview tracks the live drag
+            }
+            if (ImGui::IsItemDeactivated())                                      Inspector.CommitEdit(Context);
+            pDraw->AddLine(P, TangentP, IM_COL32(120, 200, 255, 255), 1.5f);
+            pDraw->AddCircleFilled(TangentP, bTangentHot ? 5.0f : 3.5f, IM_COL32(120, 200, 255, 255));
+
+            // Point handle - drags Time+Value directly on the live keyframe (no setProperty-by-path;
+            // this IS the live pointer), committed as one undo step on release regardless of how many
+            // frames the drag itself spanned.
+            ImGui::SetCursorScreenPos(ImVec2(P.x - 6, P.y - 6));
+            ImGui::InvisibleButton("##Key", ImVec2(12, 12));
+            const bool bKeyHovered = ImGui::IsItemHovered();
+            const bool bKeyActive  = ImGui::IsItemActive();
+            if (ImGui::IsItemActivated())                                        Inspector.BeginEdit(Obj, pInstance, "Move Keyframe");
+            if (bKeyActive && ImGui::IsMouseDragging(ImGuiMouseButton_Left))
+            {
+                const ImVec2 C = ToCurve(Mouse);
+                K.m_Time  = C.x;
+                K.m_Value = C.y;
+            }
+            if (ImGui::IsItemDeactivated())                                      Inspector.CommitEdit(Context);
+            pDraw->AddCircleFilled(P, (bKeyHovered || bKeyActive) ? 6.0f : 4.5f, IM_COL32(255, 220, 120, 255));
+            pDraw->AddCircle(P, (bKeyHovered || bKeyActive) ? 6.0f : 4.5f, IM_COL32(80, 50, 10, 255), 12, 1.5f);
+
+            // Double-click OR right-click a point to delete it (kept above the 2-keyframe floor - an
+            // empty/single-point curve has nothing left to interpolate). Single immediate
+            // BeginEdit/mutate/CommitEdit, no multi-frame bracket needed for a one-click structural
+            // edit. Double-click on a point is handled HERE, not by the canvas's own double-click-to-
+            // insert further down - "##Key" is submitted first and wins the pixel (same submission-
+            // order rule this whole widget already relies on), so the canvas never even sees it as
+            // hovered there and would never fire its own insert logic for this same click anyway.
+            if (bKeyHovered && (ImGui::IsMouseClicked(ImGuiMouseButton_Right) || ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) && Keys.size() > 2)
+            {
+                Inspector.BeginEdit(Obj, pInstance, "Delete Keyframe");
+                Keys.erase(Keys.begin() + static_cast<std::ptrdiff_t>(i));
+                Inspector.CommitEdit(Context);
+                ImGui::PopID();
+                break; // Keys/indices are stale after the erase - stop this frame's loop
+            }
+
+            ImGui::PopID();
+        }
+
+        pDraw->PopClipRect();
+
+        // Submitted LAST, after every per-keyframe button above - see this function's own opening
+        // comment for why submission order (not AllowOverlap) is what makes a keyframe correctly win
+        // hover/drag over this catch-all background button instead of the reverse.
+        ImGui::SetCursorScreenPos(Min);
+        // Right button enabled too (left is the InvisibleButton default) - needed for right-drag-to-
+        // pan below; this does NOT conflict with a point's own right-click-to-delete above, since
+        // that fires on THAT point's own "##Key" button (submitted earlier, wins the pixel), never on
+        // this canvas button underneath it.
+        ImGui::InvisibleButton("##CurveCanvas", ImVec2(Width, CanvasHeight), ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+        const bool bCanvasHovered = ImGui::IsItemHovered();
+        const bool bCanvasActive  = ImGui::IsItemActive();
+
+        // Zoom to cursor: keep whatever logical (Time,Value) point is currently under the mouse fixed
+        // on screen across the scale change, rather than always zooming toward the view's center -
+        // the same trick most graphics/map apps use so zooming doesn't wander you away from what you
+        // were actually looking at. Takes effect next frame (ToScreen/ToCurve above already captured
+        // this frame's pre-zoom values), which is imperceptible at frame rate.
+        if (bCanvasHovered && ImGui::GetIO().MouseWheel != 0.0f)
+        {
+            const ImVec2 LogicalBefore = ToCurve(Mouse);
+            s_ViewScale = std::clamp(s_ViewScale * (1.0f + ImGui::GetIO().MouseWheel * 0.15f), 0.2f, 20.0f);
+            const ImVec2 LogicalAfter  = ToCurve(Mouse); // same Mouse, new scale - center hasn't moved yet, so this drifted
+            s_ViewCenter.x += (LogicalBefore.x - LogicalAfter.x);
+            s_ViewCenter.y += (LogicalBefore.y - LogicalAfter.y);
+        }
+
+        // Right-drag to pan - gated on ACTIVE (not just hovered) so a fast drag that momentarily
+        // leaves the canvas rect doesn't drop the pan mid-gesture, same as any normal ImGui drag
+        // widget. Pure view state, not curve data - no BeginEdit/CommitEdit bracket, nothing here is
+        // undoable or reflected.
+        if (bCanvasActive && ImGui::IsMouseDragging(ImGuiMouseButton_Right))
+        {
+            const ImVec2 Delta        = ImGui::GetIO().MouseDelta;
+            const float  HalfSpanTime  = 0.5f / s_ViewScale;
+            const float  HalfSpanValue = 0.5f / s_ViewScale;
+            s_ViewCenter.x -= Delta.x / Width        * (2.0f * HalfSpanTime);
+            s_ViewCenter.y += Delta.y / CanvasHeight * (2.0f * HalfSpanValue);
+        }
+
+        if (bCanvasHovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+        {
+            const ImVec2 C = ToCurve(Mouse);
+            Inspector.BeginEdit(Obj, pInstance, "Insert Keyframe");
+            curve_keyframe NewKey{ C.x, C.y, 0.0f, 0.0f };
+            Keys.insert(std::lower_bound(Keys.begin(), Keys.end(), NewKey, [](const curve_keyframe& A, const curve_keyframe& B) noexcept { return A.m_Time < B.m_Time; }), NewKey);
+            Inspector.CommitEdit(Context);
+        }
+
+        ImGui::SetCursorScreenPos(ImVec2(Min.x, Max.y + ImGui::GetStyle().ItemSpacing.y));
+    }
 }
 XPROPERTY_REG(e04::button_smoke_test)
 XPROPERTY_REG(e04::override_demo_test)
 XPROPERTY_REG(e04::array_item)
+XPROPERTY_REG(e04::curve_keyframe)
 XPROPERTY_REG(e04::array_ops_smoke_test)
 XPROPERTY_REG(e04::custom_render_smoke_test)
 
@@ -431,6 +905,7 @@ int E04_Example()
             static e04::override_demo_test      OverrideDemo;
             static e04::array_ops_smoke_test    ArrayOpsDemo;
             static xproperty::inspector          ButtonInspector{ "Button Smoke Test" };
+            static xproperty::ui::undo::system   ButtonUndo;
             static bool                          Init = false;
             xproperty::settings::context         Context;
 
@@ -443,38 +918,29 @@ int E04_Example()
                 ButtonInspector.AppendEntityComponent(*xproperty::getObject(OverrideDemo), &OverrideDemo);
                 ButtonInspector.AppendEntityComponent(*xproperty::getObject(ArrayOpsDemo), &ArrayOpsDemo);
 
-                // Registered once, on this shared inspector - only reacts to paths belonging to
-                // OverrideDemo's own two members; every other row (button_smoke_test's own
-                // properties) just gets bIsOverridden left at its default false. A real consumer
-                // (E20's material-instance case) would instead compare against/fetch from a real
-                // base object rather than a plain default-constructed instance.
-                ButtonInspector.m_OnOverrideCheck.Register<+[](xproperty::inspector&, const xproperty::type::object&, void* pInstance, std::string_view Path, const xproperty::any& Value, bool& bOut)
+                // OverrideDemo's own Speed/Tag now declare their own override check/reset directly via
+                // member_override_check/member_override_reset (see override_demo_test's XPROPERTY_DEF)
+                // - no registration needed here; ButtonInspector.m_OnOverrideCheck/m_OnOverrideReset
+                // have no registrations left on this inspector at all.
+
+                // Wired the same way as Custom Render Test's own undo below - lets Undo/Redo here
+                // actually be exercised against ArrayOpsDemo's insert/delete/reorder buttons, which is
+                // what the array-controls undo fix (xPropertyImGuiInspector.cpp's Commit lambda) needs
+                // a real UI to verify against.
+                ButtonInspector.m_OnChangeEvent.Register< [&](xproperty::inspector&, const xproperty::ui::undo::cmd& Cmd)
                 {
-                    static const e04::override_demo_test k_Base{};
-                    if      (Path.ends_with("/Speed")) bOut = Value.get<float>()       != k_Base.m_Speed;
-                    else if (Path.ends_with("/Tag"))   bOut = Value.get<std::string>() != k_Base.m_Tag;
-                }>();
-                ButtonInspector.m_OnOverrideReset.Register<+[](xproperty::inspector&, const xproperty::type::object& Obj, void* pInstance, std::string_view Path)
-                {
-                    static const e04::override_demo_test k_Base{};
-                    std::string                   Error;
-                    xproperty::settings::context  Context;
-                    if (Path.ends_with("/Speed"))
-                    {
-                        xproperty::any A; A.set<float>(k_Base.m_Speed);
-                        xproperty::sprop::setProperty(Error, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), A }, Context);
-                    }
-                    else if (Path.ends_with("/Tag"))
-                    {
-                        xproperty::any A; A.set<std::string>(k_Base.m_Tag);
-                        xproperty::sprop::setProperty(Error, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), A }, Context);
-                    }
+                    ButtonUndo.Add(Cmd);
                 }>();
             }
 
             ImGui::SetNextWindowPos(ImVec2(990, 10), ImGuiCond_FirstUseEver);
             ImGui::SetNextWindowSize(ImVec2(400, 560), ImGuiCond_FirstUseEver);
-            ButtonInspector.Show(Context, []{});
+            ButtonInspector.Show(Context, [&]
+            {
+                if (ImGui::Button("  Undo  ")) ButtonUndo.Undo(Context);
+                ImGui::SameLine(80);
+                if (ImGui::Button("  Redo  ")) ButtonUndo.Redo(Context);
+            });
         }
 
         //
@@ -486,6 +952,7 @@ int E04_Example()
         {
             static e04::custom_render_smoke_test CustomRenderDemo;
             static xproperty::inspector           CustomRenderInspector{ "Custom Render Test" };
+            static xproperty::ui::undo::system    CustomRenderUndo;
             static bool                           Init = false;
             xproperty::settings::context          Context;
 
@@ -496,231 +963,47 @@ int E04_Example()
                 CustomRenderInspector.AppendEntity();
                 CustomRenderInspector.AppendEntityComponent(*xproperty::getObject(CustomRenderDemo), &CustomRenderDemo);
 
-                // Fired unconditionally for every property on this inspector, same idiom as
-                // m_OnOverrideCheck - the consumer checks Path to decide whether to draw anything.
-                // Appends after BOTH properties, to compare same-line (Narrow Bool, default) vs new-line
-                // (Wide Number, via APPEND_NEW_LINE) layout - the framework already positioned the
-                // cursor correctly before calling this, no ImGui::SameLine() needed here.
-                CustomRenderInspector.m_OnCustomRenderAppend.Register<+[](xproperty::inspector&, const xproperty::type::object& Obj, void* pInstance, std::string_view Path, const xproperty::any& Value)
+                // Wires this panel's own Undo/Redo, same idiom xPropertyImGuiExample.h's bundled demo
+                // already uses (I.m_OnChangeEvent.Register<[&]{ UndoSystem.Add(Cmd); }>()) - the only
+                // way to actually exercise the curve editor's BeginEdit/CommitEdit (and the array-
+                // controls undo fix, via Button Smoke Test's own ArrayOpsDemo above) end to end.
+                CustomRenderInspector.m_OnChangeEvent.Register< [&](xproperty::inspector&, const xproperty::ui::undo::cmd& Cmd)
                 {
-                    // Odin-style [InlineButton]: Seed's own member_dynamic_item_width already reserved
-                    // exactly this much room, so the button sits flush against the field with no gap
-                    // and no overlap regardless of font/DPI - nothing here needs to know or guess a
-                    // pixel number itself.
-                    if (Path.ends_with("/Seed (Odin-style inline button)"))
-                    {
-                        const float Sz = ImGui::GetFrameHeight();
-                        ImGui::SameLine();
-                        if (ImGui::Button("\xEE\x9C\xAC", ImVec2(Sz, Sz))) // Segoe MDL2 Assets Refresh (U+E72C)
-                        {
-                            std::string                   Error;
-                            xproperty::settings::context  Context;
-                            xproperty::any                NewValue; NewValue.set<int>((Value.get<int>() * 1103515245 + 12345) & 0x7fff);
-                            xproperty::sprop::setProperty(Error, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), NewValue }, Context);
-                        }
-                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Randomize");
-                        return;
-                    }
+                    CustomRenderUndo.Add(Cmd);
+                }>();
 
-                    // Diagnostic for the APPEND_NEW_LINE background-height fix: X/Y/Z are real
-                    // frame-height buttons (unlike the plain text below), so their top/bottom margin
-                    // against the row's background rect shows directly whether the appended line is
-                    // vertically centered in the space DrawBackground reserved for it, or just
-                    // flush against one edge.
-                    if (Path.ends_with("/Wide Number (fills the column)"))
-                    {
-                        ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "<- appended");
-                        ImGui::SameLine();
-                        ImGui::Button("X", ImVec2(24, 0));
-                        ImGui::SameLine();
-                        ImGui::Button("Y", ImVec2(24, 0));
-                        ImGui::SameLine();
-                        ImGui::Button("Z", ImVec2(24, 0));
-                        return;
-                    }
-
-                    // Block Start/Middle/End now escape the grid entirely via m_OnCustomRenderBlock
-                    // (registered below) - Render() never reaches this hook for them at all anymore,
-                    // so no g_bInCustomBlock check is needed here any more.
+                // The only registration left on this delegate: a fallback marker for whatever property
+                // has no member_custom_render_append tag of its own (Seed and Wide Number both declare
+                // their own now - see custom_render_smoke_test's XPROPERTY_DEF). This one genuinely IS
+                // an inspector-wide default policy, not a specific property's own behavior, so it stays
+                // on the broadcast delegate rather than becoming a tag itself - there's no single
+                // property to attach "applies to everything else" to.
+                CustomRenderInspector.m_OnCustomRenderAppend.Register<+[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view, const xproperty::any&)
+                {
                     ImGui::TextColored(ImVec4(1.0f, 0.6f, 0.0f, 1.0f), "<- appended");
                 }>();
 
-                // Smoke test for level 2: replace the value column's default widget entirely. A plain
-                // repainted button (same shape as a normal button, different color) doesn't actually
-                // demonstrate why custom rendering matters - an Odin-style [ProgressBar] does, since
-                // ImGui has no built-in "clickable progress bar" widget at all. ImGui::ProgressBar()
-                // itself isn't interactive, so IsItemClicked() right after it is what turns it into
-                // one - still commits through sprop::setProperty on click, same write path every other
-                // commit in this file already uses.
-                CustomRenderInspector.m_OnCustomRenderReplaceValue.Register<+[](xproperty::inspector&, const xproperty::type::object& Obj, void* pInstance, std::string_view Path, const xproperty::any& Value, bool& bHandled)
-                {
-                    if (Path.ends_with("/Replaced Field (level 2)"))
-                    {
-                        bHandled = true;
-                        constexpr int Cap = 10;
-                        const int Val = Value.get<int>();
-                        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.6f, 0.1f, 0.6f, 1.0f));
-                        ImGui::ProgressBar(static_cast<float>(Val) / Cap, ImVec2(-1, 0), std::format("{} / {} (click to +1)", Val, Cap).c_str());
-                        ImGui::PopStyleColor();
-                        if (ImGui::IsItemClicked())
-                        {
-                            std::string                   Error;
-                            xproperty::settings::context  Context;
-                            xproperty::any                NewValue; NewValue.set<int>((Val + 1) % (Cap + 1));
-                            xproperty::sprop::setProperty(Error, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), NewValue }, Context);
-                        }
-                    }
-                    // Right half of the level 3 smoke test below - m_OnCustomRenderReplaceRow draws the
-                    // left column; the automatic NextColumn() between the two delegates means this one
-                    // still has to separately handle the right column itself.
-                    else if (Path.ends_with("/Full Row Replaced (level 3)"))
-                    {
-                        bHandled = true;
-                        if (ImGui::Button(std::format("Roll (currently {})", Value.get<int>()).c_str(), ImVec2(-1, 0)))
-                        {
-                            std::string                   Error;
-                            xproperty::settings::context  Context;
-                            xproperty::any                NewValue; NewValue.set<int>((Value.get<int>() % 6) + 1);
-                            xproperty::sprop::setProperty(Error, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), NewValue }, Context);
-                        }
-                    }
-                }>();
+                // m_OnCustomRenderReplaceValue/m_OnCustomRenderReplaceRow have no registrations left on
+                // this inspector at all - Replaced Field and Full Row Replaced both declare their own
+                // rendering directly via member_custom_render_replace_value/member_custom_render_replace_row
+                // now (see custom_render_smoke_test's XPROPERTY_DEF).
 
-                // Smoke test for level 3 (Full Row Replaced): replace the LEFT column (label) -
-                // composes with the level 2 registration above, which handles the SAME property's
-                // right column, to fully replace the row.
-                CustomRenderInspector.m_OnCustomRenderReplaceRow.Register<+[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view Path, const xproperty::any&, bool& bHandled)
-                {
-                    if (Path.ends_with("/Full Row Replaced (level 3)"))
-                    {
-                        bHandled = true;
-                        ImGui::TextColored(ImVec4(0.2f, 0.9f, 0.9f, 1.0f), "Dice");
-                        return;
-                    }
-                }>();
-
-                // Smoke test for the "block" mechanism (Block Start/End): genuinely leaves the 2-column
-                // grid, unlike level 4's old approach (still inside the grid, just suppressing both
-                // columns) - full window width, no override-revert button, no help tooltip, no
-                // background stripe from the framework. Block Start opens g_bInCustomBlock and draws
-                // its ENTIRE visual content (header text + sparkline graph) in one shot - a block is
-                // one property with one callback, not one property per visual element making up the
-                // block. An earlier version split the header and the graph into two separate backing
-                // properties (Start drawing only the text, a since-removed "Block Middle" drawing only
-                // the graph) purely to prove multi-property merging worked - but that made a single
-                // logical block look, and BE, two stacked rows, which is real UX confusion for anyone
-                // wanting one cohesive block (a curve editor doesn't want its title as a separate row
-                // from the curve). Block End is still its own, second property - still proving
-                // bInPersistentBlock's multi-property merge (no gap between Start's content and End's
-                // footer) without forcing a single logical block to fragment into more rows than it has
-                // reason to.
-                //
-                // Filling the background with RowColor - the same shade the grid's own striping would
-                // have used - turns out to be the common case, not an edge case: a block is still part
-                // of the property list visually, so it should still carry the SAME row-striping look
-                // the rest of the panel has, just spanning the full width instead of one column.
-                //
-                // The graph is an actual ImGui::PlotLines sparkline instead of leaving the block body
-                // blank - a real widget that GENUINELY needs the full width a curve editor would (this
-                // is the exact motivation the block feature exists for at all), not another button or
-                // checkbox in disguise. pInstance is cast to read the smoke test's own backing array
-                // directly, same as any other consumer would reach its own live data.
-                //
-                // Fires twice per property (bDryRun true then false, see on_custom_render_block's own
-                // comment) - only the actual drawing is skipped when bDryRun is true.
-                CustomRenderInspector.m_OnCustomRenderBlock.Register<+[](xproperty::inspector&, const xproperty::type::object&, void* pInstance, std::string_view Path, const xproperty::any&, ImColor RowColor, bool bDryRun, bool& bIsBlockContent)
-                {
-                    const auto FillRow = [&](float Height)
-                    {
-                        const ImVec2 Min = ImGui::GetCursorScreenPos();
-                        const ImVec2 Max = ImVec2(Min.x + ImGui::GetContentRegionAvail().x, Min.y + Height);
-                        ImGui::GetWindowDrawList()->AddRectFilled(Min, Max, RowColor);
-                        return Min;
-                    };
-                    // A block nested inside a scope picks up a subtle light border "for free" at its
-                    // top/bottom edges - from the scope's own framed-content styling, not anything this
-                    // panel draws - while a top-level block (no enclosing scope) has no such border,
-                    // confirmed live as a real, visible inconsistency between the two. Explicit borders
-                    // here, using ImGui's own ImGuiCol_Border (matching what the framed case already
-                    // looks like rather than inventing a different color) make the treatment identical
-                    // regardless of nesting, instead of relying on incidental styling that only shows
-                    // up sometimes.
-                    const ImU32 BorderColor = ImGui::GetColorU32(ImGuiCol_Border);
-
-                    if (Path.ends_with("/Block Start (level 4)"))
-                    {
-                        e04::g_bInCustomBlock = true;
-                        bIsBlockContent = true;
-                        if (bDryRun) return;
-                        constexpr float PlotHeight = 70.0f;
-                        // Every formula tried for this fill's height (GetFrameHeight(), then
-                        // GetTextLineHeightWithSpacing() + PlotHeight, then + ItemSpacing.y, then +1px)
-                        // matched the top-level copy of this block but not the nested one - confirmed
-                        // live via debug logging that the header TEXT ITEM ITSELF starts ~3.5px later
-                        // (matching this style's FramePadding.y exactly) when nested than its OWN
-                        // captured start cursor (Min.y) says it should, while PlotLines' own advance
-                        // was identical in both cases. That's some framework/ImGui baseline-offset
-                        // interaction with being the first item after a scope opens, not anything
-                        // controllable from here - no formula written up front can account for it.
-                        // Fixed properly by not guessing at all: split the draw list into two channels,
-                        // draw the REAL content (text + plot) first on the content channel, MEASURE
-                        // the actual resulting cursor advance, then paint the background on the
-                        // earlier-merged channel using that real measurement - the same deferred-
-                        // background technique the framework itself already uses for rows whose height
-                        // isn't known until their content has actually drawn (see m_RowExtraHeightCache
-                        // and its own leaf-branch call site in xPropertyImGuiInspector.cpp).
-                        ImDrawList* pDrawList = ImGui::GetWindowDrawList();
-                        const ImVec2 Min = ImGui::GetCursorScreenPos();
-                        const float  Width = ImGui::GetContentRegionAvail().x; // captured early - a late re-measure drifts once content has drawn, see the framework's own "late width measurement" fix for why
-                        pDrawList->ChannelsSplit(2);
-                        pDrawList->ChannelsSetCurrent(1);
-                        ImGui::TextColored(ImVec4(0.9f, 0.6f, 0.2f, 1.0f), "  Custom Block (Odin-style [Curve]/[ProgressBar] area)");
-                        // PlotLines draws its own ImGuiCol_FrameBg rectangle first, which would sit on
-                        // TOP of (and hide) the manually-filled RowColor rect painted below - pushing
-                        // FrameBg to RowColor instead gives the plot the same row-striping shade for
-                        // free, no separate fill needed. Drawn right here, in the SAME property's
-                        // callback as the header text above, so the header and the graph it labels are
-                        // genuinely one row - not two properties standing in for one logical block.
-                        auto& Data = static_cast<e04::custom_render_smoke_test*>(pInstance)->m_Sparkline;
-                        ImGui::PushStyleColor(ImGuiCol_FrameBg, static_cast<ImVec4>(RowColor));
-                        ImGui::PushStyleColor(ImGuiCol_PlotLines, ImVec4(0.9f, 0.7f, 0.3f, 1.0f));
-                        ImGui::PlotLines("##Sparkline", Data.data(), static_cast<int>(Data.size()), 0, nullptr, 0.0f, 1.0f, ImVec2(-1, PlotHeight));
-                        ImGui::PopStyleColor(2);
-                        const float RealBottom = ImGui::GetCursorScreenPos().y;
-                        pDrawList->ChannelsSetCurrent(0);
-                        pDrawList->AddRectFilled(Min, ImVec2(Min.x + Width, RealBottom), RowColor);
-                        pDrawList->AddLine(Min, ImVec2(Min.x + Width, Min.y), BorderColor, 1.0f);
-                        pDrawList->ChannelsMerge();
-                        return;
-                    }
-                    if (Path.ends_with("/Block End (level 4)"))
-                    {
-                        e04::g_bInCustomBlock = false; // resume normal grid rendering starting with the NEXT property
-                        bIsBlockContent = true;
-                        if (bDryRun) return;
-                        // Just the closing border line, no reserved height/fill - a half-height
-                        // footer rect was here before, but it only ever drew to the draw list (no
-                        // real widget call), so the cursor never advanced past it and it silently
-                        // overlapped whatever the NEXT property drew (invisible while framework
-                        // backgrounds painted over both in the same shade, confirmed live as a real
-                        // overlap once those backgrounds were turned off). Rather than fix that by
-                        // making it consume real space (which just turned the invisible overlap into
-                        // a visible, unlabeled empty-looking strip - "why do we need that, makes zero
-                        // sense"), drop the fill and the reserved space entirely: draw the one line the
-                        // block actually needs to mark its own end, at zero cursor cost.
-                        const ImVec2 Min = ImGui::GetCursorScreenPos();
-                        // Plain black, not the theme's ImGuiCol_Border gray - that gray blends
-                        // differently against the top-level block's lighter background vs the nested
-                        // block's darker one, so it never read as a consistent "black line" on both.
-                        ImGui::GetForegroundDrawList()->AddLine(Min, ImVec2(Min.x + ImGui::GetContentRegionAvail().x, Min.y), IM_COL32(0, 0, 0, 255), 1.0f);
-                        return;
-                    }
-                }>();
+                // m_OnCustomRenderBlock itself has no registrations left on this inspector - Block
+                // Start/Block End and the curve editor's Keyframes property all declare their own
+                // block rendering directly via member_custom_render_block now (see custom_render_
+                // smoke_test's XPROPERTY_DEF), so this shared, inspector-wide dispatcher no longer
+                // needs to know any of those specific properties exist at all. The delegate itself
+                // stays available for a genuinely one-off case that doesn't warrant its own tag.
             }
 
             ImGui::SetNextWindowPos(ImVec2(990, 580), ImGuiCond_FirstUseEver);
             ImGui::SetNextWindowSize(ImVec2(400, 160), ImGuiCond_FirstUseEver);
-            CustomRenderInspector.Show(Context, []{});
+            CustomRenderInspector.Show(Context, [&]
+            {
+                if (ImGui::Button("  Undo  ")) CustomRenderUndo.Undo(Context);
+                ImGui::SameLine(80);
+                if (ImGui::Button("  Redo  ")) CustomRenderUndo.Redo(Context);
+            });
 
             // A REAL xproperty::inspector targeting CustomRenderInspector's own m_Settings crashed live
             // - 'Assertion failed: type::get_obj_info<key_t> != nullptr'. Root cause found and fixed in
