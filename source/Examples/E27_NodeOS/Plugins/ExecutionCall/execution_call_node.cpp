@@ -12,12 +12,27 @@
 // NODE_SCRIPTING_DESIGN.md's exec-flow addition).
 #include "../../SDK/xnode_os_plugin_api.h"
 #include "../../SDK/xnode_os_shared_types.h"
+#include "dependencies/xresource_guid/source/xresource_guid.h"
 
 namespace
 {
     struct execution_call_node : xnode_os_node
     {
-        XPROPERTY_VDEF("execution_call_node", execution_call_node)
+        // Stable per-instance guid for the fixed pin below - reflected (DONT_SHOW) so the saved value
+        // is restored on load rather than a fresh xresource::guid_generator::Instance64() regenerating
+        // (which would stop matching any saved link) - same pattern end_marker_node.cpp's m_OwnerGuid
+        // uses.
+        std::uint64_t m_ExecGuid = xresource::guid_generator::Instance64();
+
+        XPROPERTY_VDEF
+        ( "execution_call_node", execution_call_node
+        , obj_member<"ExecGuid", &execution_call_node::m_ExecGuid, member_flags<xproperty::flags::DONT_SHOW>>
+        )
+
+        // Not const-only-initialized - getInputs()/getOutputs() re-sync m_Guid from the reflected
+        // field above on every call, so a guid restored by deserialization AFTER construction still
+        // takes effect.
+        mutable xnode_os_port_desc m_Outputs[1] = { { "Exec", "Exec", true, true, false, 0 } };
 
         std::span<const xnode_os_port_desc> getInputs() const noexcept override
         {
@@ -25,8 +40,8 @@ namespace
         }
         std::span<const xnode_os_port_desc> getOutputs() const noexcept override
         {
-            static const xnode_os_port_desc s_Outputs[1] = { { "Exec", "Exec" } };
-            return s_Outputs;
+            m_Outputs[0].m_Guid = m_ExecGuid;
+            return m_Outputs;
         }
         void Execute(void** /*Inputs*/, void** /*Outputs*/) noexcept override {}
     };

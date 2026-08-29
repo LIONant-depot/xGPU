@@ -15,6 +15,7 @@
 // its own registry at draw time (see xproperty's my_property_ui.h/xPropertyImGuiInspector.cpp).
 #include "../../SDK/xnode_os_plugin_api.h"
 #include "../../SDK/xnode_os_shared_types.h"
+#include "dependencies/xresource_guid/source/xresource_guid.h"
 
 namespace
 {
@@ -45,15 +46,27 @@ namespace
     {
         mesh_stats m_Mesh;
 
+        // Stable per-instance guid for the fixed pin below - reflected (DONT_SHOW) so the saved value
+        // is restored on load rather than a fresh xresource::guid_generator::Instance64() regenerating
+        // (which would stop matching any saved link) - same pattern end_marker_node.cpp's m_OwnerGuid
+        // uses.
+        std::uint64_t m_MeshGuid = xresource::guid_generator::Instance64();
+
         XPROPERTY_VDEF
         ( "inspect_mesh_node", inspect_mesh_node
         , obj_member<"Mesh", &inspect_mesh_node::m_Mesh>
+        , obj_member<"MeshGuid", &inspect_mesh_node::m_MeshGuid, member_flags<xproperty::flags::DONT_SHOW>>
         )
+
+        // Not const-only-initialized - getInputs()/getOutputs() re-sync m_Guid from the reflected
+        // field above on every call, so a guid restored by deserialization AFTER construction still
+        // takes effect.
+        mutable xnode_os_port_desc m_Inputs[1] = { { "Mesh", "Mesh", true, true, false, 0 } };
 
         std::span<const xnode_os_port_desc> getInputs() const noexcept override
         {
-            static const xnode_os_port_desc s_Inputs[1] = { { "Mesh", "Mesh" } };
-            return s_Inputs;
+            m_Inputs[0].m_Guid = m_MeshGuid;
+            return m_Inputs;
         }
 
         std::span<const xnode_os_port_desc> getOutputs() const noexcept override

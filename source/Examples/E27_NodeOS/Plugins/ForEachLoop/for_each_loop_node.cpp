@@ -19,6 +19,7 @@
 // yet.
 #include "../../SDK/xnode_os_plugin_api.h"
 #include "../../SDK/xnode_os_shared_types.h"
+#include "dependencies/xresource_guid/source/xresource_guid.h"
 #include <string>
 
 namespace
@@ -28,6 +29,15 @@ namespace
         bool        m_bReadOnlyElement = true;
         std::string m_ResolvedType     = "Any"; // pushed in by the host each frame - see "Resolved Type" below
 
+        // Stable per-instance guids for the fixed pins below - reflected (DONT_SHOW) so the saved
+        // values are restored on load rather than a fresh xresource::guid_generator::Instance64()
+        // regenerating (which would stop matching any saved link) - same pattern end_marker_node.cpp's
+        // m_OwnerGuid/m_ElseEndGuid use.
+        std::uint64_t m_SpanGuid    = xresource::guid_generator::Instance64();
+        std::uint64_t m_ElementGuid = xresource::guid_generator::Instance64();
+        std::uint64_t m_IndexGuid   = xresource::guid_generator::Instance64();
+        std::uint64_t m_EndGuid     = xresource::guid_generator::Instance64();
+
         XPROPERTY_VDEF
         ( "for_each_loop_node2", for_each_loop_node
         , obj_member<"ReadOnlyElement", &for_each_loop_node::m_bReadOnlyElement
@@ -35,12 +45,32 @@ namespace
         , obj_member<"Resolved Type", &for_each_loop_node::m_ResolvedType
             , member_flags<xproperty::flags::SHOW_READONLY, xproperty::flags::DONT_SAVE>
             , member_help<"The element type Element/Index currently resolve to, unwrapped from whatever's wired into Span - live debug info, pushed in by the host each frame, never itself saved.">>
+        , obj_member<"SpanGuid",    &for_each_loop_node::m_SpanGuid,    member_flags<xproperty::flags::DONT_SHOW>>
+        , obj_member<"ElementGuid", &for_each_loop_node::m_ElementGuid, member_flags<xproperty::flags::DONT_SHOW>>
+        , obj_member<"IndexGuid",   &for_each_loop_node::m_IndexGuid,   member_flags<xproperty::flags::DONT_SHOW>>
+        , obj_member<"EndGuid",     &for_each_loop_node::m_EndGuid,     member_flags<xproperty::flags::DONT_SHOW>>
         )
+
+        // Not const-only-initialized - getInputs()/getOutputs() re-sync m_Guid from the reflected
+        // fields above on every call, so a guid restored by deserialization AFTER construction still
+        // takes effect.
+        mutable xnode_os_port_desc m_Inputs[1] = { { "Span", "Span<Any>", true, true, false, 0 } };
+
+        // Element/Index only have meaning inside this loop's own body - flagged m_bLocalScope so
+        // E27_NodeOS_Editor.cpp's IsDataLinkScopeValid restricts them to links whose other
+        // endpoint is physically inside this node's own scope span. Previously unflagged, which
+        // let a wire from Element/Index reach ANY node anywhere (including after the loop closes,
+        // or a completely unrelated spine) - a real bug, now fixed by the same mechanism a
+        // Function's mirrored parameter pins use.
+        mutable xnode_os_port_desc m_Outputs[3] = { { "Element", "Any", true, true, true, 0 }
+                                                   , { "Index", "Int", true, true, true, 0 }
+                                                   , { "End", "Scope", true, true, false, 0 }
+                                                   };
 
         std::span<const xnode_os_port_desc> getInputs() const noexcept override
         {
-            static const xnode_os_port_desc s_Inputs[1] = { { "Span", "Span<Any>" } };
-            return s_Inputs;
+            m_Inputs[0].m_Guid = m_SpanGuid;
+            return m_Inputs;
         }
 
         // "End" is the read-only ownership pin - the host creates and connects it automatically,
@@ -50,14 +80,10 @@ namespace
         // SetEndElseState in E27_NodeOS_Editor.cpp).
         std::span<const xnode_os_port_desc> getOutputs() const noexcept override
         {
-            // Element/Index only have meaning inside this loop's own body - flagged m_bLocalScope so
-            // E27_NodeOS_Editor.cpp's IsDataLinkScopeValid restricts them to links whose other
-            // endpoint is physically inside this node's own scope span. Previously unflagged, which
-            // let a wire from Element/Index reach ANY node anywhere (including after the loop closes,
-            // or a completely unrelated spine) - a real bug, now fixed by the same mechanism a
-            // Function's mirrored parameter pins use.
-            static const xnode_os_port_desc s_Outputs[3] = { { "Element", "Any", true, true, true }, { "Index", "Int", true, true, true }, { "End", "Scope" } };
-            return s_Outputs;
+            m_Outputs[0].m_Guid = m_ElementGuid;
+            m_Outputs[1].m_Guid = m_IndexGuid;
+            m_Outputs[2].m_Guid = m_EndGuid;
+            return m_Outputs;
         }
 
         void Execute(void** /*Inputs*/, void** /*Outputs*/) noexcept override {}

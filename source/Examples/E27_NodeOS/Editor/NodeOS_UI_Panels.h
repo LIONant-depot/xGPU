@@ -118,126 +118,11 @@ namespace nodeos
     // makes every widget's id unstable, which looks exactly like "nothing happens when I click." Only
     // rebuild when a different node gets selected.
     //------------------------------------------------------------------------------------------------
-    // Function's own pin-list encoding, decoded/re-encoded HOST-SIDE for the pin editor below - a
-    // duplicate of function_node.cpp's identical private DecodePins, since plugin internals never
-    // cross the DLL boundary (xnode_os_plugin_api.h's top comment); the host only ever reads/writes
-    // the InputsSpec/OutputsSpec STRING PROPERTY through reflection, same as every other inline
-    // widget in this file touches a node's properties.
-    struct host_pin_spec { std::string m_Name, m_Type; bool m_bRequired = true; bool m_bReadOnly = true; };
-    static std::vector<host_pin_spec> DecodeHostPinSpec(const std::string& Spec)
-    {
-        std::vector<host_pin_spec> Out;
-        std::size_t Pos = 0;
-        while (Pos < Spec.size())
-        {
-            const std::size_t Bar = Spec.find('|', Pos);
-            const std::string Entry = Spec.substr(Pos, Bar == std::string::npos ? std::string::npos : Bar - Pos);
-            const std::size_t C1 = Entry.find(':');
-            const std::size_t C2 = (C1 == std::string::npos) ? std::string::npos : Entry.find(':', C1 + 1);
-            const std::size_t C3 = (C2 == std::string::npos) ? std::string::npos : Entry.find(':', C2 + 1);
-            if (C1 != std::string::npos && C2 != std::string::npos && C3 != std::string::npos)
-            {
-                host_pin_spec Pin;
-                Pin.m_Name      = Entry.substr(0, C1);
-                Pin.m_Type      = Entry.substr(C1 + 1, C2 - C1 - 1);
-                Pin.m_bRequired = Entry[C2 + 1] == '1';
-                Pin.m_bReadOnly = Entry[C3 + 1] == '1';
-                Out.push_back(std::move(Pin));
-            }
-            if (Bar == std::string::npos) break;
-            Pos = Bar + 1;
-        }
-        return Out;
-    }
-    static std::string EncodeHostPinSpec(const std::vector<host_pin_spec>& Pins)
-    {
-        std::string Out;
-        for (auto& P : Pins)
-        {
-            if (!Out.empty()) Out += '|';
-            Out += P.m_Name; Out += ':'; Out += P.m_Type; Out += ':';
-            Out += (P.m_bRequired ? '1' : '0'); Out += ':'; Out += (P.m_bReadOnly ? '1' : '0');
-        }
-        return Out;
-    }
-    static constexpr const char* s_FunctionPinTypes[] = { "Float", "Int", "Short", "Bool", "Any", "Span<Any>" };
-
-    // Draws one Add/Remove/edit pin table (Inputs or Outputs) for a Function node, directly in the
-    // properties panel - Function's port COUNT is user-editable, unlike every other node type here,
-    // so it needs real table UI rather than the single inline widget Constant/Compare use for their
-    // one fixed slot. Every edit re-encodes the whole spec string and commits it through the same
-    // undo-safe SetProperties command the rest of this panel uses - the node's own getInputs()/
-    // getOutputs() derive the local-mirrored pins from this same spec directly (see
-    // function_node.cpp), so there's no separate instance to keep in sync anymore.
-    static void DrawFunctionPinEditor(xundo::system& System, xnode_os_node* pFnNode, std::uint64_t FnNodeId, const char* pSpecMemberName, const char* pLabel)
-    {
-        const xproperty::type::object* pObj = pFnNode->getProperties();
-        const xproperty::type::members* pSpecMember = nullptr;
-        for (auto& M : pObj->m_Members) if (std::strcmp(M.m_pName, pSpecMemberName) == 0) { pSpecMember = &M; break; }
-        if (!pSpecMember) return;
-
-        xproperty::any SpecOut; xproperty::settings::context ReadCtx;
-        std::string SpecText;
-        if (pSpecMember->TryRead(pFnNode, SpecOut, ReadCtx) && SpecOut.is<std::string>())
-            SpecText = SpecOut.get<std::string>();
-        auto Pins = DecodeHostPinSpec(SpecText);
-
-        auto Commit = [&](std::vector<host_pin_spec>& NewPins)
-        {
-            const std::string Before = SerializePropertiesToString(pFnNode);
-            xproperty::any In{ EncodeHostPinSpec(NewPins) }; xproperty::settings::context WriteCtx;
-            (void)pSpecMember->TryWrite(pFnNode, In, WriteCtx);
-            const std::string After = SerializePropertiesToString(pFnNode);
-            if (After != Before)
-                commands::Run(System, commands::MakeSetProperties(FnNodeId, Before, After));
-        };
-
-        ImGui::TextUnformatted(pLabel);
-        int RemoveIndex = -1;
-        for (int i = 0; i < (int)Pins.size(); ++i)
-        {
-            ImGui::PushID(i);
-            auto& Pin = Pins[i];
-            char NameBuf[64]; strncpy_s(NameBuf, Pin.m_Name.c_str(), _TRUNCATE);
-            ImGui::SetNextItemWidth(90.0f);
-            if (ImGui::InputText("##name", NameBuf, sizeof(NameBuf)))
-            {
-                Pin.m_Name = NameBuf;
-                Commit(Pins);
-            }
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(80.0f);
-            if (ImGui::BeginCombo("##type", Pin.m_Type.c_str()))
-            {
-                for (auto* pTypeName : s_FunctionPinTypes)
-                {
-                    const bool bSel = Pin.m_Type == pTypeName;
-                    if (ImGui::Selectable(pTypeName, bSel)) { Pin.m_Type = pTypeName; Commit(Pins); }
-                    if (bSel) ImGui::SetItemDefaultFocus();
-                }
-                ImGui::EndCombo();
-            }
-            ImGui::SameLine();
-            bool bReq = Pin.m_bRequired;
-            if (ImGui::Checkbox("Req", &bReq)) { Pin.m_bRequired = bReq; Commit(Pins); }
-            ImGui::SameLine();
-            bool bRO = Pin.m_bReadOnly;
-            if (ImGui::Checkbox("RO", &bRO)) { Pin.m_bReadOnly = bRO; Commit(Pins); }
-            ImGui::SameLine();
-            if (ImGui::SmallButton("x")) RemoveIndex = i;
-            ImGui::PopID();
-        }
-        if (RemoveIndex >= 0)
-        {
-            Pins.erase(Pins.begin() + RemoveIndex);
-            Commit(Pins);
-        }
-        if (ImGui::SmallButton(std::format("+ Add {}", pLabel).c_str()))
-        {
-            Pins.push_back({ std::format("{}{}", pLabel[0], Pins.size() + 1), "Float", true, true });
-            Commit(Pins);
-        }
-    }
+    // Function's Inputs/Outputs used to be two encoded spec strings, decoded/re-encoded here via a
+    // hand-rolled ImGui table (host_pin_spec/DecodeHostPinSpec/EncodeHostPinSpec/DrawFunctionPinEditor,
+    // all removed) - now they're real reflected std::vector<pin_descriptor> members on function_node
+    // itself (see function_node.cpp), so they render through the SAME shared s_Inspector.Show() call
+    // below as every other node's properties, with no special-casing needed here at all.
 
     static void DrawNodePropertiesPanel(std::vector<node_instance>& Nodes, const std::set<std::uint64_t>& SelectedNodes, xundo::system& System, std::vector<plugin_source_entry>& Sources, std::vector<available_node_type>& AvailableTypes)
     {
@@ -358,18 +243,6 @@ namespace nodeos
             }
             else if (!bIsElse && bWasElse)
                 commands::Run(System, commands::MakeSetEndElseDisable(MarkerNodeId));
-        }
-
-        // Function's signature is user-editable (add/remove/rename/retype pins, toggle Required/
-        // ReadOnly) - the raw InputsSpec/OutputsSpec text fields above are a harmless power-user
-        // escape hatch (same "the encoded string is still just an ordinary property" spirit as
-        // Constant's Value), but this table is the real, intended editing surface.
-        if (pNode->m_pFactory->getName() == "Function")
-        {
-            ImGui::Separator();
-            DrawFunctionPinEditor(System, pNode, NodeId, "InputsSpec",  "Inputs");
-            ImGui::Separator();
-            DrawFunctionPinEditor(System, pNode, NodeId, "OutputsSpec", "Outputs");
         }
     }
 }

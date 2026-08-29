@@ -133,20 +133,49 @@ namespace nodeos
     struct link_instance
     {
         link_guid m_Id = 0;
-        node_guid m_SourceNode = 0; int m_SourceOutput = 0;
-        node_guid m_TargetNode = 0; int m_TargetInput  = 0;
+        node_guid m_SourceNode = 0;
+        node_guid m_TargetNode = 0;
         bool      m_bReadOnly  = false; // an owner<->End ownership link (NODE_SCRIPTING_DESIGN.md section 4.1) - can never be dragged loose or deleted independently; only removed when one of its two nodes is deleted (which removes both, via DeleteNodes' cascade)
+
+        // Pin identity, guid-only - no array index anywhere on this struct. Mirrors the material
+        // graph's own connection design (xmaterial_graph.h's `connection::m_InputPinGuid`/
+        // `m_OutputPinGuid`): every node's every pin now carries a real, stable-for-the-instance's-
+        // lifetime guid (see xnode_os_port_desc::m_Guid), so a link identifies its endpoint by THAT
+        // value alone. Position within a node's own Inputs/Outputs span is never stored - only ever
+        // resolved transiently, on demand, via ResolvePortIndex below - so inserting, deleting, or
+        // reordering a pin (Function/NodeBuilder's own editable arrays) can never silently repoint an
+        // existing link at the wrong pin the way a stored index could.
+        std::uint64_t m_SourceOutputGuid = 0;
+        std::uint64_t m_TargetInputGuid  = 0;
 
         XPROPERTY_DEF
         ( "link_instance", link_instance
-        , obj_member<"Id",           &link_instance::m_Id>
-        , obj_member<"SourceNode",   &link_instance::m_SourceNode>
-        , obj_member<"SourceOutput", &link_instance::m_SourceOutput>
-        , obj_member<"TargetNode",   &link_instance::m_TargetNode>
-        , obj_member<"TargetInput",  &link_instance::m_TargetInput>
+        , obj_member<"Id",               &link_instance::m_Id>
+        , obj_member<"SourceNode",       &link_instance::m_SourceNode>
+        , obj_member<"TargetNode",       &link_instance::m_TargetNode>
+        , obj_member<"SourceOutputGuid", &link_instance::m_SourceOutputGuid>
+        , obj_member<"TargetInputGuid",  &link_instance::m_TargetInputGuid>
         )
     };
     XPROPERTY_REG(link_instance)
+
+    // The one place every link-to-port lookup in this editor goes through, instead of raw
+    // `Ports[i]` indexing by a stored position. Guid-only lookup (see link_instance's own comment) -
+    // a linear scan of the owning node's own (small, single-digit) port list, recomputed fresh every
+    // time rather than cached anywhere, matching this file's existing "never cache stale geometry"
+    // convention (EffectiveTypeName/ResolveNodeWildcardType do the same). Returns -1 when the guid is
+    // 0 (a dangling/unset reference - should never happen for a link made through commands::Connect,
+    // but a defensive default) or the pin it named is simply gone (e.g. deleted since the link was
+    // made) - every call site already has to handle "this link doesn't resolve to anything right now."
+    static int ResolvePortIndex(std::span<const xnode_os_port_desc> Ports, std::uint64_t Guid) noexcept
+    {
+        if (Guid == 0) return -1;
+        for (int i = 0; i < (int)Ports.size(); ++i)
+            if (Ports[i].m_Guid == Guid) return i;
+        return -1;
+    }
+    static int ResolveSourceIndex(const link_instance& Link, std::span<const xnode_os_port_desc> Outputs) noexcept { return ResolvePortIndex(Outputs, Link.m_SourceOutputGuid); }
+    static int ResolveTargetIndex(const link_instance& Link, std::span<const xnode_os_port_desc> Inputs)  noexcept { return ResolvePortIndex(Inputs,  Link.m_TargetInputGuid); }
 
     //------------------------------------------------------------------------------------------------
     // The horizontal container a spine (or several) lives in. Columns form a plain doubly-linked

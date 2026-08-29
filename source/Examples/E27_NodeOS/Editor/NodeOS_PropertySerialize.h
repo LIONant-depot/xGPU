@@ -288,7 +288,7 @@ namespace nodeos
                 if (FlagName == M.m_pName)
                 {
                     bool bConnected = false;
-                    for (auto& L : Links) if (L.m_TargetNode == NodeId && L.m_TargetInput == i) { bConnected = true; break; }
+                    for (auto& L : Links) if (L.m_TargetNode == NodeId && ResolveTargetIndex(L, Inputs) == i) { bConnected = true; break; }
                     xproperty::any In{ bConnected }; xproperty::settings::context Ctx;
                     (void)M.TryWrite(pMutableNode, In, Ctx);
                     break;

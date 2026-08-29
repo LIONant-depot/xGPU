@@ -84,15 +84,23 @@ namespace nodeos
     // trigger a real Execute() (with its real side effects) merely because a frame got drawn.
     static void* PullInputValue(std::uint64_t NodeId, int InputIndex, std::vector<node_instance>& Nodes, std::vector<link_instance>& Links, literal_storage& Scratch, int PullDepth)
     {
+        // Same guid-aware resolution as GetInputValue - see its own comment. This is the path real
+        // Execute() results actually flow through, so a stale index here is exactly the "wrong value
+        // fed into the wrong pin after Function's Inputs got reordered" bug, not just a display glitch.
+        auto TargetIt = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == NodeId; });
+        const auto TargetInputs = (TargetIt != Nodes.end() && TargetIt->m_pNode) ? TargetIt->m_pNode->getInputs() : std::span<const xnode_os_port_desc>{};
         for (auto& Link : Links)
         {
-            if (Link.m_TargetNode != NodeId || Link.m_TargetInput != InputIndex) continue;
+            if (Link.m_TargetNode != NodeId) continue;
+            if (ResolveTargetIndex(Link, TargetInputs) != InputIndex) continue;
             auto SourceIt = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == Link.m_SourceNode; });
             if (SourceIt == Nodes.end()) return nullptr;
             if (!SourceIt->m_bHasRun)
                 EnsureNodeRun(SourceIt->m_Id, Nodes, Links, Scratch, PullDepth);
             if (!SourceIt->m_bHasRun) return nullptr; // still didn't run - an Exec-gated/scope-owning source, or a cycle bailout
-            return (Link.m_SourceOutput < (int)SourceIt->m_CachedOutputs.size()) ? SourceIt->m_CachedOutputs[Link.m_SourceOutput] : nullptr;
+            const auto SourceOutputs = SourceIt->m_pNode ? SourceIt->m_pNode->getOutputs() : std::span<const xnode_os_port_desc>{};
+            const int SrcIdx = ResolveSourceIndex(Link, SourceOutputs);
+            return (SrcIdx >= 0 && SrcIdx < (int)SourceIt->m_CachedOutputs.size()) ? SourceIt->m_CachedOutputs[SrcIdx] : nullptr;
         }
         return ResolveUnconnectedLiteral(NodeId, InputIndex, Nodes, Links, Scratch);
     }

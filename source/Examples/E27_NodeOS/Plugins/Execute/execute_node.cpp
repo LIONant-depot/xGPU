@@ -12,17 +12,34 @@
 // node whose OWN Exec output fires once whatever follows Execute in its spine finishes running.
 #include "../../SDK/xnode_os_plugin_api.h"
 #include "../../SDK/xnode_os_shared_types.h"
+#include "dependencies/xresource_guid/source/xresource_guid.h"
 
 namespace
 {
     struct execute_node : xnode_os_node
     {
-        XPROPERTY_VDEF("execute_node", execute_node)
+        // Stable per-instance guid for the "Exec" input pin below - reflected (DONT_SHOW) so the
+        // saved value is restored on load rather than a fresh xresource::guid_generator::Instance64()
+        // regenerating (which would stop matching any saved link) - same pattern end_marker_node.cpp's
+        // m_OwnerGuid uses.
+        std::uint64_t m_ExecGuid = xresource::guid_generator::Instance64();
+
+        XPROPERTY_VDEF
+        ( "execute_node", execute_node
+        , obj_member<"ExecGuid", &execute_node::m_ExecGuid, member_flags<xproperty::flags::DONT_SHOW>>
+        )
+
+        // Per-instance port guid (not a shared static array) - every pin needs its own stable identity
+        // unique to THIS node instance so links can reference it by guid rather than by array position
+        // (see xnode_os_port_desc::m_Guid's own comment; link_instance no longer stores a plain index).
+        // Not const-only-initialized - getInputs() re-syncs m_Guid from the reflected field above on
+        // every call, so a guid restored by deserialization AFTER construction still takes effect.
+        mutable xnode_os_port_desc m_Inputs[1] = { { "Exec", "Exec", true, true, false, 0 } };
 
         std::span<const xnode_os_port_desc> getInputs() const noexcept override
         {
-            static const xnode_os_port_desc s_Inputs[1] = { { "Exec", "Exec" } };
-            return s_Inputs;
+            m_Inputs[0].m_Guid = m_ExecGuid;
+            return m_Inputs;
         }
         std::span<const xnode_os_port_desc> getOutputs() const noexcept override
         {

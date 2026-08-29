@@ -323,10 +323,13 @@ namespace nodeos
 
         inline std::string MakeDeleteNodes(const std::vector<std::uint64_t>& Ids) { return std::format("DeleteNodes -Ids {}", JoinIds(Ids)); }
         inline std::string MakeDeleteLink(std::uint64_t Id) { return std::format("DeleteLink -Id {}", FormatGuid(Id)); }
-        inline std::string MakeConnect(std::uint64_t Id, std::uint64_t SourceNode, int SourceOutput, std::uint64_t TargetNode, int TargetInput)
+        // Guid-only now - no index arguments at all (see link_instance's own comment: every pin on
+        // every node carries a real per-instance guid, mirroring the material graph's connection
+        // design). Both guids are required, not optional - there is no index left to fall back to.
+        inline std::string MakeConnect(std::uint64_t Id, std::uint64_t SourceNode, std::uint64_t TargetNode, std::uint64_t SourceOutputGuid, std::uint64_t TargetInputGuid)
         {
-            return std::format("Connect -Id {} -SourceNode {} -SourceOutput {} -TargetNode {} -TargetInput {}"
-                               , FormatGuid(Id), FormatGuid(SourceNode), SourceOutput, FormatGuid(TargetNode), TargetInput);
+            return std::format("Connect -Id {} -SourceNode {} -TargetNode {} -SourceOutputGuid {} -TargetInputGuid {}"
+                               , FormatGuid(Id), FormatGuid(SourceNode), FormatGuid(TargetNode), FormatGuid(SourceOutputGuid), FormatGuid(TargetInputGuid));
         }
         inline std::string MakeReorderNodes(const std::vector<std::uint64_t>& NewOrder) { return std::format("ReorderNodes -Ids {}", JoinIds(NewOrder)); }
         // Moves node(s) into a DIFFERENT spine at a given position - addressed the same way CreateNode

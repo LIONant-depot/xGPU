@@ -58,6 +58,7 @@
 #include "dependencies/xproperty/source/xcore/my_properties.h"
 #include <string_view>
 #include <span>
+#include <cstdint>
 
 struct xnode_os_node_factory;
 
@@ -68,11 +69,12 @@ struct xnode_os_node_factory;
 //------------------------------------------------------------------------------------------------
 struct xnode_os_port_desc
 {
-    const char* m_pName;
-    const char* m_pTypeName;
-    bool        m_bRequired   = true;   // Optional == nullable/pointer-shaped (T*); Required == reference/value-shaped (T&) - independent of ReadOnly
-    bool        m_bReadOnly   = true;   // const-ness - independent of Required/Optional
-    bool        m_bLocalScope = false;  // This pin's value only has meaning strictly INSIDE the scope its OWN node opens (a scope-owning node's m_OwnedEndId must be non-zero for this to mean anything) - e.g. ForEachLoop's Element/Index, or a Function's mirrored parameter/return pins. The host restricts any link touching a flagged pin to the other endpoint being physically within that owning node's own scope span (see E27_NodeOS_Editor.cpp's IsDataLinkScopeValid), regardless of whether the flagged pin is the link's source or target.
+    const char*   m_pName;
+    const char*   m_pTypeName;
+    bool          m_bRequired   = true;   // Optional == nullable/pointer-shaped (T*); Required == reference/value-shaped (T&) - independent of ReadOnly
+    bool          m_bReadOnly   = true;   // const-ness - independent of Required/Optional
+    bool          m_bLocalScope = false;  // This pin's value only has meaning strictly INSIDE the scope its OWN node opens (a scope-owning node's m_OwnedEndId must be non-zero for this to mean anything) - e.g. ForEachLoop's Element/Index, or a Function's mirrored parameter/return pins. The host restricts any link touching a flagged pin to the other endpoint being physically within that owning node's own scope span (see E27_NodeOS_Editor.cpp's IsDataLinkScopeValid), regardless of whether the flagged pin is the link's source or target.
+    std::uint64_t m_Guid        = 0;      // Stable per-pin identity, independent of this pin's CURRENT position in the span. 0 (the default every existing fixed-arity node's positional-init aggregate leaves it at) means "this pin never moves - resolve it by its span index, same as always." Only a node whose own pin COUNT/ORDER can change after creation (Function's user-editable Inputs/Outputs array; NodeBuilder's decoded spec string) needs to mint and preserve a real one per pin - see the host's own ResolvePortIndex (NodeOS_CanvasSupport.h), which every link-to-port lookup goes through: guid match wins if the pin supplies one, otherwise falls back to the link's stored index exactly as before this field existed. This is what makes a mid-list insert/delete/reorder not silently repoint an existing link at the wrong pin.
 };
 
 //------------------------------------------------------------------------------------------------

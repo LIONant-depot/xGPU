@@ -319,17 +319,19 @@ namespace nodeos
     // unwraps for Element/Index below). Returns nullptr while nothing is wired yet.
     static const char* ResolveContainerWildcardType(std::uint64_t NodeId, const xnode_os_node* pDesc, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links) noexcept
     {
+        const auto ThisInputs = pDesc->getInputs();
         int Index = 0;
         for (auto& P : pDesc->getInputs())
         {
             if (IsSpanWildcardType(P.m_pTypeName))
                 for (auto& L : Links)
-                    if (L.m_TargetNode == NodeId && L.m_TargetInput == Index)
+                    if (L.m_TargetNode == NodeId && ResolveTargetIndex(L, ThisInputs) == Index)
                         for (auto& N : Nodes)
                             if (N.m_Id == L.m_SourceNode && N.m_pNode)
                             {
                                 auto Outs = N.m_pNode->getOutputs();
-                                if (L.m_SourceOutput < (int)Outs.size()) return Outs[L.m_SourceOutput].m_pTypeName;
+                                const int SrcIdx = ResolveSourceIndex(L, Outs);
+                                if (SrcIdx >= 0) return Outs[SrcIdx].m_pTypeName;
                             }
             ++Index;
         }
@@ -353,18 +355,20 @@ namespace nodeos
     static const char* EffectiveTypeName(std::uint64_t NodeId, const xnode_os_node* pDesc, const char* pRawType, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links) noexcept;
     static const char* ResolveNodeWildcardType(std::uint64_t NodeId, const xnode_os_node* pDesc, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links) noexcept
     {
+        const auto ThisInputs = pDesc->getInputs();
         int Index = 0;
         for (auto& P : pDesc->getInputs())
         {
             if (IsWildcardType(P.m_pTypeName))
                 for (auto& L : Links)
-                    if (L.m_TargetNode == NodeId && L.m_TargetInput == Index)
+                    if (L.m_TargetNode == NodeId && ResolveTargetIndex(L, ThisInputs) == Index)
                         for (auto& N : Nodes)
                             if (N.m_Id == L.m_SourceNode && N.m_pNode)
                             {
                                 auto Outs = N.m_pNode->getOutputs();
-                                if (L.m_SourceOutput >= (int)Outs.size()) continue;
-                                const char* pSourceType = Outs[L.m_SourceOutput].m_pTypeName;
+                                const int SrcIdx = ResolveSourceIndex(L, Outs);
+                                if (SrcIdx < 0) continue;
+                                const char* pSourceType = Outs[SrcIdx].m_pTypeName;
                                 // The source's own declared output type can ITSELF be an unresolved
                                 // wildcard - wiring straight from a Compare/Math Expression's own
                                 // "Any" Result rather than from a concrete-typed producer like
@@ -454,12 +458,22 @@ namespace nodeos
     // surprise than a preview showing "nothing yet."
     static void* GetInputValue(std::uint64_t NodeId, int InputIndex, const std::vector<node_instance>& Nodes, const std::vector<link_instance>& Links, literal_storage& Scratch)
     {
+        // Resolve each candidate link's CURRENT target index (guid-aware - see ResolvePortIndex's own
+        // comment) rather than comparing the link's stale stored m_TargetInput straight against
+        // InputIndex - the whole reason a link carries a guid at all is so a pin insert/delete/
+        // reorder in a variable-arity node's own Inputs (Function/NodeBuilder) doesn't leave this
+        // silently reading whatever value now happens to sit at the OLD index instead.
+        auto TargetIt = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == NodeId; });
+        const auto TargetInputs = (TargetIt != Nodes.end() && TargetIt->m_pNode) ? TargetIt->m_pNode->getInputs() : std::span<const xnode_os_port_desc>{};
         for (auto& Link : Links)
         {
-            if (Link.m_TargetNode != NodeId || Link.m_TargetInput != InputIndex) continue;
+            if (Link.m_TargetNode != NodeId) continue;
+            if (ResolveTargetIndex(Link, TargetInputs) != InputIndex) continue;
             auto SourceIt = std::find_if(Nodes.begin(), Nodes.end(), [&](auto& N) { return N.m_Id == Link.m_SourceNode; });
             if (SourceIt == Nodes.end() || !SourceIt->m_bHasRun) return nullptr;
-            return (Link.m_SourceOutput < (int)SourceIt->m_CachedOutputs.size()) ? SourceIt->m_CachedOutputs[Link.m_SourceOutput] : nullptr;
+            const auto SourceOutputs = SourceIt->m_pNode ? SourceIt->m_pNode->getOutputs() : std::span<const xnode_os_port_desc>{};
+            const int SrcIdx = ResolveSourceIndex(Link, SourceOutputs);
+            return (SrcIdx >= 0 && SrcIdx < (int)SourceIt->m_CachedOutputs.size()) ? SourceIt->m_CachedOutputs[SrcIdx] : nullptr;
         }
         return ResolveUnconnectedLiteral(NodeId, InputIndex, Nodes, Links, Scratch);
     }
@@ -582,14 +596,6 @@ namespace nodeos
     // An output pin never shows anything either, right now - nothing in this corpus actually
     // executes yet, so pValue is always null and the row would sit empty regardless of type. Revisit
     // once real execution is wired up and an output can genuinely have a live value to preview.
-    static bool IsPinConnected(std::uint64_t NodeId, int PinIndex, bool bIsOutput, const std::vector<link_instance>& Links) noexcept
-    {
-        for (auto& L : Links)
-            if (bIsOutput ? (L.m_SourceNode == NodeId && L.m_SourceOutput == PinIndex)
-                          : (L.m_TargetNode == NodeId && L.m_TargetInput  == PinIndex))
-                return true;
-        return false;
-    }
     static float RowHeight(const port_ref& P, std::uint64_t NodeId, const std::vector<link_instance>& Links, const char* pEffType) noexcept
     {
         if (IsMeshType(pEffType) || IsScopeType(pEffType) || IsNoPreviewType(pEffType) || IsContainerType(pEffType) || P.m_bIsOutput)

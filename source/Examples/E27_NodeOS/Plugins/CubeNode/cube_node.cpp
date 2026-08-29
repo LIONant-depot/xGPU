@@ -18,6 +18,7 @@
 // xPropertyImGuiInspector.cpp). Width/Height/Depth below are plain, unstyled members either way.
 #include "../../SDK/xnode_os_plugin_api.h"
 #include "../../SDK/xnode_os_shared_types.h"
+#include "dependencies/xresource_guid/source/xresource_guid.h"
 #include <cstdlib>
 #include <cstring>
 
@@ -34,11 +35,18 @@ namespace
         float m_Height = 1.0f;
         float m_Depth  = 1.0f;
 
+        // Stable per-instance guid for the "Mesh" output pin below - reflected (DONT_SHOW) so the
+        // saved value is restored on load rather than a fresh xresource::guid_generator::Instance64()
+        // regenerating (which would stop matching any saved link) - same pattern end_marker_node.cpp's
+        // m_OwnerGuid uses.
+        std::uint64_t m_MeshGuid = xresource::guid_generator::Instance64();
+
         XPROPERTY_VDEF
         ( "cube_node", cube_node
         , obj_member<"Width",  &cube_node::m_Width,  member_help<"Size along X. Halved on each side of the box's own center to place its 8 corner vertices.">>
         , obj_member<"Height", &cube_node::m_Height, member_help<"Size along Y. Halved on each side of the box's own center to place its 8 corner vertices.">>
         , obj_member<"Depth",  &cube_node::m_Depth,  member_help<"Size along Z. Halved on each side of the box's own center to place its 8 corner vertices.">>
+        , obj_member<"MeshGuid", &cube_node::m_MeshGuid, member_flags<xproperty::flags::DONT_SHOW>>
         )
 
         std::span<const xnode_os_port_desc> getInputs() const noexcept override
@@ -46,10 +54,17 @@ namespace
             return {};
         }
 
+        // Per-instance port guid (not a shared static array) - every pin needs its own stable identity
+        // unique to THIS node instance so links can reference it by guid rather than by array position
+        // (see xnode_os_port_desc::m_Guid's own comment; link_instance no longer stores a plain index).
+        // Not const-only-initialized - getOutputs() re-syncs m_Guid from the reflected field above on
+        // every call, so a guid restored by deserialization AFTER construction still takes effect.
+        mutable xnode_os_port_desc m_Outputs[1] = { { "Mesh", "Mesh", true, true, false, 0 } };
+
         std::span<const xnode_os_port_desc> getOutputs() const noexcept override
         {
-            static const xnode_os_port_desc s_Outputs[1] = { { "Mesh", "Mesh" } };
-            return s_Outputs;
+            m_Outputs[0].m_Guid = m_MeshGuid;
+            return m_Outputs;
         }
 
         void Execute(void** /*Inputs*/, void** Outputs) noexcept override

@@ -278,22 +278,29 @@ namespace nodeos
                 Ctx.m_Nodes.back().m_OwnedEndId = MarkerId;
                 // The read-only ownership link - always the owner's LAST output pin (its dedicated
                 // "End" pin, appended after any real data outputs it declares) to the marker's own
-                // first (and only) input pin. Read the count off the just-created real instance
-                // (captured now, before the next push_back can reallocate Ctx.m_Nodes and invalidate
-                // this reference) rather than a throwaway instance that would need its own cleanup.
-                const int OwnerOutputIdx = Ctx.m_Nodes.back().m_pNode ? (int)Ctx.m_Nodes.back().m_pNode->getOutputs().size() - 1 : 0;
+                // first (and only) input pin, resolved by GUID now (link_instance no longer stores an
+                // index at all - see its own comment). Read straight off the just-created real
+                // instance's own port descriptors (captured now, before the next push_back can
+                // reallocate Ctx.m_Nodes and invalidate this reference).
+                const auto OwnerOutputs = Ctx.m_Nodes.back().m_pNode ? Ctx.m_Nodes.back().m_pNode->getOutputs() : std::span<const xnode_os_port_desc>{};
+                const std::uint64_t OwnerEndGuid = OwnerOutputs.empty() ? 0 : OwnerOutputs.back().m_Guid;
 
                 Ctx.m_Nodes.push_back(CreateNodeInstance(MarkerId, pEndType, TargetOrder + 1, TargetSpineId));
-                Ctx.m_Links.push_back(link_instance{ LinkIdVal, OwnerId, std::max(OwnerOutputIdx, 0), MarkerId, 0, true });
+                const auto MarkerInputs = Ctx.m_Nodes.back().m_pNode ? Ctx.m_Nodes.back().m_pNode->getInputs() : std::span<const xnode_os_port_desc>{};
+                const std::uint64_t MarkerOwnerGuid = MarkerInputs.empty() ? 0 : MarkerInputs[0].m_Guid;
+                Ctx.m_Links.push_back(link_instance{ LinkIdVal, OwnerId, MarkerId, true, OwnerEndGuid, MarkerOwnerGuid });
 
                 if (bHasEnd2)
                 {
                     const auto End2IdVal  = ParseGuid(std::get<std::string>(m_Parser.getOptionArgAs<std::string>(m_hEnd2Id, 0)));
                     const auto Link2IdVal = ParseGuid(std::get<std::string>(m_Parser.getOptionArgAs<std::string>(m_hLink2Id, 0)));
                     Ctx.m_Nodes.back().m_OwnedEndId = End2IdVal; // the just-created middle marker owns the terminal one
-                    const int MidOutputIdx = Ctx.m_Nodes.back().m_pNode ? (int)Ctx.m_Nodes.back().m_pNode->getOutputs().size() - 1 : 0;
+                    const auto MidOutputs = Ctx.m_Nodes.back().m_pNode ? Ctx.m_Nodes.back().m_pNode->getOutputs() : std::span<const xnode_os_port_desc>{};
+                    const std::uint64_t MidEndGuid = MidOutputs.empty() ? 0 : MidOutputs.back().m_Guid;
                     Ctx.m_Nodes.push_back(CreateNodeInstance(End2IdVal, pEnd2Type, TargetOrder + 2, TargetSpineId));
-                    Ctx.m_Links.push_back(link_instance{ Link2IdVal, MarkerId, std::max(MidOutputIdx, 0), End2IdVal, 0, true });
+                    const auto End2Inputs = Ctx.m_Nodes.back().m_pNode ? Ctx.m_Nodes.back().m_pNode->getInputs() : std::span<const xnode_os_port_desc>{};
+                    const std::uint64_t End2OwnerGuid = End2Inputs.empty() ? 0 : End2Inputs[0].m_Guid;
+                    Ctx.m_Links.push_back(link_instance{ Link2IdVal, MarkerId, End2IdVal, true, MidEndGuid, End2OwnerGuid });
                 }
 
                 Ctx.m_bDirty = true;
@@ -402,9 +409,14 @@ namespace nodeos
                     // By the time this command runs, the owner's own IsElse property (a plain
                     // reflected bool on its own node type - see Plugins/End) has already been set by
                     // the SetProperties command issued alongside this one, so getOutputs() already
-                    // reports its extra "ElseEnd" pin - always the last one.
-                    const int OwnerOutputIdx = pOwnerNode->m_pNode ? (int)pOwnerNode->m_pNode->getOutputs().size() - 1 : 0;
-                    Ctx.m_Links.push_back(link_instance{ LinkIdVal, OwnerId, std::max(OwnerOutputIdx, 0), EndId, 0, true });
+                    // reports its extra "ElseEnd" pin - always the last one. Resolved by guid now (see
+                    // link_instance's own comment), read straight off the just-created real instances.
+                    const auto OwnerOutputs = pOwnerNode->m_pNode ? pOwnerNode->m_pNode->getOutputs() : std::span<const xnode_os_port_desc>{};
+                    const std::uint64_t OwnerEndGuid = OwnerOutputs.empty() ? 0 : OwnerOutputs.back().m_Guid;
+                    auto* pEndNode = &Ctx.m_Nodes.back();
+                    const auto EndInputs = pEndNode->m_pNode ? pEndNode->m_pNode->getInputs() : std::span<const xnode_os_port_desc>{};
+                    const std::uint64_t EndOwnerGuid = EndInputs.empty() ? 0 : EndInputs[0].m_Guid;
+                    Ctx.m_Links.push_back(link_instance{ LinkIdVal, OwnerId, EndId, true, OwnerEndGuid, EndOwnerGuid });
                 }
                 else
                 {
@@ -648,31 +660,34 @@ namespace nodeos
         struct connect_cmd : xundo::command_base
         {
             connect_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "Connect", pDataBase) { RegisterArguments(); }
-            const char* getCommandHelp() const noexcept override { return "Connects two ports. Usage: Connect -Id N -SourceNode N -SourceOutput N -TargetNode N -TargetInput N"; }
+            const char* getCommandHelp() const noexcept override { return "Connects two ports. Usage: Connect -Id N -SourceNode N -TargetNode N -SourceOutputGuid N -TargetInputGuid N"; }
             void RegisterArguments() noexcept override
             {
-                m_hId           = m_Parser.addOption("Id",           "Link id",              true, 1);
-                m_hSourceNode   = m_Parser.addOption("SourceNode",   "Source node id",       true, 1);
-                m_hSourceOutput = m_Parser.addOption("SourceOutput", "Source output index",  true, 1);
-                m_hTargetNode   = m_Parser.addOption("TargetNode",   "Target node id",       true, 1);
-                m_hTargetInput  = m_Parser.addOption("TargetInput",  "Target input index",   true, 1);
+                // No index arguments at all - see link_instance's own comment. Every pin on every node
+                // now carries a real per-instance guid, so the guid IS the pin reference; there is no
+                // index left to accept as a fallback.
+                m_hId               = m_Parser.addOption("Id",               "Link id",                          true, 1);
+                m_hSourceNode       = m_Parser.addOption("SourceNode",       "Source node id",                   true, 1);
+                m_hTargetNode       = m_Parser.addOption("TargetNode",       "Target node id",                   true, 1);
+                m_hSourceOutputGuid = m_Parser.addOption("SourceOutputGuid", "Source output pin's stable guid",  true, 1);
+                m_hTargetInputGuid  = m_Parser.addOption("TargetInputGuid",  "Target input pin's stable guid",   true, 1);
             }
 
-            // Shared by Redo and BackupCurrenState - both need the same 5 fields off m_Parser.
+            // Shared by Redo and BackupCurrenState - both need the same fields off m_Parser.
             bool ParseAll(link_instance& L) const noexcept
             {
-                auto Id = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
-                auto SN = m_Parser.getOptionArgAs<std::string>(m_hSourceNode, 0);
-                auto SO = m_Parser.getOptionArgAs<std::int64_t>(m_hSourceOutput, 0);
-                auto TN = m_Parser.getOptionArgAs<std::string>(m_hTargetNode, 0);
-                auto TI = m_Parser.getOptionArgAs<std::int64_t>(m_hTargetInput, 0);
-                if (std::holds_alternative<xerr>(Id) || std::holds_alternative<xerr>(SN) || std::holds_alternative<xerr>(SO) || std::holds_alternative<xerr>(TN) || std::holds_alternative<xerr>(TI))
+                auto Id  = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
+                auto SN  = m_Parser.getOptionArgAs<std::string>(m_hSourceNode, 0);
+                auto TN  = m_Parser.getOptionArgAs<std::string>(m_hTargetNode, 0);
+                auto SOG = m_Parser.getOptionArgAs<std::string>(m_hSourceOutputGuid, 0);
+                auto TIG = m_Parser.getOptionArgAs<std::string>(m_hTargetInputGuid, 0);
+                if (std::holds_alternative<xerr>(Id) || std::holds_alternative<xerr>(SN) || std::holds_alternative<xerr>(TN) || std::holds_alternative<xerr>(SOG) || std::holds_alternative<xerr>(TIG))
                     return false;
-                L.m_Id           = ParseGuid(std::get<std::string>(Id));
-                L.m_SourceNode   = ParseGuid(std::get<std::string>(SN));
-                L.m_SourceOutput = static_cast<int>(std::get<std::int64_t>(SO));
-                L.m_TargetNode   = ParseGuid(std::get<std::string>(TN));
-                L.m_TargetInput  = static_cast<int>(std::get<std::int64_t>(TI));
+                L.m_Id               = ParseGuid(std::get<std::string>(Id));
+                L.m_SourceNode       = ParseGuid(std::get<std::string>(SN));
+                L.m_TargetNode       = ParseGuid(std::get<std::string>(TN));
+                L.m_SourceOutputGuid = ParseGuid(std::get<std::string>(SOG));
+                L.m_TargetInputGuid  = ParseGuid(std::get<std::string>(TIG));
                 return true;
             }
 
@@ -689,12 +704,18 @@ namespace nodeos
                 auto SourceIt = std::find_if(Ctx.m_Nodes.begin(), Ctx.m_Nodes.end(), [&](auto& N) { return N.m_Id == L.m_SourceNode; });
                 auto TargetIt = std::find_if(Ctx.m_Nodes.begin(), Ctx.m_Nodes.end(), [&](auto& N) { return N.m_Id == L.m_TargetNode; });
                 if (SourceIt == Ctx.m_Nodes.end() || TargetIt == Ctx.m_Nodes.end()) return "Connect: source/target node no longer exists";
+                // Resolve L's own target slot to a real CURRENT index once, then compare every existing
+                // link's slot the same guid-aware way - two links whose raw m_TargetInput happen to be
+                // numerically equal aren't necessarily the SAME pin if either one predates a pin
+                // insert/delete/reorder on this target node (Function/NodeBuilder) since it was made.
+                const auto TargetInputs = TargetIt->m_pNode ? TargetIt->m_pNode->getInputs() : std::span<const xnode_os_port_desc>{};
+                const int  LTargetIdx   = ResolveTargetIndex(L, TargetInputs);
                 // An owner<->End ownership link is read-only - dragging a new wire onto that same
                 // target input must not silently evict it the way an ordinary rewire would.
                 for (auto& X : Ctx.m_Links)
-                    if (X.m_TargetNode == L.m_TargetNode && X.m_TargetInput == L.m_TargetInput && X.m_bReadOnly)
+                    if (X.m_TargetNode == L.m_TargetNode && ResolveTargetIndex(X, TargetInputs) == LTargetIdx && X.m_bReadOnly)
                         return "Connect: that input is a read-only owner<->End ownership pin - it can't be rewired";
-                std::erase_if(Ctx.m_Links, [&](auto& X) { return X.m_TargetNode == L.m_TargetNode && X.m_TargetInput == L.m_TargetInput; });
+                std::erase_if(Ctx.m_Links, [&](auto& X) { return X.m_TargetNode == L.m_TargetNode && ResolveTargetIndex(X, TargetInputs) == LTargetIdx; });
                 Ctx.m_Links.push_back(L);
                 Ctx.m_bDirty = true;
                 return {};
@@ -705,30 +726,43 @@ namespace nodeos
                 link_instance L{};
                 const bool bOk = ParseAll(L);
                 File.Write(bOk ? L.m_TargetNode : std::uint64_t{0});
-                File.Write(bOk ? L.m_TargetInput : 0);
+                File.Write(bOk ? L.m_TargetInputGuid : std::uint64_t{0});
                 auto& Ctx = get<node_os_command_context>();
-                for (auto& X : Ctx.m_Links)
-                    if (bOk && X.m_TargetNode == L.m_TargetNode && X.m_TargetInput == L.m_TargetInput) { File.Write(std::uint8_t{1}); File.Write(X); return; }
+                if (bOk)
+                {
+                    auto TargetIt = std::find_if(Ctx.m_Nodes.begin(), Ctx.m_Nodes.end(), [&](auto& N) { return N.m_Id == L.m_TargetNode; });
+                    const auto TargetInputs = (TargetIt != Ctx.m_Nodes.end() && TargetIt->m_pNode) ? TargetIt->m_pNode->getInputs() : std::span<const xnode_os_port_desc>{};
+                    const int LTargetIdx = ResolveTargetIndex(L, TargetInputs);
+                    for (auto& X : Ctx.m_Links)
+                        if (X.m_TargetNode == L.m_TargetNode && ResolveTargetIndex(X, TargetInputs) == LTargetIdx) { File.Write(std::uint8_t{1}); File.Write(X); return; }
+                }
                 File.Write(std::uint8_t{0});
             }
 
             void Undo(xundo::undo_file& File) noexcept override
             {
-                std::uint64_t TargetNode = 0; int TargetInput = 0;
-                File.Read(TargetNode); File.Read(TargetInput);
+                std::uint64_t TargetNode = 0; std::uint64_t TargetInputGuid = 0;
+                File.Read(TargetNode); File.Read(TargetInputGuid);
                 std::uint8_t bHadExisting = 0; File.Read(bHadExisting);
                 link_instance Existing{};
                 if (bHadExisting) File.Read(Existing);
 
                 auto& Ctx = get<node_os_command_context>();
                 // Unconditionally remove whatever currently sits in that slot - that's always exactly
-                // the link Redo() added, regardless of whether an eviction happened too.
-                std::erase_if(Ctx.m_Links, [&](auto& X) { return X.m_TargetNode == TargetNode && X.m_TargetInput == TargetInput; });
+                // the link Redo() added, regardless of whether an eviction happened too. Resolved via
+                // the target's CURRENT port list, same as Redo()/BackupCurrenState - undo history can
+                // outlive a LATER pin reorder on this same target node, so the raw stored index alone
+                // isn't trustworthy by the time Undo actually runs.
+                auto TargetIt = std::find_if(Ctx.m_Nodes.begin(), Ctx.m_Nodes.end(), [&](auto& N) { return N.m_Id == TargetNode; });
+                const auto TargetInputs = (TargetIt != Ctx.m_Nodes.end() && TargetIt->m_pNode) ? TargetIt->m_pNode->getInputs() : std::span<const xnode_os_port_desc>{};
+                const link_instance SlotKey{ .m_TargetInputGuid = TargetInputGuid };
+                const int SlotIdx = ResolveTargetIndex(SlotKey, TargetInputs);
+                std::erase_if(Ctx.m_Links, [&](auto& X) { return X.m_TargetNode == TargetNode && ResolveTargetIndex(X, TargetInputs) == SlotIdx; });
                 if (bHadExisting) Ctx.m_Links.push_back(Existing);
                 Ctx.m_bDirty = true;
             }
 
-            xcmdline::parser::handle m_hId, m_hSourceNode, m_hSourceOutput, m_hTargetNode, m_hTargetInput;
+            xcmdline::parser::handle m_hId, m_hSourceNode, m_hTargetNode, m_hSourceOutputGuid, m_hTargetInputGuid;
         };
 
         //================================================================================================

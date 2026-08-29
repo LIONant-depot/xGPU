@@ -27,76 +27,111 @@
 // std::mt19937 member is the existing proof this already works, no new mechanism required).
 #include "../../SDK/xnode_os_plugin_api.h"
 #include "../../SDK/xnode_os_shared_types.h"
+#include "dependencies/xresource_guid/source/xresource_guid.h"
 #include <vector>
 #include <string>
+#include <array>
+#include <cstdint>
 
 namespace
 {
-    struct node_builder_pin { std::string m_Name, m_Type; bool m_bRequired = true; bool m_bReadOnly = true; };
+    // Same pin_type/pin_descriptor shape as function_node.cpp's own (down to the guid field and why
+    // it needs xproperty::base+XPROPERTY_VDEF rather than the plain XPROPERTY_DEF a same-binary
+    // struct could use) - not shared via a common header on purpose, each plugin is its own DLL,
+    // self-contained, matching this corpus's usual no-cross-plugin-linkage rule. This replaces the old
+    // "Name:Type:Required:ReadOnly"-encoded, '|'-joined spec strings (node_builder_pin/DecodePins) -
+    // m_InputsSpec/m_OutputsSpec are real reflected std::vector<pin_descriptor> now, so add/remove/
+    // reorder/per-field editing come for free from the host's shared xproperty::inspector, same as
+    // every other array-typed property in this codebase.
+    enum class pin_type : std::uint8_t { FLOAT, INT, SHORT, BOOL, ANY, SPAN_ANY };
 
-    inline std::vector<node_builder_pin> DecodePins(const std::string& Spec)
+    static constexpr auto pin_type_v = std::array
+    { xproperty::settings::enum_item("Float",     pin_type::FLOAT)
+    , xproperty::settings::enum_item("Int",       pin_type::INT)
+    , xproperty::settings::enum_item("Short",     pin_type::SHORT)
+    , xproperty::settings::enum_item("Bool",      pin_type::BOOL)
+    , xproperty::settings::enum_item("Any",       pin_type::ANY)
+    , xproperty::settings::enum_item("Span<Any>", pin_type::SPAN_ANY)
+    };
+
+    constexpr const char* PinTypeNameOf(pin_type T) noexcept
     {
-        std::vector<node_builder_pin> Out;
-        std::size_t Pos = 0;
-        while (Pos < Spec.size())
+        switch (T)
         {
-            const std::size_t Bar = Spec.find('|', Pos);
-            const std::string Entry = Spec.substr(Pos, Bar == std::string::npos ? std::string::npos : Bar - Pos);
-            const std::size_t C1 = Entry.find(':');
-            const std::size_t C2 = (C1 == std::string::npos) ? std::string::npos : Entry.find(':', C1 + 1);
-            const std::size_t C3 = (C2 == std::string::npos) ? std::string::npos : Entry.find(':', C2 + 1);
-            if (C1 != std::string::npos && C2 != std::string::npos && C3 != std::string::npos)
-            {
-                node_builder_pin Pin;
-                Pin.m_Name      = Entry.substr(0, C1);
-                Pin.m_Type      = Entry.substr(C1 + 1, C2 - C1 - 1);
-                Pin.m_bRequired = Entry[C2 + 1] == '1';
-                Pin.m_bReadOnly = Entry[C3 + 1] == '1';
-                Out.push_back(std::move(Pin));
-            }
-            if (Bar == std::string::npos) break;
-            Pos = Bar + 1;
+            case pin_type::FLOAT:    return "Float";
+            case pin_type::INT:      return "Int";
+            case pin_type::SHORT:    return "Short";
+            case pin_type::BOOL:     return "Bool";
+            case pin_type::ANY:      return "Any";
+            case pin_type::SPAN_ANY: return "Span<Any>";
         }
-        return Out;
+        return "Float";
     }
+
+    struct pin_descriptor : xproperty::base
+    {
+        std::string   m_Name      = "Value";
+        pin_type      m_Type      = pin_type::FLOAT;
+        bool          m_bRequired = true;
+        bool          m_bReadOnly = true;
+        std::uint64_t m_Guid      = xresource::guid_generator::Instance64();
+
+        pin_descriptor() noexcept = default;
+        pin_descriptor(std::string Name, pin_type Type, bool bRequired, bool bReadOnly) noexcept
+            : m_Name(std::move(Name)), m_Type(Type), m_bRequired(bRequired), m_bReadOnly(bReadOnly) {}
+
+        XPROPERTY_VDEF
+        ( "Pin", pin_descriptor
+        , obj_member<"Name",      &pin_descriptor::m_Name>
+        , obj_member<"Type",      &pin_descriptor::m_Type, member_enum_span<pin_type_v>>
+        , obj_member<"Required",  &pin_descriptor::m_bRequired>
+        , obj_member<"Read Only", &pin_descriptor::m_bReadOnly>
+        , obj_member<"Guid",      &pin_descriptor::m_Guid, member_flags<flags::DONT_SHOW>>
+        )
+    };
+    XPROPERTY_VREG(pin_descriptor)
 
     struct node_builder_node : xnode_os_node
     {
-        std::string m_Name        = "MyNode";            // Plugins/<Name>/ folder + published node type name - same role Function's own "Name" plays
-        std::string m_InputsSpec  = "A:Float:1:1";
-        std::string m_OutputsSpec = "Result:Float:1:0";
+        std::string                 m_Name    = "MyNode";  // Plugins/<Name>/ folder + published node type name - same role Function's own "Name" plays
+        std::vector<pin_descriptor> m_Inputs  = { { "A",      pin_type::FLOAT, true, true  } };
+        std::vector<pin_descriptor> m_Outputs = { { "Result", pin_type::FLOAT, true, false } };
 
-        mutable std::vector<std::string>       m_InStorage,  m_OutStorage;
-        mutable std::vector<xnode_os_port_desc> m_InDescs,   m_OutDescs;
+        // Stable per-instance guid for the fixed "End" pin below - see function_node.cpp's identical
+        // m_ExecGuid/m_EndGuid for why this needs to be its own reflected (DONT_SHOW) field rather
+        // than generated inline at the injection site.
+        std::uint64_t m_EndGuid = xresource::guid_generator::Instance64();
+
+        mutable std::vector<xnode_os_port_desc> m_InDescs, m_OutDescs;
 
         XPROPERTY_VDEF
         ( "node_builder_node", node_builder_node
         , obj_member<"Name", &node_builder_node::m_Name
             , member_help<"Published node type name - becomes both the Plugins/<Name>/ folder and the palette entry.">>
-        , obj_member<"InputsSpec",  &node_builder_node::m_InputsSpec>
-        , obj_member<"OutputsSpec", &node_builder_node::m_OutputsSpec>
+        , obj_member<"Inputs",  &node_builder_node::m_Inputs,  member_ui_open<true>>
+        , obj_member<"Outputs", &node_builder_node::m_Outputs, member_ui_open<true>>
+        , obj_member<"EndGuid", &node_builder_node::m_EndGuid, member_flags<flags::DONT_SHOW>>
         )
+
+        // Same mirror-guid salt as function_node.cpp's own (see its comment) - each plugin mints its
+        // own independently, they never need to agree with each other's, only be internally stable.
+        static constexpr std::uint64_t kMirrorGuidSalt = 0x9E3779B97F4A7C15ULL;
 
         // Same Rebuild as function_node.cpp - not shared via a common header on purpose (each plugin
         // is its own DLL, self-contained, matching this corpus's usual no-cross-plugin-linkage rule).
-        static void Rebuild(const std::string& OwnSpec, const std::string& MirrorSpec, std::vector<std::string>& Storage, std::vector<xnode_os_port_desc>& Descs)
+        static void Rebuild(const std::vector<pin_descriptor>& OwnPins, const std::vector<pin_descriptor>& MirrorPins, std::vector<xnode_os_port_desc>& Descs)
         {
-            const auto OwnPins    = DecodePins(OwnSpec);
-            const auto MirrorPins = DecodePins(MirrorSpec);
-            Storage.clear(); Storage.reserve((OwnPins.size() + MirrorPins.size()) * 2);
-            Descs.clear();   Descs.reserve(OwnPins.size() + MirrorPins.size());
-            for (auto& P : OwnPins)    { Storage.push_back(P.m_Name); Storage.push_back(P.m_Type); }
-            for (auto& P : MirrorPins) { Storage.push_back(P.m_Name); Storage.push_back(P.m_Type); }
-            std::size_t Slot = 0;
-            for (auto& P : OwnPins)    { Descs.push_back({ Storage[Slot * 2].c_str(), Storage[Slot * 2 + 1].c_str(), P.m_bRequired, P.m_bReadOnly, false }); ++Slot; }
-            for (auto& P : MirrorPins) { Descs.push_back({ Storage[Slot * 2].c_str(), Storage[Slot * 2 + 1].c_str(), P.m_bRequired, P.m_bReadOnly, true  }); ++Slot; }
+            Descs.clear();
+            Descs.reserve(OwnPins.size() + MirrorPins.size());
+            for (auto& P : OwnPins)    Descs.push_back({ P.m_Name.c_str(), PinTypeNameOf(P.m_Type), P.m_bRequired, P.m_bReadOnly, false, P.m_Guid });
+            for (auto& P : MirrorPins) Descs.push_back({ P.m_Name.c_str(), PinTypeNameOf(P.m_Type), P.m_bRequired, P.m_bReadOnly, true,  P.m_Guid ^ kMirrorGuidSalt });
         }
 
         // Declared Inputs (external - what the PUBLISHED node's own Inputs[] will be), then the
         // mirror of declared Outputs (local - this node's own body writes its results here).
         std::span<const xnode_os_port_desc> getInputs() const noexcept override
         {
-            Rebuild(m_InputsSpec, m_OutputsSpec, m_InStorage, m_InDescs);
+            Rebuild(m_Inputs, m_Outputs, m_InDescs);
             return m_InDescs;
         }
 
@@ -104,8 +139,8 @@ namespace
         // parameters here), then "End" - the owned-scope marker, must stay last.
         std::span<const xnode_os_port_desc> getOutputs() const noexcept override
         {
-            Rebuild(m_OutputsSpec, m_InputsSpec, m_OutStorage, m_OutDescs);
-            m_OutDescs.push_back({ "End", "Scope", true, true, false });
+            Rebuild(m_Outputs, m_Inputs, m_OutDescs);
+            m_OutDescs.push_back({ "End", "Scope", true, true, false, m_EndGuid });
             return m_OutDescs;
         }
 

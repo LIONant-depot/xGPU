@@ -8,6 +8,7 @@
 // an actual storage slot is compiler/runtime work, left for when that's wired up.
 #include "../../SDK/xnode_os_plugin_api.h"
 #include "../../SDK/xnode_os_shared_types.h"
+#include "dependencies/xresource_guid/source/xresource_guid.h"
 #include <string>
 
 namespace
@@ -16,10 +17,22 @@ namespace
     {
         std::string m_Name = "MyVariable";
 
+        // Stable per-instance guid for the fixed pin below - reflected (DONT_SHOW) so the saved value
+        // is restored on load rather than a fresh xresource::guid_generator::Instance64() regenerating
+        // (which would stop matching any saved link) - same pattern end_marker_node.cpp's m_OwnerGuid
+        // uses.
+        std::uint64_t m_ValueGuid = xresource::guid_generator::Instance64();
+
         XPROPERTY_VDEF
         ( "get_variable_node", get_variable_node
         , obj_member<"Name", &get_variable_node::m_Name, member_help<"The variable's name to read from. Must match a SetVariable node's own Name to resolve to the same storage slot once variable resolution is wired up.">>
+        , obj_member<"ValueGuid", &get_variable_node::m_ValueGuid, member_flags<xproperty::flags::DONT_SHOW>>
         )
+
+        // Not const-only-initialized - getInputs()/getOutputs() re-sync m_Guid from the reflected
+        // field above on every call, so a guid restored by deserialization AFTER construction still
+        // takes effect.
+        mutable xnode_os_port_desc m_Outputs[1] = { { "Value", "Float", true, true, false, 0 } };
 
         std::span<const xnode_os_port_desc> getInputs() const noexcept override
         {
@@ -27,8 +40,8 @@ namespace
         }
         std::span<const xnode_os_port_desc> getOutputs() const noexcept override
         {
-            static const xnode_os_port_desc s_Outputs[1] = { { "Value", "Float" } };
-            return s_Outputs;
+            m_Outputs[0].m_Guid = m_ValueGuid;
+            return m_Outputs;
         }
         void Execute(void** /*Inputs*/, void** /*Outputs*/) noexcept override {}
     };

@@ -21,6 +21,7 @@
 // class's own API surface just to support a UI button.
 #include "../../SDK/xnode_os_plugin_api.h"
 #include "../../SDK/xnode_os_shared_types.h"
+#include "dependencies/xresource_guid/source/xresource_guid.h"
 #include <array>
 #include <string>
 #include <format>
@@ -73,15 +74,24 @@ namespace
             return 0.0f;
         }
 
+        // Stable per-instance guid for the fixed "Value" output pin below - reflected (DONT_SHOW) so
+        // the saved value is restored on load rather than a fresh xresource::guid_generator::
+        // Instance64() regenerating (which would stop matching any saved link) - same pattern
+        // function_node.cpp's m_ExecGuid/m_EndGuid use.
+        std::uint64_t m_ValueGuid = xresource::guid_generator::Instance64();
+
         // Not a plain static span like every other node type here - Value's port TYPE genuinely
         // depends on this instance's own m_Type, so it has to be rebuilt (into per-instance storage,
         // not a function-local static shared by every constant_node) each time it's asked for.
-        mutable xnode_os_port_desc m_OutputDesc[1] = { { "Value", "Float" } };
+        // getOutputs() below re-syncs m_Guid from m_ValueGuid on every call (not just m_pTypeName),
+        // so a guid restored by deserialization AFTER construction still takes effect.
+        mutable xnode_os_port_desc m_OutputDesc[1] = { { "Value", "Float", true, true, false, 0 } };
 
         XPROPERTY_VDEF
         ( "constant_node", constant_node
         , obj_member<"Type",  &constant_node::m_Type, member_enum_span<const_type_v>
             , member_help<"Which scalar type this node's output pin resolves to. Switches which Value field below is shown/used and what Execute() actually allocates.">>
+        , obj_member<"ValueGuid", &constant_node::m_ValueGuid, member_flags<xproperty::flags::DONT_SHOW>>
         , obj_member<"Value Float", &constant_node::m_ValueFloat
             , member_dynamic_flags<+[](const constant_node& O)
                 { xproperty::flags::type F{}; F.m_bDontShow = F.m_bDontSave = O.m_Type != const_type::FLOAT; return F; }>
@@ -119,7 +129,8 @@ namespace
         }
         std::span<const xnode_os_port_desc> getOutputs() const noexcept override
         {
-            m_OutputDesc[0] = { "Value", TypeNameOf(m_Type) };
+            m_OutputDesc[0].m_pTypeName = TypeNameOf(m_Type);
+            m_OutputDesc[0].m_Guid      = m_ValueGuid;
             return m_OutputDesc;
         }
         // Allocates a real value matching m_Type, straight from the already-typed field - no text

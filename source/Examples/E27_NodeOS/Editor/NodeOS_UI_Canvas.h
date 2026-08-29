@@ -343,8 +343,15 @@ namespace nodeos
         {
             char SourceSide = 'R', TargetSide = 'R', RailSide = 'R';
             LinkSides(Link, SourceSide, TargetSide, RailSide);
-            PortSides[OutPinOf(Link.m_SourceNode, Link.m_SourceOutput)].insert(SourceSide);
-            PortSides[InPinOf(Link.m_TargetNode, Link.m_TargetInput)].insert(TargetSide);
+            // Resolved (guid-aware) indices, not the link's raw stored ones - OutPinOf/InPinOf's key is
+            // keyed by CURRENT index (matching how the per-row draw loop elsewhere computes the same
+            // key for the actual pin it's drawing), so a stale index here would tag the wrong pin's
+            // side-affinity entirely, not just render a wire from the wrong anchor.
+            auto* pSrcDesc = DescOf(FindNode(Link.m_SourceNode)); auto* pDstDesc = DescOf(FindNode(Link.m_TargetNode));
+            const int SrcIdx = pSrcDesc ? ResolveSourceIndex(Link, pSrcDesc->getOutputs()) : -1;
+            const int DstIdx = pDstDesc ? ResolveTargetIndex(Link, pDstDesc->getInputs())  : -1;
+            PortSides[OutPinOf(Link.m_SourceNode, SrcIdx)].insert(SourceSide);
+            PortSides[InPinOf(Link.m_TargetNode, DstIdx)].insert(TargetSide);
         }
         // An unconnected pin defaults to the conventional side for its direction - input on the left,
         // output on the right - same as every other node-graph editor. A connected pin instead renders
@@ -410,9 +417,10 @@ namespace nodeos
                 auto* pSrcDesc = DescOf(FindNode(Link.m_SourceNode)); auto* pDstDesc = DescOf(FindNode(Link.m_TargetNode));
                 if (!pSrcDesc || !pDstDesc) continue;
                 const auto SrcOutputs = pSrcDesc->getOutputs(); const auto DstInputs = pDstDesc->getInputs();
-                if (Link.m_SourceOutput >= (int)SrcOutputs.size() || Link.m_TargetInput >= (int)DstInputs.size()) continue;
-                const port_ref OutP{ true, Link.m_SourceOutput, &SrcOutputs[Link.m_SourceOutput] };
-                const port_ref InP { false, Link.m_TargetInput,  &DstInputs[Link.m_TargetInput] };
+                const int SrcIdx = ResolveSourceIndex(Link, SrcOutputs), DstIdx = ResolveTargetIndex(Link, DstInputs);
+                if (SrcIdx < 0 || DstIdx < 0) continue;
+                const port_ref OutP{ true, SrcIdx, &SrcOutputs[SrcIdx] };
+                const port_ref InP { false, DstIdx, &DstInputs[DstIdx] };
                 char SourceSide = 'R', TargetSide = 'R', RailSide = 'R';
                 LinkSides(Link, SourceSide, TargetSide, RailSide);
                 const float FromY = PortAnchor(Link.m_SourceNode, OutP, SourceSide).y, ToY = PortAnchor(Link.m_TargetNode, InP, TargetSide).y;
@@ -656,9 +664,10 @@ namespace nodeos
             auto* pSrcDesc = DescOf(FindNode(Link.m_SourceNode)); auto* pDstDesc = DescOf(FindNode(Link.m_TargetNode));
             if (!pSrcDesc || !pDstDesc) continue;
             const auto SrcOutputs = pSrcDesc->getOutputs(); const auto DstInputs = pDstDesc->getInputs();
-            if (Link.m_SourceOutput >= (int)SrcOutputs.size() || Link.m_TargetInput >= (int)DstInputs.size()) continue;
-            const port_ref OutP{ true, Link.m_SourceOutput, &SrcOutputs[Link.m_SourceOutput] };
-            const port_ref InP { false, Link.m_TargetInput,  &DstInputs[Link.m_TargetInput] };
+            const int SrcIdx = ResolveSourceIndex(Link, SrcOutputs), DstIdx = ResolveTargetIndex(Link, DstInputs);
+            if (SrcIdx < 0 || DstIdx < 0) continue;
+            const port_ref OutP{ true, SrcIdx, &SrcOutputs[SrcIdx] };
+            const port_ref InP { false, DstIdx, &DstInputs[DstIdx] };
             const bool bSelected = (Selection.m_SelectedLink == Link.m_Id);
             // TypeColor("Scope") already matches the box border color, so an ordinary owner<->End
             // link (always a Scope pin) picks up the right color for free here - only its extra
@@ -684,7 +693,7 @@ namespace nodeos
             // the diagnostic one would eventually give (matching how Unreal Blueprint/Unity Visual
             // Scripting both let the wire get drawn and only flag it later - just surfaced immediately
             // here instead of deferred, since there's nothing else to defer it to today).
-            const bool bScopeInvalid = !Link.m_bReadOnly && !IsDataLinkScopeValid(Link.m_SourceNode, Link.m_SourceOutput, Link.m_TargetNode, Link.m_TargetInput, Nodes, EnclosingChains);
+            const bool bScopeInvalid = !Link.m_bReadOnly && !IsDataLinkScopeValid(Link.m_SourceNode, SrcIdx, Link.m_TargetNode, DstIdx, Nodes, EnclosingChains);
             if (bScopeInvalid) Col = IM_COL32(239, 68, 68, 255);
             const float Thickness = bScopeInvalid ? 3.0f : bSelected ? 3.0f : (Link.m_bReadOnly ? 4.0f : 2.0f);
             char SourceSide = 'R', TargetSide = 'R', RailSide = 'R';
@@ -1757,7 +1766,10 @@ namespace nodeos
                 {
                     // Eviction of any prior link into the same target input happens inside Connect's
                     // own Redo() now (and its Undo() restores whatever got evicted) - see connect_cmd.
-                    commands::Run(System, commands::MakeConnect(xresource::guid_generator::Instance64(), OutNode, OutIdx, InNode, InIdx));
+                    // OutIdx/InIdx were only ever needed to find WHICH port the drag landed on right
+                    // now - the link itself stores each port's own m_Guid, never the index (see
+                    // link_instance's own comment).
+                    commands::Run(System, commands::MakeConnect(xresource::guid_generator::Instance64(), OutNode, InNode, OutOutputs[OutIdx].m_Guid, InInputs[InIdx].m_Guid));
                 }
             }
             Drag.m_bActive = false;
@@ -1771,8 +1783,10 @@ namespace nodeos
                 auto* pSrcDesc = DescOf(FindNode(Link.m_SourceNode)); auto* pDstDesc = DescOf(FindNode(Link.m_TargetNode));
                 if (!pSrcDesc || !pDstDesc) continue;
                 const auto SrcOutputs = pSrcDesc->getOutputs(); const auto DstInputs = pDstDesc->getInputs();
-                const port_ref OutP{ true, Link.m_SourceOutput, &SrcOutputs[Link.m_SourceOutput] };
-                const port_ref InP { false, Link.m_TargetInput,  &DstInputs[Link.m_TargetInput] };
+                const int SrcIdx = ResolveSourceIndex(Link, SrcOutputs), DstIdx = ResolveTargetIndex(Link, DstInputs);
+                if (SrcIdx < 0 || DstIdx < 0) continue;
+                const port_ref OutP{ true, SrcIdx, &SrcOutputs[SrcIdx] };
+                const port_ref InP { false, DstIdx, &DstInputs[DstIdx] };
                 char SourceSide = 'R', TargetSide = 'R', RailSide = 'R';
                 LinkSides(Link, SourceSide, TargetSide, RailSide);
                 const ImVec2 From = PortAnchor(Link.m_SourceNode, OutP, SourceSide), To = PortAnchor(Link.m_TargetNode, InP, TargetSide);

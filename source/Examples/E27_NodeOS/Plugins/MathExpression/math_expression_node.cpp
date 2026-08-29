@@ -20,6 +20,7 @@
 // the REVERSE variants (B-A, B/A) need the operand ORDER swapped too, not just a different token.
 #include "../../SDK/xnode_os_plugin_api.h"
 #include "../../SDK/xnode_os_shared_types.h"
+#include "dependencies/xresource_guid/source/xresource_guid.h"
 #include <array>
 #include <cstdlib>
 #include <string>
@@ -49,6 +50,14 @@ namespace
         float        m_LastResult   = 0.0f;  // set by Execute() - live debug info, see "Last Result" below
         std::string  m_ResolvedType = "Any"; // pushed in by the host each frame - see "Resolved Type" below
 
+        // Stable per-instance guids for the three fixed pins below - reflected (DONT_SHOW) so the
+        // saved value is restored on load rather than a fresh xresource::guid_generator::Instance64()
+        // regenerating (which would stop matching any saved link) - same pattern end_marker_node.cpp's
+        // m_OwnerGuid/m_ElseEndGuid use.
+        std::uint64_t m_AGuid      = xresource::guid_generator::Instance64();
+        std::uint64_t m_BGuid      = xresource::guid_generator::Instance64();
+        std::uint64_t m_ResultGuid = xresource::guid_generator::Instance64();
+
         XPROPERTY_VDEF
         ( "math_expression_node", math_expression_node
         , obj_member<"Operator", &math_expression_node::m_Operator, member_enum_span<math_expr_op_v>
@@ -68,17 +77,32 @@ namespace
             , +[](const math_expression_node& O, bool bRead, std::string& Value) { assert(bRead); Value = std::format("{}", O.m_LastResult); }
             , member_flags<xproperty::flags::SHOW_READONLY, xproperty::flags::DONT_SAVE>
             , member_help<"The value produced by the most recent Execute() - live debug info, never itself saved.">>
+        , obj_member<"AGuid",      &math_expression_node::m_AGuid,      member_flags<xproperty::flags::DONT_SHOW>>
+        , obj_member<"BGuid",      &math_expression_node::m_BGuid,      member_flags<xproperty::flags::DONT_SHOW>>
+        , obj_member<"ResultGuid", &math_expression_node::m_ResultGuid, member_flags<xproperty::flags::DONT_SHOW>>
         )
+
+        // Per-instance port guids (not a shared static array) - every pin needs its own stable identity
+        // unique to THIS node instance so links can reference it by guid rather than by array position
+        // (see xnode_os_port_desc::m_Guid's own comment; link_instance no longer stores a plain index).
+        // Not const-only-initialized - getInputs()/getOutputs() re-sync m_Guid from the reflected
+        // fields above on every call, so a guid restored by deserialization AFTER construction still
+        // takes effect.
+        mutable xnode_os_port_desc m_Inputs[2]  = { { "A", "Any", true, true, false, 0 }
+                                                   , { "B", "Any", true, true, false, 0 }
+                                                   };
+        mutable xnode_os_port_desc m_Outputs[1] = { { "Result", "Any", true, true, false, 0 } };
 
         std::span<const xnode_os_port_desc> getInputs() const noexcept override
         {
-            static const xnode_os_port_desc s_Inputs[2] = { { "A", "Any" }, { "B", "Any" } };
-            return s_Inputs;
+            m_Inputs[0].m_Guid = m_AGuid;
+            m_Inputs[1].m_Guid = m_BGuid;
+            return m_Inputs;
         }
         std::span<const xnode_os_port_desc> getOutputs() const noexcept override
         {
-            static const xnode_os_port_desc s_Outputs[1] = { { "Result", "Any" } };
-            return s_Outputs;
+            m_Outputs[0].m_Guid = m_ResultGuid;
+            return m_Outputs;
         }
         // A/B/Result are wildcard "Any" pins at the wiring/UI level, but every concrete producer this
         // corpus has today resolves that wildcard to Float - reading both as float* is the same "the

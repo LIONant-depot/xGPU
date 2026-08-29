@@ -210,14 +210,15 @@ namespace nodeos
                     const char* pEffType = EffectiveTypeName(Id, It->m_pNode, Inputs[i].m_pTypeName, Ctx.m_Nodes, Ctx.m_Links);
                     std::string Wire = "(unconnected)";
                     for (auto& L : Ctx.m_Links)
-                        if (L.m_TargetNode == Id && L.m_TargetInput == i)
+                        if (L.m_TargetNode == Id && ResolveTargetIndex(L, Inputs) == i)
                         {
                             auto SrcIt = std::find_if(Ctx.m_Nodes.begin(), Ctx.m_Nodes.end(), [&](auto& N) { return N.m_Id == L.m_SourceNode; });
-                            Wire = std::format("<- {:#x}[{}] ({})", L.m_SourceNode, L.m_SourceOutput
+                            const auto SrcOutputs = (SrcIt != Ctx.m_Nodes.end() && SrcIt->m_pNode) ? SrcIt->m_pNode->getOutputs() : std::span<const xnode_os_port_desc>{};
+                            Wire = std::format("<- {:#x}[{}] ({})", L.m_SourceNode, ResolveSourceIndex(L, SrcOutputs)
                                 , (SrcIt != Ctx.m_Nodes.end() && SrcIt->m_pNode) ? std::string(SrcIt->m_pNode->m_pFactory->getName()) : std::string("?"));
                             break;
                         }
-                    Out += std::format("  {} : {} {}\n", Inputs[i].m_pName, pEffType, Wire);
+                    Out += std::format("  {} : {} {} [Guid={:#x}]\n", Inputs[i].m_pName, pEffType, Wire, Inputs[i].m_Guid);
                 }
 
                 const auto Outputs = It->m_pNode->getOutputs();
@@ -226,8 +227,8 @@ namespace nodeos
                 {
                     const char* pEffType = EffectiveTypeName(Id, It->m_pNode, Outputs[i].m_pTypeName, Ctx.m_Nodes, Ctx.m_Links);
                     int ConnectedCount = 0;
-                    for (auto& L : Ctx.m_Links) if (L.m_SourceNode == Id && L.m_SourceOutput == i) ++ConnectedCount;
-                    Out += std::format("  {} : {} ({} connection{})\n", Outputs[i].m_pName, pEffType, ConnectedCount, ConnectedCount == 1 ? "" : "s");
+                    for (auto& L : Ctx.m_Links) if (L.m_SourceNode == Id && ResolveSourceIndex(L, Outputs) == i) ++ConnectedCount;
+                    Out += std::format("  {} : {} ({} connection{}) [Guid={:#x}]\n", Outputs[i].m_pName, pEffType, ConnectedCount, ConnectedCount == 1 ? "" : "s", Outputs[i].m_Guid);
                 }
                 return Out;
             }
@@ -425,7 +426,8 @@ namespace nodeos
                 // m_History/m_LRU/m_UndoIndex, never the registered-command maps the outer Query()
                 // call is currently iterating.
                 m_System.Reset();
-                return std::format("Cleared {} node(s) - graph reset to a single empty root spine/column (undo history reset too)", NodeCount);
+                return std::format("Cleared {} node(s) - graph reset to a single empty root spine/column (undo history reset too) - RootSpine={:#x} RootColumn={:#x}"
+                    , NodeCount, Ctx.m_Spines.front().m_Id, Ctx.m_Columns.front().m_Id);
             }
         };
 
