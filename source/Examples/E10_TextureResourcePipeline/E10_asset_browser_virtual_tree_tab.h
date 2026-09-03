@@ -1368,6 +1368,12 @@ namespace e10
                 bool                    m_bHasChildren:1
                 ,                       m_bModified:1
                 ,                       m_bDeleted:1;
+                // 0 for a normal top-level item; >0 for a VIRTUAL child spliced in right after its
+                // parent (see CollectItems' own comment). m_VirtualGroupRoot is that item's immediate
+                // parent's guid, used purely to paint a shared tinted background behind consecutive
+                // items belonging to the same group when rendering.
+                int                     m_VirtualDepth      = 0;
+                xresource::full_guid    m_VirtualGroupRoot  = {};
             };
 
             //
@@ -1383,7 +1389,12 @@ namespace e10
                 Lib->m_InfoByTypeDataBase.FindAsReadOnly(m_ParentGUID.m_Type
                 , [&](const std::unique_ptr<library_db::info_db>& Entry)
                 {
-                    std::function<void(const e10::library_db::info_node&)> CollectItems = [&](const e10::library_db::info_node& Node)
+                    // Depth/GroupRoot: 0/{} for the normal top-level walk and for m_RecuseChildFolder's
+                    // own sub-folder flattening (both unchanged, existing behavior) - >0/parent-guid
+                    // when splicing a resource's VIRTUAL children in (see below). A std::function's
+                    // signature is fixed once erased, so these are passed explicitly at every call
+                    // site rather than relying on default arguments.
+                    std::function<void(const e10::library_db::info_node&, int, xresource::full_guid)> CollectItems = [&](const e10::library_db::info_node& Node, int Depth, xresource::full_guid GroupRoot)
                         {
                             TempNodes.reserve(TempNodes.size()+Node.m_lChildLinks.size());
 
@@ -1394,7 +1405,7 @@ namespace e10
 
                                 //
                                 // Allow to filter by type
-                                // 
+                                //
                                 bool bFilter = false;
                                 for (auto& I : m_Browser.m_FilterByType)
                                 {
@@ -1406,10 +1417,10 @@ namespace e10
                                 }
                                 if (bFilter) continue;
 
-                                // If the user wants us to 
+                                // If the user wants us to
                                 if (m_RecuseChildFolder && E.m_Type == e10::folder::type_guid_v)
                                 {
-                                    Entry->m_InfoDataBase.FindAsReadOnly(E.m_Instance, [&](const e10::library_db::info_node& X){ CollectItems(X); } );
+                                    Entry->m_InfoDataBase.FindAsReadOnly(E.m_Instance, [&](const e10::library_db::info_node& X){ CollectItems(X, 0, {}); } );
                                     continue;
                                 }
 
@@ -1419,6 +1430,8 @@ namespace e10
                                 temp_node Temp;
 
                                 Temp.m_ResourceGUID = E;
+                                Temp.m_VirtualDepth = Depth;
+                                Temp.m_VirtualGroupRoot = GroupRoot;
 
                                 if (auto e = m_AssetMgr.m_AssetPluginsDB.m_mPluginsByTypeGUID.find(E.m_Type); e == m_AssetMgr.m_AssetPluginsDB.m_mPluginsByTypeGUID.end())
                                 {
@@ -1446,10 +1459,35 @@ namespace e10
                                     });
 
                                 TempNodes.emplace_back(std::move(Temp));
+
+                                // Splice this item's own VIRTUAL children in immediately after it - a
+                                // resource that isn't a folder can only have m_lChildLinks at all if a
+                                // compiler linked one back via Info.m_RscLinks (e.g. a font linking its
+                                // cascaded virtual texture - see xfont_compiler.cpp's own comment), so
+                                // "has children AND isn't a folder" unambiguously means "has virtual
+                                // children" - no separate flag needed (see the plan's own "innovative
+                                // bit"). Folders keep their existing navigate-into-via-double-click
+                                // behavior untouched. Always recurse while a search is active (not just
+                                // when expanded) so a match inside a collapsed item is still
+                                // discoverable - the fuzzy-rank pass just below flattens the results
+                                // the same way Explorer/VS Code search does.
+                                if (E.m_Type != e10::folder::type_guid_v && TempNodes.back().m_bHasChildren
+                                    && (m_IsExpanded[E] || !m_Browser.m_SearchString.empty()))
+                                {
+                                    Lib->m_InfoByTypeDataBase.FindAsReadOnly(E.m_Type
+                                        , [&](const std::unique_ptr<library_db::info_db>& ChildEntry)
+                                        {
+                                            ChildEntry->m_InfoDataBase.FindAsReadOnly(E.m_Instance
+                                                , [&](const e10::library_db::info_node& ChildNode)
+                                                {
+                                                    CollectItems(ChildNode, Depth + 1, E);
+                                                });
+                                        });
+                                }
                             }
                         };
 
-                    Entry->m_InfoDataBase.FindAsReadOnly(m_ParentGUID.m_Instance, [&](const e10::library_db::info_node& X){ CollectItems(X);} );
+                    Entry->m_InfoDataBase.FindAsReadOnly(m_ParentGUID.m_Instance, [&](const e10::library_db::info_node& X){ CollectItems(X, 0, {});} );
                 });
             });
 
@@ -1609,12 +1647,40 @@ namespace e10
             bool bNewLine = true;
             ImVec4 textColor = ImGui::GetStyleColorVec4(ImGuiCol_Text);
 
+            // Virtual-children group background: drawn as ONE continuous rect spanning every item in
+            // a contiguous run of the same m_VirtualGroupRoot - including the gaps between them and
+            // across however many wrapped rows they span - rather than a separate tint per thumbnail.
+            // Its true extent isn't known until every item in the group has actually been laid out
+            // (wrapping means a group can span multiple rows), so items still draw in this loop's own
+            // order on a FOREGROUND channel while the group's bounding box is only accumulated; once
+            // the group ends (or the loop does), the accumulated rect is drawn on a BACKGROUND channel,
+            // and ChannelsMerge composites it behind everything regardless of drawing order.
+            ImGui::GetWindowDrawList()->ChannelsSplit(2);
+            ImGui::GetWindowDrawList()->ChannelsSetCurrent(1);
+            xresource::full_guid OpenGroupRoot = {};
+            ImVec2               OpenGroupMin{}, OpenGroupMax{};
+            auto FlushOpenGroup = [&]()
+            {
+                if (OpenGroupRoot.empty()) return;
+                ImGui::GetWindowDrawList()->ChannelsSetCurrent(0);
+                ImGui::GetWindowDrawList()->AddRectFilled(OpenGroupMin, OpenGroupMax, IM_COL32(255, 255, 255, 16), ImGui::GetStyle().FrameRounding);
+                ImGui::GetWindowDrawList()->ChannelsSetCurrent(1);
+                OpenGroupRoot = {};
+            };
+
             for (auto& E : TempNodes)
             {
                 if (m_DisplayDeletedItems == false && E.m_bDeleted && isParentTrashcan==false) continue;
 
                 ImGui::PushID(n);
                 ImU32 Color = ImGui::ColorConvertFloat4ToU32(textColor);
+                // Virtual resources get a distinct NAME LABEL color (not just an icon tint like
+                // folders use) so they read as "not a normal top-level asset" at a glance.
+                // WrappedButton2's own label ImGui::Text() call has no color override of its own (only
+                // the icon does), so it inherits whatever ImGuiCol_Text is pushed around the call site
+                // below - Color/pIcon-based tinting (the folder convention) wouldn't touch the label.
+                const bool  bIsVirtual  = E.m_VirtualDepth > 0;
+                const ImU32 LabelColor  = bIsVirtual ? IM_COL32(255, 159, 67, 255) : ImGui::ColorConvertFloat4ToU32(textColor);
 
 
                 const char* pIcon = nullptr;
@@ -1651,7 +1717,59 @@ namespace e10
 
                 if (ThisSelected == -1) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
 
+                // Virtual-children UI (see CollectItems' own comment, and the ChannelsSplit comment
+                // above the loop): accumulate this item into the currently-open group's background
+                // rect (flushing/starting groups as m_VirtualGroupRoot changes), and mark whether an
+                // expand/collapse arrow belongs on this item. WrappedButton2's own RenderFrame is
+                // forced transparent for non-selected items just above, so the group background (drawn
+                // on the earlier, BEHIND channel) shows through cleanly; SetNextItemAllowOverlap here
+                // (on this, the FIRST-submitted/bigger item) is what lets the arrow - submitted AFTER,
+                // smaller - steal hover for its own region instead of this button eating it.
+                const ImVec2 ItemScreenPos = ImGui::GetCursorScreenPos();
+                const ImVec2 ItemScreenMax(ItemScreenPos.x + button_sz.x, ItemScreenPos.y + button_sz.y);
+                const bool   bCanExpand    = E.m_bHasChildren && E.m_ResourceGUID.m_Type != e10::folder::type_guid_v;
+                if (E.m_VirtualDepth > 0 && E.m_VirtualGroupRoot == OpenGroupRoot)
+                {
+                    OpenGroupMin = ImVec2(std::min(OpenGroupMin.x, ItemScreenPos.x), std::min(OpenGroupMin.y, ItemScreenPos.y));
+                    OpenGroupMax = ImVec2(std::max(OpenGroupMax.x, ItemScreenMax.x), std::max(OpenGroupMax.y, ItemScreenMax.y));
+                }
+                else
+                {
+                    FlushOpenGroup();
+                    if (E.m_VirtualDepth > 0)
+                    {
+                        OpenGroupRoot = E.m_VirtualGroupRoot;
+                        OpenGroupMin  = ItemScreenPos;
+                        OpenGroupMax  = ItemScreenMax;
+                    }
+                }
+                // Circular, on the right edge, vertically centered on the ICON (button_sz.x - the icon
+                // is roughly square; button_sz.y also includes the caption text below it, centering on
+                // that instead put the arrow near the bottom rather than the icon's own middle), half
+                // straddling the edge - matches the reference image. Hit-tested manually (distance to
+                // center, no ImGui item submitted at all) rather than via InvisibleButton +
+                // SetCursorScreenPos: that earlier approach corrupted GetItemRectMax() for the row-wrap
+                // check just below (WrappedButton2 leaves the cursor at the item's own LEFT edge after
+                // EndGroup(), not its right edge, so a zero-size Dummy submitted there made the wrap
+                // math think this item was far narrower than it really is, forcing every following
+                // item - virtual children included - onto a new line instead of continuing the row).
+                const float  ArrowDiameter   = button_sz.x * 0.3f;
+                const ImVec2 ArrowCenter(ItemScreenPos.x + button_sz.x, ItemScreenPos.y + button_sz.x * 0.5f);
+                const float  ArrowRadius     = ArrowDiameter * 0.5f;
+                const bool   bExpandedBefore = bCanExpand && m_IsExpanded[E.m_ResourceGUID];
+                bool         bArrowClicked   = false;
+                if (bCanExpand)
+                {
+                    const ImVec2 M = ImGui::GetIO().MousePos;
+                    const float  DistSq = (M.x - ArrowCenter.x) * (M.x - ArrowCenter.x) + (M.y - ArrowCenter.y) * (M.y - ArrowCenter.y);
+                    if (ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && DistSq <= ArrowRadius * ArrowRadius && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                        bArrowClicked = true;
+                }
+
                 int PressType = 0;
+                if (!bArrowClicked)
+                {
+                ImGui::PushStyleColor(ImGuiCol_Text, LabelColor);
                 if (int PressType = WrappedButton2(E.m_ResourceGUID.m_Instance, std::format("{}", StringOne).c_str(), button_sz, Color, pIcon, held, E.m_bModified); PressType == 2)
                 {
                     if (E.m_ResourceGUID.m_Type == e10::folder::type_guid_v)
@@ -1724,7 +1842,27 @@ namespace e10
                         }
                     }
                 }
+                ImGui::PopStyleColor();
+                }
+                if (bArrowClicked)
+                {
+                    // WrappedButton2 must still run even when the click was for the arrow, not the
+                    // button - it's what actually draws the thumbnail every frame regardless of input.
+                    ImGui::PushStyleColor(ImGuiCol_Text, LabelColor);
+                    WrappedButton2(E.m_ResourceGUID.m_Instance, std::format("{}", StringOne).c_str(), button_sz, Color, pIcon, held, E.m_bModified);
+                    ImGui::PopStyleColor();
+                    m_IsExpanded[E.m_ResourceGUID] = !bExpandedBefore;
+                }
                 if (ThisSelected == -1) ImGui::PopStyleColor(1);
+
+                // Draw the arrow on top - pure draw-list, no ImGui item, no cursor manipulation (see
+                // the comment above on why that matters for the row-wrap check just below).
+                if (bCanExpand)
+                {
+                    ImGui::GetWindowDrawList()->AddCircleFilled(ArrowCenter, ArrowRadius, IM_COL32(20, 20, 20, 220));
+                    const float ArrowScale = ArrowDiameter / 16.0f;
+                    ImGui::RenderArrow(ImGui::GetWindowDrawList(), ImVec2(ArrowCenter.x - 4.0f * ArrowScale, ArrowCenter.y - 5.0f * ArrowScale), IM_COL32(255, 255, 255, 255), bExpandedBefore ? ImGuiDir_Down : ImGuiDir_Right, ArrowScale);
+                }
 
                 //
                 // Begging Drag and drop for the button
@@ -1750,7 +1888,9 @@ namespace e10
                         }
                         else
                         {
+                            ImGui::PushStyleColor(ImGuiCol_Text, LabelColor);
                             WrappedButton2(E.m_ResourceGUID.m_Instance, std::format("{}", StringOne).c_str(), button_sz, Color, pIcon, held, E.m_bModified);
+                            ImGui::PopStyleColor();
                         }
                         ImGui::EndDragDropSource();
                         m_DraggedDescriptorItem = E.m_ResourceGUID;
@@ -2270,6 +2410,12 @@ namespace e10
                 n++;
             }
 
+            // Flush whatever group was still open (the list can end mid-group) and composite the
+            // accumulated background rect(s) behind everything - see the ChannelsSplit comment above
+            // the loop.
+            FlushOpenGroup();
+            ImGui::GetWindowDrawList()->ChannelsMerge();
+
             ImGui::GetFont()->Scale = old_font_size;
             ImGui::PopFont();
 
@@ -2294,6 +2440,13 @@ namespace e10
         folder::guid                                        m_ParentGUID            = {};
         sort_base_on                                        m_ShortBasedOn          = sort_base_on::NAME_ASCENDING;
         std::unordered_map<e10::folder::guid, bool>         m_IsTreeNodeOpen        = {};
+        // Expand/collapse state for a resource's VIRTUAL children (e.g. a font's cascaded texture) -
+        // keyed by full_guid, not folder::guid, since a virtual-child-bearing resource can be any
+        // type, not just a folder. See RightPanel()'s own CollectItems comment on how this differs
+        // from folder navigation (folders navigate INTO via double-click; this splices children
+        // inline into the same grid instead - see the "Asset Browser: inline virtual-resource
+        // expansion" plan for the full design).
+        std::unordered_map<xresource::full_guid, bool>      m_IsExpanded            = {};
         xresource::full_guid                                m_DraggedDescriptorItem = {};
         xresource::type_guid                                m_SelectedType          = {};
         std::vector<path_history_entry>                     m_PathHistoryListRU     = {};
