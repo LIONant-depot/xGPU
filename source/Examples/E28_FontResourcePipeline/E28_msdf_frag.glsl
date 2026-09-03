@@ -73,15 +73,17 @@ void main()
 {
     vec4 texel = texture(uAtlas, inUV);
 
-    // BITMAP: an ordinary pre-rasterized image, not a distance field - alpha IS the coverage
-    // directly, no pxRange/fwidth scaling (that formula assumes resolution-independent distance
-    // data; a fixed-size raster has no such thing - sharpness comes from picking the closest baked
-    // size at layout time instead, see xfont_rsc_runtime.h's own FindClosestSizeGroup). No outline
-    // support in this mode either - there's no distance field to compute one from.
+    // BITMAP: an ordinary pre-rasterized image, not a distance field - the RED channel IS the
+    // coverage directly (single-channel atlas - see xfont_compiler.cpp's own comment on why it's no
+    // longer a 4-channel RGBA texture with coverage in alpha), no pxRange/fwidth scaling (that
+    // formula assumes resolution-independent distance data; a fixed-size raster has no such thing -
+    // sharpness comes from picking the closest baked size at layout time instead, see
+    // xfont_rsc_runtime.h's own FindClosestSizeGroup). No outline support in this mode either -
+    // there's no distance field to compute one from.
     if (pc.uOutputType == OUTPUT_TYPE_BITMAP)
     {
         vec4 fillColor = unpackColor(pc.uColor);
-        vec4 result    = vec4(fillColor.rgb, fillColor.a * texel.a);
+        vec4 result    = vec4(fillColor.rgb, fillColor.a * texel.r);
         if (result.a < 0.02) discard;
         outFragColor = result;
         return;
