@@ -398,13 +398,6 @@ namespace e28
     // cross-binding cache collision risk either (see LoadFont's own comment on that bug).
     struct render_settings
     {
-        // The text mesh is always generated at this resolution (px per em) - not user-adjustable any
-        // more. Viewing bigger/smaller is now a pure display-level pan/zoom (see pan_zoom/
-        // ShowZoomableImage), same as looking at any other texture in the Texture Editor, rather than
-        // a "Scale"/"Zoom" pair that re-rendered the MSDF mesh itself - that distinction was more
-        // confusing than useful in practice.
-        static constexpr float kBasePixelsPerEm = 64.0f;
-
         // Mirrors the CURRENTLY SELECTED font's own OutputType - render_settings itself has no idea
         // which font is selected (that's tracked in font_state, outside this struct - see this
         // struct's own top comment), but several Effects below only make sense for a real distance
@@ -415,10 +408,15 @@ namespace e28
         xfont_rsc::output_type m_CurrentFontOutputType{ xfont_rsc::output_type::MTSDF };
 
         std::string m_Text            { "Hello, World!" };
-        // BITMAP only - which baked size to preview, snapped to the closest one actually compiled (see
-        // xfont_rsc::font::FindClosestSizeGroup) - a font may have baked several (8/12/16px etc.), so
-        // this replaces the old "just always ask for kBasePixelsPerEm and hope" auto-pick.
-        float       m_BitmapPreviewSize{ 16.0f };
+        // The px-per-em size Live Text renders at before the view's own pan/zoom multiplies it - shared
+        // across every OutputType so switching between them at the same Zoom keeps the SAME on-screen
+        // text size (previously MTSDF/SDF used a hardcoded 64px reference while BITMAP used this
+        // property on its own default of 16px, so an identical Zoom value produced a ~4x size jump and
+        // a shifted position when switching output types - this unifies them onto one control). For
+        // BITMAP specifically this still snaps to whichever baked size group is closest to the
+        // requested value (see xfont_rsc::font::FindClosestSizeGroup) since BITMAP can only render its
+        // actually-compiled pixel sizes; MTSDF/SDF are true distance fields and use the value directly.
+        float       m_PreviewTextSize{ 16.0f };
         bool        m_bShowOutline    { false };  // only meaningful when the selected font's SDF companion exists (StoreSDF was on at compile time)
         float       m_OutlineWidth    { 0.08f };  // em units
         bool        m_bBold           { false };  // synthetic bold - shifts the fill threshold, no separate bold glyph data needed
@@ -435,10 +433,9 @@ namespace e28
         XPROPERTY_DEF
         ( "RenderSettings", render_settings
         , obj_member<"Text",  &render_settings::m_Text,  member_help<"The string to render in the Font Preview window.">>
-        , obj_member<"BitmapPreviewSize", &render_settings::m_BitmapPreviewSize
+        , obj_member<"PreviewTextSize", &render_settings::m_PreviewTextSize
             , member_ui<float>::drag_bar<0.5f, 4.0f, 256.0f>
-            , member_dynamic_flags<+[](const render_settings& O) { xproperty::flags::type F{}; F.m_bDontShow = O.m_CurrentFontOutputType != xfont_rsc::output_type::BITMAP; return F; }>
-            , member_help<"BITMAP fonts bake fixed pixel sizes - pick which one to preview (snaps to whichever was actually compiled closest to this).">>
+            , member_help<"Live Text's px-per-em size at Zoom 1x, before the view's own pan/zoom. BITMAP fonts bake fixed pixel sizes, so this snaps to whichever was actually compiled closest to the requested value; MTSDF/SDF render at the exact value.">>
         , obj_scope<"Effects"
             // ShowOutline/Bold/Bevel all need a real distance field to threshold/shade from - BITMAP
             // is plain rasterized alpha coverage, so the shader's own BITMAP branch returns before any
@@ -537,10 +534,10 @@ namespace e28
     // see xfont_rsc_descriptor.h's own top comment) - walks Text, looks up each codepoint via the
     // font's perfect hash, accumulates the pen position, and emits one quad per non-whitespace glyph.
     // AtlasWidth/AtlasHeight convert the glyph's pixel-space atlas bounds into normalized UVs.
-    // RequestedPixelSize (only consulted for BITMAP fonts - ignored otherwise) is "how big the text
-    // would be at Scale=1,Zoom=1" (kBasePixelsPerEm) times the caller's actual Scale*Zoom - used to
-    // automatically pick whichever baked size_group is closest, same automatic-by-OutputType
-    // behavior the fill/outline shader branch already has, just for glyph lookup instead of sampling.
+    // RequestedPixelSize (only consulted for BITMAP fonts - ignored otherwise) is the caller's own
+    // render_settings::m_PreviewTextSize - used to automatically pick whichever baked size_group is
+    // closest, same automatic-by-OutputType behavior the fill/outline shader branch already has, just
+    // for glyph lookup instead of sampling.
     void LayoutText(const xfont_rsc::font& Font, int AtlasWidth, int AtlasHeight, const std::string& Text, std::vector<text_quad>& OutQuads, float& OutAdvance, float RequestedPixelSize)
     {
         OutQuads.clear();
@@ -559,10 +556,10 @@ namespace e28
             // The compiler already normalizes each glyph's plane bounds/advance by this group's own
             // baked pixel size before packing them into fixed-point (see xfont_compiler.cpp's own
             // comment) - so FromFixed() alone yields the same "fraction of an em" units MTSDF/SDF
-            // already use, no further scaling needed here. Draw()'s EffectiveScale multiplies back up
-            // by kBasePixelsPerEm*Scale*Zoom afterward, same as MTSDF/SDF, so Scale/Zoom behave
-            // consistently across every output type even though BITMAP itself can't truly scale (it
-            // just snaps to whichever baked size is closest, via FindClosestSizeGroup above).
+            // already use, no further scaling needed here. Draw()'s own PxPerEm multiplies back up to
+            // screen pixels afterward, same as MTSDF/SDF, so Zoom behaves consistently across every
+            // output type even though BITMAP itself can't truly scale (it just snaps to whichever
+            // baked size is closest, via FindClosestSizeGroup above).
             for (auto Cp : Codepoints)
             {
                 const auto* pGlyph = xfont_rsc::font::FindGlyphInSizeGroup(pRegionStart, *pGroup, Cp);
@@ -1358,21 +1355,21 @@ int E28_Example()
                         std::vector<e28::text_quad> Quads;
                         float                        PenXFinal = 0.0f;
                         // MTSDF/SDF are true distance fields - correct at ANY resolution, so
-                        // kBasePixelsPerEm is just an arbitrary (but fine) reference size for them.
-                        // BITMAP is NOT resolution-independent - it's pre-rasterized pixels at
-                        // whichever fixed sizes the descriptor baked, so "native" means whichever
-                        // baked size_group is closest to the user's OWN requested preview size
-                        // (RenderSettings/BitmapPreviewSize - a font may have baked several sizes,
-                        // there's no single universal "native" any more), render at THAT group's own
-                        // real pixel size. Either way this is the FONT's own native resolution,
-                        // unrelated to the view camera's zoom below.
+                        // RenderSettings.m_PreviewTextSize is used directly. BITMAP is NOT
+                        // resolution-independent - it's pre-rasterized pixels at whichever fixed sizes
+                        // the descriptor baked, so "native" means whichever baked size_group is closest
+                        // to that same requested size (a font may have baked several), render at THAT
+                        // group's own real pixel size. Either way this is the FONT's own native
+                        // resolution, unrelated to the view camera's zoom below - using the SAME
+                        // requested-size property for both is what keeps Live Text's on-screen size
+                        // consistent when switching a font's OutputType at a fixed Zoom.
                         const float NativeScale = (pFont->m_pFont->m_OutputType == xfont_rsc::output_type::BITMAP)
                             ? [&]
                               {
-                                  const auto* pGroup = pFont->m_pFont->FindClosestSizeGroup(RenderSettings.m_BitmapPreviewSize);
-                                  return (pGroup != nullptr) ? pGroup->m_PixelSize : RenderSettings.m_BitmapPreviewSize;
+                                  const auto* pGroup = pFont->m_pFont->FindClosestSizeGroup(RenderSettings.m_PreviewTextSize);
+                                  return (pGroup != nullptr) ? pGroup->m_PixelSize : RenderSettings.m_PreviewTextSize;
                               }()
-                            : e28::render_settings::kBasePixelsPerEm;
+                            : RenderSettings.m_PreviewTextSize;
                         e28::LayoutText(*pFont->m_pFont, AtlasDims[0], AtlasDims[1], RenderSettings.m_Text, Quads, PenXFinal, NativeScale);
 
                         // Camera-driven viewport, same interaction model as ShowZoomableImage (wheel
