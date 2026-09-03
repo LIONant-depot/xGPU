@@ -47,6 +47,7 @@ namespace xgpu::vulkan
             FormatTable[(int)xgpu::texture::format::R8G8B8U8_UNORM            ] = texture_format  { VK_FORMAT_R8G8B8A8_UNORM            , VK_FORMAT_R8G8B8A8_SRGB              };
             FormatTable[(int)xgpu::texture::format::R8G8B8A8_UNORM            ] = texture_format  { VK_FORMAT_R8G8B8A8_UNORM            , VK_FORMAT_R8G8B8A8_SRGB              };
             FormatTable[(int)xgpu::texture::format::R8G8B8_UNORM              ] = texture_format  { VK_FORMAT_R8G8B8_UNORM              , VK_FORMAT_R8G8B8_SRGB                };
+            FormatTable[(int)xgpu::texture::format::R8_UNORM                  ] = texture_format  { VK_FORMAT_R8_UNORM                  , VK_FORMAT_R8_SRGB                    };
             FormatTable[(int)xgpu::texture::format::R4G4B4A4_UNORM            ] = texture_format  { VK_FORMAT_R4G4B4A4_UNORM_PACK16     , VK_FORMAT_R4G4B4A4_UNORM_PACK16      };
 
             FormatTable[(int)xgpu::texture::format::R5G6B5_UNORM              ] = texture_format  { VK_FORMAT_R5G6B5_UNORM_PACK16       , VK_FORMAT_R5G6B5_UNORM_PACK16        };

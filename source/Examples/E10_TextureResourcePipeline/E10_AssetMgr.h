@@ -755,19 +755,32 @@ namespace e10
 
             void StartCompilation()
             {
-                if (not m_isCompiling)
+                // Was "if (not m_isCompiling) { ...; m_isCompiling = true; ...; SubmitJob(...); }" -
+                // a plain check-then-set on an atomic<bool> is NOT atomic as a WHOLE: two callers can
+                // both observe m_isCompiling==false before either sets it, and both reach SubmitJob
+                // on the SAME m_CompilationJob - the scheduler asserts ("Job already submitted to a
+                // system") the moment the second one calls SubmitJob while the first's m_pSystem is
+                // still set. This is a real, reachable race: StartCompilation() is called once per
+                // queued entry from AddToCompilationQueueIfNeeded(), which runs on the file-monitor's
+                // OWN background thread (one thread per watched path, see file_monitor_changes) - two
+                // files changing close together (e.g. a font and its cascaded virtual texture) can
+                // have two different watcher threads call this concurrently. compare_exchange_strong
+                // makes the false->true claim atomic, so only one caller ever proceeds past it.
+                bool Expected = false;
+                if (!m_isCompiling.compare_exchange_strong(Expected, true))
+                    return;
+
+                if (not ContinueCompiling())
                 {
-                    if ( not ContinueCompiling())
-                        return;
-
-                    m_isCompiling = true;
-
-                    // Ok let us wake up the master (may or may not be sleeping)
-                    if (m_AutoCompilation.load(std::memory_order_relaxed) ) m_ManualCompilationTemp.store(false); 
-                    else m_ManualCompilationTemp.store(true);
-
-                    xscheduler::g_System.SubmitJob(m_CompilationJob);
+                    m_isCompiling = false;
+                    return;
                 }
+
+                // Ok let us wake up the master (may or may not be sleeping)
+                if (m_AutoCompilation.load(std::memory_order_relaxed) ) m_ManualCompilationTemp.store(false);
+                else m_ManualCompilationTemp.store(true);
+
+                xscheduler::g_System.SubmitJob(m_CompilationJob);
             }
         };
 
@@ -3138,6 +3151,28 @@ namespace e10
                 //
                 // Finally let us update our node_info state
                 //
+                // Virtual resources to cascade-compile (see the comment further below, at the point
+                // this used to be populated AND processed in one place) - collected here as plain data,
+                // NOT processed here, because processing means calling process_info_job::LoadInfo(),
+                // which itself calls FindAsReadOnlyOrCreate/FindAsWriteOrCreate on m_InfoByTypeDataBase -
+                // the SAME container this whole block is already nested three FindAsReadOnly/FindAsWrite
+                // callbacks deep into. Re-entering it from inside an active callback corrupted the map
+                // (a real access violation, reproduced repeatedly, resolved via dbghelp to STL <memory>
+                // internals) - almost certainly because a lockless_map's "lockless" guarantee assumes
+                // callbacks don't recursively touch the same map, so a nested insert (e.g. a virtual
+                // Texture descriptor being registered for the first time) could rehash/resize the table
+                // while the outer callback's own reference into it is still logically in use. Collecting
+                // into a plain local vector here and running LoadInfo() only after every nested callback
+                // below has fully returned avoids the re-entrancy entirely.
+                struct virtual_cascade_entry
+                {
+                    std::wstring          m_LibraryPath;
+                    std::wstring          m_InfoPath;
+                    std::wstring          m_ResourcePath;
+                    std::wstring          m_RelativePath;
+                };
+                std::vector<virtual_cascade_entry> VirtualCascadeList;
+
                 if (LibMgr.m_mLibraryDB.FindAsReadOnly( NewEntry.m_Entry.m_gLibrary, [&]( const std::unique_ptr<library_db>& LibraryDB )
                 {
                     if (LibraryDB->m_InfoByTypeDataBase.FindAsReadOnly(NewEntry.m_Entry.m_FullGuid.m_Type, [&]( const std::unique_ptr<library_db::info_db>& InfoDB )
@@ -3259,6 +3294,32 @@ namespace e10
                                 }
 
                                 //
+                                // Cascade-compile any virtual resources this compile emitted (e.g. a font
+                                // resource emitting a virtual Texture atlas). Without this, a virtual
+                                // resource's own compiled binary never gets produced until the next full
+                                // ProcessInfos scan (app restart) - so loading the parent resource right
+                                // after compiling it would try to load a texture that was never compiled.
+                                // Only COLLECTED here - see VirtualCascadeList's own comment above for why
+                                // process_info_job::LoadInfo() can't safely run from inside this callback.
+                                //
+                                for (auto& VirtualGuid : Node.m_Dependencies.m_VirtualResources)
+                                {
+                                    if (auto pVPlugin = LibMgr.m_AssetPluginsDB.find(VirtualGuid.m_Type); pVPlugin)
+                                    {
+                                        const auto          Value        = VirtualGuid.m_Instance.m_Value;
+                                        const std::wstring  TypeNameW    = xstrtool::To(pVPlugin->m_TypeName);
+                                        const std::wstring  RelativePath = std::format(L"\\{}\\{:02X}\\{:02X}\\{:016X}", TypeNameW, Value & 0xFF, (Value >> 8) & 0xFF, Value);
+
+                                        VirtualCascadeList.push_back(virtual_cascade_entry
+                                        { .m_LibraryPath   = LibraryDB->m_Library.m_Path
+                                        , .m_InfoPath      = std::format(L"{}{}.desc\\info.txt", LibraryDB->m_Library.m_SysDescriptorPath, RelativePath)
+                                        , .m_ResourcePath  = std::format(L"{}{}", LibraryDB->m_Library.m_ResourcePath, RelativePath)
+                                        , .m_RelativePath  = RelativePath
+                                        });
+                                    }
+                                }
+
+                                //
                                 // Check and see if this entry needs to be recompile for some reason...
                                 //
                                 if ( LibraryDB->AddToCompilationQueueIfNeeded(*InfoDB, Node) == false )
@@ -3282,6 +3343,23 @@ namespace e10
                 }))
                 {
                     //TODO: ERROR unable to find the library
+                }
+
+                // Now that we are outside every nested FindAsReadOnly/FindAsWrite callback on
+                // m_mLibraryDB/m_InfoByTypeDataBase, it's safe to actually register+enqueue whatever
+                // virtual resources were collected above - see VirtualCascadeList's own comment for why
+                // this can't happen any earlier.
+                for (auto& E : VirtualCascadeList)
+                {
+                    LibMgr.m_mLibraryDB.FindAsReadOnly(NewEntry.m_Entry.m_gLibrary, [&](const std::unique_ptr<library_db>& LibraryDB)
+                    {
+                        process_info_job VirtualJob;
+                        VirtualJob.setup(LibMgr, *LibraryDB, xproperty::settings::context{});
+                        if (auto Err = VirtualJob.LoadInfo(E.m_LibraryPath, E.m_InfoPath, E.m_ResourcePath, E.m_RelativePath); Err)
+                        {
+                            Err.clear();
+                        }
+                    });
                 }
             }
         }

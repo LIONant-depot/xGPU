@@ -19,6 +19,7 @@ namespace xgpu::tools::bitmap
         Table[static_cast<std::size_t>(xbitmap::format::R8G8B8A8)]        = xgpu::texture::format::R8G8B8A8_UNORM        ;
         Table[static_cast<std::size_t>(xbitmap::format::R4G4B4A4)]        = xgpu::texture::format::R4G4B4A4_UNORM        ;
         Table[static_cast<std::size_t>(xbitmap::format::R5G6B5)]          = xgpu::texture::format::R5G6B5_UNORM          ;
+        Table[static_cast<std::size_t>(xbitmap::format::R8)]              = xgpu::texture::format::R8_UNORM              ;
         Table[static_cast<std::size_t>(xbitmap::format::B5G5R5A1)]        = xgpu::texture::format::B5G5R5A1_UNORM        ;
         Table[static_cast<std::size_t>(xbitmap::format::BC1_4RGB)]        = xgpu::texture::format::BC1_4RGB_UNORM        ;
         Table[static_cast<std::size_t>(xbitmap::format::BC1_4RGBA1)]      = xgpu::texture::format::BC1_4RGBA1_UNORM      ;

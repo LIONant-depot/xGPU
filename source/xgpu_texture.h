@@ -21,6 +21,7 @@ namespace xgpu
         ,   R8G8B8A8_UNORM
         ,   XCOLOR = R8G8B8A8_UNORM
         ,   R8G8B8_UNORM
+        ,   R8_UNORM                // single-channel, uncompressed - e.g. a raw SDF font atlas, no block compression at all
         ,   R4G4B4A4_UNORM = 10
         ,   R5G6B5_UNORM
         ,   B5G5R5A1_UNORM

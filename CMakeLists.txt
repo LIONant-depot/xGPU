@@ -236,6 +236,8 @@ set(FRAG_SHADER_SOURCES
   "source/Examples/E23_SkeletonEditor/E23_WedgeFill_frag.glsl"
   "source/Examples/E23_SkeletonEditor/E23_ShadowGeneration_frag.glsl"
   "source/Examples/E27_NodeOS/E27_normal_frag.glsl"
+  "source/Examples/E28_FontResourcePipeline/E28_msdf_frag.glsl"
+  "source/Examples/E28_FontResourcePipeline/E28_wire_frag.glsl"
 
   )
 
@@ -267,6 +269,8 @@ set(VERT_SHADER_SOURCES
   "source/Examples/E23_SkeletonEditor/E23_WedgeFill_vert.glsl"
   "source/Examples/E23_SkeletonEditor/E23_ShadowGeneration_vert.glsl"
   "source/Examples/E27_NodeOS/E27_normal_vert.glsl"
+  "source/Examples/E28_FontResourcePipeline/E28_msdf_vert.glsl"
+  "source/Examples/E28_FontResourcePipeline/E28_wire_vert.glsl"
   )
 
 # List geometry shader sources
@@ -399,6 +403,7 @@ add_executable(${TARGET_PROJECT}
   "source/Examples/E27_NodeOS/SDK/xnode_os_plugin_api.h"
   "source/Examples/E27_NodeOS/SDK/xnode_os_host_interface.h"
   "source/Examples/E27_NodeOS/SDK/xnode_os_shared_types.h"
+  "source/Examples/E28_FontResourcePipeline/E28_FontResourcePipeline.cpp"
   "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_identity.h"
   "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_template.h"
   "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_resolution.h"
@@ -768,6 +773,10 @@ source_group("Examples/E27_NodeOS/SDK" FILES
   "source/Examples/E27_NodeOS/SDK/xnode_os_plugin_api.h"
   "source/Examples/E27_NodeOS/SDK/xnode_os_host_interface.h"
   "source/Examples/E27_NodeOS/SDK/xnode_os_shared_types.h"
+)
+
+source_group("Examples/E28_FontResourcePipeline" FILES
+  "source/Examples/E28_FontResourcePipeline/E28_FontResourcePipeline.cpp"
 )
 
 
