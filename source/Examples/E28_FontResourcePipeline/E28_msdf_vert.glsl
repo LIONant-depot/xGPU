@@ -20,10 +20,13 @@ layout (push_constant) uniform PC
     // shader's own longer PC block. A push_constant block's layout is purely sequential declaration
     // order within THAT block - there's no shared master layout keeping stages in sync automatically,
     // so skipping straight to uItalicShear here would silently read the wrong bytes (whatever
-    // uOutputType/uFontWeightPx/uBevelWeightPx actually hold) instead of the real shear value.
+    // uOutputType/uFontWeightPx/uBevelWeightPx/uGlowRadiusPx/uGlowIntensity actually hold) instead of
+    // the real shear value.
     uint  uOutputType;
     float uFontWeightPx;
     float uBevelWeightPx;
+    float uGlowRadiusPx;
+    float uGlowIntensity;
     float uItalicShear;     // slope (dx per unit y) - the only new field this stage actually reads
 } pc;
 

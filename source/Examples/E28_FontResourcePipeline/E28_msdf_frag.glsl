@@ -25,11 +25,17 @@ layout (push_constant) uniform PC
     uint  uOutputType; // mirrors xfont_rsc::output_type: 0=MTSDF, 1=SDF, 2=BITMAP
     float uFontWeightPx; // shifts the fill threshold - positive = bolder, negative = thinner
     float uBevelWeightPx; // 0 = off; else how far the pseudo-lit edge band reaches inward, in screen px
+    float uGlowRadiusPx; // 0 = off; else how far the soft halo extends outward, in screen px
+    float uGlowIntensity; // 0-1 opacity multiplier for the glow
 } pc;
 
 // Fixed light direction for the bevel effect - matches the reference shader's own default
 // (https://www.shadertoy.com/view/ldfcDr) rather than adding a property for something this minor.
 const vec2 kBevelLightDir = normalize(vec2(-1.0, -0.5));
+
+// Fixed glow color - same "not worth a property for one shader constant" precedent as
+// kBevelLightDir above and the shadow's own hardcoded translucent black on the CPU side.
+const vec3 kGlowColor = vec3(0.3, 0.8, 1.0);
 
 layout (location = 0) in  vec2 inUV;
 layout (location = 0) out vec4 outFragColor;
@@ -141,6 +147,46 @@ void main()
 
         // Composite fill (top) over outline (bottom) - standard premultiplied "over" operator.
         result = result + outlineSrc * (1.0 - result.a);
+    }
+
+    if (pc.uGlowRadiusPx > 0.0)
+    {
+        // Same trueSD reasoning as the outline block above (SDF's own R IS the true distance;
+        // MTSDF keeps its true SDF in alpha since the median-reconstructed RGB isn't numerically
+        // stable at longer range). distOutsidePx is 0 inside the glyph, growing positive outward -
+        // the mirror image of fillCoverage's own "inside" measurement.
+        float trueSD        = (pc.uOutputType == OUTPUT_TYPE_MTSDF) ? texel.a : sd;
+        float distOutsidePx = max(0.0, -(pxRange * (trueSD - 0.5)));
+
+        // Same DIRECT, linear-clamp style as fillCoverage/outlineCover above - not an exp() curve
+        // with an arbitrary steepness constant that has no predictable relationship to uGlowRadiusPx
+        // at all (tried twice: too tight, then not tight enough, because the "reach" the user actually
+        // sees was never a clean function of the property value). fillCoverage proves this pattern
+        // reads correctly right up to a hard clamp with no visible seam, PROVIDED the distance you
+        // feed it never exceeds what the SDF can represent (see the cap below) - Bold/Outline never
+        // hit that ceiling because their own widths stay small; Glow's whole point is to reach much
+        // further, so it has to actively guard against asking for more than exists.
+        //
+        // The SDF texture only encodes distance out to ~pxRange screen px before saturating (an
+        // 8-bit UNORM texel can't go below 0, so msdfgen's own bake-time encoding clamps there) -
+        // beyond that, distOutsidePx stops growing and reads a CONSTANT rather than a genuinely
+        // increasing value. Clamping uGlowRadiusPx itself to that same ceiling means the linear ramp
+        // below reaches EXACTLY 0 at-or-before the point where the data would otherwise plateau -
+        // clamp(), unlike exp(), actually HITS zero rather than approaching it, so there's no residual
+        // sliver of constant brightness left sitting at the saturation boundary either way. This is
+        // still a hard, honest ceiling tied to the font's own baked PixelRange - reaching further than
+        // this needs more real distance data (a bigger PixelRange baked into the font), not another
+        // shader tweak.
+        float EffectiveRadiusPx = min(pc.uGlowRadiusPx, pxRange);
+        float glowFalloff = clamp(1.0 - distOutsidePx / max(EffectiveRadiusPx, 0.0001), 0.0, 1.0);
+
+        float glowAlpha = pc.uGlowIntensity * glowFalloff;
+        vec4  glowSrc   = vec4(kGlowColor * glowAlpha, glowAlpha); // premultiplied
+
+        // Composite everything so far (fill [+ bevel] [+ outline]) over the glow - it's the
+        // backmost layer, showing through wherever what's on top of it isn't fully opaque yet
+        // (the anti-aliased fill/outline edges themselves, and everywhere beyond the outline ring).
+        result = result + glowSrc * (1.0 - result.a);
     }
 
     if (result.a < 0.02) discard;

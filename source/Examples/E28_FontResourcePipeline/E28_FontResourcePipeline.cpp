@@ -16,6 +16,7 @@
 #include "source/Examples/E10_TextureResourcePipeline/E10_Resources.h"
 #include "source/Examples/E10_TextureResourcePipeline/E10_AssetMgr.h"
 #include "source/Examples/E10_TextureResourcePipeline/E10_AssetBrowser.h"
+#include "source/Examples/E05_Textures/E05_BitmapInspector.h"
 
 #include "plugins/xtexture.plugin/source/xtexture_xgpu_rsc_loader.h"
 
@@ -97,6 +98,11 @@ namespace e28
         std::wstring             m_DescriptorPath = {};
         std::wstring             m_ResourcePath   = {}; // where the compiled binary would be - see LoadFont; checked with std::filesystem::exists before ever calling xresource::mgr::getResource, exactly like E10's own SelectedDescriptor.m_ResourcePath check, since a freshly selected/created font is routinely not compiled yet
         xfont_rsc::descriptor   m_Descriptor     = {}; // backs the "Font Properties" inspector - see LoadFont
+        // Backs the "Texture Info" inspector - same e05::bitmap_inspector E10 uses for its own
+        // "Viewer" inspector (Width/Height/FileSize/DataSize/CompressionRatio/MipMapSizes etc.), just
+        // loaded from THIS font's own virtual texture (its cascaded atlas) instead of a directly
+        // selected texture resource - see LoadFont for how that virtual resource's path is found.
+        e05::bitmap_inspector   m_TextureInspector = {};
 
         // Compile/save tracking - mirrors E23_SkeletonEditor's skeleton_state. Saving the
         // descriptor (SaveDescriptor) is what actually triggers a recompile - a background
@@ -201,6 +207,7 @@ namespace e28
             m_DescriptorPath.clear();
             m_ResourcePath.clear();
             m_Descriptor = {};
+            m_TextureInspector.clear();
             SetLog(std::make_shared<e10::compilation::historical_entry::log>(e10::compilation::historical_entry::communication{ .m_Result = e10::compilation::historical_entry::result::SUCCESS }));
             m_bReload    = false;
             m_bErrors    = false;
@@ -229,7 +236,7 @@ namespace e28
     // (clear() + AppendEntity() + AppendEntityComponent() against the just-loaded descriptor) -
     // see this file's own top-of-inspector comment for why binding once at startup against an
     // empty descriptor is what to avoid.
-    void LoadFont(font_state& State, e10::library::guid LibraryGUID, xresource::full_guid InfoGUID, xproperty::inspector& Inspector)
+    void LoadFont(font_state& State, e10::library::guid LibraryGUID, xresource::full_guid InfoGUID, xproperty::inspector& Inspector, xproperty::inspector& TextureInspectorUI)
     {
         // Deferred, not immediate - see font_state::m_PendingRelease's own comment. LoadFont runs
         // mid-frame, after this frame's Font Preview window may have already queued an ImGui::Image()
@@ -242,9 +249,16 @@ namespace e28
         State.m_LibraryGUID = LibraryGUID;
         State.m_InfoGUID    = InfoGUID;
 
+        // The font's own cascaded virtual texture (its atlas) - read from the SAME info_node lookup
+        // GenerateDescriptorPath already needs, rather than a second getNodeInfo call. A font only
+        // ever emits exactly one virtual resource (see xfont_compiler.cpp's own m_VirtualResources
+        // push_back), so the first entry is it.
+        xresource::full_guid TextureGUID = {};
         e10::g_LibMgr.getNodeInfo(State.m_LibraryGUID, State.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
         {
             GenerateDescriptorPath(State, NodeInfo.m_Path);
+            if (!NodeInfo.m_Dependencies.m_VirtualResources.empty())
+                TextureGUID = NodeInfo.m_Dependencies.m_VirtualResources[0];
         });
 
         if (!State.m_DescriptorPath.empty() && std::filesystem::exists(State.m_DescriptorPath))
@@ -259,6 +273,24 @@ namespace e28
         Inspector.clear();
         Inspector.AppendEntity();
         Inspector.AppendEntityComponent(*State.m_Descriptor.getProperties(), &State.m_Descriptor);
+
+        // "Texture Info" inspector - same e05::bitmap_inspector-driven readout (Width/Height/
+        // FileSize/DataSize/CompressionRatio/MipMapSizes etc.) E10 shows for a directly-selected
+        // texture resource, pointed at this font's own atlas instead. Loaded from the COMPILED
+        // resource file (not Descriptor.txt) - it doesn't exist until the cascade compile has
+        // actually finished, so this silently stays empty (bitmap_inspector::isNotValid) until then,
+        // same as State.m_ResourcePath's own exists() check just above handles the font itself.
+        TextureInspectorUI.clear();
+        if (!TextureGUID.empty())
+        {
+            const auto TextureResourcePath = xresource::g_Mgr.getResourcePath(TextureGUID, L"Texture");
+            if (std::filesystem::exists(TextureResourcePath))
+            {
+                State.m_TextureInspector.Load(TextureResourcePath, true);
+                TextureInspectorUI.AppendEntity();
+                TextureInspectorUI.AppendEntityComponent(*xproperty::getObject(State.m_TextureInspector), &State.m_TextureInspector);
+            }
+        }
 
         State.m_Ref.m_Instance = InfoGUID.m_Instance;
     }
@@ -299,7 +331,10 @@ namespace e28
         ImGui::SameLine();
         if (ImGui::SmallButton("Recenter")) View.m_Pan = { 0.0f, 0.0f };
         ImGui::SameLine();
-        ImGui::Text("Zoom: %.2fx", View.m_Zoom);
+        ImGui::Text("Zoom:");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(80.0f);
+        ImGui::DragFloat("##Zoom", &View.m_Zoom, 0.01f, 0.05f, 40.0f, "%.2fx");
 
         ImGui::BeginChild("##canvas", ImGui::GetContentRegionAvail(), true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoMove);
 
@@ -426,6 +461,9 @@ namespace e28
         float       m_ShadowOffsetY   { -0.05f }; // em units
         bool        m_bBevel          { false };  // pseudo-lit edge bevel, from the SDF's own screen-space gradient - MTSDF/SDF only, no-op on BITMAP
         float       m_BevelWeight     { 0.06f };  // em-equivalent units (converted to screen px the same way OutlineWidth is)
+        bool        m_bGlow           { false };  // soft colored halo fading outward from the edge - see https://www.redblobgames.com/articles/sdf-fonts/'s own "glow" section; MTSDF/SDF only, no-op on BITMAP (same reasoning as Bevel/Outline - no distance field outside the glyph to fade from)
+        float       m_GlowRadius      { 0.15f };  // em-equivalent units (converted to screen px the same way OutlineWidth is) - how far outward the halo reaches before fading to nothing
+        float       m_GlowIntensity   { 0.8f };   // 0-1 opacity multiplier; color itself is a shader constant (kGlowColor in E28_msdf_frag.glsl), same precedent as the shadow's own fixed color
         bool        m_bItalic          { false }; // synthetic italic - vertex-level shear (real skew, not a UV trick), see E28_msdf_vert.glsl
         float       m_ItalicShear      { 0.2f };  // slope (dx per unit y), dimensionless
         bool        m_bShowGlyphBounds{ false };  // debug: draws the real glyph mesh in red wireframe, on top of the rendered text
@@ -473,6 +511,16 @@ namespace e28
                 , member_ui<float>::drag_bar<0.005f, 0.0f, 0.3f>
                 , member_dynamic_flags<+[](const render_settings& O) { xproperty::flags::type F{}; F.m_bDontShow = !O.m_bBevel || O.m_CurrentFontOutputType == xfont_rsc::output_type::BITMAP; return F; }>
                 , member_help<"How far the bevel band reaches inward from the edge, in em units.">>
+            , obj_member<"Glow", &render_settings::m_bGlow, member_help<"Soft colored halo fading outward from the glyph edge - MTSDF/SDF only, no effect on BITMAP fonts (no distance field outside the glyph to fade from).">
+                , member_dynamic_flags<+[](const render_settings& O) { xproperty::flags::type F{}; F.m_bDontShow = O.m_CurrentFontOutputType == xfont_rsc::output_type::BITMAP; return F; }>>
+            , obj_member<"GlowRadius", &render_settings::m_GlowRadius
+                , member_ui<float>::drag_bar<0.005f, 0.0f, 0.6f>
+                , member_dynamic_flags<+[](const render_settings& O) { xproperty::flags::type F{}; F.m_bDontShow = !O.m_bGlow || O.m_CurrentFontOutputType == xfont_rsc::output_type::BITMAP; return F; }>
+                , member_help<"How far the glow halo reaches outward from the edge before fading to nothing, in em units.">>
+            , obj_member<"GlowIntensity", &render_settings::m_GlowIntensity
+                , member_ui<float>::drag_bar<0.005f, 0.0f, 1.0f>
+                , member_dynamic_flags<+[](const render_settings& O) { xproperty::flags::type F{}; F.m_bDontShow = !O.m_bGlow || O.m_CurrentFontOutputType == xfont_rsc::output_type::BITMAP; return F; }>
+                , member_help<"Glow opacity multiplier.">>
             , obj_member<"Italic", &render_settings::m_bItalic, member_help<"Synthetic italic - shears the actual glyph geometry (not just the texture sampling), no separate italic font needed.">>
             , obj_member<"ItalicShear", &render_settings::m_ItalicShear
                 , member_ui<float>::drag_bar<0.005f, -0.6f, 0.6f>
@@ -655,6 +703,8 @@ namespace e28
         std::uint32_t  m_OutputType; // mirrors xfont_rsc::output_type: 0=MTSDF, 1=SDF, 2=BITMAP
         float          m_FontWeightPx;
         float          m_BevelWeightPx;
+        float          m_GlowRadiusPx;   // 0 = off; else how far the soft glow halo extends outward, in screen px
+        float          m_GlowIntensity;  // 0-1, glow opacity multiplier (color itself is a shader constant, same precedent as the fill/outline/shadow colors below)
         float          m_ItalicShear; // slope (dx per unit y) - see E28_msdf_vert.glsl's own comment on why field order/size here must stay in sync with that shader's own (shorter) PC block
     };
 
@@ -678,10 +728,6 @@ namespace e28
     {
         static constexpr int MaxQuads = 1024;
         static constexpr int MaxSceneDim = 4096;
-        // Pixel offset of the pen origin (em-space 0,0) from the viewport's left edge, at PanPx={0,0} -
-        // shared between Draw()'s own transform and the caller's zoom-toward-cursor math (both need to
-        // agree on where world (0,0) sits on screen to convert between the two consistently).
-        static constexpr float kLeftMarginPx = 20.0f;
 
         // The scene texture is sized to exactly fit the current content (like a normal render-to-
         // texture setup) and is destroyed/recreated whenever that size changes - but only past a
@@ -895,6 +941,7 @@ namespace e28
         , xgpu::texture*                   pAtlas
         , xgpu::texture*                   pSDF
         , const std::vector<text_quad>&    Quads
+        , float                            TextWidthEm
         , int                              ViewW
         , int                              ViewH
         , float                            PxPerEm
@@ -907,6 +954,9 @@ namespace e28
         , xmath::fvec2                     ShadowOffsetEm
         , bool                             bBevel
         , float                            BevelWeightEm
+        , bool                             bGlow
+        , float                            GlowRadiusEm
+        , float                            GlowIntensity
         , bool                             bItalic
         , float                            ItalicShear
         , bool                             bShowBounds = false
@@ -1016,13 +1066,14 @@ namespace e28
             CmdBuffer.setBuffer(m_VertexBuffer);
             CmdBuffer.setBuffer(m_IndexBuffer);
 
-            // Anchor the pen origin (em-space 0,0 - where LayoutText starts) at a fixed pixel position
-            // in the viewport (a left margin, vertically centered), offset by the camera's own pan -
-            // NOT "fit the whole text's bounding box to the viewport" like the old content-driven
-            // sizing did. That old approach silently re-scaled everything whenever PenXFinal changed
-            // (every keystroke); anchoring a fixed world point instead means only PxPerEm/PanPx move
-            // the camera, exactly like a real viewport.
-            const xmath::fvec2 AnchorPx{ kLeftMarginPx + PanPx.x(), PixelH * 0.5f + PanPx.y() };
+            // Anchor the pen origin (em-space 0,0 - where LayoutText starts) at the viewport's own
+            // center MINUS half the text's current on-screen width, so the text as a whole sits
+            // centered - both axes - offset by the camera's own pan. Still NOT "fit the whole text's
+            // bounding box to the viewport" like the old content-driven SCALING did (that re-scaled
+            // PxPerEm itself whenever PenXFinal changed, every keystroke) - PxPerEm/PanPx stay purely
+            // camera-driven; only the anchor's OWN position reacts to content width, same as centering
+            // any other camera-framed object without changing the camera's zoom.
+            const xmath::fvec2 AnchorPx{ static_cast<float>(PixelW) * 0.5f - TextWidthEm * PxPerEm * 0.5f + PanPx.x(), PixelH * 0.5f + PanPx.y() };
 
             msdf_push_constants PC{};
             const float ScaleX = 2.0f * PxPerEm / static_cast<float>(PixelW);
@@ -1040,13 +1091,16 @@ namespace e28
             // Bevel needs a real SDF gradient to shade from - no-op (and left at 0, the shader's own
             // off switch) for BITMAP, same reasoning as outline just above.
             PC.m_BevelWeightPx  = (bBevel && Font.m_OutputType != xfont_rsc::output_type::BITMAP) ? BevelWeightEm * PxPerEm : 0.0f;
+            // Glow needs distance OUTSIDE the glyph, same as outline/bevel - no-op for BITMAP.
+            PC.m_GlowRadiusPx   = (bGlow && Font.m_OutputType != xfont_rsc::output_type::BITMAP) ? GlowRadiusEm * PxPerEm : 0.0f;
+            PC.m_GlowIntensity  = GlowIntensity;
             PC.m_ItalicShear    = bItalic ? ItalicShear : 0.0f; // a dimensionless slope, not an em length - no PxPerEm conversion needed
 
             if (bShowShadow && QuadCount > 0)
             {
                 // Drop shadow = the SAME real glyph mesh (same vertex/index range, offset 0), redrawn
                 // BEFORE the fill pass with the pen origin translated by ShadowOffsetEm and a flat dark
-                // color - no outline/bevel on the shadow itself. Because it's the real mesh sampling
+                // color - no outline/bevel/glow on the shadow itself. Because it's the real mesh sampling
                 // its own correct UV rect (not a same-texture UV-shift trick), there's no risk of
                 // bleeding into a neighboring glyph's atlas cell regardless of offset size, and the
                 // shadow comes out correctly shaped/antialiased for free since it's the real SDF.
@@ -1055,6 +1109,7 @@ namespace e28
                 ShadowPC.m_Color        = 0xC0000000u; // translucent black
                 ShadowPC.m_bOutline     = 0u;
                 ShadowPC.m_BevelWeightPx = 0.0f;
+                ShadowPC.m_GlowRadiusPx  = 0.0f;
                 CmdBuffer.setPushConstants(ShadowPC);
                 CmdBuffer.Draw(QuadCount * 6);
             }
@@ -1160,6 +1215,10 @@ int E28_Example()
     // mirror that exactly rather than binding once up front.
     //
     xproperty::inspector Inspector("Font Properties");
+
+    // Read-only info about the font's own compiled virtual texture (atlas) - rebuilt by LoadFont
+    // alongside Inspector above, against font_state::m_TextureInspector.
+    xproperty::inspector TextureInspectorUI("Texture Info");
 
     // Editor-wide preview controls (text to render, effect toggles) - bound once, safe to do so
     // here since it's not per-asset state, see render_settings' own top comment.
@@ -1380,7 +1439,10 @@ int E28_Example()
                         ImGui::PushID("##LiveTextView");
                         if (ImGui::SmallButton("Recenter")) LiveTextView.m_Pan = { 0.0f, 0.0f };
                         ImGui::SameLine();
-                        ImGui::Text("Zoom: %.2fx", LiveTextView.m_Zoom);
+                        ImGui::Text("Zoom:");
+                        ImGui::SameLine();
+                        ImGui::SetNextItemWidth(80.0f);
+                        ImGui::DragFloat("##Zoom", &LiveTextView.m_Zoom, 0.01f, 0.05f, 40.0f, "%.2fx");
 
                         ImGui::BeginChild("##canvas", ImGui::GetContentRegionAvail(), true, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoMove);
                         // InvisibleButton asserts on a zero-size argument - see ShowZoomableImage's own
@@ -1402,20 +1464,25 @@ int E28_Example()
                             const float OldZoom = LiveTextView.m_Zoom;
                             LiveTextView.m_Zoom = std::clamp(OldZoom * (1.0f + ImGui::GetIO().MouseWheel * 0.1f), 0.05f, 40.0f);
 
-                            // Zoom toward the cursor, not the fixed left-margin/vertical-center anchor -
-                            // find the world point currently under the mouse (using the OLD camera),
-                            // then solve for the Pan that puts that SAME world point back under the
-                            // mouse with the NEW zoom. Mirrors ShowZoomableImage's own cursor-zoom math,
-                            // just expressed in this camera's own AnchorPx/PxPerEm terms (see Draw()'s
-                            // own comment) instead of a canvas-center-relative one.
+                            // Zoom toward the cursor, not the center anchor - find the world point
+                            // currently under the mouse (using the OLD camera), then solve for the Pan
+                            // that puts that SAME world point back under the mouse with the NEW zoom.
+                            // Mirrors ShowZoomableImage's own cursor-zoom math, just expressed in this
+                            // camera's own AnchorPx/PxPerEm terms (see Draw()'s own comment) instead of
+                            // a canvas-center-relative one. AnchorX must match Draw()'s own formula
+                            // EXACTLY (center minus half the text's current pixel width) - it depends on
+                            // PxPerEm, so it's recomputed at both the OLD and NEW zoom below rather than
+                            // being a single fixed offset like the old left-margin anchor was.
                             const float  OldPxPerEm = NativeScale * OldZoom;
                             const float  NewPxPerEm = NativeScale * LiveTextView.m_Zoom;
+                            const float  OldAnchorX = CanvasSize.x * 0.5f - PenXFinal * OldPxPerEm * 0.5f;
+                            const float  NewAnchorX = CanvasSize.x * 0.5f - PenXFinal * NewPxPerEm * 0.5f;
                             const ImVec2 Mouse      = ImGui::GetIO().MousePos;
                             const float  MouseCanvasX = Mouse.x - CanvasMin.x;
                             const float  MouseCanvasY = Mouse.y - CanvasMin.y;
-                            const float  WorldX = (MouseCanvasX - e28::text_renderer::kLeftMarginPx - LiveTextView.m_Pan.m_X) / OldPxPerEm;
+                            const float  WorldX = (MouseCanvasX - OldAnchorX - LiveTextView.m_Pan.m_X) / OldPxPerEm;
                             const float  WorldY = (CanvasSize.y * 0.5f + LiveTextView.m_Pan.m_Y - MouseCanvasY) / OldPxPerEm;
-                            LiveTextView.m_Pan.m_X = MouseCanvasX - e28::text_renderer::kLeftMarginPx - WorldX * NewPxPerEm;
+                            LiveTextView.m_Pan.m_X = MouseCanvasX - NewAnchorX - WorldX * NewPxPerEm;
                             LiveTextView.m_Pan.m_Y = MouseCanvasY - CanvasSize.y * 0.5f + WorldY * NewPxPerEm;
                         }
 
@@ -1431,11 +1498,12 @@ int E28_Example()
                         if (auto Err = TextRenderer.Draw
                             ( Device, MainWindow, *pFont->m_pFont
                             , pFont->m_pTexture, pFont->m_pTexture
-                            , Quads, ViewW, ViewH, PxPerEm, LiveTextView.m_Pan
+                            , Quads, PenXFinal, ViewW, ViewH, PxPerEm, LiveTextView.m_Pan
                             , RenderSettings.m_bShowOutline, RenderSettings.m_OutlineWidth
                             , RenderSettings.m_bBold, RenderSettings.m_FontWeight
                             , RenderSettings.m_bShowShadow, xmath::fvec2{ RenderSettings.m_ShadowOffsetX, RenderSettings.m_ShadowOffsetY }
                             , RenderSettings.m_bBevel, RenderSettings.m_BevelWeight
+                            , RenderSettings.m_bGlow, RenderSettings.m_GlowRadius, RenderSettings.m_GlowIntensity
                             , RenderSettings.m_bItalic, RenderSettings.m_ItalicShear
                             , RenderSettings.m_bShowGlyphBounds
                             ); Err)
@@ -1562,7 +1630,7 @@ int E28_Example()
 
         if (auto SelAsset = AsserBrowser.getSelectedAsset(); SelAsset.empty() == false && SelAsset.m_Type == xrsc::font_type_guid_v)
         {
-            e28::LoadFont(FontState, AsserBrowser.getSelectedLibrary(), SelAsset, Inspector);
+            e28::LoadFont(FontState, AsserBrowser.getSelectedLibrary(), SelAsset, Inspector, TextureInspectorUI);
         }
 
         // A successful recompile means the runtime resource changed under us - reload the same
@@ -1574,7 +1642,7 @@ int E28_Example()
             FontState.m_bReload = false;
             TextRenderer.Reset(Device); // drop any cached pipeline_instance before the texture underneath it reloads - see Reset()'s own comment
             const auto SavedLog = FontState.GetLog();
-            e28::LoadFont(FontState, FontState.m_LibraryGUID, FontState.m_InfoGUID, Inspector);
+            e28::LoadFont(FontState, FontState.m_LibraryGUID, FontState.m_InfoGUID, Inspector, TextureInspectorUI);
             FontState.SetLog(SavedLog);
             // The background compile+reload isn't synchronized to render frames at all (texture
             // compression in particular can take a noticeable fraction of a second), so this is a
@@ -1602,6 +1670,12 @@ int E28_Example()
             ImGui::SetNextWindowPos(ImVec2(600, 360), ImGuiCond_FirstUseEver);
             ImGui::SetNextWindowSize(ImVec2(360, 200), ImGuiCond_FirstUseEver);
             RenderInspector.Show(Context, []{});
+
+            // Empty (no entity appended) until LoadFont finds a compiled texture to load - see its
+            // own comment - so this window just shows blank rather than stale/wrong data before then.
+            ImGui::SetNextWindowPos(ImVec2(600, 570), ImGuiCond_FirstUseEver);
+            ImGui::SetNextWindowSize(ImVec2(360, 260), ImGuiCond_FirstUseEver);
+            TextureInspectorUI.Show(Context, []{});
         }
 
         xgpu::tools::imgui::Render();
