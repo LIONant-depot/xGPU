@@ -5,6 +5,7 @@
 #include "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
 #include "dependencies/xstrtool/source/xstrtool.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <format>
 #include <functional>
@@ -40,6 +41,15 @@
 
 namespace e29
 {
+    // Debugger's own console output is invisible from inside the running app - every refusal/failure
+    // that only ever went through it (load failures, the new circular-dependency-cycle refusal, ...)
+    // silently did nothing from the USER's own point of view, direct report: "it fails silently...
+    // the user may be confused of why". These two file-static globals plus the modal render block
+    // right after Debugger's own definition are a minimal, app-wide fix - every EXISTING Debugger(...)
+    // call site benefits for free, not just newly-added ones.
+    static std::string g_LastErrorMessage;
+    static bool        g_bOpenErrorPopup = false;
+
     static void Debugger(std::string_view View)
     {
         // Flushed unconditionally - stdout redirected to a file is fully buffered rather than
@@ -48,6 +58,45 @@ namespace e29
         // "can't tell what happened right before the crash" gap that makes these bugs hard to chase.
         printf("%s\n", View.data());
         fflush(stdout);
+
+        // Only the FLAG is set here, not ImGui::OpenPopup itself - Debugger is called from arbitrary,
+        // often deeply-nested ID-stack contexts (mid-drag-drop, inside per-row PushID blocks, ...),
+        // and OpenPopup(str_id) hashes its id against whatever ID stack is CURRENTLY active - calling
+        // it here would give it a different internal id than the BeginPopupModal call below (made
+        // from the main loop's own top-level, unnested scope), so the popup would silently never
+        // actually open. RenderErrorPopup (called once per frame from that same top-level scope)
+        // is the only place that ever calls OpenPopup, one frame later - by which point whatever
+        // drag/drop or click triggered this Debugger call has already fully finished processing for
+        // its own frame, so a real MODAL (blocks input, dims the background - "very obvious", direct
+        // user request after trying the first, input-transparent toast version) can't ever eat an
+        // in-flight mouse release.
+        g_LastErrorMessage = std::string(View);
+        g_bOpenErrorPopup  = true;
+    }
+
+    // Opens/renders the modal popup for the most recent Debugger(...) message, if any - called once
+    // per frame from the main loop, right after BeginRendering, from the SAME top-level ID-stack
+    // scope every frame (required for BeginPopupModal to ever actually find the popup OpenPopup
+    // requested - see Debugger's own comment for why the two calls must share that scope).
+    static void RenderErrorPopup() noexcept
+    {
+        if (g_bOpenErrorPopup)
+        {
+            ImGui::OpenPopup("Error##E29");
+            g_bOpenErrorPopup = false;
+        }
+
+        ImGui::SetNextWindowSize(ImVec2(420.0f, 0.0f), ImGuiCond_Appearing);
+        if (ImGui::BeginPopupModal("Error##E29", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + 400.0f);
+            ImGui::TextUnformatted(g_LastErrorMessage.c_str());
+            ImGui::PopTextWrapPos();
+            ImGui::Separator();
+            if (ImGui::Button("OK", ImVec2(120.0f, 0.0f)) || ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_Escape))
+                ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
     }
 
     //---------------------------------------------------------------------------
@@ -167,6 +216,20 @@ namespace e29
         bool m_bEntityInspectorDirty = true;
 
         std::string m_TreeSearchString;
+
+        // Ctrl-click toggle set, separate from the "primary" selection triad above (which still only
+        // ever drives the Properties panel - ctrl-clicking never touches it). Only meaningful for
+        // "Make Prefab" acting on a group; scoped to ONE scene at a time (a prefab's members must all
+        // come from the same live scene to walk children/read components together) - a plain click
+        // (no modifier) anywhere clears this set, matching common editor convention.
+        std::unordered_set<xecs::scene::permanent_id>  m_MultiSelectedEntityIds;
+        // Same membership as m_MultiSelectedEntityIds, but in actual click order (a plain unordered_set
+        // has no defined iteration order at all - not even insertion order) - DetermineGroupRoot uses
+        // this to find "the first entity the user actually selected", e.g. to inherit ITS folder/parent
+        // for a synthetic group root, per direct user request. Kept in lockstep with
+        // m_MultiSelectedEntityIds at every mutation site rather than derived from it.
+        std::vector<xecs::scene::permanent_id>         m_MultiSelectOrder;
+        xecs::scene::guid                              m_MultiSelectScene;
     };
 
     // GUID-like rather than sequential (was "Max + 1"): a random id means two branches each creating
@@ -203,18 +266,67 @@ namespace e29
         }
     }
 
+    // Forward declarations - FindFolderContaining/PruneEmptyFolderChain are defined below, but
+    // ReparentEntityIntoFolder (the one place any entity ever LEAVES a folder) needs both to detect
+    // and clean up a folder left empty by that departure.
+    xecs::scene::folder_id FindFolderContaining(xecs::scene::instance& Scene, xecs::scene::permanent_id Id) noexcept;
+    void PruneEmptyFolderChain(xecs::scene::instance& Scene, xecs::scene::folder_id Id) noexcept;
+
     // Moves Id into TargetFolder (invalid_folder_id_v = "loose", no folder), removing it from
     // whichever folder currently lists it first - folders own their membership by containment (see
     // xecs_scene.h's folder comment), so "reparent" is just "erase from the old owner, append to the
-    // new one" rather than updating any per-entity back-pointer.
+    // new one" rather than updating any per-entity back-pointer. Whatever folder Id is leaving gets
+    // pruned afterward if that departure left it (and, cascading upward, any now-childless ancestor
+    // folder) completely empty - direct user report of "fake/empty folders" accumulating, e.g. every
+    // time an entity is deleted out of the last-remaining folder that held it.
     void ReparentEntityIntoFolder(xecs::scene::instance& Scene, xecs::scene::permanent_id Id, xecs::scene::folder_id TargetFolder) noexcept
     {
+        const auto OldFolder = FindFolderContaining(Scene, Id);
+
         for( auto& F : Scene.m_Folders )
             std::erase(F.m_Entities, Id);
+
+        if( OldFolder != xecs::scene::invalid_folder_id_v )
+            PruneEmptyFolderChain(Scene, OldFolder);
 
         if( TargetFolder == xecs::scene::invalid_folder_id_v ) return;
         if( auto It = std::find_if(Scene.m_Folders.begin(), Scene.m_Folders.end(), [&](auto& F) noexcept { return F.m_Id == TargetFolder; }); It != Scene.m_Folders.end() )
             It->m_Entities.push_back(Id);
+    }
+
+    // Which folder (if any) currently lists Id as a member - invalid_folder_id_v if Id is loose or
+    // parented (folders own membership by containment, so this is a linear scan, not a lookup).
+    xecs::scene::folder_id FindFolderContaining(xecs::scene::instance& Scene, xecs::scene::permanent_id Id) noexcept
+    {
+        if( auto It = std::find_if(Scene.m_Folders.begin(), Scene.m_Folders.end(), [&](auto& F) noexcept { return std::find(F.m_Entities.begin(), F.m_Entities.end(), Id) != F.m_Entities.end(); }); It != Scene.m_Folders.end() )
+            return It->m_Id;
+        return xecs::scene::invalid_folder_id_v;
+    }
+
+    // Deletes Id if it's now completely empty (no member entities AND no child folder still parented
+    // under it), then repeats for its own parent, walking up until a non-empty/non-childless folder
+    // is hit or the root is reached - keeps the tree free of folders left behind purely because
+    // whatever used to justify their existence (an entity, a now-pruned child folder) is gone.
+    // Exempts the special auto-created "Default" bucket (EnsureDefaultFolder) - it's meant to always
+    // be there as a landing zone for loose entities, and gets recreated on demand anyway if ever
+    // pruned, so leaving it out just avoids the visible "Default (0)" row flickering away and back.
+    void PruneEmptyFolderChain(xecs::scene::instance& Scene, xecs::scene::folder_id Id) noexcept
+    {
+        while( Id != xecs::scene::invalid_folder_id_v )
+        {
+            auto It = std::find_if(Scene.m_Folders.begin(), Scene.m_Folders.end(), [&](auto& F) noexcept { return F.m_Id == Id; });
+            if( It == Scene.m_Folders.end() ) return;
+
+            if( It->m_Parent == xecs::scene::invalid_folder_id_v && It->m_Name == "Default" ) return;
+            if( It->m_Entities.empty() == false ) return;
+
+            const bool bHasChildFolder = std::any_of(Scene.m_Folders.begin(), Scene.m_Folders.end(), [&](auto& F) noexcept { return F.m_Parent == Id; });
+            if( bHasChildFolder ) return;
+
+            const auto ParentId = It->m_Parent;
+            Scene.m_Folders.erase(It);
+            Id = ParentId;
+        }
     }
 
     // Shared "New Entity"/"New Folder" menu content, landing directly under TargetFolder (invalid =
@@ -359,6 +471,24 @@ namespace e29
             return;
         }
         State.m_CurrentLevel = Guid;
+
+        // Every scene that's part of a Level is loaded automatically the moment the Level itself
+        // opens - direct user request ("Scenes should always be loaded if they are part of the
+        // level") - rather than requiring a separate click-to-open per scene. Activate (already in
+        // the engine, xecs::level::mgr::Activate - "for now, activating a level just means
+        // requesting every scene it owns") does the actual RequestLoad cascade; this just also keeps
+        // State.m_OpenScenes in sync so the Level tree's own bIsOpenScene checks reflect it.
+        if (auto* pLevel = GameMgr.m_LevelMgr.Find(Guid))
+        {
+            if (auto Err = GameMgr.m_LevelMgr.Activate(Guid); Err)
+            {
+                Debugger(std::format("Failed to activate Level (load its scenes): {}", Err.getMessage()));
+                return;
+            }
+            for (auto& SceneGuid : pLevel->m_Scenes)
+                if (std::find(State.m_OpenScenes.begin(), State.m_OpenScenes.end(), SceneGuid) == State.m_OpenScenes.end())
+                    State.m_OpenScenes.push_back(SceneGuid);
+        }
     }
 
     // Releases one specific scene's residency and removes it from State.m_OpenScenes - unlike the old
@@ -378,6 +508,51 @@ namespace e29
             State.m_SelectedEntity      = {};
             State.m_SelectedEntityScene = {};
         }
+
+        // The primary selection was already scrubbed above, but the MULTI-select set/order (a
+        // completely separate pair of fields, see their own comment) never was - a second AI review
+        // caught this: every id in it belonged to a scene that just got fully unloaded, so a later
+        // Make-Prefab grouping could silently pick up stale, now-nonexistent ids. Whole-scene close
+        // means every one of those ids is gone regardless of which entity it was, so this just
+        // clears the set outright rather than checking survival one id at a time.
+        if (State.m_MultiSelectScene == Guid)
+        {
+            State.m_MultiSelectedEntityIds.clear();
+            State.m_MultiSelectOrder.clear();
+        }
+    }
+
+    // Would adding "NewDependency" to Candidate's own m_ParentScenes close a cycle in the scene
+    // dependency graph? True iff Candidate is already (transitively) reachable FROM NewDependency by
+    // walking m_ParentScenes edges - i.e. NewDependency already depends on Candidate, directly or
+    // through some chain, so making Candidate ALSO depend on NewDependency would create a loop.
+    // Direct user report: creating a circular scene dependency was silently allowed - the engine's
+    // own Scene::EnsureLoaded already DETECTS a cycle at LOAD time ("Scene dependency cycle
+    // detected"), but nothing stopped one from being AUTHORED in the first place, which is a much
+    // worse failure mode (the mistake surfaces later, as a load error, far from whichever
+    // drag/assignment actually caused it). Only walks scenes that are CURRENTLY LOADED (via Find()) -
+    // an unloaded scene's own m_ParentScenes can't be inspected without loading it, the same
+    // pragmatic limit the existing load-time detection itself lives with (it only ever encounters
+    // scenes actively in the middle of loading).
+    bool WouldCreateDependencyCycle(xecs::game_mgr::instance& GameMgr, xecs::scene::guid Candidate, xecs::scene::guid NewDependency) noexcept
+    {
+        if (Candidate == NewDependency) return true;
+
+        std::vector<xecs::scene::guid> Visited;
+        std::vector<xecs::scene::guid> Stack{ NewDependency };
+        while (!Stack.empty())
+        {
+            const auto Cur = Stack.back();
+            Stack.pop_back();
+            if (Cur == Candidate) return true;
+            if (std::find(Visited.begin(), Visited.end(), Cur) != Visited.end()) continue;
+            Visited.push_back(Cur);
+
+            if (auto* pScene = GameMgr.m_SceneMgr.Find(Cur))
+                for (auto& Parent : pScene->m_ParentScenes)
+                    Stack.push_back(Parent);
+        }
+        return false;
     }
 
     // Opens a scene ALONGSIDE whatever is already open - the user explicitly wants every scene they
@@ -405,9 +580,64 @@ namespace e29
         if (Entity.isValid() == false) return nullptr;
         auto& Details = GameMgr.m_ComponentMgr.getEntityDetails(Entity);
         if (Details.m_pPool == nullptr) return nullptr;
-        if (Details.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::editor::prefab_instance>.m_BitID) == false)
+        // findIndexComponentFromInfo, not getComponentBits().getBit() - see
+        // [[xecs_getbit_vs_findindexcomponentfrominfo]] (a runtime-assigned component bit checked this
+        // way can read as absent/invalid even when the component is genuinely present).
+        if (Details.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) < 0)
             return nullptr;
         return &Details.m_pPool->getComponent<xecs::editor::prefab_instance>(Details.m_PoolIndex);
+    }
+
+    // Result of walking UP from some entity to find the prefab instance it's structurally part of -
+    // itself if it carries prefab_instance directly, else the nearest ancestor (via parent) that
+    // does, recording the child-index path down from that ancestor to the original entity along the
+    // way (see xecs::editor::prefab_component_override::m_MemberPath's own comment for why a path,
+    // not a stored id). Stops at the first prefab_instance found walking up - never crosses further
+    // out past a nested instance's own root, matching this session's existing nested-override scope.
+    struct prefab_instance_context
+    {
+        xecs::editor::prefab_instance* m_pPI = nullptr;
+        xecs::component::entity        m_RootEntity{};
+        std::vector<std::uint32_t>     m_MemberPath;
+    };
+
+    prefab_instance_context FindContainingPrefabInstance(xecs::game_mgr::instance& GameMgr, xecs::component::entity Entity) noexcept
+    {
+        prefab_instance_context Ctx;
+        if (Entity.isValid() == false) return Ctx;
+
+        std::vector<std::uint32_t> ReversePath;
+        auto Cur = Entity;
+        for(;;)
+        {
+            if (auto* pPI = FindPrefabInstance(GameMgr, Cur))
+            {
+                Ctx.m_pPI       = pPI;
+                Ctx.m_RootEntity = Cur;
+                Ctx.m_MemberPath.assign(ReversePath.rbegin(), ReversePath.rend());
+                return Ctx;
+            }
+
+            auto& Details = GameMgr.m_ComponentMgr.getEntityDetails(Cur);
+            if (Details.m_pPool == nullptr) return {};
+            const auto iParentType = Details.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::component::parent>);
+            if (iParentType < 0) return {};   // no parent, and not a PI itself - not part of any instance
+
+            const auto ParentEntity = Details.m_pPool->getComponent<xecs::component::parent>(Details.m_PoolIndex).m_Value;
+            if (ParentEntity.isValid() == false) return {};
+
+            auto& PDetails = GameMgr.m_ComponentMgr.getEntityDetails(ParentEntity);
+            if (PDetails.m_pPool == nullptr) return {};
+            const auto iChildrenType = PDetails.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::component::children>);
+            if (iChildrenType < 0) return {};
+
+            auto& List = PDetails.m_pPool->getComponent<xecs::component::children>(PDetails.m_PoolIndex).m_List;
+            auto  It    = std::find_if(List.begin(), List.end(), [&](auto& E) noexcept { return E.m_Value == Cur.m_Value; });
+            if (It == List.end()) return {};
+
+            ReversePath.push_back(static_cast<std::uint32_t>(std::distance(List.begin(), It)));
+            Cur = ParentEntity;
+        }
     }
 
     // Resolves a live entity handle of UNKNOWN owning scene (all the inspector ever has for an
@@ -469,16 +699,20 @@ namespace e29
             || pInfo == &xecs::component::type::info_v<xecs::editor::prefab_instance>;
     }
 
-    // Finds the override-tracking entry for a given component type on a prefab instance, creating one
-    // (as OVERRIDES) if none exists yet - fixes the old, never-finished design's bug of always
-    // appending a new entry even when one already exists for that component type.
-    xecs::editor::prefab_component_override& FindOrCreateOverrideEntry(xecs::editor::prefab_instance& PI, std::uint64_t ComponentTypeGuidValue) noexcept
+    // Finds the override-tracking entry for a given (component type, group member) pair on a prefab
+    // instance, creating one (as OVERRIDES) if none exists yet - fixes the old, never-finished
+    // design's bug of always appending a new entry even when one already exists. MemberPath empty
+    // means the prefab_instance-carrying entity itself (the only case that existed before
+    // multi-entity groups); non-empty addresses a plain child/nested-instance-root member instead -
+    // see prefab_component_override::m_MemberPath's own comment.
+    xecs::editor::prefab_component_override& FindOrCreateOverrideEntry(xecs::editor::prefab_instance& PI, std::uint64_t ComponentTypeGuidValue, std::span<const std::uint32_t> MemberPath) noexcept
     {
         for (auto& C : PI.m_lComponents)
-            if (C.m_ComponentTypeGuid == ComponentTypeGuidValue) return C;
+            if (C.m_ComponentTypeGuid == ComponentTypeGuidValue && std::ranges::equal(C.m_MemberPath, MemberPath)) return C;
 
         PI.m_lComponents.push_back(xecs::editor::prefab_component_override
         { .m_ComponentTypeGuid = ComponentTypeGuidValue
+        , .m_MemberPath        = std::vector<std::uint32_t>(MemberPath.begin(), MemberPath.end())
         , .m_PropertyOverrides = {}
         });
         return PI.m_lComponents.back();
@@ -508,10 +742,41 @@ namespace e29
     {
         const bool bWasSelected = pState != nullptr && pState->m_SelectedEntity.m_Value == Entity.m_Value;
 
-        std::array Add{ &xecs::component::type::info_v<xecs::editor::prefab_instance> };
-        auto NewEntity = GameMgr.AddOrRemoveComponents(Entity, Add, {});
-        auto& NewDetails = GameMgr.m_ComponentMgr.getEntityDetails(NewEntity);
-        NewDetails.m_pPool->getComponent<xecs::editor::prefab_instance>(NewDetails.m_PoolIndex).m_PrefabInstance = PrefabGuid;
+        xecs::component::entity NewEntity;
+
+        // If Entity already carries editor::prefab_instance, it's the root of a NESTED prefab
+        // instance (this prefab's own root wraps a DIFFERENT prefab - the "variant" case): the
+        // engine's own instantiation already gave it correct live DATA (re-derived from the INNER
+        // prefab's current state, inner-relative overrides applied), but its PI still identifies as
+        // an instance of the INNER prefab, not the OUTER one the user actually just placed - without
+        // stamping over it here, the scene entity is silently tracked under the wrong prefab guid
+        // (asset-browser "reveal", future re-instantiation-of-this-prefab bookkeeping, etc. would all
+        // point at the inner prefab instead of what was dragged in). No AddOrRemoveComponents needed
+        // (the bit is already set, no archetype migration) - just overwrite the existing component's
+        // fields directly. m_lComponents/m_ComponentDiffs are reset to empty rather than left as-is:
+        // they were computed relative to the INNER prefab and would misleadingly describe "overrides"
+        // relative to the wrong base; a save recomputes them fresh anyway
+        // (RefreshPrefabInstanceOverlayRecord), so this loses no data - it only avoids a stale,
+        // wrongly-labeled "differs from prefab" indicator in the Properties panel between placement
+        // and the next save. Checked via findIndexComponentFromInfo (matches the per-component lookup
+        // SaveGroupMember/LoadGroupMember already use), not getComponentBits().getBit() - see
+        // [[xecs_getbit_vs_findindexcomponentfrominfo]].
+        auto& ExistingDetails = GameMgr.m_ComponentMgr.getEntityDetails(Entity);
+        if( ExistingDetails.m_pPool && ExistingDetails.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) >= 0 )
+        {
+            auto& PI = ExistingDetails.m_pPool->getComponent<xecs::editor::prefab_instance>(ExistingDetails.m_PoolIndex);
+            PI.m_PrefabInstance = PrefabGuid;
+            PI.m_lComponents.clear();
+            PI.m_ComponentDiffs.clear();
+            NewEntity = Entity;
+        }
+        else
+        {
+            std::array Add{ &xecs::component::type::info_v<xecs::editor::prefab_instance> };
+            NewEntity = GameMgr.AddOrRemoveComponents(Entity, Add, {});
+            auto& NewDetails = GameMgr.m_ComponentMgr.getEntityDetails(NewEntity);
+            NewDetails.m_pPool->getComponent<xecs::editor::prefab_instance>(NewDetails.m_PoolIndex).m_PrefabInstance = PrefabGuid;
+        }
 
         Scene.m_RuntimeToLocal.erase(Entity.m_Value);
         Scene.m_LocalToRuntime[Id]               = NewEntity;
@@ -524,10 +789,36 @@ namespace e29
         }
     }
 
+    // Recursively registers every entity in a freshly-instantiated prefab subtree (Entity itself,
+    // plus - if it has children - every descendant) into Scene's bookkeeping under a freshly minted
+    // permanent_id each, marking each new. Shared by InstantiatePrefabIntoScene (the whole returned
+    // group needs registering) and MakePrefabFromSelection (only the NEW group's children need fresh
+    // ids - its root keeps a preserved one, registered separately by the caller).
+    void RegisterInstantiatedSubtree(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::scene::guid SceneGuid, xecs::component::entity Entity) noexcept
+    {
+        const auto Id = NextFreeEntityId(Scene);
+        Scene.m_LocalToRuntime[Id]              = Entity;
+        Scene.m_RuntimeToLocal[Entity.m_Value]  = Id;
+        GameMgr.m_SceneMgr.MarkEntityNew(SceneGuid, Id);
+
+        auto& Details = GameMgr.m_ComponentMgr.getEntityDetails(Entity);
+        if (Details.m_pPool == nullptr) return;
+        if (Details.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID) == false) return;
+
+        // Snapshot - registering a child only ever touches Scene's own maps, never this entity's OWN
+        // children list, so a plain copy is enough (no in-place-mutation hazard to guard against here).
+        auto ChildEntities = Details.m_pPool->getComponent<xecs::component::children>(Details.m_PoolIndex).m_List;
+        for (auto Child : ChildEntities)
+            RegisterInstantiatedSubtree(GameMgr, Scene, SceneGuid, Child);
+    }
+
     // Loads PrefabGuid (if not already resident) and instantiates it into Scene under a fresh
     // permanent_id - the shared tail of both the drag-a-prefab-onto-the-scene-tree flow and (until it
-    // existed) the old "+ Instantiate Prefab" button.
-    void InstantiatePrefabIntoScene(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::prefab::guid PrefabGuid) noexcept
+    // existed) the old "+ Instantiate Prefab" button. TargetFolder (invalid = loose, auto-adopted into
+    // "Default" the next render pass - see EnsureDefaultFolder) lets a drop directly onto a specific
+    // folder row land the new instance there instead of always defaulting away from wherever the user
+    // actually dropped it.
+    void InstantiatePrefabIntoScene(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::prefab::guid PrefabGuid, xecs::scene::folder_id TargetFolder = xecs::scene::invalid_folder_id_v) noexcept
     {
         if (auto Err = GameMgr.m_PrefabMgr.EnsureLoaded(PrefabGuid); Err)
         {
@@ -538,17 +829,356 @@ namespace e29
         auto RootIt = GameMgr.m_PrefabMgr.m_PrefabList.find(PrefabGuid.m_Instance.m_Value);
         if (RootIt == GameMgr.m_PrefabMgr.m_PrefabList.end()) return;
 
-        auto NewEntity = GameMgr.m_PrefabMgr.CreatePrefabInstance(1, RootIt->second, xecs::tools::empty_lambda{});
-        const auto Id  = NextFreeEntityId(Scene);
+        // bRemoveRoot=false - a multi-entity ("Scene-Prefab") root must survive instancing so it comes
+        // back as a real, independent entity here; bRemoveRoot=true (the default) is for splicing a
+        // prefab's CHILDREN directly onto a caller-supplied existing entity, discarding the prefab's
+        // own root - not what E29 wants (this needs one standalone instantiated group, root included).
+        auto NewRoot = GameMgr.m_PrefabMgr.CreatePrefabInstance(1, RootIt->second, xecs::tools::empty_lambda{}, /*bRemoveRoot=*/false);
 
-        // Register under Id first (AttachPrefabInstanceComponent's erase-old/insert-new dance expects
-        // Entity to already be reachable via Entity.m_Value for the "convert existing entity" case;
-        // for a brand-new instance neither map has an entry yet, so this insert is what makes the
-        // erase-then-reinsert inside it a no-op-then-real-insert instead of losing the registration).
-        Scene.m_LocalToRuntime[Id]              = NewEntity;
-        Scene.m_RuntimeToLocal[NewEntity.m_Value] = Id;
-        GameMgr.m_SceneMgr.MarkEntityNew(Scene.m_Guid, Id);
-        AttachPrefabInstanceComponent(GameMgr, Scene, Id, NewEntity, PrefabGuid, nullptr); // brand-new entity, can't already be selected
+        // Registers the whole group (root + every descendant, each under a freshly minted id).
+        RegisterInstantiatedSubtree(GameMgr, Scene, Scene.m_Guid, NewRoot);
+
+        const auto RootId = Scene.m_RuntimeToLocal.at(NewRoot.m_Value);
+        if (TargetFolder != xecs::scene::invalid_folder_id_v)
+            ReparentEntityIntoFolder(Scene, RootId, TargetFolder);
+        AttachPrefabInstanceComponent(GameMgr, Scene, RootId, NewRoot, PrefabGuid, nullptr); // brand-new entity, can't already be selected
+    }
+
+    // Recursively deletes Entity and (if it has children) its whole live descendant subtree, scrubbing
+    // scene bookkeeping/folder membership for each - the "whole group" analog of RenderEntityRow's own
+    // single-entity delete action.
+    void DeleteEntitySubtree(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::scene::guid SceneGuid, xecs::component::entity Entity) noexcept
+    {
+        auto& Details = GameMgr.m_ComponentMgr.getEntityDetails(Entity);
+
+        // Scrub Entity out of its own parent's children list, if it has one - otherwise the parent
+        // keeps holding a dangling handle to an entity that's about to stop existing, rendering as a
+        // broken/empty expandable row (the exact symptom a stale on-disk scene showed after an
+        // earlier bug - see [[xecs_multientity_prefab_architecture]] - except here it would be a
+        // BRAND NEW instance of that same class of problem, introduced fresh by every future
+        // single-child delete rather than inherited from old data). Only meaningful on the TOP-LEVEL
+        // call (the row actually clicked) - a recursive call's own parent is itself being deleted this
+        // same pass, so scrubbing it is harmless but moot; doing it unconditionally here is simpler
+        // than threading a "is this the top call" flag through the recursion.
+        if (Details.m_pPool && Details.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::parent>.m_BitID))
+        {
+            const auto ParentEntity = Details.m_pPool->getComponent<xecs::component::parent>(Details.m_PoolIndex).m_Value;
+            if (ParentEntity.isValid())
+            {
+                auto& PDetails = GameMgr.m_ComponentMgr.getEntityDetails(ParentEntity);
+                if (PDetails.m_pPool && PDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID))
+                {
+                    auto& List = PDetails.m_pPool->getComponent<xecs::component::children>(PDetails.m_PoolIndex).m_List;
+                    std::erase_if(List, [&](auto& E) noexcept { return E.m_Value == Entity.m_Value; });
+                    if (auto ParentIt = Scene.m_RuntimeToLocal.find(ParentEntity.m_Value); ParentIt != Scene.m_RuntimeToLocal.end())
+                        GameMgr.m_SceneMgr.MarkEntityDirty(SceneGuid, ParentIt->second);
+                }
+            }
+        }
+
+        if (Details.m_pPool && Details.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID))
+        {
+            auto ChildEntities = Details.m_pPool->getComponent<xecs::component::children>(Details.m_PoolIndex).m_List;
+            for (auto Child : ChildEntities)
+                DeleteEntitySubtree(GameMgr, Scene, SceneGuid, Child);
+        }
+
+        if (auto It = Scene.m_RuntimeToLocal.find(Entity.m_Value); It != Scene.m_RuntimeToLocal.end())
+        {
+            const auto Id = It->second;
+            Scene.m_RuntimeToLocal.erase(It);
+            Scene.m_LocalToRuntime.erase(Id);
+            GameMgr.m_SceneMgr.MarkEntityDeleted(SceneGuid, Id);
+            ReparentEntityIntoFolder(Scene, Id, xecs::scene::invalid_folder_id_v);
+        }
+
+        auto E = Entity;
+        GameMgr.DeleteEntity(E);
+    }
+
+    // The Level tree's "Make Prefab" action - the multi-entity-aware counterpart of dragging a single
+    // entity onto the asset browser (entity_to_prefab_drop::OnDrop, below). ClickedId is the row the
+    // context menu was opened on; if it's part of a live multi-selection (2+ entities, all in this
+    // same scene), the WHOLE selection becomes the group, otherwise just ClickedId alone.
+    //
+    // Root selection: a single selected entity becomes the root directly (covers "no children" and
+    // "already has children" alike - CreatePrefabFromEntity/CloneEntityIntoPrefabGroup pulls in
+    // children automatically). Multiple selected entities compute their "top-level" subset (those
+    // whose parent, if any, isn't ALSO selected): exactly one top-level entity means the user
+    // multi-selected an existing subtree - use it as the real root directly; otherwise (multiple
+    // disjoint top-level entities) a synthetic root (Name + Children only) is created and every
+    // top-level entity is reparented under it.
+    // Step 1 of "make a prefab from N selected entities": resolves the actual group root, creating a
+    // synthetic one (reparenting the disjoint top-level selections under it) only when the selection
+    // doesn't already share a single one. ClickedId's own single-entity behavior is unchanged from
+    // before multi-select existed (Root = ClickedId directly) - multi-select only changes anything
+    // when ClickedId is part of an active 2+ selection in this same scene.
+    xecs::component::entity DetermineGroupRoot(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::scene::guid SceneGuid, editor_state& State, xecs::scene::permanent_id ClickedId) noexcept
+    {
+        std::vector<xecs::scene::permanent_id> SelectedIds;
+        if (State.m_MultiSelectScene == SceneGuid && State.m_MultiSelectedEntityIds.size() > 1 && State.m_MultiSelectedEntityIds.contains(ClickedId))
+            SelectedIds = State.m_MultiSelectOrder; // click order, not m_MultiSelectedEntityIds' own unordered iteration
+        else
+            SelectedIds.push_back(ClickedId);
+
+        std::vector<xecs::component::entity> SelectedEntities;
+        for (auto Id : SelectedIds)
+            if (auto It = Scene.m_LocalToRuntime.find(Id); It != Scene.m_LocalToRuntime.end())
+                SelectedEntities.push_back(It->second);
+        std::printf("[MakePrefab] DetermineGroupRoot: %zu selected id(s), %zu resolved live entity(ies)\n", SelectedIds.size(), SelectedEntities.size());
+        std::fflush(stdout);
+        if (SelectedEntities.empty()) return {};
+
+        if (SelectedEntities.size() == 1)
+            return SelectedEntities.front();
+
+        auto IsSelected = [&](xecs::component::entity E) noexcept
+        {
+            return std::find_if(SelectedEntities.begin(), SelectedEntities.end(), [&](auto& S) noexcept { return S.m_Value == E.m_Value; }) != SelectedEntities.end();
+        };
+
+        std::vector<xecs::component::entity> TopLevel;
+        for (auto E : SelectedEntities)
+        {
+            auto& Details = GameMgr.m_ComponentMgr.getEntityDetails(E);
+            bool bParentSelected = false;
+            if (Details.m_pPool && Details.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::parent>.m_BitID))
+                bParentSelected = IsSelected(Details.m_pPool->getComponent<xecs::component::parent>(Details.m_PoolIndex).m_Value);
+            if (!bParentSelected) TopLevel.push_back(E);
+        }
+        std::printf("[MakePrefab] DetermineGroupRoot: %zu top-level entity(ies) among the selection\n", TopLevel.size());
+        std::fflush(stdout);
+
+        if (TopLevel.size() == 1)
+            return TopLevel.front();
+
+        // The synthetic root is brand new, so it has no history of its own to fall back on - without
+        // this, it always starts loose and gets auto-adopted into "Default" the next render, even when
+        // the entities it's about to wrap all came from the SAME real folder or the SAME real
+        // scene-hierarchy parent (direct user report: the new instance should keep living wherever the
+        // topmost entities did). A real PARENT wins over folder membership - matching how "an entity
+        // with a parent is never ALSO in a folder" already works everywhere else in this tree - falling
+        // back to whichever folder (if any) the FIRST top-level entity was in when there's no external
+        // parent, and using ITS choice when several top-level entities disagree (accepted as reasonable
+        // per direct user confirmation, rather than e.g. requiring unanimous agreement).
+        xecs::component::entity InheritedParent;
+        if (auto& FirstDetails = GameMgr.m_ComponentMgr.getEntityDetails(TopLevel.front()); FirstDetails.m_pPool && FirstDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::parent>.m_BitID))
+            InheritedParent = FirstDetails.m_pPool->getComponent<xecs::component::parent>(FirstDetails.m_PoolIndex).m_Value;
+        const auto InheritedFolderId = InheritedParent.isValid() ? xecs::scene::invalid_folder_id_v : FindFolderContaining(Scene, Scene.m_RuntimeToLocal.at(TopLevel.front().m_Value));
+
+        auto& RootArchetype = GameMgr.getOrCreateArchetype<e29::name, xecs::component::children>();
+        auto  Root          = RootArchetype.CreateEntity([&](e29::name& Name) noexcept { Name.m_Value = "Prefab Root"; });
+
+        if (InheritedParent.isValid())
+        {
+            std::array Add{ &xecs::component::type::info_v<xecs::component::parent> };
+            Root = GameMgr.AddOrRemoveComponents(Root, Add, {});
+            auto& RootPDetails = GameMgr.m_ComponentMgr.getEntityDetails(Root);
+            RootPDetails.m_pPool->getComponent<xecs::component::parent>(RootPDetails.m_PoolIndex).m_Value = InheritedParent;
+
+            // Splice Root into whatever position the FIRST top-level entity held in ITS parent's own
+            // children list, replacing it - the parent's list otherwise keeps pointing at that entity's
+            // stale handle (about to be swapped for a fresh one below) instead of the new wrapper root.
+            // Every OTHER top-level entity that ALSO happened to share this same external parent
+            // (multi-selecting 2+ disjoint entities that are siblings under one real parent) must be
+            // ERASED from this list entirely, not merely left alone - Root already represents the
+            // whole group in the one spliced slot, and each of those other entities is ALSO about to
+            // be migrated to a new handle by the reparent loop below, so leaving its OLD entry here
+            // would be both a duplicate membership (appears under InheritedParent AND under Root) and
+            // a dangling one (pointing at a handle the migration is about to invalidate) - a second AI
+            // review caught this (only TopLevel.front() was ever handled; every other top-level
+            // sibling stayed listed under the external parent too).
+            auto& ExtParentDetails = GameMgr.m_ComponentMgr.getEntityDetails(InheritedParent);
+            if (ExtParentDetails.m_pPool && ExtParentDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID))
+            {
+                auto& ExtChildren = ExtParentDetails.m_pPool->getComponent<xecs::component::children>(ExtParentDetails.m_PoolIndex).m_List;
+                bool bSplicedRoot = false;
+                std::erase_if(ExtChildren, [&](auto& C) noexcept
+                {
+                    const bool bIsTopLevelMember = std::find_if(TopLevel.begin(), TopLevel.end(), [&](auto& T) noexcept { return T.m_Value == C.m_Value; }) != TopLevel.end();
+                    if (!bIsTopLevelMember) return false;
+                    if (!bSplicedRoot) { C = Root; bSplicedRoot = true; return false; }
+                    return true;
+                });
+            }
+        }
+
+        const auto RootId = NextFreeEntityId(Scene);
+        Scene.m_LocalToRuntime[RootId]        = Root;
+        Scene.m_RuntimeToLocal[Root.m_Value]  = RootId;
+        GameMgr.m_SceneMgr.MarkEntityNew(SceneGuid, RootId);
+        if (InheritedFolderId != xecs::scene::invalid_folder_id_v)
+            ReparentEntityIntoFolder(Scene, RootId, InheritedFolderId);
+
+        for (auto E : TopLevel)
+        {
+            const auto OldId = Scene.m_RuntimeToLocal.at(E.m_Value);
+
+            std::array Add{ &xecs::component::type::info_v<xecs::component::parent> };
+            auto NewE = GameMgr.AddOrRemoveComponents(E, Add, {});
+            auto& NewDetails = GameMgr.m_ComponentMgr.getEntityDetails(NewE);
+            NewDetails.m_pPool->getComponent<xecs::component::parent>(NewDetails.m_PoolIndex).m_Value = Root;
+
+            Scene.m_RuntimeToLocal.erase(E.m_Value);
+            Scene.m_LocalToRuntime[OldId]         = NewE;
+            Scene.m_RuntimeToLocal[NewE.m_Value]  = OldId;
+            GameMgr.m_SceneMgr.MarkEntityDirty(SceneGuid, OldId);
+
+            auto& RootDetails = GameMgr.m_ComponentMgr.getEntityDetails(Root);
+            RootDetails.m_pPool->getComponent<xecs::component::children>(RootDetails.m_PoolIndex).m_List.push_back(NewE);
+
+            if (State.m_SelectedEntityId == OldId)
+            {
+                State.m_SelectedEntity        = NewE;
+                State.m_bEntityInspectorDirty = true;
+            }
+
+            // Entities with a parent are excluded from folder membership entirely (rendered via their
+            // parent's own row instead) - scrub whatever folder this entity was in.
+            ReparentEntityIntoFolder(Scene, OldId, xecs::scene::invalid_folder_id_v);
+        }
+
+        return Root;
+    }
+
+    // Step 2: given a resolved group root (a real, live entity - either the single dragged/clicked
+    // entity, an existing subtree's own root, or DetermineGroupRoot's synthetic one), creates the
+    // Prefab asset (at LibraryGUID/ParentGUID - the caller's own drop target) and converts the
+    // original live group into an instance of it, generalizing entity_to_prefab_drop's existing
+    // single-entity "drag out becomes an instance" behavior.
+    xresource::full_guid CreatePrefabFromGroupRoot(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::scene::guid SceneGuid, editor_state* pState, e10::library_mgr& AssetMgr, e10::library::guid LibraryGUID, xresource::full_guid ParentGUID, xecs::component::entity Root) noexcept
+    {
+        // If Root already had a parent in the live scene (e.g. a single child entity that's part of
+        // some OTHER, unrelated hierarchy, or a whole existing subtree being grouped), that positional
+        // link is NOT part of what gets persisted (a prefab root never carries its own parent - see
+        // CloneEntityIntoPrefabGroup's own comment) - captured here so the freshly-instantiated root
+        // can be spliced back into the exact same position afterward, rather than unexpectedly falling
+        // out to scene-root.
+        xecs::component::entity OriginalParent;
+        if (auto& RD = GameMgr.m_ComponentMgr.getEntityDetails(Root); RD.m_pPool && RD.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::parent>.m_BitID))
+            OriginalParent = RD.m_pPool->getComponent<xecs::component::parent>(RD.m_PoolIndex).m_Value;
+
+        const auto RootId           = Scene.m_RuntimeToLocal.at(Root.m_Value);
+        const bool bRootWasSelected = pState && (pState->m_SelectedEntityId == RootId);
+        const auto StaleRootValue   = Root.m_Value; // Root's own OLD live handle - about to be deleted; only ever compared, never dereferenced, below
+
+        // Folder membership is keyed by RootId (a permanent_id, preserved across this whole
+        // conversion) rather than by live entity handle, so in principle it wouldn't need capturing -
+        // except DeleteEntitySubtree (below) explicitly scrubs it as part of deleting the OLD live
+        // root (ReparentEntityIntoFolder(..., invalid_folder_id_v)), since from ITS point of view the
+        // entity is simply being removed. Without capturing and restoring it here, RootId ends up in
+        // no folder at all after re-registration, and the very next render's Default-folder auto-adopt
+        // pass silently sweeps it into "Default" - a real bug this drag-multiple-entities-to-asset-
+        // browser flow hit in practice (root vanished from its own folder, reappeared under Default).
+        const auto OriginalFolderId = FindFolderContaining(Scene, RootId);
+
+        std::string Name = "Prefab";
+        if (auto& D = GameMgr.m_ComponentMgr.getEntityDetails(Root); D.m_pPool && D.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<e29::name>.m_BitID))
+            Name = D.m_pPool->getComponent<e29::name>(D.m_PoolIndex).m_Value;
+
+        const xresource::full_guid NewGuid   = AssetMgr.NewAsset(LibraryGUID, xresource::full_guid{ {}, xecs::prefab::type_guid_v }, ParentGUID, Name);
+        const xecs::prefab::guid   PrefabGuid = NewGuid;
+
+        std::printf("[MakePrefab] CreatePrefabFromGroupRoot: RootId=%u Name='%s' - cloning into prefab\n", RootId, Name.c_str());
+        std::fflush(stdout);
+
+        GameMgr.m_PrefabMgr.CreatePrefabFromEntity(Root, PrefabGuid);
+        if (auto Err = GameMgr.m_PrefabMgr.Save(PrefabGuid); Err)
+        {
+            Debugger(std::format("Failed to save new Prefab: {}", Err.getMessage()));
+            return {};
+        }
+
+        // Convert the original live group into an instance of the new prefab: delete the original
+        // root+descendants, instantiate a fresh copy, splice it back into whatever OriginalParent
+        // held, then register it under RootId's preserved permanent_id (so scene bookkeeping/
+        // selection keep referencing "the same" entity) - every child gets a freshly minted id
+        // instead (they're new scene entities, never existed as "an instance" before).
+        DeleteEntitySubtree(GameMgr, Scene, SceneGuid, Root);
+
+        auto NewRoot = GameMgr.m_PrefabMgr.CreatePrefabInstance(1, GameMgr.m_PrefabMgr.m_PrefabList.at(PrefabGuid.m_Instance.m_Value), xecs::tools::empty_lambda{}, /*bRemoveRoot=*/false);
+        std::printf("[MakePrefab] CreatePrefabFromGroupRoot: instantiated fresh copy, NewRoot.isValid=%d NewRoot.isZombie=%d\n", NewRoot.isValid(), NewRoot.isZombie());
+        std::fflush(stdout);
+
+        if (OriginalParent.isValid())
+        {
+            std::array Add{ &xecs::component::type::info_v<xecs::component::parent> };
+            NewRoot = GameMgr.AddOrRemoveComponents(NewRoot, Add, {});
+            auto& NRDetails = GameMgr.m_ComponentMgr.getEntityDetails(NewRoot);
+            NRDetails.m_pPool->getComponent<xecs::component::parent>(NRDetails.m_PoolIndex).m_Value = OriginalParent;
+
+            auto& OPDetails = GameMgr.m_ComponentMgr.getEntityDetails(OriginalParent);
+            if (OPDetails.m_pPool && OPDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID))
+            {
+                auto& OPChildren = OPDetails.m_pPool->getComponent<xecs::component::children>(OPDetails.m_PoolIndex).m_List;
+                for (auto& C : OPChildren)
+                    if (C.m_Value == StaleRootValue) { C = NewRoot; break; }
+            }
+        }
+
+        auto& NewChildDetails = GameMgr.m_ComponentMgr.getEntityDetails(NewRoot);
+        if (NewChildDetails.m_pPool && NewChildDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID))
+        {
+            auto ChildEntities = NewChildDetails.m_pPool->getComponent<xecs::component::children>(NewChildDetails.m_PoolIndex).m_List;
+            std::printf("[MakePrefab] CreatePrefabFromGroupRoot: NewRoot has %zu child(ren) to register\n", ChildEntities.size());
+            std::fflush(stdout);
+            for (auto Child : ChildEntities)
+                RegisterInstantiatedSubtree(GameMgr, Scene, SceneGuid, Child);
+        }
+
+        Scene.m_LocalToRuntime[RootId]           = NewRoot;
+        Scene.m_RuntimeToLocal[NewRoot.m_Value]  = RootId;
+
+        // Restore RootId's folder membership, scrubbed by DeleteEntitySubtree above - but only when
+        // the root did NOT get a parent restored (an entity with a parent is never ALSO placed via
+        // folder membership - the parent becomes the folder, per this whole tree's own convention).
+        if (false == OriginalParent.isValid())
+            ReparentEntityIntoFolder(Scene, RootId, OriginalFolderId);
+
+        AttachPrefabInstanceComponent(GameMgr, Scene, RootId, NewRoot, PrefabGuid, pState);
+        GameMgr.m_SceneMgr.MarkEntityDirty(SceneGuid, RootId);
+
+        if (pState)
+        {
+            pState->m_MultiSelectedEntityIds.clear();
+            pState->m_MultiSelectOrder.clear();
+            if (bRootWasSelected)
+            {
+                if (auto It = Scene.m_LocalToRuntime.find(RootId); It != Scene.m_LocalToRuntime.end())
+                {
+                    pState->m_SelectedEntity        = It->second;
+                    pState->m_SelectedEntityScene   = SceneGuid;
+                    pState->m_bEntityInspectorDirty = true;
+                }
+            }
+            else if (pState->m_SelectedEntityScene == SceneGuid && pState->m_SelectedEntityId != xecs::scene::invalid_permanent_id_v)
+            {
+                // The previously-selected entity might have been one of the OTHER group members (a
+                // non-root one - e.g. whichever entity a plain click had selected right before
+                // ctrl-clicking a second one into the group, per this session's own multi-select
+                // seeding behavior). Non-root members get deleted and replaced with a FRESH entity
+                // under a FRESH id (RegisterInstantiatedSubtree), so there's no principled "same
+                // identity" to preserve for them the way the root's own preserved RootId gives one -
+                // if the id/handle pairing no longer matches what's actually live, the safe move is to
+                // clear the selection rather than leave pState->m_SelectedEntity holding a stale handle
+                // into an entity that DeleteEntitySubtree already destroyed (a stale handle used later
+                // - e.g. by the Entity Properties panel - trips xECS's own generation/validation
+                // assert, a real crash this exact gap caused).
+                auto It = Scene.m_LocalToRuntime.find(pState->m_SelectedEntityId);
+                if (It == Scene.m_LocalToRuntime.end() || It->second.m_Value != pState->m_SelectedEntity.m_Value)
+                {
+                    pState->m_SelectedEntityId      = xecs::scene::invalid_permanent_id_v;
+                    pState->m_SelectedEntity        = {};
+                    pState->m_SelectedEntityScene   = {};
+                    pState->m_bEntityInspectorDirty = true;
+                }
+            }
+        }
+
+        std::printf("[MakePrefab] CreatePrefabFromGroupRoot: done, RootId=%u still resident=%d\n", RootId, Scene.m_LocalToRuntime.contains(RootId));
+        std::fflush(stdout);
+
+        return NewGuid;
     }
 
     // Payload for dragging a scene entity onto an asset-browser folder to create a Prefab from it -
@@ -571,6 +1201,48 @@ namespace e29
     inline xecs::game_mgr::instance* g_pGameMgr = nullptr;
     inline editor_state*             g_pState   = nullptr;
 
+    // Unity's own "Prefab Variant" fast path: dragging a SINGLE existing prefab instance (no other
+    // entity in the active selection) into the asset browser creates a variant WITHOUT touching the
+    // scene object's own live identity - Unity re-points that same GameObject's prefab connection at
+    // the new variant rather than deleting and recreating it. Deliberately narrower than
+    // CreatePrefabFromGroupRoot (which always deletes+recreates): a multi-select group has no single
+    // existing identity to preserve in the first place (a brand-new synthetic root is minted either
+    // way), and a PLAIN entity (never instanced) has no existing prefab connection to re-point - both
+    // of those keep going through the general path unchanged.
+    xresource::full_guid CreatePrefabVariantFromInstance(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::scene::permanent_id Id, xecs::component::entity Entity, e10::library_mgr& AssetMgr, e10::library::guid LibraryGUID, xresource::full_guid ParentGUID) noexcept
+    {
+        std::string Name = "Prefab";
+        if (auto& D = GameMgr.m_ComponentMgr.getEntityDetails(Entity); D.m_pPool && D.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<e29::name>) >= 0)
+            Name = D.m_pPool->getComponent<e29::name>(D.m_PoolIndex).m_Value;
+
+        const xresource::full_guid NewGuid   = AssetMgr.NewAsset(LibraryGUID, xresource::full_guid{ {}, xecs::prefab::type_guid_v }, ParentGUID, Name);
+        const xecs::prefab::guid   PrefabGuid = NewGuid;
+
+        std::printf("[MakePrefab] CreatePrefabVariantFromInstance: Id=%u Name='%s' - capturing into a variant, live entity untouched\n", Id, Name.c_str());
+        std::fflush(stdout);
+
+        GameMgr.m_PrefabMgr.CreatePrefabFromEntity(Entity, PrefabGuid);
+        if (auto Err = GameMgr.m_PrefabMgr.Save(PrefabGuid); Err)
+        {
+            Debugger(std::format("Failed to save new Prefab: {}", Err.getMessage()));
+            return {};
+        }
+
+        // Re-point the SAME live entity's own bookkeeping at the new variant - no deletion, no fresh
+        // instantiation needed: this entity's current data IS already exactly what a fresh instance of
+        // the new variant looks like, since it's what the variant was just captured FROM. Overrides are
+        // cleared (matching AttachPrefabInstanceComponent's own reasoning) since they were computed
+        // relative to whatever this entity pointed at BEFORE - a save recomputes them fresh regardless.
+        auto& Details = GameMgr.m_ComponentMgr.getEntityDetails(Entity);
+        auto& PI = Details.m_pPool->getComponent<xecs::editor::prefab_instance>(Details.m_PoolIndex);
+        PI.m_PrefabInstance = PrefabGuid;
+        PI.m_lComponents.clear();
+        PI.m_ComponentDiffs.clear();
+        GameMgr.m_SceneMgr.MarkEntityDirty(Scene.m_Guid, Id);
+
+        return NewGuid;
+    }
+
     struct entity_to_prefab_drop final : e10::external_drop_registration_base
     {
         entity_to_prefab_drop() noexcept : e10::external_drop_registration_base{ "E29_ENTITY_DRAG" } {}
@@ -583,34 +1255,31 @@ namespace e29
             auto* pScene = g_pGameMgr->m_SceneMgr.Find(Payload.m_SceneGuid);
             if (pScene == nullptr) return {};
 
-            auto It = pScene->m_LocalToRuntime.find(Payload.m_Id);
-            if (It == pScene->m_LocalToRuntime.end()) return {};
-            auto Entity = It->second;
+            auto SourceIt = pScene->m_LocalToRuntime.find(Payload.m_Id);
+            if (SourceIt == pScene->m_LocalToRuntime.end()) return {};
 
-            // Name the new asset after the entity's own Name component when it has one.
-            std::string Name = "Prefab";
-            if (auto& Details = g_pGameMgr->m_ComponentMgr.getEntityDetails(Entity); Details.m_pPool
-                && Details.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<e29::name>.m_BitID))
-                Name = Details.m_pPool->getComponent<e29::name>(Details.m_PoolIndex).m_Value;
-
-            const xresource::full_guid NewGuid = AssetMgr.NewAsset(LibraryGUID, xresource::full_guid{ {}, xecs::prefab::type_guid_v }, ParentGUID, Name);
-            const xecs::prefab::guid   PrefabGuid = NewGuid;
-
-            g_pGameMgr->m_PrefabMgr.CreatePrefabFromEntity(Entity, PrefabGuid);
-            if (auto Err = g_pGameMgr->m_PrefabMgr.Save(PrefabGuid); Err)
+            // Single-instance Prefab Variant fast path - see CreatePrefabVariantFromInstance's own
+            // comment. Only when NOT part of a real (2+) active multi-selection, and only when the
+            // dragged entity already carries editor::prefab_instance.
+            const bool bIsMultiSelect = g_pState && g_pState->m_MultiSelectScene == Payload.m_SceneGuid && g_pState->m_MultiSelectedEntityIds.size() > 1 && g_pState->m_MultiSelectedEntityIds.contains(Payload.m_Id);
+            if (!bIsMultiSelect)
             {
-                Debugger(std::format("Failed to save new Prefab: {}", Err.getMessage()));
-                return {};
+                auto& SourceDetails = g_pGameMgr->m_ComponentMgr.getEntityDetails(SourceIt->second);
+                if (SourceDetails.m_pPool && SourceDetails.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) >= 0)
+                    return CreatePrefabVariantFromInstance(*g_pGameMgr, *pScene, Payload.m_Id, SourceIt->second, AssetMgr, LibraryGUID, ParentGUID);
             }
 
-            // Unity-style: the entity that was dragged out becomes an instance of the prefab it just
-            // spawned, rather than being left behind as an untouched raw entity. Passing g_pState lets
-            // this refresh the selection/inspector if Entity was the one currently shown - see
-            // AttachPrefabInstanceComponent's own comment for why that matters here specifically.
-            AttachPrefabInstanceComponent(*g_pGameMgr, *pScene, Payload.m_Id, Entity, PrefabGuid, g_pState);
-            g_pGameMgr->m_SceneMgr.MarkEntityDirty(Payload.m_SceneGuid, Payload.m_Id); // pre-existing entity, its data just changed in place
+            // If the dragged entity is part of an active multi-selection (2+, ctrl-clicked in the
+            // Level tree, this same scene), the WHOLE selection becomes the prefab's group - this is
+            // the primary way to make a multi-entity prefab (drag-and-drop, exactly like the existing
+            // single-entity flow, just generalized): ctrl-click to build a selection, then drag any
+            // one of the selected rows onto the asset browser, same as before. A single dragged entity
+            // with no active multi-selection behaves exactly as it always has.
+            auto Root = g_pState ? DetermineGroupRoot(*g_pGameMgr, *pScene, Payload.m_SceneGuid, *g_pState, Payload.m_Id)
+                                 : pScene->m_LocalToRuntime.find(Payload.m_Id)->second;
+            if (Root.isValid() == false) return {};
 
-            return NewGuid;
+            return CreatePrefabFromGroupRoot(*g_pGameMgr, *pScene, Payload.m_SceneGuid, g_pState, AssetMgr, LibraryGUID, ParentGUID, Root);
         }
     };
     inline static entity_to_prefab_drop g_EntityToPrefabDrop{};
@@ -628,8 +1297,15 @@ namespace e29
 
         for (auto& SceneGuid : State.m_OpenScenes)
         {
+            // Plain console log, NOT Debugger() - this is routine save progress (every normal save
+            // has SOME pending changes, that's the whole point of saving), not a failure. Routing it
+            // through Debugger() before this exact distinction existed meant an ordinary Save popped
+            // an "Error" modal every time - direct user report ("I got this error... not sure why").
             if (auto* pScene = GameMgr.m_SceneMgr.Find(SceneGuid))
-                Debugger(std::format("SaveEverything: scene has {} pending entity change(s)", pScene->m_PendingChanges.size()));
+            {
+                std::printf("[SaveEverything] scene has %zu pending entity change(s)\n", pScene->m_PendingChanges.size());
+                std::fflush(stdout);
+            }
             if (auto Err = GameMgr.m_SceneMgr.SaveScene(SceneGuid); Err)
                 Debugger(std::format("Failed to save Scene: {}", Err.getMessage()));
         }
@@ -768,10 +1444,26 @@ int E29_Example()
         // bookkeeping, which is a separate concern from "does this entity need (re)saving at all".
         GameMgr.m_SceneMgr.MarkEntityDirty(State.m_SelectedEntityScene, State.m_SelectedEntityId);
 
-        auto* pPI = e29::FindPrefabInstance(GameMgr, State.m_SelectedEntity);
-        if (pPI == nullptr) return;
+        auto Ctx = e29::FindContainingPrefabInstance(GameMgr, State.m_SelectedEntity);
+        if (Ctx.m_pPI == nullptr) return;
 
-        auto& CompOverride = e29::FindOrCreateOverrideEntry(*pPI, It->second->m_Guid.m_Value);
+        // The override entry just below is written into Ctx.m_pPI, which lives on Ctx.m_RootEntity -
+        // a DIFFERENT entity than the one just edited whenever m_MemberPath is non-empty (a plain
+        // member's own property changed, tracked on the containing instance's root). Without this,
+        // only the edited member's own file gets re-saved; the root's own "Components[]" override list
+        // - the ONLY on-disk record of the override at all - silently never gets written, since nothing
+        // ever marked that entity dirty (confirmed missing on disk: a live user report after renaming
+        // a nested-instance member found the containing root's own Entity.txt untouched by the save).
+        if (Ctx.m_RootEntity.m_Value != State.m_SelectedEntity.m_Value)
+        {
+            if (auto* pScene = GameMgr.m_SceneMgr.Find(State.m_SelectedEntityScene))
+            {
+                if (auto RootIt = pScene->m_RuntimeToLocal.find(Ctx.m_RootEntity.m_Value); RootIt != pScene->m_RuntimeToLocal.end())
+                    GameMgr.m_SceneMgr.MarkEntityDirty(State.m_SelectedEntityScene, RootIt->second);
+            }
+        }
+
+        auto& CompOverride = e29::FindOrCreateOverrideEntry(*Ctx.m_pPI, It->second->m_Guid.m_Value, Ctx.m_MemberPath);
 
         // m_PropertyValueAsString is a read-only echo for humans/tools (see its own comment) - the
         // ECS itself never reads it back, but since it CAN go stale (the same property edited a
@@ -801,12 +1493,13 @@ int E29_Example()
         auto It = EntityInspectorComponentMap.find(pInstance);
         if (It == EntityInspectorComponentMap.end()) return;
 
-        auto* pPI = e29::FindPrefabInstance(GameMgr, State.m_SelectedEntity);
-        if (pPI == nullptr) return;
+        auto Ctx = e29::FindContainingPrefabInstance(GameMgr, State.m_SelectedEntity);
+        if (Ctx.m_pPI == nullptr) return;
 
-        for (auto& C : pPI->m_lComponents)
+        for (auto& C : Ctx.m_pPI->m_lComponents)
         {
             if (C.m_ComponentTypeGuid != It->second->m_Guid.m_Value) continue;
+            if (std::ranges::equal(C.m_MemberPath, Ctx.m_MemberPath) == false) continue;
             for (auto& O : C.m_PropertyOverrides)
                 if (O.m_PropertyName == Path) { bOut = true; return; }
         }
@@ -818,19 +1511,24 @@ int E29_Example()
         auto It = EntityInspectorComponentMap.find(pInstance);
         if (It == EntityInspectorComponentMap.end()) return;
 
-        auto* pPI = e29::FindPrefabInstance(GameMgr, State.m_SelectedEntity);
-        if (pPI == nullptr) return;
+        auto Ctx = e29::FindContainingPrefabInstance(GameMgr, State.m_SelectedEntity);
+        if (Ctx.m_pPI == nullptr) return;
 
-        if (auto Err = GameMgr.m_PrefabMgr.EnsureLoaded(pPI->m_PrefabInstance); Err)
+        if (auto Err = GameMgr.m_PrefabMgr.EnsureLoaded(Ctx.m_pPI->m_PrefabInstance); Err)
         {
             e29::Debugger(std::format("Failed to load source prefab for revert: {}", Err.getMessage()));
             return;
         }
 
-        auto RootIt = GameMgr.m_PrefabMgr.m_PrefabList.find(pPI->m_PrefabInstance.m_Instance.m_Value);
+        auto RootIt = GameMgr.m_PrefabMgr.m_PrefabList.find(Ctx.m_pPI->m_PrefabInstance.m_Instance.m_Value);
         if (RootIt == GameMgr.m_PrefabMgr.m_PrefabList.end()) return;
 
-        auto& RootDetails = GameMgr.m_ComponentMgr.getEntityDetails(RootIt->second);
+        // Same MemberPath, walked from the PREFAB's own root instead of the placed instance's root -
+        // reaches the corresponding source member (see prefab_component_override::m_MemberPath).
+        const auto BaseEntity = xecs::persist::details::ResolveMemberPath(GameMgr, RootIt->second, Ctx.m_MemberPath);
+        if (BaseEntity.isValid() == false) return;
+
+        auto& RootDetails = GameMgr.m_ComponentMgr.getEntityDetails(BaseEntity);
         const auto iType  = RootDetails.m_pPool->findIndexComponentFromInfo(*It->second);
         if (iType < 0) return;
         auto* pRootData = &RootDetails.m_pPool->m_pComponent[iType][RootDetails.m_PoolIndex.m_Value * It->second->m_Size];
@@ -851,13 +1549,34 @@ int E29_Example()
         Inspector.CommitEdit(Context);
         bSuppressOverrideTracking = false;
 
-        for (auto& C : pPI->m_lComponents)
+        for (auto& C : Ctx.m_pPI->m_lComponents)
         {
             if (C.m_ComponentTypeGuid != It->second->m_Guid.m_Value) continue;
+            if (std::ranges::equal(C.m_MemberPath, Ctx.m_MemberPath) == false) continue;
             std::erase_if(C.m_PropertyOverrides, [&](auto& O) noexcept { return O.m_PropertyName == Path; });
             if (C.m_PropertyOverrides.empty())
-                std::erase_if(pPI->m_lComponents, [&](auto& CC) noexcept { return CC.m_ComponentTypeGuid == It->second->m_Guid.m_Value; });
+            {
+                auto& MemberPath = Ctx.m_MemberPath;
+                std::erase_if(Ctx.m_pPI->m_lComponents, [&](auto& CC) noexcept { return CC.m_ComponentTypeGuid == It->second->m_Guid.m_Value && std::ranges::equal(CC.m_MemberPath, MemberPath); });
+            }
             break;
+        }
+
+        // Two entities just changed and must both be (re)saved: the edited member itself (its live
+        // data just went back to the prefab's base value - CommitEdit above ran with
+        // bSuppressOverrideTracking held, so OnPropertyChanged's own MarkEntityDirty never fired for
+        // it) and Ctx.m_RootEntity, whose m_lComponents bookkeeping the erase_if above just mutated
+        // (a DIFFERENT entity than the edited one whenever m_MemberPath is non-empty). Missing either
+        // one would silently leave the revert un-persisted on next save - same class of gap as
+        // OnPropertyChanged's own dirty-marking fix just above.
+        GameMgr.m_SceneMgr.MarkEntityDirty(State.m_SelectedEntityScene, State.m_SelectedEntityId);
+        if (Ctx.m_RootEntity.m_Value != State.m_SelectedEntity.m_Value)
+        {
+            if (auto* pScene = GameMgr.m_SceneMgr.Find(State.m_SelectedEntityScene))
+            {
+                if (auto RootIt = pScene->m_RuntimeToLocal.find(Ctx.m_RootEntity.m_Value); RootIt != pScene->m_RuntimeToLocal.end())
+                    GameMgr.m_SceneMgr.MarkEntityDirty(State.m_SelectedEntityScene, RootIt->second);
+            }
         }
     };
     EntityInspector.m_OnOverrideReset.Register(OnOverrideReset);
@@ -931,65 +1650,59 @@ int E29_Example()
         const bool  bShowClear  = CurrentValue.isValid();
         ImGui::Selectable(Label.c_str(), false, ImGuiSelectableFlags_None, ImVec2(bShowClear ? AvailWidth - 24.0f : AvailWidth, 0.0f));
 
-        // Persistent diagnostic logging, gated on GetDragDropPayload()!=nullptr so it only fires for however many
-        // frames an actual drag is in flight (not every frame the app runs) - two prior fix attempts
-        // (widening the hover rect, fixing draw order) didn't resolve the user's report, so guessing a
-        // third time isn't warranted; this pins down exactly which link in the chain (does this
-        // callback even see the drag at all, does BeginDragDropTarget's hover check succeed, does the
-        // payload NAME match) is actually failing.
-        if (ImGui::GetDragDropPayload() != nullptr)
-        {
-            std::printf("[EntityRef] render Path='%.*s' AvailWidth=%.1f CurrentValue.isValid=%d\n", static_cast<int>(Path.size()), Path.data(), AvailWidth, CurrentValue.isValid());
-            std::fflush(stdout);
-        }
-
         // Attached to the Selectable specifically, immediately after it and BEFORE the "X" button
         // below (which would otherwise become the new "last item" and steal the drop target down to
         // its own tiny rect the moment a reference is already assigned - the exact same bug this whole
         // fix is for, just reintroduced one widget later).
         const bool bIsDropTarget = ImGui::BeginDragDropTarget();
-        if (ImGui::GetDragDropPayload() != nullptr)
-        {
-            std::printf("[EntityRef] BeginDragDropTarget=%d\n", bIsDropTarget);
-            std::fflush(stdout);
-        }
         if (bIsDropTarget)
         {
-            const ImGuiPayload* pActivePayload = ImGui::GetDragDropPayload();
-            std::printf("[EntityRef] active payload DataType='%s' looking for 'E29_ENTITY_DRAG'\n", pActivePayload ? pActivePayload->DataType : "<none>");
-            std::fflush(stdout);
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("E29_ENTITY_DRAG"))
             {
-                std::printf("[EntityRef] AcceptDragDropPayload HIT, DataSize=%d (expected %zu)\n", payload->DataSize, sizeof(e29::entity_drag_payload_t));
-                std::fflush(stdout);
                 IM_ASSERT(payload->DataSize == sizeof(e29::entity_drag_payload_t));
                 auto& Dropped = *reinterpret_cast<const e29::entity_drag_payload_t*>(payload->Data);
                 if (auto* pDropScene = GameMgr.m_SceneMgr.Find(Dropped.m_SceneGuid))
                 {
                     if (auto It = pDropScene->m_LocalToRuntime.find(Dropped.m_Id); It != pDropScene->m_LocalToRuntime.end())
                     {
-                        xproperty::settings::context Context;
-                        xproperty::any               NewValue;
-                        NewValue.set<xecs::component::entity>(It->second);
-                        std::string SetError;
-                        Inspector.BeginEdit(Obj, pInstance, "Assign Entity Reference");
-                        xproperty::sprop::setProperty(SetError, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), NewValue }, Context);
-                        Inspector.CommitEdit(Context);
-
-                        // A reference pointing outside the owning entity's own scene is exactly what
-                        // the Dependencies folder (pScene->m_ParentScenes) is for - this is the other
-                        // way (besides dragging a Scene asset onto that folder directly) a dependency
-                        // can be created, and it should happen automatically here rather than leaving
-                        // the reference dangling on save/reload until the user separately remembers to
-                        // add the dependency by hand. Same dedup/self-check as the Dependencies folder's
-                        // own drop target.
+                        // A reference pointing outside the owning entity's own scene needs a
+                        // Dependencies entry (pOwningScene->m_ParentScenes) to ever resolve again on
+                        // save/reload - added automatically here rather than leaving the reference
+                        // dangling until the user separately remembers to add it by hand. Checked
+                        // (and, if it would close a cycle, REFUSED) before the property assignment
+                        // itself runs, not after - the engine's own Scene::EnsureLoaded already
+                        // detects a dependency cycle at LOAD time, but only creating the assignment
+                        // AND then skipping just the dependency edge would leave a cross-scene
+                        // reference with nothing to make it resolvable, an even more confusing state
+                        // than refusing outright (direct user report: circular scene dependencies
+                        // were silently allowed to be authored at all).
+                        bool bRefused = false;
                         if (Dropped.m_SceneGuid != State.m_SelectedEntityScene)
                         {
                             if (auto* pOwningScene = GameMgr.m_SceneMgr.Find(State.m_SelectedEntityScene))
                             {
-                                if (std::find(pOwningScene->m_ParentScenes.begin(), pOwningScene->m_ParentScenes.end(), Dropped.m_SceneGuid) == pOwningScene->m_ParentScenes.end())
+                                const bool bAlreadyDependency = std::find(pOwningScene->m_ParentScenes.begin(), pOwningScene->m_ParentScenes.end(), Dropped.m_SceneGuid) != pOwningScene->m_ParentScenes.end();
+                                if (!bAlreadyDependency && e29::WouldCreateDependencyCycle(GameMgr, State.m_SelectedEntityScene, Dropped.m_SceneGuid))
+                                {
+                                    e29::Debugger("Can't assign that reference: its scene already depends on this one (would create a circular scene dependency)");
+                                    bRefused = true;
+                                }
+                                else if (!bAlreadyDependency)
+                                {
                                     pOwningScene->m_ParentScenes.push_back(Dropped.m_SceneGuid);
+                                }
                             }
+                        }
+
+                        if (!bRefused)
+                        {
+                            xproperty::settings::context Context;
+                            xproperty::any               NewValue;
+                            NewValue.set<xecs::component::entity>(It->second);
+                            std::string SetError;
+                            Inspector.BeginEdit(Obj, pInstance, "Assign Entity Reference");
+                            xproperty::sprop::setProperty(SetError, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), NewValue }, Context);
+                            Inspector.CommitEdit(Context);
                         }
                     }
                 }
@@ -1021,6 +1734,8 @@ int E29_Example()
     {
         if (xgpu::tools::imgui::BeginRendering(true)) continue;
 
+        e29::RenderErrorPopup();
+
         //
         // Main menu bar - same "File > Asset Browser..."/"Save Project" pattern every other editor
         // example uses (see E24_AnimPackage_Editor.cpp's identical menu). AsserBrowser.Render() is a
@@ -1041,6 +1756,13 @@ int E29_Example()
             }
             ImGui::EndMainMenuBar();
         }
+
+        // The menu item above only ever LABELS "Ctrl+S" - ImGui::MenuItem's shortcut string is
+        // purely decorative and doesn't bind anything on its own, so the keyboard chord itself never
+        // actually did anything (direct user-relayed review: "menu says Save Ctrl+S but nothing binds
+        // it"). Checked once per frame, unconditionally (not gated behind the File menu being open).
+        if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S))
+            e29::SaveEverything(GameMgr, State);
 
         AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
         e29::g_AssetBrowserPopup.RenderAsPopup(e10::g_LibMgr, xresource::g_Mgr);
@@ -1140,7 +1862,22 @@ int E29_Example()
                             ImGui::TableNextRow();
                             ImGui::TableSetColumnIndex(0);
                             const bool bSceneExpanded = ImGui::TreeNodeEx(SceneLabel.c_str(), ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth | (bIsOpenScene ? ImGuiTreeNodeFlags_Selected : 0));
-                            if (ImGui::IsItemClicked())
+
+                            // Two independent pieces of state used to collide: ImGui's own
+                            // expand/collapse (bSceneExpanded, toggled by ImGuiTreeNodeFlags_OpenOnArrow
+                            // on an ARROW click specifically) vs our own scene-residency tracking
+                            // (bIsOpenScene/State.m_OpenScenes, previously driven ONLY by
+                            // IsItemClicked() on the row's LABEL). Clicking the arrow expands the row
+                            // WITHOUT satisfying IsItemClicked() the same way a label click does, so a
+                            // row could sit expanded forever showing an inert "(click to open)"
+                            // placeholder (plain TextDisabled, no click handler of its own at all) -
+                            // confirmed via direct user report ("I try to open the scene seems empty")
+                            // after expanding via the arrow specifically. Fixed by making "expanded"
+                            // simply IMPLY "should be open" - whichever click actually toggled it,
+                            // OpenScene's own residency check (State.m_OpenScenes) makes this a cheap
+                            // no-op once already loaded, so calling it every frame the row is expanded
+                            // is safe.
+                            if ((bSceneExpanded && !bIsOpenScene) || ImGui::IsItemClicked())
                                 e29::OpenScene(GameMgr, State, xresource::full_guid{ SceneGuid.m_Instance, SceneGuid.m_Type });
 
                             // Right-click: same "New Entity"/"New Folder" the Folder row's own menu
@@ -1211,14 +1948,47 @@ int E29_Example()
                                         // pScene->m_LocalToRuntime (deleted), telling the caller's own
                                         // loop over a SNAPSHOT (never the live map/vector directly - see
                                         // every call site below) that this id is now stale.
-                                        auto RenderEntityRow = [&](xecs::scene::permanent_id Id, xecs::component::entity Entity) -> bool
+                                        // Forward-declared as std::function (not auto) - RenderEntityRow
+                                        // and RenderChildEntities are mutually recursive (a row renders
+                                        // its own children right after itself; rendering a child is just
+                                        // calling RenderEntityRow again), the same "declare empty, assign
+                                        // after both bodies are written" pattern RenderFolderChildren's
+                                        // own self-recursion already uses below, just across a pair.
+                                        std::function<bool(xecs::scene::permanent_id, xecs::component::entity)> RenderEntityRow;
+
+                                        // An entity with a xecs::component::parent is never placed via
+                                        // folder membership (see the Default-folder adoption pass below,
+                                        // which excludes parented entities from its "unfoldered"
+                                        // computation) - it's rendered here instead, nested directly
+                                        // under its parent's own row. Snapshots the children list before
+                                        // recursing (an entity delete/reparent fired from arbitrary depth
+                                        // in this recursion must not invalidate an iterator/reference held
+                                        // across those calls - same discipline RenderFolderChildren's own
+                                        // folder walk already follows).
+                                        std::function<void(xecs::component::entity)> RenderChildEntities = [&](xecs::component::entity Parent) noexcept
+                                        {
+                                            auto& PDetails = GameMgr.m_ComponentMgr.getEntityDetails(Parent);
+                                            if (PDetails.m_pPool == nullptr) return;
+                                            if (PDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID) == false) return;
+
+                                            auto ChildEntities = PDetails.m_pPool->getComponent<xecs::component::children>(PDetails.m_PoolIndex).m_List;
+                                            for (auto ChildEntity : ChildEntities)
+                                            {
+                                                if (auto ChildIt = pScene->m_RuntimeToLocal.find(ChildEntity.m_Value); ChildIt != pScene->m_RuntimeToLocal.end())
+                                                    RenderEntityRow(ChildIt->second, ChildEntity);
+                                            }
+                                        };
+
+                                        RenderEntityRow = [&](xecs::scene::permanent_id Id, xecs::component::entity Entity) -> bool
                                         {
                                             std::string EntityLabel = std::format("Entity #{}", Id);
+                                            bool bHasChildren = false;
                                             if (auto& Details = GameMgr.m_ComponentMgr.getEntityDetails(Entity); Details.m_pPool)
                                             {
                                                 auto Bits = Details.m_pPool->m_pArchetype->getComponentBits();
                                                 if (Bits.getBit(xecs::component::type::info_v<e29::name>.m_BitID))
                                                     EntityLabel = Details.m_pPool->getComponent<e29::name>(Details.m_PoolIndex).m_Value;
+                                                bHasChildren = Bits.getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID);
                                             }
                                             auto* pPI = e29::FindPrefabInstance(GameMgr, Entity);
                                             if (pPI)
@@ -1238,12 +2008,26 @@ int E29_Example()
                                             ImGui::TableNextRow();
                                             ImGui::TableSetColumnIndex(0);
                                             const bool bEntitySelected = (State.m_SelectedEntityId == Id);
+                                            const bool bMultiSelected  = (State.m_MultiSelectScene == SceneGuid) && State.m_MultiSelectedEntityIds.contains(Id);
                                             // Prefab instances render in blue, matching Unity's own
                                             // Hierarchy convention (the reference screenshot) - real
-                                            // GameObjects/entities stay the default text color.
-                                            if (pPI) ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(120, 170, 255, 255));
-                                            ImGui::TreeNodeEx(EntityLabel.c_str(), ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_Bullet | ImGuiTreeNodeFlags_SpanFullWidth | (bEntitySelected ? ImGuiTreeNodeFlags_Selected : 0));
-                                            if (pPI) ImGui::PopStyleColor();
+                                            // GameObjects/entities stay the default text color. Unlike
+                                            // the "(Prefab: X)" label suffix above (root-only, via the
+                                            // direct pPI check), the tint applies to the WHOLE instance
+                                            // subtree - any entity structurally inside a prefab instance
+                                            // is still part of it, exactly like Unity tints every
+                                            // GameObject under an instantiated prefab, not just its root.
+                                            // An entity WITH children renders like a folder (expandable,
+                                            // arrow) so RenderChildEntities has somewhere to nest under;
+                                            // a leaf keeps the plain bullet style every entity used to have.
+                                            const bool bPartOfPrefabInstance = e29::FindContainingPrefabInstance(GameMgr, Entity).m_pPI != nullptr;
+                                            const ImGuiTreeNodeFlags SelFlag  = (bEntitySelected || bMultiSelected) ? ImGuiTreeNodeFlags_Selected : 0;
+                                            const ImGuiTreeNodeFlags TreeFlags = bHasChildren
+                                                ? (ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth | SelFlag)
+                                                : (ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_Bullet | ImGuiTreeNodeFlags_SpanFullWidth | SelFlag);
+                                            if (bPartOfPrefabInstance) ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(120, 170, 255, 255));
+                                            const bool bEntityOpen = ImGui::TreeNodeEx(EntityLabel.c_str(), TreeFlags);
+                                            if (bPartOfPrefabInstance) ImGui::PopStyleColor();
 
                                             // Select on mouse-UP, not mouse-DOWN (ImGui::IsItemClicked
                                             // fires on press) - direct user report: selecting on press
@@ -1258,38 +2042,53 @@ int E29_Example()
                                             // the time a release is detected) is the one ImGui query
                                             // documented to still reflect the drag distance on the
                                             // exact release frame.
-                                            // Persistent diagnostic logging - gated on the mouse button
-                                            // actually being held/just-released while over THIS row, so
-                                            // it only fires during a real press-hold-release sequence
-                                            // (a handful of frames), not every frame the app runs. Two
-                                            // reported symptoms need tracing here: dragging stopped
-                                            // working after the first successful drag, and the
-                                            // EntityReference target saw nothing on a later attempt -
-                                            // this pins down whether BeginDragDropSource is even being
-                                            // reached/returning true on later attempts, or whether the
-                                            // selection logic right above it is somehow interfering.
-                                            const bool bMouseDownHere = ImGui::IsItemHovered() && ImGui::IsMouseDown(ImGuiMouseButton_Left);
-                                            const bool bMouseUpHere   = ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Left);
-                                            if (bMouseDownHere || bMouseUpHere)
-                                            {
-                                                const ImVec2 Drag = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
-                                                std::printf("[EntityDrag] Id=%u hovered, MouseDown=%d MouseReleased=%d Drag=(%.1f,%.1f) IsDragDropActivePayload=%s\n",
-                                                    Id, ImGui::IsMouseDown(ImGuiMouseButton_Left), ImGui::IsMouseReleased(ImGuiMouseButton_Left), Drag.x, Drag.y,
-                                                    ImGui::GetDragDropPayload() ? ImGui::GetDragDropPayload()->DataType : "<none>");
-                                                std::fflush(stdout);
-                                            }
-
                                             if (ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Left))
                                             {
                                                 const ImVec2 Drag = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
                                                 if (Drag.x == 0.0f && Drag.y == 0.0f) // released without ever dragging past the threshold
                                                 {
-                                                    std::printf("[EntityDrag] Id=%u -> SELECTED (plain click, no drag)\n", Id);
-                                                    std::fflush(stdout);
-                                                    State.m_SelectedEntityId      = Id;
-                                                    State.m_SelectedEntity        = Entity;
-                                                    State.m_SelectedEntityScene   = SceneGuid;
-                                                    State.m_bEntityInspectorDirty = true;
+                                                    if (ImGui::GetIO().KeyCtrl)
+                                                    {
+                                                        // Toggles multi-select membership WITHOUT
+                                                        // touching the primary selection/Properties
+                                                        // panel - scoped to one scene at a time (a
+                                                        // prefab's members must all come from the same
+                                                        // live scene).
+                                                        if (State.m_MultiSelectScene != SceneGuid)
+                                                        {
+                                                            State.m_MultiSelectedEntityIds.clear();
+                                                            State.m_MultiSelectOrder.clear();
+                                                            State.m_MultiSelectScene = SceneGuid;
+                                                        }
+                                                        if (State.m_MultiSelectedEntityIds.contains(Id))
+                                                        {
+                                                            State.m_MultiSelectedEntityIds.erase(Id);
+                                                            std::erase(State.m_MultiSelectOrder, Id);
+                                                        }
+                                                        else
+                                                        {
+                                                            State.m_MultiSelectedEntityIds.insert(Id);
+                                                            State.m_MultiSelectOrder.push_back(Id);
+                                                        }
+                                                    }
+                                                    else
+                                                    {
+                                                        // Seeded with JUST this entity, not cleared to
+                                                        // empty - matches the standard "click A, then
+                                                        // ctrl-click B" convention (Explorer, Unity):
+                                                        // a plain click alone is a single selection of
+                                                        // one, but it's also the natural START of a
+                                                        // multi-selection a following ctrl-click ADDS
+                                                        // to, ending with {A, B} rather than losing A
+                                                        // entirely the moment B is ctrl-clicked.
+                                                        State.m_MultiSelectedEntityIds = { Id };
+                                                        State.m_MultiSelectOrder       = { Id };
+                                                        State.m_MultiSelectScene       = SceneGuid;
+                                                        State.m_SelectedEntityId      = Id;
+                                                        State.m_SelectedEntity        = Entity;
+                                                        State.m_SelectedEntityScene   = SceneGuid;
+                                                        State.m_bEntityInspectorDirty = true;
+                                                    }
                                                 }
                                             }
 
@@ -1308,11 +2107,6 @@ int E29_Example()
                                             // the last, so only one name can ever be shared here (same
                                             // pattern as this codebase's own "DESCRIPTOR_GUID" reuse).
                                             const bool bBeganDragSource = ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID);
-                                            if (bMouseDownHere)
-                                            {
-                                                std::printf("[EntityDrag] Id=%u BeginDragDropSource=%d\n", Id, bBeganDragSource);
-                                                std::fflush(stdout);
-                                            }
                                             if (bBeganDragSource)
                                             {
                                                 e29::entity_drag_payload_t Payload{ SceneGuid, Id };
@@ -1324,21 +2118,49 @@ int E29_Example()
                                             bool bDeleted = false;
                                             auto DoDeleteEntity = [&]() noexcept
                                             {
-                                                auto E = Entity;
-                                                GameMgr.DeleteEntity(E);
-                                                pScene->m_RuntimeToLocal.erase(Entity.m_Value);
-                                                pScene->m_LocalToRuntime.erase(Id);
-                                                GameMgr.m_SceneMgr.MarkEntityDeleted(SceneGuid, Id);
-                                                e29::ReparentEntityIntoFolder(*pScene, Id, xecs::scene::invalid_folder_id_v); // scrub any dangling folder membership
-                                                if (State.m_SelectedEntityId == Id)
+                                                // Recurses into Entity's own children (if any) rather than
+                                                // just deleting this one row - direct user report: a plain
+                                                // single-entity delete here left every descendant behind as
+                                                // an orphan (still in ActiveEntities/entity_db, its own
+                                                // Parent now pointing at nothing), which is exactly what
+                                                // this row's own delete action had NEVER accounted for
+                                                // (DeleteEntitySubtree already existed and does this
+                                                // correctly - it was just never wired up to this one call
+                                                // site). Whichever entity/entities were actually selected
+                                                // (this row or a now-deleted descendant of it) get their
+                                                // selection cleared by checking survival afterward, rather
+                                                // than only comparing against Id directly.
+                                                e29::DeleteEntitySubtree(GameMgr, *pScene, SceneGuid, Entity);
+                                                if (State.m_SelectedEntityScene == SceneGuid && !pScene->m_LocalToRuntime.contains(State.m_SelectedEntityId))
                                                 {
                                                     State.m_SelectedEntityId    = xecs::scene::invalid_permanent_id_v;
                                                     State.m_SelectedEntity      = {};
                                                     State.m_SelectedEntityScene = {};
                                                 }
+
+                                                // Same survival check for the MULTI-select set/order -
+                                                // a cascading delete can take out several ids at once
+                                                // (the clicked row plus every descendant), any of
+                                                // which might also have been part of an active
+                                                // multi-selection; a second AI review caught that this
+                                                // never got scrubbed, only the primary selection did -
+                                                // a stale id left in it could poison a later Make-Prefab
+                                                // grouping.
+                                                if (State.m_MultiSelectScene == SceneGuid)
+                                                {
+                                                    std::erase_if(State.m_MultiSelectedEntityIds, [&](auto Id) noexcept { return !pScene->m_LocalToRuntime.contains(Id); });
+                                                    std::erase_if(State.m_MultiSelectOrder, [&](auto Id) noexcept { return !pScene->m_LocalToRuntime.contains(Id); });
+                                                }
                                                 bDeleted = true;
                                             };
 
+                                            // Making a prefab is drag-and-drop only (ctrl-click to
+                                            // multi-select, drag any selected row onto the asset
+                                            // browser - entity_to_prefab_drop::OnDrop, generalized to
+                                            // check for an active multi-selection), matching the
+                                            // existing single-entity convention rather than a separate
+                                            // menu action - direct user feedback after trying the menu
+                                            // item version.
                                             if (ImGui::BeginPopupContextItem())
                                             {
                                                 if (ImGui::MenuItem("Delete Entity")) DoDeleteEntity();
@@ -1347,6 +2169,25 @@ int E29_Example()
 
                                             ImGui::TableSetColumnIndex(1);
                                             if (!bDeleted && ImGui::SmallButton("X")) DoDeleteEntity();
+
+                                            // TreeNodeEx above (no NoTreePushOnOpen for a bHasChildren
+                                            // row) already pushed a node onto ImGui's own ID/tree stack
+                                            // whenever it returned bEntityOpen==true - that push MUST be
+                                            // balanced by exactly one TreePop() call regardless of what
+                                            // happens to the underlying entity afterward. Gating BOTH
+                                            // calls on the same "!bDeleted" (as this used to) skips the
+                                            // TreePop the moment a row that's both expanded AND just got
+                                            // deleted - corrupting ImGui's stack, which surfaces as an
+                                            // unrelated-looking IM_ASSERT/abort on a LATER frame or a
+                                            // later row (real user-reproduced crash deleting an expanded
+                                            // multi-entity prefab-instance root). Only the "render
+                                            // children" call itself should skip when deleted - there's
+                                            // nothing left to walk into for a just-deleted subtree.
+                                            if (bHasChildren && bEntityOpen)
+                                            {
+                                                if (!bDeleted) RenderChildEntities(Entity);
+                                                ImGui::TreePop();
+                                            }
 
                                             ImGui::PopID();
                                             return bDeleted;
@@ -1371,6 +2212,16 @@ int E29_Example()
                                                 if (ParentId == xecs::scene::invalid_folder_id_v && F.m_Name == "Default") continue;
                                                 ChildIds.push_back(F.m_Id);
                                             }
+
+                                            // Alphabetical among siblings at this SAME level - the live-tree
+                                            // analog of the saved file's own (depth, then name) ordering
+                                            // (SaveSceneDescriptor), so what's on screen matches what's on disk.
+                                            std::sort(ChildIds.begin(), ChildIds.end(), [&](auto A, auto B) noexcept
+                                            {
+                                                auto ItA = std::find_if(pScene->m_Folders.begin(), pScene->m_Folders.end(), [&](auto& F) noexcept { return F.m_Id == A; });
+                                                auto ItB = std::find_if(pScene->m_Folders.begin(), pScene->m_Folders.end(), [&](auto& F) noexcept { return F.m_Id == B; });
+                                                return ItA->m_Name < ItB->m_Name;
+                                            });
 
                                             for (auto FolderId : ChildIds)
                                             {
@@ -1405,12 +2256,42 @@ int E29_Example()
 
                                                 if (ImGui::BeginDragDropTarget())
                                                 {
+                                                    // Drop a Prefab asset directly onto a folder row -
+                                                    // matches the Scene row's own "DESCRIPTOR_GUID"
+                                                    // handling (below), except the new instance lands in
+                                                    // THIS folder instead of always falling out to
+                                                    // "Default" - a plain folder row previously had no
+                                                    // handler for this payload type at all, so dropping a
+                                                    // prefab on anything but the Scene row's own line did
+                                                    // nothing (direct user report).
+                                                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DESCRIPTOR_GUID"))
+                                                    {
+                                                        IM_ASSERT(payload->DataSize == sizeof(e10::drag_and_drop_folder_payload_t));
+                                                        auto& Dropped = *reinterpret_cast<const e10::drag_and_drop_folder_payload_t*>(payload->Data);
+                                                        if (Dropped.m_Source.m_Type == xecs::prefab::type_guid_v)
+                                                            e29::InstantiatePrefabIntoScene(GameMgr, *pScene, xecs::prefab::guid{ Dropped.m_Source.m_Instance, Dropped.m_Source.m_Type }, FolderId);
+                                                    }
                                                     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("E29_ENTITY_DRAG"))
                                                     {
                                                         IM_ASSERT(payload->DataSize == sizeof(e29::entity_drag_payload_t));
                                                         auto& Dropped = *reinterpret_cast<const e29::entity_drag_payload_t*>(payload->Data);
                                                         if (Dropped.m_SceneGuid == SceneGuid)
-                                                            e29::ReparentEntityIntoFolder(*pScene, Dropped.m_Id, FolderId);
+                                                        {
+                                                            // An entity with a xecs::component::parent is
+                                                            // never placed via folder membership - it
+                                                            // renders nested under its parent's own row
+                                                            // instead (RenderChildEntities); dropping one
+                                                            // onto a folder here is a no-op rather than
+                                                            // creating a duplicate-looking entry.
+                                                            bool bHasParent = false;
+                                                            if (auto DroppedIt = pScene->m_LocalToRuntime.find(Dropped.m_Id); DroppedIt != pScene->m_LocalToRuntime.end())
+                                                            {
+                                                                auto& DroppedDetails = GameMgr.m_ComponentMgr.getEntityDetails(DroppedIt->second);
+                                                                bHasParent = DroppedDetails.m_pPool && DroppedDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::parent>.m_BitID);
+                                                            }
+                                                            if (!bHasParent)
+                                                                e29::ReparentEntityIntoFolder(*pScene, Dropped.m_Id, FolderId);
+                                                        }
                                                     }
                                                     ImGui::EndDragDropTarget();
                                                 }
@@ -1471,7 +2352,12 @@ int E29_Example()
                                                     {
                                                         const xecs::scene::guid NewParent{ .m_Instance = Dropped.m_Source.m_Instance };
                                                         if (std::find(pScene->m_ParentScenes.begin(), pScene->m_ParentScenes.end(), NewParent) == pScene->m_ParentScenes.end())
-                                                            pScene->m_ParentScenes.push_back(NewParent);
+                                                        {
+                                                            if (e29::WouldCreateDependencyCycle(GameMgr, SceneGuid, NewParent))
+                                                                e29::Debugger("Can't add that dependency: it already depends on this scene (would create a circular scene dependency)");
+                                                            else
+                                                                pScene->m_ParentScenes.push_back(NewParent);
+                                                        }
                                                     }
                                                 }
                                                 ImGui::EndDragDropTarget();
@@ -1510,6 +2396,23 @@ int E29_Example()
                                             ImGui::PopID();
                                         }
 
+                                        // Prune any folder membership id that no longer resolves to a
+                                        // live entity - a folder's Entities[] list is never itself
+                                        // scrubbed except through the specific "delete this one entity"/
+                                        // "reparent this one entity" code paths, so anything that ever
+                                        // got out of that (e.g. entity ids left over from before those
+                                        // paths existed) silently accumulates: the folder's own header
+                                        // count (Default's own "(N)" label included) then disagrees with
+                                        // what actually renders underneath it, since the render loop
+                                        // below already skips ids it can't resolve - direct user report
+                                        // ("Default says 6 but nothing is showing up"). Runs before both
+                                        // the folder-count label and the auto-adopt pass right below, so
+                                        // a pruned id can be correctly picked back up as "unfoldered" and
+                                        // re-adopted into Default the SAME frame instead of just vanishing
+                                        // from bookkeeping with no visible trace.
+                                        for (auto& F : pScene->m_Folders)
+                                            std::erase_if(F.m_Entities, [&](auto Id) noexcept { return !pScene->m_LocalToRuntime.contains(Id); });
+
                                         // Any entity not currently in any folder gets adopted into
                                         // "Default" (auto-created the first time it's actually needed)
                                         // - there's no more "loose at scene root" state at all, per
@@ -1521,15 +2424,29 @@ int E29_Example()
                                             for (auto& F : pScene->m_Folders)
                                                 for (auto EId : F.m_Entities) FolderedEntities.insert(EId);
 
+                                            // An entity with a xecs::component::parent is neither
+                                            // "foldered" nor "unfoldered" - it's rendered nested under its
+                                            // parent's own row instead (RenderEntityRow's own
+                                            // RenderChildEntities call), so it must never get force-
+                                            // adopted into Default just for lacking folder membership.
                                             std::vector<xecs::scene::permanent_id> Unfoldered;
                                             for (auto& Pair : pScene->m_LocalToRuntime)
-                                                if (FolderedEntities.contains(Pair.first) == false) Unfoldered.push_back(Pair.first);
-
-                                            if (!Unfoldered.empty())
                                             {
-                                                const auto DefaultId = e29::EnsureDefaultFolder(*pScene);
-                                                for (auto Id : Unfoldered) e29::ReparentEntityIntoFolder(*pScene, Id, DefaultId);
+                                                if (FolderedEntities.contains(Pair.first)) continue;
+                                                auto& Details = GameMgr.m_ComponentMgr.getEntityDetails(Pair.second);
+                                                if (Details.m_pPool && Details.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::parent>.m_BitID))
+                                                    continue;
+                                                Unfoldered.push_back(Pair.first);
                                             }
+
+                                            // Always ensured, not just when something actually needs
+                                            // adopting into it - every scene should show a "Default (N)"
+                                            // row for discoverability/consistency, even at N=0, rather
+                                            // than only appearing the first time it's actually needed
+                                            // (direct user report: a second scene with nothing loose in
+                                            // it had no Default row at all, unlike the first).
+                                            const auto DefaultId = e29::EnsureDefaultFolder(*pScene);
+                                            for (auto Id : Unfoldered) e29::ReparentEntityIntoFolder(*pScene, Id, DefaultId);
                                         }
 
                                         // "Default" is a special, locked folder - same treatment as
@@ -1549,7 +2466,7 @@ int E29_Example()
                                             ImGui::PushID("Default");
                                             ImGui::TableNextRow();
                                             ImGui::TableSetColumnIndex(0);
-                                            const std::string DefaultLabel = std::format("{} Default", e29::FolderIcon(!It->m_Entities.empty()));
+                                            const std::string DefaultLabel = std::format("{} Default ({})", e29::FolderIcon(!It->m_Entities.empty()), It->m_Entities.size());
                                             const bool bDefaultOpen = ImGui::TreeNodeEx(DefaultLabel.c_str(), ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth);
                                             if (bDefaultOpen)
                                             {
@@ -1633,10 +2550,16 @@ int E29_Example()
                         auto* pInfo = Pair.second;
                         if (pInfo->m_TypeID != xecs::component::type::id::DATA) continue;
                         if (e29::IsInternalComponent(pInfo)) continue;
-                        if (pArchetype->getComponentBits().getBit(pInfo->m_BitID)) continue; // already present
+                        // findIndexComponentFromInfo, not getComponentBits().getBit() - see
+                        // [[xecs_getbit_vs_findindexcomponentfrominfo]] (a runtime-assigned component
+                        // bit checked this way can read as absent/invalid even when the component is
+                        // genuinely present) - this was the one remaining call site still using the
+                        // fragile pattern, caught by a second AI review.
+                        if (pDetails->m_pPool->findIndexComponentFromInfo(*pInfo) >= 0) continue; // already present
 
                         if (ImGui::Selectable(pInfo->m_pName))
                         {
+                            std::printf("[AddComponent] BEFORE: SelectedEntity.m_Value=%llu Id=%u adding '%s'\n", (unsigned long long)State.m_SelectedEntity.m_Value, State.m_SelectedEntityId, pInfo->m_pName); std::fflush(stdout);
                             std::array Add{ pInfo };
                             auto NewEntity = GameMgr.AddOrRemoveComponents(State.m_SelectedEntity, Add, {});
                             pScene->m_RuntimeToLocal.erase(State.m_SelectedEntity.m_Value);
@@ -1646,6 +2569,11 @@ int E29_Example()
                             State.m_SelectedEntity        = NewEntity;
                             State.m_bEntityInspectorDirty = true;
                             RefreshEntityView();
+                            {
+                                auto& VDetails = GameMgr.m_ComponentMgr.getEntityDetails(NewEntity);
+                                const bool bHasIt = VDetails.m_pPool && VDetails.m_pPool->findIndexComponentFromInfo(*pInfo) >= 0;
+                                std::printf("[AddComponent] AFTER: NewEntity.m_Value=%llu Id=%u hasComponent=%d nDataComponents=%zu\n", (unsigned long long)NewEntity.m_Value, State.m_SelectedEntityId, bHasIt, VDetails.m_pPool ? VDetails.m_pPool->m_pArchetype->getDataComponentInfos().size() : (size_t)-1); std::fflush(stdout);
+                            }
                         }
                     }
                     ImGui::EndCombo();
@@ -1653,6 +2581,29 @@ int E29_Example()
 
                 // Prefabs are created by dragging an entity from the Level Editor tree onto a folder
                 // in the asset browser (see e29::entity_to_prefab_drop) - Unity-style, no button.
+
+                // Unity's "Apply to Prefab" - only shown when the selected entity is structurally
+                // part of SOME prefab instance (root or plain member), matching how the blue tint/
+                // "(Prefab: X)" label already decide the same thing. Applies EVERY override this one
+                // instance currently has recorded (there's no per-property Apply in this pass - see
+                // ApplyInstanceOverridesToPrefab's own comment for why), across however many members
+                // its own m_MemberPath entries address, in one action - the closest Unity equivalent
+                // to its default top-level "Apply All".
+                if (auto Ctx = e29::FindContainingPrefabInstance(GameMgr, State.m_SelectedEntity); Ctx.m_pPI && !Ctx.m_pPI->m_lComponents.empty())
+                {
+                    if (ImGui::Button("Apply Overrides to Prefab"))
+                    {
+                        if (auto Err = xecs::persist::details::ApplyInstanceOverridesToPrefab(GameMgr, Ctx.m_RootEntity); Err)
+                        {
+                            e29::Debugger(std::format("Failed to apply overrides to prefab: {}", Err.getMessage()));
+                        }
+                        else if (auto RootIt = pScene->m_RuntimeToLocal.find(Ctx.m_RootEntity.m_Value); RootIt != pScene->m_RuntimeToLocal.end())
+                        {
+                            GameMgr.m_SceneMgr.MarkEntityDirty(State.m_SelectedEntityScene, RootIt->second);
+                            State.m_bEntityInspectorDirty = true; // the just-applied property no longer shows as overridden
+                        }
+                    }
+                }
 
                 ImGui::Separator();
 

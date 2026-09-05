@@ -91,12 +91,26 @@ namespace e10
 
         //=============================================================================
 
-        static int WrappedButton2(xresource::instance_guid G, const char* label, const ImVec2& size, ImU32 Color, const char* pIcon, bool& held, bool bModified = false )
+        // pRenameBuf!=nullptr switches this whole button into inline-rename mode - added so renaming
+        // an asset edits its name IN PLACE (direct user request: "make it so you can edit the name
+        // inline rather than opening a dialog", replacing the old separate "Resource Rename" popup).
+        // Every EXISTING call site is 100% unaffected: the new parameters all default to "not
+        // renaming", taking the exact same code path as before. Deliberately skips ButtonBehavior
+        // entirely while renaming (rather than leaving it active alongside the InputText added
+        // below) - this project has hit the "first-submitted overlapping item permanently owns
+        // hover" class of ImGui bug before (see [[xgpu_imgui_overlapping_invisible_buttons]]);
+        // simply never registering the outer button's own hover/click behavior during rename mode
+        // sidesteps that class of bug entirely rather than needing AllowOverlap juggling.
+        static int WrappedButton2(xresource::instance_guid G, const char* label, const ImVec2& size, ImU32 Color, const char* pIcon, bool& held, bool bModified = false
+                                 , char* pRenameBuf = nullptr, size_t RenameBufSize = 0, bool bRenameJustActivated = false
+                                 , bool* pOutRenameCommit = nullptr, bool* pOutRenameCancel = nullptr )
         {
             ImGuiContext& g = *ImGui::GetCurrentContext();
             ImGuiWindow* window = ImGui::GetCurrentWindow();
             if (window->SkipItems)
                 return false;
+
+            const bool bRenaming = pRenameBuf != nullptr;
 
             ImGui::BeginGroup();
 
@@ -118,23 +132,27 @@ namespace e10
                 return false;
             }
 
-            bool hovered;
+            bool hovered = false;
             int TypeOfPress = 0;
 
-            // Single call to ButtonBehavior with both left and right mouse buttons
-            ImGui::ButtonBehavior(bb, id, &hovered, &held,
-                ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
-
-            if (hovered)
+            // Single call to ButtonBehavior with both left and right mouse buttons - skipped entirely
+            // while renaming, see this function's own comment for why.
+            if (!bRenaming)
             {
-                if (ImGui::IsMouseClicked(ImGuiMouseButton_Left, false))
-                    TypeOfPress = 1;
-                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                    TypeOfPress = 2; // Left double-click
-                if (ImGui::IsMouseClicked(ImGuiMouseButton_Right, false))
-                    TypeOfPress = 3; // Right click
-                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Right))
-                    TypeOfPress = 4; // Right double-click
+                ImGui::ButtonBehavior(bb, id, &hovered, &held,
+                    ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+
+                if (hovered)
+                {
+                    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left, false))
+                        TypeOfPress = 1;
+                    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                        TypeOfPress = 2; // Left double-click
+                    if (ImGui::IsMouseClicked(ImGuiMouseButton_Right, false))
+                        TypeOfPress = 3; // Right click
+                    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Right))
+                        TypeOfPress = 4; // Right double-click
+                }
             }
 
             // Render button background
@@ -175,27 +193,55 @@ namespace e10
             // Clip text to button bounds
             ImGui::PushClipRect(bb.Min, bb.Max, true);
 
-            // print the name of the asset
-            const float LetterWidth   = ImGui::CalcTextSize("A").x;
-            const int   NCharsPerLine = static_cast<int>(size.x / LetterWidth);
-            const int   StrLen        = static_cast<int>(std::strlen(label));
-            const int   MaxLines      = 2;
-
-            if (StrLen > NCharsPerLine)
+            if (bRenaming)
             {
-                for (int i = 0; i < StrLen && i < NCharsPerLine * MaxLines; i += NCharsPerLine)
+                // Single-line inline edit box in place of the (possibly wrapped/centered) static
+                // label above - matches the common file-manager convention (Explorer, VS Code) of a
+                // plain left-aligned edit field regardless of how the label itself would have
+                // wrapped. AutoSelectAll so typing immediately replaces the old name, matching the
+                // old popup's own "pre-filled, ready to overwrite" feel.
+                ImGui::PushID(static_cast<int>(G.m_Value));
+                ImGui::SetNextItemWidth(text_width);
+                if (bRenameJustActivated) ImGui::SetKeyboardFocusHere();
+                ImGui::InputText("##RenameInline", pRenameBuf, RenameBufSize, ImGuiInputTextFlags_AutoSelectAll | ImGuiInputTextFlags_EnterReturnsTrue);
+
+                // Escape reverts InputText's own buffer content and deactivates it in the same frame
+                // - IsKeyPressed still sees that same-frame Escape (it isn't "consumed" the way some
+                // mouse-click ownership is), so it reliably distinguishes cancel from every OTHER way
+                // to leave the field (Enter, Tab, or simply clicking elsewhere - all of which commit,
+                // matching Explorer's own "click away = accept" convention rather than requiring a
+                // separate OK button).
+                if (ImGui::IsItemDeactivated())
                 {
-                    ImGui::Text("%.*s", (StrLen - i) < NCharsPerLine ? (StrLen - i) : NCharsPerLine, label + i);
+                    if (ImGui::IsKeyPressed(ImGuiKey_Escape)) { if (pOutRenameCancel) *pOutRenameCancel = true; }
+                    else                                      { if (pOutRenameCommit) *pOutRenameCommit = true; }
                 }
+                ImGui::PopID();
             }
             else
             {
-                // static constexpr char spaces[] = "                                              ";
-                // const int NSpaces = static_cast<int>((NCharsPerLine - StrLen)/2.0 + 1.5f);
-                // ImGui::Text("%s%s", &spaces[sizeof(spaces) - NSpaces], label);
+                // print the name of the asset
+                const float LetterWidth   = ImGui::CalcTextSize("A").x;
+                const int   NCharsPerLine = static_cast<int>(size.x / LetterWidth);
+                const int   StrLen        = static_cast<int>(std::strlen(label));
+                const int   MaxLines      = 2;
 
-                ImGui::SetCursorPosX(ImGui::GetCursorPosX() + LetterWidth * ((NCharsPerLine - StrLen) / 2.0f+0.5f));
-                ImGui::Text("%s", label);
+                if (StrLen > NCharsPerLine)
+                {
+                    for (int i = 0; i < StrLen && i < NCharsPerLine * MaxLines; i += NCharsPerLine)
+                    {
+                        ImGui::Text("%.*s", (StrLen - i) < NCharsPerLine ? (StrLen - i) : NCharsPerLine, label + i);
+                    }
+                }
+                else
+                {
+                    // static constexpr char spaces[] = "                                              ";
+                    // const int NSpaces = static_cast<int>((NCharsPerLine - StrLen)/2.0 + 1.5f);
+                    // ImGui::Text("%s%s", &spaces[sizeof(spaces) - NSpaces], label);
+
+                    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + LetterWidth * ((NCharsPerLine - StrLen) / 2.0f+0.5f));
+                    ImGui::Text("%s", label);
+                }
             }
 
             ImGui::PopClipRect();
@@ -1780,11 +1826,29 @@ namespace e10
                         bArrowClicked = true;
                 }
 
+                // Inline rename - see WrappedButton2's own comment. m_RenameFirstOpen doubles as
+                // "just entered rename mode this frame" (drives SetKeyboardFocusHere once) exactly
+                // like it did for the old popup's own first-open focus, just repurposed rather than
+                // renamed, to keep this diff small.
+                // m_RenameItem.empty() guard is NOT redundant: m_RenameItem default-constructs to
+                // the exact same all-zero value as a genuinely-empty/uninitialized E.m_ResourceGUID,
+                // so without it, whichever item happens to carry a zero guid falsely matches "nothing
+                // is being renamed" as if IT were the one being renamed - a real, pre-existing bug
+                // this inline-rename change made obvious (previously masked by the old popup landing
+                // off-screen at an uninitialized mouse position, so nobody ever saw it fire).
+                const bool bIsRenamingThis = !m_RenameItem.empty() && (m_RenameItem == E.m_ResourceGUID);
+                bool       bRenameCommit   = false;
+                bool       bRenameCancel   = false;
+
                 int PressType = 0;
                 if (!bArrowClicked)
                 {
                 ImGui::PushStyleColor(ImGuiCol_Text, LabelColor);
-                if (int PressType = WrappedButton2(E.m_ResourceGUID.m_Instance, std::format("{}", StringOne).c_str(), button_sz, Color, pIcon, held, E.m_bModified); PressType == 2)
+                if (int PressType = WrappedButton2(E.m_ResourceGUID.m_Instance, std::format("{}", StringOne).c_str(), button_sz, Color, pIcon, held, E.m_bModified
+                                                  , bIsRenamingThis ? m_RenameNewName.data() : nullptr
+                                                  , bIsRenamingThis ? m_RenameNewName.size() : 0
+                                                  , bIsRenamingThis && m_RenameFirstOpen
+                                                  , &bRenameCommit, &bRenameCancel); PressType == 2)
                 {
                     if (E.m_ResourceGUID.m_Type == e10::folder::type_guid_v)
                     {
@@ -1863,11 +1927,32 @@ namespace e10
                     // WrappedButton2 must still run even when the click was for the arrow, not the
                     // button - it's what actually draws the thumbnail every frame regardless of input.
                     ImGui::PushStyleColor(ImGuiCol_Text, LabelColor);
-                    WrappedButton2(E.m_ResourceGUID.m_Instance, std::format("{}", StringOne).c_str(), button_sz, Color, pIcon, held, E.m_bModified);
+                    WrappedButton2(E.m_ResourceGUID.m_Instance, std::format("{}", StringOne).c_str(), button_sz, Color, pIcon, held, E.m_bModified
+                                 , bIsRenamingThis ? m_RenameNewName.data() : nullptr
+                                 , bIsRenamingThis ? m_RenameNewName.size() : 0
+                                 , bIsRenamingThis && m_RenameFirstOpen
+                                 , &bRenameCommit, &bRenameCancel);
                     ImGui::PopStyleColor();
                     m_IsExpanded[E.m_ResourceGUID] = !bExpandedBefore;
                 }
                 if (ThisSelected == -1) ImGui::PopStyleColor(1);
+
+                if (bIsRenamingThis)
+                {
+                    m_RenameFirstOpen = false;
+                    if (bRenameCommit)
+                    {
+                        if (auto Err = m_AssetMgr.RenameDescriptor(m_RenameLibrary, m_RenameItem, m_RenameNewName.data()); Err)
+                            printf("Error: %s\n", Err.getMessage().data());
+                        m_RenameItem.clear();
+                        m_RenameFirstOpen = true;
+                    }
+                    else if (bRenameCancel)
+                    {
+                        m_RenameItem.clear();
+                        m_RenameFirstOpen = true;
+                    }
+                }
 
                 // Draw the arrow on top - pure draw-list, no ImGui item, no cursor manipulation (see
                 // the comment above on why that matters for the row-wrap check just below).
@@ -2287,61 +2372,8 @@ namespace e10
                     ImGui::EndPopup(); // Close the popup scope
                 }
 
-                if ( m_RenameItem == E.m_ResourceGUID )
-                {
-                    ImGui::OpenPopup("Resource Rename");
-                    ImGui::SetNextWindowPos(m_ResourceMenuMousePos);
-                }
-                
-
-                if (ImGui::BeginPopup("Resource Rename"))
-                {
-                    if (m_RenameFirstOpen)
-                    {
-                        ImGui::SetKeyboardFocusHere();
-                        m_RenameFirstOpen = false;
-                    }
-                    ImGui::InputText("New Name", m_RenameNewName.data(), m_RenameNewName.size());
-
-                    bool bEnterPressed = false;
-                    // Optional: Ensure cursor is at the end (if there's existing text)
-                    if (ImGui::IsKeyPressed(ImGuiKey_Enter, false)) bEnterPressed = true;
-
-                    if (ImGui::IsKeyPressed(ImGuiKey_Escape))
-                    {
-                        ImGui::CloseCurrentPopup(); // Close without saving
-                        m_RenameItem.clear();
-                    }
-
-                    // If user clicks outside the popup, close it
-                    if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered())
-                    {
-                        ImGui::CloseCurrentPopup();
-                        m_RenameItem.clear();
-                    }
-
-
-                    if ( ImGui::Button(" Cancel ") )
-                    {
-                        m_RenameItem.clear();
-                        m_RenameFirstOpen = true;
-                        ImGui::CloseCurrentPopup(); // Close on Enter
-                    }
-
-                    ImGui::SameLine(0,10);
-                    if (ImGui::Button(" OK ") || bEnterPressed )
-                    {
-                        if (auto Err = m_AssetMgr.RenameDescriptor(m_RenameLibrary, m_RenameItem, m_RenameNewName.data()); Err)
-                        {
-                            printf("Error: %s\n", Err.getMessage().data() );
-                        }
-                        m_RenameItem.clear();
-                        m_RenameFirstOpen = true;
-                        ImGui::CloseCurrentPopup(); // Close on Enter
-                    }
-
-                    ImGui::EndPopup(); // Close the popup scope
-                }
+                // Renaming is now inline (see WrappedButton2's own call sites above, near
+                // bIsRenamingThis) - no separate popup needed any more.
 
 
                 if (ImGui::IsItemHovered() && !bBeenDrag)
