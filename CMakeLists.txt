@@ -99,6 +99,8 @@ FetchAndPopulate("https://github.com/LIONant-depot/xstrtool.git" "main")
 FetchAndPopulate("https://github.com/LIONant-depot/xbmp_tools.git" "main")
 FetchAndPopulate("https://github.com/LIONant-depot/xserializer.git" "main")
 FetchAndPopulate("https://github.com/LIONant-depot/xscheduler.git" "main")
+FetchAndPopulate("https://github.com/LIONant-depot/xECS.git" "Lesson09_Prefabs")
+FetchAndPopulate("https://github.com/LIONant-depot/xECSV2.git" "main")
 FetchAndPopulate("https://github.com/thedmd/imgui-node-editor.git" "master")
 
 #
@@ -412,6 +414,20 @@ add_executable(${TARGET_PROJECT}
   "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_operations.h"
   "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_demo_data.h"
 
+  # xECSV2 - ECS library ported onto this project's own modern dependencies (xproperty/xtextfile/
+  # xerr/xresource_guid) instead of the old xECS's xCore. xecs.cpp is the umbrella translation unit
+  # (it #includes details/xecs_game_mgr.cpp and details/xecs_prefab_mgr.cpp itself - those aren't
+  # separate CMake sources). xtextfile.cpp provides xtextfile::details::file's platform backend,
+  # which xECS's serialization now depends on and which wasn't linked into this target before
+  # (xproperty::settings::ResourcePointerToGUID, the other non-header-only piece xECS needs, is
+  # already compiled in via E20_Material_Instance_Editor.cpp's own #include of my_properties.cpp -
+  # adding it again here would double-define it).
+  "dependencies/xECSV2/src/xecs.cpp"
+  "dependencies/xtextfile/source/xtextfile.cpp"
+
+  # E29 - Level+Scene editor. First consumer of xECSV2's scene system as real, resource-pipeline-
+  # integrated Level/Scene resource types (see dependencies/xECSV2/src/xecs_level*.h/xecs_scene*.h).
+  "source/Examples/E29_LevelSceneEditor/E29_LevelScene_Editor.cpp"
 
   "source/tools/editors/xgpu_editor_viewport.h"
   "source/tools/editors/xgpu_editor_anim_pose.h"
@@ -779,6 +795,10 @@ source_group("Examples/E28_FontResourcePipeline" FILES
   "source/Examples/E28_FontResourcePipeline/E28_FontResourcePipeline.cpp"
 )
 
+source_group("Examples/E29_LevelSceneEditor" FILES
+  "source/Examples/E29_LevelSceneEditor/E29_LevelScene_Editor.cpp"
+)
+
 
 source_group("" FILES
   "source/Examples/main.cpp"
@@ -789,6 +809,12 @@ source_group("" FILES
 # ADD SUPPORT FOR OPEN_MP
 find_package(OpenMP REQUIRED)
 target_link_libraries(${TARGET_PROJECT} PRIVATE OpenMP::OpenMP_CXX)
+
+# xECSV2's SerializeGameStateV2 (details/xecs_game_mgr.cpp) calls GetUserName() to stamp save
+# files with an author - needs Advapi32 for that on Windows.
+if(WIN32)
+  target_link_libraries(${TARGET_PROJECT} PRIVATE Advapi32.lib)
+endif()
 
 # The hardened xproperty header instantiates noticeably more templates per translation unit,
 # which pushes some examples (E10_TextureResourcePipeline) past MSVC's COFF section limit.

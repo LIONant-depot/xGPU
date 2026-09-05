@@ -1073,10 +1073,23 @@ namespace e10
             {}
 
         inline int getQueueIndexFromType(xresource::type_guid Type) const;
-        
+
+        // Whether the plugin for this resource type has no compiler configured in its Plugin.config
+        // (e.g. Folder, Level, Scene) - defined out-of-line further down (same reason
+        // getQueueIndexFromType is: it needs library_mgr's complete type, which isn't available yet
+        // at this point in the header).
+        inline bool HasNoCompiler(xresource::type_guid Type) const;
+
         bool AddToCompilationQueueIfNeeded( const info_db& InfoTypeDB, info_node& InfoNode) const
         {
             //NOTE: If a node is "deleted" should we let it compile???
+
+            // Descriptor-only resource types (no compiler configured in Plugin.config, e.g. Level/
+            // Scene) never get queued - without this, a real Descriptor.txt for such a type would
+            // still get queued purely on timestamp, then fail with an empty compiler command line,
+            // showing a perpetual red "Failed" badge for a resource that was never meant to compile.
+            if (HasNoCompiler(InfoNode.m_Info.m_Guid.m_Type))
+                return false;
 
             if (InfoNode.m_State != library_db::info_node::state::COMPILING && InfoNode.m_State != library_db::info_node::state::BEEN_EDITED_COMPILING )
             {
@@ -3377,6 +3390,13 @@ namespace e10
 
         assert(false);
         return 0;
+    }
+
+    bool library_db::HasNoCompiler(xresource::type_guid Type) const
+    {
+        if (auto pPlugin = m_CompilationInstance.m_LibraryMgr.m_AssetPluginsDB.find(Type); pPlugin)
+            return pPlugin->m_DebugCompiler.empty() && pPlugin->m_ReleaseCompiler.empty();
+        return false;
     }
 
 

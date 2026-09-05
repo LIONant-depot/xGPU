@@ -40,6 +40,43 @@ namespace e10
         }
     };
 
+    // The payload shape every folder/asset drag source in this browser uses ("DESCRIPTOR_GUID" -
+    // moved here from virtual_tree_tab, which now just aliases it, so external consumers wanting to
+    // accept a dropped asset - e.g. a scene tree instantiating a dropped Prefab - can decode it
+    // without including that tab's own implementation header).
+    struct drag_and_drop_folder_payload_t
+    {
+        e10::folder::guid           m_Parent;
+        xresource::full_guid        m_Source;
+        bool                        m_bSelection;
+    };
+
+    // Generic extension point for "drag something from outside the asset browser onto one of its
+    // folders to create a brand-new asset there" (e.g. dragging a scene entity onto a folder to turn
+    // it into a Prefab, Unity-style). The browser's folder drop targets don't need to know what's
+    // being dragged or how to build the resulting asset - they just accept the named ImGui payload
+    // and forward the raw bytes here. Self-registers via a linked list, same pattern as
+    // browser_registration_base above, so a consumer (e.g. E29) only needs to instantiate one static
+    // instance of a subclass - no change to this header or the browser's own code required per
+    // consumer.
+    struct external_drop_registration_base
+    {
+        // Called when a matching payload is dropped on folder ParentGUID (which belongs to
+        // LibraryGUID). Return the newly created asset's guid so the browser can select it, or an
+        // empty guid if the drop should be treated as a no-op (e.g. validation failed).
+        virtual xresource::full_guid OnDrop(library_mgr& AssetMgr, library::guid LibraryGUID, xresource::full_guid ParentGUID, const void* pData, std::size_t Size) const noexcept = 0;
+
+        external_drop_registration_base(const char* pPayloadName) noexcept : m_pPayloadName{ pPayloadName }
+        {
+            m_pNext = g_pHead;
+            g_pHead = this;
+        }
+
+        const char*                                       m_pPayloadName;
+        external_drop_registration_base*                  m_pNext = nullptr;
+        inline constinit static external_drop_registration_base* g_pHead = nullptr;
+    };
+
     // asset browser tab base
     struct asset_browser_tab_base
     {
@@ -57,6 +94,17 @@ namespace e10
 
     struct assert_browser
     {
+        // How this browser instance presents itself. POPUP (the default, matching every existing
+        // call site) is a one-shot modal picker: undockable, auto-closes the moment a selection is
+        // made, and shows a bottom "Close" button so the user can cancel out. DOCKABLE is a
+        // persistent, always-open core tool window (e.g. "File > Asset Browser..."): it docks like
+        // any other panel, never auto-closes, and has no Close affordance at all since it isn't
+        // meant to be dismissed.
+        enum class display_mode : std::uint8_t
+        { POPUP
+        , DOCKABLE
+        };
+
         const void* getCurrentID(void)
         {
             return m_pPopupUID;
@@ -223,7 +271,14 @@ namespace e10
 
         bool isAutoClose() const noexcept
         {
-            return m_bAutoClose;
+            return m_DisplayMode == display_mode::POPUP;
+        }
+
+        //=============================================================================
+
+        void setDisplayMode(display_mode Mode) noexcept
+        {
+            m_DisplayMode = Mode;
         }
 
         //=============================================================================
@@ -364,13 +419,20 @@ namespace e10
             ImGui::SetNextWindowBgAlpha(0.9f);
             ImGui::SetNextWindowSize(ImVec2(400, 400), ImGuiCond_FirstUseEver);
             
-            if (ImGui::Begin(m_WindowName.data(), nullptr, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse))
+            // POPUP stays a floating, undockable overlay - docking it or leaving it parked in
+            // someone's layout would make "+" pickers behave inconsistently. DOCKABLE docks like any
+            // other tool window instead.
+            const ImGuiWindowFlags WindowFlags = ImGuiWindowFlags_NoCollapse | (m_DisplayMode == display_mode::POPUP ? ImGuiWindowFlags_NoDocking : ImGuiWindowFlags_None);
+            if (ImGui::Begin(m_WindowName.data(), nullptr, WindowFlags))
             {
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));        // Transparent background
 
                 // Get available space
                 float total_width = ImGui::GetContentRegionAvail().x;
-                float total_height = ImGui::GetContentRegionAvail().y - 40.0f; // Subtract space for button
+                // Only POPUP reserves room at the bottom for the Close button + separator - DOCKABLE
+                // has neither, so it should use the full available height instead of leaving that
+                // space empty.
+                float total_height = ImGui::GetContentRegionAvail().y - (m_DisplayMode == display_mode::POPUP ? 40.0f : 0.0f);
                 static float size1 = total_width * 0.2f;
                 static float size2 = total_width * 0.8f;
                 static float ButtonWidth = 4.0f;
@@ -474,9 +536,9 @@ namespace e10
                 ImGui::EndGroup();
 
                 //
-                // Close button
+                // Close button - POPUP only; DOCKABLE is a permanent panel with nothing to cancel out of.
                 //
-                if (m_bAutoClose)
+                if (m_DisplayMode == display_mode::POPUP)
                 {
                     ImGui::Separator();
                     if (ScaleButton(" Close ", 1.5f))
@@ -496,7 +558,7 @@ namespace e10
         xresource::full_guid                m_LastGeneratedAsset    = {};
         xresource::full_guid                m_SelectedAsset         = {};
         library::guid                       m_SelectedLibrary       = {};
-        bool                                m_bAutoClose            = true;
+        display_mode                        m_DisplayMode           = display_mode::POPUP;
         bool                                m_bRenderBrowser        = false;
         tab_list                            m_Tabs                  = {};
         std::array<char,256>                m_WindowName            = {"Resource Browser"};

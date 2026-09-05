@@ -52,12 +52,11 @@ namespace e10
 
         //=============================================================================
 
-        struct drag_and_drop_folder_payload_t
-        {
-            e10::folder::guid           m_Parent;
-            xresource::full_guid        m_Source;
-            bool                        m_bSelection;
-        };
+        // Moved to e10::drag_and_drop_folder_payload_t (E10_AssetBrowser.h) so external code (e.g. a
+        // scene tree accepting a dropped Prefab asset) can decode this payload shape without
+        // including this tab's own header. Aliased here so every existing unqualified use in this
+        // file keeps compiling unchanged.
+        using drag_and_drop_folder_payload_t = e10::drag_and_drop_folder_payload_t;
 
         //=============================================================================
 
@@ -1171,6 +1170,21 @@ namespace e10
                                 }
                             }
                         }
+
+                        // External creators (e.g. dragging a scene entity here to make a Prefab) -
+                        // see e10::external_drop_registration_base's own comment.
+                        for (auto pReg = e10::external_drop_registration_base::g_pHead; pReg; pReg = pReg->m_pNext)
+                        {
+                            if (const ImGuiPayload* ExtPayload = ImGui::AcceptDragDropPayload(pReg->m_pPayloadName))
+                            {
+                                if (auto NewGuid = pReg->OnDrop(m_AssetMgr, L.first, FullGuid, ExtPayload->Data, static_cast<std::size_t>(ExtPayload->DataSize)); NewGuid.empty() == false)
+                                {
+                                    m_SelectedItems.clear();
+                                    m_SelectedItems.push_back(NewGuid);
+                                }
+                            }
+                        }
+
                         ImGui::EndDragDropTarget();
                     }
 
@@ -1974,6 +1988,21 @@ namespace e10
                                 }
                             }
                         }
+
+                        // External creators - see the tree panel's identical block above and
+                        // e10::external_drop_registration_base's own comment.
+                        for (auto pReg = e10::external_drop_registration_base::g_pHead; pReg; pReg = pReg->m_pNext)
+                        {
+                            if (const ImGuiPayload* ExtPayload = ImGui::AcceptDragDropPayload(pReg->m_pPayloadName))
+                            {
+                                if (auto NewGuid = pReg->OnDrop(m_AssetMgr, m_SelectedLibrary, E.m_ResourceGUID, ExtPayload->Data, static_cast<std::size_t>(ExtPayload->DataSize)); NewGuid.empty() == false)
+                                {
+                                    m_SelectedItems.clear();
+                                    m_SelectedItems.push_back(NewGuid);
+                                }
+                            }
+                        }
+
                         ImGui::EndDragDropTarget();
                     }
                 }
