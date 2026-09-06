@@ -424,15 +424,27 @@ set(XGPU_SOURCES
   "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_operations.h"
   "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_demo_data.h"
 
-  # xECSV2's xecs.cpp/xtextfile.cpp are NOT listed here unconditionally anymore - see the
+  # xtextfile.cpp provides xtextfile::details::file's platform backend, which xECS's serialization
+  # depends on (xproperty::settings::ResourcePointerToGUID, the other non-header-only piece xECS
+  # needs, is already compiled in via E20_Material_Instance_Editor.cpp's own #include of
+  # my_properties.cpp - adding it again here would double-define it). Always compiled directly into
+  # this target, in BOTH XECS_BUILD_SHARED_LIBRARY modes - unlike xecs.cpp (see the conditional
+  # right after this list closes), xtextfile is a general-purpose dependency with no shared-state
+  # concern (nothing about it needs to be the ONE process-wide instance the way
+  # xecs::component::mgr::s_Registry does), so every consumer - this target AND xECSV2.dll AND
+  # E29_Game.dll, once that exists - simply compiles its own private copy, same as
+  # my_properties.cpp already does. Confirmed empirically: E29_LevelScene_Editor.cpp's own compiled
+  # object references xtextfile::details::file's methods directly (real Scene/Level serialization,
+  # not just header-only template usage), and xECSV2.dll does not export them (not XECS_API-
+  # decorated - no cross-module shared-state reason to), so leaving this out under shared mode
+  # produced real LNK2019s the very first time something actually exercised scene serialization.
+  "dependencies/xtextfile/source/xtextfile.cpp"
+
+  # xECSV2's xecs.cpp is NOT listed here unconditionally anymore - see the
   # XECS_BUILD_SHARED_LIBRARY conditional right after this list closes. When that option is OFF
-  # (default), they're appended to XGPU_SOURCES exactly as before (same two files, same reasoning:
-  # xecs.cpp is the umbrella TU - it #includes details/xecs_game_mgr.cpp and
-  # details/xecs_prefab_mgr.cpp itself, not separate CMake sources; xtextfile.cpp provides
-  # xtextfile::details::file's platform backend xECS's serialization depends on;
-  # xproperty::settings::ResourcePointerToGUID is already compiled in via
-  # E20_Material_Instance_Editor.cpp's own #include of my_properties.cpp, so it's not repeated
-  # here). When ON, xECSV2.dll supplies both instead.
+  # (default), it's appended to XGPU_SOURCES exactly as before (xecs.cpp is the umbrella TU - it
+  # #includes details/xecs_game_mgr.cpp and details/xecs_prefab_mgr.cpp itself, not separate CMake
+  # sources). When ON, xECSV2.dll supplies it instead.
 
   # E29 - Level+Scene editor. First consumer of xECSV2's scene system as real, resource-pipeline-
   # integrated Level/Scene resource types (see dependencies/xECSV2/src/xecs_level*.h/xecs_scene*.h).
@@ -470,7 +482,6 @@ set(XGPU_SOURCES
 if(NOT XECS_BUILD_SHARED_LIBRARY)
   list(APPEND XGPU_SOURCES
     "dependencies/xECSV2/src/xecs.cpp"
-    "dependencies/xtextfile/source/xtextfile.cpp"
   )
 endif()
 
@@ -521,6 +532,47 @@ if(XECS_BUILD_SHARED_LIBRARY)
 
   target_link_libraries(${TARGET_PROJECT} PRIVATE xECSV2)
   target_compile_definitions(${TARGET_PROJECT} PRIVATE XECS_BUILD_SHARED)
+
+  # xECSV2 type-registration architecture plan, Phase 8 - E29's sample hot-reloadable "Game.dll"
+  # (source/Examples/E29_LevelSceneEditor/GameProject/E29_Game.cpp). A stand-in for what would
+  # eventually be a separate, user-owned project directory built by whatever toolchain the student
+  # prefers (per the "Unity scripting model" direction: E29 builds it if it needs to, otherwise
+  # whatever the user already built is just loaded) - kept as an ordinary target in this same
+  # CMakeLists.txt for now since there is exactly one sample game project to build. Same
+  # include-directory list as xECSV2 above (it directly includes xecs.h and uses XPROPERTY_DEF/
+  # XPROPERTY_REG) and links against xECSV2 so its RegisterComponents<T>() calls mutate the SAME
+  # shared registry the host does, not a disconnected copy.
+  add_library(E29_Game SHARED
+    "source/Examples/E29_LevelSceneEditor/GameProject/E29_Game.cpp"
+    # Own private copy of xtextfile's platform backend - see the main XGPU_SOURCES list's own
+    # comment on xtextfile.cpp for why every consumer needs this (no shared-state concern, unlike
+    # xecs.cpp). A trivial game .cpp with no serialization calls of its own still needs this: any
+    # xECS built-in component with a real (non-trivial) FullSerialize - e.g. xecs::component::
+    # children, referenced merely by being one of the 8 types xecs::component::mgr's constructor
+    # always registers - gets its serialize function's address taken (and hence its body compiled)
+    # in every TU that includes xecs.h, whether or not that TU's own code ever calls it.
+    "dependencies/xtextfile/source/xtextfile.cpp"
+    # Own private copy of xproperty::settings::ResourcePointerToGUID - same reasoning as
+    # xtextfile.cpp just above (no shared-state concern, every consumer compiles its own).
+    "dependencies/xproperty/source/xcore/my_properties.cpp"
+  )
+  target_include_directories(E29_Game PRIVATE
+    "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/dependencies/xECSV2/src"
+    "${CMAKE_SOURCE_DIR}/dependencies/xerr"
+    "${CMAKE_SOURCE_DIR}/dependencies/xresource_guid"
+    "${CMAKE_SOURCE_DIR}/dependencies/xtextfile"
+    "${CMAKE_SOURCE_DIR}/dependencies/xproperty"
+    "${CMAKE_SOURCE_DIR}/dependencies/xresource_pipeline_v2"
+    "${CMAKE_SOURCE_DIR}/dependencies/xstrtool"
+    "${CMAKE_SOURCE_DIR}/dependencies/xcontainer"
+    "${CMAKE_SOURCE_DIR}/dependencies/xdelegate"
+    "${CMAKE_SOURCE_DIR}/dependencies/xscheduler"
+    "${CMAKE_SOURCE_DIR}/dependencies/xmath"
+    "${CMAKE_SOURCE_DIR}/dependencies/xbits"
+  )
+  target_compile_definitions(E29_Game PRIVATE XECS_BUILD_SHARED)
+  target_link_libraries(E29_Game PRIVATE xECSV2)
 endif()
 
 # Organize the shades under the folder shaders (At least the default folder)

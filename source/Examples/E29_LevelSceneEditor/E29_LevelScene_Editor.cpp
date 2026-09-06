@@ -1,4 +1,6 @@
 #include "source/Examples/E29_LevelSceneEditor/E29_LevelSceneEditorKit.h"
+#include "dependencies/xECSV2/src/xecs_plugin_api.h"
+#include "source/Examples/E29_LevelSceneEditor/E29_GamePlugin.h"
 
 //-----------------------------------------------------------------------------------
 //
@@ -110,15 +112,50 @@ int E29_Example()
     ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.85f;
 
     //
-    // ECS setup - first xGPU example to own an xecs::game_mgr::instance.
+    // ECS setup - first xGPU example to own an xecs::game_mgr::instance. A unique_ptr (not a plain
+    // stack value) specifically so Phase 8's ReloadGame can destroy and reconstruct the whole world
+    // in place - see E29_GamePlugin.h's own comment on why that's the correct, sufficient operation
+    // for a hot reload rather than something narrower.
     //
-    xecs::game_mgr::instance GameMgr;
-    GameMgr.RegisterComponents<e29::name, e29::transform, xecs::editor::prefab_instance, xecs::component::entity_reference>();
-    GameMgr.RegisterSystems<e29::tick_logger_a, e29::tick_logger_b>();
+    auto pGameMgr = std::make_unique<xecs::game_mgr::instance>();
+    e29::game_plugin_state GamePlugin;
+
+    // Registers e29's own demo content - kept as a local lambda (not inlined at each of the two call
+    // sites below) so ReloadGame can re-run the exact same host-registration sequence after a
+    // reload, matching what startup does here.
+    auto RegisterHostComponents = []( xecs::game_mgr::instance& GameMgr ) noexcept
+    {
+        GameMgr.RegisterComponents<e29::name, e29::transform, xecs::editor::prefab_instance, xecs::component::entity_reference>();
+    };
+    auto RegisterHostSystems = []( xecs::game_mgr::instance& GameMgr ) noexcept
+    {
+        GameMgr.RegisterSystems<e29::tick_logger_a, e29::tick_logger_b>();
+    };
+
+    RegisterHostComponents(*pGameMgr);
+
+    // E29's sample Game.dll (source/Examples/E29_LevelSceneEditor/GameProject/E29_Game.cpp) -
+    // loading it here, BEFORE RegisterSystems below locks the component registry, is what makes an
+    // initial load possible without a full reload; only a SUBSEQUENT swap (hot reload while already
+    // running) needs ReloadGame's destroy-and-recreate sequence. Missing/failing to load is not an
+    // error - E29 runs exactly as before with no game loaded, matching the "user builds it, or E29
+    // does" direction: nothing has been built yet on a fresh checkout, and that's fine.
+    {
+        TCHAR szModulePath[MAX_PATH];
+        GetModuleFileName(NULL, szModulePath, MAX_PATH);
+        std::filesystem::path GameDllPath = std::filesystem::path(szModulePath).parent_path() / L"E29_Game.dll";
+        GamePlugin.m_DllPath = GameDllPath.wstring();
+        e29::LoadGamePluginComponents(*pGameMgr, GamePlugin, /*Generation*/ 1);
+    }
+
+    RegisterHostSystems(*pGameMgr);
+    e29::RegisterGamePluginSystems(*pGameMgr, GamePlugin);
 
     //
-    // Project path (same lookup every editor example uses)
+    // Project path (same lookup every editor example uses) - kept around (not just a local) so
+    // ReloadGame can re-apply it to a freshly reconstructed pGameMgr.
     //
+    std::wstring ProjectPath;
     {
         TCHAR szFileName[MAX_PATH];
         GetModuleFileName(NULL, szFileName, MAX_PATH);
@@ -141,16 +178,17 @@ int E29_Example()
             static std::string IniSave = std::format("{}/Assets/imgui_e29.ini", xstrtool::To(szFileName));
             io.IniFilename = IniSave.c_str();
 
-            GameMgr.m_SceneMgr.m_ProjectPath  = e10::g_LibMgr.m_ProjectPath;
-            GameMgr.m_LevelMgr.m_ProjectPath  = e10::g_LibMgr.m_ProjectPath;
-            GameMgr.m_PrefabMgr.m_ProjectPath = e10::g_LibMgr.m_ProjectPath;
-            GameMgr.m_SystemMgr.m_ProjectPath = e10::g_LibMgr.m_ProjectPath;
+            ProjectPath = e10::g_LibMgr.m_ProjectPath;
+            pGameMgr->m_SceneMgr.m_ProjectPath  = ProjectPath;
+            pGameMgr->m_LevelMgr.m_ProjectPath  = ProjectPath;
+            pGameMgr->m_PrefabMgr.m_ProjectPath = ProjectPath;
+            pGameMgr->m_SystemMgr.m_ProjectPath = ProjectPath;
 
             // Applies whatever Update-system order/enabled state was last saved through the System
             // Registry panel - must run AFTER RegisterSystems<...>() above has populated
             // m_SystemMgr's own update-system list; a missing file (nothing saved yet) is not an
             // error, registration order simply stands as-is.
-            if (auto Err = GameMgr.m_SystemMgr.Load(); Err)
+            if (auto Err = pGameMgr->m_SystemMgr.Load(); Err)
                 e29::Debugger(std::format("Failed to load System Registry order: {}", Err.getMessage()));
         }
     }
@@ -163,7 +201,8 @@ int E29_Example()
 
     // Lets entity_to_prefab_drop::OnDrop (a static, globally-registered object) reach the live
     // GameMgr/State at drop time - see their own declaration comment for why this is safe here.
-    e29::g_pGameMgr = &GameMgr;
+    // Rebound by ReloadGame after a hot reload replaces *pGameMgr with a fresh instance.
+    e29::g_pGameMgr = pGameMgr.get();
     e29::g_pState   = &State;
 
     // Visible from the start and never closable - browsing/creating Levels and Scenes is this
@@ -183,13 +222,32 @@ int E29_Example()
     xproperty::inspector          EntityInspector("Entity Properties");
     e29::entity_inspector_bridge  InspectorBridge;
     e29::WireResourcePickerCallbacks(EntityInspector);
-    InspectorBridge.RegisterCallbacks(EntityInspector, GameMgr, State);
+    InspectorBridge.RegisterCallbacks(EntityInspector, *pGameMgr, State);
 
     //
     // Main Loop
     //
+    // Set by the "Reload Game" button (see below) and consumed here, BEFORE BeginRendering starts
+    // this frame - not run synchronously at the point of the click. Confirmed empirically (same
+    // methodology as the startup Debugger()-timing bug this session already found and fixed):
+    // ReloadGame's destroy-and-recreate-the-whole-world sequence is heavy enough, and the click
+    // itself happens nested inside an active ImGui::BeginMainMenuBar()/EndMainMenuBar() scope, that
+    // running it synchronously corrupted ImGui's window-stack bookkeeping the same way. Running it
+    // here instead gives it a clean "no active ImGui frame" execution context, same as every other
+    // safe Debugger()/heavy-state-mutation call site in this file.
+    bool bReloadGameRequested = false;
+
     while (Instance.ProcessInputEvents())
     {
+        if (bReloadGameRequested)
+        {
+            bReloadGameRequested = false;
+            e29::ReloadGame
+            ( pGameMgr, State, GamePlugin, EntityInspector, InspectorBridge, ProjectPath
+            , RegisterHostComponents, RegisterHostSystems
+            );
+        }
+
         if (xgpu::tools::imgui::BeginRendering(true)) continue;
 
         e29::RenderErrorPopup();
@@ -209,9 +267,20 @@ int E29_Example()
 
                 ImGui::Separator();
                 if (ImGui::MenuItem("Save", "Ctrl+S"))
-                    e29::SaveEverything(GameMgr, State);
+                    e29::SaveEverything(*pGameMgr, State);
                 ImGui::EndMenu();
             }
+
+            // Phase 8 of the xECSV2 type-registration architecture plan - hot-reloads
+            // E29_Game.dll: destroys the whole runtime world, unloads the current plugin
+            // generation, reloads the (possibly just-rebuilt-by-the-user) DLL, and reconstructs a
+            // fresh world with everything re-registered - see E29_GamePlugin.h's own ReloadGame for
+            // the exact sequence. Only sets a flag here - the main loop's own top (before
+            // BeginRendering) is where ReloadGame actually runs; see that flag's own declaration
+            // comment for why running it synchronously, right here, corrupted ImGui's own state.
+            ImGui::SameLine(ImGui::GetWindowWidth() - 170.0f);
+            if (ImGui::Button("Reload Game"))
+                bReloadGameRequested = true;
 
             // Minimal Play/Stop toggle - just flips the flag; the actual GameMgr.Run()/Stop() calls
             // happen once per frame below, unconditionally, regardless of which way this just
@@ -228,38 +297,40 @@ int E29_Example()
         // purely decorative and doesn't bind anything on its own. Checked once per frame,
         // unconditionally (not gated behind the File menu being open).
         if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S))
-            e29::SaveEverything(GameMgr, State);
+            e29::SaveEverything(*pGameMgr, State);
 
         // GameMgr.Run()/Stop() already exist and do everything needed: Run() ticks every enabled
         // Update system in its current order (via m_SystemMgr.Run()) and, on the Stopped->Running
         // transition, snapshots the System Registry's current order/enabled state; Stop() restores
         // that snapshot on the reverse transition. E29 has no viewport yet, so "Play" here only means
         // "the ECS's own systems tick" - proving the System Registry feature, not adding a game view.
-        if (State.m_bPlaying) GameMgr.Run();
-        else                  GameMgr.Stop();
+        if (State.m_bPlaying) pGameMgr->Run();
+        else                  pGameMgr->Stop();
 
         AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
         e29::g_AssetBrowserPopup.RenderAsPopup(e10::g_LibMgr, xresource::g_Mgr);
 
         if (auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false)
         {
-            if (NewAsset.m_Type == xecs::level::type_guid_v) e29::OpenLevel(GameMgr, State, NewAsset);
-            else if (NewAsset.m_Type == xecs::scene::type_guid_v) e29::OpenScene(GameMgr, State, NewAsset);
+            if (NewAsset.m_Type == xecs::level::type_guid_v) e29::OpenLevel(*pGameMgr, State, NewAsset);
+            else if (NewAsset.m_Type == xecs::scene::type_guid_v) e29::OpenScene(*pGameMgr, State, NewAsset);
         }
         else if (auto SelAsset = AsserBrowser.getSelectedAsset(); SelAsset.empty() == false)
         {
-            if (SelAsset.m_Type == xecs::level::type_guid_v) e29::OpenLevel(GameMgr, State, SelAsset);
-            else if (SelAsset.m_Type == xecs::scene::type_guid_v) e29::OpenScene(GameMgr, State, SelAsset);
+            if (SelAsset.m_Type == xecs::level::type_guid_v) e29::OpenLevel(*pGameMgr, State, SelAsset);
+            else if (SelAsset.m_Type == xecs::scene::type_guid_v) e29::OpenScene(*pGameMgr, State, SelAsset);
         }
 
-        e29::RenderLevelTreePanel(GameMgr, State);
-        e29::RenderEntityPropertiesPanel(GameMgr, State, EntityInspector, InspectorBridge);
-        e29::RenderSystemRegistryPanel(GameMgr, State);
+        e29::RenderLevelTreePanel(*pGameMgr, State);
+        e29::RenderEntityPropertiesPanel(*pGameMgr, State, EntityInspector, InspectorBridge);
+        e29::RenderSystemRegistryPanel(*pGameMgr, State);
 
         xgpu::tools::imgui::Render();
         MainWindow.PageFlip();
         xresource::g_Mgr.OnEndFrameDelegate();
     }
+
+    e29::UnloadGamePlugin(GamePlugin);
 
     xgpu::tools::imgui::Shutdown();
     return 0;

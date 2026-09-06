@@ -1357,8 +1357,42 @@ namespace e29
         std::function<void(xproperty::inspector&, const xproperty::type::object&, void*)>                                                m_OnComponentHeaderRender;
         std::function<void(xproperty::inspector&, const xproperty::type::object&, void*, std::string_view, const xproperty::any&, bool&)> m_OnEntityReferenceRender;
 
+        // The "fake pointer, resolved by callback" indirection xproperty's own inspector expects
+        // for any component instance whose address isn't a stable, owning member (see
+        // E10_TextureResourcePipeline.cpp's identical use for the same reason - a selected asset's
+        // descriptor can be reloaded/relocated out from under the inspector). xECS component-pool
+        // addresses are exactly this case: an archetype migration, or a full world destroy/recreate
+        // (Phase 8's hot reload) invalidates them independent of anything on the inspector's own
+        // side. Registered in RegisterCallbacks; re-derives the CURRENT real pointer fresh every
+        // time xproperty::inspector::Show() calls it (twice a frame - see xPropertyImGuiInspector's
+        // own m_OnGetComponentPointer comment) rather than trusting anything cached from a prior
+        // frame. Also the only place m_ComponentMap gets written now (previously written once, at
+        // rebuild time, keyed by the same pointer that's now fake) - keyed by the freshly-resolved
+        // real pointer, matching what m_OnOverrideCheck/m_OnPropertyChanged/etc. actually receive
+        // from xproperty this same frame.
+        std::function<void(xproperty::inspector&, const int, void*&, void*)> m_OnGetComponentPointer;
+
         void RegisterCallbacks(xproperty::inspector& Inspector, xecs::game_mgr::instance& GameMgr, editor_state& State) noexcept
         {
+            // xdelegate::Register(...) unconditionally push_back's - it has no dedup and no
+            // Unregister at all (confirmed reading dependencies/xdelegate/source/xdelegate.h
+            // directly). This method is called MORE than once on the SAME Inspector across this
+            // session's lifetime (once at startup, again after Phase 8's ReloadGame recreates
+            // GameMgr) - without clearing first, every callback below silently accumulates a
+            // second, third, ... registration and fires that many times per event, which is
+            // exactly the "properties/rows rendering doubled" bug a reload produced (confirmed live
+            // - stacked "X"/duplicate rows in the Entity Properties panel after one reload).
+            // E10_TextureResourcePipeline.cpp already established this exact idiom
+            // (`Inspectors[0].m_OnGetComponentPointer.m_Delegates.clear();` before its own
+            // re-Register) for the same reason - mirrored here for all six delegates this bridge
+            // owns, not just the one E10 happened to need it for.
+            Inspector.m_OnChangeEvent.m_Delegates.clear();
+            Inspector.m_OnOverrideCheck.m_Delegates.clear();
+            Inspector.m_OnOverrideReset.m_Delegates.clear();
+            Inspector.m_OnComponentHeaderRender.m_Delegates.clear();
+            Inspector.m_OnCustomRenderReplaceValue.m_Delegates.clear();
+            Inspector.m_OnGetComponentPointer.m_Delegates.clear();
+
             // xdelegate::Register(T_CLASS&) binds to the lambda OBJECT itself (by reference) rather
             // than copying/erasing it into a std::function - so each callback must be a named local
             // that outlives the registration; here that "local" is the std::function MEMBER itself
@@ -1647,6 +1681,35 @@ namespace e29
                 }
             };
             Inspector.m_OnCustomRenderReplaceValue.Register(m_OnEntityReferenceRender);
+
+            // See this member's own declaration comment for why this exists at all. pUserData is
+            // the pInfo passed to AppendEntityComponent's own pUserData argument (RenderEntity
+            // PropertiesPanel's dirty-rebuild block) - re-derive the CURRENT pool address for that
+            // exact component type on the CURRENTLY selected entity, the same lookup that block
+            // itself uses, just re-run fresh instead of cached.
+            m_OnGetComponentPointer = [this, &GameMgr, &State](xproperty::inspector&, const int, void*& pObject, void* pUserData) noexcept
+            {
+                pObject = nullptr;
+                if (State.m_SelectedEntity.isValid() == false) return;
+
+                auto* pInfo = static_cast<const xecs::component::type::info*>(pUserData);
+                auto& Details = GameMgr.m_ComponentMgr.getEntityDetails(State.m_SelectedEntity);
+                if (Details.m_pPool == nullptr) return;
+
+                const auto iType = Details.m_pPool->findIndexComponentFromInfo(*pInfo);
+                if (iType < 0) return;
+
+                auto* pData = &Details.m_pPool->m_pComponent[iType][Details.m_PoolIndex.m_Value * pInfo->m_Size];
+                pObject = pData;
+
+                // Keyed by the freshly-resolved real pointer, matching what m_OnOverrideCheck/
+                // m_OnPropertyChanged/m_OnComponentHeaderRender actually receive from xproperty this
+                // same frame (xproperty temporarily overwrites the fake pointer with exactly this
+                // value for the duration of its own Render pass - see xPropertyImGuiInspector.cpp's
+                // own Show()).
+                m_ComponentMap[pData] = pInfo;
+            };
+            Inspector.m_OnGetComponentPointer.Register(m_OnGetComponentPointer);
         }
     };
 
@@ -2463,11 +2526,18 @@ namespace e29
                         if (e29::IsInternalComponent(pInfo)) continue;
                         if (pInfo->m_pPropertyTable == nullptr) continue;
 
-                        const auto iType = pDetails->m_pPool->findIndexComponentFromInfo(*pInfo);
-                        if (iType < 0) continue;
-                        auto* pData = &pDetails->m_pPool->m_pComponent[iType][pDetails->m_PoolIndex.m_Value * pInfo->m_Size];
-                        EntityInspector.AppendEntityComponent(*pInfo->m_pPropertyTable, pData);
-                        Bridge.m_ComponentMap[pData] = pInfo;
+                        if (pDetails->m_pPool->findIndexComponentFromInfo(*pInfo) < 0) continue; // not actually present
+
+                        // pBase is a FAKE pointer (nullptr, never dereferenced) - pInfo is the stable
+                        // identity carried as pUserData instead. The REAL pointer into pool memory is
+                        // resolved fresh every frame by Bridge's m_OnGetComponentPointer (registered
+                        // below in RegisterCallbacks), never cached here across frames - see that
+                        // callback's own comment for why a raw pointer captured only at rebuild time
+                        // (the previous design) goes stale the moment anything invalidates it without
+                        // routing back through this dirty-flag rebuild first (an archetype
+                        // migration elsewhere, or - the case that actually surfaced this - Phase 8's
+                        // hot reload destroying and recreating the whole pool).
+                        EntityInspector.AppendEntityComponent(*pInfo->m_pPropertyTable, nullptr, const_cast<xecs::component::type::info*>(pInfo));
                     }
                     State.m_bEntityInspectorDirty = false;
                 }
