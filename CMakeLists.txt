@@ -3,6 +3,14 @@ project(xGPU_unit_test LANGUAGES C CXX)
 set(TARGET_PROJECT "xGPU_unit_test")
 set(COMPONENT_REGISTRY "")
 
+# xECSV2 type-registration architecture plan, Phase 7 - OFF (default) keeps today's behavior
+# byte-for-byte: xecs.cpp compiled directly into xGPU_unit_test's own sources, one physical copy of
+# everything, no import/export boundary. ON builds xECSV2 as its own xECSV2.dll (see the xECSV2
+# target and the XGPU_SOURCES conditional append, both near the end of this file) and links
+# xGPU_unit_test against it instead - the shape a future Game.dll (Phase 8) will also link against,
+# so both share the one registry rather than each compiling a disconnected copy.
+option(XECS_BUILD_SHARED_LIBRARY "Build xECSV2 as its own shared library (xECSV2.dll) instead of compiling it directly into xGPU_unit_test" OFF)
+
 if(POLICY CMP0169)
   # Set CMP0169 to OLD to allow FetchContent_Populate without auto-executing root CMakeLists
   cmake_policy(SET CMP0169 OLD)
@@ -338,8 +346,10 @@ set_source_files_properties(${SHADER_SOURCES} PROPERTIES HEADER_FILE_ONLY TRUE)
 #
 ####################
 
-# Define the main executable
-add_executable(${TARGET_PROJECT}
+# Define the main executable's sources as a variable (rather than inline add_executable() args) so
+# the xECSV2 Phase 7 conditional below can add/omit xecs.cpp/xtextfile.cpp before the target is
+# actually created.
+set(XGPU_SOURCES
   "source/Examples/main.cpp"
   "source/Examples/Examples.h"
   "source/Examples/E01_Initialize/E01_Initialize.cpp"
@@ -414,16 +424,15 @@ add_executable(${TARGET_PROJECT}
   "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_operations.h"
   "example.lionprj/Cache/Plugins/xrtcs.plugin/source/Graph/xrtcs_demo_data.h"
 
-  # xECSV2 - ECS library ported onto this project's own modern dependencies (xproperty/xtextfile/
-  # xerr/xresource_guid) instead of the old xECS's xCore. xecs.cpp is the umbrella translation unit
-  # (it #includes details/xecs_game_mgr.cpp and details/xecs_prefab_mgr.cpp itself - those aren't
-  # separate CMake sources). xtextfile.cpp provides xtextfile::details::file's platform backend,
-  # which xECS's serialization now depends on and which wasn't linked into this target before
-  # (xproperty::settings::ResourcePointerToGUID, the other non-header-only piece xECS needs, is
-  # already compiled in via E20_Material_Instance_Editor.cpp's own #include of my_properties.cpp -
-  # adding it again here would double-define it).
-  "dependencies/xECSV2/src/xecs.cpp"
-  "dependencies/xtextfile/source/xtextfile.cpp"
+  # xECSV2's xecs.cpp/xtextfile.cpp are NOT listed here unconditionally anymore - see the
+  # XECS_BUILD_SHARED_LIBRARY conditional right after this list closes. When that option is OFF
+  # (default), they're appended to XGPU_SOURCES exactly as before (same two files, same reasoning:
+  # xecs.cpp is the umbrella TU - it #includes details/xecs_game_mgr.cpp and
+  # details/xecs_prefab_mgr.cpp itself, not separate CMake sources; xtextfile.cpp provides
+  # xtextfile::details::file's platform backend xECS's serialization depends on;
+  # xproperty::settings::ResourcePointerToGUID is already compiled in via
+  # E20_Material_Instance_Editor.cpp's own #include of my_properties.cpp, so it's not repeated
+  # here). When ON, xECSV2.dll supplies both instead.
 
   # E29 - Level+Scene editor. First consumer of xECSV2's scene system as real, resource-pipeline-
   # integrated Level/Scene resource types (see dependencies/xECSV2/src/xecs_level*.h/xecs_scene*.h).
@@ -457,6 +466,62 @@ add_executable(${TARGET_PROJECT}
   ${GENERATED_HEADERS}
   ${SHADER_SOURCES}
 )
+
+if(NOT XECS_BUILD_SHARED_LIBRARY)
+  list(APPEND XGPU_SOURCES
+    "dependencies/xECSV2/src/xecs.cpp"
+    "dependencies/xtextfile/source/xtextfile.cpp"
+  )
+endif()
+
+# Define the main executable
+add_executable(${TARGET_PROJECT} ${XGPU_SOURCES})
+
+# xECSV2 type-registration architecture plan, Phase 7 - build xECSV2 as its own shared library
+# instead of compiling xecs.cpp directly into ${TARGET_PROJECT}. Self-contained target: rather than
+# reverse-engineering this project's DefineInterfaceComponent/ProcessComponents machinery (which
+# only ever wires its registered components onto ${TARGET_PROJECT} by name, not onto a second target
+# like this one), this lists exactly the include directories the standalone xECSV2 smoke tests
+# already proved sufficient this session, rooted at ${CMAKE_SOURCE_DIR} (the same repo root
+# xecs.h's own repo-root-relative includes, e.g. "dependencies/xerr/source/xerr.h", already assume).
+#
+# my_properties.cpp is compiled directly into this target (not left to the "some other TU already
+# #includes it" trick E20_Material_Instance_Editor.cpp relies on in the default/non-shared build) -
+# that trick only works because everything lands in the same one exe; xECSV2.dll is a separate
+# module and needs its own copy of xproperty::settings::ResourcePointerToGUID, which xecs.cpp's own
+# serialization path depends on. Compiling it into both the DLL and the EXE is not a conflict -
+# they're two separate binaries, each with its own private symbol space; see the XECS_API header's
+# own comment on why duplicated code (as opposed to duplicated MUTABLE REGISTRATION STATE) across a
+# module boundary is fine.
+if(XECS_BUILD_SHARED_LIBRARY)
+  add_library(xECSV2 SHARED
+    "dependencies/xECSV2/src/xecs.cpp"
+    "dependencies/xtextfile/source/xtextfile.cpp"
+    "dependencies/xproperty/source/xcore/my_properties.cpp"
+  )
+  target_include_directories(xECSV2 PRIVATE
+    "${CMAKE_SOURCE_DIR}"
+    "${CMAKE_SOURCE_DIR}/dependencies/xECSV2/src"
+    "${CMAKE_SOURCE_DIR}/dependencies/xerr"
+    "${CMAKE_SOURCE_DIR}/dependencies/xresource_guid"
+    "${CMAKE_SOURCE_DIR}/dependencies/xtextfile"
+    "${CMAKE_SOURCE_DIR}/dependencies/xproperty"
+    "${CMAKE_SOURCE_DIR}/dependencies/xresource_pipeline_v2"
+    "${CMAKE_SOURCE_DIR}/dependencies/xstrtool"
+    "${CMAKE_SOURCE_DIR}/dependencies/xcontainer"
+    "${CMAKE_SOURCE_DIR}/dependencies/xdelegate"
+    "${CMAKE_SOURCE_DIR}/dependencies/xscheduler"
+    "${CMAKE_SOURCE_DIR}/dependencies/xmath"
+    "${CMAKE_SOURCE_DIR}/dependencies/xbits"
+  )
+  target_compile_definitions(xECSV2 PRIVATE XECS_BUILD_SHARED XECS_EXPORTS)
+  if(WIN32)
+    target_link_libraries(xECSV2 PRIVATE Advapi32.lib)
+  endif()
+
+  target_link_libraries(${TARGET_PROJECT} PRIVATE xECSV2)
+  target_compile_definitions(${TARGET_PROJECT} PRIVATE XECS_BUILD_SHARED)
+endif()
 
 # Organize the shades under the folder shaders (At least the default folder)
 source_group("Shaders" FILES ${SHADER_SOURCES} ${GENERATED_HEADERS} )

@@ -9,6 +9,9 @@ Build/xGPUExamples.vs2022/assimp-vc143-mt.dll
 /Build/xGPUExamples.vs2022/assimp-vc143-mt.dll
 /Build/xGPUExamples.vs2022
 /Build/xGPUExamples.vs2022
+# Phase 7 (xECSV2 type-registration architecture plan) scratch build dir for verifying
+# XECS_BUILD_SHARED_LIBRARY=ON without disturbing the main Build/xGPUExamples.vs2022 tree.
+/Build/xGPUExamples.vs2022_shared
 /_dependencies
 /bin_dependencies
 /example.lionprj
