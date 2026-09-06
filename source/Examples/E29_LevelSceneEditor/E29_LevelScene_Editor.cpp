@@ -39,6 +39,39 @@ namespace e29
         )
     };
     XPROPERTY_REG(transform)
+
+    // Two trivial demo Update systems - E29 otherwise registers ZERO systems (RegisterSystems<>() is
+    // called empty, purely to lock component bit IDs), so the new System Registry panel/Play-Stop
+    // toggle would have nothing real to list/reorder/enable/observe without these. Each just
+    // printf's once per tick (flushed unconditionally, per this project's persistent-diagnostic-
+    // logging preference) since E29 has no viewport to observe a "real" effect through - reordering
+    // them in the System Registry panel changes which line prints first; disabling one stops its own
+    // line, which is the whole verification surface for that feature.
+    struct tick_logger_a : xecs::system::instance
+    {
+        constexpr static auto typedef_v = xecs::system::type::update{ .m_pName = "Tick Logger A" };
+
+        tick_logger_a(xecs::game_mgr::instance& GameMgr) noexcept : xecs::system::instance(GameMgr) {}
+
+        void OnUpdate(void) noexcept
+        {
+            std::printf("[System] Tick Logger A\n");
+            std::fflush(stdout);
+        }
+    };
+
+    struct tick_logger_b : xecs::system::instance
+    {
+        constexpr static auto typedef_v = xecs::system::type::update{ .m_pName = "Tick Logger B" };
+
+        tick_logger_b(xecs::game_mgr::instance& GameMgr) noexcept : xecs::system::instance(GameMgr) {}
+
+        void OnUpdate(void) noexcept
+        {
+            std::printf("[System] Tick Logger B\n");
+            std::fflush(stdout);
+        }
+    };
 }
 
 //-----------------------------------------------------------------------------------
@@ -70,7 +103,7 @@ int E29_Example()
     //
     xecs::game_mgr::instance GameMgr;
     GameMgr.RegisterComponents<e29::name, e29::transform, xecs::editor::prefab_instance, xecs::component::entity_reference>();
-    GameMgr.RegisterSystems<>(); // locks component bit IDs - required even with zero systems
+    GameMgr.RegisterSystems<e29::tick_logger_a, e29::tick_logger_b>();
 
     //
     // Project path (same lookup every editor example uses)
@@ -100,6 +133,14 @@ int E29_Example()
             GameMgr.m_SceneMgr.m_ProjectPath  = e10::g_LibMgr.m_ProjectPath;
             GameMgr.m_LevelMgr.m_ProjectPath  = e10::g_LibMgr.m_ProjectPath;
             GameMgr.m_PrefabMgr.m_ProjectPath = e10::g_LibMgr.m_ProjectPath;
+            GameMgr.m_SystemMgr.m_ProjectPath = e10::g_LibMgr.m_ProjectPath;
+
+            // Applies whatever Update-system order/enabled state was last saved through the System
+            // Registry panel - must run AFTER RegisterSystems<...>() above has populated
+            // m_SystemMgr's own update-system list; a missing file (nothing saved yet) is not an
+            // error, registration order simply stands as-is.
+            if (auto Err = GameMgr.m_SystemMgr.Load(); Err)
+                e29::Debugger(std::format("Failed to load System Registry order: {}", Err.getMessage()));
         }
     }
 
@@ -160,6 +201,15 @@ int E29_Example()
                     e29::SaveEverything(GameMgr, State);
                 ImGui::EndMenu();
             }
+
+            // Minimal Play/Stop toggle - just flips the flag; the actual GameMgr.Run()/Stop() calls
+            // happen once per frame below, unconditionally, regardless of which way this just
+            // flipped (both are internally gated on GameMgr.m_isRunning, so that's safe/idempotent
+            // and keeps this button dead simple).
+            ImGui::SameLine(ImGui::GetWindowWidth() - 80.0f);
+            if (ImGui::Button(State.m_bPlaying ? "Stop" : "Play"))
+                State.m_bPlaying = !State.m_bPlaying;
+
             ImGui::EndMainMenuBar();
         }
 
@@ -168,6 +218,14 @@ int E29_Example()
         // unconditionally (not gated behind the File menu being open).
         if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S))
             e29::SaveEverything(GameMgr, State);
+
+        // GameMgr.Run()/Stop() already exist and do everything needed: Run() ticks every enabled
+        // Update system in its current order (via m_SystemMgr.Run()) and, on the Stopped->Running
+        // transition, snapshots the System Registry's current order/enabled state; Stop() restores
+        // that snapshot on the reverse transition. E29 has no viewport yet, so "Play" here only means
+        // "the ECS's own systems tick" - proving the System Registry feature, not adding a game view.
+        if (State.m_bPlaying) GameMgr.Run();
+        else                  GameMgr.Stop();
 
         AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
         e29::g_AssetBrowserPopup.RenderAsPopup(e10::g_LibMgr, xresource::g_Mgr);
@@ -185,6 +243,7 @@ int E29_Example()
 
         e29::RenderLevelTreePanel(GameMgr, State);
         e29::RenderEntityPropertiesPanel(GameMgr, State, EntityInspector, InspectorBridge);
+        e29::RenderSystemRegistryPanel(GameMgr, State);
 
         xgpu::tools::imgui::Render();
         MainWindow.PageFlip();
