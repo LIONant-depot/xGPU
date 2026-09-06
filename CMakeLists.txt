@@ -109,6 +109,7 @@ FetchAndPopulate("https://github.com/LIONant-depot/xserializer.git" "main")
 FetchAndPopulate("https://github.com/LIONant-depot/xscheduler.git" "main")
 FetchAndPopulate("https://github.com/LIONant-depot/xECS.git" "Lesson09_Prefabs")
 FetchAndPopulate("https://github.com/LIONant-depot/xECSV2.git" "main")
+FetchAndPopulate("https://github.com/LIONant-depot/xundo.git" "main")
 FetchAndPopulate("https://github.com/thedmd/imgui-node-editor.git" "master")
 
 #
