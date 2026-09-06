@@ -427,6 +427,10 @@ add_executable(${TARGET_PROJECT}
 
   # E29 - Level+Scene editor. First consumer of xECSV2's scene system as real, resource-pipeline-
   # integrated Level/Scene resource types (see dependencies/xECSV2/src/xecs_level*.h/xecs_scene*.h).
+  # E29_LevelSceneEditorKit.h holds everything reusable (Level tree UI, Entity Properties panel,
+  # prefab authoring/instancing, folder/entity bookkeeping, error popup, inspector wiring) - the
+  # .cpp is just the example's own demo content + main-loop setup.
+  "source/Examples/E29_LevelSceneEditor/E29_LevelSceneEditorKit.h"
   "source/Examples/E29_LevelSceneEditor/E29_LevelScene_Editor.cpp"
 
   "source/tools/editors/xgpu_editor_viewport.h"
@@ -796,6 +800,7 @@ source_group("Examples/E28_FontResourcePipeline" FILES
 )
 
 source_group("Examples/E29_LevelSceneEditor" FILES
+  "source/Examples/E29_LevelSceneEditor/E29_LevelSceneEditorKit.h"
   "source/Examples/E29_LevelSceneEditor/E29_LevelScene_Editor.cpp"
 )
 
