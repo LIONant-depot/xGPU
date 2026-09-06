@@ -2391,7 +2391,7 @@ namespace e29
 
                 if (ImGui::BeginCombo("###AddComponent", "Add Component"))
                 {
-                    for (auto& Pair : xecs::component::mgr::m_ComponentInfoMap)
+                    for (auto& Pair : xecs::component::mgr::s_Registry.m_ComponentInfoMap)
                     {
                         auto* pInfo = Pair.second;
                         if (pInfo->m_TypeID != xecs::component::type::id::DATA) continue;
