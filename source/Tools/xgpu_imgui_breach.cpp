@@ -11,6 +11,21 @@
 
 namespace xgpu::tools::imgui {
 
+// Set true by the focus-edge-detection block inside BeginRendering's own StartNewFrame (below), the
+// moment the window transitions unfocused -> focused; cleared by ConsumeWindowFocusGained (also
+// below) the next time anyone actually asks. File-static rather than function-local: the detection
+// runs once per frame regardless of whether any caller ever consumes it, but the consumer (E29's
+// own auto-recompile-on-focus check) polls once per frame too - a plain bool shared between the two
+// is enough, no queue needed since only one "gained" edge can ever be pending at a time.
+static bool g_bWindowFocusGainedPending = false;
+
+bool ConsumeWindowFocusGained( void ) noexcept
+{
+    const bool bPending = g_bWindowFocusGainedPending;
+    g_bWindowFocusGainedPending = false;
+    return bPending;
+}
+
 #define IMGUI_GAMMA_CORRECTION
 constexpr auto g_VertShaderSPV = std::array
 {
@@ -1211,6 +1226,7 @@ struct breach_instance : window_info
                 io.AddFocusEvent(is_focused);
                 printf("Window Focus: %s\n", is_focused ? "Gained" : "Lost");
                 was_focused = is_focused;
+                if (is_focused) g_bWindowFocusGainedPending = true;
             }
         }
 

@@ -244,12 +244,32 @@ namespace e29
         std::vector<xecs::scene::permanent_id>         m_MultiSelectOrder;
         xecs::scene::guid                              m_MultiSelectScene;
 
-        // Whether GameMgr.Run() is currently being called every frame from the main loop - see
-        // RenderSystemRegistryPanel's own comment for why this matters beyond just "is the game
-        // ticking": it's also what the System Registry panel checks to decide whether an
-        // enable/reorder edit is a permanent, persisted change or a transient one that
-        // GameMgr.Stop()'s own xecs::system::mgr::RestoreFromSnapshot() will discard.
-        bool m_bPlaying = false;
+        // Stopped: editing normally, GameMgr.Run() never called. Playing: ticking every frame.
+        // Paused: a live play session (world stays exactly as it is, Stop will still revert it) but
+        // GameMgr.Run() is NOT called this frame - matches Unity's own Play/Pause/Stop transport,
+        // and is also what lets a code-edit reload happen "at rest" mid-session without losing
+        // anything (see E29_GamePlugin.h's PollGameReload, which treats Playing and Paused
+        // identically - both are "a play session is live").
+        enum class play_state : std::uint8_t { Stopped, Playing, Paused };
+
+        // See RenderSystemRegistryPanel's own comment for why this matters beyond just "is the game
+        // ticking": it's also what that panel checks to decide whether an enable/reorder edit is a
+        // permanent, persisted change or a transient one that GameMgr.Stop()'s own
+        // xecs::system::mgr::RestoreFromSnapshot() will discard.
+        play_state m_PlayState = play_state::Stopped;
+        bool isPlaying() const noexcept { return m_PlayState != play_state::Stopped; }
+
+        // Set by the "Play" button (Stopped -> Playing only - Paused -> Playing is just a resume,
+        // no recompile-check needed) and consumed by PollGameReload once the recompile-check it
+        // kicks off resolves - Play must never actually start ticking against a DLL that might still
+        // be mid-rebuild. See PollGameReload's own comment for the full sequencing.
+        bool m_bPlayRequested = false;
+
+        // Set by the "Stop" button; consumed at the same clean top-of-frame point PollGameReload
+        // runs from, never at the point of the click itself - see the button's own comment in
+        // E29_LevelScene_Editor.cpp for why (StopPlaySession does the same heavy destroy/recreate
+        // work a reload does, and the click happens nested inside an active ImGui menu-bar scope).
+        bool m_bStopRequested = false;
     };
 
     // GUID-like rather than sequential (was "Max + 1"): a random id means two branches each creating
@@ -2572,7 +2592,7 @@ namespace e29
     // GetUpdateSystemRows), letting the user drag-reorder (via each row's own name Selectable, grip
     // glyph included - see its own comment below) and enable/disable each one directly, making
     // execution order/enabled DATA instead of whatever order GameMgr.RegisterSystems<...>() happened
-    // to list them in at compile time. While State.m_bPlaying, edits still go through the exact same
+    // to list them in at compile time. While State.isPlaying(), edits still go through the exact same
     // mgr calls - they're already only ever transient in that state, since GameMgr.Stop() calls
     // RestoreFromSnapshot() on the way out - this panel just surfaces that distinction with a note so
     // it isn't a silent surprise later.
@@ -2587,7 +2607,7 @@ namespace e29
         ImGui::SetNextWindowSize(ImVec2(480, 220), ImGuiCond_FirstUseEver);
         if (ImGui::Begin("System Registry"))
         {
-            if (State.m_bPlaying)
+            if (State.isPlaying())
             {
                 ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 0.8f, 0.3f, 1.0f));
                 ImGui::TextWrapped("Play Mode - changes here are temporary and revert on Stop.");
@@ -2689,7 +2709,7 @@ namespace e29
             // While playing, Move/SetEnabled above only ever mutate the live, in-memory order;
             // GameMgr.Stop()'s RestoreFromSnapshot() discards it, so writing to disk here would just
             // save a value about to be thrown away.
-            if (bChanged && !State.m_bPlaying)
+            if (bChanged && !State.isPlaying())
             {
                 if (auto Err = GameMgr.m_SystemMgr.Save(); Err)
                     Debugger(std::format("Failed to save System Registry order: {}", Err.getMessage()));

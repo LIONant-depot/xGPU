@@ -11,7 +11,7 @@
 // see xecs_plugin_api.h's own top comment for why).
 #include "dependencies/xECSV2/src/xecs.h"
 #include "dependencies/xECSV2/src/xecs_plugin_api.h"
- 
+                   
 namespace e29_game
 {
     // A generation counter, stamped into every spin_component at registration time (see

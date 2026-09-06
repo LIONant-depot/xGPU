@@ -50,6 +50,14 @@ namespace xgpu::tools::imgui
     void                    Shutdown        ( void ) noexcept;
     ImFont*&                getFont         ( int Index=0) noexcept;
 
+    // True exactly once on the frame the app window transitions from unfocused to focused (e.g. the
+    // user alt-tabbed back in after editing code in an external IDE - the same edge Unity uses to
+    // decide "check if scripts need recompiling"). Edge-triggered and self-consuming: calling this
+    // returns the pending event (if any) and clears it, so at most one caller per gained-focus event
+    // ever sees `true` - matches BeginRendering's own StartNewFrame, which already computes this
+    // transition every frame for ImGui's own io.AddFocusEvent and previously discarded it afterward.
+    bool                    ConsumeWindowFocusGained( void ) noexcept;
+
 
     void                    ClearTexture(xgpu::texture& Texture);
 }

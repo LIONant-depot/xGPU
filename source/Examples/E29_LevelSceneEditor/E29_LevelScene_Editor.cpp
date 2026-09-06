@@ -141,8 +141,8 @@ int E29_Example()
     // an error - E29 runs exactly as before with no game loaded, matching the "user builds it, or
     // E29 does" direction: nothing has been built yet on a fresh checkout, and that's fine.
     //
-    // Synchronous here (unlike the live Reload Game button, which never blocks the render loop -
-    // see StartGameReload/PollGameReload) - this runs before the window has rendered its first
+    // Synchronous here (unlike a live focus-regain/Play-triggered recompile, which never blocks the
+    // render loop - see StartGameReload/PollGameReload) - this runs before the window has rendered its first
     // frame at all, so there's no live UI to freeze yet; a one-time pause here on a fresh checkout
     // is a materially different, much smaller cost than freezing an editor the user is actively
     // working in.
@@ -236,20 +236,41 @@ int E29_Example()
     //
     while (Instance.ProcessInputEvents())
     {
+        // No more manual "Reload Game" button - recompiling is something the editor just does for
+        // you, per direct user direction to follow Unity's own model. Two automatic triggers only:
+        // the window regaining OS focus (the user tabbed back in after editing code - checked here,
+        // unconditionally, every frame, since ConsumeWindowFocusGained is edge-triggered/self-
+        // consuming and cheap to poll) and the Play button itself (see its own handler below, which
+        // sets State.m_bPlayRequested and calls StartGameReload the same way).
+        if (xgpu::tools::imgui::ConsumeWindowFocusGained())
+            e29::StartGameReload(GamePlugin);
+
         // Checked unconditionally, every frame, BEFORE BeginRendering starts this frame - not run
-        // synchronously at the point of the "Reload Game" click. Confirmed empirically (same
-        // methodology as the startup Debugger()-timing bug this session already found and fixed):
-        // the actual destroy-and-recreate-the-whole-world sequence is heavy enough, and the click
-        // itself happens nested inside an active ImGui::BeginMainMenuBar()/EndMainMenuBar() scope,
-        // that running it synchronously corrupted ImGui's window-stack bookkeeping the same way.
-        // Running it here instead gives it a clean "no active ImGui frame" execution context, same
-        // as every other safe Debugger()/heavy-state-mutation call site in this file.
+        // synchronously at the point of a button click. Confirmed empirically (same methodology as
+        // the startup Debugger()-timing bug this session already found and fixed): the actual
+        // destroy-and-recreate-the-whole-world sequence is heavy enough, and doing it nested inside
+        // an active ImGui::BeginMainMenuBar()/EndMainMenuBar() scope, that running it synchronously
+        // corrupted ImGui's window-stack bookkeeping the same way. Running it here instead gives it
+        // a clean "no active ImGui frame" execution context, same as every other safe Debugger()/
+        // heavy-state-mutation call site in this file.
         // PollGameReload itself is a no-op (returns immediately) unless a build kicked off by
-        // StartGameReload (the button click) is both in-flight and finished - see its own comment.
+        // StartGameReload (focus-regain or Play, above) is both in-flight and finished - see its own
+        // comment.
         e29::PollGameReload
         ( pGameMgr, State, GamePlugin, EntityInspector, InspectorBridge, ProjectPath
         , RegisterHostComponents, RegisterHostSystems
         );
+
+        // Deferred "Stop" click (see the button's own comment) - runs here, same clean frame
+        // boundary as PollGameReload above, never nested inside an active ImGui menu-bar scope.
+        if (State.m_bStopRequested)
+        {
+            State.m_bStopRequested = false;
+            e29::StopPlaySession
+            ( pGameMgr, State, GamePlugin, EntityInspector, InspectorBridge, ProjectPath
+            , RegisterHostComponents, RegisterHostSystems
+            );
+        }
 
         if (xgpu::tools::imgui::BeginRendering(true)) continue;
 
@@ -274,27 +295,56 @@ int E29_Example()
                 ImGui::EndMenu();
             }
 
-            // Phase 8 of the xECSV2 type-registration architecture plan - hot-reloads
-            // E29_Game.dll: rebuilds it (on a background thread - see StartGameReload - so this
-            // never freezes the editor), and only if THAT succeeds, destroys the whole runtime
-            // world, unloads the current plugin generation, loads the freshly built DLL, and
-            // reconstructs a fresh world with everything re-registered - see PollGameReload (polled
-            // once per frame from the main loop's own top, before BeginRendering) for the exact
-            // sequence. Disabled while a build is already in flight - both to stop a redundant
-            // second build getting queued, and as visible feedback that something is happening.
+            // Recompile status - purely informational now (no button; see the focus-regain/Play
+            // triggers above). Only shown while a background build is actually running, so the menu
+            // bar stays quiet the rest of the time.
+            if (GamePlugin.m_bBuilding)
+            {
+                ImGui::SameLine(ImGui::GetWindowWidth() - 250.0f);
+                ImGui::TextDisabled("Game.dll: building...");
+            }
+
+            // Play / Pause / Stop transport - matches Unity's own: Play (Stopped -> Playing) kicks
+            // off a recompile-check first (StartGameReload) and defers actually entering play until
+            // that resolves (State.m_bPlayRequested - see PollGameReload), so play never starts
+            // against a DLL that might still be mid-rebuild; Play again while Paused is just a
+            // resume, no check needed (nothing about the code could have changed while already
+            // mid-session without already having gone through a reload). Pause halts ticking without
+            // touching the world at all - Stop is the only transition that discards anything, via
+            // StopPlaySession's own proper disk-based revert (see E29_GamePlugin.h).
             ImGui::SameLine(ImGui::GetWindowWidth() - 170.0f);
-            ImGui::BeginDisabled(GamePlugin.m_bBuilding);
-            if (ImGui::Button(GamePlugin.m_bBuilding ? "Building..." : "Reload Game"))
-                e29::StartGameReload(GamePlugin);
+            ImGui::BeginDisabled(State.m_PlayState == e29::editor_state::play_state::Playing || GamePlugin.m_bBuilding);
+            if (ImGui::Button(State.m_PlayState == e29::editor_state::play_state::Paused ? "Resume" : "Play"))
+            {
+                if (State.m_PlayState == e29::editor_state::play_state::Stopped)
+                {
+                    State.m_bPlayRequested = true;
+                    e29::StartGameReload(GamePlugin);
+                }
+                else // Paused -> Playing, plain resume
+                {
+                    State.m_PlayState = e29::editor_state::play_state::Playing;
+                }
+            }
             ImGui::EndDisabled();
 
-            // Minimal Play/Stop toggle - just flips the flag; the actual GameMgr.Run()/Stop() calls
-            // happen once per frame below, unconditionally, regardless of which way this just
-            // flipped (both are internally gated on GameMgr.m_isRunning, so that's safe/idempotent
-            // and keeps this button dead simple).
-            ImGui::SameLine(ImGui::GetWindowWidth() - 80.0f);
-            if (ImGui::Button(State.m_bPlaying ? "Stop" : "Play"))
-                State.m_bPlaying = !State.m_bPlaying;
+            ImGui::SameLine(ImGui::GetWindowWidth() - 115.0f);
+            ImGui::BeginDisabled(State.m_PlayState != e29::editor_state::play_state::Playing);
+            if (ImGui::Button("Pause"))
+                State.m_PlayState = e29::editor_state::play_state::Paused;
+            ImGui::EndDisabled();
+
+            ImGui::SameLine(ImGui::GetWindowWidth() - 60.0f);
+            ImGui::BeginDisabled(State.m_PlayState == e29::editor_state::play_state::Stopped);
+            // Deferred to the top of next frame (State.m_bStopRequested, consumed alongside
+            // PollGameReload above) rather than run here directly - StopPlaySession does the same
+            // heavy destroy-and-recreate-the-world work PollGameReload does, and this click happens
+            // nested inside the still-active BeginMainMenuBar()/EndMainMenuBar() scope, which is
+            // exactly the "corrupts ImGui's window-stack bookkeeping" bug this file's own comment
+            // above already warns about.
+            if (ImGui::Button("Stop"))
+                State.m_bStopRequested = true;
+            ImGui::EndDisabled();
 
             ImGui::EndMainMenuBar();
         }
@@ -305,13 +355,18 @@ int E29_Example()
         if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S))
             e29::SaveEverything(*pGameMgr, State);
 
-        // GameMgr.Run()/Stop() already exist and do everything needed: Run() ticks every enabled
-        // Update system in its current order (via m_SystemMgr.Run()) and, on the Stopped->Running
-        // transition, snapshots the System Registry's current order/enabled state; Stop() restores
-        // that snapshot on the reverse transition. E29 has no viewport yet, so "Play" here only means
-        // "the ECS's own systems tick" - proving the System Registry feature, not adding a game view.
-        if (State.m_bPlaying) pGameMgr->Run();
-        else                  pGameMgr->Stop();
+        // GameMgr.Run() ticks every enabled Update system in its current order (via
+        // m_SystemMgr.Run()) and, on the Stopped->Running transition, snapshots the System
+        // Registry's current order/enabled state for GameMgr.Stop() to restore later. Only called
+        // while actually Playing - Paused deliberately calls neither Run() nor Stop() every frame
+        // (the world just sits there, unticked, exactly as it was); Stop() itself is no longer an
+        // idempotent per-frame call at all, it's the one-shot StopPlaySession triggered by the Stop
+        // button above (see its own comment for why a full world-rebuild can't run unconditionally
+        // every frame the way this simpler Run()/Stop() toggle used to). E29 has no viewport yet, so
+        // "Play" here only means "the ECS's own systems tick" - proving the System Registry feature,
+        // not adding a game view.
+        if (State.m_PlayState == e29::editor_state::play_state::Playing)
+            pGameMgr->Run();
 
         AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
         e29::g_AssetBrowserPopup.RenderAsPopup(e10::g_LibMgr, xresource::g_Mgr);
