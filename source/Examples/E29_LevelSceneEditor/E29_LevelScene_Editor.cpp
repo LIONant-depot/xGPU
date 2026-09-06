@@ -113,7 +113,7 @@ int E29_Example()
 
     //
     // ECS setup - first xGPU example to own an xecs::game_mgr::instance. A unique_ptr (not a plain
-    // stack value) specifically so Phase 8's ReloadGame can destroy and reconstruct the whole world
+    // stack value) specifically so Phase 8's PollGameReload can destroy and reconstruct the whole world
     // in place - see E29_GamePlugin.h's own comment on why that's the correct, sufficient operation
     // for a hot reload rather than something narrower.
     //
@@ -121,7 +121,7 @@ int E29_Example()
     e29::game_plugin_state GamePlugin;
 
     // Registers e29's own demo content - kept as a local lambda (not inlined at each of the two call
-    // sites below) so ReloadGame can re-run the exact same host-registration sequence after a
+    // sites below) so PollGameReload can re-run the exact same host-registration sequence after a
     // reload, matching what startup does here.
     auto RegisterHostComponents = []( xecs::game_mgr::instance& GameMgr ) noexcept
     {
@@ -137,14 +137,21 @@ int E29_Example()
     // E29's sample Game.dll (source/Examples/E29_LevelSceneEditor/GameProject/E29_Game.cpp) -
     // loading it here, BEFORE RegisterSystems below locks the component registry, is what makes an
     // initial load possible without a full reload; only a SUBSEQUENT swap (hot reload while already
-    // running) needs ReloadGame's destroy-and-recreate sequence. Missing/failing to load is not an
-    // error - E29 runs exactly as before with no game loaded, matching the "user builds it, or E29
-    // does" direction: nothing has been built yet on a fresh checkout, and that's fine.
+    // running) needs PollGameReload's destroy-and-recreate sequence. Missing/failing to load is not
+    // an error - E29 runs exactly as before with no game loaded, matching the "user builds it, or
+    // E29 does" direction: nothing has been built yet on a fresh checkout, and that's fine.
+    //
+    // Synchronous here (unlike the live Reload Game button, which never blocks the render loop -
+    // see StartGameReload/PollGameReload) - this runs before the window has rendered its first
+    // frame at all, so there's no live UI to freeze yet; a one-time pause here on a fresh checkout
+    // is a materially different, much smaller cost than freezing an editor the user is actively
+    // working in.
     {
         TCHAR szModulePath[MAX_PATH];
         GetModuleFileName(NULL, szModulePath, MAX_PATH);
         std::filesystem::path GameDllPath = std::filesystem::path(szModulePath).parent_path() / L"E29_Game.dll";
-        GamePlugin.m_DllPath = GameDllPath.wstring();
+        GamePlugin.m_CompiledDllPath = GameDllPath.wstring();
+        e29::BuildGamePluginIfStale(GamePlugin);
         e29::LoadGamePluginComponents(*pGameMgr, GamePlugin, /*Generation*/ 1);
     }
 
@@ -153,7 +160,7 @@ int E29_Example()
 
     //
     // Project path (same lookup every editor example uses) - kept around (not just a local) so
-    // ReloadGame can re-apply it to a freshly reconstructed pGameMgr.
+    // PollGameReload can re-apply it to a freshly reconstructed pGameMgr.
     //
     std::wstring ProjectPath;
     {
@@ -201,7 +208,7 @@ int E29_Example()
 
     // Lets entity_to_prefab_drop::OnDrop (a static, globally-registered object) reach the live
     // GameMgr/State at drop time - see their own declaration comment for why this is safe here.
-    // Rebound by ReloadGame after a hot reload replaces *pGameMgr with a fresh instance.
+    // Rebound by PollGameReload after a hot reload replaces *pGameMgr with a fresh instance.
     e29::g_pGameMgr = pGameMgr.get();
     e29::g_pState   = &State;
 
@@ -227,26 +234,22 @@ int E29_Example()
     //
     // Main Loop
     //
-    // Set by the "Reload Game" button (see below) and consumed here, BEFORE BeginRendering starts
-    // this frame - not run synchronously at the point of the click. Confirmed empirically (same
-    // methodology as the startup Debugger()-timing bug this session already found and fixed):
-    // ReloadGame's destroy-and-recreate-the-whole-world sequence is heavy enough, and the click
-    // itself happens nested inside an active ImGui::BeginMainMenuBar()/EndMainMenuBar() scope, that
-    // running it synchronously corrupted ImGui's window-stack bookkeeping the same way. Running it
-    // here instead gives it a clean "no active ImGui frame" execution context, same as every other
-    // safe Debugger()/heavy-state-mutation call site in this file.
-    bool bReloadGameRequested = false;
-
     while (Instance.ProcessInputEvents())
     {
-        if (bReloadGameRequested)
-        {
-            bReloadGameRequested = false;
-            e29::ReloadGame
-            ( pGameMgr, State, GamePlugin, EntityInspector, InspectorBridge, ProjectPath
-            , RegisterHostComponents, RegisterHostSystems
-            );
-        }
+        // Checked unconditionally, every frame, BEFORE BeginRendering starts this frame - not run
+        // synchronously at the point of the "Reload Game" click. Confirmed empirically (same
+        // methodology as the startup Debugger()-timing bug this session already found and fixed):
+        // the actual destroy-and-recreate-the-whole-world sequence is heavy enough, and the click
+        // itself happens nested inside an active ImGui::BeginMainMenuBar()/EndMainMenuBar() scope,
+        // that running it synchronously corrupted ImGui's window-stack bookkeeping the same way.
+        // Running it here instead gives it a clean "no active ImGui frame" execution context, same
+        // as every other safe Debugger()/heavy-state-mutation call site in this file.
+        // PollGameReload itself is a no-op (returns immediately) unless a build kicked off by
+        // StartGameReload (the button click) is both in-flight and finished - see its own comment.
+        e29::PollGameReload
+        ( pGameMgr, State, GamePlugin, EntityInspector, InspectorBridge, ProjectPath
+        , RegisterHostComponents, RegisterHostSystems
+        );
 
         if (xgpu::tools::imgui::BeginRendering(true)) continue;
 
@@ -272,15 +275,18 @@ int E29_Example()
             }
 
             // Phase 8 of the xECSV2 type-registration architecture plan - hot-reloads
-            // E29_Game.dll: destroys the whole runtime world, unloads the current plugin
-            // generation, reloads the (possibly just-rebuilt-by-the-user) DLL, and reconstructs a
-            // fresh world with everything re-registered - see E29_GamePlugin.h's own ReloadGame for
-            // the exact sequence. Only sets a flag here - the main loop's own top (before
-            // BeginRendering) is where ReloadGame actually runs; see that flag's own declaration
-            // comment for why running it synchronously, right here, corrupted ImGui's own state.
+            // E29_Game.dll: rebuilds it (on a background thread - see StartGameReload - so this
+            // never freezes the editor), and only if THAT succeeds, destroys the whole runtime
+            // world, unloads the current plugin generation, loads the freshly built DLL, and
+            // reconstructs a fresh world with everything re-registered - see PollGameReload (polled
+            // once per frame from the main loop's own top, before BeginRendering) for the exact
+            // sequence. Disabled while a build is already in flight - both to stop a redundant
+            // second build getting queued, and as visible feedback that something is happening.
             ImGui::SameLine(ImGui::GetWindowWidth() - 170.0f);
-            if (ImGui::Button("Reload Game"))
-                bReloadGameRequested = true;
+            ImGui::BeginDisabled(GamePlugin.m_bBuilding);
+            if (ImGui::Button(GamePlugin.m_bBuilding ? "Building..." : "Reload Game"))
+                e29::StartGameReload(GamePlugin);
+            ImGui::EndDisabled();
 
             // Minimal Play/Stop toggle - just flips the flag; the actual GameMgr.Run()/Stop() calls
             // happen once per frame below, unconditionally, regardless of which way this just
@@ -324,6 +330,7 @@ int E29_Example()
         e29::RenderLevelTreePanel(*pGameMgr, State);
         e29::RenderEntityPropertiesPanel(*pGameMgr, State, EntityInspector, InspectorBridge);
         e29::RenderSystemRegistryPanel(*pGameMgr, State);
+        e29::RenderGamePluginLogPanel();
 
         xgpu::tools::imgui::Render();
         MainWindow.PageFlip();

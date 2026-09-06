@@ -433,10 +433,22 @@ namespace e10
                 // has neither, so it should use the full available height instead of leaving that
                 // space empty.
                 float total_height = ImGui::GetContentRegionAvail().y - (m_DisplayMode == display_mode::POPUP ? 40.0f : 0.0f);
-                static float size1 = total_width * 0.2f;
-                static float size2 = total_width * 0.8f;
-                static float ButtonWidth = 4.0f;
+                constexpr float ButtonWidth = 4.0f;
+                // m_SplitSize1 is per-instance state (was previously a function-local `static`, which
+                // meant every assert_browser instance in the process - the DOCKABLE main browser AND
+                // the POPUP asset picker - shared the exact same splitter position, initialized once
+                // from whichever instance's width happened to run MainWindow() first). Re-clamp every
+                // frame (not just while actively dragging - Splitter() itself only clamps on an active
+                // drag) so a window resize/dock/undock can't leave the left panel claiming more width
+                // than the window currently has, which pushed the right "Panel" (the file list) off
+                // past the visible edge - i.e. looked exactly like "the files disappeared".
+                if (m_SplitSize1 < 0.0f)
+                    m_SplitSize1 = total_width * 0.2f;
+                m_SplitSize1 = std::clamp(m_SplitSize1, 100.0f, std::max(100.0f, total_width - 100.0f - ButtonWidth));
+                float size1 = m_SplitSize1;
+                float size2 = total_width - size1 - ButtonWidth;
                 Splitter(true, ButtonWidth, &size1, &size2, 100.0f, 100.0f, total_width, total_height);
+                m_SplitSize1 = size1;
 
                 // Left panel
                 bool SelectedItemFound = false;
@@ -546,9 +558,15 @@ namespace e10
                         m_bRenderBrowser = false;
                     }
                 }
-
-                ImGui::End();
             }
+            // Always call End() regardless of Begin()'s return value (ImGui's own documented rule) -
+            // this was previously INSIDE the if block above, so it never ran whenever Begin() returned
+            // false (a docked-but-not-the-active-tab window, or collapsed/clipped) - permanently
+            // unbalancing ImGui's window stack from that frame on ("Missing EndChild()" assert every
+            // frame afterward). Never surfaced before because E29 is the only DOCKABLE user of this
+            // browser - POPUP mode forces ImGuiWindowFlags_NoDocking, so Begin() there never returns
+            // false this way.
+            ImGui::End();
         }
 
         using tab_list = std::vector<std::unique_ptr<asset_browser_tab_base>>;
@@ -560,6 +578,10 @@ namespace e10
         library::guid                       m_SelectedLibrary       = {};
         display_mode                        m_DisplayMode           = display_mode::POPUP;
         bool                                m_bRenderBrowser        = false;
+        // Left-panel width of MainWindow()'s splitter, in pixels. Negative = "not yet initialized for
+        // this instance" (see MainWindow() for why this must be per-instance, not a function-local
+        // static shared by every assert_browser in the process).
+        float                               m_SplitSize1            = -1.0f;
         tab_list                            m_Tabs                  = {};
         std::array<char,256>                m_WindowName            = {"Resource Browser"};
 

@@ -11,7 +11,7 @@
 // see xecs_plugin_api.h's own top comment for why).
 #include "dependencies/xECSV2/src/xecs.h"
 #include "dependencies/xECSV2/src/xecs_plugin_api.h"
-
+ 
 namespace e29_game
 {
     // A generation counter, stamped into every spin_component at registration time (see
@@ -24,11 +24,10 @@ namespace e29_game
         constexpr static auto typedef_v = xecs::component::type::data{ .m_pName = "Spin" };
 
         float m_DegreesPerTick = 1.0f;
-
         XPROPERTY_DEF
-        ( "Spin", spin_component
+        ("Spin", spin_component
         , obj_member<"DegreesPerTick", &spin_component::m_DegreesPerTick>
-        )
+        ) 
     };
     XPROPERTY_REG(spin_component)
 
@@ -44,7 +43,7 @@ namespace e29_game
         // xECS's per-entity query authoring model.
         void OnUpdate(void) noexcept
         {
-            std::printf("[Game.dll gen=%u] Spin tick\n", s_Generation);
+            std::printf("[Game.dll gen=%u] Spin tick (testing async build + disabled-button reload)\n", s_Generation);
             std::fflush(stdout);
         }
     };
