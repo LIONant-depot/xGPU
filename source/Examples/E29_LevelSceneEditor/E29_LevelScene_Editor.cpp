@@ -257,6 +257,8 @@ int E29_Example()
     e29::commands::toggle_multi_select_cmd CmdToggleMultiSelect(E29Undo, &CmdContext);
     e29::commands::clear_selection_cmd    CmdClearSelection(E29Undo, &CmdContext);
     e29::commands::set_property_cmd       CmdSetProperty(E29Undo, &CmdContext);
+    e29::commands::add_component_cmd      CmdAddComponent(E29Undo, &CmdContext);
+    e29::commands::remove_component_cmd   CmdRemoveComponent(E29Undo, &CmdContext);
     xundo::history                        E29History;
     E29History.AddSystem("E29", 1, E29Undo);
 
@@ -470,7 +472,7 @@ int E29_Example()
         }
 
         e29::RenderLevelTreePanel(*pGameMgr, State, E29Undo);
-        e29::RenderEntityPropertiesPanel(*pGameMgr, State, EntityInspector, InspectorBridge);
+        e29::RenderEntityPropertiesPanel(*pGameMgr, State, EntityInspector, InspectorBridge, E29Undo);
         e29::RenderSystemRegistryPanel(*pGameMgr, State);
         e29::RenderGamePluginLogPanel();
 

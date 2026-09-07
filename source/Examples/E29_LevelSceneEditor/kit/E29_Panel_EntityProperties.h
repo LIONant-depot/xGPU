@@ -6,6 +6,11 @@
 // file's own top comment). Meant to be included via the umbrella (E29_LevelSceneEditorKit.h) only,
 // after entity_inspector_bridge and everything it depends on are already defined - not designed to
 // be included standalone.
+//
+// Add/Remove Component commands (E29_Commands_ComponentEdit.h, which pulls in
+// E29_Commands_PropertyEdit.h/E29_CommandContext.h/xundo_system.h itself) included directly here -
+// same self-sufficiency reasoning as kit/E29_Panel_LevelTree.h's own top comment for why.
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_ComponentEdit.h"
 
 namespace e29
 {
@@ -16,7 +21,7 @@ namespace e29
     // one alongside EntityInspector and call Bridge.RegisterCallbacks(...) once at setup before
     // calling this every frame.
     //---------------------------------------------------------------------------
-    void RenderEntityPropertiesPanel(xecs::game_mgr::instance& GameMgr, editor_state& State, xproperty::inspector& EntityInspector, entity_inspector_bridge& Bridge) noexcept
+    void RenderEntityPropertiesPanel(xecs::game_mgr::instance& GameMgr, editor_state& State, xproperty::inspector& EntityInspector, entity_inspector_bridge& Bridge, xundo::system& Undo) noexcept
     {
         ImGui::SetNextWindowPos(ImVec2(18, 18), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(480, 500), ImGuiCond_FirstUseEver);
@@ -60,21 +65,17 @@ namespace e29
 
                         if (ImGui::Selectable(pInfo->m_pName))
                         {
-                            std::printf("[AddComponent] BEFORE: SelectedEntity.m_Value=%llu Id=%u adding '%s'\n", (unsigned long long)State.m_SelectedEntity.m_Value, State.m_SelectedEntityId, pInfo->m_pName); std::fflush(stdout);
-                            std::array Add{ pInfo };
-                            auto NewEntity = GameMgr.AddOrRemoveComponents(State.m_SelectedEntity, Add, {});
-                            pScene->m_RuntimeToLocal.erase(State.m_SelectedEntity.m_Value);
-                            pScene->m_LocalToRuntime[State.m_SelectedEntityId]     = NewEntity;
-                            pScene->m_RuntimeToLocal[NewEntity.m_Value]           = State.m_SelectedEntityId;
-                            GameMgr.m_SceneMgr.MarkEntityDirty(State.m_SelectedEntityScene, State.m_SelectedEntityId);
-                            State.m_SelectedEntity        = NewEntity;
-                            State.m_bEntityInspectorDirty = true;
+                            // Routed through the command/undo system ([[e29_command_undo_system_plan]]
+                            // memory, phase 3 - commands/E29_Commands_ComponentEdit.h) instead of
+                            // calling GameMgr.AddOrRemoveComponents directly - add_component_cmd::Redo
+                            // does the exact same migration+remap this used to do inline, and its own
+                            // Undo removes the component again.
+                            e29::commands::Run(Undo, std::format("AddComponent -Scene {} -Id {} -Component {:016X}"
+                                , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
+                                , State.m_SelectedEntityId
+                                , pInfo->m_Guid.m_Value
+                                ));
                             RefreshEntityView();
-                            {
-                                auto& VDetails = GameMgr.m_ComponentMgr.getEntityDetails(NewEntity);
-                                const bool bHasIt = VDetails.m_pPool && VDetails.m_pPool->findIndexComponentFromInfo(*pInfo) >= 0;
-                                std::printf("[AddComponent] AFTER: NewEntity.m_Value=%llu Id=%u hasComponent=%d nDataComponents=%zu\n", (unsigned long long)NewEntity.m_Value, State.m_SelectedEntityId, bHasIt, VDetails.m_pPool ? VDetails.m_pPool->m_pArchetype->getDataComponentInfos().size() : (size_t)-1); std::fflush(stdout);
-                            }
                         }
                     }
                     ImGui::EndCombo();
@@ -144,14 +145,15 @@ namespace e29
                 // "Remove Component" combo below makes for the same action.
                 if (Bridge.m_pPendingRemoveComponent)
                 {
-                    std::array Sub{ Bridge.m_pPendingRemoveComponent };
-                    auto NewEntity = GameMgr.AddOrRemoveComponents(State.m_SelectedEntity, {}, Sub);
-                    pScene->m_RuntimeToLocal.erase(State.m_SelectedEntity.m_Value);
-                    pScene->m_LocalToRuntime[State.m_SelectedEntityId] = NewEntity;
-                    pScene->m_RuntimeToLocal[NewEntity.m_Value]       = State.m_SelectedEntityId;
-                    GameMgr.m_SceneMgr.MarkEntityDirty(State.m_SelectedEntityScene, State.m_SelectedEntityId);
-                    State.m_SelectedEntity        = NewEntity;
-                    State.m_bEntityInspectorDirty = true;
+                    // Routed through the command/undo system ([[e29_command_undo_system_plan]]
+                    // memory, phase 3 - commands/E29_Commands_ComponentEdit.h) - remove_component_cmd
+                    // snapshots the component's current property values before removing it, so Undo
+                    // can restore it exactly, not just re-add it with default values.
+                    e29::commands::Run(Undo, std::format("RemoveComponent -Scene {} -Id {} -Component {:016X}"
+                        , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
+                        , State.m_SelectedEntityId
+                        , Bridge.m_pPendingRemoveComponent->m_Guid.m_Value
+                        ));
                     Bridge.m_pPendingRemoveComponent = nullptr;
                     RefreshEntityView();
                 }
