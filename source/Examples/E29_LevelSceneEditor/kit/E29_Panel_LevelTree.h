@@ -6,6 +6,13 @@
 // file's own top comment). Meant to be included via the umbrella (E29_LevelSceneEditorKit.h) only,
 // after every symbol this panel calls (editor_state, the folder/scene/prefab helpers, Debugger,
 // entity_drag_payload_t, ...) is already defined - not designed to be included standalone.
+//
+// Selection commands (E29_Commands_Selection.h, which pulls in E29_CommandContext.h/xundo_system.h
+// itself) included directly here - not relying on E29_LevelScene_Editor.cpp's own later include of
+// them - this panel is reached through the kit umbrella BEFORE that .cpp's own includes run, and a
+// file that names a type/function should include what declares it rather than depend on a distant
+// caller's own include order. #pragma once makes the .cpp's own later include a safe no-op.
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Selection.h"
 
 namespace e29
 {
@@ -17,7 +24,7 @@ namespace e29
     // under that scene's own row, not a separate section. Owns its own ImGui::Begin/End - callable
     // directly from a main loop with no surrounding window boilerplate needed.
     //---------------------------------------------------------------------------
-    void RenderLevelTreePanel(xecs::game_mgr::instance& GameMgr, editor_state& State) noexcept
+    void RenderLevelTreePanel(xecs::game_mgr::instance& GameMgr, editor_state& State, xundo::system& Undo) noexcept
     {
         ImGui::SetNextWindowPos(ImVec2(915, 18), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(360, 680), ImGuiCond_FirstUseEver);
@@ -269,48 +276,19 @@ namespace e29
                                                 const ImVec2 Drag = ImGui::GetMouseDragDelta(ImGuiMouseButton_Left);
                                                 if (Drag.x == 0.0f && Drag.y == 0.0f) // released without ever dragging past the threshold
                                                 {
+                                                    // Routed through the command/undo system
+                                                    // (commands/E29_Commands_Selection.h) instead of
+                                                    // mutating State directly - phase 1 of
+                                                    // [[e29_command_undo_system_plan]] (memory). Ctrl
+                                                    // held = ToggleMultiSelect (multi-select only,
+                                                    // primary selection untouched); plain click =
+                                                    // Select (primary selection + reset multi-select
+                                                    // to just this entity) - same two behaviors as
+                                                    // before, just undoable now via Ctrl+Z.
                                                     if (ImGui::GetIO().KeyCtrl)
-                                                    {
-                                                        // Toggles multi-select membership WITHOUT
-                                                        // touching the primary selection/Properties
-                                                        // panel - scoped to one scene at a time (a
-                                                        // prefab's members must all come from the same
-                                                        // live scene).
-                                                        if (State.m_MultiSelectScene != SceneGuid)
-                                                        {
-                                                            State.m_MultiSelectedEntityIds.clear();
-                                                            State.m_MultiSelectOrder.clear();
-                                                            State.m_MultiSelectScene = SceneGuid;
-                                                        }
-                                                        if (State.m_MultiSelectedEntityIds.contains(Id))
-                                                        {
-                                                            State.m_MultiSelectedEntityIds.erase(Id);
-                                                            std::erase(State.m_MultiSelectOrder, Id);
-                                                        }
-                                                        else
-                                                        {
-                                                            State.m_MultiSelectedEntityIds.insert(Id);
-                                                            State.m_MultiSelectOrder.push_back(Id);
-                                                        }
-                                                    }
+                                                        e29::commands::Run(Undo, std::format("ToggleMultiSelect -Scene {} -Id {}", e29::commands::FormatSceneGuid(SceneGuid), Id));
                                                     else
-                                                    {
-                                                        // Seeded with JUST this entity, not cleared to
-                                                        // empty - matches the standard "click A, then
-                                                        // ctrl-click B" convention (Explorer, Unity):
-                                                        // a plain click alone is a single selection of
-                                                        // one, but it's also the natural START of a
-                                                        // multi-selection a following ctrl-click ADDS
-                                                        // to, ending with {A, B} rather than losing A
-                                                        // entirely the moment B is ctrl-clicked.
-                                                        State.m_MultiSelectedEntityIds = { Id };
-                                                        State.m_MultiSelectOrder       = { Id };
-                                                        State.m_MultiSelectScene       = SceneGuid;
-                                                        State.m_SelectedEntityId      = Id;
-                                                        State.m_SelectedEntity        = Entity;
-                                                        State.m_SelectedEntityScene   = SceneGuid;
-                                                        State.m_bEntityInspectorDirty = true;
-                                                    }
+                                                        e29::commands::Run(Undo, std::format("Select -Scene {} -Id {}", e29::commands::FormatSceneGuid(SceneGuid), Id));
                                                 }
                                             }
 

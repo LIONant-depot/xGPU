@@ -1,6 +1,9 @@
 #include "source/Examples/E29_LevelSceneEditor/E29_LevelSceneEditorKit.h"
 #include "dependencies/xECSV2/src/xecs_plugin_api.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_GamePlugin.h"
+#include "dependencies/xundo/source/xundo_history.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Selection.h"
 
 //-----------------------------------------------------------------------------------
 //
@@ -236,6 +239,27 @@ int E29_Example()
     AsserBrowser.Show(true);
 
     //
+    // Command/undo system - phase 1 of [[e29_command_undo_system_plan]] (memory): selection only,
+    // the simplest slice, wired end to end (real click sites routed through Execute(), Ctrl+Z/Y) to
+    // prove the whole shape before tackling property editing/component add-remove/entity
+    // create-delete on top of it. Direct port of E27_NodeOS's own xundo wiring
+    // (E27_NodeOS_Editor.cpp) - one xundo::system per "document" (just E29's own editor state here),
+    // one xundo::history addressing it under the "E29" namespace for the CLI/Command-Console work a
+    // later phase adds. bAutoLoadSave=false, same reasoning as E27's own comment: a fresh undo stack
+    // each run, a stale on-disk history from a previous session's differently-shaped scene would be
+    // more confusing than useful.
+    //
+    e29::commands::e29_command_context CmdContext{ State };
+    xundo::system                      E29Undo;
+    if (auto Err = E29Undo.Init({}, false); !Err.empty())
+        e29::Debugger(std::format("E29: xundo Init failed: {}", Err));
+    e29::commands::select_cmd             CmdSelect(E29Undo, &CmdContext);
+    e29::commands::toggle_multi_select_cmd CmdToggleMultiSelect(E29Undo, &CmdContext);
+    e29::commands::clear_selection_cmd    CmdClearSelection(E29Undo, &CmdContext);
+    xundo::history                        E29History;
+    E29History.AddSystem("E29", 1, E29Undo);
+
+    //
     // Entity component inspector - the currently-selected entity's components. The resource-picker
     // callbacks are stateless (WireResourcePickerCallbacks); the prefab-override/entity-reference
     // ones need live GameMgr/State access, so they're bundled into entity_inspector_bridge (kit).
@@ -389,6 +413,15 @@ int E29_Example()
         if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S) && !State.isPlaying())
             e29::SaveEverything(*pGameMgr, State);
 
+        // Ctrl+Z / Ctrl+Y (also Ctrl+Shift+Z for Redo) - same shortcut convention as E27_NodeOS's own
+        // (E27_NodeOS_Editor.cpp), guarded by WantTextInput so typing "z" into a property text field
+        // never gets mistaken for an undo shortcut.
+        if (!ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyAlt)
+        {
+            if (ImGui::IsKeyPressed(ImGuiKey_Z) && !ImGui::GetIO().KeyShift) E29Undo.Undo();
+            else if (ImGui::IsKeyPressed(ImGuiKey_Y) || (ImGui::IsKeyPressed(ImGuiKey_Z) && ImGui::GetIO().KeyShift)) E29Undo.Redo();
+        }
+
         // GameMgr.Run() ticks every enabled Update system in its current order (via
         // m_SystemMgr.Run()) and, on the Stopped->Running transition, snapshots the System
         // Registry's current order/enabled state for GameMgr.Stop() to restore later. Only called
@@ -435,7 +468,7 @@ int E29_Example()
             else if (SelAsset.m_Type == xecs::scene::type_guid_v) e29::OpenScene(*pGameMgr, State, SelAsset);
         }
 
-        e29::RenderLevelTreePanel(*pGameMgr, State);
+        e29::RenderLevelTreePanel(*pGameMgr, State, E29Undo);
         e29::RenderEntityPropertiesPanel(*pGameMgr, State, EntityInspector, InspectorBridge);
         e29::RenderSystemRegistryPanel(*pGameMgr, State);
         e29::RenderGamePluginLogPanel();
