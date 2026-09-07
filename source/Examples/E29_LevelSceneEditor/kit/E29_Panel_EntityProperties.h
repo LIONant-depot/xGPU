@@ -39,7 +39,22 @@ namespace e29
                 // still walk the OLD archetype's DataSpan (captured before the migration), so the
                 // just-added component silently wouldn't appear until some later, unrelated dirty flag
                 // flip (e.g. reselecting the entity) rebuilt it with fresh data.
-                auto* pDetails   = &GameMgr.m_ComponentMgr.getEntityDetails(State.m_SelectedEntity);
+                auto* pDetails = &GameMgr.m_ComponentMgr.getEntityDetails(State.m_SelectedEntity);
+                if (pDetails->m_pPool == nullptr)
+                {
+                    // Defensive hardening, not a fix for a known-live bug: getEntityDetails succeeding
+                    // (generation matched) with a still-null pool shouldn't happen given the map-
+                    // corruption root cause is fixed and the stricter selection-liveness check
+                    // (DeleteSubtreeByPermanentId, E29_Commands_EntityLifecycle.h) - kept as a second
+                    // line of defense per direct review feedback, same failure class as the crash phase
+                    // 4 hit (a stale/dangling handle a few lines below would otherwise dereference a
+                    // nullptr). Does NOT guard against that assert itself - getEntityDetails asserts
+                    // internally on a generation mismatch before ever returning, so the real fix is
+                    // never reaching this call with a stale handle in the first place.
+                    ImGui::TextDisabled("Select an entity in the Level Editor panel.");
+                    ImGui::End();
+                    return;
+                }
                 auto* pArchetype = pDetails->m_pPool->m_pArchetype;
                 auto  DataSpan   = pArchetype->getDataComponentInfos();
 

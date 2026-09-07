@@ -96,11 +96,22 @@ namespace e29::commands
         if (e29::g_pState)
         {
             auto& State = *e29::g_pState;
-            if (State.m_SelectedEntityScene == SceneGuid && !pScene->m_LocalToRuntime.contains(State.m_SelectedEntityId))
+            if (State.m_SelectedEntityScene == SceneGuid)
             {
-                State.m_SelectedEntityId    = xecs::scene::invalid_permanent_id_v;
-                State.m_SelectedEntity      = {};
-                State.m_SelectedEntityScene = {};
+                // Hardening beyond "does the id still resolve to SOMETHING": also clear if it resolves
+                // to a DIFFERENT live handle than State.m_SelectedEntity itself currently holds (e.g.
+                // id reuse, or any future bookkeeping bug of the same shape as the SaveEntity/shadow-id
+                // map-corruption case this phase already hit once) - a stale cached handle is exactly
+                // what crashed RenderEntityPropertiesPanel before that root cause was found, so this
+                // check is deliberately stricter than a bare `.contains()`.
+                auto SelIt = pScene->m_LocalToRuntime.find(State.m_SelectedEntityId);
+                const bool bStillLive = (SelIt != pScene->m_LocalToRuntime.end()) && (SelIt->second.m_Value == State.m_SelectedEntity.m_Value);
+                if (!bStillLive)
+                {
+                    State.m_SelectedEntityId    = xecs::scene::invalid_permanent_id_v;
+                    State.m_SelectedEntity      = {};
+                    State.m_SelectedEntityScene = {};
+                }
             }
             if (State.m_MultiSelectScene == SceneGuid)
             {
