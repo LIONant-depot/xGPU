@@ -194,7 +194,34 @@ namespace e29
         Plugin.m_LastStatus = std::format("Game.dll: {} - rebuilding via cmake...", bDllMissing ? "DLL missing" : "source newer than DLL");
         LogGamePlugin(Plugin.m_LastStatus);
 
-        const std::wstring CmdLine = std::format(L"cmake --build \"{}\" --target E29_Game --config {}", BuildDir.wstring(), Config);
+        // /nodeReuse:false (passed through to MSBuild via cmake's own "-- <native tool args>"
+        // convention) - direct fix for a live LNK1201 ("error writing to program database ...pdb")
+        // reproduced by the user. NOT a Visual Studio conflict - only this function ever builds
+        // E29_Game, VS never does. The race is this function against ITSELF, across separate
+        // reload triggers (focus-regain/Play/Level-open) over one editing session: `cmake --build`
+        // spawns MSBuild, which by default (/nodeReuse:true) leaves a worker process alive AFTER
+        // this call returns specifically so a LATER build can reuse it for speed (confirmed live via
+        // a lingering MSBuild.exe "...\<random>.proj" node process still running well after its own
+        // triggering build had finished) - that worker holds a PDB-write lock via mspdbsrv.exe. If
+        // the editor's whole process tree ever gets killed uncleanly mid-build (e.g. a forced
+        // taskkill, or a crash) the worker can be left in a bad state and corrupt/contend with the
+        // NEXT auto-build's own attempt to write the same E29_Game.pdb, later in the same or a
+        // future session. E29_Game.cpp is one small file - there's no meaningful incremental-build
+        // speed to lose by asking THIS invocation not to spawn/reuse a persistent worker at all.
+        const std::wstring CmdLine = std::format(L"cmake --build \"{}\" --target E29_Game --config {} -- /nodeReuse:false", BuildDir.wstring(), Config);
+
+        // Belt-and-suspenders on top of the /nodeReuse:false switch above - confirmed live that the
+        // command-line switch alone does NOT reliably stop every nested MSBuild worker node it spawns
+        // for a multi-project (solution-level) build from defaulting back to node reuse (a worker
+        // process was still observed running with an explicit /nodeReuse:true on its own command
+        // line despite the outer invocation's /nodeReuse:false). MSBUILDDISABLENODEREUSE is the
+        // environment-variable form of the same setting and is Microsoft's own documented, more
+        // reliable way to force it onto every node a build spawns, nested workers included - exactly
+        // the mechanism CI systems use for this. Set on this (the caller's) process rather than built
+        // into a custom lpEnvironment block for CreateProcessW below - simpler, and lpEnvironment
+        // nullptr already means "inherit the caller's current environment," so this is picked up
+        // automatically. Idempotent (safe to set every call).
+        SetEnvironmentVariableW(L"MSBUILDDISABLENODEREUSE", L"1");
 
         // Redirected to a pipe and logged line-by-line below rather than left to inherit this
         // process's own (nonexistent - GUI subsystem, no console) stdout - the compiler's own
@@ -301,8 +328,17 @@ namespace e29
         const auto Dir     = Compiled.parent_path();
         const auto Stem    = Compiled.stem().wstring();
         const auto NewDll  = Dir / std::format(L"{}_loaded_{}.dll", Stem, Generation);
-        const auto SrcPdb  = Dir / (Stem + L".pdb");
-        const auto NewPdb  = Dir / std::format(L"{}_loaded_{}.pdb", Stem, Generation);
+        // The COMPILED pdb lives in its own separate "GamePdb/<Config>" directory now (sibling to
+        // Dir) AND is linked with /PDBALTPATH set to just its own bare filename ("E29_Game.pdb", no
+        // directory) instead of the real compile-time absolute path - see CMakeLists.txt's own
+        // comment on the E29_Game target for the full story of why (relocating the directory ALONE
+        // was tried first and empirically disproven - the debugger resolves symbols via the
+        // EMBEDDED path regardless of where the file physically sits, confirmed live via Restart
+        // Manager). Because the embedded path is just a bare filename, NewPdb below must be that
+        // SAME bare name ("E29_Game.pdb", not generation-suffixed like NewDll) for the debugger's
+        // own resolution (starting with the loaded module's own directory) to actually find it.
+        const auto SrcPdb  = Dir.parent_path() / L"GamePdb" / Dir.filename() / (Stem + L".pdb");
+        const auto NewPdb  = Dir / (Stem + L".pdb");
 
         std::filesystem::copy_file(Compiled, NewDll, std::filesystem::copy_options::overwrite_existing, Ec);
         if (Ec)
@@ -411,12 +447,16 @@ namespace e29
 
         // The shadow copy (see game_plugin_state's own comment for why it exists) is safe to
         // delete now that nothing has it mapped - best-effort; a leftover file here would be
-        // cosmetic, never a correctness problem.
+        // cosmetic, never a correctness problem. The .pdb is NOT
+        // Plugin.m_LoadedDllPath-with-a-different-extension anymore - CopyGamePluginForLoad's own
+        // comment explains why it's always the fixed bare name "E29_Game.pdb" (matching this
+        // target's compiled PDB_NAME), never generation-suffixed like the .dll itself.
         if (!Plugin.m_LoadedDllPath.empty())
         {
             std::error_code Ec;
-            std::filesystem::remove(Plugin.m_LoadedDllPath, Ec);
-            std::filesystem::remove(std::filesystem::path(Plugin.m_LoadedDllPath).replace_extension(L".pdb"), Ec);
+            const std::filesystem::path LoadedDll = Plugin.m_LoadedDllPath;
+            std::filesystem::remove(LoadedDll, Ec);
+            std::filesystem::remove(LoadedDll.parent_path() / L"E29_Game.pdb", Ec);
             Plugin.m_LoadedDllPath.clear();
         }
     }

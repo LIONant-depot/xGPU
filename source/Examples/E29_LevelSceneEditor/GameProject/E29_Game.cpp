@@ -47,21 +47,40 @@ namespace e29_game
             std::fflush(stdout);
         }
     };
-}
 
+    struct spin2_system : xecs::system::instance
+    {
+        constexpr static auto typedef_v = xecs::system::type::update{ .m_pName = "Game: Spin2 System" };
+
+        spin2_system(xecs::game_mgr::instance& GameMgr) noexcept : xecs::system::instance(GameMgr) {}
+
+        // No component parameter - matches E29_LevelScene_Editor.cpp's own tick_logger_a/b
+        // convention exactly (a pure "tick once globally" Update system, not a per-entity query).
+        // This sample exists to prove the hot-reload/registration plumbing, not to demonstrate
+        // xECS's per-entity query authoring model.
+        void OnUpdate(void) noexcept
+        {
+            std::printf("[Game.dll gen=%u] Spin 2 tick (testing async build + disabled-button reload)\n", s_Generation);
+            std::fflush(stdout);
+        }
+    };
+
+}
+ 
 extern "C" __declspec(dllexport)
 void XecsPlugin_RegisterComponents( xecs::game_mgr::instance& GameMgr, xecs::plugin::token Token ) noexcept
 {
     e29_game::s_Generation = Token.m_Generation;
     GameMgr.RegisterComponents<e29_game::spin_component>(Token);
 }
-
+ 
 extern "C" __declspec(dllexport)
 void XecsPlugin_RegisterSystems( xecs::game_mgr::instance& GameMgr ) noexcept
 {
     GameMgr.RegisterSystems<e29_game::spin_system>();
+    GameMgr.RegisterSystems<e29_game::spin2_system>();
 }
-
+ 
 extern "C" __declspec(dllexport)
 void XecsPlugin_Unregister( xecs::plugin::token /*Token*/ ) noexcept
 {

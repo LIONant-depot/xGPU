@@ -146,6 +146,17 @@ int E29_Example()
     // frame at all, so there's no live UI to freeze yet; a one-time pause here on a fresh checkout
     // is a materially different, much smaller cost than freezing an editor the user is actively
     // working in.
+    //
+    // Gated behind XECS_BUILD_SHARED (only defined when CMake's XECS_BUILD_SHARED_LIBRARY option is
+    // ON - see CMakeLists.txt and E29_Game.cpp's own top comment): a Game.dll only makes sense when
+    // xECSV2 itself is a shared library, since it depends on RegisterComponents/RegisterSystems
+    // mutating the ONE shared, cross-module component registry - in the default (non-shared) build,
+    // the E29_Game CMake target isn't even defined, so BuildGamePluginIfStale's own cmake invocation
+    // would just fail with "target not found" every single time it ran (once per focus-regain,
+    // forever). Confirmed live: that failure also silently cancelled every Play request, since
+    // PollGameReload's Failed branch clears State.m_bPlayRequested unconditionally - without this
+    // guard, Play never actually worked in the default build config at all.
+#if defined(XECS_BUILD_SHARED)
     {
         TCHAR szModulePath[MAX_PATH];
         GetModuleFileName(NULL, szModulePath, MAX_PATH);
@@ -154,6 +165,9 @@ int E29_Example()
         e29::BuildGamePluginIfStale(GamePlugin);
         e29::LoadGamePluginComponents(*pGameMgr, GamePlugin, /*Generation*/ 1);
     }
+#else
+    e29::LogGamePlugin("Game.dll: this build was configured without XECS_BUILD_SHARED_LIBRARY (see CMakeLists.txt) - Game.dll support is disabled, Play just ticks the host's own systems.");
+#endif
 
     RegisterHostSystems(*pGameMgr);
     e29::RegisterGamePluginSystems(*pGameMgr, GamePlugin);
@@ -242,8 +256,12 @@ int E29_Example()
         // unconditionally, every frame, since ConsumeWindowFocusGained is edge-triggered/self-
         // consuming and cheap to poll) and the Play button itself (see its own handler below, which
         // sets State.m_bPlayRequested and calls StartGameReload the same way).
+#if defined(XECS_BUILD_SHARED)
         if (xgpu::tools::imgui::ConsumeWindowFocusGained())
             e29::StartGameReload(GamePlugin);
+#else
+        xgpu::tools::imgui::ConsumeWindowFocusGained(); // still consume the edge - just nothing to react to without a Game.dll
+#endif
 
         // Checked unconditionally, every frame, BEFORE BeginRendering starts this frame - not run
         // synchronously at the point of a button click. Confirmed empirically (same methodology as
@@ -318,8 +336,16 @@ int E29_Example()
             {
                 if (State.m_PlayState == e29::editor_state::play_state::Stopped)
                 {
+#if defined(XECS_BUILD_SHARED)
                     State.m_bPlayRequested = true;
                     e29::StartGameReload(GamePlugin);
+#else
+                    // No Game.dll in this build config - nothing to recompile-check, so skip
+                    // straight to what PollGameReload's own UpToDate branch does: write V1 (Stop's
+                    // revert point) and enter Play directly.
+                    e29::SaveEverything(*pGameMgr, State);
+                    State.m_PlayState = e29::editor_state::play_state::Playing;
+#endif
                 }
                 else // Paused -> Playing, plain resume
                 {
@@ -373,12 +399,31 @@ int E29_Example()
 
         if (auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false)
         {
-            if (NewAsset.m_Type == xecs::level::type_guid_v) e29::OpenLevel(*pGameMgr, State, NewAsset);
+            if (NewAsset.m_Type == xecs::level::type_guid_v)
+            {
+                e29::OpenLevel(*pGameMgr, State, NewAsset);
+                // Opening a Level is also a natural "am I looking at current code" moment, same as
+                // regaining window focus or pressing Play - direct user request: code added/removed
+                // since the last check (e.g. edited while this Level wasn't even open yet) should be
+                // reflected the moment a Level is loaded, not only on the next focus-regain/Play. A
+                // no-op if a build is already in flight (see StartGameReload's own guard); edge-
+                // triggered here too (getNewAsset()/getSelectedAsset() only return non-empty once per
+                // actual selection - see E10_AssetBrowser.h), so this can't spam a build per frame.
+#if defined(XECS_BUILD_SHARED)
+                e29::StartGameReload(GamePlugin);
+#endif
+            }
             else if (NewAsset.m_Type == xecs::scene::type_guid_v) e29::OpenScene(*pGameMgr, State, NewAsset);
         }
         else if (auto SelAsset = AsserBrowser.getSelectedAsset(); SelAsset.empty() == false)
         {
-            if (SelAsset.m_Type == xecs::level::type_guid_v) e29::OpenLevel(*pGameMgr, State, SelAsset);
+            if (SelAsset.m_Type == xecs::level::type_guid_v)
+            {
+                e29::OpenLevel(*pGameMgr, State, SelAsset);
+#if defined(XECS_BUILD_SHARED)
+                e29::StartGameReload(GamePlugin);
+#endif
+            }
             else if (SelAsset.m_Type == xecs::scene::type_guid_v) e29::OpenScene(*pGameMgr, State, SelAsset);
         }
 

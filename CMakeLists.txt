@@ -9,7 +9,7 @@ set(COMPONENT_REGISTRY "")
 # target and the XGPU_SOURCES conditional append, both near the end of this file) and links
 # xGPU_unit_test against it instead - the shape a future Game.dll (Phase 8) will also link against,
 # so both share the one registry rather than each compiling a disconnected copy.
-option(XECS_BUILD_SHARED_LIBRARY "Build xECSV2 as its own shared library (xECSV2.dll) instead of compiling it directly into xGPU_unit_test" OFF)
+option(XECS_BUILD_SHARED_LIBRARY "Build xECSV2 as its own shared library (xECSV2.dll) instead of compiling it directly into xGPU_unit_test" ON)
 
 if(POLICY CMP0169)
   # Set CMP0169 to OLD to allow FetchContent_Populate without auto-executing root CMakeLists
@@ -574,6 +574,72 @@ if(XECS_BUILD_SHARED_LIBRARY)
   )
   target_compile_definitions(E29_Game PRIVATE XECS_BUILD_SHARED)
   target_link_libraries(E29_Game PRIVATE xECSV2)
+
+  # Precompiled header, direct user request - E29_Game.cpp's own compile time is dominated by
+  # xecs.h's heavy template-heavy parse (it's the file's own first two includes, before any project
+  # code - see E29_Game.cpp's own top). Scoped to ONLY E29_Game.cpp, not the whole target:
+  # xtextfile.cpp/my_properties.cpp are pre-existing, self-contained backend files that don't include
+  # xecs.h at all (see their own comments just above - "own private copy... no shared-state
+  # concern") - forcing xecs.h's PCH onto them would add real risk (macro/definition pollution from
+  # a header they were never written to expect) for zero benefit, since they're the two files that
+  # essentially never change during normal game-code iteration anyway. CMake's own
+  # SKIP_PRECOMPILE_HEADERS source property is exactly the tool for "this target has a PCH, this one
+  # source doesn't use it."
+  target_precompile_headers(E29_Game PRIVATE
+    "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_SOURCE_DIR}/dependencies/xECSV2/src/xecs.h>"
+  )
+  set_source_files_properties(
+    "dependencies/xtextfile/source/xtextfile.cpp"
+    "dependencies/xproperty/source/xcore/my_properties.cpp"
+    PROPERTIES SKIP_PRECOMPILE_HEADERS ON
+  )
+
+  # E29_Game.dll is NEVER loaded directly - E29_GamePlugin.h's own CopyGamePluginForLoad always
+  # copies it to a generation-suffixed shadow file first and LoadLibrary's THAT (see its own comment
+  # for why: "the dll we're loading should not be the same one the compiler is compiling").
+  #
+  # The compiled .pdb didn't get the same treatment and paid for it - LNK1201 ("error writing to
+  # program database"), reproduced live every time the editor tried to recompile the game while
+  # already running under the debugger. First hypothesis (relocating the compiled .pdb's OWN output
+  # directory out of the exe's folder, on the theory that Visual Studio was doing a directory-wide
+  # scan) was tested and DISPROVEN: polling Windows' own Restart Manager API continuously through a
+  # real build failure showed devenv.exe + its Remote Debugger component STILL holding the pdb open
+  # at its new location. The REAL mechanism: a PE module's debug directory embeds the pdb's absolute
+  # path AS IT WAS AT LINK TIME - a plain file copy (which is all CopyGamePluginForLoad ever did to
+  # the .pdb) does not change that embedded path, so the debugger, resolving symbols for the loaded
+  # SHADOW copy, still goes and opens the ORIGINAL compile-output path specifically, wherever that
+  # is, for as long as it's attached - not a directory scan at all.
+  #
+  # Fix: /PDBALTPATH:%_PDB% is MSVC's own documented mechanism for exactly this - it embeds only the
+  # bare filename (no directory) as the debug-directory path, instead of the real link-time absolute
+  # path. CopyGamePluginForLoad now copies the compiled .pdb to a FIXED bare name ("E29_Game.pdb",
+  # not generation-suffixed) sitting next to each shadow .dll - since the embedded path is just that
+  # bare filename, the debugger's own standard resolution (start with the loaded module's own
+  # directory) finds THAT copy, never the compiler's real output at GamePdb/. The compiler's real
+  # output is then never anything the debugger has a reason to reference, so it's always free to
+  # relink - this is a static, link-time-only flag (no per-build command-line override needed), so
+  # it carries none of the MSBuild "global properties differ -> the whole dependency graph including
+  # the already-loaded, already-locked xECSV2 gets re-evaluated" risk a per-build override would.
+  set_target_properties(E29_Game PROPERTIES PDB_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/GamePdb")
+  # The %_PDB% linker macro token (meant to embed just the pdb's own basename without knowing it
+  # ahead of time) turned out not worth fighting: getting a literal '%' character through CMake's
+  # Visual Studio generator and then MSBuild's own metadata-escaping intact took two attempts and
+  # still came out wrong (empirically verified each time by inspecting the actual embedded
+  # debug-directory path in the built .dll - confirmed via raw byte inspection, not by trusting the
+  # vcxproj source). Since this target's PDB basename is already known statically (E29_Game.pdb -
+  # PDB_NAME defaults to the target name), there's no need for the macro at all: a plain literal
+  # path has no escaping ambiguity whatsoever.
+  set_property(TARGET E29_Game APPEND_STRING PROPERTY LINK_FLAGS " /PDBALTPATH:E29_Game.pdb")
+
+  # Defensive hardening found while verifying the fix above: a manual build of this target (e.g. the
+  # user building E29_Game directly in Visual Studio) CAN legitimately overlap with the editor's own
+  # focus-triggered background auto-build of the exact same target, and unlike the linker's final
+  # E29_Game.pdb (fixed above), the COMPILER's own shared per-directory PDB (vc143.pdb, used by /Zi)
+  # has no equivalent relocation fix - it's intermediate, not a build output. Two concurrent cl.exe
+  # invocations writing to it without /FS produce a real, reproducible C1041 ("if multiple CL.EXE
+  # write to the same .PDB file, please use /FS") - confirmed live. /FS makes cl.exe synchronize
+  # those writes instead of erroring, which is exactly Microsoft's own documented fix for this.
+  target_compile_options(E29_Game PRIVATE /FS)
 endif()
 
 # Organize the shades under the folder shaders (At least the default folder)
