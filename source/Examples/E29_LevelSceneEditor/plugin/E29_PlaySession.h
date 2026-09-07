@@ -236,6 +236,7 @@ namespace e29
     , game_plugin_state&                          Plugin
     , xproperty::inspector&                       EntityInspector
     , entity_inspector_bridge&                    InspectorBridge
+    , xundo::system&                              Undo
     , const std::wstring&                         ProjectPath
     , T_REGISTER_HOST_COMPONENTS_FN&&              RegisterHostComponents
     , T_REGISTER_HOST_SYSTEMS_FN&&                 RegisterHostSystems
@@ -298,7 +299,7 @@ namespace e29
 
 
         g_pGameMgr = pGameMgr.get();
-        InspectorBridge.RegisterCallbacks(EntityInspector, *pGameMgr, State);
+        InspectorBridge.RegisterCallbacks(EntityInspector, *pGameMgr, State, Undo);
 
         // State.m_SelectedEntity is the only RUNTIME handle here (m_GlobalInfoIndex/m_Validation -
         // meaningless once pGameMgr.reset() destroyed the world it indexed into). Everything else
@@ -385,6 +386,7 @@ namespace e29
     , game_plugin_state&                          Plugin
     , xproperty::inspector&                       EntityInspector
     , entity_inspector_bridge&                    InspectorBridge
+    , xundo::system&                              Undo
     , const std::wstring&                         ProjectPath
     , T_REGISTER_HOST_COMPONENTS_FN&&              RegisterHostComponents
     , T_REGISTER_HOST_SYSTEMS_FN&&                 RegisterHostSystems
@@ -392,7 +394,7 @@ namespace e29
     {
         pGameMgr->Stop();
         RebuildWorld
-        ( pGameMgr, State, Plugin, EntityInspector, InspectorBridge, ProjectPath
+        ( pGameMgr, State, Plugin, EntityInspector, InspectorBridge, Undo, ProjectPath
         , RegisterHostComponents, RegisterHostSystems
         , /*bSwapDll*/ false, persist_mode::RestoreFromV1
         );
@@ -430,6 +432,7 @@ namespace e29
     , game_plugin_state&                          Plugin
     , xproperty::inspector&                       EntityInspector
     , entity_inspector_bridge&                    InspectorBridge
+    , xundo::system&                              Undo
     , const std::wstring&                         ProjectPath
     , T_REGISTER_HOST_COMPONENTS_FN&&              RegisterHostComponents  // (xecs::game_mgr::instance&) noexcept - e.g. registers e29::name/transform/etc
     , T_REGISTER_HOST_SYSTEMS_FN&&                 RegisterHostSystems     // (xecs::game_mgr::instance&) noexcept - e.g. registers e29::tick_logger_a/b
@@ -463,7 +466,7 @@ namespace e29
 
         // Result == build_result::Rebuilt
         const bool bLoaded = RebuildWorld
-        ( pGameMgr, State, Plugin, EntityInspector, InspectorBridge, ProjectPath
+        ( pGameMgr, State, Plugin, EntityInspector, InspectorBridge, Undo, ProjectPath
         , RegisterHostComponents, RegisterHostSystems
         , /*bSwapDll*/ true, persist_mode::RawSnapshotBridge
         );

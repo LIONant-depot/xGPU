@@ -662,6 +662,21 @@ namespace e29
         e10::g_LibMgr.Save(Context);
     }
 
+} // namespace e29
+
+// Property-edit command (phase 2 of the kit split's own follow-on, [[e29_command_undo_system_plan]]
+// memory) included directly here, not relying on E29_LevelScene_Editor.cpp's own later include -
+// entity_inspector_bridge, right below, needs it. Same self-sufficiency reasoning as
+// kit/E29_Panel_LevelTree.h's own top comment for why. Closed/reopened around this include (rather
+// than included mid-namespace like the earlier, WRONG version of this edit was) because
+// E29_Commands_PropertyEdit.h declares its own `namespace e29::commands { ... }` at file scope - if
+// this #include ran while namespace e29 was already open, that would nest into e29::e29::commands
+// instead, exactly the ODR-nesting bug this comment is here to prevent regressing.
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PropertyEdit.h"
+
+namespace e29
+{
+
     //---------------------------------------------------------------------------
     // Entity Properties inspector wiring - bundles the prefab-override tracking/revert bookkeeping
     // and the entity_reference drag-drop-assign rendering that any xECS editor built on this kit
@@ -718,7 +733,7 @@ namespace e29
         // from xproperty this same frame.
         std::function<void(xproperty::inspector&, const int, void*&, void*)> m_OnGetComponentPointer;
 
-        void RegisterCallbacks(xproperty::inspector& Inspector, xecs::game_mgr::instance& GameMgr, editor_state& State) noexcept
+        void RegisterCallbacks(xproperty::inspector& Inspector, xecs::game_mgr::instance& GameMgr, editor_state& State, xundo::system& Undo) noexcept
         {
             // xdelegate::Register(...) unconditionally push_back's - it has no dedup and no
             // Unregister at all (confirmed reading dependencies/xdelegate/source/xdelegate.h
@@ -743,57 +758,43 @@ namespace e29
             // than copying/erasing it into a std::function - so each callback must be a named local
             // that outlives the registration; here that "local" is the std::function MEMBER itself
             // (see this struct's own comment), assigned below and then registered.
-            m_OnPropertyChanged = [this, &GameMgr, &State](xproperty::inspector&, const xproperty::ui::undo::cmd& Cmd)
+            // Routed through the command/undo system ([[e29_command_undo_system_plan]] memory, phase
+            // 2 - commands/E29_Commands_PropertyEdit.h) instead of applying the value/recording the
+            // override directly here - this is the ORDINARY per-row commit path (Cmd.m_Name is a real
+            // property path, Cmd.m_NewValue/m_Original real scalar values), never the whole-component
+            // BeginEdit/CommitEdit snapshot bracket the Revert Override action below uses (that one's
+            // own m_OnChangeEvent notification carries a bracket label and a multi-line blob instead -
+            // m_bSuppressOverrideTracking is what keeps THIS callback from misinterpreting that case).
+            // set_property_cmd's own Redo()/Undo() do what this callback used to do inline (mark
+            // dirty, FindOrCreateOverrideEntry) - the difference, and the whole point of this move, is
+            // that Undo() now runs that SAME logic with the BEFORE value, so undoing an edit correctly
+            // reverts the override bookkeeping too, not just the live property (direct user caution:
+            // "careful with resetting the overrides").
+            m_OnPropertyChanged = [this, &Undo](xproperty::inspector&, const xproperty::ui::undo::cmd& Cmd)
             {
                 if (m_bSuppressOverrideTracking) return;
 
                 auto It = m_ComponentMap.find(Cmd.m_pClassObject);
                 if (It == m_ComponentMap.end()) return;
+                if (!e29::g_pState || !e29::g_pGameMgr) return;
+                auto& State = *e29::g_pState;
 
-                // Every commit through the inspector changes this entity's live data, whether or not
-                // it's a prefab instance/override - the rest of this callback only maintains
-                // prefab-override bookkeeping, which is a separate concern from "does this entity need
-                // (re)saving at all".
-                GameMgr.m_SceneMgr.MarkEntityDirty(State.m_SelectedEntityScene, State.m_SelectedEntityId);
+                std::array<char, 256> BeforeBuffer{}, AfterBuffer{};
+                const auto BeforeLen = xproperty::settings::AnyToString(BeforeBuffer, Cmd.m_Original);
+                const auto AfterLen  = xproperty::settings::AnyToString(AfterBuffer, Cmd.m_NewValue);
+                const std::string Before(BeforeBuffer.data(), BeforeLen > 0 ? static_cast<std::size_t>(BeforeLen) : 0);
+                const std::string After(AfterBuffer.data(), AfterLen > 0 ? static_cast<std::size_t>(AfterLen) : 0);
+                const std::uint32_t TypeGuid = Cmd.m_NewValue.m_pType ? Cmd.m_NewValue.m_pType->m_GUID : 0;
 
-                auto Ctx = e29::FindContainingPrefabInstance(GameMgr, State.m_SelectedEntity);
-                if (Ctx.m_pPI == nullptr) return;
-
-                // The override entry just below is written into Ctx.m_pPI, which lives on
-                // Ctx.m_RootEntity - a DIFFERENT entity than the one just edited whenever m_MemberPath
-                // is non-empty (a plain member's own property changed, tracked on the containing
-                // instance's root). Without this, only the edited member's own file gets re-saved; the
-                // root's own "Components[]" override list - the ONLY on-disk record of the override at
-                // all - silently never gets written, since nothing ever marked that entity dirty.
-                if (Ctx.m_RootEntity.m_Value != State.m_SelectedEntity.m_Value)
-                {
-                    if (auto* pScene = GameMgr.m_SceneMgr.Find(State.m_SelectedEntityScene))
-                    {
-                        if (auto RootIt = pScene->m_RuntimeToLocal.find(Ctx.m_RootEntity.m_Value); RootIt != pScene->m_RuntimeToLocal.end())
-                            GameMgr.m_SceneMgr.MarkEntityDirty(State.m_SelectedEntityScene, RootIt->second);
-                    }
-                }
-
-                auto& CompOverride = e29::FindOrCreateOverrideEntry(*Ctx.m_pPI, It->second->m_Guid.m_Value, Ctx.m_MemberPath);
-
-                // m_PropertyValueAsString is a read-only echo for humans/tools (see its own comment) -
-                // the ECS itself never reads it back, but since it CAN go stale (the same property
-                // edited a second time to a different value), every commit refreshes it rather than
-                // only setting it once at creation and leaving later edits unreflected.
-                std::array<char, 256> ValueBuffer{};
-                const auto             ValueLen = xproperty::settings::AnyToString(ValueBuffer, Cmd.m_NewValue);
-                const std::string       ValueStr(ValueBuffer.data(), ValueLen > 0 ? static_cast<std::size_t>(ValueLen) : 0);
-
-                for (auto& O : CompOverride.m_PropertyOverrides)
-                {
-                    if (O.m_PropertyName == Cmd.m_Name)
-                    {
-                        O.m_PropertyValueAsString = ValueStr;
-                        return;
-                    }
-                }
-
-                CompOverride.m_PropertyOverrides.push_back(xecs::editor::prefab_property_override{ .m_PropertyName = Cmd.m_Name, .m_PropertyValueAsString = ValueStr });
+                e29::commands::Run(Undo, std::format("SetProperty -Scene {} -Id {} -Component {:016X} -Path {} -TypeGuid {:08X} -Before {} -After {}"
+                    , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
+                    , State.m_SelectedEntityId
+                    , It->second->m_Guid.m_Value
+                    , e29::commands::Base64Encode(Cmd.m_Name)
+                    , TypeGuid
+                    , e29::commands::Base64Encode(Before)
+                    , e29::commands::Base64Encode(After)
+                    ));
             };
             Inspector.m_OnChangeEvent.Register(m_OnPropertyChanged);
 

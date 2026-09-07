@@ -20,18 +20,8 @@
 
 namespace e29::commands
 {
-    // Parses a scene guid formatted as 16 hex digits (see FormatSceneGuid, below) back into a
-    // xecs::scene::guid - the two are always used as a pair, never guid <-> guid elsewhere in the
-    // codebase, since this hex text form only exists for command-line argument round-tripping.
-    inline xecs::scene::guid ParseSceneGuid(std::string_view Text) noexcept
-    {
-        return xecs::scene::guid{ .m_Instance = { std::strtoull(std::string(Text).c_str(), nullptr, 16) } };
-    }
-
-    inline std::string FormatSceneGuid(xecs::scene::guid Guid) noexcept
-    {
-        return std::format("{:016X}", Guid.m_Instance.m_Value);
-    }
+    // ParseSceneGuid/FormatSceneGuid moved to E29_CommandContext.h - shared with
+    // E29_Commands_PropertyEdit.h, not selection-specific.
 
     //================================================================================================
     // Select - the "plain click" behavior: sets the primary selection (drives the Entity Properties

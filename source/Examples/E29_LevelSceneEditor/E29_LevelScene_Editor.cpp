@@ -256,6 +256,7 @@ int E29_Example()
     e29::commands::select_cmd             CmdSelect(E29Undo, &CmdContext);
     e29::commands::toggle_multi_select_cmd CmdToggleMultiSelect(E29Undo, &CmdContext);
     e29::commands::clear_selection_cmd    CmdClearSelection(E29Undo, &CmdContext);
+    e29::commands::set_property_cmd       CmdSetProperty(E29Undo, &CmdContext);
     xundo::history                        E29History;
     E29History.AddSystem("E29", 1, E29Undo);
 
@@ -267,7 +268,7 @@ int E29_Example()
     xproperty::inspector          EntityInspector("Entity Properties");
     e29::entity_inspector_bridge  InspectorBridge;
     e29::WireResourcePickerCallbacks(EntityInspector);
-    InspectorBridge.RegisterCallbacks(EntityInspector, *pGameMgr, State);
+    InspectorBridge.RegisterCallbacks(EntityInspector, *pGameMgr, State, E29Undo);
 
     //
     // Main Loop
@@ -299,7 +300,7 @@ int E29_Example()
         // StartGameReload (focus-regain or Play, above) is both in-flight and finished - see its own
         // comment.
         e29::PollGameReload
-        ( pGameMgr, State, GamePlugin, EntityInspector, InspectorBridge, ProjectPath
+        ( pGameMgr, State, GamePlugin, EntityInspector, InspectorBridge, E29Undo, ProjectPath
         , RegisterHostComponents, RegisterHostSystems
         );
 
@@ -309,7 +310,7 @@ int E29_Example()
         {
             State.m_bStopRequested = false;
             e29::StopPlaySession
-            ( pGameMgr, State, GamePlugin, EntityInspector, InspectorBridge, ProjectPath
+            ( pGameMgr, State, GamePlugin, EntityInspector, InspectorBridge, E29Undo, ProjectPath
             , RegisterHostComponents, RegisterHostSystems
             );
         }

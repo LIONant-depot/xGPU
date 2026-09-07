@@ -465,6 +465,7 @@ set(XGPU_SOURCES
   "source/Examples/E29_LevelSceneEditor/plugin/E29_PlaySession.h"
   "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Selection.h"
+  "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PropertyEdit.h"
   "source/Examples/E29_LevelSceneEditor/E29_LevelScene_Editor.cpp"
 
   "source/tools/editors/xgpu_editor_viewport.h"
@@ -1028,6 +1029,7 @@ source_group("Examples/E29_LevelSceneEditor/plugin" FILES
 source_group("Examples/E29_LevelSceneEditor/commands" FILES
   "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Selection.h"
+  "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PropertyEdit.h"
 )
 
 
