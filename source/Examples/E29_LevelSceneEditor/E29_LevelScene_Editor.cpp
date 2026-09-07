@@ -308,8 +308,16 @@ int E29_Example()
                     AsserBrowser.Show(true);
 
                 ImGui::Separator();
+                // Gated while Playing/Paused, direct user request after an external review correctly
+                // flagged it: V1 (the disk save Stop reverts to) is the SAME file SaveEverything
+                // writes - an unguarded Save mid-play-session would overwrite that revert point with
+                // in-flight play-mode mutations, silently defeating "Stop restores exactly what it
+                // was before Play." Neither Unity nor Unreal lets you commit play-mode state into the
+                // real project this way. The Ctrl+S shortcut below is gated identically.
+                ImGui::BeginDisabled(State.isPlaying());
                 if (ImGui::MenuItem("Save", "Ctrl+S"))
                     e29::SaveEverything(*pGameMgr, State);
+                ImGui::EndDisabled();
                 ImGui::EndMenu();
             }
 
@@ -378,7 +386,7 @@ int E29_Example()
         // The menu item above only ever LABELS "Ctrl+S" - ImGui::MenuItem's shortcut string is
         // purely decorative and doesn't bind anything on its own. Checked once per frame,
         // unconditionally (not gated behind the File menu being open).
-        if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S))
+        if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S) && !State.isPlaying())
             e29::SaveEverything(*pGameMgr, State);
 
         // GameMgr.Run() ticks every enabled Update system in its current order (via

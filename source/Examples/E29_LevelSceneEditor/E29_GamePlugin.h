@@ -628,19 +628,34 @@ namespace e29
     // whole point of Stop is getting back to normal editing - Level tree included - exactly as it was
     // before Play, matching Unity's own Play/Stop semantics.
     //
-    //   DiskSaveAndReload - not playing (a normal, not-in-a-play-session reload): save the real
-    //                       Scene/Level/Prefab assets to disk, then reload from disk via OpenLevel.
-    //   RawSnapshotBridge - a play session is genuinely live (Playing or Paused) and the world must
-    //                       be destroyed anyway (a Game.dll swap). Write/read this reload's own "Vn"
-    //                       (GetReloadBridgeSnapshotPath - overwritten every cycle) so gameplay
-    //                       resumes exactly where it was, per direct user requirement - scene-unaware,
-    //                       and deliberately so (Vn never needs the tree, only V1 does).
+    //   RawSnapshotBridge - EVERY code-triggered reload (Playing, Paused, AND plain edit-mode) lands
+    //                       here now - the world must be destroyed anyway (a Game.dll swap), so
+    //                       write/read this reload's own throwaway "Vn" (GetReloadBridgeSnapshotPath -
+    //                       overwritten every cycle) so whatever the user currently has - gameplay
+    //                       state while Playing, or just unsaved edits while Stopped - survives the
+    //                       destroy/recreate intact, entirely in memory, without touching the real
+    //                       saved project on disk. Scene-unaware, and deliberately so (Vn never needs
+    //                       the tree, only V1 does) - CaptureOpenScenes/ReattachOpenScenes carry the
+    //                       tree across separately, snapshot-independent.
     //   RestoreFromV1     - Stop. Never saves anything - there's nothing worth saving; whatever the
     //                       play session's raw Vn bridging left the world in is 100% discarded.
-    //                       Reloads via OpenLevel, exactly like DiskSaveAndReload's own restore -
-    //                       correct precisely because V1 was itself a real disk save, so "reload from
-    //                       disk" already means "reload V1", nothing more needs building.
-    enum class persist_mode : std::uint8_t { DiskSaveAndReload, RawSnapshotBridge, RestoreFromV1 };
+    //                       Reloads via OpenLevel - correct precisely because V1 was itself a real
+    //                       disk save (written explicitly by Play, or by PollGameReload's own
+    //                       UpToDate/Rebuilt branches right before flipping to Playing - never as a
+    //                       silent side effect of an edit-mode reload), so "reload from disk" already
+    //                       means "reload V1", nothing more needs building.
+    //
+    // There used to be a third mode, DiskSaveAndReload, used for every edit-mode (not-playing)
+    // reload - it saved the real Scene/Level/Prefab assets to disk unconditionally as part of the
+    // reload. Removed per direct user request after an external review correctly flagged it: tabbing
+    // back into the editor after an unrelated code edit would silently commit whatever was in the
+    // scene to disk, with no explicit Save action from the user - surprising, and unlike Unity/Unreal,
+    // neither of which persists anything to the real project on a domain reload / Live Coding patch.
+    // RawSnapshotBridge already does everything DiskSaveAndReload needed (preserve current state
+    // across the destroy/recreate) without the disk write, so switching every reload to it was a
+    // straight subtraction, not a new code path - see PollGameReload's own comment for the one place
+    // that used to get V1 "for free" as DiskSaveAndReload's side effect and now writes it explicitly.
+    enum class persist_mode : std::uint8_t { RawSnapshotBridge, RestoreFromV1 };
 
     //---------------------------------------------------------------------------
     // The one shared "destroy the world and rebuild it" skeleton - every reload E29 ever does
@@ -686,7 +701,6 @@ namespace e29
         switch (PersistMode)
         {
         case persist_mode::RawSnapshotBridge: SaveSnapshot(*pGameMgr, GetReloadBridgeSnapshotPath()); break;
-        case persist_mode::DiskSaveAndReload: SaveEverything(*pGameMgr, State);                       break;
         case persist_mode::RestoreFromV1:     /* nothing worth saving */                              break;
         }
 
@@ -769,12 +783,12 @@ namespace e29
         }
         else if (!State.m_CurrentLevel.empty())
         {
-            // DiskSaveAndReload (a normal, not-playing reload) AND RestoreFromV1 (Stop) both land
-            // here - V1 IS a real disk save (see persist_mode's own comment), so "reload from disk"
-            // already means "reload V1" for Stop; nothing extra to build. This is what correctly
-            // restores the Level tree exactly as it was before Play - entities that died or got
-            // created (into the default folder) during the play session are discarded, matching
-            // Unity's own Play/Stop semantics.
+            // Only persist_mode::RestoreFromV1 (Stop) ever lands here now - the only other mode,
+            // RawSnapshotBridge, is caught by the `if` above. V1 IS a real disk save (see
+            // persist_mode's own comment), so "reload from disk" already means "reload V1" for Stop;
+            // nothing extra to build. This is what correctly restores the Level tree exactly as it
+            // was before Play - entities that died or got created (into the default folder) during
+            // the play session are discarded, matching Unity's own Play/Stop semantics.
             OpenLevel(*pGameMgr, State, xresource::full_guid{ State.m_CurrentLevel.m_Instance, State.m_CurrentLevel.m_Type });
         }
 
@@ -850,11 +864,12 @@ namespace e29
     // point, and Play just keeps ticking the SAME live world (no reason to tear anything down over a
     // check that found nothing to do).
     //
-    // On Rebuilt: runs the full destroy/recreate/DLL-swap sequence via RebuildWorld - using the raw
-    // play-session snapshot bridge if a play session was already live (Playing or Paused) at the
-    // moment this fired, or the normal disk Save/OpenLevel path otherwise. Then, if a Play was ALSO
-    // requested (the user pressed Play while a rebuild happened to be needed), enters play directly -
-    // the reload above already did an equivalent-or-better save/reload than a separate one would.
+    // On Rebuilt: runs the full destroy/recreate/DLL-swap sequence via RebuildWorld, always via the
+    // raw in-memory snapshot bridge (persist_mode::RawSnapshotBridge) regardless of Play state - see
+    // persist_mode's own comment for why this reload never touches disk on its own anymore. If a Play
+    // was ALSO requested (the user pressed Play while a rebuild happened to be needed), enters play
+    // directly afterward - but MUST write V1 explicitly here (see below), since the reload itself no
+    // longer does that as a side effect the way the old DiskSaveAndReload mode used to.
     //---------------------------------------------------------------------------
     template< typename T_REGISTER_HOST_COMPONENTS_FN, typename T_REGISTER_HOST_SYSTEMS_FN >
     bool PollGameReload
@@ -895,20 +910,19 @@ namespace e29
         }
 
         // Result == build_result::Rebuilt
-        const persist_mode PersistMode = State.isPlaying() ? persist_mode::RawSnapshotBridge : persist_mode::DiskSaveAndReload;
         const bool bLoaded = RebuildWorld
         ( pGameMgr, State, Plugin, EntityInspector, InspectorBridge, ProjectPath
         , RegisterHostComponents, RegisterHostSystems
-        , /*bSwapDll*/ true, PersistMode
+        , /*bSwapDll*/ true, persist_mode::RawSnapshotBridge
         );
 
         if (State.m_bPlayRequested)
         {
             State.m_bPlayRequested = false;
-            // No separate V1 write needed here (unlike the UpToDate branch above) - RebuildWorld just
-            // ran with PersistMode::DiskSaveAndReload (State.isPlaying() was still false, since Play
-            // hasn't actually flipped yet), which already did SaveEverything as part of that reload.
-            // That disk state IS V1.
+            // Write V1 explicitly, same as the UpToDate branch above - the reload just above used
+            // RawSnapshotBridge (never touches disk), so unlike before this removed the
+            // DiskSaveAndReload mode, V1 is no longer a free side effect of the reload itself.
+            SaveEverything(*pGameMgr, State);
             State.m_PlayState = editor_state::play_state::Playing;
         }
 
