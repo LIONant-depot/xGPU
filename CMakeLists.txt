@@ -453,6 +453,9 @@ set(XGPU_SOURCES
   # prefab authoring/instancing, folder/entity bookkeeping, error popup, inspector wiring) - the
   # .cpp is just the example's own demo content + main-loop setup.
   "source/Examples/E29_LevelSceneEditor/E29_LevelSceneEditorKit.h"
+  "source/Examples/E29_LevelSceneEditor/kit/E29_Panel_LevelTree.h"
+  "source/Examples/E29_LevelSceneEditor/kit/E29_Panel_EntityProperties.h"
+  "source/Examples/E29_LevelSceneEditor/kit/E29_Panel_SystemRegistry.h"
   "source/Examples/E29_LevelSceneEditor/E29_LevelScene_Editor.cpp"
 
   "source/tools/editors/xgpu_editor_viewport.h"
@@ -998,6 +1001,11 @@ source_group("Examples/E28_FontResourcePipeline" FILES
 source_group("Examples/E29_LevelSceneEditor" FILES
   "source/Examples/E29_LevelSceneEditor/E29_LevelSceneEditorKit.h"
   "source/Examples/E29_LevelSceneEditor/E29_LevelScene_Editor.cpp"
+)
+source_group("Examples/E29_LevelSceneEditor/kit" FILES
+  "source/Examples/E29_LevelSceneEditor/kit/E29_Panel_LevelTree.h"
+  "source/Examples/E29_LevelSceneEditor/kit/E29_Panel_EntityProperties.h"
+  "source/Examples/E29_LevelSceneEditor/kit/E29_Panel_SystemRegistry.h"
 )
 
 

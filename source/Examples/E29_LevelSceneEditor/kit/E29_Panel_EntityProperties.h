@@ -1,0 +1,165 @@
+#ifndef E29_PANEL_ENTITY_PROPERTIES_H
+#define E29_PANEL_ENTITY_PROPERTIES_H
+#pragma once
+
+// Extracted from E29_LevelSceneEditorKit.h (mechanical move, phase 1 of the kit split - see that
+// file's own top comment). Meant to be included via the umbrella (E29_LevelSceneEditorKit.h) only,
+// after entity_inspector_bridge and everything it depends on are already defined - not designed to
+// be included standalone.
+
+namespace e29
+{
+    //---------------------------------------------------------------------------
+    // Entity Properties panel - the selected entity's components, plus Add/Remove Component and
+    // (when applicable) prefab-override actions. Owns its own ImGui::Begin/End. Bridge carries the
+    // inspector-to-override-tracking state (see entity_inspector_bridge's own comment) - construct
+    // one alongside EntityInspector and call Bridge.RegisterCallbacks(...) once at setup before
+    // calling this every frame.
+    //---------------------------------------------------------------------------
+    void RenderEntityPropertiesPanel(xecs::game_mgr::instance& GameMgr, editor_state& State, xproperty::inspector& EntityInspector, entity_inspector_bridge& Bridge) noexcept
+    {
+        ImGui::SetNextWindowPos(ImVec2(18, 18), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(480, 500), ImGuiCond_FirstUseEver);
+        if (ImGui::Begin("Entity Properties"))
+        {
+            if (State.m_SelectedEntity.isValid() == false || State.m_SelectedEntityScene.empty())
+            {
+                ImGui::TextDisabled("Select an entity in the Level Editor panel.");
+            }
+            else if (auto* pScene = GameMgr.m_SceneMgr.Find(State.m_SelectedEntityScene))
+            {
+                // Pointers (not references) so RefreshEntityView() below can rebind them after
+                // AddOrRemoveComponents migrates State.m_SelectedEntity to a new handle - without this,
+                // adding/removing a component and rebuilding the inspector in the SAME frame would
+                // still walk the OLD archetype's DataSpan (captured before the migration), so the
+                // just-added component silently wouldn't appear until some later, unrelated dirty flag
+                // flip (e.g. reselecting the entity) rebuilt it with fresh data.
+                auto* pDetails   = &GameMgr.m_ComponentMgr.getEntityDetails(State.m_SelectedEntity);
+                auto* pArchetype = pDetails->m_pPool->m_pArchetype;
+                auto  DataSpan   = pArchetype->getDataComponentInfos();
+
+                auto RefreshEntityView = [&]() noexcept
+                {
+                    pDetails   = &GameMgr.m_ComponentMgr.getEntityDetails(State.m_SelectedEntity);
+                    pArchetype = pDetails->m_pPool->m_pArchetype;
+                    DataSpan   = pArchetype->getDataComponentInfos();
+                };
+
+                if (ImGui::BeginCombo("###AddComponent", "Add Component"))
+                {
+                    for (auto& Pair : xecs::component::mgr::s_Registry.m_ComponentInfoMap)
+                    {
+                        auto* pInfo = Pair.second;
+                        if (pInfo->m_TypeID != xecs::component::type::id::DATA) continue;
+                        if (e29::IsInternalComponent(pInfo)) continue;
+                        // findIndexComponentFromInfo, not getComponentBits().getBit() - see
+                        // [[xecs_getbit_vs_findindexcomponentfrominfo]] (a runtime-assigned component
+                        // bit checked this way can read as absent/invalid even when the component is
+                        // genuinely present).
+                        if (pDetails->m_pPool->findIndexComponentFromInfo(*pInfo) >= 0) continue; // already present
+
+                        if (ImGui::Selectable(pInfo->m_pName))
+                        {
+                            std::printf("[AddComponent] BEFORE: SelectedEntity.m_Value=%llu Id=%u adding '%s'\n", (unsigned long long)State.m_SelectedEntity.m_Value, State.m_SelectedEntityId, pInfo->m_pName); std::fflush(stdout);
+                            std::array Add{ pInfo };
+                            auto NewEntity = GameMgr.AddOrRemoveComponents(State.m_SelectedEntity, Add, {});
+                            pScene->m_RuntimeToLocal.erase(State.m_SelectedEntity.m_Value);
+                            pScene->m_LocalToRuntime[State.m_SelectedEntityId]     = NewEntity;
+                            pScene->m_RuntimeToLocal[NewEntity.m_Value]           = State.m_SelectedEntityId;
+                            GameMgr.m_SceneMgr.MarkEntityDirty(State.m_SelectedEntityScene, State.m_SelectedEntityId);
+                            State.m_SelectedEntity        = NewEntity;
+                            State.m_bEntityInspectorDirty = true;
+                            RefreshEntityView();
+                            {
+                                auto& VDetails = GameMgr.m_ComponentMgr.getEntityDetails(NewEntity);
+                                const bool bHasIt = VDetails.m_pPool && VDetails.m_pPool->findIndexComponentFromInfo(*pInfo) >= 0;
+                                std::printf("[AddComponent] AFTER: NewEntity.m_Value=%llu Id=%u hasComponent=%d nDataComponents=%zu\n", (unsigned long long)NewEntity.m_Value, State.m_SelectedEntityId, bHasIt, VDetails.m_pPool ? VDetails.m_pPool->m_pArchetype->getDataComponentInfos().size() : (size_t)-1); std::fflush(stdout);
+                            }
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+
+                // Prefabs are created by dragging an entity from the Level Editor tree onto a folder
+                // in the asset browser (see e29::entity_to_prefab_drop) - Unity-style, no button.
+
+                // Unity's "Apply to Prefab" - only shown when the selected entity is structurally
+                // part of SOME prefab instance (root or plain member), matching how the blue tint/
+                // "(Prefab: X)" label already decide the same thing. Applies EVERY override this one
+                // instance currently has recorded, across however many members its own m_MemberPath
+                // entries address, in one action - the closest Unity equivalent to its default
+                // top-level "Apply All".
+                if (auto Ctx = e29::FindContainingPrefabInstance(GameMgr, State.m_SelectedEntity); Ctx.m_pPI && !Ctx.m_pPI->m_lComponents.empty())
+                {
+                    if (ImGui::Button("Apply Overrides to Prefab"))
+                    {
+                        if (auto Err = xecs::persist::details::ApplyInstanceOverridesToPrefab(GameMgr, Ctx.m_RootEntity); Err)
+                        {
+                            e29::Debugger(std::format("Failed to apply overrides to prefab: {}", Err.getMessage()));
+                        }
+                        else if (auto RootIt = pScene->m_RuntimeToLocal.find(Ctx.m_RootEntity.m_Value); RootIt != pScene->m_RuntimeToLocal.end())
+                        {
+                            GameMgr.m_SceneMgr.MarkEntityDirty(State.m_SelectedEntityScene, RootIt->second);
+                            State.m_bEntityInspectorDirty = true; // the just-applied property no longer shows as overridden
+                        }
+                    }
+                }
+
+                ImGui::Separator();
+
+                if (State.m_bEntityInspectorDirty)
+                {
+                    std::printf("[EntityDrag] Entity Properties inspector REBUILDING (m_bEntityInspectorDirty) for SelectedEntityId=%u\n", State.m_SelectedEntityId);
+                    std::fflush(stdout);
+                    EntityInspector.clear();
+                    Bridge.m_ComponentMap.clear();
+                    EntityInspector.AppendEntity();
+                    for (auto pInfo : DataSpan)
+                    {
+                        if (e29::IsInternalComponent(pInfo)) continue;
+                        if (pInfo->m_pPropertyTable == nullptr) continue;
+
+                        if (pDetails->m_pPool->findIndexComponentFromInfo(*pInfo) < 0) continue; // not actually present
+
+                        // pBase is a FAKE pointer (nullptr, never dereferenced) - pInfo is the stable
+                        // identity carried as pUserData instead. The REAL pointer into pool memory is
+                        // resolved fresh every frame by Bridge's m_OnGetComponentPointer (registered
+                        // below in RegisterCallbacks), never cached here across frames - see that
+                        // callback's own comment for why a raw pointer captured only at rebuild time
+                        // (the previous design) goes stale the moment anything invalidates it without
+                        // routing back through this dirty-flag rebuild first (an archetype
+                        // migration elsewhere, or - the case that actually surfaced this - Phase 8's
+                        // hot reload destroying and recreating the whole pool).
+                        EntityInspector.AppendEntityComponent(*pInfo->m_pPropertyTable, nullptr, const_cast<xecs::component::type::info*>(pInfo));
+                    }
+                    State.m_bEntityInspectorDirty = false;
+                }
+
+                xproperty::settings::context Context;
+                EntityInspector.Show(Context, []{});
+
+                // A component header's "[X]" (entity_inspector_bridge::m_OnComponentHeaderRender) only
+                // ever records the request while Show() is mid-iteration over this same component list
+                // - now that it's returned, it's safe to actually mutate the archetype, same call the
+                // "Remove Component" combo below makes for the same action.
+                if (Bridge.m_pPendingRemoveComponent)
+                {
+                    std::array Sub{ Bridge.m_pPendingRemoveComponent };
+                    auto NewEntity = GameMgr.AddOrRemoveComponents(State.m_SelectedEntity, {}, Sub);
+                    pScene->m_RuntimeToLocal.erase(State.m_SelectedEntity.m_Value);
+                    pScene->m_LocalToRuntime[State.m_SelectedEntityId] = NewEntity;
+                    pScene->m_RuntimeToLocal[NewEntity.m_Value]       = State.m_SelectedEntityId;
+                    GameMgr.m_SceneMgr.MarkEntityDirty(State.m_SelectedEntityScene, State.m_SelectedEntityId);
+                    State.m_SelectedEntity        = NewEntity;
+                    State.m_bEntityInspectorDirty = true;
+                    Bridge.m_pPendingRemoveComponent = nullptr;
+                    RefreshEntityView();
+                }
+            }
+        }
+        ImGui::End();
+    }
+
+} // namespace e29
+
+#endif // E29_PANEL_ENTITY_PROPERTIES_H
