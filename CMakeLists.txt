@@ -458,6 +458,11 @@ set(XGPU_SOURCES
   "source/Examples/E29_LevelSceneEditor/kit/E29_Panel_LevelTree.h"
   "source/Examples/E29_LevelSceneEditor/kit/E29_Panel_EntityProperties.h"
   "source/Examples/E29_LevelSceneEditor/kit/E29_Panel_SystemRegistry.h"
+  "source/Examples/E29_LevelSceneEditor/E29_GamePlugin.h"
+  "source/Examples/E29_LevelSceneEditor/plugin/E29_GamePluginLog.h"
+  "source/Examples/E29_LevelSceneEditor/plugin/E29_GamePluginBuild.h"
+  "source/Examples/E29_LevelSceneEditor/plugin/E29_GamePluginLoad.h"
+  "source/Examples/E29_LevelSceneEditor/plugin/E29_PlaySession.h"
   "source/Examples/E29_LevelSceneEditor/E29_LevelScene_Editor.cpp"
 
   "source/tools/editors/xgpu_editor_viewport.h"
@@ -1002,6 +1007,7 @@ source_group("Examples/E28_FontResourcePipeline" FILES
 
 source_group("Examples/E29_LevelSceneEditor" FILES
   "source/Examples/E29_LevelSceneEditor/E29_LevelSceneEditorKit.h"
+  "source/Examples/E29_LevelSceneEditor/E29_GamePlugin.h"
   "source/Examples/E29_LevelSceneEditor/E29_LevelScene_Editor.cpp"
 )
 source_group("Examples/E29_LevelSceneEditor/kit" FILES
@@ -1010,6 +1016,12 @@ source_group("Examples/E29_LevelSceneEditor/kit" FILES
   "source/Examples/E29_LevelSceneEditor/kit/E29_Panel_LevelTree.h"
   "source/Examples/E29_LevelSceneEditor/kit/E29_Panel_EntityProperties.h"
   "source/Examples/E29_LevelSceneEditor/kit/E29_Panel_SystemRegistry.h"
+)
+source_group("Examples/E29_LevelSceneEditor/plugin" FILES
+  "source/Examples/E29_LevelSceneEditor/plugin/E29_GamePluginLog.h"
+  "source/Examples/E29_LevelSceneEditor/plugin/E29_GamePluginBuild.h"
+  "source/Examples/E29_LevelSceneEditor/plugin/E29_GamePluginLoad.h"
+  "source/Examples/E29_LevelSceneEditor/plugin/E29_PlaySession.h"
 )
 
 
