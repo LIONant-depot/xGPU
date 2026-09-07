@@ -372,34 +372,12 @@ namespace e29
         }
     }
 
-    // Shared "New Entity"/"New Folder" menu content, landing directly under TargetFolder (invalid =
-    // scene root, adopted into "Default" the next render pass - see EnsureDefaultFolder) - used by
-    // BOTH the Scene row's and the Folder row's own right-click context menu. A separate toolbar "+"
-    // with a persistent "which row is the target" selection was tried first and dropped per direct
-    // user feedback once right-click-in-place existed - it made the "+" redundant.
-    // Assumes it's called from inside an already-open popup (BeginPopupContextItem/BeginPopup).
-    void ShowCreateMenuItems(xecs::game_mgr::instance& GameMgr, xecs::scene::guid SceneGuid, xecs::scene::instance& Scene, xecs::scene::folder_id TargetFolder) noexcept
-    {
-        if (ImGui::MenuItem("New Entity"))
-        {
-            auto& Archetype = GameMgr.getOrCreateArchetype<>();
-            auto  Entity    = Archetype.CreateEntity(xecs::tools::empty_lambda{});
-            const auto Id   = NextFreeEntityId(Scene);
-            Scene.m_LocalToRuntime[Id]              = Entity;
-            Scene.m_RuntimeToLocal[Entity.m_Value]  = Id;
-            GameMgr.m_SceneMgr.MarkEntityNew(SceneGuid, Id);
-            if (TargetFolder != xecs::scene::invalid_folder_id_v)
-                ReparentEntityIntoFolder(Scene, Id, TargetFolder);
-        }
-        if (ImGui::MenuItem("New Folder"))
-        {
-            xecs::scene::folder NewFolder;
-            NewFolder.m_Id     = NextFreeFolderId(Scene);
-            NewFolder.m_Parent = TargetFolder;
-            NewFolder.m_Name   = "New Folder";
-            Scene.m_Folders.push_back(std::move(NewFolder));
-        }
-    }
+    // ShowCreateMenuItems moved further down in this file (right after E29_PrefabAuthoring.h's own
+    // include) - phase 4's own [[e29_command_undo_system_plan]] routing needs e29::g_pGameMgr/
+    // g_pState (E29_PrefabAuthoring.h) and e29::commands::Run (E29_CommandContext.h), neither
+    // available yet at this point in the file. Its only 2 callers (kit/E29_Panel_LevelTree.h) are
+    // reached much later in the umbrella than either dependency, so moving it is a pure relocation -
+    // see its own comment at the new location.
 
     // Every scene always has somewhere for an entity to live - there's no more "loose at scene root"
     // concept (direct user request: unfoldered entities belong in an auto-created "Default" folder
@@ -629,8 +607,50 @@ namespace e29
 #include "kit/E29_PrefabOverrides.h"
 #include "kit/E29_PrefabAuthoring.h"
 
+// e29::commands::Run/FormatSceneGuid (E29_CommandContext.h, lightweight - no dependency on
+// DeleteEntitySubtree itself, but needs e29::g_pGameMgr/g_pState, which E29_PrefabAuthoring.h just
+// declared above) needed by ShowCreateMenuItems' own "New Entity" branch, right below - closed/
+// reopened around this include for the same ODR-nesting reason E29_Commands_PropertyEdit.h's own
+// include comment explains (this file declares its own `namespace e29::commands { ... }` at file
+// scope).
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
+
 namespace e29
 {
+    // Shared "New Entity"/"New Folder" menu content, landing directly under TargetFolder (invalid =
+    // scene root, adopted into "Default" the next render pass - see EnsureDefaultFolder) - used by
+    // BOTH the Scene row's and the Folder row's own right-click context menu. A separate toolbar "+"
+    // with a persistent "which row is the target" selection was tried first and dropped per direct
+    // user feedback once right-click-in-place existed - it made the "+" redundant.
+    // Assumes it's called from inside an already-open popup (BeginPopupContextItem/BeginPopup).
+    //
+    // "New Entity" routed through the command/undo system ([[e29_command_undo_system_plan]] memory,
+    // phase 4 - commands/E29_Commands_EntityLifecycle.h) - create_entity_cmd::Redo does the exact
+    // migration this used to do inline, Undo deletes it again. "New Folder" is UNCHANGED (still a
+    // direct mutation) - phase 4's own scope is Create/Delete ENTITY only, folders aren't part of it.
+    // Moved here (was originally much earlier in this file) since this routing needs both
+    // e29::g_pGameMgr/g_pState (just declared, E29_PrefabAuthoring.h above) and e29::commands::Run
+    // (just included above) - neither was available at the function's original position.
+    void ShowCreateMenuItems(xecs::scene::guid SceneGuid, xecs::scene::instance& Scene, xecs::scene::folder_id TargetFolder, xundo::system& Undo) noexcept
+    {
+        if (ImGui::MenuItem("New Entity"))
+        {
+            const auto Id = NextFreeEntityId(Scene);
+            e29::commands::Run(Undo, std::format("CreateEntity -Scene {} -Id {} -Folder {:08X}"
+                , e29::commands::FormatSceneGuid(SceneGuid)
+                , Id
+                , static_cast<std::uint32_t>(TargetFolder)
+                ));
+        }
+        if (ImGui::MenuItem("New Folder"))
+        {
+            xecs::scene::folder NewFolder;
+            NewFolder.m_Id     = NextFreeFolderId(Scene);
+            NewFolder.m_Parent = TargetFolder;
+            NewFolder.m_Name   = "New Folder";
+            Scene.m_Folders.push_back(std::move(NewFolder));
+        }
+    }
 
     // The single "Save" action - persists everything currently open (the Level's descriptor, the
     // open Scene's entities + its descriptor) plus the underlying project/library metadata, rather

@@ -259,6 +259,8 @@ int E29_Example()
     e29::commands::set_property_cmd       CmdSetProperty(E29Undo, &CmdContext);
     e29::commands::add_component_cmd      CmdAddComponent(E29Undo, &CmdContext);
     e29::commands::remove_component_cmd   CmdRemoveComponent(E29Undo, &CmdContext);
+    e29::commands::create_entity_cmd      CmdCreateEntity(E29Undo, &CmdContext);
+    e29::commands::delete_entity_cmd      CmdDeleteEntity(E29Undo, &CmdContext);
     xundo::history                        E29History;
     E29History.AddSystem("E29", 1, E29Undo);
 

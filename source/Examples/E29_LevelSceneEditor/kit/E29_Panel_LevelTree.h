@@ -14,6 +14,11 @@
 // caller's own include order. #pragma once makes the .cpp's own later include a safe no-op.
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Selection.h"
 
+// Create/Delete Entity commands (E29_Commands_EntityLifecycle.h) - needs DeleteEntitySubtree
+// (kit/E29_PrefabAuthoring.h), already included by the umbrella well before this panel is reached
+// (see that file's own top comment for why this panel can safely assume it).
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_EntityLifecycle.h"
+
 namespace e29
 {
     //---------------------------------------------------------------------------
@@ -117,7 +122,7 @@ namespace e29
                             if (ImGui::BeginPopupContextItem())
                             {
                                 if (auto* pMenuScene = GameMgr.m_SceneMgr.Find(SceneGuid))
-                                    e29::ShowCreateMenuItems(GameMgr, SceneGuid, *pMenuScene, xecs::scene::invalid_folder_id_v);
+                                    e29::ShowCreateMenuItems(SceneGuid, *pMenuScene, xecs::scene::invalid_folder_id_v, Undo);
                                 ImGui::Separator();
                                 if (ImGui::MenuItem("Remove Scene"))
                                 {
@@ -318,29 +323,15 @@ namespace e29
                                             bool bDeleted = false;
                                             auto DoDeleteEntity = [&]() noexcept
                                             {
-                                                // Recurses into Entity's own children (if any) rather than
-                                                // just deleting this one row. Whichever entity/entities were
-                                                // actually selected (this row or a now-deleted descendant of
-                                                // it) get their selection cleared by checking survival
-                                                // afterward, rather than only comparing against Id directly.
-                                                e29::DeleteEntitySubtree(GameMgr, *pScene, SceneGuid, Entity);
-                                                if (State.m_SelectedEntityScene == SceneGuid && !pScene->m_LocalToRuntime.contains(State.m_SelectedEntityId))
-                                                {
-                                                    State.m_SelectedEntityId    = xecs::scene::invalid_permanent_id_v;
-                                                    State.m_SelectedEntity      = {};
-                                                    State.m_SelectedEntityScene = {};
-                                                }
-
-                                                // Same survival check for the MULTI-select set/order -
-                                                // a cascading delete can take out several ids at once
-                                                // (the clicked row plus every descendant), any of
-                                                // which might also have been part of an active
-                                                // multi-selection.
-                                                if (State.m_MultiSelectScene == SceneGuid)
-                                                {
-                                                    std::erase_if(State.m_MultiSelectedEntityIds, [&](auto Id) noexcept { return !pScene->m_LocalToRuntime.contains(Id); });
-                                                    std::erase_if(State.m_MultiSelectOrder, [&](auto Id) noexcept { return !pScene->m_LocalToRuntime.contains(Id); });
-                                                }
+                                                // Routed through the command/undo system
+                                                // ([[e29_command_undo_system_plan]] memory, phase 4 -
+                                                // commands/E29_Commands_EntityLifecycle.h) instead of
+                                                // calling DeleteEntitySubtree directly - selection/
+                                                // multi-select survival cleanup (this row or a now-
+                                                // deleted descendant of it) now lives in the command's
+                                                // own DeleteSubtreeByPermanentId, shared with Undo so
+                                                // it behaves identically from either direction.
+                                                e29::commands::Run(Undo, std::format("DeleteEntity -Scene {} -Id {}", e29::commands::FormatSceneGuid(SceneGuid), Id));
                                                 bDeleted = true;
                                             };
 
@@ -352,6 +343,24 @@ namespace e29
                                             // menu action.
                                             if (ImGui::BeginPopupContextItem())
                                             {
+                                                // "New Entity" here creates a CHILD of this row - the
+                                                // only entity-row context menu action previously offered
+                                                // was Delete; there was no way at all to create an entity
+                                                // parented under another entity (direct user report).
+                                                // Routed through the same CreateEntity command
+                                                // ShowCreateMenuItems uses (E29_LevelSceneEditorKit.h),
+                                                // just with -Parent instead of -Folder.
+                                                if (ImGui::MenuItem("New Entity"))
+                                                {
+                                                    const auto NewId = e29::NextFreeEntityId(*pScene);
+                                                    e29::commands::Run(Undo, std::format("CreateEntity -Scene {} -Id {} -Folder {:08X} -Parent {}"
+                                                        , e29::commands::FormatSceneGuid(SceneGuid)
+                                                        , NewId
+                                                        , static_cast<std::uint32_t>(xecs::scene::invalid_folder_id_v)
+                                                        , Id
+                                                        ));
+                                                }
+                                                ImGui::Separator();
                                                 if (ImGui::MenuItem("Delete Entity")) DoDeleteEntity();
                                                 ImGui::EndPopup();
                                             }
@@ -425,7 +434,7 @@ namespace e29
                                                 bool bFolderDeleted = false;
                                                 if (ImGui::BeginPopupContextItem())
                                                 {
-                                                    e29::ShowCreateMenuItems(GameMgr, SceneGuid, *pScene, FolderId);
+                                                    e29::ShowCreateMenuItems(SceneGuid, *pScene, FolderId, Undo);
                                                     ImGui::Separator();
                                                     if (ImGui::MenuItem("Delete Folder"))
                                                     {
