@@ -860,6 +860,18 @@ source_group("Examples/E24_AnimPackageEditor" FILES
 
 # Include the xrtcs.plugin so it works - not a resource-pipeline plugin (see its README.md), so
 # just its Graph/ headers, compiled directly into this target like xmaterial_graph's above.
+# Fetched directly here (a plain git clone, not Install.bat's PLUGINS loop) because it has no
+# build/CreateAndBuildProject.bat at all - that loop's build-then-copy assumption doesn't apply to
+# a header-only plugin with nothing to compile ahead of time.
+if(NOT EXISTS "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/Plugins/xrtcs.plugin/source")
+    execute_process(
+        COMMAND git clone --depth 1 https://github.com/LIONant-depot/xrtcs.plugin.git "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/Plugins/xrtcs.plugin"
+        RESULT_VARIABLE result
+    )
+    if(result)
+        message(FATAL_ERROR "Failed to clone xrtcs.plugin: ${result}")
+    endif()
+endif()
 include_directories( "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/Plugins/xrtcs.plugin" )
 
 source_group("Examples/E26_RTCS_Editor" FILES
