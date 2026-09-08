@@ -464,7 +464,7 @@ namespace e20
             // No thumbnail to show for a non-texture resource ref - a normal, single-line-height
             // button (matching every other property value widget) instead of the 48px thumbnail-sized
             // one, which only makes sense when there's actually an image next to it.
-            bOpen = ImGui::Button(Name.c_str(), ImVec2(-1, 0));
+            bOpen = ImGui::Button(Name.c_str(), ImVec2(-1, 48));
         }
         ImGui::PopStyleColor();
     }
