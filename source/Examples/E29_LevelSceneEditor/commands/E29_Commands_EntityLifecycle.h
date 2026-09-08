@@ -131,14 +131,20 @@ namespace e29::commands
         create_entity_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "CreateEntity", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
-            return "Creates a brand-new, bare entity (undoable - deletes it again on Undo). Usage: CreateEntity -Scene hexguid -Id id -Folder hexfolder (0 = loose) -Parent id (0 = none, use Folder instead)";
+            return "Creates a brand-new, bare entity (undoable - deletes it again on Undo). Usage: CreateEntity -Scene hexguid -Id id -Folder hexfolder (0 = loose) [-Parent id]";
         }
         void RegisterArguments() noexcept override
         {
-            m_hScene  = m_Parser.addOption("Scene",  "Scene guid, 16 hex digits",                                  true, 1);
-            m_hId     = m_Parser.addOption("Id",     "Entity permanent_id, pre-minted by the caller",              true, 1);
-            m_hFolder = m_Parser.addOption("Folder", "Target folder id, 8 hex digits (0 = loose/none)",            true, 1);
-            m_hParent = m_Parser.addOption("Parent", "Parent entity permanent_id (0 = none, use Folder instead)",  true, 1);
+            m_hScene  = m_Parser.addOption("Scene",  "Scene guid, 16 hex digits",                       true,  1);
+            m_hId     = m_Parser.addOption("Id",     "Entity permanent_id, pre-minted by the caller",   true,  1);
+            m_hFolder = m_Parser.addOption("Folder", "Target folder id, 8 hex digits (0 = loose/none)", true,  1);
+            // NOT required - ShowCreateMenuItems' Scene/Folder-row call sites never pass this at all
+            // (only the entity-row "New Entity" does, to create a child). Marking it required broke
+            // BOTH of those pre-existing call sites outright: xcmdline::parser::Parse fails the whole
+            // command the moment ANY required option has zero args (xcmdline_parser.h ~line 119) -
+            // confirmed via direct external review, then verified against the parser's own source
+            // before fixing (rather than taking the report at face value).
+            m_hParent = m_Parser.addOption("Parent", "Parent entity permanent_id, if creating a child", false, 1);
         }
 
         std::string Redo() noexcept override
@@ -146,14 +152,19 @@ namespace e29::commands
             auto SceneArg  = m_Parser.getOptionArgAs<std::string>(m_hScene, 0);
             auto IdArg     = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
             auto FolderArg = m_Parser.getOptionArgAs<std::string>(m_hFolder, 0);
-            auto ParentArg = m_Parser.getOptionArgAs<std::string>(m_hParent, 0);
-            if (std::holds_alternative<xerr>(SceneArg) || std::holds_alternative<xerr>(IdArg) || std::holds_alternative<xerr>(FolderArg) || std::holds_alternative<xerr>(ParentArg))
+            if (std::holds_alternative<xerr>(SceneArg) || std::holds_alternative<xerr>(IdArg) || std::holds_alternative<xerr>(FolderArg))
                 return "CreateEntity: bad arguments";
 
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
             const auto Id        = static_cast<xecs::scene::permanent_id>(std::stoul(std::get<std::string>(IdArg)));
             const auto FolderVal = static_cast<xecs::scene::folder_id>(std::strtoul(std::get<std::string>(FolderArg).c_str(), nullptr, 16));
-            const auto ParentId  = static_cast<xecs::scene::permanent_id>(std::stoul(std::get<std::string>(ParentArg)));
+
+            // -Parent is genuinely optional (see RegisterArguments' own comment) - absent means "no
+            // parent, use Folder instead", not a parse failure.
+            auto ParentArg = m_Parser.getOptionArgAs<std::string>(m_hParent, 0);
+            const auto ParentId = std::holds_alternative<xerr>(ParentArg)
+                ? xecs::scene::invalid_permanent_id_v
+                : static_cast<xecs::scene::permanent_id>(std::stoul(std::get<std::string>(ParentArg)));
 
             if (!e29::g_pGameMgr) return "CreateEntity: no game world";
             auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
