@@ -10,6 +10,7 @@
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Workspace.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PlaySession.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SceneOrganization.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetBrowser.h"
 
 //-----------------------------------------------------------------------------------
 //
@@ -288,6 +289,13 @@ int E29_Example()
     e29::commands::get_play_state_query_cmd CmdGetPlayState(E29Undo, &CmdContext);
     e29::commands::instantiate_prefab_cmd CmdInstantiatePrefab(E29Undo, &CmdContext);
     e29::commands::move_to_folder_cmd     CmdMoveToFolder(E29Undo, &CmdContext);
+    e29::commands::list_assets_query_cmd  CmdListAssets(E29Undo, &CmdContext);
+    e29::commands::describe_asset_query_cmd CmdDescribeAsset(E29Undo, &CmdContext);
+    e29::commands::rename_asset_cmd       CmdRenameAsset(E29Undo, &CmdContext);
+    e29::commands::move_asset_cmd         CmdMoveAsset(E29Undo, &CmdContext);
+    e29::commands::delete_asset_cmd       CmdDeleteAsset(E29Undo, &CmdContext);
+    e29::commands::create_asset_cmd       CmdCreateAsset(E29Undo, &CmdContext);
+    e29::commands::save_assets_query_cmd  CmdSaveAssets(E29Undo, &CmdContext);
     xundo::history                        E29History;
     E29History.AddSystem("E29", 1, E29Undo);
 
