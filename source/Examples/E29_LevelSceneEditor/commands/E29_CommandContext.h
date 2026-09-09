@@ -161,6 +161,30 @@ namespace e29::commands
         return std::format("{:08X}", Id);
     }
 
+    // xproperty::settings::AnyToString (my_properties.h, shared xproperty lib) only knows the
+    // project-wide atomic_types_tuple - it has no case for xecs::component::entity, which is
+    // registered as ITS OWN var_type<> specialization inside xECS instead
+    // (xecs_entity_xproperty_bridge.h), specifically because my_properties.h can't see xecs types
+    // without a circular include. That's fine for every existing caller (SetLivePropertyValue etc.
+    // never had to print one back out as text) - but any generic property-value-to-string walk
+    // (DescribeEntity, SnapshotComponentProperties for Add/Remove Component undo) hits a live
+    // component with an entity_reference (or any other entity-handle-valued property) and asserts
+    // in AnyToString's `default: assert(false)` - confirmed live via a real crash: DescribeEntity on
+    // an entity carrying an EntityReference component. Fixed by special-casing entity's own guid
+    // here, in E29 (the xECS consumer layer), matching the same layering the var_type<> bridge
+    // itself already established, rather than teaching the shared xproperty lib about a type it's
+    // architecturally not allowed to know about.
+    inline int FormatPropertyValue(std::span<char> Buffer, const xproperty::any& Data) noexcept
+    {
+        if (Data.getTypeGuid() == xproperty::settings::var_type<xecs::component::entity>::guid_v)
+        {
+            const auto E = Data.get<xecs::component::entity>();
+            if (!E.isValid()) return sprintf_s(Buffer.data(), Buffer.size(), "invalid");
+            return sprintf_s(Buffer.data(), Buffer.size(), "runtime-entity %016llX", (unsigned long long)E.m_Value);
+        }
+        return xproperty::settings::AnyToString(Buffer, Data);
+    }
+
     // Wraps xundo::system::Execute with logging - EVERY command, not just failures, so the log is a
     // genuine audit trail of everything that happened (the same log an external CLI-driven agent
     // would see - phase 6 finally gave this comment's own original intent somewhere to log TO,

@@ -7,6 +7,7 @@
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandConsolePipe.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Chat.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Level.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Workspace.h"
 
 //-----------------------------------------------------------------------------------
 //
@@ -272,6 +273,11 @@ int E29_Example()
     e29::commands::list_scenes_query_cmd  CmdListScenes(E29Undo, &CmdContext);
     e29::commands::list_entities_query_cmd CmdListEntities(E29Undo, &CmdContext);
     e29::commands::list_folders_query_cmd CmdListFolders(E29Undo, &CmdContext);
+    e29::commands::undo_query_cmd         CmdUndo(E29Undo, &CmdContext);
+    e29::commands::redo_query_cmd         CmdRedo(E29Undo, &CmdContext);
+    e29::commands::save_query_cmd         CmdSave(E29Undo, &CmdContext);
+    e29::commands::describe_entity_query_cmd CmdDescribeEntity(E29Undo, &CmdContext);
+    e29::commands::list_component_types_query_cmd CmdListComponentTypes(E29Undo, &CmdContext);
     xundo::history                        E29History;
     E29History.AddSystem("E29", 1, E29Undo);
 

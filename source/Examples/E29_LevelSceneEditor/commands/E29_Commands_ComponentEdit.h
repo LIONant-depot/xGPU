@@ -113,7 +113,7 @@ namespace e29::commands
         xproperty::sprop::collector(pInstance, *Info.m_pPropertyTable, Context, [&](const char* pPropertyName, xproperty::any&& Data, const xproperty::type::members&, bool, const void*) noexcept
         {
             std::array<char, 256> Buffer{};
-            const auto Len = xproperty::settings::AnyToString(Buffer, Data);
+            const auto Len = FormatPropertyValue(Buffer, Data);
             Rows.push_back({ pPropertyName, Data.m_pType ? Data.m_pType->m_GUID : 0u, std::string(Buffer.data(), Len > 0 ? static_cast<std::size_t>(Len) : 0) });
         });
 

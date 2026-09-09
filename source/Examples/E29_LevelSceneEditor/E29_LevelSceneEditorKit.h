@@ -800,8 +800,8 @@ namespace e29
                 auto& State = *e29::g_pState;
 
                 std::array<char, 256> BeforeBuffer{}, AfterBuffer{};
-                const auto BeforeLen = xproperty::settings::AnyToString(BeforeBuffer, Cmd.m_Original);
-                const auto AfterLen  = xproperty::settings::AnyToString(AfterBuffer, Cmd.m_NewValue);
+                const auto BeforeLen = e29::commands::FormatPropertyValue(BeforeBuffer, Cmd.m_Original);
+                const auto AfterLen  = e29::commands::FormatPropertyValue(AfterBuffer, Cmd.m_NewValue);
                 const std::string Before(BeforeBuffer.data(), BeforeLen > 0 ? static_cast<std::size_t>(BeforeLen) : 0);
                 const std::string After(AfterBuffer.data(), AfterLen > 0 ? static_cast<std::size_t>(AfterLen) : 0);
                 const std::uint32_t TypeGuid = Cmd.m_NewValue.m_pType ? Cmd.m_NewValue.m_pType->m_GUID : 0;

@@ -472,6 +472,7 @@ set(XGPU_SOURCES
   "source/Examples/E29_LevelSceneEditor/commands/E29_CommandConsolePipe.h"
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Chat.h"
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Level.h"
+  "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Workspace.h"
   "source/Examples/E29_LevelSceneEditor/E29_LevelScene_Editor.cpp"
 
   "source/tools/editors/xgpu_editor_viewport.h"
@@ -1042,6 +1043,7 @@ source_group("Examples/E29_LevelSceneEditor/commands" FILES
   "source/Examples/E29_LevelSceneEditor/commands/E29_CommandConsolePipe.h"
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Chat.h"
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Level.h"
+  "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Workspace.h"
 )
 
 
