@@ -33,12 +33,12 @@ namespace e29::commands
         select_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "Select", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
-            return "Sets the primary selection and resets multi-select to just this entity (a plain click). Usage: Select -Scene hexguid -Id id";
+            return "Sets the primary selection and resets multi-select to just this entity (a plain click). Usage: Select -Scene hexguid -Id hexid";
         }
         void RegisterArguments() noexcept override
         {
             m_hScene = m_Parser.addOption("Scene", "Scene guid, 16 hex digits", true, 1);
-            m_hId    = m_Parser.addOption("Id",    "Entity permanent_id",       true, 1);
+            m_hId    = m_Parser.addOption("Id",    "Entity permanent_id, 8 hex digits", true, 1);
         }
 
         std::string Redo() noexcept override
@@ -49,7 +49,7 @@ namespace e29::commands
 
             auto& Ctx        = get<e29_command_context>();
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
-            const auto Id         = static_cast<xecs::scene::permanent_id>(std::stoul(std::get<std::string>(IdArg)));
+            const auto Id         = ParseEntityId(std::get<std::string>(IdArg));
 
             if (!e29::g_pGameMgr) return "Select: no live GameMgr";
             auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
@@ -85,12 +85,12 @@ namespace e29::commands
         toggle_multi_select_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "ToggleMultiSelect", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
-            return "Adds/removes one entity from the multi-select set without touching the primary selection (a ctrl-click). Usage: ToggleMultiSelect -Scene hexguid -Id id";
+            return "Adds/removes one entity from the multi-select set without touching the primary selection (a ctrl-click). Usage: ToggleMultiSelect -Scene hexguid -Id hexid";
         }
         void RegisterArguments() noexcept override
         {
             m_hScene = m_Parser.addOption("Scene", "Scene guid, 16 hex digits", true, 1);
-            m_hId    = m_Parser.addOption("Id",    "Entity permanent_id",       true, 1);
+            m_hId    = m_Parser.addOption("Id",    "Entity permanent_id, 8 hex digits", true, 1);
         }
 
         std::string Redo() noexcept override
@@ -101,7 +101,7 @@ namespace e29::commands
 
             auto& Ctx        = get<e29_command_context>();
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
-            const auto Id         = static_cast<xecs::scene::permanent_id>(std::stoul(std::get<std::string>(IdArg)));
+            const auto Id         = ParseEntityId(std::get<std::string>(IdArg));
             auto& S = Ctx.m_State;
 
             // A ctrl-click starting a NEW multi-select scope (different scene, or nothing selected

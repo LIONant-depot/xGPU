@@ -28,6 +28,28 @@
 
 namespace e29::commands
 {
+    // Who authored a Command Console log entry - moved here (from commands/E29_CommandConsolePipe.h,
+    // phase 5) so Run() below (a phase 1 foundational helper, included far earlier than phase 5's own
+    // pipe file) can log every command through the SAME shared log a pipe-driven or console-typed one
+    // already uses, without a forward-declaration/ordering problem. User=green (typed into the
+    // console OR clicked in the UI - both are "the user did this," see Run()'s own comment for why
+    // this reuses User rather than inventing a third category just for UI clicks), Pipe=teal
+    // (arrived over E29CLI's named pipe - an AI-facing color on purpose).
+    enum class console_log_source { System, User, Pipe };
+    struct console_log_entry
+    {
+        std::string         m_Text;
+        console_log_source  m_Source;
+    };
+
+    // Set once, right after ConsoleLog itself is constructed in E29_LevelScene_Editor.cpp's main
+    // function (same "global pointer bound once at startup" pattern as e29::g_pGameMgr/g_pState,
+    // E29_PrefabAuthoring.h) - Run() is called from many files (kit/E29_Panel_LevelTree.h,
+    // E29_LevelSceneEditorKit.h's m_OnPropertyChanged, kit/E29_Panel_EntityProperties.h, ...), so a
+    // global pointer avoids threading a ConsoleLog& parameter through every one of those call sites
+    // just for this.
+    inline std::vector<console_log_entry>* g_pConsoleLog = nullptr;
+
     // One line of the Say/GetLog conversation (commands/E29_Commands_Chat.h) - lets multiple AI/CLI
     // clients talking to the same running E29 session leave messages for each other over the Command
     // Console pipe. In-memory only, current session (matches E29Undo's own bAutoLoadSave=false choice
@@ -123,14 +145,40 @@ namespace e29::commands
         return std::format("{:016X}", Guid.m_Instance.m_Value);
     }
 
+    // Parses/formats an entity permanent_id as 8 hex digits - standardizes it to match every other
+    // id/guid a command ever takes (Scene/Component/TypeGuid/Level/Folder are all hex already).
+    // permanent_id used to be the one remaining decimal field (parsed via plain std::stoul) - direct
+    // user report: "I think we need to standardize the way we do GUIDs.... I think they should always
+    // be in hex." xecs::scene::permanent_id is a plain std::uint32_t (xecs_scene.h), so 8 hex digits
+    // matches Folder/TypeGuid's own existing width exactly, not an arbitrary new choice.
+    inline xecs::scene::permanent_id ParseEntityId(std::string_view Text) noexcept
+    {
+        return static_cast<xecs::scene::permanent_id>(std::strtoul(std::string(Text).c_str(), nullptr, 16));
+    }
+
+    inline std::string FormatEntityId(xecs::scene::permanent_id Id) noexcept
+    {
+        return std::format("{:08X}", Id);
+    }
+
     // Wraps xundo::system::Execute with logging - EVERY command, not just failures, so the log is a
     // genuine audit trail of everything that happened (the same log an external CLI-driven agent
-    // would see once a later phase exposes it) - direct port of E27_NodeOS's own Run()
-    // (Editor/NodeOS_CommandBuilders.h).
+    // would see - phase 6 finally gave this comment's own original intent somewhere to log TO,
+    // completing what was documented but not yet wired up since phase 1) - direct port of
+    // E27_NodeOS's own Run() (Editor/NodeOS_CommandBuilders.h). Pushes the SAME echo-then-result
+    // shape ProcessConsoleCommand/DrawCommandConsolePanel already use for a typed/piped command
+    // (commands/E29_CommandConsolePipe.h, kit/E29_Panel_CommandConsole.h), tagged User - a UI click
+    // and a typed command are both "the user did this" from the log's own point of view. Direct user
+    // report this fixes: "now you have to route the users commands there as well... nothing showing
+    // up there yet."
     inline void Run(xundo::system& System, const std::string& Cmd) noexcept
     {
+        if (g_pConsoleLog) g_pConsoleLog->push_back({ Cmd, console_log_source::User });
         if (auto Err = System.Execute(Cmd); !Err.empty())
+        {
             Debugger(std::format("E29: command failed: '{}' ({})", Cmd, Err));
+            if (g_pConsoleLog) g_pConsoleLog->push_back({ Err, console_log_source::System });
+        }
     }
 
     // WriteString/ReadString - a length-prefixed string inside a fixed-record undo_file, direct port

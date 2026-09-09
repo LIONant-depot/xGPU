@@ -188,12 +188,12 @@ namespace e29::commands
         set_property_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "SetProperty", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
-            return "Sets one property to a new value (undoable, restores the previous value AND the prefab-override bookkeeping on Undo). Usage: SetProperty -Scene hexguid -Id id -Component hex64 -Path base64 -TypeGuid hex32 -Before base64 -After base64";
+            return "Sets one property to a new value (undoable, restores the previous value AND the prefab-override bookkeeping on Undo). Usage: SetProperty -Scene hexguid -Id hexid -Component hex64 -Path base64 -TypeGuid hex32 -Before base64 -After base64";
         }
         void RegisterArguments() noexcept override
         {
             m_hScene     = m_Parser.addOption("Scene",     "Scene guid, 16 hex digits",              true, 1);
-            m_hId        = m_Parser.addOption("Id",        "Entity permanent_id",                    true, 1);
+            m_hId        = m_Parser.addOption("Id",        "Entity permanent_id, 8 hex digits",      true, 1);
             m_hComponent = m_Parser.addOption("Component", "Component type guid, 16 hex digits",     true, 1);
             m_hPath      = m_Parser.addOption("Path",      "Property path, base64",                  true, 1);
             m_hTypeGuid  = m_Parser.addOption("TypeGuid",  "Property value type guid, 8 hex digits", true, 1);
@@ -214,7 +214,7 @@ namespace e29::commands
                 return "SetProperty: bad arguments";
 
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
-            const auto Id         = static_cast<xecs::scene::permanent_id>(std::stoul(std::get<std::string>(IdArg)));
+            const auto Id         = ParseEntityId(std::get<std::string>(IdArg));
             const auto CompGuid   = std::strtoull(std::get<std::string>(CompArg).c_str(), nullptr, 16);
             const auto Path       = Base64Decode(std::get<std::string>(PathArg));
             const auto TypeGuid   = static_cast<std::uint32_t>(std::strtoul(std::get<std::string>(TypeArg).c_str(), nullptr, 16));
@@ -238,7 +238,7 @@ namespace e29::commands
             auto BeforeArg = m_Parser.getOptionArgAs<std::string>(m_hBefore, 0);
 
             const std::uint64_t Scene    = std::holds_alternative<xerr>(SceneArg) ? 0 : std::strtoull(std::get<std::string>(SceneArg).c_str(), nullptr, 16);
-            const std::uint32_t Id        = std::holds_alternative<xerr>(IdArg) ? 0 : static_cast<std::uint32_t>(std::stoul(std::get<std::string>(IdArg)));
+            const std::uint32_t Id        = std::holds_alternative<xerr>(IdArg) ? 0 : ParseEntityId(std::get<std::string>(IdArg));
             const std::uint64_t Component = std::holds_alternative<xerr>(CompArg) ? 0 : std::strtoull(std::get<std::string>(CompArg).c_str(), nullptr, 16);
             const std::uint32_t TypeGuid  = std::holds_alternative<xerr>(TypeArg) ? 0 : static_cast<std::uint32_t>(std::strtoul(std::get<std::string>(TypeArg).c_str(), nullptr, 16));
             const std::string   Path      = std::holds_alternative<xerr>(PathArg) ? std::string{} : Base64Decode(std::get<std::string>(PathArg));

@@ -150,12 +150,12 @@ namespace e29::commands
         add_component_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "AddComponent", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
-            return "Adds a component to an entity (undoable - removes it again on Undo). Usage: AddComponent -Scene hexguid -Id id -Component hex64";
+            return "Adds a component to an entity (undoable - removes it again on Undo). Usage: AddComponent -Scene hexguid -Id hexid -Component hex64";
         }
         void RegisterArguments() noexcept override
         {
             m_hScene     = m_Parser.addOption("Scene",     "Scene guid, 16 hex digits",          true, 1);
-            m_hId        = m_Parser.addOption("Id",        "Entity permanent_id",                true, 1);
+            m_hId        = m_Parser.addOption("Id",        "Entity permanent_id, 8 hex digits",  true, 1);
             m_hComponent = m_Parser.addOption("Component", "Component type guid, 16 hex digits", true, 1);
         }
 
@@ -168,7 +168,7 @@ namespace e29::commands
                 return "AddComponent: bad arguments";
 
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
-            const auto Id        = static_cast<xecs::scene::permanent_id>(std::stoul(std::get<std::string>(IdArg)));
+            const auto Id        = ParseEntityId(std::get<std::string>(IdArg));
             const auto CompGuid  = std::strtoull(std::get<std::string>(CompArg).c_str(), nullptr, 16);
 
             if (!e29::g_pGameMgr) return "AddComponent: no game world";
@@ -187,7 +187,7 @@ namespace e29::commands
             auto CompArg  = m_Parser.getOptionArgAs<std::string>(m_hComponent, 0);
 
             const std::uint64_t Scene    = std::holds_alternative<xerr>(SceneArg) ? 0 : std::strtoull(std::get<std::string>(SceneArg).c_str(), nullptr, 16);
-            const std::uint32_t Id       = std::holds_alternative<xerr>(IdArg) ? 0 : static_cast<std::uint32_t>(std::stoul(std::get<std::string>(IdArg)));
+            const std::uint32_t Id       = std::holds_alternative<xerr>(IdArg) ? 0 : ParseEntityId(std::get<std::string>(IdArg));
             const std::uint64_t Component = std::holds_alternative<xerr>(CompArg) ? 0 : std::strtoull(std::get<std::string>(CompArg).c_str(), nullptr, 16);
 
             File.Write(Scene);
@@ -222,12 +222,12 @@ namespace e29::commands
         remove_component_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "RemoveComponent", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
-            return "Removes a component from an entity (undoable - restores it with its prior values on Undo). Usage: RemoveComponent -Scene hexguid -Id id -Component hex64";
+            return "Removes a component from an entity (undoable - restores it with its prior values on Undo). Usage: RemoveComponent -Scene hexguid -Id hexid -Component hex64";
         }
         void RegisterArguments() noexcept override
         {
             m_hScene     = m_Parser.addOption("Scene",     "Scene guid, 16 hex digits",          true, 1);
-            m_hId        = m_Parser.addOption("Id",        "Entity permanent_id",                true, 1);
+            m_hId        = m_Parser.addOption("Id",        "Entity permanent_id, 8 hex digits",  true, 1);
             m_hComponent = m_Parser.addOption("Component", "Component type guid, 16 hex digits", true, 1);
         }
 
@@ -240,7 +240,7 @@ namespace e29::commands
                 return "RemoveComponent: bad arguments";
 
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
-            const auto Id        = static_cast<xecs::scene::permanent_id>(std::stoul(std::get<std::string>(IdArg)));
+            const auto Id        = ParseEntityId(std::get<std::string>(IdArg));
             const auto CompGuid  = std::strtoull(std::get<std::string>(CompArg).c_str(), nullptr, 16);
 
             if (!e29::g_pGameMgr) return "RemoveComponent: no game world";
@@ -259,7 +259,7 @@ namespace e29::commands
             auto CompArg  = m_Parser.getOptionArgAs<std::string>(m_hComponent, 0);
 
             const std::uint64_t Scene    = std::holds_alternative<xerr>(SceneArg) ? 0 : std::strtoull(std::get<std::string>(SceneArg).c_str(), nullptr, 16);
-            const std::uint32_t Id       = std::holds_alternative<xerr>(IdArg) ? 0 : static_cast<std::uint32_t>(std::stoul(std::get<std::string>(IdArg)));
+            const std::uint32_t Id       = std::holds_alternative<xerr>(IdArg) ? 0 : ParseEntityId(std::get<std::string>(IdArg));
             const std::uint64_t Component = std::holds_alternative<xerr>(CompArg) ? 0 : std::strtoull(std::get<std::string>(CompArg).c_str(), nullptr, 16);
 
             File.Write(Scene);

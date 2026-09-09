@@ -11,9 +11,11 @@
 //
 // Deliberately does NOT port E27's own DrawCommandConsolePanel (the in-app ImGui text box +
 // autocomplete + colored TextEditor log) - that's phase 6's job, once there's an actual UI worth
-// building around this. console_log_entry/console_log_source are ported now anyway (not deferred)
-// because PumpCommandConsolePipe already needs somewhere to append what a pipe-driven command did -
-// phase 6 just needs to RENDER the same log this phase already produces, not invent it.
+// building around this. console_log_entry/console_log_source (now e29::commands::console_log_entry/
+// console_log_source - moved to commands/E29_CommandContext.h so e29::commands::Run(), a phase 1
+// foundational helper, can log a UI-driven command into the SAME log too) are ported now anyway (not
+// deferred) because PumpCommandConsolePipe already needs somewhere to append what a pipe-driven
+// command did - phase 6 just needs to RENDER the same log this phase already produces, not invent it.
 //
 // Threading model, same as E27's own (see CommandConsolePipeThreadMain's own comment for the full
 // reasoning): the pipe thread only ever reads request text and hands it to the main thread via
@@ -26,15 +28,12 @@
 #include <mutex>
 #include <condition_variable>
 #include "dependencies/xundo/source/xundo_history.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
 
 namespace e29
 {
-    enum class console_log_source { System, User, Pipe };
-    struct console_log_entry
-    {
-        std::string         m_Text;
-        console_log_source  m_Source;
-    };
+    using console_log_source = e29::commands::console_log_source;
+    using console_log_entry  = e29::commands::console_log_entry;
 
     // Shared by the named-pipe server (below) and, once it exists, phase 6's own Command Console
     // panel - one place implementing "help"/"<cmd> -h"/plain routing, so a pipe-driven command

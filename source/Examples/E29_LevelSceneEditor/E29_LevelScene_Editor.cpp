@@ -6,6 +6,7 @@
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Selection.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandConsolePipe.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Chat.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Level.h"
 
 //-----------------------------------------------------------------------------------
 //
@@ -265,6 +266,12 @@ int E29_Example()
     e29::commands::delete_entity_cmd      CmdDeleteEntity(E29Undo, &CmdContext);
     e29::commands::say_query_cmd          CmdSay(E29Undo, &CmdContext);
     e29::commands::get_log_query_cmd      CmdGetLog(E29Undo, &CmdContext);
+    e29::commands::open_level_cmd         CmdOpenLevel(E29Undo, &CmdContext);
+    e29::commands::close_scene_cmd        CmdCloseScene(E29Undo, &CmdContext);
+    e29::commands::list_levels_query_cmd  CmdListLevels(E29Undo, &CmdContext);
+    e29::commands::list_scenes_query_cmd  CmdListScenes(E29Undo, &CmdContext);
+    e29::commands::list_entities_query_cmd CmdListEntities(E29Undo, &CmdContext);
+    e29::commands::list_folders_query_cmd CmdListFolders(E29Undo, &CmdContext);
     xundo::history                        E29History;
     E29History.AddSystem("E29", 1, E29Undo);
 
@@ -276,6 +283,12 @@ int E29_Example()
     std::vector<e29::console_log_entry> ConsoleLog;
     e29::command_console_pipe_bridge    ConsolePipeBridge;
     std::thread(e29::CommandConsolePipeThreadMain, std::ref(ConsolePipeBridge)).detach();
+
+    // Lets e29::commands::Run() (E29_CommandContext.h, called by every UI-driven command - tree
+    // clicks, property edits, add/remove component, create/delete entity) log into this SAME console
+    // log too, not just pipe-driven/console-typed commands - direct user report: "route the users
+    // commands there as well... nothing showing up there yet."
+    e29::commands::g_pConsoleLog = &ConsoleLog;
 
     //
     // Entity component inspector - the currently-selected entity's components. The resource-picker
@@ -496,6 +509,7 @@ int E29_Example()
         e29::RenderEntityPropertiesPanel(*pGameMgr, State, EntityInspector, InspectorBridge, E29Undo);
         e29::RenderSystemRegistryPanel(*pGameMgr, State);
         e29::RenderGamePluginLogPanel();
+        e29::DrawCommandConsolePanel(E29History, ConsoleLog);
 
         xgpu::tools::imgui::Render();
         MainWindow.PageFlip();

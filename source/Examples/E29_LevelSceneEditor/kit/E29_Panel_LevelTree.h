@@ -291,9 +291,9 @@ namespace e29
                                                     // to just this entity) - same two behaviors as
                                                     // before, just undoable now via Ctrl+Z.
                                                     if (ImGui::GetIO().KeyCtrl)
-                                                        e29::commands::Run(Undo, std::format("ToggleMultiSelect -Scene {} -Id {}", e29::commands::FormatSceneGuid(SceneGuid), Id));
+                                                        e29::commands::Run(Undo, std::format("ToggleMultiSelect -Scene {} -Id {}", e29::commands::FormatSceneGuid(SceneGuid), e29::commands::FormatEntityId(Id)));
                                                     else
-                                                        e29::commands::Run(Undo, std::format("Select -Scene {} -Id {}", e29::commands::FormatSceneGuid(SceneGuid), Id));
+                                                        e29::commands::Run(Undo, std::format("Select -Scene {} -Id {}", e29::commands::FormatSceneGuid(SceneGuid), e29::commands::FormatEntityId(Id)));
                                                 }
                                             }
 
@@ -331,7 +331,7 @@ namespace e29
                                                 // deleted descendant of it) now lives in the command's
                                                 // own DeleteSubtreeByPermanentId, shared with Undo so
                                                 // it behaves identically from either direction.
-                                                e29::commands::Run(Undo, std::format("DeleteEntity -Scene {} -Id {}", e29::commands::FormatSceneGuid(SceneGuid), Id));
+                                                e29::commands::Run(Undo, std::format("DeleteEntity -Scene {} -Id {}", e29::commands::FormatSceneGuid(SceneGuid), e29::commands::FormatEntityId(Id)));
                                                 bDeleted = true;
                                             };
 
@@ -355,9 +355,9 @@ namespace e29
                                                     const auto NewId = e29::NextFreeEntityId(*pScene);
                                                     e29::commands::Run(Undo, std::format("CreateEntity -Scene {} -Id {} -Folder {:08X} -Parent {}"
                                                         , e29::commands::FormatSceneGuid(SceneGuid)
-                                                        , NewId
+                                                        , e29::commands::FormatEntityId(NewId)
                                                         , static_cast<std::uint32_t>(xecs::scene::invalid_folder_id_v)
-                                                        , Id
+                                                        , e29::commands::FormatEntityId(Id)
                                                         ));
                                                 }
                                                 ImGui::Separator();

@@ -638,7 +638,7 @@ namespace e29
             const auto Id = NextFreeEntityId(Scene);
             e29::commands::Run(Undo, std::format("CreateEntity -Scene {} -Id {} -Folder {:08X}"
                 , e29::commands::FormatSceneGuid(SceneGuid)
-                , Id
+                , e29::commands::FormatEntityId(Id)
                 , static_cast<std::uint32_t>(TargetFolder)
                 ));
         }
@@ -808,7 +808,7 @@ namespace e29
 
                 e29::commands::Run(Undo, std::format("SetProperty -Scene {} -Id {} -Component {:016X} -Path {} -TypeGuid {:08X} -Before {} -After {}"
                     , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
-                    , State.m_SelectedEntityId
+                    , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                     , It->second->m_Guid.m_Value
                     , e29::commands::Base64Encode(Cmd.m_Name)
                     , TypeGuid
@@ -1094,5 +1094,6 @@ namespace e29
 #include "kit/E29_Panel_LevelTree.h"
 #include "kit/E29_Panel_EntityProperties.h"
 #include "kit/E29_Panel_SystemRegistry.h"
+#include "kit/E29_Panel_CommandConsole.h"
 
 #endif // E29_LEVEL_SCENE_EDITOR_KIT_H

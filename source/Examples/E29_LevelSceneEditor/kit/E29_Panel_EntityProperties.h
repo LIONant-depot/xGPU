@@ -87,7 +87,7 @@ namespace e29
                             // Undo removes the component again.
                             e29::commands::Run(Undo, std::format("AddComponent -Scene {} -Id {} -Component {:016X}"
                                 , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
-                                , State.m_SelectedEntityId
+                                , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                                 , pInfo->m_Guid.m_Value
                                 ));
                             RefreshEntityView();
@@ -166,7 +166,7 @@ namespace e29
                     // can restore it exactly, not just re-add it with default values.
                     e29::commands::Run(Undo, std::format("RemoveComponent -Scene {} -Id {} -Component {:016X}"
                         , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
-                        , State.m_SelectedEntityId
+                        , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                         , Bridge.m_pPendingRemoveComponent->m_Guid.m_Value
                         ));
                     Bridge.m_pPendingRemoveComponent = nullptr;
