@@ -122,6 +122,268 @@ namespace e29::commands
         }
     }
 
+    // Snapshots RootId's whole live subtree under shadow ids (SaveEntity, per-entity, per this file's
+    // own top comment on why raw-handle snapshotting isn't safe here) PLUS its own position (which
+    // folder/index, or which parent/child-index) so RestoreSubtreeFromSnapshot can put it back exactly
+    // where it was - not just recreate it. Factored out of delete_entity_cmd's own BackupCurrenState
+    // (moved verbatim, no behavior change) so make_prefab_cmd (E29_Commands_MakePrefab.h) can reuse
+    // the exact same proven logic for its own Undo, which needs to restore the ORIGINAL group exactly
+    // the same way undoing a delete already has to. Must run BEFORE RootId's subtree is touched -
+    // xundo::system::Execute always calls BackupCurrenState before Redo (see set_property_cmd's own
+    // comment) - the whole subtree is still live under its REAL ids here, so SaveEntity's own
+    // reference-encoding naturally captures sibling/parent references using their real permanent_ids,
+    // not the shadow ones minted just below for the disk path itself. Caller is responsible for
+    // writing whatever SceneGuid/RootId encoding its own command string args need - this only writes
+    // the position + subtree data, since a caller like make_prefab_cmd already knows how it wants to
+    // encode Scene (it might not be a plain xecs::scene::guid round trip at all).
+    inline void SnapshotSubtreeForRestore(xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
+    {
+        auto* pScene = e29::g_pGameMgr ? e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid) : nullptr;
+        if (!pScene || !pScene->m_LocalToRuntime.contains(RootId))
+        {
+            File.Write(static_cast<std::uint32_t>(xecs::scene::invalid_folder_id_v));
+            File.Write(std::uint32_t{ 0 });
+            File.Write(static_cast<std::uint32_t>(xecs::scene::invalid_permanent_id_v));
+            File.Write(std::uint32_t{ 0 });
+            File.Write(std::uint32_t{ 0 });
+            return;
+        }
+
+        // Root-only - a child entity is never independently a folder member (folders own top-level
+        // membership only; see ReparentEntityIntoFolder/DetermineGroupRoot's own comments). Position
+        // WITHIN the folder's own m_Entities is captured too (direct user request: "when the undo
+        // happens the Entity should be reinserted into the tree in the same place") -
+        // ReparentEntityIntoFolder itself always appends, so Undo re-inserts at this index
+        // explicitly afterward rather than relying on it.
+        {
+            const auto FolderId = e29::FindFolderContaining(*pScene, RootId);
+            File.Write(static_cast<std::uint32_t>(FolderId));
+            std::uint32_t FolderIndex = 0;
+            if (FolderId != xecs::scene::invalid_folder_id_v)
+            {
+                if (auto FolderIt = std::ranges::find(pScene->m_Folders, FolderId, &xecs::scene::folder::m_Id); FolderIt != pScene->m_Folders.end())
+                    if (auto EntIt = std::ranges::find(FolderIt->m_Entities, RootId); EntIt != FolderIt->m_Entities.end())
+                        FolderIndex = static_cast<std::uint32_t>(EntIt - FolderIt->m_Entities.begin());
+            }
+            File.Write(FolderIndex);
+        }
+
+        // The root's own PARENT (if any) is, by definition, OUTSIDE the subtree being snapshotted (a
+        // parent is never deleted along with just one of its children) - so it's never itself one of
+        // the Entries snapshotted below, and its OWN `children` component never gets saved/restored as
+        // part of this at all. DeleteEntitySubtree's own top-level step (E29_PrefabAuthoring.h) scrubs
+        // the root out of THIS parent's children.m_List as a real, separate side effect - Restore must
+        // reverse that explicitly, or the restored root would come back with a correct `Parent` field
+        // (fixed generically by RemapLoadedEntityReferences, below) yet never actually appear in the
+        // tree again, since nothing re-inserts it into its parent's own list. Recorded here as a
+        // permanent_id (not a runtime handle - the parent itself is never touched by this snapshot, but
+        // ITS live handle could still change for unrelated reasons before Restore runs, e.g. a hot
+        // reload). Position WITHIN the parent's own children.m_List is captured too, same "restore to
+        // the same place" reasoning as the folder case above.
+        {
+            xecs::scene::permanent_id RootParentId = xecs::scene::invalid_permanent_id_v;
+            std::uint32_t             ChildIndex   = 0;
+            auto RootEntity = pScene->m_LocalToRuntime.at(RootId);
+            auto& RootDetails = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(RootEntity);
+            if (RootDetails.m_pPool && RootDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::parent>.m_BitID))
+            {
+                const auto ParentEntity = RootDetails.m_pPool->getComponent<xecs::component::parent>(RootDetails.m_PoolIndex).m_Value;
+                if (ParentEntity.isValid())
+                {
+                    if (auto ParentIt = pScene->m_RuntimeToLocal.find(ParentEntity.m_Value); ParentIt != pScene->m_RuntimeToLocal.end())
+                    {
+                        RootParentId = ParentIt->second;
+                        auto& PDetails = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(ParentEntity);
+                        if (PDetails.m_pPool && PDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID))
+                        {
+                            auto& List = PDetails.m_pPool->getComponent<xecs::component::children>(PDetails.m_PoolIndex).m_List;
+                            if (auto ChildIt = std::ranges::find(List, RootEntity.m_Value, &xecs::component::entity::m_Value); ChildIt != List.end())
+                                ChildIndex = static_cast<std::uint32_t>(ChildIt - List.begin());
+                        }
+                    }
+                }
+            }
+            File.Write(static_cast<std::uint32_t>(RootParentId));
+            File.Write(ChildIndex);
+        }
+
+        struct snapshot_entry { xecs::scene::permanent_id m_RealId; xecs::scene::permanent_id m_ShadowId; };
+        std::vector<snapshot_entry> Entries;
+
+        std::function<void(xecs::component::entity)> Walk = [&](xecs::component::entity Entity) noexcept
+        {
+            auto RtIt = pScene->m_RuntimeToLocal.find(Entity.m_Value);
+            if (RtIt == pScene->m_RuntimeToLocal.end()) return;
+            const auto RealId = RtIt->second;
+
+            const auto ShadowId = e29::NextFreeEntityId(*pScene);
+            e29::g_pGameMgr->m_SceneMgr.SaveEntity(SceneGuid, ShadowId, Entity);
+
+            // SaveEntity itself unconditionally re-registers Scene.m_LocalToRuntime[Id]/
+            // m_RuntimeToLocal[Entity.m_Value] using WHATEVER Id it was called with (xecs_scene_
+            // inline.h ~line 660) - correct for a real save, but calling it with a throwaway
+            // ShadowId just repointed m_RuntimeToLocal[Entity.m_Value] at ShadowId, corrupting this
+            // entity's own real registration (confirmed live: caused a dangling m_LocalToRuntime
+            // entry once Redo() actually deleted it, crashing the NEXT frame's unrelated render
+            // code). Undo that side effect immediately - m_LocalToRuntime[RealId] itself was never
+            // touched (SaveEntity only wrote under ShadowId), so only these two lines are needed.
+            pScene->m_LocalToRuntime.erase(ShadowId);
+            pScene->m_RuntimeToLocal[Entity.m_Value] = RealId;
+
+            Entries.push_back({ RealId, ShadowId });
+
+            auto& Details = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(Entity);
+            if (Details.m_pPool && Details.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID))
+            {
+                // Copy, not reference - matches DeleteEntitySubtree's own pattern (E29_PrefabAuthoring.h):
+                // SaveEntity below can (in principle) touch pool memory, and iterating a reference into a
+                // container that might reallocate underneath the loop is exactly the class of bug
+                // [[xecs_pool_reallocation_hazard]] already covers.
+                auto ChildList = Details.m_pPool->getComponent<xecs::component::children>(Details.m_PoolIndex).m_List;
+                for (auto Child : ChildList) Walk(Child);
+            }
+        };
+        Walk(pScene->m_LocalToRuntime.at(RootId));
+
+        File.Write(static_cast<std::uint32_t>(Entries.size()));
+        for (auto& E : Entries)
+        {
+            File.Write(static_cast<std::uint32_t>(E.m_RealId));
+            File.Write(static_cast<std::uint32_t>(E.m_ShadowId));
+        }
+    }
+
+    // Counterpart to SnapshotSubtreeForRestore - reads back everything it wrote and restores the whole
+    // subtree, including hierarchy, cross-entity references, and prefab-instance overrides, back to
+    // its exact original position. Factored out of delete_entity_cmd's own Undo (moved verbatim).
+    inline void RestoreSubtreeFromSnapshot(xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
+    {
+        std::uint32_t FolderVal = 0;     File.Read(FolderVal);
+        std::uint32_t FolderIndex = 0;   File.Read(FolderIndex);
+        std::uint32_t RootParentId = 0;  File.Read(RootParentId);
+        std::uint32_t ChildIndex = 0;    File.Read(ChildIndex);
+        std::uint32_t Count = 0;         File.Read(Count);
+
+        struct snapshot_entry { xecs::scene::permanent_id m_RealId; xecs::scene::permanent_id m_ShadowId; };
+        std::vector<snapshot_entry> Entries(Count);
+        for (auto& E : Entries)
+        {
+            std::uint32_t RealId = 0, ShadowId = 0;
+            File.Read(RealId);
+            File.Read(ShadowId);
+            E = { static_cast<xecs::scene::permanent_id>(RealId), static_cast<xecs::scene::permanent_id>(ShadowId) };
+        }
+        if (!e29::g_pGameMgr || Entries.empty()) return;
+
+        auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+        if (!pScene) return;
+
+        // Pass 1: load each entity under its own shadow id (the path SnapshotSubtreeForRestore
+        // actually wrote to), then immediately remap the scene's own maps from shadow -> real. Must
+        // finish for the WHOLE subtree before pass 2 runs for ANY of them - cross-references inside
+        // the subtree were captured using REAL ids, so they can only resolve once every sibling is
+        // registered under its real id too (see this file's own top comment).
+        std::vector<xecs::component::entity> Restored;
+        for (auto& E : Entries)
+        {
+            if (auto Err = xecs::scene::details::LoadEntity(e29::g_pGameMgr->m_SceneMgr, *pScene, E.m_ShadowId); Err)
+                continue; // a single corrupted/missing snapshot must not take the whole subtree down
+
+            auto ShadowIt = pScene->m_LocalToRuntime.find(E.m_ShadowId);
+            if (ShadowIt == pScene->m_LocalToRuntime.end()) continue;
+            const auto NewEntity = ShadowIt->second;
+
+            pScene->m_LocalToRuntime.erase(ShadowIt);
+            pScene->m_RuntimeToLocal.erase(NewEntity.m_Value);
+            pScene->m_LocalToRuntime[E.m_RealId]        = NewEntity;
+            pScene->m_RuntimeToLocal[NewEntity.m_Value] = E.m_RealId;
+
+            // Exact inverse of DeleteEntitySubtree's own MarkEntityDeleted for this same id - see
+            // this file's own top comment quoting m_PendingChanges' documented undo contract.
+            pScene->m_PendingChanges[E.m_RealId].m_Deleted -= 1;
+
+            Restored.push_back(NewEntity);
+        }
+
+        // Pass 2: resolve every reference field (parent/children/entity_reference) now that every
+        // entity in the subtree is registered under its real id - same resolver shape EnsureLoaded's
+        // own real scene-load path uses (xecs_scene_inline.h), reusing the scene's already-populated
+        // m_ExternalToRuntime for a cross-scene target rather than rebuilding it.
+        for (auto Entity : Restored)
+        {
+            xecs::persist::details::RemapLoadedEntityReferences(*e29::g_pGameMgr, Entity, [&](std::int64_t Encoded) noexcept -> xecs::component::entity
+            {
+                if (Encoded == 0) return {};
+                if (Encoded > 0)
+                {
+                    auto It = pScene->m_LocalToRuntime.find(static_cast<xecs::scene::permanent_id>(Encoded));
+                    return It != pScene->m_LocalToRuntime.end() ? It->second : xecs::component::entity{};
+                }
+                const auto ExtIndex = static_cast<std::size_t>(-Encoded - 1);
+                return ExtIndex < pScene->m_ExternalToRuntime.size() ? pScene->m_ExternalToRuntime[ExtIndex] : xecs::component::entity{};
+            });
+        }
+
+        // Pass 3: prefab-instance overrides need every reference resolved first - see LoadEntity's own
+        // comment for why doing this any earlier crashed (confirmed already hit once this session, at
+        // the real scene-load path this mirrors).
+        for (auto Entity : Restored)
+        {
+            auto& Details = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(Entity);
+            if (Details.m_pPool && Details.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) >= 0)
+                xecs::persist::details::ApplyPrefabInstancePropertyOverrides(*e29::g_pGameMgr, Entity);
+        }
+
+        // Root-only, matching SnapshotSubtreeForRestore's own root-only capture. ReparentEntityIntoFolder
+        // itself always appends at the end, so re-insert at the originally-captured index afterward,
+        // matching direct user request: "when the undo happens the Entity should be reinserted into
+        // the tree in the same place."
+        if (FolderVal != static_cast<std::uint32_t>(xecs::scene::invalid_folder_id_v))
+        {
+            e29::ReparentEntityIntoFolder(*pScene, RootId, static_cast<xecs::scene::folder_id>(FolderVal));
+            if (auto FolderIt = std::ranges::find(pScene->m_Folders, static_cast<xecs::scene::folder_id>(FolderVal), &xecs::scene::folder::m_Id); FolderIt != pScene->m_Folders.end())
+            {
+                if (auto EntIt = std::ranges::find(FolderIt->m_Entities, RootId); EntIt != FolderIt->m_Entities.end())
+                {
+                    FolderIt->m_Entities.erase(EntIt);
+                    const auto InsertAt = std::min(static_cast<std::size_t>(FolderIndex), FolderIt->m_Entities.size());
+                    FolderIt->m_Entities.insert(FolderIt->m_Entities.begin() + InsertAt, RootId);
+                }
+            }
+        }
+
+        // Reverse DeleteEntitySubtree's own top-level side effect (E29_PrefabAuthoring.h): it scrubbed
+        // the root out of ITS OWN parent's children.m_List, a component living on a DIFFERENT entity
+        // that was never part of this subtree's own snapshot - see SnapshotSubtreeForRestore's own
+        // comment on RootParentId for why this can't be handled generically by
+        // RemapLoadedEntityReferences (that only fixes the restored root's OWN `Parent` field, pointing
+        // up - not the parent's `children` field, pointing back down). Inserted at the originally-
+        // captured ChildIndex rather than appended, same "restore to the same place" reasoning as the
+        // folder case above.
+        if (RootParentId != static_cast<std::uint32_t>(xecs::scene::invalid_permanent_id_v))
+        {
+            if (auto ParentIt = pScene->m_LocalToRuntime.find(static_cast<xecs::scene::permanent_id>(RootParentId)); ParentIt != pScene->m_LocalToRuntime.end())
+            {
+                auto& PDetails = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(ParentIt->second);
+                if (PDetails.m_pPool && PDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID))
+                {
+                    if (auto RootIt = pScene->m_LocalToRuntime.find(RootId); RootIt != pScene->m_LocalToRuntime.end())
+                    {
+                        auto& List = PDetails.m_pPool->getComponent<xecs::component::children>(PDetails.m_PoolIndex).m_List;
+                        if (std::ranges::find(List, RootIt->second.m_Value, &xecs::component::entity::m_Value) == List.end())
+                        {
+                            const auto InsertAt = std::min(static_cast<std::size_t>(ChildIndex), List.size());
+                            List.insert(List.begin() + InsertAt, RootIt->second);
+                        }
+                        e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, static_cast<xecs::scene::permanent_id>(RootParentId));
+                    }
+                }
+            }
+        }
+
+        if (e29::g_pState) e29::g_pState->m_bEntityInspectorDirty = true;
+    }
+
     //================================================================================================
     // CreateEntity - Redo makes a brand-new, bare entity (no components, matching
     // ShowCreateMenuItems' own existing "New Entity" behavior exactly); Undo removes it again.
@@ -307,7 +569,10 @@ namespace e29::commands
     // DeleteEntity - Redo deletes Id and its whole child subtree (DeleteEntitySubtree, same as the
     // pre-existing UI action); Undo restores every entity in that subtree exactly, including
     // hierarchy, cross-entity references, and prefab-instance overrides - see this file's own top
-    // comment for the full reasoning behind the shadow-id SaveEntity/LoadEntity approach.
+    // comment for the full reasoning behind the shadow-id SaveEntity/LoadEntity approach, and
+    // SnapshotSubtreeForRestore/RestoreSubtreeFromSnapshot's own comments (above) for the shared
+    // snapshot/restore machinery both this command and make_prefab_cmd (E29_Commands_MakePrefab.h)
+    // build on.
     //================================================================================================
     struct delete_entity_cmd : xundo::command_base
     {
@@ -342,9 +607,7 @@ namespace e29::commands
 
         // Runs BEFORE Redo() actually deletes anything (xundo::system::Execute always calls
         // BackupCurrenState first - see set_property_cmd's own comment, E29_Commands_PropertyEdit.h,
-        // for the confirmed ordering) - the whole subtree is still live under its REAL ids here, so
-        // SaveEntity's own reference-encoding naturally captures sibling/parent references using their
-        // real permanent_ids, not the shadow ones minted just below for the disk path itself.
+        // for the confirmed ordering).
         void BackupCurrenState(xundo::undo_file& File) noexcept override
         {
             auto SceneArg = m_Parser.getOptionArgAs<std::string>(m_hScene, 0);
@@ -355,255 +618,14 @@ namespace e29::commands
             File.Write(Scene);
             File.Write(Id);
 
-            const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
-            const auto PermId    = static_cast<xecs::scene::permanent_id>(Id);
-
-            auto* pScene = e29::g_pGameMgr ? e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid) : nullptr;
-            if (!pScene || !pScene->m_LocalToRuntime.contains(PermId))
-            {
-                File.Write(static_cast<std::uint32_t>(xecs::scene::invalid_folder_id_v));
-                File.Write(std::uint32_t{ 0 });
-                File.Write(static_cast<std::uint32_t>(xecs::scene::invalid_permanent_id_v));
-                File.Write(std::uint32_t{ 0 });
-                return;
-            }
-
-            // Root-only - a child entity is never independently a folder member (folders own top-level
-            // membership only; see ReparentEntityIntoFolder/DetermineGroupRoot's own comments). Position
-            // WITHIN the folder's own m_Entities is captured too (direct user request: "when the undo
-            // happens the Entity should be reinserted into the tree in the same place") -
-            // ReparentEntityIntoFolder itself always appends, so Undo re-inserts at this index
-            // explicitly afterward rather than relying on it.
-            {
-                const auto FolderId = e29::FindFolderContaining(*pScene, PermId);
-                File.Write(static_cast<std::uint32_t>(FolderId));
-                std::uint32_t FolderIndex = 0;
-                if (FolderId != xecs::scene::invalid_folder_id_v)
-                {
-                    if (auto FolderIt = std::ranges::find(pScene->m_Folders, FolderId, &xecs::scene::folder::m_Id); FolderIt != pScene->m_Folders.end())
-                        if (auto EntIt = std::ranges::find(FolderIt->m_Entities, PermId); EntIt != FolderIt->m_Entities.end())
-                            FolderIndex = static_cast<std::uint32_t>(EntIt - FolderIt->m_Entities.begin());
-                }
-                File.Write(FolderIndex);
-            }
-
-            // The root's own PARENT (if any) is, by definition, OUTSIDE the subtree being deleted (a
-            // parent is never deleted along with just one of its children) - so it's never itself one
-            // of the Entries snapshotted below, and its OWN `children` component never gets saved/
-            // restored as part of this command at all. DeleteEntitySubtree's own top-level step
-            // (E29_PrefabAuthoring.h) scrubs the root out of THIS parent's children.m_List as a real,
-            // separate side effect - Undo must reverse that explicitly, or the restored root would come
-            // back with a correct `Parent` field (fixed generically by RemapLoadedEntityReferences,
-            // below) yet never actually appear in the tree again, since nothing re-inserts it into its
-            // parent's own list. Recorded here as a permanent_id (not a runtime handle - the parent
-            // itself is never touched by this delete, but ITS live handle could still change for
-            // unrelated reasons before Undo runs, e.g. a hot reload). Position WITHIN the parent's own
-            // children.m_List is captured too, same "restore to the same place" reasoning as the folder
-            // case above.
-            {
-                xecs::scene::permanent_id RootParentId = xecs::scene::invalid_permanent_id_v;
-                std::uint32_t             ChildIndex   = 0;
-                auto RootEntity = pScene->m_LocalToRuntime.at(PermId);
-                auto& RootDetails = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(RootEntity);
-                if (RootDetails.m_pPool && RootDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::parent>.m_BitID))
-                {
-                    const auto ParentEntity = RootDetails.m_pPool->getComponent<xecs::component::parent>(RootDetails.m_PoolIndex).m_Value;
-                    if (ParentEntity.isValid())
-                    {
-                        if (auto ParentIt = pScene->m_RuntimeToLocal.find(ParentEntity.m_Value); ParentIt != pScene->m_RuntimeToLocal.end())
-                        {
-                            RootParentId = ParentIt->second;
-                            auto& PDetails = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(ParentEntity);
-                            if (PDetails.m_pPool && PDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID))
-                            {
-                                auto& List = PDetails.m_pPool->getComponent<xecs::component::children>(PDetails.m_PoolIndex).m_List;
-                                if (auto ChildIt = std::ranges::find(List, RootEntity.m_Value, &xecs::component::entity::m_Value); ChildIt != List.end())
-                                    ChildIndex = static_cast<std::uint32_t>(ChildIt - List.begin());
-                            }
-                        }
-                    }
-                }
-                File.Write(static_cast<std::uint32_t>(RootParentId));
-                File.Write(ChildIndex);
-            }
-
-            struct snapshot_entry { xecs::scene::permanent_id m_RealId; xecs::scene::permanent_id m_ShadowId; };
-            std::vector<snapshot_entry> Entries;
-
-            std::function<void(xecs::component::entity)> Walk = [&](xecs::component::entity Entity) noexcept
-            {
-                auto RtIt = pScene->m_RuntimeToLocal.find(Entity.m_Value);
-                if (RtIt == pScene->m_RuntimeToLocal.end()) return;
-                const auto RealId = RtIt->second;
-
-                const auto ShadowId = e29::NextFreeEntityId(*pScene);
-                e29::g_pGameMgr->m_SceneMgr.SaveEntity(SceneGuid, ShadowId, Entity);
-
-                // SaveEntity itself unconditionally re-registers Scene.m_LocalToRuntime[Id]/
-                // m_RuntimeToLocal[Entity.m_Value] using WHATEVER Id it was called with (xecs_scene_
-                // inline.h ~line 660) - correct for a real save, but calling it with a throwaway
-                // ShadowId just repointed m_RuntimeToLocal[Entity.m_Value] at ShadowId, corrupting this
-                // entity's own real registration (confirmed live: caused a dangling m_LocalToRuntime
-                // entry once Redo() actually deleted it, crashing the NEXT frame's unrelated render
-                // code). Undo that side effect immediately - m_LocalToRuntime[RealId] itself was never
-                // touched (SaveEntity only wrote under ShadowId), so only these two lines are needed.
-                pScene->m_LocalToRuntime.erase(ShadowId);
-                pScene->m_RuntimeToLocal[Entity.m_Value] = RealId;
-
-                std::printf("[DeleteEntity::BackupCurrenState] snapshotted RealId=%u under ShadowId=%u\n", RealId, ShadowId); std::fflush(stdout);
-                Entries.push_back({ RealId, ShadowId });
-
-                auto& Details = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(Entity);
-                if (Details.m_pPool && Details.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID))
-                {
-                    // Copy, not reference - matches DeleteEntitySubtree's own pattern (E29_PrefabAuthoring.h):
-                    // SaveEntity below can (in principle) touch pool memory, and iterating a reference into a
-                    // container that might reallocate underneath the loop is exactly the class of bug
-                    // [[xecs_pool_reallocation_hazard]] already covers.
-                    auto ChildList = Details.m_pPool->getComponent<xecs::component::children>(Details.m_PoolIndex).m_List;
-                    for (auto Child : ChildList) Walk(Child);
-                }
-            };
-            Walk(pScene->m_LocalToRuntime.at(PermId));
-            std::printf("[DeleteEntity::BackupCurrenState] Scene=%s Id=%u subtree walk complete, %zu entries\n", std::get<std::string>(SceneArg).c_str(), Id, Entries.size()); std::fflush(stdout);
-
-            File.Write(static_cast<std::uint32_t>(Entries.size()));
-            for (auto& E : Entries)
-            {
-                File.Write(static_cast<std::uint32_t>(E.m_RealId));
-                File.Write(static_cast<std::uint32_t>(E.m_ShadowId));
-            }
+            SnapshotSubtreeForRestore(File, xecs::scene::guid{ .m_Instance = { Scene } }, static_cast<xecs::scene::permanent_id>(Id));
         }
 
         void Undo(xundo::undo_file& File) noexcept override
         {
-            std::uint64_t Scene = 0;         File.Read(Scene);
-            std::uint32_t Id = 0;            File.Read(Id);
-            std::uint32_t FolderVal = 0;     File.Read(FolderVal);
-            std::uint32_t FolderIndex = 0;   File.Read(FolderIndex);
-            std::uint32_t RootParentId = 0;  File.Read(RootParentId);
-            std::uint32_t ChildIndex = 0;    File.Read(ChildIndex);
-            std::uint32_t Count = 0;         File.Read(Count);
-
-            struct snapshot_entry { xecs::scene::permanent_id m_RealId; xecs::scene::permanent_id m_ShadowId; };
-            std::vector<snapshot_entry> Entries(Count);
-            for (auto& E : Entries)
-            {
-                std::uint32_t RealId = 0, ShadowId = 0;
-                File.Read(RealId);
-                File.Read(ShadowId);
-                E = { static_cast<xecs::scene::permanent_id>(RealId), static_cast<xecs::scene::permanent_id>(ShadowId) };
-            }
-            if (!e29::g_pGameMgr || Entries.empty()) return;
-
-            const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
-            if (!pScene) return;
-
-            // Pass 1: load each entity under its own shadow id (the path SnapshotEntry actually wrote
-            // to), then immediately remap the scene's own maps from shadow -> real. Must finish for the
-            // WHOLE subtree before pass 2 runs for ANY of them - cross-references inside the subtree
-            // were captured using REAL ids, so they can only resolve once every sibling is registered
-            // under its real id too (see this file's own top comment).
-            std::vector<xecs::component::entity> Restored;
-            for (auto& E : Entries)
-            {
-                if (auto Err = xecs::scene::details::LoadEntity(e29::g_pGameMgr->m_SceneMgr, *pScene, E.m_ShadowId); Err)
-                    continue; // a single corrupted/missing snapshot must not take the whole subtree down
-
-                auto ShadowIt = pScene->m_LocalToRuntime.find(E.m_ShadowId);
-                if (ShadowIt == pScene->m_LocalToRuntime.end()) continue;
-                const auto NewEntity = ShadowIt->second;
-
-                pScene->m_LocalToRuntime.erase(ShadowIt);
-                pScene->m_RuntimeToLocal.erase(NewEntity.m_Value);
-                pScene->m_LocalToRuntime[E.m_RealId]        = NewEntity;
-                pScene->m_RuntimeToLocal[NewEntity.m_Value] = E.m_RealId;
-
-                // Exact inverse of DeleteEntitySubtree's own MarkEntityDeleted for this same id - see
-                // this file's own top comment quoting m_PendingChanges' documented undo contract.
-                pScene->m_PendingChanges[E.m_RealId].m_Deleted -= 1;
-
-                Restored.push_back(NewEntity);
-            }
-
-            // Pass 2: resolve every reference field (parent/children/entity_reference) now that every
-            // entity in the subtree is registered under its real id - same resolver shape
-            // EnsureLoaded's own real scene-load path uses (xecs_scene_inline.h), reusing the scene's
-            // already-populated m_ExternalToRuntime for a cross-scene target rather than rebuilding it.
-            for (auto Entity : Restored)
-            {
-                xecs::persist::details::RemapLoadedEntityReferences(*e29::g_pGameMgr, Entity, [&](std::int64_t Encoded) noexcept -> xecs::component::entity
-                {
-                    if (Encoded == 0) return {};
-                    if (Encoded > 0)
-                    {
-                        auto It = pScene->m_LocalToRuntime.find(static_cast<xecs::scene::permanent_id>(Encoded));
-                        return It != pScene->m_LocalToRuntime.end() ? It->second : xecs::component::entity{};
-                    }
-                    const auto ExtIndex = static_cast<std::size_t>(-Encoded - 1);
-                    return ExtIndex < pScene->m_ExternalToRuntime.size() ? pScene->m_ExternalToRuntime[ExtIndex] : xecs::component::entity{};
-                });
-            }
-
-            // Pass 3: prefab-instance overrides need every reference resolved first - see LoadEntity's
-            // own comment for why doing this any earlier crashed (confirmed already hit once this
-            // session, at the real scene-load path this mirrors).
-            for (auto Entity : Restored)
-            {
-                auto& Details = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(Entity);
-                if (Details.m_pPool && Details.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) >= 0)
-                    xecs::persist::details::ApplyPrefabInstancePropertyOverrides(*e29::g_pGameMgr, Entity);
-            }
-
-            // Root-only, matching BackupCurrenState's own root-only capture. ReparentEntityIntoFolder
-            // itself always appends at the end, so re-insert at the originally-captured index
-            // afterward, matching direct user request: "when the undo happens the Entity should be
-            // reinserted into the tree in the same place."
-            if (FolderVal != static_cast<std::uint32_t>(xecs::scene::invalid_folder_id_v))
-            {
-                e29::ReparentEntityIntoFolder(*pScene, static_cast<xecs::scene::permanent_id>(Id), static_cast<xecs::scene::folder_id>(FolderVal));
-                if (auto FolderIt = std::ranges::find(pScene->m_Folders, static_cast<xecs::scene::folder_id>(FolderVal), &xecs::scene::folder::m_Id); FolderIt != pScene->m_Folders.end())
-                {
-                    if (auto EntIt = std::ranges::find(FolderIt->m_Entities, static_cast<xecs::scene::permanent_id>(Id)); EntIt != FolderIt->m_Entities.end())
-                    {
-                        FolderIt->m_Entities.erase(EntIt);
-                        const auto InsertAt = std::min(static_cast<std::size_t>(FolderIndex), FolderIt->m_Entities.size());
-                        FolderIt->m_Entities.insert(FolderIt->m_Entities.begin() + InsertAt, static_cast<xecs::scene::permanent_id>(Id));
-                    }
-                }
-            }
-
-            // Reverse DeleteEntitySubtree's own top-level side effect (E29_PrefabAuthoring.h): it
-            // scrubbed the root out of ITS OWN parent's children.m_List, a component living on a
-            // DIFFERENT entity that was never part of this subtree's own snapshot - see
-            // BackupCurrenState's own comment on RootParentId for why this can't be handled generically
-            // by RemapLoadedEntityReferences (that only fixes the restored root's OWN `Parent` field,
-            // pointing up - not the parent's `children` field, pointing back down). Inserted at the
-            // originally-captured ChildIndex rather than appended, same "restore to the same place"
-            // reasoning as the folder case above.
-            if (RootParentId != static_cast<std::uint32_t>(xecs::scene::invalid_permanent_id_v))
-            {
-                if (auto ParentIt = pScene->m_LocalToRuntime.find(static_cast<xecs::scene::permanent_id>(RootParentId)); ParentIt != pScene->m_LocalToRuntime.end())
-                {
-                    auto& PDetails = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(ParentIt->second);
-                    if (PDetails.m_pPool && PDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID))
-                    {
-                        if (auto RootIt = pScene->m_LocalToRuntime.find(static_cast<xecs::scene::permanent_id>(Id)); RootIt != pScene->m_LocalToRuntime.end())
-                        {
-                            auto& List = PDetails.m_pPool->getComponent<xecs::component::children>(PDetails.m_PoolIndex).m_List;
-                            if (std::ranges::find(List, RootIt->second.m_Value, &xecs::component::entity::m_Value) == List.end())
-                            {
-                                const auto InsertAt = std::min(static_cast<std::size_t>(ChildIndex), List.size());
-                                List.insert(List.begin() + InsertAt, RootIt->second);
-                            }
-                            e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, static_cast<xecs::scene::permanent_id>(RootParentId));
-                        }
-                    }
-                }
-            }
-
-            if (e29::g_pState) e29::g_pState->m_bEntityInspectorDirty = true;
+            std::uint64_t Scene = 0; File.Read(Scene);
+            std::uint32_t Id = 0;    File.Read(Id);
+            RestoreSubtreeFromSnapshot(File, xecs::scene::guid{ .m_Instance = { Scene } }, static_cast<xecs::scene::permanent_id>(Id));
         }
 
         xcmdline::parser::handle m_hScene, m_hId;

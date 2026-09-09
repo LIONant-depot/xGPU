@@ -418,9 +418,39 @@ namespace e29::commands
         xcmdline::parser::handle m_hLibrary, m_hAsset, m_hParent;
     };
 
+    // Shared by CreateAsset and MakePrefab/MakePrefabVariant (E29_Commands_MakePrefab.h) - both need
+    // the exact same "Redo must be safely re-runnable after an Undo" guard around AssetMgr.NewAsset.
+    //
+    // Confirmed the hard way, live: NewAsset writes info.txt to disk IMMEDIATELY and unconditionally
+    // (unlike Rename/Move/Delete, in-memory only until a real Save), and its own Insert-into-index
+    // call is insert-only - it silently does nothing when the key already exists. So a re-Redo after
+    // an Undo that trashed this exact guid must NOT call NewAsset again (it would leave the still-
+    // trashed node exactly as it was); it needs to distinguish "already exists AND is currently
+    // trashed" (call MoveFromTrashTo to restore it) from "already exists but is NOT trashed" (an
+    // asset created by an earlier process/session that outlived this one, or whose trashing was
+    // itself only ever in-memory and never saved - nothing left to do). Calling MoveFromTrashTo on a
+    // non-trashed node hits its own `m_RscLinks[0] == trash_guid_v` assert - confirmed live, twice
+    // (once for CreateAsset, once for MakePrefab, before this got factored out).
+    inline void CreateOrRestoreAsset(e10::library::guid LibraryGuid, xresource::full_guid AssetGuid, xresource::full_guid ParentGuid, const std::string& Name) noexcept
+    {
+        bool bAlreadyExists = false;
+        bool bCurrentlyTrashed = false;
+        e10::g_LibMgr.getInfo(LibraryGuid, AssetGuid, [&](const xresource_pipeline::info& Info)
+        {
+            bAlreadyExists = true;
+            bCurrentlyTrashed = !Info.m_RscLinks.empty() && Info.m_RscLinks.front() == e10::folder::trash_guid_v;
+        });
+
+        if (bAlreadyExists && bCurrentlyTrashed)
+            e10::g_LibMgr.MoveFromTrashTo(LibraryGuid, AssetGuid, ParentGuid);
+        else if (!bAlreadyExists)
+            e10::g_LibMgr.NewAsset(LibraryGuid, AssetGuid, ParentGuid, Name);
+        // else: already exists, not trashed - nothing left to do, matches CreateAsset's own comment.
+    }
+
     //================================================================================================
-    // CreateAsset - Redo calls NewAsset with an EXPLICIT, caller-pre-minted instance guid (same
-    // "-Id pre-minted by the caller" convention create_entity_cmd/instantiate_prefab_cmd already
+    // CreateAsset - Redo calls CreateOrRestoreAsset with an EXPLICIT, caller-pre-minted instance guid
+    // (same "-Id pre-minted by the caller" convention create_entity_cmd/instantiate_prefab_cmd already
     // established, needed so Redo stays deterministic/re-runnable across an Undo/Redo cycle).
     //
     // DOCUMENTED ASYMMETRY, not hidden: Undo = MoveToTrash the created asset. MoveToTrash/
@@ -430,14 +460,6 @@ namespace e29::commands
     // this system already only ever means (nothing here does real permanent single-asset deletion
     // except EmptyTrashcan, which stays outside the undo system entirely - see this file's own top
     // comment).
-    //
-    // Redo's own re-run guard is more careful than it first looks - confirmed the hard way, live:
-    // NewAsset writes info.txt to disk IMMEDIATELY and unconditionally (unlike Rename/Move/Delete,
-    // in-memory only until a real Save), so a re-Redo after Undo needs to distinguish "already exists
-    // AND is currently trashed" (call MoveFromTrashTo to restore it) from "already exists but is NOT
-    // trashed" (an asset created by an earlier process/session that outlived this one, or whose
-    // trashing was itself only ever in-memory and never saved - nothing left to do). Calling
-    // MoveFromTrashTo on a non-trashed node hits its own `m_RscLinks[0] == trash_guid_v` assert.
     //================================================================================================
     struct create_asset_cmd : xundo::command_base
     {
@@ -471,32 +493,7 @@ namespace e29::commands
             const auto Name        = Base64Decode(std::get<std::string>(NameArg));
 
             if (AssetGuid.m_Instance.empty() || AssetGuid.m_Type.empty()) return "CreateAsset: bad asset guid";
-
-            // A re-Redo (after a prior Undo trashed this exact guid, in the SAME undo history) must
-            // NOT call NewAsset again - confirmed live: NewAsset's own Insert-into-index call is
-            // insert-only, it silently does nothing when the key already exists, so a second NewAsset
-            // call leaves the still-trashed node exactly as it was. Detect "already exists" via
-            // getInfo, exactly like DeleteAsset's own Undo does - but "exists" alone isn't enough to
-            // know it's actually trashed: NewAsset writes its info.txt to disk IMMEDIATELY and
-            // unconditionally (unlike Rename/Move/Delete, which stay in-memory only until a real
-            // Save), so an asset created in an EARLIER process/session can be found "already existing"
-            // here without ever having been trashed by THIS session's own Undo - confirmed live, the
-            // hard way: calling MoveFromTrashTo on a non-trashed node hits its own
-            // `m_RscLinks[0] == trash_guid_v` assert. Only call MoveFromTrashTo when the existing
-            // node's own front RscLink genuinely IS the trash tag; otherwise this Redo has nothing
-            // left to do (the asset already exists, in the right parent, from an earlier run).
-            bool bAlreadyExists = false;
-            bool bCurrentlyTrashed = false;
-            e10::g_LibMgr.getInfo(LibraryGuid, AssetGuid, [&](const xresource_pipeline::info& Info)
-            {
-                bAlreadyExists = true;
-                bCurrentlyTrashed = !Info.m_RscLinks.empty() && Info.m_RscLinks.front() == e10::folder::trash_guid_v;
-            });
-
-            if (bAlreadyExists && bCurrentlyTrashed)
-                e10::g_LibMgr.MoveFromTrashTo(LibraryGuid, AssetGuid, ParentGuid);
-            else if (!bAlreadyExists)
-                e10::g_LibMgr.NewAsset(LibraryGuid, AssetGuid, ParentGuid, Name);
+            CreateOrRestoreAsset(LibraryGuid, AssetGuid, ParentGuid, Name);
             return {};
         }
 

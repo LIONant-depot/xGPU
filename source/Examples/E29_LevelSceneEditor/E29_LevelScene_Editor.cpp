@@ -11,6 +11,7 @@
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PlaySession.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SceneOrganization.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetBrowser.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_MakePrefab.h"
 
 //-----------------------------------------------------------------------------------
 //
@@ -297,6 +298,8 @@ int E29_Example()
     e29::commands::restore_asset_cmd      CmdRestoreAsset(E29Undo, &CmdContext);
     e29::commands::create_asset_cmd       CmdCreateAsset(E29Undo, &CmdContext);
     e29::commands::save_assets_query_cmd  CmdSaveAssets(E29Undo, &CmdContext);
+    e29::commands::make_prefab_cmd        CmdMakePrefab(E29Undo, &CmdContext);
+    e29::commands::make_prefab_variant_cmd CmdMakePrefabVariant(E29Undo, &CmdContext);
     xundo::history                        E29History;
     E29History.AddSystem("E29", 1, E29Undo);
 
