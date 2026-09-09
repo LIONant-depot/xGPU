@@ -168,28 +168,45 @@ namespace e10
 
             // Render icon (centered horizontally) - the plugin icon atlas (real resource types) takes
             // priority over the legacy font-glyph path (still used for folders only, see the call
-            // site's own comment on why that one hasn't been switched over).
-            if (AtlasIcon.isValid())
+            // site's own comment on why that one hasn't been switched over). Icon space is reserved
+            // (cursor advanced by IconSize) even when NEITHER path has anything to draw - an asset
+            // whose type guid doesn't match any registered plugin (a corrupted/orphaned/leftover-test
+            // asset - real, if rare, in a long-lived project) must still lay out identically to every
+            // other tile, or its label floats at the top of a tile-sized block of bare selection-
+            // highlight fill, which reads as a rendering bug even though it's really a missing-data
+            // case. A plain neutral placeholder square makes that case visible instead of blank.
             {
-                // Sized from real font metrics to leave exactly enough room for the label's own
-                // c_LabelMaxLines lines below (not a guessed ratio) - maximizes the icon without
-                // clipping the label, whatever the tile's actual size/font turn out to be.
                 const float LabelReserve = c_LabelMaxLines * ImGui::GetTextLineHeightWithSpacing() + padding.y;
                 const float IconSize     = std::min(size.x - padding.x * 2.0f, size.y - padding.y * 2.0f - LabelReserve);
                 ImGui::SetCursorPosX(pos.x + (size.x - IconSize) * 0.5f - window->Pos.x);
-                ImGui::ImageWithBg((ImTextureRef)(void*)AtlasIcon.m_pTexture, ImVec2(IconSize, IconSize)
-                            , ImVec2(AtlasIcon.m_U0, AtlasIcon.m_V0), ImVec2(AtlasIcon.m_U1, AtlasIcon.m_V1)
-                            , ImVec4(0, 0, 0, 0), ImGui::ColorConvertU32ToFloat4(Color));
-            }
-            else if (pIcon)
-            {
-                ImGui::PushFont(xgpu::tools::imgui::getFont(2));
-                ImGui::PushStyleColor(ImGuiCol_Text, Color);
-                float icon_width = ImGui::CalcTextSize(pIcon).x;
-                ImGui::SetCursorPosX(pos.x + (size.x - icon_width) * 0.5f - window->Pos.x); // Center icon
-                ImGui::Text("%s", pIcon);
-                ImGui::PopStyleColor();
-                ImGui::PopFont();
+                if (AtlasIcon.isValid())
+                {
+                    ImGui::ImageWithBg((ImTextureRef)(void*)AtlasIcon.m_pTexture, ImVec2(IconSize, IconSize)
+                                , ImVec2(AtlasIcon.m_U0, AtlasIcon.m_V0), ImVec2(AtlasIcon.m_U1, AtlasIcon.m_V1)
+                                , ImVec4(0, 0, 0, 0), ImGui::ColorConvertU32ToFloat4(Color));
+                }
+                else if (pIcon)
+                {
+                    const ImVec2 IconPos = ImGui::GetCursorScreenPos();
+                    ImGui::PushFont(xgpu::tools::imgui::getFont(2));
+                    ImGui::PushStyleColor(ImGuiCol_Text, Color);
+                    float icon_width = ImGui::CalcTextSize(pIcon).x;
+                    ImGui::SetCursorScreenPos({ IconPos.x + (IconSize - icon_width) * 0.5f, IconPos.y });
+                    ImGui::Text("%s", pIcon);
+                    ImGui::PopStyleColor();
+                    ImGui::PopFont();
+                    ImGui::SetCursorScreenPos({ IconPos.x, IconPos.y + IconSize });
+                }
+                else
+                {
+                    // Unrecognized type - draw a plain placeholder so this reads as "unknown asset",
+                    // not as broken layout.
+                    ImDrawList* dl = ImGui::GetWindowDrawList();
+                    const ImVec2 IconPos = ImGui::GetCursorScreenPos();
+                    dl->AddRectFilled(IconPos, { IconPos.x + IconSize, IconPos.y + IconSize }, IM_COL32(90, 90, 96, 255), 6.0f);
+                    dl->AddText({ IconPos.x + IconSize * 0.5f - 4, IconPos.y + IconSize * 0.5f - 8 }, IM_COL32(200, 200, 205, 255), "?");
+                    ImGui::Dummy({ IconSize, IconSize });
+                }
             }
 
             // Move cursor below icon with spacing (but ensure it stays within bounds)
