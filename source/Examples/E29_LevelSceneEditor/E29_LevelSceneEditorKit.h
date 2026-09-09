@@ -694,6 +694,7 @@ namespace e29
 // instead, exactly the ODR-nesting bug this comment is here to prevent regressing.
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PropertyEdit.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_EntityReference.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetBrowser.h"
 
 namespace e29
 {
@@ -1095,6 +1096,58 @@ namespace e29
             Inspector.m_OnGetComponentPointer.Register(m_OnGetComponentPointer);
         }
     };
+
+    // Wires the Asset Browser's optional mutation hooks (e10::assert_browser::m_OnRenameAsset/
+    // m_OnMoveAsset/m_OnDeleteAsset/m_OnRestoreAsset/m_OnCreateAsset, E10_AssetBrowser.h) to E29's own
+    // command/undo system, so a real click in the browser panel - not just a CLI/AI call - becomes an
+    // undo-routed E29_Commands_AssetBrowser.h command. Same additive, opt-in pattern as
+    // entity_inspector_bridge::RegisterCallbacks just above; every other example that embeds the same
+    // browser leaves these hooks unset and is byte-for-byte unaffected. Plain free function (not a
+    // whole bridge struct) since these hooks need no persistent per-frame render state, unlike the
+    // property inspector's own m_ComponentMap.
+    inline void RegisterAssetBrowserCallbacks(e10::assert_browser& Browser, xundo::system& Undo) noexcept
+    {
+        Browser.m_OnRenameAsset = [&Undo](e10::library::guid LibraryGuid, xresource::full_guid Asset, std::string_view NewName)
+        {
+            e29::commands::Run(Undo, std::format("RenameAsset -Library {} -Asset {} -Name {}"
+                , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::FormatAssetGuid(Asset), e29::commands::Base64Encode(std::string(NewName))));
+        };
+
+        Browser.m_OnMoveAsset = [&Undo](e10::library::guid LibraryGuid, xresource::full_guid Asset, xresource::full_guid OldParent, xresource::full_guid NewParent)
+        {
+            e29::commands::Run(Undo, std::format("MoveAsset -Library {} -Asset {} -OldParent {} -NewParent {}"
+                , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::FormatAssetGuid(Asset), e29::commands::FormatAssetGuid(OldParent), e29::commands::FormatAssetGuid(NewParent)));
+        };
+
+        Browser.m_OnDeleteAsset = [&Undo](e10::library::guid LibraryGuid, xresource::full_guid Asset)
+        {
+            e29::commands::Run(Undo, std::format("DeleteAsset -Library {} -Asset {}"
+                , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::FormatAssetGuid(Asset)));
+        };
+
+        Browser.m_OnRestoreAsset = [&Undo](e10::library::guid LibraryGuid, xresource::full_guid Asset, xresource::full_guid NewParent)
+        {
+            e29::commands::Run(Undo, std::format("RestoreAsset -Library {} -Asset {} -Parent {}"
+                , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::FormatAssetGuid(Asset), e29::commands::FormatAssetGuid(NewParent)));
+        };
+
+        // Needs the resulting guid back synchronously (the browser immediately selects it) - mints a
+        // fresh instance guid itself, same call NewAsset's own auto-generate path uses internally
+        // (xresource::instance_guid::GenerateGUID), so the command string always names an explicit id
+        // rather than relying on CreateAsset's Redo to invent one (it deliberately never does - see
+        // that command's own top comment on why Redo must stay deterministic/re-runnable).
+        Browser.m_OnCreateAsset = [&Undo](e10::library::guid LibraryGuid, xresource::type_guid Type, xresource::full_guid Parent, std::string_view Name) -> xresource::full_guid
+        {
+            xresource::instance_guid NewInstance{};
+            NewInstance.GenerateGUID();
+            const xresource::full_guid NewAsset{ .m_Instance = NewInstance, .m_Type = Type };
+
+            e29::commands::Run(Undo, std::format("CreateAsset -Library {} -Type {:016X} -Asset {} -Parent {} -Name {}"
+                , e29::commands::FormatLibraryGuid(LibraryGuid), Type.m_Value, e29::commands::FormatAssetGuid(NewAsset)
+                , e29::commands::FormatAssetGuid(Parent), e29::commands::Base64Encode(std::string(Name))));
+            return NewAsset;
+        };
+    }
 
     //---------------------------------------------------------------------------
     // The three UI panels below moved to standalone files under kit/ - phase 1 of the kit split

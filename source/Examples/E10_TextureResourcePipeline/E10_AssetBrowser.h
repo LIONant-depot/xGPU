@@ -592,6 +592,29 @@ namespace e10
         const void*                         m_pPopupUID             = {};
         std::vector<xresource::type_guid>   m_FilterByType          = {};
         std::string                         m_SearchString          = {};
+
+        // Optional interception hooks for the browser's own real mutations (rename/move-between-
+        // folders/trash/create) - default-empty, so every existing consumer (E10, E19-E21, E23-E25,
+        // E28) is byte-for-byte unaffected. Set by a consumer that wants these actions to go through
+        // its own undo/command system (E29_LevelSceneEditorKit.h's RegisterAssetBrowserCallbacks) -
+        // same additive, opt-in pattern already used for xproperty::inspector's own
+        // m_OnPropertyChanged/m_OnEntityReferenceRender (entity_inspector_bridge::RegisterCallbacks).
+        // Each call site in virtual_tree_tab checks the hook first and calls it INSTEAD of
+        // library_mgr directly when set - never both, so a wired-up consumer's own undo history is
+        // the single source of truth for what actually happened, not a duplicate/racing mutation.
+        std::function<void(library::guid, xresource::full_guid /*Asset*/, std::string_view /*NewName*/)>
+            m_OnRenameAsset;
+        std::function<void(library::guid, xresource::full_guid /*Asset*/, xresource::full_guid /*OldParent*/, xresource::full_guid /*NewParent*/)>
+            m_OnMoveAsset;
+        std::function<void(library::guid, xresource::full_guid /*Asset*/)>
+            m_OnDeleteAsset;
+        std::function<void(library::guid, xresource::full_guid /*Asset*/, xresource::full_guid /*NewParent*/)>
+            m_OnRestoreAsset;
+        // Returns the guid actually assigned to the new asset (mirrors NewAsset's own return value) -
+        // the caller (AddResourcePopUp etc.) needs it back synchronously to update selection, exactly
+        // as it already does with NewAsset's own return today.
+        std::function<xresource::full_guid(library::guid, xresource::type_guid /*Type*/, xresource::full_guid /*Parent*/, std::string_view /*Name*/)>
+            m_OnCreateAsset;
     };
 
 } // namespace e10

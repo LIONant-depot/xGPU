@@ -782,7 +782,9 @@ namespace e10
                 if (ImGui::MenuItem(ResourceType.c_str()))
                 {
                     auto LibGUID            = m_SelectedLibrary.empty() ? m_AssetMgr.m_ProjectGUID : m_SelectedLibrary;
-                    auto LastGeneratedAsset = m_AssetMgr.NewAsset(LibGUID, { {}, E.m_TypeGUID }, m_ParentGUID);
+                    auto LastGeneratedAsset = m_Browser.m_OnCreateAsset
+                        ? m_Browser.m_OnCreateAsset(LibGUID, E.m_TypeGUID, m_ParentGUID, {})
+                        : m_AssetMgr.NewAsset(LibGUID, { {}, E.m_TypeGUID }, m_ParentGUID);
 
                     m_SelectedItems.clear();
                     m_SelectedItems.push_back(LastGeneratedAsset);
@@ -1173,7 +1175,11 @@ namespace e10
                                     {
                                         for (auto& S : m_SelectedItems)
                                         {
-                                            if (auto Err = m_AssetMgr.MoveToTrash(m_SelectedLibrary, S); Err.empty() == false )
+                                            if (m_Browser.m_OnDeleteAsset)
+                                            {
+                                                m_Browser.m_OnDeleteAsset(m_SelectedLibrary, S);
+                                            }
+                                            else if (auto Err = m_AssetMgr.MoveToTrash(m_SelectedLibrary, S); Err.empty() == false )
                                             {
                                                 // Handle the error
                                                 int a = 0;
@@ -1184,7 +1190,11 @@ namespace e10
                                     {
                                         for (auto& S : m_SelectedItems)
                                         {
-                                            if (auto Err = m_AssetMgr.MoveDescriptor(m_SelectedLibrary, S, payload_n.m_Parent, FullGuid); Err)
+                                            if (m_Browser.m_OnMoveAsset)
+                                            {
+                                                m_Browser.m_OnMoveAsset(m_SelectedLibrary, S, payload_n.m_Parent, FullGuid);
+                                            }
+                                            else if (auto Err = m_AssetMgr.MoveDescriptor(m_SelectedLibrary, S, payload_n.m_Parent, FullGuid); Err)
                                             {
                                                 // Handle the error
                                                 int a = 0;
@@ -1198,7 +1208,11 @@ namespace e10
                                 if (Folder.m_isTrash)
                                 {
                                     // If we are dropping into the trash, we should move the item to the trash
-                                    if (auto Err = m_AssetMgr.MoveToTrash(L.second->m_Library.m_GUID, payload_n.m_Source); Err.empty() == false)
+                                    if (m_Browser.m_OnDeleteAsset)
+                                    {
+                                        m_Browser.m_OnDeleteAsset(L.second->m_Library.m_GUID, payload_n.m_Source);
+                                    }
+                                    else if (auto Err = m_AssetMgr.MoveToTrash(L.second->m_Library.m_GUID, payload_n.m_Source); Err.empty() == false)
                                     {
                                         // Handle the error
                                         int a = 0;
@@ -1208,7 +1222,11 @@ namespace e10
                                 {
                                     // Implement the logic to move the folder here
                                     // For example, update the parent GUID of the dragged folder to the target folder's GUID
-                                    if (auto Err = m_AssetMgr.MoveDescriptor(L.first, payload_n.m_Source, payload_n.m_Parent, FullGuid); Err)
+                                    if (m_Browser.m_OnMoveAsset)
+                                    {
+                                        m_Browser.m_OnMoveAsset(L.first, payload_n.m_Source, payload_n.m_Parent, FullGuid);
+                                    }
+                                    else if (auto Err = m_AssetMgr.MoveDescriptor(L.first, payload_n.m_Source, payload_n.m_Parent, FullGuid); Err)
                                     {
                                         // Handle the error
                                         int a = 0;
@@ -1258,7 +1276,11 @@ namespace e10
                         ImGui::InputText("##Rename", newName, sizeof(newName));
                         if (ImGui::IsItemDeactivatedAfterEdit())
                         {
-                            if ( auto Err = m_AssetMgr.RenameDescriptor(L.first, FullGuid, newName); Err )
+                            if (m_Browser.m_OnRenameAsset)
+                            {
+                                m_Browser.m_OnRenameAsset(L.first, FullGuid, newName);
+                            }
+                            else if ( auto Err = m_AssetMgr.RenameDescriptor(L.first, FullGuid, newName); Err )
                             {
                                 printf("Failed to rename the folder with error[%s]\n", Err.getMessage().data());
                             }
@@ -1942,7 +1964,11 @@ namespace e10
                     m_RenameFirstOpen = false;
                     if (bRenameCommit)
                     {
-                        if (auto Err = m_AssetMgr.RenameDescriptor(m_RenameLibrary, m_RenameItem, m_RenameNewName.data()); Err)
+                        if (m_Browser.m_OnRenameAsset)
+                        {
+                            m_Browser.m_OnRenameAsset(m_RenameLibrary, m_RenameItem, m_RenameNewName.data());
+                        }
+                        else if (auto Err = m_AssetMgr.RenameDescriptor(m_RenameLibrary, m_RenameItem, m_RenameNewName.data()); Err)
                             printf("Error: %s\n", Err.getMessage().data());
                         m_RenameItem.clear();
                         m_RenameFirstOpen = true;
@@ -2054,7 +2080,11 @@ namespace e10
                                 {
                                     for (auto& S : m_SelectedItems)
                                     {
-                                        if (auto Err = m_AssetMgr.MoveDescriptor(m_SelectedLibrary, S, payload_n.m_Parent, E.m_ResourceGUID); Err)
+                                        if (m_Browser.m_OnMoveAsset)
+                                        {
+                                            m_Browser.m_OnMoveAsset(m_SelectedLibrary, S, payload_n.m_Parent, E.m_ResourceGUID);
+                                        }
+                                        else if (auto Err = m_AssetMgr.MoveDescriptor(m_SelectedLibrary, S, payload_n.m_Parent, E.m_ResourceGUID); Err)
                                         {
                                             // Handle the error
                                             int a = 0;
@@ -2066,7 +2096,11 @@ namespace e10
                             {
                                 // Implement the logic to move the folder here
                                 // For example, update the parent GUID of the dragged folder to the target folder's GUID
-                                if (auto Err = m_AssetMgr.MoveDescriptor(m_SelectedLibrary, payload_n.m_Source, payload_n.m_Parent, E.m_ResourceGUID); Err)
+                                if (m_Browser.m_OnMoveAsset)
+                                {
+                                    m_Browser.m_OnMoveAsset(m_SelectedLibrary, payload_n.m_Source, payload_n.m_Parent, E.m_ResourceGUID);
+                                }
+                                else if (auto Err = m_AssetMgr.MoveDescriptor(m_SelectedLibrary, payload_n.m_Source, payload_n.m_Parent, E.m_ResourceGUID); Err)
                                 {
                                     // Handle the error
                                     int a = 0;
@@ -2270,7 +2304,8 @@ namespace e10
                                 {
                                     if (ImGui::MenuItem("  To Original Location"))
                                     {
-                                        m_AssetMgr.MoveFromTrashTo(m_SelectedLibrary, E.m_ResourceGUID, ParentFolder);
+                                        if (m_Browser.m_OnRestoreAsset) m_Browser.m_OnRestoreAsset(m_SelectedLibrary, E.m_ResourceGUID, ParentFolder);
+                                        else m_AssetMgr.MoveFromTrashTo(m_SelectedLibrary, E.m_ResourceGUID, ParentFolder);
                                     }
                                 }
                             }
@@ -2291,7 +2326,8 @@ namespace e10
                                     {
                                         if (auto ParentFolder = m_AssetMgr.getValidParentFolder(m_SelectedLibrary, SelcE); ParentFolder.isValid() )
                                         {
-                                            m_AssetMgr.MoveFromTrashTo(m_SelectedLibrary, SelcE, ParentFolder);
+                                            if (m_Browser.m_OnRestoreAsset) m_Browser.m_OnRestoreAsset(m_SelectedLibrary, SelcE, ParentFolder);
+                                            else m_AssetMgr.MoveFromTrashTo(m_SelectedLibrary, SelcE, ParentFolder);
                                         }
                                     }
                                 }
@@ -2301,13 +2337,15 @@ namespace e10
                             {
                                 if (m_SelectedItems.empty())
                                 {
-                                    m_AssetMgr.MoveFromTrashTo(m_SelectedLibrary, E.m_ResourceGUID, {});
+                                    if (m_Browser.m_OnRestoreAsset) m_Browser.m_OnRestoreAsset(m_SelectedLibrary, E.m_ResourceGUID, {});
+                                    else m_AssetMgr.MoveFromTrashTo(m_SelectedLibrary, E.m_ResourceGUID, {});
                                 }
                                 else
                                 {
                                     for (auto& SelcE : m_SelectedItems)
                                     {
-                                        m_AssetMgr.MoveFromTrashTo(m_SelectedLibrary, SelcE, {});
+                                        if (m_Browser.m_OnRestoreAsset) m_Browser.m_OnRestoreAsset(m_SelectedLibrary, SelcE, {});
+                                        else m_AssetMgr.MoveFromTrashTo(m_SelectedLibrary, SelcE, {});
                                     }
                                 }
                             }

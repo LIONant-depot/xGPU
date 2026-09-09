@@ -294,6 +294,7 @@ int E29_Example()
     e29::commands::rename_asset_cmd       CmdRenameAsset(E29Undo, &CmdContext);
     e29::commands::move_asset_cmd         CmdMoveAsset(E29Undo, &CmdContext);
     e29::commands::delete_asset_cmd       CmdDeleteAsset(E29Undo, &CmdContext);
+    e29::commands::restore_asset_cmd      CmdRestoreAsset(E29Undo, &CmdContext);
     e29::commands::create_asset_cmd       CmdCreateAsset(E29Undo, &CmdContext);
     e29::commands::save_assets_query_cmd  CmdSaveAssets(E29Undo, &CmdContext);
     xundo::history                        E29History;
@@ -323,6 +324,7 @@ int E29_Example()
     e29::entity_inspector_bridge  InspectorBridge;
     e29::WireResourcePickerCallbacks(EntityInspector);
     InspectorBridge.RegisterCallbacks(EntityInspector, *pGameMgr, State, E29Undo);
+    e29::RegisterAssetBrowserCallbacks(AsserBrowser, E29Undo);
 
     //
     // Main Loop

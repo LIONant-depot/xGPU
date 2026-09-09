@@ -361,6 +361,64 @@ namespace e29::commands
     };
 
     //================================================================================================
+    // RestoreAsset - the Asset Browser's own Trash context menu ("Restore > To Original Location" /
+    // "To Root") is a genuine FORWARD action distinct from DeleteAsset's own Undo: it can restore to
+    // a DIFFERENT parent than the one the asset was deleted from (e.g. "To Root"), not just reverse
+    // the most recent delete. Redo = MoveFromTrashTo(Parent); Undo = MoveToTrash again - an exact
+    // structural mirror of DeleteAsset, just with an explicit target parent instead of one captured
+    // from history.
+    //================================================================================================
+    struct restore_asset_cmd : xundo::command_base
+    {
+        restore_asset_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "RestoreAsset", pDataBase) { RegisterArguments(); }
+        const char* getCommandHelp() const noexcept override { return "Restores a trashed asset to a chosen parent (undoable). Usage: RestoreAsset -Library hexguid -Asset assetguid -Parent assetguid"; }
+        void RegisterArguments() noexcept override
+        {
+            m_hLibrary = m_Parser.addOption("Library", "Library instance guid, 16 hex digits", true, 1);
+            m_hAsset   = m_Parser.addOption("Asset",   "Asset guid, 32 hex digits",             true, 1);
+            m_hParent  = m_Parser.addOption("Parent",  "Parent asset guid, 32 hex digits (0 = library root)", true, 1);
+        }
+
+        std::string Redo() noexcept override
+        {
+            auto LibraryArg = m_Parser.getOptionArgAs<std::string>(m_hLibrary, 0);
+            auto AssetArg   = m_Parser.getOptionArgAs<std::string>(m_hAsset, 0);
+            auto ParentArg  = m_Parser.getOptionArgAs<std::string>(m_hParent, 0);
+            if (std::holds_alternative<xerr>(LibraryArg) || std::holds_alternative<xerr>(AssetArg) || std::holds_alternative<xerr>(ParentArg))
+                return "RestoreAsset: bad arguments";
+
+            const auto LibraryGuid = ParseLibraryGuid(std::get<std::string>(LibraryArg));
+            const auto AssetGuid   = ParseAssetGuid(std::get<std::string>(AssetArg));
+            const auto ParentGuid  = ParseAssetGuid(std::get<std::string>(ParentArg));
+
+            if (auto Err = e10::g_LibMgr.MoveFromTrashTo(LibraryGuid, AssetGuid, ParentGuid); !Err.empty())
+                return std::format("RestoreAsset: {}", Err);
+            return {};
+        }
+
+        void BackupCurrenState(xundo::undo_file& File) noexcept override
+        {
+            auto LibraryArg = m_Parser.getOptionArgAs<std::string>(m_hLibrary, 0);
+            auto AssetArg   = m_Parser.getOptionArgAs<std::string>(m_hAsset, 0);
+
+            const std::uint64_t Library = std::holds_alternative<xerr>(LibraryArg) ? 0 : std::strtoull(std::get<std::string>(LibraryArg).c_str(), nullptr, 16);
+            File.Write(Library);
+            WriteString(File, std::holds_alternative<xerr>(AssetArg) ? std::string(32, '0') : std::get<std::string>(AssetArg));
+        }
+
+        void Undo(xundo::undo_file& File) noexcept override
+        {
+            std::uint64_t Library = 0; File.Read(Library);
+            const std::string Asset = ReadString(File);
+
+            const auto LibraryGuid = ParseLibraryGuid(std::format("{:016X}", Library));
+            e10::g_LibMgr.MoveToTrash(LibraryGuid, ParseAssetGuid(Asset));
+        }
+
+        xcmdline::parser::handle m_hLibrary, m_hAsset, m_hParent;
+    };
+
+    //================================================================================================
     // CreateAsset - Redo calls NewAsset with an EXPLICIT, caller-pre-minted instance guid (same
     // "-Id pre-minted by the caller" convention create_entity_cmd/instantiate_prefab_cmd already
     // established, needed so Redo stays deterministic/re-runnable across an Undo/Redo cycle).
