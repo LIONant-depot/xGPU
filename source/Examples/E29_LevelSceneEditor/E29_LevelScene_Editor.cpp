@@ -4,6 +4,8 @@
 #include "dependencies/xundo/source/xundo_history.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Selection.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandConsolePipe.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Chat.h"
 
 //-----------------------------------------------------------------------------------
 //
@@ -261,8 +263,19 @@ int E29_Example()
     e29::commands::remove_component_cmd   CmdRemoveComponent(E29Undo, &CmdContext);
     e29::commands::create_entity_cmd      CmdCreateEntity(E29Undo, &CmdContext);
     e29::commands::delete_entity_cmd      CmdDeleteEntity(E29Undo, &CmdContext);
+    e29::commands::say_query_cmd          CmdSay(E29Undo, &CmdContext);
+    e29::commands::get_log_query_cmd      CmdGetLog(E29Undo, &CmdContext);
     xundo::history                        E29History;
     E29History.AddSystem("E29", 1, E29Undo);
+
+    // Command Console named pipe - phase 5 of [[e29_command_undo_system_plan]] (memory). Lets an
+    // external process (E29CLI.cpp, a script, an AI) drive E29 through E29History.Route() with no UI
+    // automation - see commands/E29_CommandConsolePipe.h's own top comment for the full threading
+    // reasoning. Detached, not joined - a local dev/debug feature, dies with the process, same as
+    // E27_NodeOS's own identical pipe thread.
+    std::vector<e29::console_log_entry> ConsoleLog;
+    e29::command_console_pipe_bridge    ConsolePipeBridge;
+    std::thread(e29::CommandConsolePipeThreadMain, std::ref(ConsolePipeBridge)).detach();
 
     //
     // Entity component inspector - the currently-selected entity's components. The resource-picker
@@ -307,6 +320,12 @@ int E29_Example()
         ( pGameMgr, State, GamePlugin, EntityInspector, InspectorBridge, E29Undo, ProjectPath
         , RegisterHostComponents, RegisterHostSystems
         );
+
+        // A no-op unless a pipe client (E29CLI.cpp) has a request waiting - see
+        // commands/E29_CommandConsolePipe.h's own comment for why this must run here (same clean
+        // frame boundary as PollGameReload above) rather than after BeginRendering the way E27's own
+        // equivalent pump does.
+        e29::PumpCommandConsolePipe(ConsolePipeBridge, E29History, ConsoleLog);
 
         // Deferred "Stop" click (see the button's own comment) - runs here, same clean frame
         // boundary as PollGameReload above, never nested inside an active ImGui menu-bar scope.

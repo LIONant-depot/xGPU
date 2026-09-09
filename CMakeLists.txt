@@ -468,6 +468,8 @@ set(XGPU_SOURCES
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PropertyEdit.h"
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_ComponentEdit.h"
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_EntityLifecycle.h"
+  "source/Examples/E29_LevelSceneEditor/commands/E29_CommandConsolePipe.h"
+  "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Chat.h"
   "source/Examples/E29_LevelSceneEditor/E29_LevelScene_Editor.cpp"
 
   "source/tools/editors/xgpu_editor_viewport.h"
@@ -1034,6 +1036,8 @@ source_group("Examples/E29_LevelSceneEditor/commands" FILES
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PropertyEdit.h"
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_ComponentEdit.h"
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_EntityLifecycle.h"
+  "source/Examples/E29_LevelSceneEditor/commands/E29_CommandConsolePipe.h"
+  "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Chat.h"
 )
 
 
@@ -1067,6 +1071,12 @@ endif()
 # so it stays a genuinely separate, fast-building CLI tool.
 add_executable(NodeOSCLI "source/Examples/E27_NodeOS/NodeOSCLI.cpp")
 set_target_properties(NodeOSCLI PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
+
+# E29CLI - the same standalone-CLI pattern as NodeOSCLI above, ported for E29_LevelSceneEditor's own
+# Command Console named pipe (phase 5 of [[e29_command_undo_system_plan]] memory - see the top
+# comment in E29CLI.cpp).
+add_executable(E29CLI "source/Examples/E29_LevelSceneEditor/E29CLI.cpp")
+set_target_properties(E29CLI PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
 
 # Add dependency subdirectory
 add_subdirectory("build/dependency" "${CMAKE_CURRENT_BINARY_DIR}/xGPUExamples")

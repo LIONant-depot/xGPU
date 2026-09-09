@@ -28,9 +28,23 @@
 
 namespace e29::commands
 {
+    // One line of the Say/GetLog conversation (commands/E29_Commands_Chat.h) - lets multiple AI/CLI
+    // clients talking to the same running E29 session leave messages for each other over the Command
+    // Console pipe. In-memory only, current session (matches E29Undo's own bAutoLoadSave=false choice
+    // - a fresh conversation each run), deliberately separate from ConsoleLog
+    // (commands/E29_CommandConsolePipe.h, phase 5) - that log is command-dispatch echo/result text,
+    // this one is purely a conversation transcript, so GetLog doesn't have to filter dispatch noise
+    // out of what it returns.
+    struct chat_message
+    {
+        std::string m_From;
+        std::string m_Text;
+    };
+
     struct e29_command_context
     {
-        editor_state& m_State;
+        editor_state&             m_State;
+        std::vector<chat_message> m_ChatLog;
     };
 
     // Shared by select_cmd/toggle_multi_select_cmd/clear_selection_cmd - all three snapshot/restore
