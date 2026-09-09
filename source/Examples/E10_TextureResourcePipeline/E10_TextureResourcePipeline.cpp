@@ -1278,7 +1278,7 @@ int E10_Example()
             //
             // Open the project
             //
-            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
+            if (auto Err = e10::g_LibMgr.OpenProject(szFileName, Device); Err)
             {
                 e10::DebugMessage(Err.getMessage().data());
                 return 1;

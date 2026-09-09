@@ -753,7 +753,7 @@ int E20_Example()
             //
             // Open the project
             //
-            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
+            if (auto Err = e10::g_LibMgr.OpenProject(szFileName, Device); Err)
             {
                 e20::Debugger(Err.getMessage());
                 return 1;

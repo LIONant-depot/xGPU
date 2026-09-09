@@ -29,6 +29,7 @@
 #include "dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
 
 #include "E10_PluginMgr.h"
+#include "E10_PluginIconAtlas.h"
 
 namespace e10
 {
@@ -2746,7 +2747,7 @@ namespace e10
 
         //------------------------------------------------------------------------------------------------
 
-        xerr OpenProject( std::wstring_view ProjectPath )
+        xerr OpenProject( std::wstring_view ProjectPath, xgpu::device& Device )
         {
             assert(m_mLibraryDB.empty());
 
@@ -2766,6 +2767,14 @@ namespace e10
             // Setup the asset plugins
             //
             m_AssetPluginsDB.SetupProject(m_ProjectPath);
+
+            //
+            // Build the plugin icon atlas (E10_PluginIconAtlas.h) - every plugin's icon.png packed
+            // into one texture the Asset Browser renders from (WrappedButton2). Non-fatal: a failure
+            // here (e.g. a plugin missing its icon.png) just leaves that plugin's icon blank, it
+            // shouldn't block opening the project.
+            if (auto Err = BuildPluginIconAtlas(m_AssetPluginsDB, Device); Err)
+                std::cerr << "Warning: " << Err.getMessage() << "\n";
 
             //
             // Prepare compilation queues 

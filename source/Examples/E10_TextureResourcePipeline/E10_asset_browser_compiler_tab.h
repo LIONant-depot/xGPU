@@ -233,11 +233,13 @@ namespace e10
                     }
                     else
                     {
-                        ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[2]);
                         auto& Plugin = m_AssetMgr.m_AssetPluginsDB.m_lPlugins[e->second];
                         TypeName    = Plugin.m_TypeName;
-                        ScaleText(ConvertHexEscapes(Plugin.m_Icon).c_str(), 0.5f);
-                        ImGui::PopFont();
+                        if (auto Icon = m_AssetMgr.m_AssetPluginsDB.getIconRef(E.m_Entry.m_FullGuid.m_Type); Icon.isValid())
+                        {
+                            ImGui::Image((ImTextureRef)(void*)Icon.m_pTexture, ImVec2(22, 22)
+                                        , ImVec2(Icon.m_U0, Icon.m_V0), ImVec2(Icon.m_U1, Icon.m_V1));
+                        }
                         ImGui::SameLine();
                     }
 

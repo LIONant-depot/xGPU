@@ -103,7 +103,8 @@ namespace e10
         // sidesteps that class of bug entirely rather than needing AllowOverlap juggling.
         static int WrappedButton2(xresource::instance_guid G, const char* label, const ImVec2& size, ImU32 Color, const char* pIcon, bool& held, bool bModified = false
                                  , char* pRenameBuf = nullptr, size_t RenameBufSize = 0, bool bRenameJustActivated = false
-                                 , bool* pOutRenameCommit = nullptr, bool* pOutRenameCancel = nullptr )
+                                 , bool* pOutRenameCommit = nullptr, bool* pOutRenameCancel = nullptr
+                                 , e10::plugin_icon_ref AtlasIcon = {} )
         {
             ImGuiContext& g = *ImGui::GetCurrentContext();
             ImGuiWindow* window = ImGui::GetCurrentWindow();
@@ -111,6 +112,7 @@ namespace e10
                 return false;
 
             const bool bRenaming = pRenameBuf != nullptr;
+            constexpr int c_LabelMaxLines = 3;
 
             ImGui::BeginGroup();
 
@@ -164,8 +166,22 @@ namespace e10
             // Start at top with padding
             ImGui::SetCursorScreenPos({ pos.x + padding.x, pos.y + padding.y });
 
-            // Render icon (centered horizontally)
-            if (pIcon)
+            // Render icon (centered horizontally) - the plugin icon atlas (real resource types) takes
+            // priority over the legacy font-glyph path (still used for folders only, see the call
+            // site's own comment on why that one hasn't been switched over).
+            if (AtlasIcon.isValid())
+            {
+                // Sized from real font metrics to leave exactly enough room for the label's own
+                // c_LabelMaxLines lines below (not a guessed ratio) - maximizes the icon without
+                // clipping the label, whatever the tile's actual size/font turn out to be.
+                const float LabelReserve = c_LabelMaxLines * ImGui::GetTextLineHeightWithSpacing() + padding.y;
+                const float IconSize     = std::min(size.x - padding.x * 2.0f, size.y - padding.y * 2.0f - LabelReserve);
+                ImGui::SetCursorPosX(pos.x + (size.x - IconSize) * 0.5f - window->Pos.x);
+                ImGui::ImageWithBg((ImTextureRef)(void*)AtlasIcon.m_pTexture, ImVec2(IconSize, IconSize)
+                            , ImVec2(AtlasIcon.m_U0, AtlasIcon.m_V0), ImVec2(AtlasIcon.m_U1, AtlasIcon.m_V1)
+                            , ImVec4(0, 0, 0, 0), ImGui::ColorConvertU32ToFloat4(Color));
+            }
+            else if (pIcon)
             {
                 ImGui::PushFont(xgpu::tools::imgui::getFont(2));
                 ImGui::PushStyleColor(ImGuiCol_Text, Color);
@@ -224,13 +240,38 @@ namespace e10
                 const float LetterWidth   = ImGui::CalcTextSize("A").x;
                 const int   NCharsPerLine = static_cast<int>(size.x / LetterWidth);
                 const int   StrLen        = static_cast<int>(std::strlen(label));
-                const int   MaxLines      = 2;
+                const int   MaxLines      = c_LabelMaxLines;
 
                 if (StrLen > NCharsPerLine)
                 {
-                    for (int i = 0; i < StrLen && i < NCharsPerLine * MaxLines; i += NCharsPerLine)
+                    // Word-aware wrap - break at the last space within budget so a name never
+                    // splits mid-word (a plain fixed-character-count wrap did that, e.g.
+                    // "Base" -> "Ba"/"se"). The final line gets an ellipsis if content still
+                    // remains after MaxLines.
+                    int LineStart = 0;
+                    for (int Line = 0; Line < MaxLines && LineStart < StrLen; ++Line)
                     {
-                        ImGui::Text("%.*s", (StrLen - i) < NCharsPerLine ? (StrLen - i) : NCharsPerLine, label + i);
+                        int End = LineStart + NCharsPerLine;
+                        if (End >= StrLen)
+                        {
+                            End = StrLen;
+                        }
+                        else
+                        {
+                            int Break = End;
+                            while (Break > LineStart && label[Break] != ' ') --Break;
+                            if (Break > LineStart) End = Break;
+                        }
+
+                        const bool bLastLine  = (Line == MaxLines - 1);
+                        const bool bOverflows = bLastLine && End < StrLen;
+                        if (bOverflows && End > LineStart + 1)
+                            ImGui::Text("%.*s...", End - LineStart - 1, label + LineStart);
+                        else
+                            ImGui::Text("%.*s", End - LineStart, label + LineStart);
+
+                        LineStart = End;
+                        while (LineStart < StrLen && label[LineStart] == ' ') ++LineStart;
                     }
                 }
                 else
@@ -777,9 +818,9 @@ namespace e10
         {
             for (auto& E : m_AssetMgr.m_AssetPluginsDB.m_lPlugins)
             {
-                std::string ResourceType = std::format("{}  {}", ConvertHexEscapes(E.m_Icon), E.m_TypeName );
-
-                if (ImGui::MenuItem(ResourceType.c_str()))
+                // Plain text menu item - ImGui::MenuItem has no inline-image slot, and this is a
+                // create-menu list, not the tile view the icon atlas is for (WrappedButton2, above).
+                if (ImGui::MenuItem(E.m_TypeName.c_str()))
                 {
                     auto LibGUID            = m_SelectedLibrary.empty() ? m_AssetMgr.m_ProjectGUID : m_SelectedLibrary;
                     auto LastGeneratedAsset = m_Browser.m_OnCreateAsset
@@ -1444,7 +1485,7 @@ namespace e10
             {
                 std::string             m_ResourceName;
                 std::string_view        m_TypeNameView;
-                std::string_view        m_IconView;
+                e10::plugin_icon_ref    m_Icon;
                 xresource::full_guid    m_ResourceGUID;
                 float                   m_Distance;
                 bool                    m_bHasChildren:1
@@ -1523,7 +1564,7 @@ namespace e10
                                 {
                                     auto& Plugin = m_AssetMgr.m_AssetPluginsDB.m_lPlugins[e->second];
                                     Temp.m_TypeNameView = Plugin.m_TypeName;
-                                    Temp.m_IconView = Plugin.m_Icon;
+                                    Temp.m_Icon = m_AssetMgr.m_AssetPluginsDB.getIconRef(E.m_Type);
                                 }
 
                                 // Get the name
@@ -1691,7 +1732,11 @@ namespace e10
             ImGui::GetFont()->Scale *= 0.95f;
             ImGui::PushFont(ImGui::GetFont());
 
-            ImVec2 button_sz(80, 80 + 20);
+            // Height grown to comfortably fit both a full-width icon AND the label's own
+            // c_LabelMaxLines (3) lines beneath it - width unchanged (the row-fitting math below
+            // depends on it), so WrappedButton2's icon sizing (bound by width) comes out the same
+            // generous size it always was, with the extra height going entirely to label room.
+            ImVec2 button_sz(80, 140);
             ImGuiStyle& style = ImGui::GetStyle();
 
 
@@ -1765,20 +1810,22 @@ namespace e10
                 const ImU32 LabelColor  = bIsVirtual ? IM_COL32(255, 159, 67, 255) : ImGui::ColorConvertFloat4ToU32(textColor);
 
 
+                // Folders resolve their icon by the "Folder" plugin's TypeName (not by TypeGUID -
+                // e10::folder::type_guid_v isn't guaranteed to be the SAME type guid as the
+                // "xvirtual_folders" plugin's own TypeGUID, so a name lookup sidesteps that question
+                // entirely) - index 0/1 = full/empty, direct user design: "the folder should have 2
+                // icons... one empty and one full... the asset browser should know which one to
+                // render". Falls back to the legacy font-glyph pair if the plugin/icons aren't found,
+                // so a missing/renamed plugin never leaves folders with no icon at all.
                 const char* pIcon = nullptr;
 
                 if (E.m_ResourceGUID.m_Type == e10::folder::type_guid_v)
                 {
-                    pIcon = E.m_bHasChildren ? "\xEE\xA3\x95" : "\xEE\xA2\xB7";
+                    E.m_Icon = m_AssetMgr.m_AssetPluginsDB.getIconRefByName("Folder", E.m_bHasChildren ? 0 : 1);
+                    if (!E.m_Icon.isValid())
+                        pIcon = E.m_bHasChildren ? "\xEE\xA3\x95" : "\xEE\xA2\xB7";
                     Color = IM_COL32(123, 107, 52, 255);
                     // ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.345f*1.4f, 0.3f * 1.4f, 0.145f * 1.4f, 1.00f));
-                }
-                else
-                {
-                    static std::string Icon;
-
-                    Icon = ConvertHexEscapes(E.m_IconView);
-                    pIcon = Icon.c_str();
                 }
                 if (bNewLine)ImGui::SetCursorPosX(StartOffset);
 
@@ -1870,7 +1917,7 @@ namespace e10
                                                   , bIsRenamingThis ? m_RenameNewName.data() : nullptr
                                                   , bIsRenamingThis ? m_RenameNewName.size() : 0
                                                   , bIsRenamingThis && m_RenameFirstOpen
-                                                  , &bRenameCommit, &bRenameCancel); PressType == 2)
+                                                  , &bRenameCommit, &bRenameCancel, E.m_Icon); PressType == 2)
                 {
                     if (E.m_ResourceGUID.m_Type == e10::folder::type_guid_v)
                     {
@@ -1953,7 +2000,7 @@ namespace e10
                                  , bIsRenamingThis ? m_RenameNewName.data() : nullptr
                                  , bIsRenamingThis ? m_RenameNewName.size() : 0
                                  , bIsRenamingThis && m_RenameFirstOpen
-                                 , &bRenameCommit, &bRenameCancel);
+                                 , &bRenameCommit, &bRenameCancel, E.m_Icon);
                     ImGui::PopStyleColor();
                     m_IsExpanded[E.m_ResourceGUID] = !bExpandedBefore;
                 }
@@ -2014,7 +2061,8 @@ namespace e10
                         else
                         {
                             ImGui::PushStyleColor(ImGuiCol_Text, LabelColor);
-                            WrappedButton2(E.m_ResourceGUID.m_Instance, std::format("{}", StringOne).c_str(), button_sz, Color, pIcon, held, E.m_bModified);
+                            WrappedButton2(E.m_ResourceGUID.m_Instance, std::format("{}", StringOne).c_str(), button_sz, Color, pIcon, held, E.m_bModified
+                                         , nullptr, 0, false, nullptr, nullptr, E.m_Icon);
                             ImGui::PopStyleColor();
                         }
                         ImGui::EndDragDropSource();

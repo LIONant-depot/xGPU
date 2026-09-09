@@ -916,7 +916,7 @@ int E25_Example()
             TCHAR LIONantProject[] = L"\\example.lionprj";
             for (int i = 0; szFileName[I++] = LIONantProject[i]; ++i);
 
-            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
+            if (auto Err = e10::g_LibMgr.OpenProject(szFileName, Device); Err)
             {
                 e25::Debugger(Err.getMessage());
                 return 1;

@@ -1038,7 +1038,7 @@ int E24_Example()
 
             std::wcout << "Project Path: " << szFileName << "\n";
 
-            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
+            if (auto Err = e10::g_LibMgr.OpenProject(szFileName, Device); Err)
             {
                 e24::Debugger(Err.getMessage());
                 return 1;

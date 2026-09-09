@@ -13,6 +13,7 @@
 #include <iostream>
 #include <filesystem>
 #include "dependencies/xstrtool/source/xstrtool.h"
+#include "source/xgpu.h"    // asset_plugins_db::m_IconAtlas is a real GPU texture (E10_PluginIconAtlas.h)
 
 namespace e10
 {
@@ -104,6 +105,23 @@ namespace e10
         OldLength = NewLength;
     }
 
+    // Points at a sub-rect of asset_plugins_db::m_IconAtlas for one plugin's icon. Plain floats
+    // (not ImVec2) so this header never needs an ImGui include - the rendering files
+    // (E10_asset_browser_virtual_tree_tab.h / E10_asset_browser_compiler_tab.h) convert to ImVec2
+    // locally when calling ImGui::Image.
+    struct plugin_icon_ref
+    {
+        xgpu::texture* m_pTexture = nullptr;
+        float          m_U0 = 0, m_V0 = 0, m_U1 = 0, m_V1 = 0;
+        bool           isValid() const noexcept { return m_pTexture != nullptr; }
+    };
+
+    // Packed atlas rect for one entry of a plugin's m_IconPaths array - a plugin can have more than
+    // one icon (e.g. Folder's [full, empty] pair, chosen at render time by the asset's own state,
+    // per direct user design: "the folder should have 2 icons... one empty and one full"). Most
+    // plugins only ever populate index 0.
+    struct icon_uv { float m_U0 = 0, m_V0 = 0, m_U1 = 0, m_V1 = 0; };
+
     struct asset_plugins_db
     {
         struct pipeline_plugin
@@ -112,7 +130,7 @@ namespace e10
             std::wstring                        m_ResourceFileExtension;
             xresource::type_guid                m_TypeGUID;
             std::vector<xresource::type_guid>   m_RunAfter;
-            std::string                         m_Icon;
+            std::vector<std::wstring>           m_IconPaths;        // relative to m_PluginPath - each a 128x128 PNG, see "Icon Art Style Descriptions.txt". Index meaning is per-plugin (most have exactly 1; Folder has [0]=full, [1]=empty)
             std::wstring                        m_DebugCompiler;
             SYSTEMTIME                          m_DebugCompilerTimeStamp;
             std::wstring                        m_ReleaseCompiler;
@@ -120,6 +138,11 @@ namespace e10
             std::wstring                        m_PluginPath;
             std::wstring                        m_CompilationScript;
             int                                 m_RunGroupIndex;
+
+            // Not serialized, not reflected - filled in by BuildPluginIconAtlas (E10_PluginIconAtlas.h),
+            // one entry per m_IconPaths entry, once every plugin's icons have been packed into
+            // asset_plugins_db::m_IconAtlas.
+            std::vector<icon_uv>                m_IconUVs;
 
                              pipeline_plugin()                  = default;
                             ~pipeline_plugin()                  = default;
@@ -166,8 +189,8 @@ namespace e10
                 , member_ui<std::uint64_t>::drag_bar< 0.0f, 0, std::numeric_limits<std::uint64_t>::max(), "%llX">
                 , member_flags<xproperty::flags::SHOW_READONLY
                 >>
-            , obj_member< "Icon"
-                , &pipeline_plugin::m_Icon
+            , obj_member< "IconPaths"
+                , &pipeline_plugin::m_IconPaths
                 , member_flags<xproperty::flags::SHOW_READONLY
                 >>
             , obj_scope< "Details"
@@ -456,6 +479,34 @@ namespace e10
         }
 
         //------------------------------------------------------------------------------------------------
+        // Shared by both Asset Browser rendering sites (virtual tree tab + compiler tab) so neither
+        // duplicates the "look up the plugin, then read its packed atlas rect" pattern. IconIndex
+        // picks which of the plugin's (possibly several) icons to use - see pipeline_plugin::m_IconPaths.
+        plugin_icon_ref getIconRef(xresource::type_guid TypeGUID, int IconIndex = 0) noexcept
+        {
+            if (auto* p = find(TypeGUID); p && IconIndex >= 0 && IconIndex < static_cast<int>(p->m_IconUVs.size()))
+            {
+                auto& UV = p->m_IconUVs[IconIndex];
+                return { &m_IconAtlas, UV.m_U0, UV.m_V0, UV.m_U1, UV.m_V1 };
+            }
+            return {};
+        }
+
+        //------------------------------------------------------------------------------------------------
+        // Same as above, looked up by the plugin's TypeName instead of its TypeGUID - used for Folder
+        // rows, where the browsable "folder" concept (e10::folder::type_guid_v) isn't guaranteed to be
+        // numerically the SAME type guid as the "xvirtual_folders" plugin's own TypeGUID.
+        plugin_icon_ref getIconRefByName(const std::string& TypeName, int IconIndex = 0) noexcept
+        {
+            if (auto* p = find(TypeName); p && IconIndex >= 0 && IconIndex < static_cast<int>(p->m_IconUVs.size()))
+            {
+                auto& UV = p->m_IconUVs[IconIndex];
+                return { &m_IconAtlas, UV.m_U0, UV.m_V0, UV.m_U1, UV.m_V1 };
+            }
+            return {};
+        }
+
+        //------------------------------------------------------------------------------------------------
 
         void clear()
         {
@@ -468,6 +519,13 @@ namespace e10
         std::vector<pipeline_plugin>                    m_lPlugins;
         std::unordered_map<xresource::type_guid, int>   m_mPluginsByTypeGUID;
         std::unordered_map<std::string, int>            m_mPluginsByTypeName;
+
+        // One shared texture holding every plugin's packed icon - built by BuildPluginIconAtlas
+        // (E10_PluginIconAtlas.h) right after SetupProject populates m_lPlugins. Lives for the whole
+        // app lifetime (never recreated per-frame), so it's always safe for ImGui::Image() to
+        // reference - see that header's own comment on xgpu::texture lifetime vs. ImGui's deferred
+        // draw-list dereference.
+        xgpu::texture                                   m_IconAtlas;
     };
 }
 XPROPERTY_REG2( plugin_mgr_reg, e10::asset_plugins_db::pipeline_plugin )
