@@ -36,16 +36,20 @@
 // snapshotted value back onto it via SetLivePropertyValue - restoring it exactly as it was,
 // including whatever value a prefab override had it set to.
 //
-// Deliberately does NOT touch xecs::editor::prefab_instance::m_lComponents/m_PropertyOverrides or
-// m_ComponentDiffs on either Add or Remove - confirmed by dedicated research before writing this
-// file: today's existing (pre-command) Add/Remove Component UI code doesn't touch them either, and
-// m_ComponentDiffs is fully recomputed from scratch at save time (RefreshPrefabInstanceOverlayRecord,
-// xecs_reference_remap_inline.h) rather than incrementally maintained - unlike m_PropertyOverrides
-// (phase 2's own bug class), so there's no equivalent "stale after remove" hazard for it. A removed
-// component's own property-override entries CAN be left orphaned in m_lComponents by this - a
-// PRE-EXISTING gap in the app today, not one this phase introduces; flagged to the user rather than
-// silently changed, since fixing it would be new behavior beyond "wrap the existing action in a
-// command."
+// m_ComponentDiffs is left untouched on both Add and Remove - fully recomputed from scratch at save
+// time (RefreshPrefabInstanceOverlayRecord, xecs_reference_remap_inline.h), not incrementally
+// maintained, so unlike m_PropertyOverrides below it can never go stale from this and needs no
+// touching here.
+//
+// m_lComponents/m_PropertyOverrides (the property-level override bookkeeping) IS now scrubbed and
+// restored on Remove/Undo - [[e29_command_undo_known_gaps]]'s own recorded gap #4: the original
+// (pre-command) UI code never touched it either, orphaning a removed component's override entries.
+// remove_component_cmd::Redo scrubs the matching entry (same erase_if pattern
+// RemovePropertyOverride, E29_Commands_PropertyEdit.h, already uses) right after the component
+// itself is gone; BackupCurrenState snapshots that same entry first (mirroring
+// SnapshotComponentProperties' own string-based shape, reusing prefab_property_override's own two
+// fields directly rather than inventing a parallel format) so Undo can restore it exactly, matching
+// how carefully every other command in this system already mirrors its own side effects on Undo.
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PropertyEdit.h"
 
 namespace e29::commands
@@ -138,6 +142,111 @@ namespace e29::commands
             std::uint32_t     TypeGuid = 0; File.Read(TypeGuid);
             const std::string ValueStr = ReadString(File);
             if (Target.m_pInfo) SetLivePropertyValue(Target, Path, TypeGuid, ValueStr);
+        }
+    }
+
+    // Removes Entity's matching prefab_component_override entry (ComponentTypeGuid + the entity's own
+    // MemberPath within its containing prefab instance, if any) - same erase pattern
+    // RemovePropertyOverride (E29_Commands_PropertyEdit.h) already uses for a single property, just at
+    // whole-component granularity. A no-op if Entity isn't part of a prefab instance, or has no
+    // recorded override for this component - safe to call unconditionally. Marks the prefab
+    // INSTANCE'S ROOT entity dirty when it differs from Entity itself (mirroring RecordPropertyOverride/
+    // RemovePropertyOverride's own identical check, E29_Commands_PropertyEdit.h) - m_lComponents lives
+    // on the root, not necessarily on Entity, so without this the scrub never gets picked up by Save
+    // (confirmed live: SaveScene only re-writes entities m_PendingChanges marks dirty, and a plain
+    // erase_if on the root's own live data isn't enough on its own to mark IT dirty).
+    inline void ScrubComponentOverrideEntry(xecs::scene::guid SceneGuid, xecs::component::entity Entity, std::uint64_t ComponentTypeGuidValue) noexcept
+    {
+        if (!e29::g_pGameMgr) return;
+        auto Ctx = e29::FindContainingPrefabInstance(*e29::g_pGameMgr, Entity);
+        if (Ctx.m_pPI == nullptr) return;
+        auto& MemberPath = Ctx.m_MemberPath;
+        std::erase_if(Ctx.m_pPI->m_lComponents, [&](auto& C) noexcept { return C.m_ComponentTypeGuid == ComponentTypeGuidValue && std::ranges::equal(C.m_MemberPath, MemberPath); });
+
+        if (Ctx.m_RootEntity.m_Value != Entity.m_Value)
+        {
+            if (auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid))
+                if (auto RootIt = pScene->m_RuntimeToLocal.find(Ctx.m_RootEntity.m_Value); RootIt != pScene->m_RuntimeToLocal.end())
+                    e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, RootIt->second);
+        }
+    }
+
+    // Snapshots Entity's prefab_component_override entry for Info (if any) - {MemberPath,
+    // PropertyOverrides[{Name, ValueAsString}]} - written length-prefixed to File. Always writes the
+    // SAME fixed shape (bHadEntry, then PathCount/MemberPath, then OverrideCount/Overrides, the latter
+    // two zero-length when bHadEntry is false) so RestoreComponentOverrideEntry's own unconditional
+    // reads never desync the undo_file stream - matches RestoreComponentProperties/Count's own
+    // always-read-Count convention just above. Called by remove_component_cmd::BackupCurrenState,
+    // BEFORE Redo scrubs it.
+    inline void SnapshotComponentOverrideEntry(xundo::undo_file& File, xecs::component::entity Entity, const xecs::component::type::info& Info) noexcept
+    {
+        xecs::editor::prefab_component_override* pFound = nullptr;
+        if (e29::g_pGameMgr)
+        {
+            auto Ctx = e29::FindContainingPrefabInstance(*e29::g_pGameMgr, Entity);
+            if (Ctx.m_pPI)
+            {
+                auto It = std::ranges::find_if(Ctx.m_pPI->m_lComponents, [&](auto& C) noexcept { return C.m_ComponentTypeGuid == Info.m_Guid.m_Value && std::ranges::equal(C.m_MemberPath, Ctx.m_MemberPath); });
+                if (It != Ctx.m_pPI->m_lComponents.end()) pFound = &*It;
+            }
+        }
+
+        File.Write(pFound != nullptr);
+        if (pFound)
+        {
+            File.Write(static_cast<std::uint32_t>(pFound->m_MemberPath.size()));
+            for (auto P : pFound->m_MemberPath) File.Write(P);
+            File.Write(static_cast<std::uint32_t>(pFound->m_PropertyOverrides.size()));
+            for (auto& O : pFound->m_PropertyOverrides)
+            {
+                WriteString(File, O.m_PropertyName);
+                WriteString(File, O.m_PropertyValueAsString);
+            }
+        }
+        else
+        {
+            File.Write(std::uint32_t{ 0 });
+            File.Write(std::uint32_t{ 0 });
+        }
+    }
+
+    // Counterpart to SnapshotComponentOverrideEntry - re-inserts the recorded entry (if bHadEntry) via
+    // FindOrCreateOverrideEntry (E29_PrefabOverrides.h), same helper the live "edit a property"
+    // command path already uses. Called by remove_component_cmd::Undo, AFTER the component itself has
+    // been re-added and RestoreComponentProperties has replayed its live values. Marks the prefab
+    // ROOT dirty when it differs from Entity - same reasoning as ScrubComponentOverrideEntry's own
+    // comment (a plain push_back into the root's own live m_lComponents isn't enough to get it
+    // re-saved on its own).
+    inline void RestoreComponentOverrideEntry(xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::component::entity Entity, std::uint64_t ComponentTypeGuidValue) noexcept
+    {
+        bool bHadEntry = false; File.Read(bHadEntry);
+
+        std::uint32_t PathCount = 0; File.Read(PathCount);
+        std::vector<std::uint32_t> MemberPath(PathCount);
+        for (auto& P : MemberPath) File.Read(P);
+
+        struct override_row { std::string m_Name, m_ValueStr; };
+        std::uint32_t OverrideCount = 0; File.Read(OverrideCount);
+        std::vector<override_row> Overrides(OverrideCount);
+        for (auto& O : Overrides)
+        {
+            O.m_Name     = ReadString(File);
+            O.m_ValueStr = ReadString(File);
+        }
+
+        if (!bHadEntry || !e29::g_pGameMgr) return;
+        auto Ctx = e29::FindContainingPrefabInstance(*e29::g_pGameMgr, Entity);
+        if (Ctx.m_pPI == nullptr) return;
+
+        auto& CompOverride = e29::FindOrCreateOverrideEntry(*Ctx.m_pPI, ComponentTypeGuidValue, MemberPath);
+        for (auto& O : Overrides)
+            CompOverride.m_PropertyOverrides.push_back({ .m_PropertyName = O.m_Name, .m_PropertyValueAsString = O.m_ValueStr });
+
+        if (Ctx.m_RootEntity.m_Value != Entity.m_Value)
+        {
+            if (auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid))
+                if (auto RootIt = pScene->m_RuntimeToLocal.find(Ctx.m_RootEntity.m_Value); RootIt != pScene->m_RuntimeToLocal.end())
+                    e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, RootIt->second);
         }
     }
 
@@ -248,7 +357,12 @@ namespace e29::commands
             if (!pInfo) return "RemoveComponent: unknown component";
 
             std::array<const xecs::component::type::info*, 1> Sub{ pInfo };
-            if (!MigrateEntityComponents(SceneGuid, Id, {}, Sub).isValid()) return "RemoveComponent: target not found";
+            const auto NewEntity = MigrateEntityComponents(SceneGuid, Id, {}, Sub);
+            if (!NewEntity.isValid()) return "RemoveComponent: target not found";
+
+            // Scrub the now-meaningless override entry (gap #4, [[e29_command_undo_known_gaps]]) -
+            // BackupCurrenState already snapshotted it above, before this ran.
+            ScrubComponentOverrideEntry(SceneGuid, NewEntity, CompGuid);
             return {};
         }
 
@@ -272,9 +386,17 @@ namespace e29::commands
             const auto Entity    = ResolveEntityHandle(SceneGuid, static_cast<xecs::scene::permanent_id>(Id));
             auto* pInfo = e29::g_pGameMgr ? e29::g_pGameMgr->m_ComponentMgr.findComponentTypeInfo(xecs::component::type::guid{ Component }) : nullptr;
             if (pInfo && Entity.isValid())
+            {
                 SnapshotComponentProperties(File, Entity, *pInfo);
+                SnapshotComponentOverrideEntry(File, Entity, *pInfo);
+            }
             else
-                File.Write(std::uint32_t{ 0 });
+            {
+                File.Write(std::uint32_t{ 0 });  // SnapshotComponentProperties' Count
+                File.Write(false);                // SnapshotComponentOverrideEntry's bHadEntry
+                File.Write(std::uint32_t{ 0 });   // its MemberPath count
+                File.Write(std::uint32_t{ 0 });   // its PropertyOverrides count
+            }
         }
 
         void Undo(xundo::undo_file& File) noexcept override
@@ -287,19 +409,23 @@ namespace e29::commands
             auto* pInfo = e29::g_pGameMgr->m_ComponentMgr.findComponentTypeInfo(xecs::component::type::guid{ Component });
             if (!pInfo)
             {
-                // Still have to drain File's own snapshot bytes (count == 0 if nothing was written)
+                // Still have to drain File's own snapshot bytes (zero-length if nothing was written)
                 // so a later Read in the same undo_file record doesn't desync - matches
                 // RestoreComponentProperties's own unconditional read of Count below.
+                // RestoreComponentOverrideEntry drains its own fixed-shape bytes the same way, acting
+                // on nothing since {} is never a valid entity.
                 std::uint32_t Count = 0; File.Read(Count);
+                RestoreComponentOverrideEntry(File, xecs::scene::guid{}, {}, Component);
                 return;
             }
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
             std::array<const xecs::component::type::info*, 1> Add{ pInfo };
-            MigrateEntityComponents(SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Add, {});
+            const auto NewEntity = MigrateEntityComponents(SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Add, {});
 
             const auto Target = ResolvePropertyTarget(SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Component);
             RestoreComponentProperties(File, Target);
+            RestoreComponentOverrideEntry(File, SceneGuid, NewEntity, Component);
         }
 
         xcmdline::parser::handle m_hScene, m_hId, m_hComponent;

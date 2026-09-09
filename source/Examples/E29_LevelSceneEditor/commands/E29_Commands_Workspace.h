@@ -31,10 +31,14 @@ namespace e29::commands
     struct undo_query_cmd : xundo::query_command_base
     {
         undo_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "Undo", pDataBase) { RegisterArguments(); }
-        const char* getCommandHelp() const noexcept override { return "Undoes the last step. Usage: Undo"; }
+        const char* getCommandHelp() const noexcept override { return "Undoes the last step (blocked while Play/Paused). Usage: Undo"; }
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
         {
+            // Same gate as the Ctrl+Z shortcut (E29_LevelScene_Editor.cpp) - a CLI/Console-driven
+            // agent shouldn't be able to do what the UI itself refuses to do while Playing/Paused.
+            auto& State = get<e29_command_context>().m_State;
+            if (State.isPlaying()) return "Undo: blocked while Play/Paused";
             const auto Before = m_System.GetUndoIndex();
             m_System.Undo();
             return m_System.GetUndoIndex() == Before ? "Nothing to undo" : "Undone";
@@ -44,10 +48,12 @@ namespace e29::commands
     struct redo_query_cmd : xundo::query_command_base
     {
         redo_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "Redo", pDataBase) { RegisterArguments(); }
-        const char* getCommandHelp() const noexcept override { return "Redoes the next step. Usage: Redo"; }
+        const char* getCommandHelp() const noexcept override { return "Redoes the next step (blocked while Play/Paused). Usage: Redo"; }
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
         {
+            auto& State = get<e29_command_context>().m_State;
+            if (State.isPlaying()) return "Redo: blocked while Play/Paused";
             const auto Before = m_System.GetUndoIndex();
             m_System.Redo();
             return m_System.GetUndoIndex() == Before ? "Nothing to redo" : "Redone";

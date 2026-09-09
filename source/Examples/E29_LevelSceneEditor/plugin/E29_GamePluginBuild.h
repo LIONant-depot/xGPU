@@ -67,6 +67,12 @@ namespace e29
         bool isLoaded(void) const noexcept { return m_hModule != nullptr; }
     };
 
+    // Set once, near g_pGameMgr/g_pState (E29_PrefabAuthoring.h), so a CLI/Console-driven command
+    // (E29_Commands_PlaySession.h) can trigger the same Play/Pause/Stop transitions the menu-bar
+    // buttons do without needing synthetic mouse input - same "one instance per process" assumption
+    // those two globals already make.
+    inline game_plugin_state* g_pGamePlugin = nullptr;
+
     //---------------------------------------------------------------------------
     // "The editor should try to recompile automatically; if it's already compiled (newer than the
     // one we're using) just load, no need to try to recompile" (direct user direction). CompiledDllPath

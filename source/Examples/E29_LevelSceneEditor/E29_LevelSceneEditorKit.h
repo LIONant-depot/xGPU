@@ -693,6 +693,7 @@ namespace e29
 // this #include ran while namespace e29 was already open, that would nest into e29::e29::commands
 // instead, exactly the ODR-nesting bug this comment is here to prevent regressing.
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PropertyEdit.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_EntityReference.h"
 
 namespace e29
 {
@@ -956,7 +957,7 @@ namespace e29
             // crashing when the target is valid but its owning scene isn't currently open
             // (ResolveEntityReference can't search a scene nobody loaded) - the underlying
             // value/reference is untouched either way, this is purely a display limitation.
-            m_OnEntityReferenceRender = [&GameMgr, &State](xproperty::inspector& Inspector, const xproperty::type::object& Obj, void* pInstance, std::string_view Path, const xproperty::any& Value, bool& bHandled)
+            m_OnEntityReferenceRender = [this, &GameMgr, &State, &Undo](xproperty::inspector& Inspector, const xproperty::type::object& Obj, void* pInstance, std::string_view Path, const xproperty::any& Value, bool& bHandled)
             {
                 if (Value.m_pType == nullptr || Value.m_pType->m_GUID != xproperty::settings::var_type<xecs::component::entity>::guid_v) return;
                 bHandled = true;
@@ -1016,15 +1017,24 @@ namespace e29
                                     }
                                 }
 
+                                // Routed through the command system (gap #3, [[e29_command_undo_known_gaps]])
+                                // instead of BeginEdit/setProperty/CommitEdit directly - see this file's
+                                // own top comment (E29_Commands_EntityReference.h) for why AfterScene/
+                                // AfterId (not the raw runtime handle It->second) are what actually cross
+                                // into the command string.
                                 if (!bRefused)
                                 {
-                                    xproperty::settings::context Context;
-                                    xproperty::any               NewValue;
-                                    NewValue.set<xecs::component::entity>(It->second);
-                                    std::string SetError;
-                                    Inspector.BeginEdit(Obj, pInstance, "Assign Entity Reference");
-                                    xproperty::sprop::setProperty(SetError, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), NewValue }, Context);
-                                    Inspector.CommitEdit(Context);
+                                    auto CompIt = m_ComponentMap.find(pInstance);
+                                    if (CompIt != m_ComponentMap.end())
+                                    {
+                                        e29::commands::Run(Undo, std::format("SetEntityReference -Scene {} -Id {} -Component {:016X} -Path {} -AfterScene {} -AfterId {}"
+                                            , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
+                                            , e29::commands::FormatEntityId(State.m_SelectedEntityId)
+                                            , CompIt->second->m_Guid.m_Value
+                                            , e29::commands::Base64Encode(std::string(Path))
+                                            , e29::commands::FormatSceneGuid(Dropped.m_SceneGuid)
+                                            , e29::commands::FormatEntityId(Dropped.m_Id)));
+                                    }
                                 }
                             }
                         }
@@ -1037,13 +1047,19 @@ namespace e29
                     ImGui::SameLine();
                     if (ImGui::SmallButton("X"))
                     {
-                        xproperty::settings::context Context;
-                        xproperty::any               Cleared;
-                        Cleared.set<xecs::component::entity>({});
-                        std::string SetError;
-                        Inspector.BeginEdit(Obj, pInstance, "Clear Entity Reference");
-                        xproperty::sprop::setProperty(SetError, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), Cleared }, Context);
-                        Inspector.CommitEdit(Context);
+                        // AfterScene/AfterId 0/0 is SetEntityReference's own "clear" sentinel - same
+                        // routing/reasoning as the assign path just above.
+                        auto CompIt = m_ComponentMap.find(pInstance);
+                        if (CompIt != m_ComponentMap.end())
+                        {
+                            e29::commands::Run(Undo, std::format("SetEntityReference -Scene {} -Id {} -Component {:016X} -Path {} -AfterScene {} -AfterId {}"
+                                , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
+                                , e29::commands::FormatEntityId(State.m_SelectedEntityId)
+                                , CompIt->second->m_Guid.m_Value
+                                , e29::commands::Base64Encode(std::string(Path))
+                                , e29::commands::FormatSceneGuid(xecs::scene::guid{})
+                                , e29::commands::FormatEntityId(xecs::scene::invalid_permanent_id_v)));
+                        }
                     }
                 }
             };

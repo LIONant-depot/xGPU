@@ -223,22 +223,45 @@ namespace e29::commands
 
         void BackupCurrenState(xundo::undo_file& File) noexcept override
         {
-            // Nothing to snapshot - see this file's own top comment (undo of create is a pure
-            // inverse, no data to preserve). Scene/Id recorded so Undo doesn't depend on m_Parser.
-            auto SceneArg = m_Parser.getOptionArgAs<std::string>(m_hScene, 0);
-            auto IdArg    = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
+            // Almost nothing to snapshot - see this file's own top comment (undo of create is a pure
+            // inverse, no data to preserve) - EXCEPT one real side effect Redo() has when -Parent is
+            // given: it gives the PARENT a `children` component if it didn't already have one
+            // ([[e29_command_undo_known_gaps]]'s own gap #2). Recorded here, BEFORE Redo runs, since
+            // that's the only point "did the parent already have one" is still answerable.
+            auto SceneArg  = m_Parser.getOptionArgAs<std::string>(m_hScene, 0);
+            auto IdArg     = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
+            auto ParentArg = m_Parser.getOptionArgAs<std::string>(m_hParent, 0);
 
             const std::uint64_t Scene = std::holds_alternative<xerr>(SceneArg) ? 0 : std::strtoull(std::get<std::string>(SceneArg).c_str(), nullptr, 16);
             const std::uint32_t Id    = std::holds_alternative<xerr>(IdArg) ? 0 : ParseEntityId(std::get<std::string>(IdArg));
+            const std::uint32_t ParentId = std::holds_alternative<xerr>(ParentArg) ? static_cast<std::uint32_t>(xecs::scene::invalid_permanent_id_v) : ParseEntityId(std::get<std::string>(ParentArg));
 
             File.Write(Scene);
             File.Write(Id);
+            File.Write(ParentId);
+
+            bool bParentAlreadyHadChildren = true; // harmless default - only consulted when ParentId is valid
+            if (ParentId != static_cast<std::uint32_t>(xecs::scene::invalid_permanent_id_v) && e29::g_pGameMgr)
+            {
+                const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
+                if (auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid))
+                {
+                    if (auto It = pScene->m_LocalToRuntime.find(static_cast<xecs::scene::permanent_id>(ParentId)); It != pScene->m_LocalToRuntime.end())
+                    {
+                        auto& PDetails = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(It->second);
+                        bParentAlreadyHadChildren = PDetails.m_pPool && PDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID);
+                    }
+                }
+            }
+            File.Write(bParentAlreadyHadChildren);
         }
 
         void Undo(xundo::undo_file& File) noexcept override
         {
-            std::uint64_t Scene = 0; File.Read(Scene);
-            std::uint32_t Id = 0;    File.Read(Id);
+            std::uint64_t Scene = 0;    File.Read(Scene);
+            std::uint32_t Id = 0;       File.Read(Id);
+            std::uint32_t ParentId = 0; File.Read(ParentId);
+            bool bParentAlreadyHadChildren = true; File.Read(bParentAlreadyHadChildren);
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
             const auto PermId    = static_cast<xecs::scene::permanent_id>(Id);
@@ -250,6 +273,31 @@ namespace e29::commands
             if (e29::g_pGameMgr)
                 if (auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid))
                     pScene->m_PendingChanges[PermId].m_New -= 1;
+
+            // Gap #2 fix ([[e29_command_undo_known_gaps]]): DeleteSubtreeByPermanentId above already
+            // scrubbed this child out of the parent's children.m_List (DeleteEntitySubtree's own
+            // existing parent-scrub side effect) - if Redo() had to ADD that children component in the
+            // first place (the parent didn't have one before) and the list is now empty, strip the
+            // component entirely rather than leaving an empty, untidy one behind.
+            if (!bParentAlreadyHadChildren && ParentId != static_cast<std::uint32_t>(xecs::scene::invalid_permanent_id_v) && e29::g_pGameMgr)
+            {
+                if (auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid))
+                {
+                    if (auto It = pScene->m_LocalToRuntime.find(static_cast<xecs::scene::permanent_id>(ParentId)); It != pScene->m_LocalToRuntime.end())
+                    {
+                        auto& PDetails = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(It->second);
+                        if (PDetails.m_pPool && PDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID))
+                        {
+                            const auto& List = PDetails.m_pPool->getComponent<xecs::component::children>(PDetails.m_PoolIndex).m_List;
+                            if (List.empty())
+                            {
+                                std::array<const xecs::component::type::info*, 1> RemoveChildren{ &xecs::component::type::info_v<xecs::component::children> };
+                                MigrateEntityComponents(SceneGuid, static_cast<xecs::scene::permanent_id>(ParentId), {}, RemoveChildren);
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         xcmdline::parser::handle m_hScene, m_hId, m_hFolder, m_hParent;

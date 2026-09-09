@@ -8,6 +8,8 @@
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Chat.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Level.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Workspace.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PlaySession.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SceneOrganization.h"
 
 //-----------------------------------------------------------------------------------
 //
@@ -230,8 +232,9 @@ int E29_Example()
     // Lets entity_to_prefab_drop::OnDrop (a static, globally-registered object) reach the live
     // GameMgr/State at drop time - see their own declaration comment for why this is safe here.
     // Rebound by PollGameReload after a hot reload replaces *pGameMgr with a fresh instance.
-    e29::g_pGameMgr = pGameMgr.get();
-    e29::g_pState   = &State;
+    e29::g_pGameMgr    = pGameMgr.get();
+    e29::g_pState      = &State;
+    e29::g_pGamePlugin = &GamePlugin;
 
     // Visible from the start and never closable - browsing/creating Levels and Scenes is this
     // editor's primary activity (not an occasional lookup), so it's a permanent, dockable part of the
@@ -278,6 +281,13 @@ int E29_Example()
     e29::commands::save_query_cmd         CmdSave(E29Undo, &CmdContext);
     e29::commands::describe_entity_query_cmd CmdDescribeEntity(E29Undo, &CmdContext);
     e29::commands::list_component_types_query_cmd CmdListComponentTypes(E29Undo, &CmdContext);
+    e29::commands::set_entity_reference_cmd CmdSetEntityReference(E29Undo, &CmdContext);
+    e29::commands::play_query_cmd         CmdPlay(E29Undo, &CmdContext);
+    e29::commands::pause_query_cmd        CmdPause(E29Undo, &CmdContext);
+    e29::commands::stop_query_cmd         CmdStop(E29Undo, &CmdContext);
+    e29::commands::get_play_state_query_cmd CmdGetPlayState(E29Undo, &CmdContext);
+    e29::commands::instantiate_prefab_cmd CmdInstantiatePrefab(E29Undo, &CmdContext);
+    e29::commands::move_to_folder_cmd     CmdMoveToFolder(E29Undo, &CmdContext);
     xundo::history                        E29History;
     E29History.AddSystem("E29", 1, E29Undo);
 
@@ -458,8 +468,14 @@ int E29_Example()
 
         // Ctrl+Z / Ctrl+Y (also Ctrl+Shift+Z for Redo) - same shortcut convention as E27_NodeOS's own
         // (E27_NodeOS_Editor.cpp), guarded by WantTextInput so typing "z" into a property text field
-        // never gets mistaken for an undo shortcut.
-        if (!ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyAlt)
+        // never gets mistaken for an undo shortcut. Gated on !State.isPlaying() - same gate Ctrl+S
+        // already has just above - since undoing/redoing a structural command (CreateEntity/
+        // DeleteEntity/AddComponent/RemoveComponent) against the live ticking world is untested
+        // territory and could interact badly with the V1/Vn snapshot-restore sequence Play/Stop
+        // relies on ([[e29_command_undo_known_gaps]]). The Undo/Redo QUERY commands
+        // (E29_Commands_Workspace.h) carry the same gate, so a CLI/Console-driven agent can't bypass
+        // what the UI shortcut refuses either.
+        if (!ImGui::GetIO().WantTextInput && ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyAlt && !State.isPlaying())
         {
             if (ImGui::IsKeyPressed(ImGuiKey_Z) && !ImGui::GetIO().KeyShift) E29Undo.Undo();
             else if (ImGui::IsKeyPressed(ImGuiKey_Y) || (ImGui::IsKeyPressed(ImGuiKey_Z) && ImGui::GetIO().KeyShift)) E29Undo.Redo();

@@ -19,6 +19,10 @@
 // (see that file's own top comment for why this panel can safely assume it).
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_EntityLifecycle.h"
 
+// InstantiatePrefab/MoveToFolder commands (E29_Commands_SceneOrganization.h) - same "this panel is
+// reached before the umbrella's own later include runs" reasoning as the two includes just above.
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SceneOrganization.h"
+
 namespace e29
 {
     //---------------------------------------------------------------------------
@@ -151,15 +155,21 @@ namespace e29
                                     if (Dropped.m_Source.m_Type == xecs::prefab::type_guid_v)
                                     {
                                         if (auto* pDropScene = GameMgr.m_SceneMgr.Find(SceneGuid))
-                                            e29::InstantiatePrefabIntoScene(GameMgr, *pDropScene, xecs::prefab::guid{ Dropped.m_Source.m_Instance, Dropped.m_Source.m_Type });
+                                        {
+                                            const auto NewId = e29::NextFreeEntityId(*pDropScene);
+                                            e29::commands::Run(Undo, std::format("InstantiatePrefab -Scene {} -Id {} -Prefab {:016X} -Folder {:08X}"
+                                                , e29::commands::FormatSceneGuid(SceneGuid), e29::commands::FormatEntityId(NewId)
+                                                , Dropped.m_Source.m_Instance.m_Value, static_cast<std::uint32_t>(xecs::scene::invalid_folder_id_v)));
+                                        }
                                     }
                                 }
                                 if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("E29_ENTITY_DRAG"))
                                 {
                                     IM_ASSERT(payload->DataSize == sizeof(e29::entity_drag_payload_t));
                                     auto& Dropped = *reinterpret_cast<const e29::entity_drag_payload_t*>(payload->Data);
-                                    if (auto* pDropScene = GameMgr.m_SceneMgr.Find(Dropped.m_SceneGuid))
-                                        e29::ReparentEntityIntoFolder(*pDropScene, Dropped.m_Id, xecs::scene::invalid_folder_id_v);
+                                    e29::commands::Run(Undo, std::format("MoveToFolder -Scene {} -Id {} -Folder {:08X}"
+                                        , e29::commands::FormatSceneGuid(Dropped.m_SceneGuid), e29::commands::FormatEntityId(Dropped.m_Id)
+                                        , static_cast<std::uint32_t>(xecs::scene::invalid_folder_id_v)));
                                 }
                                 ImGui::EndDragDropTarget();
                             }
@@ -461,7 +471,12 @@ namespace e29
                                                         IM_ASSERT(payload->DataSize == sizeof(e10::drag_and_drop_folder_payload_t));
                                                         auto& Dropped = *reinterpret_cast<const e10::drag_and_drop_folder_payload_t*>(payload->Data);
                                                         if (Dropped.m_Source.m_Type == xecs::prefab::type_guid_v)
-                                                            e29::InstantiatePrefabIntoScene(GameMgr, *pScene, xecs::prefab::guid{ Dropped.m_Source.m_Instance, Dropped.m_Source.m_Type }, FolderId);
+                                                        {
+                                                            const auto NewId = e29::NextFreeEntityId(*pScene);
+                                                            e29::commands::Run(Undo, std::format("InstantiatePrefab -Scene {} -Id {} -Prefab {:016X} -Folder {:08X}"
+                                                                , e29::commands::FormatSceneGuid(SceneGuid), e29::commands::FormatEntityId(NewId)
+                                                                , Dropped.m_Source.m_Instance.m_Value, static_cast<std::uint32_t>(FolderId)));
+                                                        }
                                                     }
                                                     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("E29_ENTITY_DRAG"))
                                                     {
@@ -474,7 +489,11 @@ namespace e29
                                                             // renders nested under its parent's own row
                                                             // instead (RenderChildEntities); dropping one
                                                             // onto a folder here is a no-op rather than
-                                                            // creating a duplicate-looking entry.
+                                                            // creating a duplicate-looking entry. Pre-
+                                                            // filtered here (rather than relying solely on
+                                                            // move_to_folder_cmd's own identical check) so
+                                                            // a normal invalid drop stays silent instead of
+                                                            // logging a doomed command to the console.
                                                             bool bHasParent = false;
                                                             if (auto DroppedIt = pScene->m_LocalToRuntime.find(Dropped.m_Id); DroppedIt != pScene->m_LocalToRuntime.end())
                                                             {
@@ -482,7 +501,9 @@ namespace e29
                                                                 bHasParent = DroppedDetails.m_pPool && DroppedDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::parent>.m_BitID);
                                                             }
                                                             if (!bHasParent)
-                                                                e29::ReparentEntityIntoFolder(*pScene, Dropped.m_Id, FolderId);
+                                                                e29::commands::Run(Undo, std::format("MoveToFolder -Scene {} -Id {} -Folder {:08X}"
+                                                                    , e29::commands::FormatSceneGuid(SceneGuid), e29::commands::FormatEntityId(Dropped.m_Id)
+                                                                    , static_cast<std::uint32_t>(FolderId)));
                                                         }
                                                     }
                                                     ImGui::EndDragDropTarget();
