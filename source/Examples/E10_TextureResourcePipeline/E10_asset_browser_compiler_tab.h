@@ -598,7 +598,9 @@ namespace e10
 
     namespace
     {
-        inline browser_registration<compiler_tab, "\xEE\x9C\x93 Compilation", 1.0f > g_CompilationTab{};
+        // HasLeftPanel=false - LeftPanel() is empty (see the override above), so DOCKABLE mode's own
+        // independent Compilation window skips reserving a permanently-blank left column for it.
+        inline browser_registration<compiler_tab, "\xEE\x9C\x93 Compilation", 1.0f, false, false > g_CompilationTab{};
     }
 }
 #endif

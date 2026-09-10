@@ -54,13 +54,24 @@ namespace e10
         inline constinit static browser_registration_base* g_pHead    = nullptr;
     };
 
-    template< typename T, xproperty::details::fixed_string TabName, float T_SORT_KEY >
+    // T_DOCKABLE_ONLY: this tab never appears in a POPUP picker's tab bar - only in DOCKABLE mode's
+    // own independent-windows layout (E10_AssetBrowser.h's MainWindow()). Defaults to false so every
+    // pre-existing registration (virtual_tree_tab, compiler_tab) needs zero changes to keep showing up
+    // in both modes exactly as before; new DOCKABLE-only windows (Resource Plugin, Asset) pass true.
+    // T_HAS_LEFT_PANEL: whether DOCKABLE mode should give this tab a left+right split (calling both
+    // LeftPanel() and RightPanel()) or just fill the whole window with RightPanel() alone. Defaults to
+    // true (virtual_tree_tab's existing shape); compiler_tab's LeftPanel() is already empty, so its own
+    // registration passes false rather than reserving a permanently-blank left column in its own window.
+    template< typename T, xproperty::details::fixed_string TabName, float T_SORT_KEY, bool T_DOCKABLE_ONLY = false, bool T_HAS_LEFT_PANEL = true >
     struct browser_registration : browser_registration_base
     {
         browser_registration() noexcept : browser_registration_base{ T_SORT_KEY } {}
         std::unique_ptr<asset_browser_tab_base> CreateInstance(assert_browser& Browser) noexcept override
         {
-            return std::make_unique<T>(Browser, TabName.m_Value);
+            auto p = std::make_unique<T>(Browser, TabName.m_Value);
+            p->m_bDockableOnly = T_DOCKABLE_ONLY;
+            p->m_bHasLeftPanel = T_HAS_LEFT_PANEL;
+            return p;
         }
     };
 
@@ -111,6 +122,17 @@ namespace e10
 
         assert_browser&     m_Browser;
         const char*         m_pName;
+
+        // Set post-construction by browser_registration<>::CreateInstance from its own template
+        // params - see that template's own comment for what each means.
+        bool                m_bDockableOnly     = false;
+        bool                m_bHasLeftPanel     = true;
+
+        // DOCKABLE mode's own per-tab left-panel splitter width (independent of POPUP mode's single
+        // shared assert_browser::m_SplitSize1 - each DOCKABLE window is now its own independent
+        // ImGui window, so each needs its own remembered splitter position). Negative = uninitialized,
+        // same convention as m_SplitSize1.
+        float               m_DockableSplitSize = -1.0f;
     };
 
     //=============================================================================
@@ -333,10 +355,11 @@ namespace e10
             if (isAutoClose()) Show(false);
         }
 
-    protected:
-
-        //=============================================================================
-
+        // Public (not protected like the rest of this section below) - a small, self-contained,
+        // static utility with no dependency on assert_browser's own state, reused by tab structs that
+        // are NOT derived from assert_browser (e.g. plugin_tab's own Git/Properties resizable split -
+        // E10_asset_browser_plugin_tab.h) for the exact same draggable-divider behavior
+        // RenderDockableWindows() already uses for the outer Left/Right split.
         static void Splitter( bool split_vertically, float thickness, float* size1, float* size2, float min_size1, float min_size2, float total_size, float total_height )
         {
             ImVec2 backup_pos = ImGui::GetCursorScreenPos();
@@ -370,6 +393,8 @@ namespace e10
             ImGui::PopStyleColor(3);
             ImGui::SetCursorScreenPos(backup_pos);
         }
+
+    protected:
 
         //=============================================================================
 
@@ -456,8 +481,90 @@ namespace e10
 
         //=============================================================================
 
+        // Independent-windows layout for DOCKABLE mode - see browser_registration<>'s own comment for
+        // T_DOCKABLE_ONLY/T_HAS_LEFT_PANEL. Every tab in m_Tabs (POPUP-shared ones like virtual_tree_tab/
+        // compiler_tab AND anything registered DOCKABLE_ONLY) gets its own free-standing
+        // ImGui::Begin/End window here instead of sharing one window + tab bar - POPUP mode (the 8
+        // other examples' asset pickers) never calls this, see MainWindow()'s own branch.
+        void RenderDockableWindows()
+        {
+            int Index = 0;
+            for (auto& pTab : m_Tabs)
+            {
+                // Staggered default position - every DOCKABLE window's FirstUseEver applies
+                // independently, so leaving them all at the same implicit default would stack every
+                // window exactly on top of the first one the very first time this ever runs (before
+                // the user has dragged/docked anything). Only affects first-ever layout; imgui.ini
+                // remembers whatever the user arranges afterward.
+                ImGui::SetNextWindowPos(ImVec2(20.0f + 40.0f * Index, 20.0f + 40.0f * Index), ImGuiCond_FirstUseEver);
+                ImGui::SetNextWindowSize(ImVec2(500, 500), ImGuiCond_FirstUseEver);
+                ++Index;
+                if (ImGui::Begin(pTab->m_pName))
+                {
+                    if (pTab->m_bHasLeftPanel)
+                    {
+                        const float total_width  = ImGui::GetContentRegionAvail().x;
+                        const float total_height = ImGui::GetContentRegionAvail().y;
+                        constexpr float ButtonWidth = 4.0f;
+
+                        if (pTab->m_DockableSplitSize < 0.0f)
+                            pTab->m_DockableSplitSize = total_width * 0.25f;
+                        pTab->m_DockableSplitSize = std::clamp(pTab->m_DockableSplitSize, 100.0f, std::max(100.0f, total_width - 100.0f - ButtonWidth));
+
+                        float size1 = pTab->m_DockableSplitSize;
+                        float size2 = total_width - size1 - ButtonWidth;
+                        Splitter(true, ButtonWidth, &size1, &size2, 100.0f, 100.0f, total_width, total_height);
+                        pTab->m_DockableSplitSize = size1;
+
+                        // Search bar above the tree - same POPUP-mode placement (RenderSearchBar,
+                        // MainWindow()'s own left-column group), just re-hosted here. Only
+                        // virtual_tree_tab currently reads m_SearchString (its own RightPanel()'s
+                        // filtering), but this renders for any left-paneled DOCKABLE tab, matching where
+                        // it visually sat before rather than special-casing one tab by name.
+                        auto SearchBarTop = ImGui::GetCursorScreenPos();
+                        ImGui::BeginGroup();
+                        RenderSearchBar(ImVec2(size1, total_height));
+
+                        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.145f, 0.145f, 0.145f, 0.80f));
+                        if (ImGui::BeginChild("Left", ImVec2(size1, total_height - (ImGui::GetCursorScreenPos().y - SearchBarTop.y))))
+                            pTab->LeftPanel();
+                        ImGui::EndChild();
+                        ImGui::EndGroup();
+
+                        ImGui::SameLine();
+
+                        if (ImGui::BeginChild("Right", ImVec2(size2, total_height)))
+                            pTab->RightPanel();
+                        ImGui::EndChild();
+                        ImGui::PopStyleColor();
+                    }
+                    else
+                    {
+                        pTab->RightPanel();
+                    }
+                }
+                // Always call End() regardless of Begin()'s return value - same ImGui rule/gotcha
+                // called out in the POPUP path below (a docked-but-inactive or collapsed window still
+                // needs its End()).
+                ImGui::End();
+            }
+        }
+
+        //=============================================================================
+
         void MainWindow()
         {
+            // DOCKABLE mode (E29's persistent tool window, the only consumer today) gets its own
+            // independent-windows layout instead of the shared-window/tab-bar body below. POPUP mode
+            // (every other example's one-shot asset picker) falls through to that body completely
+            // unchanged - deliberately untouched by this split, see RenderDockableWindows()'s own
+            // comment.
+            if (m_DisplayMode == display_mode::DOCKABLE)
+            {
+                RenderDockableWindows();
+                return;
+            }
+
             ImGui::SetNextWindowBgAlpha(0.9f);
             ImGui::SetNextWindowSize(ImVec2(400, 400), ImGuiCond_FirstUseEver);
             
@@ -509,6 +616,10 @@ namespace e10
                 {
                     for( auto& pE : m_Tabs )
                     {
+                        // DOCKABLE-only tabs (Resource Plugin, Asset - see browser_registration<>'s own
+                        // comment) never make sense inside a one-shot POPUP picker's tab bar.
+                        if (pE->m_bDockableOnly) continue;
+
                         if (ImGui::BeginTabItem(pE->m_pName))
                         {
                             if (ImGui::BeginChild("FrameWindow", ImVec2{}))
@@ -521,45 +632,6 @@ namespace e10
                             ImGui::EndTabItem();
                         }
                     }
-
-                    /*
-                    if (ImGui::BeginTabItem("\xEE\x9C\x93 Compilation"))
-                    {
-                        if (ImGui::BeginChild("FrameWindow", ImVec2{}))
-                        {
-                        }
-                        ImGui::EndChild();
-                        ImGui::EndTabItem();
-                    }
-                    */
-
-                    if (ImGui::BeginTabItem("\xEE\x9C\xB4 Favorites"))
-                    {
-                        if (ImGui::BeginChild("FrameWindow", ImVec2{}))
-                        {
-                        }
-                        ImGui::EndChild();
-                        ImGui::EndTabItem();
-                    }
-
-                    if (ImGui::BeginTabItem("\xEE\xA2\xA5 Assets"))
-                    {
-                        if (ImGui::BeginChild("FrameWindow", ImVec2{}))
-                        {
-                        }
-                        ImGui::EndChild();
-                        ImGui::EndTabItem();
-                    }
-
-                    if (ImGui::BeginTabItem("\xEE\x9F\x85 Plugins"))
-                    {
-                        if (ImGui::BeginChild("FrameWindow", ImVec2{}))
-                        {
-                        }
-                        ImGui::EndChild();
-                        ImGui::EndTabItem();
-                    }
-
 
                     ImGui::EndTabBar();
                 }
@@ -658,6 +730,26 @@ namespace e10
         // as it already does with NewAsset's own return today.
         std::function<xresource::full_guid(library::guid, xresource::type_guid /*Type*/, xresource::full_guid /*Parent*/, std::string_view /*Name*/)>
             m_OnCreateAsset;
+
+        // Same opt-in, default-empty pattern as the five hooks above, for the REAL Assets-folder file
+        // mutations (Phase 4/5 of the window-split plan - E10_AssetMgr.h's MoveAssetFile/CopyAssetFile,
+        // wrapped as xundo commands in E29_Commands_AssetFiles.h). files_tab (E10_asset_browser_
+        // files_tab.h) checks these first and calls them INSTEAD of library_mgr directly when set - only
+        // E29 (RegisterAssetBrowserCallbacks) wires them today, every other DOCKABLE-only consumer of
+        // files_tab (there are none yet) would fall back to a direct, non-undo-routed call. Rename and
+        // Move share one hook (MoveAssetFile is the single underlying primitive for both, matching
+        // rename_asset_file_cmd/move_asset_file_cmd's own "two names, one wrap" shape). Delete/Restore
+        // take just the semantic path(s) - trash-path computation (ComputeTrashPath) happens INSIDE the
+        // hook's own implementation, mirroring how m_OnCreateAsset pre-mints its own guid internally
+        // rather than pushing that detail onto every call site.
+        std::function<void(library::guid, const std::wstring& /*OldRelPath*/, const std::wstring& /*NewRelPath*/)>
+            m_OnMoveAssetFile;
+        std::function<void(library::guid, const std::wstring& /*RelPath*/)>
+            m_OnDeleteAssetFileToTrash;
+        std::function<void(library::guid, const std::wstring& /*TrashRelPath*/, const std::wstring& /*OriginalRelPath*/)>
+            m_OnRestoreAssetFileFromTrash;
+        std::function<void(library::guid, const std::wstring& /*SourceRelPath*/, const std::wstring& /*NewRelPath*/)>
+            m_OnCopyAssetFile;
     };
 
 } // namespace e10

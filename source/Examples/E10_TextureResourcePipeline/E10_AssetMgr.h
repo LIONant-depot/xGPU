@@ -16,6 +16,7 @@
 #include <queue>
 #include <cwctype>
 #include <iostream>
+#include <fstream>
 
 
 #include "dependencies/xproperty/source/xcore/my_properties.h"
@@ -2848,6 +2849,416 @@ namespace e10
         xresource::full_guid NewAsset(const xresource::type_guid ResourceType )
         {
             return NewAsset(m_ProjectGUID, xresource::full_guid{ {},ResourceType }, {0,0});
+        }
+
+        //------------------------------------------------------------------------------------------------
+        // Raw Asset file operations (Rename/Move/Delete-to-Trash/Restore/Copy) - Phase 4 of the Asset
+        // Browser window-split plan (see plan file lively-knitting-sifakis.md). Unlike
+        // RenameDescriptor/MoveDescriptor/MoveToTrash above (which mutate the VIRTUAL descriptor tree,
+        // in-memory-only until Save()), these touch REAL files in <Library>/Assets on disk immediately,
+        // and must keep m_AssetDataBase (library_db's raw-path -> dependent-resource-guids reverse
+        // index, see library_db's own top comment for the canonical lock order) and every dependent
+        // resource's own Descriptor.txt in sync with that real move - a resource's Descriptor.txt is
+        // the actual source of truth for "which raw file do I use" (dependencies.txt is only a
+        // compiler-regenerated cache of it), confirmed by reading a real Descriptor.txt/dependencies.txt
+        // pair side by side for this plan.
+
+        // Lowercase + backslash - the EXACT normalization the compiler already applies to every
+        // dependencies.txt entry before m_AssetDataBase is ever populated from it
+        // (xresource_pipeline_compiler_base.cpp, ~line 786) - any raw path used as an m_AssetDataBase
+        // key (from the UI, in whatever case/slash style the OS gives it) must go through the same
+        // transform or FindAsWrite/FindForDelete silently miss a real match.
+        static std::wstring NormalizeAssetPath(std::wstring Path) noexcept
+        {
+            std::ranges::transform(Path, Path.begin(), [](wchar_t c) noexcept { return static_cast<wchar_t>(std::towlower(c)); });
+            std::ranges::transform(Path, Path.begin(), [](wchar_t c) noexcept { return c == L'/' ? L'\\' : c; });
+            return Path;
+        }
+
+        // Scoped text find-and-replace directly on one resource's Descriptor.txt - NOT a full
+        // xproperty deserialize/mutate/reserialize round trip (deliberately simpler, and leaves every
+        // OTHER line byte-for-byte untouched instead of risking a full reformat). Descriptor.txt is the
+        // exact same generic, self-describing xproperty text format as dependencies.txt
+        // (`"PropertyName" ;wstring "path\value"`), so this needs no per-plugin reflected-struct
+        // knowledge at all - it just needs to find the line whose quoted `;wstring` value
+        // case/slash-insensitively matches OldRelPath and swap in NewRelPath. Returns false (not a
+        // hard error) if the file couldn't be read/written or the path wasn't actually referenced in
+        // it - the caller logs that as a per-dependent failure and keeps going, per this whole
+        // operation's own best-effort, not-all-or-nothing design.
+        static bool PatchDescriptorAssetReference(const std::wstring& DescriptorPath, const std::wstring& OldRelPath, const std::wstring& NewRelPath) noexcept
+        {
+            std::ifstream In(DescriptorPath, std::ios::binary);
+            if (!In) return false;
+            std::string Content((std::istreambuf_iterator<char>(In)), std::istreambuf_iterator<char>());
+            In.close();
+
+            // A pure per-character transform (lowercase only here - see below for why slashes are
+            // handled separately) never changes byte length or shifts other characters - so any offset
+            // found in this normalized copy maps 1:1 onto the ORIGINAL Content, letting the actual
+            // replacement preserve the file's real bytes everywhere outside the matched value.
+            std::string Normalized = Content;
+            for (auto& C : Normalized) C = static_cast<char>(std::tolower(static_cast<unsigned char>(C)));
+
+            auto NarrowOf = [](const std::wstring& W) noexcept
+            {
+                std::string S(W.size(), '\0');
+                for (std::size_t i = 0; i < W.size(); ++i) S[i] = static_cast<char>(W[i]);
+                return S;
+            };
+
+            // A quoted wstring value in this xtextfile format can appear in EITHER of two forms
+            // depending on how it was originally authored - confirmed by directly reading a real
+            // Descriptor.txt's raw bytes for this plan: a value typed via a Windows-style file-dialog
+            // field stores a literal backslash ESCAPED as "\\" (e.g. "Assets\\NormalMap.png" - two
+            // actual backslash bytes), while a value built programmatically by joining path segments
+            // (e.g. during import) stores plain, unescaped forward slashes (e.g.
+            // "Cache/Descriptors/.../bitmap.png"). Try the escaped-backslash form first (the more
+            // common, user-facing case), then the forward-slash form - whichever is actually found
+            // determines which style the replacement is written back in too, so the file's own
+            // internal convention for THAT field isn't disturbed.
+            const std::wstring PathLower = [&]() noexcept
+            {
+                std::wstring S = OldRelPath;
+                std::ranges::transform(S, S.begin(), [](wchar_t c) noexcept { return static_cast<wchar_t>(std::towlower(c)); });
+                return S;
+            }();
+
+            auto BuildBackslashEscaped = [](std::wstring S) noexcept
+            {
+                std::ranges::replace(S, L'/', L'\\');
+                std::wstring Escaped;
+                Escaped.reserve(S.size() * 2);
+                for (wchar_t c : S) { if (c == L'\\') Escaped += L"\\\\"; else Escaped += c; }
+                return Escaped;
+            };
+            auto BuildForwardSlash = [](std::wstring S) noexcept
+            {
+                std::ranges::replace(S, L'\\', L'/');
+                return S;
+            };
+
+            const std::string NeedleBackslash = NarrowOf(BuildBackslashEscaped(PathLower));
+            const std::string NeedleForward    = NarrowOf(BuildForwardSlash(PathLower));
+
+            const std::string MarkerPrefix = ";wstring \"";
+            std::size_t        ValueStart, ValueLen;
+            std::wstring        NewValueWide;
+
+            if (const auto Pos = Normalized.find(MarkerPrefix + NeedleBackslash); Pos != std::string::npos)
+            {
+                ValueStart   = Pos + MarkerPrefix.size();
+                ValueLen     = NeedleBackslash.size();
+                NewValueWide = BuildBackslashEscaped(NewRelPath);
+            }
+            else if (const auto Pos2 = Normalized.find(MarkerPrefix + NeedleForward); Pos2 != std::string::npos)
+            {
+                ValueStart   = Pos2 + MarkerPrefix.size();
+                ValueLen     = NeedleForward.size();
+                NewValueWide = BuildForwardSlash(NewRelPath);
+            }
+            else
+            {
+                return false;
+            }
+
+            if (ValueStart + ValueLen >= Content.size() || Content[ValueStart + ValueLen] != '"') return false;
+
+            const std::string NewValueNarrow = NarrowOf(NewValueWide);
+            Content.replace(ValueStart, ValueLen, NewValueNarrow);
+
+            std::ofstream Out(DescriptorPath, std::ios::binary | std::ios::trunc);
+            if (!Out) return false;
+            Out.write(Content.data(), static_cast<std::streamsize>(Content.size()));
+            return true;
+        }
+
+        struct move_asset_file_result
+        {
+            bool                                                      m_bSuccess = false;
+            std::string                                                m_Error    = {};   // top-level failure only (target exists, OS rename failed, library not found)
+            std::vector<std::pair<xresource::full_guid, std::string>>  m_FailedDependents = {}; // best-effort, non-fatal per-dependent failures
+        };
+
+        // The one core primitive behind RenameAssetFile/MoveAssetFile/DeleteAssetFileToTrash/
+        // RestoreAssetFileFromTrash - a rename is just a move within the same folder, and trash/restore
+        // are just moves to/from a trash path, so all four share this exact flatten-lock + cascade
+        // shape rather than four near-duplicate implementations. OldRelPath/NewRelPath are relative to
+        // the LIBRARY ROOT (matching m_AssetDataBase::asset::m_Path's own convention - e.g.
+        // L"Assets\\Textures\\wood.png" - NOT relative to the Assets subfolder alone), in whatever
+        // case/slash style the caller has; normalized internally before use as a map key.
+        move_asset_file_result MoveAssetFile(const library::guid LibraryGUID, const std::wstring& OldRelPath, const std::wstring& NewRelPath) noexcept
+        {
+            move_asset_file_result Result;
+
+            const std::wstring OldKey = NormalizeAssetPath(OldRelPath);
+            const std::wstring NewKey = NormalizeAssetPath(NewRelPath);
+
+            const bool bFoundLib = m_mLibraryDB.FindAsReadOnly(LibraryGUID, [&](const std::unique_ptr<library_db>& Library)
+            {
+                const std::wstring OldFullPath = std::format(L"{}\\{}", Library->m_Library.m_Path, OldRelPath);
+                const std::wstring NewFullPath = std::format(L"{}\\{}", Library->m_Library.m_Path, NewRelPath);
+
+                std::error_code Ec;
+                if (std::filesystem::exists(NewFullPath, Ec))
+                {
+                    Result.m_Error = "Target path already exists";
+                    return;
+                }
+
+                // Always do the OS move BEFORE touching any descriptor - a descriptor must never be
+                // rewritten to point at a location the real file hasn't reached yet.
+                std::filesystem::create_directories(std::filesystem::path(NewFullPath).parent_path(), Ec);
+                std::filesystem::rename(OldFullPath, NewFullPath, Ec);
+                if (Ec)
+                {
+                    Result.m_Error = std::format("OS move failed: {}", Ec.message());
+                    return;
+                }
+
+                // Flatten, not nested - same pattern MonitorAssetFileChangesPerPath's own fix uses (see
+                // library_db's top comment): a short AssetDataBase lock to pop the old key's
+                // m_lChildLinks out (entry physically removed), fully released before the cascade below
+                // ever touches InfoByType/InfoData - never held simultaneously, not just reordered.
+                std::vector<xresource::full_guid> ChildLinksCopy;
+                Library->m_AssetDataBase.FindForDelete(OldKey, [&](library_db::asset& Asset)
+                {
+                    ChildLinksCopy = std::move(Asset.m_lChildLinks);
+                });
+
+                // No AssetDataBase lock held from here on - cascade to every dependent, best-effort
+                // (collect failures, keep going, matching EmptyTrashcan/MoveToTrash's own "report,
+                // don't roll back" shape for multi-item cascades). UI-thread-only (a user action or an
+                // AI-issued CLI command), so the multi-key InfoData nesting here is the same already-
+                // reviewed pattern EmptyTrashcan/MoveDescriptor use, not a new risk.
+                for (auto& Dep : ChildLinksCopy)
+                {
+                    const bool bFoundType = Library->m_InfoByTypeDataBase.FindAsReadOnly(Dep.m_Type, [&](const std::unique_ptr<library_db::info_db>& InfoDB)
+                    {
+                        const bool bFoundInst = InfoDB->m_InfoDataBase.FindAsWrite(Dep.m_Instance, [&](library_db::info_node& InfoNode)
+                        {
+                            // Descriptor.txt is always the sibling of info.txt (info_node::m_Path) in
+                            // the same .desc folder - same idiom CompilingThreadWorker already uses to
+                            // derive a descriptor's own folder from m_Path.
+                            std::wstring DescriptorPath = InfoNode.m_Path;
+                            if (const auto Slash = DescriptorPath.find_last_of(L'\\'); Slash != std::wstring::npos)
+                                DescriptorPath = DescriptorPath.substr(0, Slash + 1) + L"Descriptor.txt";
+
+                            if (!PatchDescriptorAssetReference(DescriptorPath, OldKey, NewKey))
+                                Result.m_FailedDependents.push_back({ Dep, "Could not patch Descriptor.txt (path not found in file, or read/write failure)" });
+
+                            // Also update the IN-MEMORY dependency list (InfoNode.m_Dependencies.m_Assets,
+                            // loaded from this resource's own dependencies.txt) to the new key - NOT
+                            // just the on-disk Descriptor.txt. Confirmed the hard way, live: leaving
+                            // this stale crashes the very next compile-completion pass for this
+                            // resource - the existing incremental dependency-diff code (further down
+                            // this file, in the resource-info refresh path) assumes every path it
+                            // already has cached is still a valid m_AssetDataBase key until THAT code
+                            // itself removes it; since this cascade already rekeyed m_AssetDataBase out
+                            // from under it, that assumption breaks and it asserts. Keeping this list in
+                            // sync closes the gap at its source instead.
+                            for (auto& AssetPath : InfoNode.m_Dependencies.m_Assets)
+                                if (AssetPath == OldKey) AssetPath = NewKey;
+
+                            // Mark dirty / requeue for compile - same pattern RecompileResource uses.
+                            // Immediate, not deferred to a later Save() - the real file already moved,
+                            // same "real disk operation happens now" precedent NewAsset's own info.txt
+                            // write already follows.
+                            InfoNode.m_DescriptorTime = {};
+                            InfoNode.m_ResourceTime   = {};
+                            Library->AddToCompilationQueueIfNeeded(*InfoDB, InfoNode);
+                        });
+                        if (!bFoundInst) Result.m_FailedDependents.push_back({ Dep, "Dependent resource instance no longer exists (stale index)" });
+                    });
+                    if (!bFoundType) Result.m_FailedDependents.push_back({ Dep, "Dependent resource type no longer exists (stale index)" });
+                }
+
+                // Rekey AssetDataBase regardless of per-dependent failures above - the file really did
+                // move either way, and a stale index is worse than a discoverable broken dependent
+                // (it'll show ERRORS on its next compile). Only re-insert if something actually still
+                // depends on it - an entry with zero child links isn't supposed to exist (matches
+                // MonitorAssetFileChangesPerPath's own cleanup, which erases an entry once its links
+                // empty out).
+                if (!ChildLinksCopy.empty())
+                {
+                    Library->m_AssetDataBase.Insert(NewKey, [&](library_db::asset& Asset)
+                    {
+                        Asset.m_Path          = NewRelPath;
+                        Asset.m_LastWriteTime = std::filesystem::last_write_time(NewFullPath, Ec);
+                        Asset.m_lChildLinks   = std::move(ChildLinksCopy);
+                    });
+                }
+
+                Result.m_bSuccess = true;
+            });
+
+            if (!bFoundLib) Result.m_Error = "Library not found";
+            return Result;
+        }
+
+        // Where a "delete" for RelPath should land: <Library>\.trash\assets\<original relative path>
+        // (NOT the same location as the virtual-tree Trash, which only tags a descriptor - a raw file
+        // needs an actual filesystem move somewhere). Collision going INTO trash (an earlier delete
+        // already left something at that exact trash path) gets a short disambiguating suffix.
+        //
+        // Deliberately a separate, PURE (read-only, no mutation) query - not folded into a
+        // "DeleteAssetFileToTrash" method that both picks the trash path AND performs the move. The
+        // xundo command layer's Redo() only ever sees its own command-line arguments (it has no access
+        // to whatever BackupCurrenState computed, and BackupCurrenState itself runs before Redo, so it
+        // can't know a path Redo would only decide at call time either) - so for Undo to later know
+        // exactly where to restore FROM, the caller must call THIS first, mint the trash path into the
+        // "DeleteAssetFileToTrash" command's own -TrashPath argument, and let Redo/Undo both just be
+        // plain MoveAssetFile(RelPath, TrashPath) / MoveAssetFile(TrashPath, RelPath) calls - the exact
+        // same "-Id pre-minted by the caller" shape CreateAsset/MakePrefab already use for their own
+        // Redo-determinism, applied here to a path instead of a guid.
+        std::wstring ComputeTrashPath(const library::guid LibraryGUID, const std::wstring& RelPath) const noexcept
+        {
+            std::wstring Result;
+            m_mLibraryDB.FindAsReadOnly(LibraryGUID, [&](const std::unique_ptr<library_db>& Library)
+            {
+                std::filesystem::path TrashRel = std::filesystem::path(L".trash") / L"assets" / std::filesystem::path(RelPath);
+                std::error_code       Ec;
+
+                if (std::filesystem::exists(std::filesystem::path(Library->m_Library.m_Path) / TrashRel, Ec))
+                {
+                    const auto Stem = TrashRel.stem();
+                    const auto Ext  = TrashRel.extension();
+                    for (int i = 1; i < 1000; ++i)
+                    {
+                        auto Candidate = TrashRel.parent_path() / std::format(L"{}.{}{}", Stem.wstring(), i, Ext.wstring());
+                        if (!std::filesystem::exists(std::filesystem::path(Library->m_Library.m_Path) / Candidate, Ec))
+                        {
+                            TrashRel = Candidate;
+                            break;
+                        }
+                    }
+                }
+
+                Result = TrashRel.wstring();
+            });
+            return Result;
+        }
+
+        // How many OTHER resources reference RelPath (or, if RelPath is a folder, everything under it)
+        // - the basis for warning a user (or an AI, via a command's own -Force escape hatch) before a
+        // rename/move/delete that could leave dependents pointing at a stale/trashed location.
+        // m_AssetDataBase has no enumeration/ForEach capability of its own (it's a hash map keyed by
+        // normalized path, single-key lookups only), so a FOLDER's count is found by walking the REAL
+        // files on disk under it and doing one single-key lookup per file - cheap, and reuses the exact
+        // same NormalizeAssetPath the compiler and MoveAssetFile itself already key by, so the count
+        // always matches what a move/delete would actually affect. Shared by both the UI (Asset Tree's
+        // own confirmation dialog) and the command layer (RenameAssetFile/MoveAssetFile/
+        // DeleteAssetFileToTrash's own -Force flag) so the two never drift apart on what counts as
+        // "affects a dependent".
+        std::size_t CountDependents(const library::guid LibraryGUID, const std::wstring& RelPath) const noexcept
+        {
+            std::size_t Total = 0;
+            m_mLibraryDB.FindAsReadOnly(LibraryGUID, [&](const std::unique_ptr<library_db>& Library)
+            {
+                const std::filesystem::path FullPath = std::filesystem::path(Library->m_Library.m_Path) / RelPath;
+                std::error_code Ec;
+
+                auto CountOne = [&](const std::wstring& OneRelPath) noexcept
+                {
+                    const std::wstring Key = NormalizeAssetPath(OneRelPath);
+                    Library->m_AssetDataBase.FindAsReadOnly(Key, [&](const library_db::asset& A) { Total += A.m_lChildLinks.size(); });
+                };
+
+                if (std::filesystem::is_directory(FullPath, Ec) && !Ec)
+                {
+                    for (auto& Entry : std::filesystem::recursive_directory_iterator(FullPath, Ec))
+                    {
+                        if (Ec) break;
+                        std::error_code IsDirEc;
+                        if (Entry.is_directory(IsDirEc) && !IsDirEc) continue;
+
+                        std::error_code RelEc;
+                        const std::filesystem::path RelFromLibRoot = std::filesystem::relative(Entry.path(), Library->m_Library.m_Path, RelEc);
+                        if (!RelEc) CountOne(RelFromLibRoot.wstring());
+                    }
+                }
+                else
+                {
+                    CountOne(RelPath);
+                }
+            });
+            return Total;
+        }
+
+        // Up to MaxCount human-readable resource NAMES that directly depend on RelPath - a single FILE,
+        // not a folder (unlike CountDependents above this deliberately does not recurse; it backs a
+        // per-file hover tooltip in the Asset Tree, direct user request: "on hover for the files you
+        // could open a hint popup showing which resources are using that file... (bound the list just
+        // in case)"). TotalOut receives the FULL dependent count even when the returned list itself was
+        // capped to MaxCount, so the caller can show "+N more" rather than silently truncating.
+        std::vector<std::string> GetDependentNames(const library::guid LibraryGUID, const std::wstring& RelPath, std::size_t MaxCount, std::size_t& TotalOut) const noexcept
+        {
+            std::vector<std::string> Result;
+            TotalOut = 0;
+
+            // Flatten, not nested (real lock-order assert caught this live - see
+            // xcontainer_unordered_lockless_map.h's own debug_lock_order_stack): AssetDataBase is level
+            // 2 and must always be innermost/LAST, never a container for a further nested lock -
+            // getInfo() below acquires InfoByType/InfoData (level 1), so it must run AFTER the
+            // AssetDataBase lock has already been released, not from within its own callback. Copy the
+            // child-link list out under a short AssetDataBase-only lock, then resolve names afterward
+            // with no AssetDataBase lock held - the exact same pattern MoveAssetFile's own cascade uses.
+            std::vector<xresource::full_guid> ChildLinksCopy;
+            m_mLibraryDB.FindAsReadOnly(LibraryGUID, [&](const std::unique_ptr<library_db>& Library)
+            {
+                const std::wstring Key = NormalizeAssetPath(RelPath);
+                Library->m_AssetDataBase.FindAsReadOnly(Key, [&](const library_db::asset& A) { ChildLinksCopy = A.m_lChildLinks; });
+            });
+
+            TotalOut = ChildLinksCopy.size();
+            for (auto& Guid : ChildLinksCopy)
+            {
+                if (Result.size() >= MaxCount) break;
+                // Deliberately NOT marked noexcept - this codebase's own function_traits-based
+                // callback introspection (getInfo's arg<0> detection, same class of issue as
+                // FindAsReadOnly's concept check) has repeatedly mis-detected noexcept lambda
+                // argument types before (see memory: xgpu_xproperty_noexcept_action_trap,
+                // xgpu_xcontainer_noexcept_lambda_trait_trap) - side-stepped here rather than
+                // risking a 3rd recurrence.
+                getInfo(LibraryGUID, Guid, [&](const xresource_pipeline::info& Info) { Result.push_back(Info.m_Name); });
+            }
+            return Result;
+        }
+
+        // Simplest of the four: a fresh copy has no dependents by construction (nothing could
+        // reference a path that didn't exist a moment ago), so there is no AssetDataBase entry to move
+        // and no cascade at all - deliberately does NOT insert an empty-child-links AssetDataBase entry
+        // for the new path (an entry with zero dependents isn't supposed to exist, matching
+        // MoveAssetFile's own rule above); it'll be created normally the first time some resource
+        // actually references it.
+        move_asset_file_result CopyAssetFile(const library::guid LibraryGUID, const std::wstring& SourceRelPath, const std::wstring& NewRelPath) noexcept
+        {
+            move_asset_file_result Result;
+
+            const bool bFoundLib = m_mLibraryDB.FindAsReadOnly(LibraryGUID, [&](const std::unique_ptr<library_db>& Library)
+            {
+                const std::wstring SourceFullPath = std::format(L"{}\\{}", Library->m_Library.m_Path, SourceRelPath);
+                const std::wstring NewFullPath    = std::format(L"{}\\{}", Library->m_Library.m_Path, NewRelPath);
+
+                std::error_code Ec;
+                if (std::filesystem::exists(NewFullPath, Ec))
+                {
+                    Result.m_Error = "Target path already exists";
+                    return;
+                }
+
+                std::filesystem::create_directories(std::filesystem::path(NewFullPath).parent_path(), Ec);
+                std::filesystem::copy_file(SourceFullPath, NewFullPath, Ec);
+                if (Ec)
+                {
+                    Result.m_Error = std::format("OS copy failed: {}", Ec.message());
+                    return;
+                }
+
+                Result.m_bSuccess = true;
+            });
+
+            if (!bFoundLib) Result.m_Error = "Library not found";
+            return Result;
         }
 
         //------------------------------------------------------------------------------------------------

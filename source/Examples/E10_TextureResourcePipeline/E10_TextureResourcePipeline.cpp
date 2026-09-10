@@ -136,7 +136,14 @@ namespace e10
 #include "E10_AssetBrowser.h"
 #include "E10_asset_browser_virtual_tree_tab.h"
 #include "E10_asset_browser_compiler_tab.h"
-#include "E10_asset_browser_search_tab.h"
+#include "E10_asset_browser_plugin_tab.h"
+#include "E10_asset_browser_files_tab.h"
+// E10_asset_browser_search_tab.h deliberately NOT included - removed as a standalone tab/window per
+// the Asset Browser window-split plan (see plan file lively-knitting-sifakis.md). Its type-filtered
+// cross-library search capability is meant to fold into the new Virtual Tree window eventually, but
+// that UI hasn't been designed yet ("not sure how yet" - direct user framing) - the .h file itself is
+// left on disk, unregistered, rather than deleted, so that future fold-in work can reference its
+// existing implementation for ideas instead of starting from nothing.
 #include "dependencies/xmath/source/bridge/xmath_to_xproperty.h"
 
 //------------------------------------------------------------------------------------------------

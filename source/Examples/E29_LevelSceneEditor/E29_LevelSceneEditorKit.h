@@ -695,6 +695,10 @@ namespace e29
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PropertyEdit.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_EntityReference.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetBrowser.h"
+// Needed here (not just from E29_LevelScene_Editor.cpp's own later include) because
+// RegisterAssetBrowserCallbacks, just below, now also wires the raw-file hooks and needs
+// e29::commands::EncodeAssetPath - include guards make the .cpp's own separate include harmless.
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetFiles.h"
 
 namespace e29
 {
@@ -1146,6 +1150,46 @@ namespace e29
                 , e29::commands::FormatLibraryGuid(LibraryGuid), Type.m_Value, e29::commands::FormatAssetGuid(NewAsset)
                 , e29::commands::FormatAssetGuid(Parent), e29::commands::Base64Encode(std::string(Name))));
             return NewAsset;
+        };
+
+        // Raw Assets-folder file hooks (Phase 5 of the window-split plan) - route files_tab's own
+        // Rename/Move/Cut-Paste/Delete/Copy UI actions through the SAME MoveAssetFile/CopyAssetFile
+        // xundo commands Phase 4 already proved via CLI (E29_Commands_AssetFiles.h), rather than a
+        // second, competing call path into library_mgr.
+        //
+        // -Force 1 is passed HERE unconditionally: these hooks only ever fire from files_tab's own
+        // StageOrExecute, which already ran the SAME CountDependents check and (if anything was
+        // affected) already got the user's explicit "Continue" on its own confirmation modal before
+        // calling this hook at all - re-running the command's own dependent-count gate here would just
+        // reject a change the user already approved. The command-level gate exists for the OTHER path
+        // into these commands - a human or AI issuing them directly via the Command Console/CLI, which
+        // has no modal to click and must use its own -Force 1 deliberately instead.
+        Browser.m_OnMoveAssetFile = [&Undo](e10::library::guid LibraryGuid, const std::wstring& OldRelPath, const std::wstring& NewRelPath)
+        {
+            e29::commands::Run(Undo, std::format("MoveAssetFile -Library {} -OldPath {} -NewPath {} -Force 1"
+                , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::EncodeAssetPath(OldRelPath), e29::commands::EncodeAssetPath(NewRelPath)));
+        };
+
+        // -TrashPath must be pre-minted by the CALLER (ComputeTrashPath is a pure query, not something
+        // Redo() can compute itself - see E29_Commands_AssetFiles.h's own top comment) - this hook is
+        // exactly the call site that comment said didn't exist yet.
+        Browser.m_OnDeleteAssetFileToTrash = [&Undo](e10::library::guid LibraryGuid, const std::wstring& RelPath)
+        {
+            const std::wstring TrashPath = e10::g_LibMgr.ComputeTrashPath(LibraryGuid, RelPath);
+            e29::commands::Run(Undo, std::format("DeleteAssetFileToTrash -Library {} -Path {} -TrashPath {} -Force 1"
+                , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::EncodeAssetPath(RelPath), e29::commands::EncodeAssetPath(TrashPath)));
+        };
+
+        Browser.m_OnRestoreAssetFileFromTrash = [&Undo](e10::library::guid LibraryGuid, const std::wstring& TrashRelPath, const std::wstring& OriginalRelPath)
+        {
+            e29::commands::Run(Undo, std::format("RestoreAssetFileFromTrash -Library {} -TrashPath {} -OriginalPath {}"
+                , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::EncodeAssetPath(TrashRelPath), e29::commands::EncodeAssetPath(OriginalRelPath)));
+        };
+
+        Browser.m_OnCopyAssetFile = [&Undo](e10::library::guid LibraryGuid, const std::wstring& SourceRelPath, const std::wstring& NewRelPath)
+        {
+            e29::commands::Run(Undo, std::format("CopyAssetFile -Library {} -SourcePath {} -NewPath {}"
+                , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::EncodeAssetPath(SourceRelPath), e29::commands::EncodeAssetPath(NewRelPath)));
         };
     }
 

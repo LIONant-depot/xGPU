@@ -372,6 +372,8 @@ set(XGPU_SOURCES
   "source/Examples/E10_TextureResourcePipeline/E10_asset_browser_virtual_tree_tab.h"
   "source/Examples/E10_TextureResourcePipeline/E10_asset_browser_search_tab.h"
   "source/Examples/E10_TextureResourcePipeline/E10_asset_browser_compiler_tab.h"
+  "source/Examples/E10_TextureResourcePipeline/E10_asset_browser_plugin_tab.h"
+  "source/Examples/E10_TextureResourcePipeline/E10_asset_browser_files_tab.h"
   "source/Examples/E11_NormalMaps/E11_NormalMaps.cpp"
   "source/Examples/E12_Lighting/E12_Ligting.cpp"
   "source/Examples/E13_ParallaxOcclusionMapping/E13_POM.cpp"
@@ -477,6 +479,7 @@ set(XGPU_SOURCES
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PlaySession.h"
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SceneOrganization.h"
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetBrowser.h"
+  "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetFiles.h"
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_MakePrefab.h"
   "source/Examples/E29_LevelSceneEditor/E29_LevelScene_Editor.cpp"
 
@@ -1053,6 +1056,7 @@ source_group("Examples/E29_LevelSceneEditor/commands" FILES
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PlaySession.h"
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SceneOrganization.h"
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetBrowser.h"
+  "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetFiles.h"
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_MakePrefab.h"
 )
 
