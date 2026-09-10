@@ -1019,6 +1019,18 @@ namespace e10
         // it as a separate, lower-priority hygiene item, not a demonstrated second bug) - giving them
         // different levels would make the tracker fire on that already-correct code. What actually must
         // never happen is AssetDataBase getting mixed into that nesting at all.
+        //
+        // That multi-key InfoData nesting (EmptyTrashcan, MoveToTrash, MoveFromTrashTo, MoveDescriptor -
+        // see each function's own comment for its exact order) is safe ONLY because all four are
+        // confirmed UI-thread-only, and every background writer that touches InfoData
+        // (CompilingThreadWorker, getInfo/getNodeInfo) only ever holds ONE InfoData key at a time - so
+        // there is no second thread that could hold any of these same keys in the opposite order
+        // concurrently. The four functions do NOT all agree with each other on relative order (e.g.
+        // MoveDescriptor does source->target->parent, EmptyTrashcan does self->child->parent-of-child) -
+        // that is fine today only because they can never race each other or a background thread. If a
+        // background thread (or a second UI-like thread) is ever given multi-key InfoData access,
+        // either unify these four to one fixed relative order or flatten them (same pattern as
+        // MonitorAssetFileChangesPerPath's own fix) BEFORE that lands - don't assume this stays safe.
         static constexpr int k_LockLevel_InfoByType = 1;
         static constexpr int k_LockLevel_InfoData   = 1;
         static constexpr int k_LockLevel_Asset      = 2;
@@ -1898,6 +1910,9 @@ namespace e10
 
         //------------------------------------------------------------------------------------------
 
+        // Multi-key InfoData nesting order: Trash(W) -> per-child Child(W, FindForDelete) -> per-
+        // RscLink Parent-of-child(W). UI-thread-only - see library_db's own top comment for why a
+        // fixed order isn't required across functions, only that this one stays internally consistent.
         template<typename T_CALLBACK = decltype([](int,int){}) >
         std::string EmptyTrashcan(const library::guid glibraryGUID, T_CALLBACK&& Callback = T_CALLBACK{} )
         {
@@ -2074,6 +2089,10 @@ namespace e10
 
         //------------------------------------------------------------------------------------------------
 
+        // Multi-key InfoData nesting order: Trash(W) -> Entry(W), recursing depth-first into each
+        // entry's own children (Entry.Child(W) nested inside Entry, and so on) before unwinding - depth
+        // matches the real folder hierarchy, not fixed. Fully unwinds before the separate, non-nested
+        // MoveDescriptor(...) call below. UI-thread-only - see library_db's own top comment.
         std::string MoveFromTrashTo(const library::guid glibraryGUID, const xresource::full_guid& gDescriptor, const xresource::full_guid gNewParent ) noexcept
         {
             assert(gDescriptor != gNewParent);
@@ -2186,6 +2205,9 @@ namespace e10
 
         //------------------------------------------------------------------------------------------------
 
+        // Multi-key InfoData nesting order: Trash(W) -> Item(W), recursing depth-first into each
+        // item's own children (Item.Child(W) nested inside Item, and so on) before unwinding - depth
+        // matches the real folder hierarchy, not fixed. UI-thread-only - see library_db's own top comment.
         std::string MoveToTrash(const library::guid glibraryGUID, const xresource::full_guid& gDescriptor) noexcept
         {
             std::string  Error;
@@ -2471,6 +2493,9 @@ namespace e10
 
         //------------------------------------------------------------------------------------------------
 
+        // Multi-key InfoData nesting order: Source(W) -> Target(W) -> Parent-of-source(W), a fixed
+        // 3-level nest (does NOT match EmptyTrashcan's or MoveToTrash's own order - that's fine, see
+        // library_db's own top comment for why). UI-thread-only.
         xerr MoveDescriptor(const library::guid& libraryGUID, const xresource::full_guid& sourceDescriptor, const xresource::full_guid& sourceParent, const xresource::full_guid& Target, bool bNewChange = true)
         {
             xerr Error = {};
