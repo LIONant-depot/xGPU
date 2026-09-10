@@ -2,17 +2,26 @@
 #define E10_PLUGIN_ICON_ATLAS_H
 #pragma once
 
-// Builds the single shared texture (asset_plugins_db::m_IconAtlas) that the Asset Browser draws
-// every plugin's 128x128 PNG icon(s) from (E10_asset_browser_virtual_tree_tab.h's WrappedButton2 and
-// E10_asset_browser_compiler_tab.h) - replaces the old per-plugin font-glyph (m_Icon) rendering.
+// Builds asset_plugins_db::m_IconAtlasBitmap - the packed CPU pixels for every plugin's 128x128 PNG
+// icon(s) - that the Asset Browser later uploads to a real GPU texture and draws from
+// (E10_asset_browser_virtual_tree_tab.h's WrappedButton2 and E10_asset_browser_compiler_tab.h).
+// Replaces the old per-plugin font-glyph (m_Icon) rendering.
+//
+// Deliberately headless - NO xgpu/GPU include anywhere in this file. asset_plugins_db/library_mgr
+// must stay usable with no GPU device/render context at all (batch/CLI tools) - direct user
+// correction: "the asset mgr needs to run headless. So while it can build the atlas it should not
+// build the texture.... This is something that the browser should do." The actual GPU upload lives
+// in E10_AssetBrowser.h (assert_browser's own texture-ensure step), lazily, the first time any
+// browser instance actually needs to draw an icon - see asset_plugins_db::m_IconAtlasGPUHandle's own
+// comment (E10_PluginMgr.h) for how multiple browser instances share that one upload.
 //
 // Direct user design: "the icons can be loading in different threads into xbitmaps, which later
 // are combined into the final atlas" - each icon file is loaded on its own std::async worker (same
 // background-work convention this project already uses for Game.dll rebuilds, see
 // E29_GamePluginBuild.h's own comment on why std::async), then every resulting xbitmap is packed
 // with the pre-existing, previously-unused xbmp::tools::atlas::Pack (dependencies/xbmp_tools) into
-// ONE bitmap, uploaded once as a single xgpu::texture. Rebuilt fresh every launch (~15 tiny 128x128
-// loads is sub-second work) - no on-disk atlas cache, per explicit user direction.
+// ONE bitmap. Rebuilt fresh every launch (~15 tiny 128x128 loads is sub-second work) - no on-disk
+// atlas cache, per explicit user direction.
 //
 // A plugin can list MORE than one icon in m_IconPaths - direct user design: "the folder should have
 // 2 icons... one empty and one full... the asset browser should know which one to render" - so this
@@ -20,13 +29,17 @@
 
 #include <future>
 #include "dependencies/xbmp_tools/src/xbmp_tools.h"
-#include "source/Tools/xgpu_xcore_bitmap_helpers.h"
 #include "E10_PluginMgr.h"
 
 namespace e10
 {
-    inline xerr BuildPluginIconAtlas(asset_plugins_db& Db, xgpu::device& Device) noexcept
+    inline xerr BuildPluginIconAtlas(asset_plugins_db& Db) noexcept
     {
+        // The CPU bitmap is about to be rebuilt - any GPU texture already uploaded from the OLD
+        // bitmap is now stale. Drop the shared handle so the next render lazily re-uploads instead
+        // of silently keeping (or leaking, if nothing else references it) the outdated atlas.
+        Db.m_IconAtlasGPUHandle.reset();
+
         //
         // Flatten every (plugin, icon-index) pair into one job list
         //
@@ -94,7 +107,7 @@ namespace e10
         const int AtlasW = Bin.m_Size.m_W;
         const int AtlasH = Bin.m_Size.m_H;
 
-        xbitmap Atlas;
+        xbitmap& Atlas = Db.m_IconAtlasBitmap;
         Atlas.CreateBitmap(static_cast<std::uint32_t>(AtlasW), static_cast<std::uint32_t>(AtlasH));
         auto AtlasPixels = Atlas.getMip<xcolori>(0);
 
@@ -124,9 +137,6 @@ namespace e10
             UV.m_U1 = static_cast<float>(pRect->m_X + SrcW) / AtlasW;
             UV.m_V1 = static_cast<float>(pRect->m_Y + SrcH) / AtlasH;
         }
-
-        if (auto Err = xgpu::tools::bitmap::Create(Db.m_IconAtlas, Device, Atlas); Err)
-            return xerr::create_f<xbmp::tools::state, "Failed to upload the plugin icon atlas texture">();
 
         return {};
     }

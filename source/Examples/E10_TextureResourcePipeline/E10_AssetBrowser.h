@@ -2,12 +2,36 @@
 #define _E10_ASSETBROWSER_H
 #pragma once
 #include "source/Tools/xgpu_imgui_breach.h"
+#include "source/Tools/xgpu_xcore_bitmap_helpers.h"
 #include "E10_AssetMgr.h"
 
 namespace e10
 {
     struct assert_browser;
     struct asset_browser_tab_base;
+
+    //------------------------------------------------------------------------------------------------
+    // The GPU-upload half of the plugin icon atlas - deliberately NOT in E10_PluginMgr.h/
+    // E10_PluginIconAtlas.h, which must stay headless (see asset_plugins_db::m_IconAtlasGPUHandle's
+    // own comment). Lazily uploads Db.m_IconAtlasBitmap (built headlessly at OpenProject time) into
+    // ONE shared xgpu::texture the first time ANY assert_browser instance calls this - g_LibMgr/
+    // asset_plugins_db is a single process-wide global every example's own browser widget (and every
+    // shared popup picker) points at, so this makes every one of them reuse the same upload rather
+    // than each re-uploading its own copy. A no-op (fast pointer cast) once populated.
+    inline xgpu::texture* EnsureIconAtlasTexture(asset_plugins_db& Db, xgpu::device& Device) noexcept
+    {
+        if (!Db.m_IconAtlasGPUHandle)
+        {
+            if (Db.m_IconAtlasBitmap.getWidth() == 0) return nullptr; // nothing built yet (no project open)
+
+            auto pTexture = std::make_shared<xgpu::texture>();
+            if (auto Err = xgpu::tools::bitmap::Create(*pTexture, Device, Db.m_IconAtlasBitmap); Err)
+                return nullptr;
+
+            Db.m_IconAtlasGPUHandle = std::move(pTexture); // shared_ptr<xgpu::texture> -> shared_ptr<void>
+        }
+        return static_cast<xgpu::texture*>(Db.m_IconAtlasGPUHandle.get());
+    }
 
     struct browser_registration_base
     {
@@ -208,6 +232,16 @@ namespace e10
 
         //=============================================================================
 
+        // Called once per example, right after that example's own local xgpu::device is created (the
+        // same place/timing OpenProject used to require a Device for, before that got reverted back
+        // to headless - see E10_AssetMgr.h's own comment). Not a constructor parameter: several
+        // assert_browser instances in this codebase are static-duration globals (shared popup
+        // pickers) constructed before main() runs, i.e. before any device exists anywhere - a setter
+        // called later, once a device is actually live, is the only shape that works for those too.
+        void SetDevice(xgpu::device& Device) noexcept { m_pDevice = &Device; }
+
+        //=============================================================================
+
         void Render( e10::library_mgr& AssetMgr, xresource::mgr& ResourceMgr )
         {
             if (m_bRenderBrowser == false) return;
@@ -224,6 +258,14 @@ namespace e10
                     m_Tabs.push_back(p->CreateInstance(*this));
                 }
             }
+
+            // Lazily upload the shared plugin-icon atlas texture (E10_PluginIconAtlas.h built the
+            // CPU bitmap headlessly at OpenProject time; this is the GPU half, deliberately kept out
+            // of the headless asset-mgr code - see EnsureIconAtlasTexture's own comment). A no-op
+            // once any browser instance has already done this. Silently skipped if SetDevice was
+            // never called - icons just don't render, same graceful-degradation as any other
+            // missing-icon case, rather than a crash.
+            if (m_pDevice) EnsureIconAtlasTexture(AssetMgr.m_AssetPluginsDB, *m_pDevice);
 
             // Main window
             MainWindow();
@@ -573,6 +615,7 @@ namespace e10
 
         e10::library_mgr*                   m_pAssetMgr             = nullptr;
         xresource::mgr*                     m_pResourceMgr          = nullptr;
+        xgpu::device*                       m_pDevice               = nullptr;   // see SetDevice()
         xresource::full_guid                m_LastGeneratedAsset    = {};
         xresource::full_guid                m_SelectedAsset         = {};
         library::guid                       m_SelectedLibrary       = {};

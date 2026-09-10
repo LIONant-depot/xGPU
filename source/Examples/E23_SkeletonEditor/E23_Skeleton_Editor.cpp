@@ -2986,7 +2986,7 @@ int E23_Example()
             //
             // Open the project
             //
-            if (auto Err = e10::g_LibMgr.OpenProject(szFileName, Device); Err)
+            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
             {
                 e23::Debugger(Err.getMessage());
                 return 1;
@@ -3714,6 +3714,7 @@ int E23_Example()
             ImGui::EndMainMenuBar();
         }
 
+        AsserBrowser.SetDevice(Device);
         AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
 
         if (auto SelAsset = AsserBrowser.getSelectedAsset(); SelAsset.empty() == false && SelAsset.m_Type == xrsc::skeleton_type_guid_v)

@@ -1038,7 +1038,7 @@ int E24_Example()
 
             std::wcout << "Project Path: " << szFileName << "\n";
 
-            if (auto Err = e10::g_LibMgr.OpenProject(szFileName, Device); Err)
+            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
             {
                 e24::Debugger(Err.getMessage());
                 return 1;
@@ -1359,10 +1359,12 @@ int E24_Example()
             Inspector.Show(Context, []{});
         }
 
+        AsserBrowser.SetDevice(Device);
         AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
 
         // Drives the SkeletonRef resource-picker popup registered on Inspector above - the asset
         // browser decides on its own each frame whether it needs to actually show anything.
+        e24::g_AssetBrowserPopup.SetDevice(Device);
         e24::g_AssetBrowserPopup.RenderAsPopup(e10::g_LibMgr, xresource::g_Mgr);
 
         if (auto SelAsset = AsserBrowser.getSelectedAsset(); SelAsset.empty() == false && SelAsset.m_Type == xanim_package_desc::resource_type_guid_v)

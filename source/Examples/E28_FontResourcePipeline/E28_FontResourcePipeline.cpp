@@ -1253,7 +1253,7 @@ int E28_Example()
 
             std::wcout << "Project Path: " << szFileName << "\n";
 
-            if (auto Err = e10::g_LibMgr.OpenProject(szFileName, Device); Err)
+            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
             {
                 e28::Debugger(Err.getMessage());
                 return 1;
@@ -1626,6 +1626,7 @@ int E28_Example()
             ImGui::EndMainMenuBar();
         }
 
+        AsserBrowser.SetDevice(Device);
         AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
 
         if (auto SelAsset = AsserBrowser.getSelectedAsset(); SelAsset.empty() == false && SelAsset.m_Type == xrsc::font_type_guid_v)

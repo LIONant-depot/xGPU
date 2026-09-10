@@ -12,8 +12,9 @@
 #include <queue>
 #include <iostream>
 #include <filesystem>
+#include <memory>
 #include "dependencies/xstrtool/source/xstrtool.h"
-#include "source/xgpu.h"    // asset_plugins_db::m_IconAtlas is a real GPU texture (E10_PluginIconAtlas.h)
+#include "dependencies/xbitmap/source/xbitmap.h"   // asset_plugins_db::m_IconAtlasBitmap - CPU-only, headless-safe
 
 namespace e10
 {
@@ -105,15 +106,17 @@ namespace e10
         OldLength = NewLength;
     }
 
-    // Points at a sub-rect of asset_plugins_db::m_IconAtlas for one plugin's icon. Plain floats
-    // (not ImVec2) so this header never needs an ImGui include - the rendering files
-    // (E10_asset_browser_virtual_tree_tab.h / E10_asset_browser_compiler_tab.h) convert to ImVec2
-    // locally when calling ImGui::Image.
+    // Points at a sub-rect of asset_plugins_db::m_IconAtlasGPUHandle for one plugin's icon. Both the
+    // texture pointer (void*, type-erased) and the UV floats (not ImVec2) are kept GPU/ImGui-agnostic
+    // so this header never needs an xgpu or ImGui include - this library_mgr must stay usable
+    // headless (no GPU device/render context at all - e.g. batch/CLI tools). The rendering files
+    // (E10_asset_browser_virtual_tree_tab.h / E10_asset_browser_compiler_tab.h) cast m_pTexture back
+    // to xgpu::texture* and convert the UVs to ImVec2 locally when calling ImGui::Image.
     struct plugin_icon_ref
     {
-        xgpu::texture* m_pTexture = nullptr;
-        float          m_U0 = 0, m_V0 = 0, m_U1 = 0, m_V1 = 0;
-        bool           isValid() const noexcept { return m_pTexture != nullptr; }
+        void*  m_pTexture = nullptr;
+        float  m_U0 = 0, m_V0 = 0, m_U1 = 0, m_V1 = 0;
+        bool   isValid() const noexcept { return m_pTexture != nullptr; }
     };
 
     // Packed atlas rect for one entry of a plugin's m_IconPaths array - a plugin can have more than
@@ -141,7 +144,7 @@ namespace e10
 
             // Not serialized, not reflected - filled in by BuildPluginIconAtlas (E10_PluginIconAtlas.h),
             // one entry per m_IconPaths entry, once every plugin's icons have been packed into
-            // asset_plugins_db::m_IconAtlas.
+            // asset_plugins_db::m_IconAtlasBitmap.
             std::vector<icon_uv>                m_IconUVs;
 
                              pipeline_plugin()                  = default;
@@ -482,12 +485,16 @@ namespace e10
         // Shared by both Asset Browser rendering sites (virtual tree tab + compiler tab) so neither
         // duplicates the "look up the plugin, then read its packed atlas rect" pattern. IconIndex
         // picks which of the plugin's (possibly several) icons to use - see pipeline_plugin::m_IconPaths.
+        // m_pTexture is whatever is currently in m_IconAtlasGPUHandle (void*, may be null if no
+        // browser instance has uploaded the GPU texture yet - see that member's own comment). The
+        // caller (browser-side rendering code) is responsible for having called
+        // assert_browser's texture-ensure step at least once before trusting isValid().
         plugin_icon_ref getIconRef(xresource::type_guid TypeGUID, int IconIndex = 0) noexcept
         {
             if (auto* p = find(TypeGUID); p && IconIndex >= 0 && IconIndex < static_cast<int>(p->m_IconUVs.size()))
             {
                 auto& UV = p->m_IconUVs[IconIndex];
-                return { &m_IconAtlas, UV.m_U0, UV.m_V0, UV.m_U1, UV.m_V1 };
+                return { m_IconAtlasGPUHandle.get(), UV.m_U0, UV.m_V0, UV.m_U1, UV.m_V1 };
             }
             return {};
         }
@@ -501,7 +508,7 @@ namespace e10
             if (auto* p = find(TypeName); p && IconIndex >= 0 && IconIndex < static_cast<int>(p->m_IconUVs.size()))
             {
                 auto& UV = p->m_IconUVs[IconIndex];
-                return { &m_IconAtlas, UV.m_U0, UV.m_V0, UV.m_U1, UV.m_V1 };
+                return { m_IconAtlasGPUHandle.get(), UV.m_U0, UV.m_V0, UV.m_U1, UV.m_V1 };
             }
             return {};
         }
@@ -520,12 +527,23 @@ namespace e10
         std::unordered_map<xresource::type_guid, int>   m_mPluginsByTypeGUID;
         std::unordered_map<std::string, int>            m_mPluginsByTypeName;
 
-        // One shared texture holding every plugin's packed icon - built by BuildPluginIconAtlas
-        // (E10_PluginIconAtlas.h) right after SetupProject populates m_lPlugins. Lives for the whole
-        // app lifetime (never recreated per-frame), so it's always safe for ImGui::Image() to
-        // reference - see that header's own comment on xgpu::texture lifetime vs. ImGui's deferred
-        // draw-list dereference.
-        xgpu::texture                                   m_IconAtlas;
+        // The packed icon atlas as plain CPU pixels - built headlessly by BuildPluginIconAtlas
+        // (E10_PluginIconAtlas.h, no GPU device needed) right after SetupProject populates m_lPlugins.
+        // asset_plugins_db/library_mgr must stay usable with no GPU device/render context at all
+        // (batch/CLI tools) - direct user correction: "the asset mgr needs to run headless... it can
+        // build the atlas [but] should not build the texture... This is something that the browser
+        // should do."
+        xbitmap                                         m_IconAtlasBitmap;
+
+        // The GPU texture uploaded FROM m_IconAtlasBitmap - type-erased (void* via shared_ptr<void>)
+        // so this header never has to name xgpu::texture at all. Null until some assert_browser
+        // instance actually renders and lazily uploads it (E10_AssetBrowser.h). Shared, not
+        // per-instance: asset_plugins_db/g_LibMgr is ONE process-wide global that every example's own
+        // browser widget points at, so the first browser to render creates it once and every other
+        // instance (a different example's browser, or a popup picker) reuses the same upload instead
+        // of each re-uploading its own copy. Reset to nullptr whenever the bitmap is rebuilt (a fresh
+        // OpenProject) so the next render lazily re-uploads instead of showing a stale atlas.
+        std::shared_ptr<void>                           m_IconAtlasGPUHandle;
     };
 }
 XPROPERTY_REG2( plugin_mgr_reg, e10::asset_plugins_db::pipeline_plugin )

@@ -916,7 +916,7 @@ int E25_Example()
             TCHAR LIONantProject[] = L"\\example.lionprj";
             for (int i = 0; szFileName[I++] = LIONantProject[i]; ++i);
 
-            if (auto Err = e10::g_LibMgr.OpenProject(szFileName, Device); Err)
+            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
             {
                 e25::Debugger(Err.getMessage());
                 return 1;
@@ -1582,12 +1582,14 @@ int E25_Example()
             RenderSettingsInspector.Show(Context, []{});
         }
 
+        AsserBrowser.SetDevice(Device);
         AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
 
         // Drives the per-field resource-ref picker popup (xgpu_editor_resource_picker.h's
         // g_AssetBrowserPopup) - ShowAsPopup() only arms it, this is what actually draws it each frame.
         // Missing this call is why clicking a resource-ref button previously did nothing: the popup's
         // "wants to open" state was set, but nothing ever rendered it. Matches E21's own per-frame call.
+        xgpu::tools::editors::g_AssetBrowserPopup.SetDevice(Device);
         xgpu::tools::editors::g_AssetBrowserPopup.RenderAsPopup(e10::g_LibMgr, xresource::g_Mgr);
 
         if (auto SelAsset = AsserBrowser.getSelectedAsset(); SelAsset.empty() == false && SelAsset.m_Type == xgeom_skin::resource_type_guid_v)

@@ -2747,7 +2747,7 @@ namespace e10
 
         //------------------------------------------------------------------------------------------------
 
-        xerr OpenProject( std::wstring_view ProjectPath, xgpu::device& Device )
+        xerr OpenProject( std::wstring_view ProjectPath )
         {
             assert(m_mLibraryDB.empty());
 
@@ -2770,10 +2770,14 @@ namespace e10
 
             //
             // Build the plugin icon atlas (E10_PluginIconAtlas.h) - every plugin's icon.png packed
-            // into one texture the Asset Browser renders from (WrappedButton2). Non-fatal: a failure
-            // here (e.g. a plugin missing its icon.png) just leaves that plugin's icon blank, it
+            // into one CPU xbitmap + per-plugin UV rects. Deliberately headless: this library_mgr
+            // must stay usable with no GPU device/render context at all (batch/CLI tools), so the
+            // actual GPU texture upload does NOT happen here - it happens lazily, on the Asset
+            // Browser's own rendering side (assert_browser::Render, E10_AssetBrowser.h), the first
+            // time any browser instance actually needs to draw an icon. Non-fatal: a failure here
+            // (e.g. a plugin missing its icon.png) just leaves that plugin's icon blank, it
             // shouldn't block opening the project.
-            if (auto Err = BuildPluginIconAtlas(m_AssetPluginsDB, Device); Err)
+            if (auto Err = BuildPluginIconAtlas(m_AssetPluginsDB); Err)
                 std::cerr << "Warning: " << Err.getMessage() << "\n";
 
             //

@@ -200,7 +200,7 @@ int E29_Example()
             TCHAR LIONantProject[] = L"\\example.lionprj";
             for (int i = 0; szFileName[I++] = LIONantProject[i]; ++i);
 
-            if (auto Err = e10::g_LibMgr.OpenProject(szFileName, Device); Err)
+            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
             {
                 e29::Debugger(Err.getMessage());
                 return 1;
@@ -507,7 +507,9 @@ int E29_Example()
         if (State.m_PlayState == e29::editor_state::play_state::Playing)
             pGameMgr->Run();
 
+        AsserBrowser.SetDevice(Device);
         AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
+        e29::g_AssetBrowserPopup.SetDevice(Device);
         e29::g_AssetBrowserPopup.RenderAsPopup(e10::g_LibMgr, xresource::g_Mgr);
 
         if (auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false)

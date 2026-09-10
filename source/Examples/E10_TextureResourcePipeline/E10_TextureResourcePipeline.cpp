@@ -1278,7 +1278,7 @@ int E10_Example()
             //
             // Open the project
             //
-            if (auto Err = e10::g_LibMgr.OpenProject(szFileName, Device); Err)
+            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
             {
                 e10::DebugMessage(Err.getMessage().data());
                 return 1;
@@ -1905,6 +1905,7 @@ int E10_Example()
         //
         // Show a texture selector in IMGUI
         //
+        AsserBrowser.SetDevice(Device);
         AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
 
         if ( auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false && NewAsset.m_Type == xrsc::texture_type_guid_v)

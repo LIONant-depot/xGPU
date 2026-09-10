@@ -1419,7 +1419,7 @@ int E19_Example()
             //
             // Open the project
             //
-            if (auto Err = e10::g_LibMgr.OpenProject(szFileName, Device); Err)
+            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
             {
                 e19::Debugger(Err.getMessage());
                 return 1;
@@ -1983,9 +1983,11 @@ int E19_Example()
         //
         // Show a texture selector in IMGUI
         //
+        AsserBrowser.SetDevice(Device);
         AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
 
         // We let the asset browser to decide if it needs to show or not
+        g_AssetBrowserPopup.SetDevice(Device);
         g_AssetBrowserPopup.RenderAsPopup( e10::g_LibMgr, xresource::g_Mgr);
 
         if (auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false && NewAsset.m_Type == xrsc::material_type_guid_v)

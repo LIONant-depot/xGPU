@@ -1935,7 +1935,7 @@ int E21_Example()
             //
             // Open the project
             //
-            if (auto Err = e10::g_LibMgr.OpenProject(szFileName, Device); Err)
+            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
             {
                 e21::Debugger(Err.getMessage());
                 return 1;
@@ -3206,9 +3206,11 @@ int E21_Example()
             ResetAssetBroswerPosiotion = false;
         }
 
+        AsserBrowser.SetDevice(Device);
         AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
 
         // We let the asset browser to decide if it needs to show or not
+        e21::g_AssetBrowserPopup.SetDevice(Device);
         e21::g_AssetBrowserPopup.RenderAsPopup( e10::g_LibMgr, xresource::g_Mgr);
 
         if (auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false && NewAsset.m_Type == xrsc::geom_static_type_guid_v)
