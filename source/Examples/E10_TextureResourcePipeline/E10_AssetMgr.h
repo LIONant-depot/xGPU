@@ -999,6 +999,30 @@ namespace e10
     struct file_monitor_changes;
     struct library_db
     {
+        // Canonical write-lock acquisition order for this library's maps, enforced in debug builds via
+        // unordered_lockless_map::SetDebugLockLevel (see xcontainer_unordered_lockless_map.h's
+        // debug_lock_order_stack) - a lock at a lower level must never be acquired while a lock at a
+        // higher level is already held on the same thread. AssetDataBase must always be the INNERMOST/
+        // LAST lock taken - it may be acquired while InfoByType/InfoData are already held (that's
+        // CompilingThreadWorker's and EmptyTrashcan's own order), but InfoByType/InfoData must never be
+        // acquired while AssetDataBase is already held. MonitorAssetFileChangesPerPath used to invert
+        // that (AssetDataBase held outer/first, InfoByType/InfoData nested inner/second) - a real,
+        // reachable deadlock given the two threads run concurrently and the underlying lock has no
+        // timeout - fixed by flattening that function so it never holds AssetDataBase and InfoData/
+        // InfoByType at the same time at all (see its own comment).
+        //
+        // InfoByType and InfoData deliberately SHARE one level: several call sites (EmptyTrashcan,
+        // MoveDescriptor, MoveToTrash/MoveFromTrashTo) legitimately nest a second InfoByType->InfoData
+        // pair (a different type/instance - e.g. a child's or parent's) INSIDE an already-held InfoData
+        // write, to cascade a rename/move/delete to a related node. That nesting is reviewed, fixed-order,
+        // and not the bug this mechanism exists to catch (the asset-mgr locking audit explicitly flagged
+        // it as a separate, lower-priority hygiene item, not a demonstrated second bug) - giving them
+        // different levels would make the tracker fire on that already-correct code. What actually must
+        // never happen is AssetDataBase getting mixed into that nesting at all.
+        static constexpr int k_LockLevel_InfoByType = 1;
+        static constexpr int k_LockLevel_InfoData   = 1;
+        static constexpr int k_LockLevel_Asset      = 2;
+
         struct resource_dep
         {
             bool                                m_bRecompileOnChange;                           // Whenever this resource changes I need to get rebuild...
@@ -1062,6 +1086,10 @@ namespace e10
             using map = xcontainer::unordered_lockless_map<xresource::instance_guid, library_db::info_node>;
             xresource::type_guid    m_TypeGUID              = {};
             map                     m_InfoDataBase          = {};
+
+            // One info_db is created per resource type, lazily, at several call sites - tag here so
+            // every instance is covered regardless of where it gets constructed.
+            info_db() noexcept { m_InfoDataBase.SetDebugLockLevel(k_LockLevel_InfoData); }
         };
 
         void clear()
@@ -1071,7 +1099,10 @@ namespace e10
 
         library_db(compilation::instance& Compilation )
             : m_CompilationInstance{ Compilation }
-            {}
+        {
+            m_InfoByTypeDataBase.SetDebugLockLevel(k_LockLevel_InfoByType);
+            m_AssetDataBase.SetDebugLockLevel(k_LockLevel_Asset);
+        }
 
         inline int getQueueIndexFromType(xresource::type_guid Type) const;
 
@@ -1252,62 +1283,111 @@ namespace e10
                     std::ranges::replace(file_path, L'/', L'\\');
 
                     // Check to see if file is in our asset list
-                    if ( false == FileMonitorChanges.m_LibraryDB.m_AssetDataBase.FindAsWrite( file_path, [&](library_db::asset& Asset)
+                    //
+                    // Deliberately flattened, not nested: this used to hold the m_AssetDataBase write
+                    // lock while ALSO taking m_InfoByTypeDataBase/m_InfoDataBase locks for the cascade
+                    // below - the opposite nesting order CompilingThreadWorker and EmptyTrashcan both
+                    // use (they lock InfoDataBase, then AssetDataBase). Two live background threads
+                    // taking the SAME two locks in opposite order is a genuine, reachable deadlock (the
+                    // underlying xcontainer lock is an untimed spin-wait - see
+                    // xcontainer_unordered_lockless_map.h's LockWriteWaitInQueueIfWeHaveTo - so this
+                    // would hang forever, not just stall). Fixed the same way the pre-existing comment
+                    // a few hundred lines below (CompilingThreadWorker's own virtual-cascade deferral)
+                    // already fixed an analogous re-entrancy bug: copy out what the cascade needs while
+                    // still inside the Asset lock, let that lock release, THEN do the InfoDataBase
+                    // writes with no AssetDataBase lock held at all - not just reordered, genuinely
+                    // never-held-simultaneously, which is strictly safer than any fixed order.
+                    //
+                    // Split further, same spirit: the wait-for-read-access loop below is real OS I/O
+                    // that can legitimately take a while (whatever wrote the file may still have it
+                    // open) - it used to run entirely while still holding THIS asset's own key write
+                    // lock, needlessly pinning anyone else that happens to want that same single key for
+                    // the whole wait (not a cross-map deadlock like the one above, just an avoidable
+                    // single-key stall). Fixed by reading the path under a short read lock, doing the
+                    // wait with NO lock held at all, then taking a second short write lock only to stamp
+                    // the result and copy what the cascade needs.
+                    std::wstring FullPath;
+                    const bool   bFoundAsset = FileMonitorChanges.m_LibraryDB.m_AssetDataBase.FindAsReadOnly( file_path, [&](const library_db::asset& Asset)
                     {
-                        // Update the time...
-                        std::wstring FullPath = std::format( L"{}/{}", FileMonitorChanges.m_LibraryDB.m_Library.m_Path, Asset.m_Path );
+                        FullPath = std::format( L"{}/{}", FileMonitorChanges.m_LibraryDB.m_Library.m_Path, Asset.m_Path );
+                    });
 
-                        // Make sure the file still exists
-                        if ( std::error_code Ec; std::filesystem::exists(FullPath, Ec) == false || Ec )
+                    if (false == bFoundAsset)
+                    {
+                        std::wcout << L"File was modified but is not part of our asset list: " << file_path << L" In library " << FileMonitorChanges.m_LibraryDB.m_Library.m_Path << L"\n";
+                    }
+                    // Make sure the file still exists
+                    else if ( std::error_code Ec; std::filesystem::exists(FullPath, Ec) == false || Ec )
+                    {
+                        std::wcout << L"Unable to find file: " << FullPath << L"\n";
+                    }
+                    else
+                    {
+                        //
+                        // Wait until we have access to read - deliberately NO lock held while we wait,
+                        // see this block's own top comment.
+                        //
+                        do
                         {
-                            std::wcout << L"Unable to find file: " << FullPath << L"\n";
-                        }
-                        else
-                        {
-                            //
-                            // Wait until we have access to read
-                            //
-                            do
+                            HANDLE file_handle = CreateFileW(
+                                FullPath.c_str(),
+                                GENERIC_READ,
+                                0, // No sharing
+                                nullptr,
+                                OPEN_EXISTING,
+                                FILE_ATTRIBUTE_NORMAL,
+                                nullptr
+                            );
+
+                            if (file_handle != INVALID_HANDLE_VALUE)
                             {
-                                HANDLE file_handle = CreateFileW(
-                                    FullPath.c_str(),
-                                    GENERIC_READ,
-                                    0, // No sharing
-                                    nullptr,
-                                    OPEN_EXISTING,
-                                    FILE_ATTRIBUTE_NORMAL,
-                                    nullptr
-                                );
+                                CloseHandle(file_handle);
+                                break;
+                            }
+                            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                        } while ( true );
 
-                                if (file_handle != INVALID_HANDLE_VALUE)
-                                {
-                                    CloseHandle(file_handle);
-                                    break;
-                                }
-                                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                            } while ( true );
+                        std::wcout << L"File was Updated: " << FullPath << L"\n";
+                        const auto NewWriteTime = std::filesystem::last_write_time(FullPath);
 
-                            std::wcout << L"File was Updated: " << FullPath << L"\n";
-                            Asset.m_LastWriteTime = std::filesystem::last_write_time(FullPath);
+                        std::vector<xresource::full_guid> ChildLinksCopy;
+                        std::filesystem::file_time_type   NewLastWriteTime{};
+                        bool                               bShouldCascade = false;
 
-                            for ( auto& E : Asset.m_lChildLinks )
+                        if ( false == FileMonitorChanges.m_LibraryDB.m_AssetDataBase.FindAsWrite( file_path, [&](library_db::asset& Asset)
+                        {
+                            Asset.m_LastWriteTime = NewWriteTime;
+
+                            // Copy out, don't cascade here - see this block's own top comment.
+                            ChildLinksCopy   = Asset.m_lChildLinks;
+                            NewLastWriteTime = Asset.m_LastWriteTime;
+                            bShouldCascade   = true;
+                        }))
+                        {
+                            // The asset vanished from the map while we were waiting for file access
+                            // (e.g. moved to Trash concurrently) - nothing left to stamp or cascade.
+                            std::wcout << L"Asset no longer in our asset list after waiting for file access: " << file_path << L"\n";
+                        }
+
+                        // Cascade to dependents AFTER the AssetDataBase write lock above has been fully
+                        // released - see this block's own top comment for why.
+                        if (bShouldCascade)
+                        {
+                            for ( auto& E : ChildLinksCopy )
                             {
                                 if (false == FileMonitorChanges.m_LibraryDB.m_InfoByTypeDataBase.FindAsReadOnly(E.m_Type, [&](const std::unique_ptr<library_db::info_db>& TypeDB)
                                     {
                                         TypeDB->m_InfoDataBase.FindAsWrite(E.m_Instance, [&](library_db::info_node& InfoNode)
                                             {
-                                                InfoNode.m_NewestDependencyTime = std::max(InfoNode.m_NewestDependencyTime, Asset.m_LastWriteTime);
+                                                InfoNode.m_NewestDependencyTime = std::max(InfoNode.m_NewestDependencyTime, NewLastWriteTime);
                                                 FileMonitorChanges.m_LibraryDB.AddToCompilationQueueIfNeeded(*TypeDB, InfoNode);
                                             });
                                     }))
                                 {
-                                    std::wcout << L"Unable to find one of the resource references: " << FullPath << L"\n";
+                                    std::wcout << L"Unable to find one of the resource references for: " << file_path << L"\n";
                                 }
                             }
                         }
-                    }))
-                    {
-                        std::wcout << L"File was modified but is not part of our asset list: " << file_path << L" In library " << FileMonitorChanges.m_LibraryDB.m_Library.m_Path << L"\n";
                     }
 
                     //
