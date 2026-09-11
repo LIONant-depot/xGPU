@@ -237,6 +237,42 @@ namespace e29::commands
         }
     }
 
+    // Runs several commands as ONE undo/redo step, via xundo::system's own grouped Execute(group_name,
+    // vector<string>) overload - direct user correction: "a 5-file delete should be 1 undo/redo step...
+    // the operation should be grouped," and this codebase's own xundo already supports exactly that;
+    // the gap was that nothing routed a multi-item UI gesture through it. Returns true on success so a
+    // caller like files_tab's own PasteClipboardInto can tell a real failure (e.g. a same-folder paste
+    // rejected outright) apart from success, rather than assuming success unconditionally (a real bug
+    // found live: the cut clipboard was being spent even when the paste had just failed). Handles a
+    // size-1 batch inline rather than delegating to Run() - Run() doesn't report success/failure back to
+    // its caller, and calling System.Execute() a second time to get that here would run the command twice.
+    [[nodiscard]] inline bool RunGroup(xundo::system& System, std::string_view GroupName, const std::vector<std::string>& Cmds) noexcept
+    {
+        if (Cmds.empty()) return true;
+
+        if (Cmds.size() == 1)
+        {
+            const auto& Cmd = Cmds.front();
+            if (g_pConsoleLog) g_pConsoleLog->push_back({ Cmd, console_log_source::User });
+            if (auto Err = System.Execute(Cmd); !Err.empty())
+            {
+                Debugger(std::format("E29: command failed: '{}' ({})", Cmd, Err));
+                if (g_pConsoleLog) g_pConsoleLog->push_back({ Err, console_log_source::System });
+                return false;
+            }
+            return true;
+        }
+
+        for (auto& Cmd : Cmds) if (g_pConsoleLog) g_pConsoleLog->push_back({ Cmd, console_log_source::User });
+        if (auto Err = System.Execute(GroupName, Cmds); !Err.empty())
+        {
+            Debugger(std::format("E29: grouped command failed: '{}' ({})", GroupName, Err));
+            if (g_pConsoleLog) g_pConsoleLog->push_back({ Err, console_log_source::System });
+            return false;
+        }
+        return true;
+    }
+
     // WriteString/ReadString - a length-prefixed string inside a fixed-record undo_file, direct port
     // of E27_NodeOS's own (Editor/NodeOS_CommandBuilders.h). Base64Encode/Decode - direct port too,
     // used ONLY for a property's own serialized value/path text (arbitrary content that could contain
