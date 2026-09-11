@@ -333,7 +333,7 @@ int E29_Example()
     e29::entity_inspector_bridge  InspectorBridge;
     e29::WireResourcePickerCallbacks(EntityInspector);
     InspectorBridge.RegisterCallbacks(EntityInspector, *pGameMgr, State, E29Undo);
-    e29::RegisterAssetBrowserCallbacks(AsserBrowser, E29Undo);
+    e29::RegisterAssetBrowserCallbacks(AsserBrowser, E29Undo, MainWindow);
 
     //
     // Main Loop

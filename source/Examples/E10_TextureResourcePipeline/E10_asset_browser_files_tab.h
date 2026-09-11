@@ -8,6 +8,7 @@
 #include <cstdio>
 #include <format>
 #include "imgui_internal.h"     // For BeginDragDropTargetCustom (background drop target, 5C)
+#include "E10_AssetOleDrag.h"   // Real Win32 OLE drag-out to Explorer (Phase 6)
 
 // Asset (real filesystem) window - Phase 3 of the Asset Browser window-split plan (see plan file
 // lively-knitting-sifakis.md). READ-ONLY BROWSING ONLY - Phase 4 adds Copy/Cut/Rename/Delete plus
@@ -104,35 +105,6 @@ namespace e10
             return bOpen;
         }
 
-        // Vector-drawn back/forward chevron, matching virtual_tree_tab's own ScaleButton-rendered
-        // "\xEE\x9C\xAB"/"\xEE\x9C\xAA" glyphs functionally (a disable-able small nav button) without
-        // the same missing-glyph risk (see this struct's own top comment).
-        static bool ChevronButton(const char* pStrID, bool bLeft, bool bEnabled) noexcept
-        {
-            ImGui::PushID(pStrID);
-            ImGui::BeginDisabled(!bEnabled);
-
-            const float  Size = ImGui::GetFrameHeight();
-            const ImVec2 P0   = ImGui::GetCursorScreenPos();
-            const bool   bClicked = ImGui::InvisibleButton("##chevron", ImVec2(Size, Size));
-            const bool   bHovered = ImGui::IsItemHovered();
-
-            auto* pDL = ImGui::GetWindowDrawList();
-            if (bHovered && bEnabled)
-                pDL->AddRectFilled(P0, ImVec2(P0.x + Size, P0.y + Size), ImGui::GetColorU32(ImGuiCol_ButtonHovered), 3.0f);
-
-            const ImU32 Color = ImGui::GetColorU32(bEnabled ? ImGuiCol_Text : ImGuiCol_TextDisabled);
-            const float Pad   = Size * 0.32f;
-            if (bLeft)
-                pDL->AddTriangleFilled(ImVec2(P0.x + Size - Pad, P0.y + Pad), ImVec2(P0.x + Size - Pad, P0.y + Size - Pad), ImVec2(P0.x + Pad, P0.y + Size * 0.5f), Color);
-            else
-                pDL->AddTriangleFilled(ImVec2(P0.x + Pad, P0.y + Pad), ImVec2(P0.x + Pad, P0.y + Size - Pad), ImVec2(P0.x + Size - Pad, P0.y + Size * 0.5f), Color);
-
-            ImGui::EndDisabled();
-            ImGui::PopID();
-            return bClicked && bEnabled;
-        }
-
         static bool IsFolderEmpty(const std::filesystem::path& FullPath) noexcept
         {
             std::error_code Ec;
@@ -166,11 +138,28 @@ namespace e10
         // history list, right-panel double-click) routes through PathHistoryUpdate() so back/forward
         // stays consistent regardless of where the click came from.
 
-        struct path_history_entry { library::guid m_gLibrary; std::filesystem::path m_Folder; };
+        // m_bTrash - REAL BUG FOUND LIVE (2026-09-11, right after the Trash-as-tree-node redesign):
+        // m_Folder alone stopped uniquely identifying a location once Trash became reachable through
+        // this same history mechanism - "library X, folder {}" means the Assets root OR the Trash root
+        // depending on which one was open, and this struct had no way to tell them apart. Back/Forward
+        // (which mutate m_PathHistoryIndex and call UpdateHistoryLRU() directly, bypassing
+        // PathHistoryUpdate() entirely) never touched m_bBrowsingTrash at all, so navigating back out of
+        // Trash into Assets (or vice versa) silently left m_bBrowsingTrash stuck on the wrong root -
+        // RightPanel would then resolve AssetsRoot against the WRONG physical folder for the path it had
+        // just switched to, usually landing on "Folder no longer exists." From the user's side this
+        // looked exactly like "the left/Right buttons don't work" - they were moving m_PathHistoryIndex
+        // correctly, just resolving the wrong folder afterward.
+        struct path_history_entry { library::guid m_gLibrary; std::filesystem::path m_Folder; bool m_bTrash = false; };
 
         // One row of the RightPanel table - see RightPanel()'s own m_CachedEntries comment for why this
-        // is now cached instead of rebuilt from disk every frame.
-        struct file_entry { std::wstring m_Name; bool m_bDirectory; std::uintmax_t m_Size; std::filesystem::file_time_type m_LastWriteTime; };
+        // is now cached instead of rebuilt from disk every frame. m_DependentCount (Phase 6, "beyond
+        // parity" persistent dependency indicator - direct user request: "a visual badge/icon in the
+        // list (no hover needed)") is computed ONCE per cache rebuild alongside everything else here,
+        // NOT per-frame in the row loop - library_mgr::CountDependents does a real hash lookup (cheap
+        // for one file, but still real work), and re-running it 60 times a second per visible row would
+        // reintroduce exactly the kind of unnecessary per-frame cost this cache was built to eliminate.
+        // Files only (folders stay 0, unbadged) - matches the existing hover-tooltip's own file-only scope.
+        struct file_entry { std::wstring m_Name; bool m_bDirectory; std::uintmax_t m_Size; std::filesystem::file_time_type m_LastWriteTime; std::size_t m_DependentCount = 0; };
 
         void UpdateHistoryLRU() noexcept
         {
@@ -179,7 +168,7 @@ namespace e10
             bool bFound = false;
             for (auto& E : m_PathHistoryListRU)
             {
-                if (E.m_gLibrary == Cur.m_gLibrary && E.m_Folder == Cur.m_Folder)
+                if (E.m_gLibrary == Cur.m_gLibrary && E.m_Folder == Cur.m_Folder && E.m_bTrash == Cur.m_bTrash)
                 {
                     path_history_entry Temp(std::move(E));
                     m_PathHistoryListRU.erase(m_PathHistoryListRU.begin() + static_cast<int>(&E - m_PathHistoryListRU.data()));
@@ -195,7 +184,7 @@ namespace e10
             // reset, and E29's own per-scene reset for its entity multi-select) - only clear on an
             // ACTUAL folder change, not every call (UpdateHistoryLRU also runs on a re-click of the
             // already-open folder via the breadcrumb, which shouldn't wipe an in-progress selection).
-            if (m_SelectedLibrary != Cur.m_gLibrary || m_SelectedFolder != Cur.m_Folder)
+            if (m_SelectedLibrary != Cur.m_gLibrary || m_SelectedFolder != Cur.m_Folder || m_bBrowsingTrash != Cur.m_bTrash)
             {
                 ClearMultiSelect();
                 m_bEntriesCacheDirty = true;
@@ -203,6 +192,7 @@ namespace e10
 
             m_SelectedLibrary = Cur.m_gLibrary;
             m_SelectedFolder  = Cur.m_Folder;
+            m_bBrowsingTrash  = Cur.m_bTrash;   // the actual fix - see path_history_entry's own comment
             m_SelectedFile.clear();
             m_ExpandToFolder  = Cur.m_Folder;
         }
@@ -296,6 +286,31 @@ namespace e10
             m_SelectedFile = Name;
         }
 
+        // A project can hold multiple libraries, each with its own real Assets/.trash folder - direct
+        // user correction: this tree's root nodes/breadcrumb used to say a bare "Assets"/"Trash" with
+        // no way to tell two libraries apart. virtual_tree_tab already solves this correctly for the
+        // VIRTUAL descriptor tree - every library's root is itself a real "folder" resource with its
+        // own stored, user-editable m_Info.m_Name (LeftPanel()'s own CollectFolders lambda:
+        // "InfoEntry.m_Info.m_Name.empty() ? \"<unnamed>\" : ..."), not a name derived from the
+        // filesystem path. Standardizing on that SAME stored name here (rather than inventing a
+        // path-derived name, which is what the raw Assets folder itself has no comparable "root
+        // resource" for) means both trees show identical library names for identical libraries, and a
+        // rename typed into either tree's root (virtual_tree_tab already supports renaming the root
+        // folder) is picked up by this one too - one source of truth, not two naming schemes.
+        std::string GetLibraryDisplayName(const library::guid& LibraryGuid) const noexcept
+        {
+            // Explicit (not auto) parameter type - getInfo's own function_traits dispatch (read vs
+            // write access) needs a concrete, non-template operator() to inspect; a generic lambda has
+            // none, matching a recurring trap already hit elsewhere in this codebase's own reflection/
+            // container helpers (see xgpu_xcontainer_noexcept_lambda_trait_trap in memory).
+            std::string Name = "<unnamed>";
+            m_AssetMgr.getInfo(LibraryGuid, xresource::full_guid{ LibraryGuid.m_Instance, e10::folder::type_guid_v }, [&](const xresource_pipeline::info& Info)
+            {
+                if (!Info.m_Name.empty()) Name = Info.m_Name;
+            });
+            return Name;
+        }
+
         //=============================================================================
         // Real file mutations (Phase 5B) - Rename/Cut/Copy/Paste/Delete, wired to the SAME
         // MoveAssetFile/CopyAssetFile/ComputeTrashPath primitives Phase 4 already proved via CLI. Every
@@ -319,25 +334,6 @@ namespace e10
         // than whatever the right panel happens to show must still use ITS OWN library, not the
         // right panel's.
         //
-        // These Execute* methods are the REAL, unconditional workers - no dependent-check, no
-        // confirmation, just the mutation. Everything else in this file that wants to rename/move/
-        // delete a file goes through StageOrExecute() below instead, which checks for descriptor
-        // impact FIRST and only reaches these once that's been confirmed (or found to be a non-issue).
-        void ExecuteMoveOrRename(const library::guid& LibraryGuid, const std::wstring& OldRelPath, const std::wstring& NewRelPath) noexcept
-        {
-            m_bEntriesCacheDirty = true;
-            if (m_Browser.m_OnMoveAssetFile) m_Browser.m_OnMoveAssetFile(LibraryGuid, OldRelPath, NewRelPath);
-            else
-            {
-                const auto Result = m_AssetMgr.MoveAssetFile(LibraryGuid, OldRelPath, NewRelPath);
-                if (!Result.m_bSuccess)
-                {
-                    std::printf("[AssetTree] Move/rename failed: '%s' -> '%s': %s\n", xstrtool::To(OldRelPath).c_str(), xstrtool::To(NewRelPath).c_str(), Result.m_Error.c_str());
-                    std::fflush(stdout);
-                }
-            }
-        }
-
         // Copy never needs a dependent-impact check - a freshly created copy references nothing that
         // any existing resource could be depending on (see CopyAssetFile's own "zero dependents by
         // construction" comment), so this is called directly everywhere, never through StageOrExecute.
@@ -356,18 +352,26 @@ namespace e10
             }
         }
 
-        void ExecuteDeleteToTrash(const library::guid& LibraryGuid, const std::wstring& RelPath) noexcept
+        // Trash view's only mutation (Phase 6) - RelPathUnderTrash is relative to <Library>/.trash/
+        // assets (exactly what m_SelectedFolder/RenderFolder's own RelPath already hold while
+        // m_bBrowsingTrash is true), moved back to the matching path under Assets. There is no dedicated
+        // library_mgr "restore" primitive - RestoreAssetFileFromTrash (E29_Commands_AssetFiles.h) is
+        // itself just MoveAssetFile(trash path, original path), so the fallback below matches that
+        // exactly. Fails loudly (via the printed error) rather than silently if OriginalRel is already
+        // occupied - MoveAssetFile's own existing "target already exists" check already covers this.
+        void DoRestore(const library::guid& LibraryGuid, const std::filesystem::path& RelPathUnderTrash) noexcept
         {
+            const std::wstring TrashRel    = (std::filesystem::path(L".trash") / L"assets" / RelPathUnderTrash).wstring();
+            const std::wstring OriginalRel = (std::filesystem::path(L"Assets") / RelPathUnderTrash).wstring();
+
             m_bEntriesCacheDirty = true;
-            if (m_Browser.m_OnDeleteAssetFileToTrash)
-                m_Browser.m_OnDeleteAssetFileToTrash(LibraryGuid, RelPath);
+            if (m_Browser.m_OnRestoreAssetFileFromTrash) m_Browser.m_OnRestoreAssetFileFromTrash(LibraryGuid, TrashRel, OriginalRel);
             else
             {
-                const std::wstring TrashPath = m_AssetMgr.ComputeTrashPath(LibraryGuid, RelPath);
-                const auto Result = m_AssetMgr.MoveAssetFile(LibraryGuid, RelPath, TrashPath);
+                const auto Result = m_AssetMgr.MoveAssetFile(LibraryGuid, TrashRel, OriginalRel);
                 if (!Result.m_bSuccess)
                 {
-                    std::printf("[AssetTree] Delete-to-trash failed: '%s': %s\n", xstrtool::To(RelPath).c_str(), Result.m_Error.c_str());
+                    std::printf("[AssetTree] Restore failed: '%s' -> '%s': %s\n", xstrtool::To(TrashRel).c_str(), xstrtool::To(OriginalRel).c_str(), Result.m_Error.c_str());
                     std::fflush(stdout);
                 }
             }
@@ -394,30 +398,29 @@ namespace e10
         struct pending_item { library::guid m_Library; std::wstring m_Old; std::wstring m_New; };
         struct pending_confirmation { std::vector<pending_item> m_Items; std::size_t m_DependentCount; };
 
+        // Distinguishes "ran right away and every item succeeded" from "ran right away but something
+        // failed" - a real bug found live: PasteClipboardInto used to spend the cut clipboard on ANY
+        // immediate outcome, including a synchronous failure (e.g. pasting into the same folder the
+        // files were cut from), silently losing the user's clipboard instead of leaving it intact to
+        // retry. Deferred still counts as "the paste attempt is underway" for clipboard-spending
+        // purposes - it WILL execute once the user confirms, it just hasn't yet this frame.
+        enum class stage_result : std::uint8_t { ExecutedSuccess, ExecutedWithFailures, Deferred };
+
         // Checks dependents for the WHOLE batch up front, so a multi-item Delete/Move/Paste only ever
         // shows ONE combined confirmation - a synchronous C++ loop within a single ImGui frame cannot
         // "pause" partway through and wait for a modal that only resolves on a LATER frame, so batching
         // the check (rather than gating each item as it's individually mutated) is required, not just
-        // tidier. Returns true if everything executed immediately (nothing affected); false if the
-        // batch was staged and is now waiting on RenderPendingConfirmationModal/
-        // ExecutePendingConfirmation.
-        bool StageOrExecute(std::vector<pending_item> Items) noexcept
+        // tidier.
+        stage_result StageOrExecute(std::vector<pending_item> Items) noexcept
         {
             std::size_t Total = 0;
             for (auto& It : Items) Total += CountDependentsRecursive(It.m_Library, It.m_Old);
 
             if (Total == 0)
-            {
-                for (auto& It : Items)
-                {
-                    if (It.m_New.empty()) ExecuteDeleteToTrash(It.m_Library, It.m_Old);
-                    else                  ExecuteMoveOrRename(It.m_Library, It.m_Old, It.m_New);
-                }
-                return true;
-            }
+                return ExecuteBatch(Items) ? stage_result::ExecutedSuccess : stage_result::ExecutedWithFailures;
 
             m_PendingConfirmation = pending_confirmation{ std::move(Items), Total };
-            return false;
+            return stage_result::Deferred;
         }
 
         void ExecutePendingConfirmation() noexcept
@@ -425,11 +428,85 @@ namespace e10
             if (!m_PendingConfirmation.has_value()) return;
             std::vector<pending_item> Items = std::move(m_PendingConfirmation->m_Items);
             m_PendingConfirmation.reset();
-            for (auto& It : Items)
+            ExecuteBatch(Items);
+        }
+
+        // Real bug found via direct user pushback (correctly - I had this wrong): "a 5-file delete
+        // should be 1 undo/redo step... the operation should be grouped." xundo::system already has a
+        // first-class grouped-execute API (Execute(group_name, vector<string>) - one history entry,
+        // one Undo/Redo for every sub-command) - the gap was never wiring E29's own hooks through it,
+        // not a missing capability in xundo itself. This is the ONE place that decides Move-vs-Delete
+        // and dispatches the WHOLE Items list through the batch-capable hooks (m_OnMoveAssetFileBatch/
+        // m_OnDeleteAssetFileToTrashBatch) in ONE call each, rather than looping a per-item hook call -
+        // looping would still produce N separate history entries even if this function itself is only
+        // called once. Falls back to a plain per-item library_mgr loop when no hook is set (matches
+        // every other mutation's own "opt-in hook, direct fallback otherwise" shape) - the fallback has
+        // no undo semantics anyway, so grouping doesn't apply there. Assumes one call = one library
+        // (matches how a single click/drag/paste gesture is already scoped to one open library). Returns
+        // true only if every item succeeded - callers that need to distinguish "ran" from "ran cleanly"
+        // (PasteClipboardInto, so it doesn't spend the clipboard on a failed paste) check this.
+        bool ExecuteBatch(const std::vector<pending_item>& Items) noexcept
+        {
+            if (Items.empty()) return true;
+            m_bEntriesCacheDirty = true;
+
+            bool bAllSucceeded = true;
+
+            std::vector<pending_item> Moves, Deletes;
+            for (auto& It : Items) (It.m_New.empty() ? Deletes : Moves).push_back(It);
+
+            if (!Moves.empty())
             {
-                if (It.m_New.empty()) ExecuteDeleteToTrash(It.m_Library, It.m_Old);
-                else                  ExecuteMoveOrRename(It.m_Library, It.m_Old, It.m_New);
+                const library::guid LibraryGuid = Moves.front().m_Library;
+                if (m_Browser.m_OnMoveAssetFileBatch)
+                {
+                    std::vector<std::pair<std::wstring, std::wstring>> Pairs;
+                    Pairs.reserve(Moves.size());
+                    for (auto& It : Moves) Pairs.push_back({ It.m_Old, It.m_New });
+                    if (!m_Browser.m_OnMoveAssetFileBatch(LibraryGuid, Pairs)) bAllSucceeded = false;
+                }
+                else
+                {
+                    for (auto& It : Moves)
+                    {
+                        const auto Result = m_AssetMgr.MoveAssetFile(It.m_Library, It.m_Old, It.m_New);
+                        if (!Result.m_bSuccess)
+                        {
+                            bAllSucceeded = false;
+                            std::printf("[AssetTree] Move/rename failed: '%s' -> '%s': %s\n", xstrtool::To(It.m_Old).c_str(), xstrtool::To(It.m_New).c_str(), Result.m_Error.c_str());
+                            std::fflush(stdout);
+                        }
+                    }
+                }
             }
+
+            if (!Deletes.empty())
+            {
+                const library::guid LibraryGuid = Deletes.front().m_Library;
+                if (m_Browser.m_OnDeleteAssetFileToTrashBatch)
+                {
+                    std::vector<std::wstring> Paths;
+                    Paths.reserve(Deletes.size());
+                    for (auto& It : Deletes) Paths.push_back(It.m_Old);
+                    if (!m_Browser.m_OnDeleteAssetFileToTrashBatch(LibraryGuid, Paths)) bAllSucceeded = false;
+                }
+                else
+                {
+                    for (auto& It : Deletes)
+                    {
+                        const std::wstring TrashPath = m_AssetMgr.ComputeTrashPath(It.m_Library, It.m_Old);
+                        const auto Result = m_AssetMgr.MoveAssetFile(It.m_Library, It.m_Old, TrashPath);
+                        if (!Result.m_bSuccess)
+                        {
+                            bAllSucceeded = false;
+                            std::printf("[AssetTree] Delete-to-trash failed: '%s': %s\n", xstrtool::To(It.m_Old).c_str(), Result.m_Error.c_str());
+                            std::fflush(stdout);
+                        }
+                    }
+                }
+            }
+
+            return bAllSucceeded;
         }
 
         // Called every frame regardless of tab content (from LeftPanel(), which - unlike RightPanel() -
@@ -498,11 +575,11 @@ namespace e10
                 const std::wstring          OldRel          = ToLibraryRelPath(m_RenameTargetPath);
                 const std::wstring          NewRel          = ToLibraryRelPath(NewRelToAssets);
 
-                // Only touch the RIGHT panel's own selection state if the rename actually happened
-                // right away (not deferred to a confirmation) AND the renamed item lives in the folder
-                // the right panel currently has open (a tree-folder rename elsewhere shouldn't perturb
-                // an unrelated selection).
-                if (StageOrExecute({ { m_RenameLibrary, OldRel, NewRel } })
+                // Only touch the RIGHT panel's own selection state if the rename actually SUCCEEDED
+                // right away (not deferred to a confirmation, and not a synchronous failure like a name
+                // collision) AND the renamed item lives in the folder the right panel currently has
+                // open (a tree-folder rename elsewhere shouldn't perturb an unrelated selection).
+                if (StageOrExecute({ { m_RenameLibrary, OldRel, NewRel } }) == stage_result::ExecutedSuccess
                     && m_RenameLibrary == m_SelectedLibrary && m_RenameTargetPath.parent_path() == m_SelectedFolder)
                 {
                     SelectSingle(NewName);
@@ -569,7 +646,14 @@ namespace e10
                 std::vector<pending_item> Items;
                 for (auto& SrcRelToAssets : m_Clipboard)
                     Items.push_back({ DestLibrary, ToLibraryRelPath(SrcRelToAssets), ToLibraryRelPath(DestFolderRelToAssets / SrcRelToAssets.filename()) });
-                StageOrExecute(std::move(Items));
+
+                // Real bug found live: this used to clear the clipboard unconditionally, even when the
+                // paste failed synchronously (e.g. pasting into the same folder the files were cut
+                // from) - silently losing the user's clipboard instead of leaving it intact to retry.
+                // A Deferred outcome still spends it (the paste WILL happen once confirmed); only an
+                // outright synchronous failure leaves the clipboard alone.
+                if (StageOrExecute(std::move(Items)) == stage_result::ExecutedWithFailures)
+                    return;
             }
             else
             {
@@ -577,9 +661,8 @@ namespace e10
                     DoCopy(DestLibrary, ToLibraryRelPath(SrcRelToAssets), ToLibraryRelPath(DestFolderRelToAssets / SrcRelToAssets.filename()));
             }
 
-            // Cut's clipboard is spent after one paste attempt (whether it executed immediately or is
-            // still pending confirmation); Copy's stays populated for repeated pastes - matches real
-            // Explorer exactly.
+            // Cut's clipboard is spent after one successful (or deferred-but-underway) paste attempt;
+            // Copy's stays populated for repeated pastes - matches real Explorer exactly.
             if (m_bClipboardIsCut) m_Clipboard.clear();
         }
 
@@ -650,6 +733,40 @@ namespace e10
             return Result;
         }
 
+        // OS-level drag-out (Phase 6, E10_AssetOleDrag.h) - true once the cursor has left the real
+        // Win32 rect of the main window, so the two drag-source call sites below know when to hand off
+        // from ImGui's own in-app payload to a real DoDragDrop/CF_HDROP session instead. Returns false
+        // (in-app-only, today's exact behavior) whenever the hook isn't wired - every consumer except
+        // E29 (RegisterAssetBrowserCallbacks) - or the Asset Tree is currently undocked into its own
+        // multi-viewport child HWND, which this hook deliberately can't see (see m_OnGetMainWindowHandle's
+        // own comment in E10_AssetBrowser.h for why that's an accepted scope limit, not a bug).
+        bool IsCursorOutsideMainWindow() const noexcept
+        {
+            if (!m_Browser.m_OnGetMainWindowHandle) return false;
+            const HWND hWnd = reinterpret_cast<HWND>(m_Browser.m_OnGetMainWindowHandle());
+            if (!hWnd) return false;
+
+            POINT Pt{};
+            ::GetCursorPos(&Pt);
+            RECT R{};
+            ::GetWindowRect(hWnd, &R);
+            return !::PtInRect(&R, Pt);
+        }
+
+        // Resolves Payload's relative path(s) to real absolute filesystem paths under AssetsRoot and
+        // hands them to the blocking OLE drag - called exactly once per gesture (DoDragDrop doesn't
+        // return until the drag ends, and by the time it does the real mouse button is already up, so
+        // ImGui will never see IsMouseDragging() true again for this press).
+        void RunOsFileDragOut(const std::filesystem::path& AssetsRoot, const file_drag_payload& Payload) const noexcept
+        {
+            std::vector<std::wstring> AbsolutePaths;
+            for (auto& RelPath : ResolveDragSources(Payload))
+                AbsolutePaths.push_back((AssetsRoot / RelPath).wstring());
+
+            const HWND hWnd = reinterpret_cast<HWND>(m_Browser.m_OnGetMainWindowHandle());
+            e10::ole_drag::RunFileDragOut(hWnd, std::move(AbsolutePaths));
+        }
+
         // DestLibrary/DestFolderRelToAssets describe the drop TARGET (a tree/table folder row, or the
         // currently-open folder for a background drop). Cross-library drag-drop is rejected outright -
         // MoveAssetFile/CopyAssetFile both operate within a single library root, same restriction
@@ -678,17 +795,21 @@ namespace e10
             }
         }
 
-        void PathHistoryUpdate(library::guid gLibrary, std::filesystem::path Folder) noexcept
+        // bTrash - which root Folder is relative to (see path_history_entry's own comment for why this
+        // has to be explicit rather than read from the live m_bBrowsingTrash: the one caller restoring a
+        // STORED history/LRU entry - the "Path History Files" popup - needs THAT entry's own saved mode,
+        // not whatever mode happens to be live right now).
+        void PathHistoryUpdate(library::guid gLibrary, std::filesystem::path Folder, bool bTrash) noexcept
         {
             if (m_PathHistoryList.empty())
             {
-                m_PathHistoryList.push_back({ gLibrary, Folder });
+                m_PathHistoryList.push_back({ gLibrary, Folder, bTrash });
                 m_PathHistoryIndex = 0;
             }
-            else if (m_PathHistoryList[m_PathHistoryIndex].m_gLibrary != gLibrary || m_PathHistoryList[m_PathHistoryIndex].m_Folder != Folder)
+            else if (m_PathHistoryList[m_PathHistoryIndex].m_gLibrary != gLibrary || m_PathHistoryList[m_PathHistoryIndex].m_Folder != Folder || m_PathHistoryList[m_PathHistoryIndex].m_bTrash != bTrash)
             {
                 m_PathHistoryList.resize(std::min<std::size_t>(m_PathHistoryIndex + 1ull, m_PathHistoryList.size()));
-                m_PathHistoryList.push_back({ gLibrary, Folder });
+                m_PathHistoryList.push_back({ gLibrary, Folder, bTrash });
                 if (m_PathHistoryList.size() > 50) m_PathHistoryList.erase(m_PathHistoryList.begin());
                 m_PathHistoryIndex = static_cast<std::uint32_t>(m_PathHistoryList.size()) - 1;
             }
@@ -698,7 +819,11 @@ namespace e10
 
         std::string BuildPathString(const path_history_entry& E) const noexcept
         {
-            std::string Result = "Assets";
+            // Library name, not a bare "Assets" - see GetLibraryDisplayName's own comment. Now also
+            // marks Trash entries distinctly (E.m_bTrash, added to fix the real Back/Forward bug - see
+            // path_history_entry's own comment) - the Assets-vs-Trash ambiguity this used to have is
+            // gone now that the data actually exists, not just a cosmetic label gap anymore.
+            std::string Result = std::format("{} ({})", GetLibraryDisplayName(E.m_gLibrary), E.m_bTrash ? "Trash" : "Assets");
             for (auto& Part : E.m_Folder) Result += "\\" + xstrtool::To(Part.wstring());
             return Result;
         }
@@ -709,12 +834,22 @@ namespace e10
         // navigates to it via PathHistoryUpdate. The open/closed state itself is ImGui's own built-in
         // tree arrow (ImGuiTreeNodeFlags_OpenOnArrow); m_ExpandToFolder force-opens every ancestor of a
         // history/breadcrumb jump so the new selection is actually visible without manual expanding.
-        void RenderFolder(const library::guid& LibraryGuid, const std::filesystem::path& AssetsRoot, const std::filesystem::path& RelPath) noexcept
+        // bTrashMode (Phase 6, Trash browsing view) - true when AssetsRoot is actually
+        // <Library>/.trash/assets rather than <Library>/Assets (LeftPanel's own toggle decides which
+        // root gets walked). Suppresses every MUTATION gesture (rename, cut/copy/paste, drag source/
+        // target) - none of them make sense on an item already sitting in the trash - while leaving
+        // navigation (click to open a subfolder) fully intact, and swaps the context menu for a single
+        // "Restore" action. Reuses this exact function rather than a parallel implementation so trash
+        // folders get identical icons/empty-folder styling/expand behavior for free.
+        void RenderFolder(const library::guid& LibraryGuid, const std::filesystem::path& AssetsRoot, const std::filesystem::path& RelPath, bool bTrashMode = false) noexcept
         {
             const std::filesystem::path FullPath = AssetsRoot / RelPath;
             std::error_code Ec;
 
-            bool bHasAnyEntry = false;
+            bool        bHasAnyEntry = false;
+            std::size_t EntryCount   = 0;               // direct children only - matches virtual_tree_tab's
+                                                          // own trash count (InfoEntry.m_lChildLinks.size()),
+                                                          // not a recursive count.
             std::vector<std::filesystem::path> SubDirs;
             if (std::filesystem::is_directory(FullPath, Ec) && !Ec)
             {
@@ -722,29 +857,53 @@ namespace e10
                 {
                     if (Ec) break;
                     bHasAnyEntry = true;
+                    ++EntryCount;
                     std::error_code IsDirEc;
                     if (Entry.is_directory(IsDirEc) && !IsDirEc) SubDirs.push_back(Entry.path().filename());
                 }
                 std::sort(SubDirs.begin(), SubDirs.end());
             }
 
-            const bool        bIsSelected  = (m_SelectedLibrary == LibraryGuid) && (m_SelectedFolder == RelPath) && m_SelectedFile.empty();
+            const bool        bIsSelected  = (m_SelectedLibrary == LibraryGuid) && (m_SelectedFolder == RelPath) && m_SelectedFile.empty() && (m_bBrowsingTrash == bTrashMode);
             const bool        bIsRoot      = RelPath.empty();
-            const std::string Label        = bIsRoot ? "Assets" : xstrtool::To(RelPath.filename().wstring());
-            const bool        bIsRenamingThis = !bIsRoot && (m_RenameLibrary == LibraryGuid) && (m_RenameTargetPath == RelPath);
+            // Trash is rendered as a CHILD of the library's Assets root, not a sibling top-level mode -
+            // matches virtual_tree_tab's own convention exactly (its trash node is a real child of the
+            // root there too, icon + "(count)" suffix, no repeated library name since the parent already
+            // establishes it - see RenderTrashNode's own injection site further down this function).
+            const std::string Label        = (bIsRoot && bTrashMode) ? std::format("Trash ({})", EntryCount)
+                                            : bIsRoot                 ? std::format("{} (Assets)", GetLibraryDisplayName(LibraryGuid))
+                                            : xstrtool::To(RelPath.filename().wstring());
+            const bool        bIsRenamingThis = !bTrashMode && !bIsRoot && (m_RenameLibrary == LibraryGuid) && (m_RenameTargetPath == RelPath);
 
             if (m_ExpandToFolder.has_value() && LibraryGuid == m_SelectedLibrary && IsAncestorOrSelf(RelPath, *m_ExpandToFolder))
                 ImGui::SetNextItemOpen(true);
 
             const ImGuiTreeNodeFlags Flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth
-                                            | (bIsRoot ? ImGuiTreeNodeFlags_DefaultOpen : 0)
+                                            | ((bIsRoot && !bTrashMode) ? ImGuiTreeNodeFlags_DefaultOpen : 0)
                                             | (bIsSelected ? ImGuiTreeNodeFlags_Selected : 0);
 
             const ImVec2 RowStart = ImGui::GetCursorScreenPos();
 
-            if (!bHasAnyEntry) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            const bool bOpen = TreeNodeWithFolderIcon(Label, Flags, !bHasAnyEntry);
-            if (!bHasAnyEntry) ImGui::PopStyleColor();
+            // Trash icon only on the injected Trash root itself - a folder INSIDE trash (once browsing
+            // it) is still a plain folder, same as virtual tree only special-cases its own trash NODE,
+            // not whatever real content sits under it. Uses virtual_tree_tab's OWN trash glyph
+            // ("\xEE\x9D\x8D") directly rather than DrawFolderIconAt's vector approach - direct user
+            // request ("may be use the same trash icon than the virtual tree?"), and unlike the folder
+            // codepoints DrawFolderIconAt's own top comment found broken in this build, a live screenshot
+            // of virtual_tree_tab confirmed THIS specific codepoint renders as a real trash-can glyph
+            // here, not a missing-glyph box - a different slice of the same private-use-area icon font,
+            // not uniformly broken.
+            bool bOpen;
+            if (bIsRoot && bTrashMode)
+            {
+                bOpen = ImGui::TreeNodeEx(std::format("\xEE\x9D\x8D {}", Label).c_str(), Flags);
+            }
+            else
+            {
+                if (!bHasAnyEntry) ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+                bOpen = TreeNodeWithFolderIcon(Label, Flags, !bHasAnyEntry);
+                if (!bHasAnyEntry) ImGui::PopStyleColor();
+            }
 
             // Inline rename overlay (5D) - drawn ON TOP of the label rather than replacing the
             // TreeNodeEx call outright, so the arrow/expand/children machinery above keeps working
@@ -766,9 +925,12 @@ namespace e10
             }
 
             if (!bIsRenamingThis && ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen())
-                PathHistoryUpdate(LibraryGuid, RelPath);
+            {
+                m_bBrowsingTrash = bTrashMode;
+                PathHistoryUpdate(LibraryGuid, RelPath, bTrashMode);
+            }
 
-            if (!bIsRenamingThis)
+            if (!bIsRenamingThis && !bTrashMode)
             {
                 // Drag source (5D) - a tree folder always drags as exactly itself (the tree has no
                 // multi-select concept of its own, unlike the RIGHT panel's file list). The Assets
@@ -783,6 +945,10 @@ namespace e10
                     ImGui::SetDragDropPayload("E10_ASSET_FILE_DRAG", &Payload, sizeof(Payload));
                     ImGui::TextUnformatted(Label.c_str());
                     ImGui::EndDragDropSource();
+
+                    // OS-level drag-out (Phase 6) - see IsCursorOutsideMainWindow's own comment.
+                    if (IsCursorOutsideMainWindow())
+                        RunOsFileDragOut(AssetsRoot, Payload);
                 }
 
                 // Drop target (5C) - drop any in-app file/folder drag onto a LEFT-tree row to move/copy
@@ -816,10 +982,36 @@ namespace e10
                     ImGui::EndPopup();
                 }
             }
+            else if (!bIsRenamingThis && bTrashMode)
+            {
+                // Trash mode's only mutation - restore this whole trashed folder (and everything under
+                // it) back to its original location under Assets. The Assets root itself never appears
+                // here (bTrashMode's own root is "Trash", a different label/RelPath-space entirely), so
+                // no bIsRoot exemption is needed the way the normal context menu above needs one.
+                if (ImGui::BeginPopupContextItem())
+                {
+                    if (ImGui::MenuItem("Restore", nullptr, false, !bIsRoot))
+                        DoRestore(LibraryGuid, RelPath);
+                    ImGui::EndPopup();
+                }
+            }
 
             if (bOpen)
             {
-                for (auto& Dir : SubDirs) RenderFolder(LibraryGuid, AssetsRoot, RelPath / Dir);
+                // Trash, injected as this library's own FIRST child, before its real subfolders - direct
+                // user correction: keep this consistent with virtual_tree_tab, where trash is a normal
+                // child of the root (not the separate top-of-panel Assets/Trash mode toggle this used to
+                // be) and is explicitly sorted first ("Trash is always first", that file's own SortFolders
+                // comment). <Library>/.trash/assets lives OUTSIDE the real Assets folder on disk (there's
+                // no raw-file resource to piggyback a real child link on, unlike the virtual tree's own
+                // trash_guid_v folder resource), so this is a synthetic injection at render time rather
+                // than a real entry SubDirs would ever contain - deliberately only at the TRUE Assets
+                // root (bIsRoot && !bTrashMode), so the trash subtree itself never recurses into a
+                // trash-of-trash.
+                if (bIsRoot && !bTrashMode)
+                    RenderFolder(LibraryGuid, AssetsRoot.parent_path() / L".trash" / L"assets", {}, true);
+
+                for (auto& Dir : SubDirs) RenderFolder(LibraryGuid, AssetsRoot, RelPath / Dir, bTrashMode);
                 ImGui::TreePop();
             }
         }
@@ -832,6 +1024,10 @@ namespace e10
             // this every frame regardless of what's currently selected.
             RenderPendingConfirmationModal();
 
+            // Trash browsing (direct user correction: keep this consistent with virtual_tree_tab, where
+            // trash is a normal CHILD node of the root - not a separate top-of-panel mode toggle, which
+            // is what this used to be). Each library's own Trash child is now injected by RenderFolder
+            // itself, right after its real subfolders - see that function's own injection comment.
             for (auto& L : m_AssetMgr.m_mLibraryDB)
             {
                 const auto AssetsRoot = std::filesystem::path(L.second->m_Library.m_Path) / L"Assets";
@@ -858,6 +1054,12 @@ namespace e10
             const float line_height = ImGui::GetTextLineHeightWithSpacing();
             const ImU32 button_bg_color_u32 = ImGui::ColorConvertFloat4ToU32(ImVec4(0.145f, 0.145f, 0.145f, 0.80f));
 
+            // Captured for the shared history popup (assert_browser::RenderPathHistoryPopup) - same
+            // capture point virtual_tree_tab's own RenderPath() uses, before GetContentRegionAvail() is
+            // consumed by anything below.
+            m_PathHistoryPos  = start_pos;
+            m_PathHistorySize = { ImGui::GetContentRegionAvail().x, line_height };
+
             draw_list->PushClipRect(start_pos, ImVec2(start_pos.x + ImGui::GetContentRegionAvail().x, start_pos.y + line_height), true);
 
             draw_list->AddRectFilled(start_pos, ImVec2(start_pos.x + ImGui::GetContentRegionAvail().x, start_pos.y + line_height), button_bg_color_u32);
@@ -869,7 +1071,7 @@ namespace e10
 
             struct segment { std::string m_Name; std::filesystem::path m_Path; };
             std::vector<segment> Segments;
-            Segments.push_back({ "Assets", {} });
+            Segments.push_back({ std::format("{} ({})", GetLibraryDisplayName(m_SelectedLibrary), m_bBrowsingTrash ? "Trash" : "Assets"), {} });
             {
                 std::filesystem::path Accum;
                 for (auto& Part : m_SelectedFolder)
@@ -886,7 +1088,7 @@ namespace e10
                 const bool bLast  = (i + 1 == Segments.size());
 
                 if (bLast) ImGui::PushFont(xgpu::tools::imgui::getFont(1));
-                if (ImGui::Button(Seg.m_Name.c_str())) PathHistoryUpdate(m_SelectedLibrary, Seg.m_Path);
+                if (ImGui::Button(Seg.m_Name.c_str())) PathHistoryUpdate(m_SelectedLibrary, Seg.m_Path, m_bBrowsingTrash);
                 if (bLast) ImGui::PopFont();
                 ImGui::SameLine(0, 0);
 
@@ -926,7 +1128,7 @@ namespace e10
                         {
                             const std::string Name = xstrtool::To(Dir.wstring());
                             if (ImGui::MenuItem(Name.c_str(), nullptr, bHasNext && Dir == NextName))
-                                PathHistoryUpdate(m_SelectedLibrary, Segments[iSelectedPath].m_Path / Dir);
+                                PathHistoryUpdate(m_SelectedLibrary, Segments[iSelectedPath].m_Path / Dir, m_bBrowsingTrash);
                         }
                     });
                 }
@@ -947,11 +1149,32 @@ namespace e10
         }
 
         //=============================================================================
-        // Back/forward + history-list button + the styled breadcrumb (RenderPath) - functionally
-        // mirrors virtual_tree_tab's own RenderNavigationPath().
+        // Back/forward + history-list button + the styled breadcrumb (RenderPath) - functionally AND
+        // now visually identical to virtual_tree_tab's own RenderNavigationPath() (direct user
+        // correction: "The History button should be the same (arrow down) as the virtual... The left
+        // right Icon should be the same as the Virtual Tree... keep things consistent"). Shares
+        // assert_browser::ScaleButton and assert_browser::RenderPathHistoryPopup (E10_AssetBrowser.h)
+        // outright rather than reimplementing lookalikes - "if this means we can refactor code... the
+        // less code the better," direct user follow-up. The back/forward icon codepoints were never
+        // actually proven broken in this build (only the FOLDER codepoints were, see DrawFolderIconAt's
+        // own top comment) - the Trash icon fix earlier this session live-confirmed a DIFFERENT
+        // codepoint from this same font renders correctly here, so the earlier "assume the whole font
+        // is broken" caution doesn't apply wholesale.
         void RenderNavigationPath() noexcept
         {
-            if (ChevronButton("back", true, m_PathHistoryIndex != 0))
+            // Transparent button background for just these three icon buttons - matches
+            // virtual_tree_tab's own TopControls() exactly (it pushes this around AddViewMenuButton()+
+            // RenderNavigationPath(), popped right after). RenderPath()'s own breadcrumb buttons already
+            // push/pop this same color locally, so it's scoped here to just the icon trio.
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+
+            if (m_PathHistoryIndex == 0)
+            {
+                ImGui::BeginDisabled();
+                assert_browser::ScaleButton("\xEE\x9C\xAB", 1.0f);
+                ImGui::EndDisabled();
+            }
+            else if (assert_browser::ScaleButton("\xEE\x9C\xAB", 1.0f))
             {
                 m_PathHistoryIndex--;
                 UpdateHistoryLRU();
@@ -959,7 +1182,13 @@ namespace e10
 
             ImGui::SameLine(0, 2.0f);
 
-            if (ChevronButton("fwd", false, (m_PathHistoryIndex + 1) < m_PathHistoryList.size()))
+            if ((m_PathHistoryIndex + 1) >= m_PathHistoryList.size())
+            {
+                ImGui::BeginDisabled();
+                assert_browser::ScaleButton("\xEE\x9C\xAA", 1.0f);
+                ImGui::EndDisabled();
+            }
+            else if (assert_browser::ScaleButton("\xEE\x9C\xAA", 1.0f))
             {
                 m_PathHistoryIndex++;
                 UpdateHistoryLRU();
@@ -967,24 +1196,17 @@ namespace e10
 
             ImGui::SameLine(0, 6.0f);
 
-            if (ImGui::SmallButton("History")) ImGui::OpenPopup("Path History Files");
+            if (assert_browser::ScaleButton("\xee\xa5\xb2", 0.9f)) m_PathHistoryShow = true;
+            ImGui::PopStyleColor();
             ImGui::SameLine(0, 4.0f);
 
-            RenderPath();
+            RenderPath();   // captures m_PathHistoryPos/m_PathHistorySize for the popup below
 
-            if (ImGui::BeginPopup("Path History Files"))
-            {
-                if (m_PathHistoryListRU.empty()) ImGui::TextDisabled("(no history yet)");
-                for (auto& E : m_PathHistoryListRU)
-                {
-                    if (ImGui::Selectable(BuildPathString(E).c_str()))
-                    {
-                        PathHistoryUpdate(E.m_gLibrary, E.m_Folder);
-                        ImGui::CloseCurrentPopup();
-                    }
-                }
-                ImGui::EndPopup();
-            }
+            assert_browser::RenderPathHistoryPopup(m_PathHistoryShow, m_PathHistoryPos, m_PathHistorySize,
+                m_PathHistoryListRU, m_PathHistoryList, m_PathHistoryIndex,
+                [this](const path_history_entry& E) { return BuildPathString(E); },
+                [this](const path_history_entry& E) { PathHistoryUpdate(E.m_gLibrary, E.m_Folder, E.m_bTrash); },
+                [this](std::uint32_t Index) { m_PathHistoryIndex = Index; UpdateHistoryLRU(); });
         }
 
         //=============================================================================
@@ -1001,7 +1223,9 @@ namespace e10
 
             const bool bFoundLibrary = m_AssetMgr.m_mLibraryDB.FindAsReadOnly(m_SelectedLibrary, [&](const std::unique_ptr<library_db>& Library)
             {
-                const auto     AssetsRoot = std::filesystem::path(Library->m_Library.m_Path) / L"Assets";
+                const auto     AssetsRoot = m_bBrowsingTrash
+                    ? std::filesystem::path(Library->m_Library.m_Path) / L".trash" / L"assets"
+                    : std::filesystem::path(Library->m_Library.m_Path) / L"Assets";
                 const auto     FullPath   = AssetsRoot / m_SelectedFolder;
                 std::error_code Ec;
 
@@ -1037,7 +1261,9 @@ namespace e10
                         if (Ec) break;
                         std::error_code TypeEc, SizeEc, TimeEc;
                         const bool bDir = It.is_directory(TypeEc) && !TypeEc;
-                        m_CachedEntries.push_back({ It.path().filename().wstring(), bDir, bDir ? 0 : It.file_size(SizeEc), It.last_write_time(TimeEc) });
+                        const std::size_t DependentCount = (bDir || m_bBrowsingTrash) ? 0
+                            : m_AssetMgr.CountDependents(m_SelectedLibrary, ToLibraryRelPath(m_SelectedFolder / It.path().filename()));
+                        m_CachedEntries.push_back({ It.path().filename().wstring(), bDir, bDir ? 0 : It.file_size(SizeEc), It.last_write_time(TimeEc), DependentCount });
                     }
                     // Sorted below, once the table's own sort specs (persisted per-table by ImGui
                     // itself, same as column widths) are available - BeginTable hasn't run yet here.
@@ -1112,15 +1338,18 @@ namespace e10
                             m_MultiSelectOrder.clear();
                             for (auto& N : SortedNames) { m_MultiSelected.insert(N); m_MultiSelectOrder.push_back(N); }
                         }
-                        else if (ImGui::IsKeyPressed(ImGuiKey_F2) && m_MultiSelected.size() == 1 && !m_SelectedFile.empty())
+                        // Rename/Cut/Copy/Paste/Delete-to-trash shortcuts make no sense on an item
+                        // that's already IN the trash - Trash mode gets no keyboard shortcuts this pass,
+                        // Restore is mouse/context-menu only (see the row loop's own trash-mode branch).
+                        else if (!m_bBrowsingTrash && ImGui::IsKeyPressed(ImGuiKey_F2) && m_MultiSelected.size() == 1 && !m_SelectedFile.empty())
                             StartRename(m_SelectedLibrary, m_SelectedFolder / m_SelectedFile);
-                        else if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_X))
+                        else if (!m_bBrowsingTrash && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_X))
                             CutSelection();
-                        else if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C))
+                        else if (!m_bBrowsingTrash && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_C))
                             CopySelection();
-                        else if (IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_V))
+                        else if (!m_bBrowsingTrash && IO.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_V))
                             PasteClipboard();
-                        else if (ImGui::IsKeyPressed(ImGuiKey_Delete) && !m_MultiSelected.empty())
+                        else if (!m_bBrowsingTrash && ImGui::IsKeyPressed(ImGuiKey_Delete) && !m_MultiSelected.empty())
                             DeleteSelectionToTrash();
                     }
 
@@ -1132,7 +1361,7 @@ namespace e10
 
                         const std::string Name           = xstrtool::To(E.m_Name);
                         const bool        bMultiSelected = m_MultiSelected.contains(E.m_Name);
-                        const bool        bIsRenamingThis = (m_RenameLibrary == m_SelectedLibrary) && (m_RenameTargetPath == m_SelectedFolder / E.m_Name);
+                        const bool        bIsRenamingThis = !m_bBrowsingTrash && (m_RenameLibrary == m_SelectedLibrary) && (m_RenameTargetPath == m_SelectedFolder / E.m_Name);
 
                         // Folders get the same drawn icon the tree uses, regardless of rename state.
                         if (E.m_bDirectory)
@@ -1175,7 +1404,7 @@ namespace e10
                                     if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
                                     {
                                         m_SelectedFile = E.m_Name;
-                                        PathHistoryUpdate(Library->m_Library.m_GUID, m_SelectedFolder / E.m_Name);
+                                        PathHistoryUpdate(Library->m_Library.m_GUID, m_SelectedFolder / E.m_Name, m_bBrowsingTrash);
                                     }
                                     else
                                         HandleRowClick(SortedNames, E.m_Name);
@@ -1186,13 +1415,37 @@ namespace e10
                                 if (ImGui::Selectable(Name.c_str(), bMultiSelected, ImGuiSelectableFlags_SpanAllColumns))
                                     HandleRowClick(SortedNames, E.m_Name);
 
+                                // Captured BEFORE drawing the badge below - IsItemHovered() only ever
+                                // checks the MOST RECENTLY submitted item, so the detailed tooltip further
+                                // down (which wants to know if the FILENAME itself is hovered) would
+                                // otherwise silently start checking the badge widget instead the moment a
+                                // badge gets drawn, breaking it exactly for the files it matters most for.
+                                const bool bNameHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal);
+
+                                // Persistent dependency indicator (Phase 6, "beyond parity" - direct
+                                // user request: "a visual badge/icon in the list (no hover needed) was
+                                // the original 'beyond-parity' idea and wasn't built"). Unlike the hover
+                                // tooltip below (which needs a deliberate pause to reveal WHO depends on
+                                // a file), this small "#N" badge is always visible for any file with at
+                                // least one dependent - computed once per cache rebuild (E.m_DependentCount,
+                                // see file_entry's own comment), not here, so drawing it costs nothing
+                                // beyond one cheap conditional per row. ASCII-only text (no icon-font
+                                // glyph) so it renders correctly regardless of what the atlas covers.
+                                if (E.m_DependentCount > 0)
+                                {
+                                    ImGui::SameLine();
+                                    ImGui::TextColored(ImVec4(0.4f, 0.75f, 1.0f, 1.0f), "#%zu", E.m_DependentCount);
+                                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+                                        ImGui::SetTooltip("Used by %zu resource%s", E.m_DependentCount, E.m_DependentCount == 1 ? "" : "s");
+                                }
+
                                 // Dependent-usage hover hint (direct user request: "on hover for the
                                 // files you could open a hint popup showing which resources are using
                                 // that file... (bound the list just in case)"). DelayNormal matches
                                 // Explorer's own "don't pop instantly" tooltip feel; capped to 10 names
                                 // via GetDependentNames' own MaxCount so a heavily-referenced file (e.g.
                                 // a shared texture) can't spam an enormous tooltip.
-                                if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
+                                if (!m_bBrowsingTrash && bNameHovered)
                                 {
                                     std::size_t Total = 0;
                                     const auto  Names = m_AssetMgr.GetDependentNames(m_SelectedLibrary, ToLibraryRelPath(m_SelectedFolder / E.m_Name), 10, Total);
@@ -1231,7 +1484,7 @@ namespace e10
                             // BeginDragDropSource() is simply never invoked during a plain click and
                             // g.DragDropActive never gets set, leaving Selectable()'s normal click-release
                             // path completely untouched.
-                            if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 12.0f) && ImGui::BeginDragDropSource())
+                            if (!m_bBrowsingTrash && ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 12.0f) && ImGui::BeginDragDropSource())
                             {
                                 file_drag_payload Payload{};
                                 Payload.m_Library = m_SelectedLibrary;
@@ -1241,11 +1494,15 @@ namespace e10
                                 ImGui::SetDragDropPayload("E10_ASSET_FILE_DRAG", &Payload, sizeof(Payload));
                                 ImGui::TextUnformatted(Payload.m_bWholeSelection ? std::format("{} items", m_MultiSelected.size()).c_str() : Name.c_str());
                                 ImGui::EndDragDropSource();
+
+                                // OS-level drag-out (Phase 6) - see IsCursorOutsideMainWindow's own comment.
+                                if (IsCursorOutsideMainWindow())
+                                    RunOsFileDragOut(AssetsRoot, Payload);
                             }
 
                             // Drop target (5C) - only folder rows accept a drop (dropping onto a FILE
                             // row makes no sense - nothing here treats a file as a container).
-                            if (E.m_bDirectory && ImGui::BeginDragDropTarget())
+                            if (!m_bBrowsingTrash && E.m_bDirectory && ImGui::BeginDragDropTarget())
                             {
                                 if (const ImGuiPayload* Pl = ImGui::AcceptDragDropPayload("E10_ASSET_FILE_DRAG"))
                                 {
@@ -1255,26 +1512,41 @@ namespace e10
                                 ImGui::EndDragDropTarget();
                             }
 
-                            // Right-click context menu (5B) - if the right-clicked row isn't already
-                            // part of an active multi-selection, right-click selects just it first,
-                            // matching Explorer's own behavior, so "Delete" etc. never silently acts on
-                            // a stale, unrelated selection.
-                            if (ImGui::BeginPopupContextItem())
+                            if (!m_bBrowsingTrash)
                             {
-                                if (!bMultiSelected) { SelectSingle(E.m_Name); m_SelectedFile = E.m_Name; }
+                                // Right-click context menu (5B) - if the right-clicked row isn't already
+                                // part of an active multi-selection, right-click selects just it first,
+                                // matching Explorer's own behavior, so "Delete" etc. never silently acts on
+                                // a stale, unrelated selection.
+                                if (ImGui::BeginPopupContextItem())
+                                {
+                                    if (!bMultiSelected) { SelectSingle(E.m_Name); m_SelectedFile = E.m_Name; }
 
-                                if (ImGui::MenuItem("Rename", "F2", false, m_MultiSelected.size() == 1))
-                                    StartRename(m_SelectedLibrary, m_SelectedFolder / m_SelectedFile);
-                                if (ImGui::MenuItem("Cut", "Ctrl+X"))
-                                    CutSelection();
-                                if (ImGui::MenuItem("Copy", "Ctrl+C"))
-                                    CopySelection();
-                                if (ImGui::MenuItem("Paste", "Ctrl+V", false, !m_Clipboard.empty()))
-                                    PasteClipboard();
-                                ImGui::Separator();
-                                if (ImGui::MenuItem("Delete", "Del"))
-                                    DeleteSelectionToTrash();
-                                ImGui::EndPopup();
+                                    if (ImGui::MenuItem("Rename", "F2", false, m_MultiSelected.size() == 1))
+                                        StartRename(m_SelectedLibrary, m_SelectedFolder / m_SelectedFile);
+                                    if (ImGui::MenuItem("Cut", "Ctrl+X"))
+                                        CutSelection();
+                                    if (ImGui::MenuItem("Copy", "Ctrl+C"))
+                                        CopySelection();
+                                    if (ImGui::MenuItem("Paste", "Ctrl+V", false, !m_Clipboard.empty()))
+                                        PasteClipboard();
+                                    ImGui::Separator();
+                                    if (ImGui::MenuItem("Delete", "Del"))
+                                        DeleteSelectionToTrash();
+                                    ImGui::EndPopup();
+                                }
+                            }
+                            else
+                            {
+                                // Trash mode's only mutation - restore this one trashed item (file or
+                                // folder, recursively) back to its original location under Assets.
+                                if (ImGui::BeginPopupContextItem())
+                                {
+                                    if (!bMultiSelected) { SelectSingle(E.m_Name); m_SelectedFile = E.m_Name; }
+                                    if (ImGui::MenuItem("Restore"))
+                                        DoRestore(m_SelectedLibrary, m_SelectedFolder / E.m_Name);
+                                    ImGui::EndPopup();
+                                }
                             }
                         }
 
@@ -1295,8 +1567,8 @@ namespace e10
                     // Right-click on empty table background (no row under the cursor) - Paste only,
                     // the one action that makes sense with nothing selected. NoOpenOverExistingPopup
                     // keeps this from stealing a right-click a row's own context menu above already
-                    // claimed this same frame.
-                    if (ImGui::BeginPopupContextWindow("Files Background Context", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverExistingPopup))
+                    // claimed this same frame. Doesn't apply in Trash mode - nothing pastes INTO trash.
+                    if (!m_bBrowsingTrash && ImGui::BeginPopupContextWindow("Files Background Context", ImGuiPopupFlags_MouseButtonRight | ImGuiPopupFlags_NoOpenOverExistingPopup))
                     {
                         if (ImGui::MenuItem("Paste", "Ctrl+V", false, !m_Clipboard.empty()))
                             PasteClipboard();
@@ -1306,8 +1578,9 @@ namespace e10
                     // Drop onto the empty table background (5C) - the third drop target the plan
                     // calls for, alongside LEFT-tree rows and RIGHT-panel folder rows above: "move/copy
                     // into the currently open folder". BeginDragDropTargetCustom lets a drop target
-                    // exist without being attached to a specific submitted item.
-                    if (ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->ContentRegionRect, ImGui::GetID("FilesBackgroundDropTarget")))
+                    // exist without being attached to a specific submitted item. Not offered in Trash
+                    // mode, matching every other mutation gesture above.
+                    if (!m_bBrowsingTrash && ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->ContentRegionRect, ImGui::GetID("FilesBackgroundDropTarget")))
                     {
                         if (const ImGuiPayload* Pl = ImGui::AcceptDragDropPayload("E10_ASSET_FILE_DRAG"))
                         {
@@ -1329,10 +1602,22 @@ namespace e10
         std::filesystem::path                 m_SelectedFolder  = {};
         std::wstring                          m_SelectedFile    = {};
 
+        // Trash browsing view (Phase 6) - true means every root computed from m_SelectedLibrary's
+        // library path is <Library>/.trash/assets rather than <Library>/Assets, and m_SelectedFolder is
+        // relative to THAT root instead. Toggled only via LeftPanel()'s own Assets/Trash tabs.
+        bool                                   m_bBrowsingTrash  = false;
+
         std::vector<path_history_entry>       m_PathHistoryList   = {};
         std::vector<path_history_entry>       m_PathHistoryListRU = {};
         std::uint32_t                         m_PathHistoryIndex  = 0;
         std::optional<std::filesystem::path>  m_ExpandToFolder    = {};
+
+        // Position/size of the breadcrumb bar (captured in RenderPath()) + open flag for the shared
+        // assert_browser::RenderPathHistoryPopup (E10_AssetBrowser.h) - same fields virtual_tree_tab
+        // keeps for the identical purpose.
+        ImVec2                                m_PathHistoryPos    = {};
+        ImVec2                                m_PathHistorySize   = {};
+        bool                                  m_PathHistoryShow   = false;
 
         // Multi-select, scoped to the current folder (m_SelectedFolder) - see ClearMultiSelect's own
         // comment for why it's cleared there rather than here.

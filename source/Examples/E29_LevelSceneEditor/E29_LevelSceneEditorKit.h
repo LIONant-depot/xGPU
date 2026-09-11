@@ -1109,8 +1109,17 @@ namespace e29
     // browser leaves these hooks unset and is byte-for-byte unaffected. Plain free function (not a
     // whole bridge struct) since these hooks need no persistent per-frame render state, unlike the
     // property inspector's own m_ComponentMap.
-    inline void RegisterAssetBrowserCallbacks(e10::assert_browser& Browser, xundo::system& Undo) noexcept
+    inline void RegisterAssetBrowserCallbacks(e10::assert_browser& Browser, xundo::system& Undo, xgpu::window& MainWindow) noexcept
     {
+        // OS-level (Explorer) drag-out (E10_AssetOleDrag.h) needs to know the real Win32 rect of the
+        // main window to tell "has this drag left our own app" apart from an ordinary in-app drag -
+        // see m_OnGetMainWindowHandle's own comment in E10_AssetBrowser.h for the multi-viewport/
+        // undocked-panel scope limit this deliberately accepts.
+        Browser.m_OnGetMainWindowHandle = [&MainWindow](void) -> std::size_t
+        {
+            return MainWindow.getSystemWindowHandle();
+        };
+
         Browser.m_OnRenameAsset = [&Undo](e10::library::guid LibraryGuid, xresource::full_guid Asset, std::string_view NewName)
         {
             e29::commands::Run(Undo, std::format("RenameAsset -Library {} -Asset {} -Name {}"
@@ -1164,20 +1173,35 @@ namespace e29
         // reject a change the user already approved. The command-level gate exists for the OTHER path
         // into these commands - a human or AI issuing them directly via the Command Console/CLI, which
         // has no modal to click and must use its own -Force 1 deliberately instead.
-        Browser.m_OnMoveAssetFile = [&Undo](e10::library::guid LibraryGuid, const std::wstring& OldRelPath, const std::wstring& NewRelPath)
+        //
+        // Batched - files_tab hands the WHOLE multi-item gesture here in one call; RunGroup turns it
+        // into ONE undo/redo step for every item, not N separate ones (direct user correction: "a
+        // 5-file delete should be 1 undo/redo step... the operation should be grouped" - xundo::system
+        // already supports this via its own grouped Execute(), this was just never wired through it).
+        Browser.m_OnMoveAssetFileBatch = [&Undo](e10::library::guid LibraryGuid, const std::vector<std::pair<std::wstring, std::wstring>>& Items) -> bool
         {
-            e29::commands::Run(Undo, std::format("MoveAssetFile -Library {} -OldPath {} -NewPath {} -Force 1"
-                , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::EncodeAssetPath(OldRelPath), e29::commands::EncodeAssetPath(NewRelPath)));
+            std::vector<std::string> Cmds;
+            Cmds.reserve(Items.size());
+            for (auto& [OldRelPath, NewRelPath] : Items)
+                Cmds.push_back(std::format("MoveAssetFile -Library {} -OldPath {} -NewPath {} -Force 1"
+                    , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::EncodeAssetPath(OldRelPath), e29::commands::EncodeAssetPath(NewRelPath)));
+            return e29::commands::RunGroup(Undo, "MoveAssetFile (multiple)", Cmds);
         };
 
         // -TrashPath must be pre-minted by the CALLER (ComputeTrashPath is a pure query, not something
         // Redo() can compute itself - see E29_Commands_AssetFiles.h's own top comment) - this hook is
         // exactly the call site that comment said didn't exist yet.
-        Browser.m_OnDeleteAssetFileToTrash = [&Undo](e10::library::guid LibraryGuid, const std::wstring& RelPath)
+        Browser.m_OnDeleteAssetFileToTrashBatch = [&Undo](e10::library::guid LibraryGuid, const std::vector<std::wstring>& RelPaths) -> bool
         {
-            const std::wstring TrashPath = e10::g_LibMgr.ComputeTrashPath(LibraryGuid, RelPath);
-            e29::commands::Run(Undo, std::format("DeleteAssetFileToTrash -Library {} -Path {} -TrashPath {} -Force 1"
-                , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::EncodeAssetPath(RelPath), e29::commands::EncodeAssetPath(TrashPath)));
+            std::vector<std::string> Cmds;
+            Cmds.reserve(RelPaths.size());
+            for (auto& RelPath : RelPaths)
+            {
+                const std::wstring TrashPath = e10::g_LibMgr.ComputeTrashPath(LibraryGuid, RelPath);
+                Cmds.push_back(std::format("DeleteAssetFileToTrash -Library {} -Path {} -TrashPath {} -Force 1"
+                    , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::EncodeAssetPath(RelPath), e29::commands::EncodeAssetPath(TrashPath)));
+            }
+            return e29::commands::RunGroup(Undo, "DeleteAssetFileToTrash (multiple)", Cmds);
         };
 
         Browser.m_OnRestoreAssetFileFromTrash = [&Undo](e10::library::guid LibraryGuid, const std::wstring& TrashRelPath, const std::wstring& OriginalRelPath)

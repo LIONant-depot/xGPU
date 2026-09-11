@@ -510,20 +510,10 @@ namespace e10
         }
 
         //=============================================================================
-
-        static bool ScaleButton(const char* pTxt, float Scale)
-        {
-            float old_font_size = ImGui::GetFont()->Scale;
-            ImGui::GetFont()->Scale *= Scale;
-            ImGui::PushFont(ImGui::GetFont());
-            bool pressed = ImGui::Button(pTxt);
-            ImGui::GetFont()->Scale = old_font_size;
-            ImGui::PopFont();
-
-            return pressed;
-        }
-
-        //=============================================================================
+        // ScaleButton moved to assert_browser::ScaleButton (E10_AssetBrowser.h) - files_tab's own
+        // Asset Tree needed the identical helper, so this is now the ONE shared copy rather than two
+        // (direct user request: "the less code the better"). Every call site below updated to the
+        // qualified name.
 
         void OpenLeftTreeTo( e10::library::guid gLibrary, e10::folder::guid gFolder )
         {
@@ -581,6 +571,15 @@ namespace e10
                 m_PathHistoryListRU.insert(m_PathHistoryListRU.begin(), m_PathHistoryList[m_PathHistoryIndex]);
             }
 
+            // Actually apply the current history entry's selection - moved here (rather than left ONLY
+            // in PathHistoryUpdate, which used to be the sole caller) now that Back/Forward mutate
+            // m_PathHistoryIndex and call UpdateHistoryLRU() directly (RenderNavigationPath(), via the
+            // shared assert_browser::RenderPathHistoryPopup's OnPickStack callback too) - matches
+            // files_tab's own UpdateHistoryLRU, which already had this responsibility. Without this,
+            // Back/Forward moved the index but never updated what was actually selected/shown.
+            m_SelectedLibrary = m_PathHistoryList[m_PathHistoryIndex].m_gLibrary;
+            m_ParentGUID      = m_PathHistoryList[m_PathHistoryIndex].m_gFolder;
+
             m_SelectedItems.clear();
             OpenLeftTreeTo(m_PathHistoryList[m_PathHistoryIndex].m_gLibrary, m_PathHistoryList[m_PathHistoryIndex].m_gFolder);
 
@@ -615,12 +614,9 @@ namespace e10
 
             assert(m_PathHistoryIndex < m_PathHistoryList.size());
 
-            m_SelectedLibrary = m_PathHistoryList[m_PathHistoryIndex].m_gLibrary;
-            m_ParentGUID      = m_PathHistoryList[m_PathHistoryIndex].m_gFolder;
-
-
             //
-            // Update the Recently Used list...
+            // Update the Recently Used list (also applies m_SelectedLibrary/m_ParentGUID from the
+            // current entry now - see UpdateHistoryLRU's own comment)...
             //
             UpdateHistoryLRU();
         }
@@ -672,21 +668,23 @@ namespace e10
 
         //=============================================================================
 
+        // Now shares assert_browser::ScaleButton and assert_browser::RenderPathHistoryPopup
+        // (E10_AssetBrowser.h) with files_tab's own Asset Tree instead of each keeping its own
+        // hand-rolled copy - the Asset Tree needed this exact widget for consistency, and factoring it
+        // out to the one shared place both tabs already include meant this file's own ~90-line inline
+        // popup block could be deleted rather than duplicated ("the less code the better").
         void RenderNavigationPath()
         {
             ImGui::SameLine();
-            //ImGui::PushFont(xgpu::tools::imgui::getFont(1));
-            if (m_PathHistoryIndex==0) 
+            if (m_PathHistoryIndex==0)
             {
                 ImGui::BeginDisabled();
-                ScaleButton("\xEE\x9C\xAB", 1.0f);
+                assert_browser::ScaleButton("\xEE\x9C\xAB", 1.0f);
                 ImGui::EndDisabled();
             }
-            else if (ScaleButton("\xEE\x9C\xAB", 1.0f))
+            else if (assert_browser::ScaleButton("\xEE\x9C\xAB", 1.0f))
             {
                 m_PathHistoryIndex--;
-                m_SelectedLibrary   = m_PathHistoryList[m_PathHistoryIndex].m_gLibrary;
-                m_ParentGUID        = m_PathHistoryList[m_PathHistoryIndex].m_gFolder;
                 UpdateHistoryLRU();
             }
 
@@ -694,139 +692,26 @@ namespace e10
             if ((m_PathHistoryIndex+1) >= m_PathHistoryList.size())
             {
                 ImGui::BeginDisabled();
-                ScaleButton("\xEE\x9C\xAA", 1.0f);
+                assert_browser::ScaleButton("\xEE\x9C\xAA", 1.0f);
                 ImGui::EndDisabled();
             }
-            else if (ScaleButton("\xEE\x9C\xAA", 1.0f)) //"\xef\x82\x8" //\xef\x82\x8f   \xee\xa4\xb7
+            else if (assert_browser::ScaleButton("\xEE\x9C\xAA", 1.0f))
             {
                 m_PathHistoryIndex  = static_cast<std::uint32_t>(m_PathHistoryIndex + 1ull);
-                m_SelectedLibrary   = m_PathHistoryList[m_PathHistoryIndex].m_gLibrary;
-                m_ParentGUID        = m_PathHistoryList[m_PathHistoryIndex].m_gFolder;
                 UpdateHistoryLRU();
             }
-            //ImGui::PopFont();
 
-            //
-            // Display Full stack
-            //
-            ImGui::SameLine(0, 0.8f); //\xEE\xA0\x9C
-            if (ScaleButton("\xee\xa5\xb2", 0.8f)) //"\xef\x82\x8" //\xef\x82\x8f   \xee\xa4\xb7
-            {
-                m_PathHistoryShow = true;
-            }
+            ImGui::SameLine(0, 0.8f);
+            if (assert_browser::ScaleButton("\xee\xa5\xb2", 0.8f)) m_PathHistoryShow = true;
             ImGui::SameLine(0, 1.0f);
 
-            //
-            // Render the path
-            //
-            RenderPath();
+            RenderPath();   // captures m_PathHistoryPos/m_PathHistorySize for the popup below
 
-            //
-            // Handle the history Popup
-            //
-            if ( m_PathHistoryShow )
-            {
-                ImGui::SetNextWindowPos({ m_PathHistoryPos.x, m_PathHistoryPos.y + 24} );
-                ImGui::SetNextWindowSize({ m_PathHistorySize.x, m_PathHistorySize.y + 24*4 });
-                ImGui::OpenPopup("Path History");
-            }
-
-            if (ImGui::BeginPopup("Path History"))
-            {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));        // Transparent background
-                ImGui::PushStyleColor(ImGuiCol_Tab, ImVec4(0.245f, 0.245f, 0.245f, 0.8f));
-                if (ImGui::BeginTabBar("History", ImGuiTabBarFlags_None))
-                {
-                    if (ImGui::BeginTabItem("\xEE\xA0\x9C History"))
-                    {
-                        ImGui::SetNextWindowBgAlpha(0.0f);
-                        if (ImGui::BeginChild("FrameRU", ImVec2{}, ImGuiTabBarFlags_None))
-                        {
-                            for (auto& E : m_PathHistoryListRU)
-                            {
-                                std::string FolderName = BuildPathString(E.m_gLibrary, E.m_gFolder);
-
-                                //
-                                // Display as a button
-                                //
-                                if (FolderName.empty() == false)
-                                {
-                                    FolderName = std::format("\xEE\xA0\x9C {}", FolderName);
-
-                                    const auto Index = static_cast<std::uint32_t>(&E - m_PathHistoryListRU.data());
-                                    ImGui::PushID(Index);
-                                    if (ImGui::Button(FolderName.c_str()))
-                                    {
-                                        PathHistoryUpdate(E.m_gLibrary, E.m_gFolder);
-                                        m_PathHistoryShow  = false;
-                                        ImGui::CloseCurrentPopup();
-                                    }
-                                    ImGui::PopID();
-                                }
-                            }
-                            ImGui::EndChild();
-                        }
-                        ImGui::EndTabItem();
-                    }
-
-                    if (ImGui::BeginTabItem("\xEE\xA0\xB5 Navigation"))
-                    {
-                        ImGui::SetNextWindowBgAlpha(0.0f);
-                        if (ImGui::BeginChild("FrameWindow", ImVec2{}, ImGuiTabBarFlags_None))
-                        {
-                            for (auto& E : std::views::reverse( m_PathHistoryList ))
-                            {
-                                std::string FolderName = BuildPathString(E.m_gLibrary, E.m_gFolder);
-
-                                //
-                                // Display as a button
-                                //
-                                if(FolderName.empty() == false)
-                                {
-                                    auto Index = static_cast<std::uint32_t>(&E - m_PathHistoryList.data());
-
-                                    if (Index == m_PathHistoryIndex)
-                                    {
-                                        FolderName = std::format("\xEE\x9C\xBE {}", FolderName);
-                                    }
-                                    else
-                                    {
-                                        FolderName = std::format("  {}", FolderName);
-                                    }
-
-                                    ImGui::PushID(Index);
-                                    if (ImGui::Button(FolderName.c_str()))
-                                    {
-                                        m_ParentGUID       = E.m_gFolder;
-                                        m_SelectedLibrary  = E.m_gLibrary;
-                                        m_PathHistoryShow  = false;
-                                        m_PathHistoryIndex = static_cast<std::uint32_t>(&E - m_PathHistoryList.data());
-                                        UpdateHistoryLRU();
-                                        ImGui::CloseCurrentPopup();
-                                    }
-                                    ImGui::PopID();
-                                }
-                            }
-
-                            ImGui::EndChild();
-                        }
-
-                        ImGui::EndTabItem();
-                    }
-
-                    // If user clicks outside the popup, close it
-                    if ((ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered()))
-                    {
-                        ImGui::CloseCurrentPopup();
-                        m_PathHistoryShow = false;
-                    }
-
-                    ImGui::EndTabBar();
-                }
-
-                ImGui::PopStyleColor(2);
-                ImGui::EndPopup(); 
-            }
+            assert_browser::RenderPathHistoryPopup(m_PathHistoryShow, m_PathHistoryPos, m_PathHistorySize,
+                m_PathHistoryListRU, m_PathHistoryList, m_PathHistoryIndex,
+                [this](const path_history_entry& E) { return BuildPathString(E.m_gLibrary, E.m_gFolder); },
+                [this](const path_history_entry& E) { PathHistoryUpdate(E.m_gLibrary, E.m_gFolder); },
+                [this](std::uint32_t Index) { m_PathHistoryIndex = Index; UpdateHistoryLRU(); });
         }
 
         //=============================================================================
@@ -859,7 +744,7 @@ namespace e10
                 ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.5f, 0, 0, 1));        
                 ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.9f, 0, 0, 1));
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.9f, 0, 0, 1));
-                if (ScaleButton("\xEE\x9C\xB8", 1.2f))
+                if (assert_browser::ScaleButton("\xEE\x9C\xB8", 1.2f))
                 {
                     ImGui::OpenPopup("Delete All Resources");
                 }
@@ -893,7 +778,7 @@ namespace e10
                 });
                 if (bIsDeleted) return;
 
-                if (ScaleButton("\xee\xa5\x88", 1.2f))
+                if (assert_browser::ScaleButton("\xee\xa5\x88", 1.2f))
                 {
                     ImGui::OpenPopup("Add Resource");
                 }
@@ -912,7 +797,7 @@ namespace e10
         {
             static bool keepPopupOpen = false;
             static ImVec2 popupPos = ImVec2(0, 0);
-            if (ScaleButton("\xEE\x9E\xB3\xee\xa5\xb2", 0.9f))   // 
+            if (assert_browser::ScaleButton("\xEE\x9E\xB3\xee\xa5\xb2", 0.9f))   // 
             {
                 keepPopupOpen = true;
                 popupPos = ImVec2(ImGui::GetItemRectMin().x, ImGui::GetItemRectMax().y);

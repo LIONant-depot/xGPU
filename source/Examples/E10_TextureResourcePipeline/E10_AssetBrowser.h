@@ -467,6 +467,11 @@ namespace e10
 
         //=============================================================================
 
+    public:
+        // ScaleButton/RenderPathHistoryPopup are called from files_tab.h/virtual_tree_tab.h, which hold
+        // assert_browser only by reference (not derived from it), so they need real public access, not
+        // the protected level everything else in this block uses - re-closed with `protected:` again
+        // right after RenderPathHistoryPopup so nothing else here is accidentally exposed.
         static bool ScaleButton(const char* pTxt, float Scale)
         {
             float old_font_size = ImGui::GetFont()->Scale;
@@ -479,6 +484,110 @@ namespace e10
             return pressed;
         }
 
+        //=============================================================================
+        // Shared two-tab path-history popup - originally virtual_tree_tab's own inline
+        // RenderNavigationPath() block (its "History"/"Navigation" tabs over the descriptor-folder
+        // tree's own history), now factored out here so files_tab's real-filesystem history can use the
+        // EXACT same widget rather than a hand-rolled lookalike - direct user request: "keep things
+        // consistent... if this means we can refactor code... the less code the better." Both tabs'
+        // consumers keep their own path_history_entry shape (folder-guid based vs filesystem-path
+        // based) and their own PathHistoryUpdate/UpdateHistoryLRU logic - this only owns the WIDGET,
+        // parameterized on how to turn one entry into a display string and what happens when one is
+        // picked from each list:
+        //   ToString(entry) -> std::string                  (empty string = skip this row entirely)
+        //   OnPickRecency(entry)                             ("History" tab - jump via the caller's own
+        //                                                      PathHistoryUpdate, may truncate/append)
+        //   OnPickStack(index)                                ("Navigation" tab - jump to that EXACT
+        //                                                      index in the caller's own linear stack,
+        //                                                      preserving the rest of it - NOT the same
+        //                                                      as calling PathHistoryUpdate again)
+        // bShow/Pos/Size are the caller's own m_PathHistoryShow/m_PathHistoryPos/m_PathHistorySize
+        // (captured from the caller's own breadcrumb-bar draw, e.g. RenderPath()'s start_pos/line_height).
+        template<typename T_ENTRY, typename T_TO_STRING, typename T_ON_PICK_RECENCY, typename T_ON_PICK_STACK>
+        static void RenderPathHistoryPopup(bool& bShow, ImVec2 Pos, ImVec2 Size
+                                           , const std::vector<T_ENTRY>& RecencyList
+                                           , const std::vector<T_ENTRY>& LinearStack, std::uint32_t CurrentIndex
+                                           , T_TO_STRING&& ToString, T_ON_PICK_RECENCY&& OnPickRecency, T_ON_PICK_STACK&& OnPickStack) noexcept
+        {
+            if (bShow)
+            {
+                ImGui::SetNextWindowPos ({ Pos.x, Pos.y + 24 });
+                ImGui::SetNextWindowSize({ Size.x, Size.y + 24 * 4 });
+                ImGui::OpenPopup("Path History");
+            }
+
+            if (!ImGui::BeginPopup("Path History")) return;
+
+            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+            ImGui::PushStyleColor(ImGuiCol_Tab,    ImVec4(0.245f, 0.245f, 0.245f, 0.8f));
+
+            if (ImGui::BeginTabBar("History"))
+            {
+                if (ImGui::BeginTabItem("\xEE\xA0\x9C History"))
+                {
+                    ImGui::SetNextWindowBgAlpha(0.0f);
+                    if (ImGui::BeginChild("FrameRU"))
+                    {
+                        for (std::uint32_t i = 0; i < RecencyList.size(); ++i)
+                        {
+                            std::string Name = ToString(RecencyList[i]);
+                            if (!Name.empty())
+                            {
+                                ImGui::PushID(static_cast<int>(i));
+                                if (ImGui::Button(std::format("\xEE\xA0\x9C {}", Name).c_str()))
+                                {
+                                    OnPickRecency(RecencyList[i]);
+                                    bShow = false;
+                                    ImGui::CloseCurrentPopup();
+                                }
+                                ImGui::PopID();
+                            }
+                        }
+                        ImGui::EndChild();
+                    }
+                    ImGui::EndTabItem();
+                }
+
+                if (ImGui::BeginTabItem("\xEE\xA0\xB5 Navigation"))
+                {
+                    ImGui::SetNextWindowBgAlpha(0.0f);
+                    if (ImGui::BeginChild("FrameWindow"))
+                    {
+                        for (std::uint32_t i = static_cast<std::uint32_t>(LinearStack.size()); i-- > 0; )
+                        {
+                            std::string Name = ToString(LinearStack[i]);
+                            if (!Name.empty())
+                            {
+                                Name = (i == CurrentIndex) ? std::format("\xEE\x9C\xBE {}", Name) : std::format("  {}", Name);
+                                ImGui::PushID(static_cast<int>(i));
+                                if (ImGui::Button(Name.c_str()))
+                                {
+                                    OnPickStack(i);
+                                    bShow = false;
+                                    ImGui::CloseCurrentPopup();
+                                }
+                                ImGui::PopID();
+                            }
+                        }
+                        ImGui::EndChild();
+                    }
+                    ImGui::EndTabItem();
+                }
+
+                if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsWindowHovered() && !ImGui::IsAnyItemHovered())
+                {
+                    ImGui::CloseCurrentPopup();
+                    bShow = false;
+                }
+
+                ImGui::EndTabBar();
+            }
+
+            ImGui::PopStyleColor(2);
+            ImGui::EndPopup();
+        }
+
+    protected:
         //=============================================================================
 
         // Independent-windows layout for DOCKABLE mode - see browser_registration<>'s own comment for
@@ -738,18 +847,41 @@ namespace e10
         // E29 (RegisterAssetBrowserCallbacks) wires them today, every other DOCKABLE-only consumer of
         // files_tab (there are none yet) would fall back to a direct, non-undo-routed call. Rename and
         // Move share one hook (MoveAssetFile is the single underlying primitive for both, matching
-        // rename_asset_file_cmd/move_asset_file_cmd's own "two names, one wrap" shape). Delete/Restore
-        // take just the semantic path(s) - trash-path computation (ComputeTrashPath) happens INSIDE the
-        // hook's own implementation, mirroring how m_OnCreateAsset pre-mints its own guid internally
-        // rather than pushing that detail onto every call site.
-        std::function<void(library::guid, const std::wstring& /*OldRelPath*/, const std::wstring& /*NewRelPath*/)>
-            m_OnMoveAssetFile;
-        std::function<void(library::guid, const std::wstring& /*RelPath*/)>
-            m_OnDeleteAssetFileToTrash;
+        // rename_asset_file_cmd/move_asset_file_cmd's own "two names, one wrap" shape).
+        //
+        // Move/Delete are ALWAYS batched (a vector, even for a single item) - direct user correction:
+        // "a 5-file delete should be 1 undo/redo step... the operation should be grouped." xundo::system
+        // already has a grouped-execute API (Execute(group_name, vector<string>) - one history entry for
+        // every sub-command); these hooks exist so files_tab can hand a WHOLE multi-item gesture (a
+        // multi-select delete, a multi-cut paste, a whole-selection drag) to ONE call, which
+        // RegisterAssetBrowserCallbacks turns into ONE grouped Execute() rather than N separate ones.
+        // Restore/Copy stay single-item - neither has a multi-item call site today.
+        //
+        // Both return true on success - a real bug found live: PasteClipboardInto used to spend the
+        // cut clipboard unconditionally, even when the paste had just failed outright (e.g. pasting
+        // into the same folder the files were cut from), so a failed paste silently lost the user's
+        // clipboard instead of leaving it intact to retry. The caller needs a real success signal to
+        // fix that, not just "did this hook exist".
+        std::function<bool(library::guid, const std::vector<std::pair<std::wstring, std::wstring>>& /*Old,New pairs*/)>
+            m_OnMoveAssetFileBatch;
+        std::function<bool(library::guid, const std::vector<std::wstring>& /*RelPaths*/)>
+            m_OnDeleteAssetFileToTrashBatch;
         std::function<void(library::guid, const std::wstring& /*TrashRelPath*/, const std::wstring& /*OriginalRelPath*/)>
             m_OnRestoreAssetFileFromTrash;
         std::function<void(library::guid, const std::wstring& /*SourceRelPath*/, const std::wstring& /*NewRelPath*/)>
             m_OnCopyAssetFile;
+
+        // Optional hook so files_tab can find the real Win32 HWND currently hosting this browser, for
+        // real OS-level (Explorer) drag-out (E10_AssetOleDrag.h) - it needs a screen-space window rect
+        // to decide "has the drag left our own app" every frame. Returns a std::size_t castable to HWND
+        // (matches xgpu::window::getSystemWindowHandle's own return type), or 0 if not wired - default-
+        // empty like every hook above, so OS drag-out is simply disabled for every consumer except E29
+        // (RegisterAssetBrowserCallbacks). Deliberately scoped to the MAIN window only: a docked Asset
+        // Tree lives inside it, but an undocked panel spawns its own multi-viewport child HWND that this
+        // hook can't see - dragging from an undocked panel falls back to in-app-only behavior rather
+        // than risk hijacking the gesture against the wrong window's rect.
+        std::function<std::size_t(void)>
+            m_OnGetMainWindowHandle;
     };
 
 } // namespace e10
