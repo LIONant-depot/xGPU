@@ -151,8 +151,32 @@ namespace e29
                     State.m_bEntityInspectorDirty = false;
                 }
 
+                // Component headers use ImGuiCol_Header, which is ALSO the tree/list selection color
+                // (E29_Theme.h's Unity-inspired blue) - fine for a hierarchy row, but real Unity's own
+                // Inspector component headers are a neutral gray ("Inspector Titlebar", #3E3E3E), not
+                // blue; blue is reserved for actual selection. Overridden locally, only around this
+                // Show() call, so tree/list selection elsewhere stays the real selection blue.
+                ImGui::PushStyleColor(ImGuiCol_Header,        ImVec4(0x3E / 255.0f, 0x3E / 255.0f, 0x3E / 255.0f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0x4A / 255.0f, 0x4A / 255.0f, 0x4A / 255.0f, 1.0f));
+                ImGui::PushStyleColor(ImGuiCol_HeaderActive,  ImVec4(0x4A / 255.0f, 0x4A / 255.0f, 0x4A / 255.0f, 1.0f));
+                // Show() internally uses the legacy ImGui::Columns(2) (xPropertyImGuiInspector.cpp),
+                // which draws a live, draggable ImGuiCol_Separator line down the whole label/value
+                // split by default - a real border line, not a color mismatch, so the earlier Header
+                // color fix alone couldn't remove it (direct user follow-up: "the gap still there").
+                // Matched to WindowBg instead of touching the shared Columns() call itself (which
+                // would also change every other example's own column-resize border) - resting state
+                // blends into the flat row, but SeparatorHovered/Active are left as the theme's own
+                // values so dragging the label/value split is still discoverable on hover.
+                ImGui::PushStyleColor(ImGuiCol_Separator, ImVec4(0x38 / 255.0f, 0x38 / 255.0f, 0x38 / 255.0f, 1.0f));
+                // REVERTED: pre-opening/closing our own Columns(2) here to seed a width for Show()'s
+                // own internal Columns(2) call triggered a real ImGui "2 visible items with conflicting
+                // ID" debug error (confirmed live) - not a safe pattern, back this out rather than
+                // ship a broken column-ID state. The actual reported issue (a dark divider line
+                // splitting the header's own background) is separate from column width entirely -
+                // being investigated on its own, not re-attempting this approach.
                 xproperty::settings::context Context;
                 EntityInspector.Show(Context, []{});
+                ImGui::PopStyleColor(4);
 
                 // A component header's "[X]" (entity_inspector_bridge::m_OnComponentHeaderRender) only
                 // ever records the request while Show() is mid-iteration over this same component list

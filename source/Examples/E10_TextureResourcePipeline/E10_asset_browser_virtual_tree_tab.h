@@ -428,7 +428,7 @@ namespace e10
                 const int Index = static_cast<int>(&E - &PathNodeList[0]);
 
                 ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.5f, 0.5f, 0.5f, 0.5f));
-                if (&E == &PathNodeList.back()) ImGui::PushFont(xgpu::tools::imgui::getFont(1));
+                if (&E == &PathNodeList.back()) ImGui::PushFont(xgpu::tools::imgui::getEmphasisFont());
                 if (ImGui::Button(E.m_Name.c_str()))
                 {
                     m_ParentGUID = E.m_Guid;
@@ -1045,7 +1045,7 @@ namespace e10
 
                     ImVec2          nodePosition    = ImGui::GetCursorPos();
                     bool&           IsInTheoryOpen  = m_IsTreeNodeOpen[Folder.m_Guid];
-                    if (Folder.m_isSelected) ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[1]);
+                    if (Folder.m_isSelected) ImGui::PushFont(xgpu::tools::imgui::getEmphasisFont());
 
                     static constexpr std::array<std::array<const char*, 2>, 2> IconSet = { { { "\xee\xa0\xb8", "\xee\xa2\xb7" }, {"\xEE\xA3\x95", "\xEE\xB5\x84"} } };
 

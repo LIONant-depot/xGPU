@@ -50,6 +50,15 @@ namespace xgpu::tools::imgui
     void                    Shutdown        ( void ) noexcept;
     ImFont*&                getFont         ( int Index=0) noexcept;
 
+    // Returns the "bold/emphasized" companion of whatever font is CURRENTLY io.FontDefault, instead of
+    // a hardcoded index - shared tree/breadcrumb rendering code (e.g. virtual_tree_tab.h's "selected
+    // folder"/"last path segment" emphasis) uses this so an example that overrides io.FontDefault away
+    // from the original Fonts[0] Consolas (E29's own Segoe UI theme, see E29_Theme.h) still gets a
+    // matching-family bold variant instead of a jarring font-family mismatch. Every example that never
+    // touches io.FontDefault gets Fonts[1] exactly as before - zero behavior change for them.
+    ImFont*                 getEmphasisFont ( void ) noexcept;
+    ImFont*                 getLargeEmphasisFont ( void ) noexcept;  // getEmphasisFont's "genuinely larger" companion (Fonts[3]/[6]) - see xgpu_imgui_breach.cpp
+
     // True exactly once on the frame the app window transitions from unfocused to focused (e.g. the
     // user alt-tabbed back in after editing code in an external IDE - the same edge Unity uses to
     // decide "check if scripts need recompiling"). Edge-triggered and self-consuming: calling this

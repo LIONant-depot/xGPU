@@ -933,7 +933,16 @@ namespace e29
                 const ImVec2 RowPos = ImGui::GetCursorScreenPos();
                 const float  AvailW = ImGui::GetContentRegionAvail().x;
                 ImGui::SetCursorScreenPos(ImVec2(RowPos.x + AvailW - 20.0f, RowPos.y));
+                // Borderless/transparent-at-rest, only picking up a background on hover - matches
+                // Unity's own small inline toolbar icon buttons (direct user comparison screenshot:
+                // a bordered gray box vs Unity's flat "?"/drag-handle/"..." icons that only highlight
+                // on hover). ButtonHovered/ButtonActive are left as the theme's own values so the
+                // hover feedback itself still reads as a real button, just not a boxed one at rest.
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
                 if (ImGui::SmallButton("X")) m_pPendingRemoveComponent = pInfo;
+                ImGui::PopStyleVar();
+                ImGui::PopStyleColor();
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove this component from the entity");
             };
             Inspector.m_OnComponentHeaderRender.Register(m_OnComponentHeaderRender);
@@ -1037,7 +1046,14 @@ namespace e29
                 if (bShowClear)
                 {
                     ImGui::SameLine();
-                    if (ImGui::SmallButton("X"))
+                    // Same borderless/hover-only treatment as the component-header "X" above - this is
+                    // the entity-reference "Target" field's own clear button, visible in the same panel.
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
+                    ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+                    const bool bClearClicked = ImGui::SmallButton("X");
+                    ImGui::PopStyleVar();
+                    ImGui::PopStyleColor();
+                    if (bClearClicked)
                     {
                         // AfterScene/AfterId 0/0 is SetEntityReference's own "clear" sentinel - same
                         // routing/reasoning as the assign path just above.

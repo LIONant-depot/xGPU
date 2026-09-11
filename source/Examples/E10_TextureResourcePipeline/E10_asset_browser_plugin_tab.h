@@ -40,6 +40,23 @@ namespace e10
             , xproperty::inspector{ "Resource Plugin Properties" }
             , m_AssetMgr{ *Browser.getAssetMgr() }
         {
+            // This tab is DOCKABLE-only (see its registration below), so it only ever renders under
+            // E29 - same reasoning/comment as E29_LevelScene_Editor.cpp's own EntityInspector override.
+            m_Settings.m_bRenderBackgroundDepth  = false;
+            m_Settings.m_bRenderLeftBackground   = false;
+            m_Settings.m_bRenderRightBackground  = false;
+            // Same row-spacing override as EntityInspector (E29_LevelScene_Editor.cpp) - these are
+            // per-instance settings the inspector pushes itself, not tied to the ambient ImGuiStyle.
+            m_Settings.m_FramePadding            = ImVec2(4.0f, 3.0f);   // was {1, 3.5} - +2px, same follow-up as EntityInspector (buttons/fields, not row gap)
+            // ItemSpacing.x specifically: this is what leaves an unpainted gap between the component
+            // header's own left box (TreeNodeEx) and its right-column fill (a separate AddRectFilled
+            // call) - confirmed by direct pixel measurement (an ~8px strip of raw background showing
+            // through at exactly 2x this value) after a direct user follow-up with a screenshot: "the
+            // dark divider that breaks the background color of the header... literally breaks it in
+            // two". Not a border/color issue (already checked) - genuinely unpainted space between two
+            // separately-drawn rects, from the columns' own gap reservation.
+            m_Settings.m_ItemSpacing             = ImVec2(1.0f, 1.0f);   // was {0.5, 2.0}, then {4, 1}
+            m_Settings.m_TableFramePadding       = ImVec2(4.0f, 1.0f);   // was {2, 6}
         }
 
         //=============================================================================
@@ -189,12 +206,36 @@ namespace e10
                     ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 0);
                     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
 
-                    ImGui::Columns(2);
+                    // Header background matches the panel's own WindowBg exactly (not just "neutral
+                    // gray" - direct user follow-up, with a screenshot: a visibly highlighted bar with
+                    // nothing drawn on it, spanning the whole empty value column, read as a big dead
+                    // gap). Entity Properties keeps its own neutral-gray header because that column
+                    // actually has something in it (the "X" remove-component button) - this panel's
+                    // properties are read-only, nothing is ever drawn in that space, so the header
+                    // blends into the row instead of highlighting emptiness. This tab is DOCKABLE-only
+                    // (browser_registration<>'s own T_DOCKABLE_ONLY, above), so it only ever renders
+                    // under E29.
+                    ImGui::PushStyleColor(ImGuiCol_Header,        ImVec4(0x38 / 255.0f, 0x38 / 255.0f, 0x38 / 255.0f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0x4A / 255.0f, 0x4A / 255.0f, 0x4A / 255.0f, 1.0f));
+                    ImGui::PushStyleColor(ImGuiCol_HeaderActive,  ImVec4(0x4A / 255.0f, 0x4A / 255.0f, 0x4A / 255.0f, 1.0f));
+
+                    // border=false - the legacy Columns() API defaults to drawing a live, draggable
+                    // vertical separator line between columns; direct user follow-up screenshot after
+                    // the header-color fix above ("the gap still there") - the color fix couldn't
+                    // touch this because it isn't a color mismatch, it's a real border line ImGui
+                    // draws independently of any Style.Colors value used elsewhere in this panel.
+                    const float TotalWidth = ImGui::GetContentRegionAvail().x;
+                    ImGui::Columns(2, nullptr, false);
+                    // Even 50/50 split left a big dead gap after short labels like "TypeName" before
+                    // the value even starts (direct user follow-up: "big separation between the left
+                    // and right columns").
+                    ImGui::SetColumnWidth(0, TotalWidth * 0.42f);
                     ImGui::Separator();
                     Show();
                     ImGui::Columns(1);
                     ImGui::Separator();
 
+                    ImGui::PopStyleColor(3);
                     ImGui::PopStyleVar(6);
                 }
             }

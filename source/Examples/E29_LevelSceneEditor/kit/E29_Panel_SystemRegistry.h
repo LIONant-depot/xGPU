@@ -5,6 +5,10 @@
 // Extracted from E29_LevelSceneEditorKit.h (mechanical move, phase 1 of the kit split - see that
 // file's own top comment). Meant to be included via the umbrella (E29_LevelSceneEditorKit.h) only -
 // not designed to be included standalone.
+//
+// E29_Theme.h included directly (not just relying on E29_LevelScene_Editor.cpp's own later include)
+// for UnityCheckbox - same self-sufficiency reasoning as kit/E29_Panel_LevelTree.h's own top comment.
+#include "source/Examples/E29_LevelSceneEditor/E29_Theme.h"
 
 namespace e29
 {
@@ -42,11 +46,22 @@ namespace e29
             {
                 ImGui::TextDisabled("No Update systems registered.");
             }
-            else if (ImGui::BeginTable("SystemRegistry", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersV, ImVec2(0.0f, ImGui::GetContentRegionAvail().y)))
+            // BordersV removed - direct user comparison against Unity's own component header row
+            // (checkbox + icon + name, no vertical divider at all between them): a line between the
+            // checkbox and its label reads as two unrelated cells stitched together, not one row.
+            // CellPadding.x tightened locally (not globally - every other table in the app still wants
+            // the ambient value) - the gap between the checkbox and the name text is column0's own
+            // trailing padding PLUS column1's own leading padding, so both matter here.
+            ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(2.0f, ImGui::GetStyle().CellPadding.y));
+            if (ImGui::BeginTable("SystemRegistry", 2, ImGuiTableFlags_RowBg, ImVec2(0.0f, ImGui::GetContentRegionAvail().y)))
             {
-                // Just wide enough for the checkbox itself (frame height + a little breathing room
-                // either side) - not an arbitrary wide column.
-                ImGui::TableSetupColumn("Enabled", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFrameHeight() + 12.0f);
+                // Just wide enough for the checkbox itself + a hair of breathing room - not an
+                // arbitrary wide column. Direct user comparison against Unity's own tightly-grouped
+                // checkbox+label found first +12, then +4, still too wide. Sized off GetFontSize()
+                // directly, not GetFrameHeight() - the checkbox itself is drawn with FramePadding
+                // pushed to (0,0) below, so using the ambient (unpushed) FrameHeight here would size
+                // this column for a bigger box than the one actually drawn.
+                ImGui::TableSetupColumn("Enabled", ImGuiTableColumnFlags_WidthFixed, ImGui::GetFontSize() + 1.0f);
                 ImGui::TableSetupColumn("Name",    ImGuiTableColumnFlags_WidthStretch);
 
                 for (std::size_t i = 0; i < Rows.size(); ++i)
@@ -57,11 +72,22 @@ namespace e29
 
                     ImGui::TableSetColumnIndex(0);
                     bool bEnabled = Row.m_bEnabled;
-                    if (ImGui::Checkbox("##Enabled", &bEnabled))
+                    // A checkbox's box is FontSize+FramePadding.y*2 square - against E29_Theme.h's
+                    // larger 17px UI font, the global FramePadding made it read as noticeably heavier/
+                    // chunkier than the row's own text (direct user feedback: "buttons disproportional
+                    // to the font" - "the button", the box itself, not just its tick). Tightened
+                    // locally rather than shrinking FramePadding globally, which would cramp every
+                    // other framed widget in the app. UnityCheckbox (not ImGui::Checkbox) for the tick
+                    // itself - its size/thickness ratio is hardcoded inside ImGui with no style-var
+                    // override, so at any box size it drew a noticeably bolder mark than Unity's own
+                    // delicate tick (direct user comparison).
+                    ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(0, 0));
+                    if (e29::theme::UnityCheckbox("##Enabled", &bEnabled))
                     {
                         GameMgr.m_SystemMgr.SetUpdateSystemEnabled(Row.m_Guid, bEnabled);
                         bChanged = true;
                     }
+                    ImGui::PopStyleVar();
 
                     // ONE real, visible item serves as BOTH the drag source and the drop target -
                     // an earlier attempt used a SEPARATE invisible full-row Selectable as the drop
@@ -124,6 +150,7 @@ namespace e29
                 }
                 ImGui::EndTable();
             }
+            ImGui::PopStyleVar(); // matches the CellPadding push above BeginTable - unconditional, since BeginTable can return false
 
             // Persisted immediately, but only on an actual edit this frame (not every frame the
             // window happens to be open) - mirrors Unity's own Script Execution Order behavior.

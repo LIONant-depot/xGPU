@@ -228,7 +228,7 @@ namespace e10
                     // res one, so it looks more professional."
                     if ( false == InfoDB->m_InfoDataBase.FindAsReadOnly(E.m_Entry.m_FullGuid.m_Instance, [&](const library_db::info_node& InfoNode)
                     {
-                        ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[3]);
+                        ImGui::PushFont(xgpu::tools::imgui::getLargeEmphasisFont());
                         if (InfoNode.m_Info.m_Name.empty())
                             ImGui::TextUnformatted(std::format("{:X}", E.m_Entry.m_FullGuid.m_Instance.m_Value).c_str());
                         else
@@ -237,7 +237,7 @@ namespace e10
                     }))
                     {
                         ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255));
-                        ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[3]);
+                        ImGui::PushFont(xgpu::tools::imgui::getLargeEmphasisFont());
                         ImGui::TextUnformatted(std::format("{:X} (Not in DBase)", E.m_Entry.m_FullGuid.m_Instance.m_Value).c_str());
                         ImGui::PopFont();
                         ImGui::PopStyleColor();
@@ -251,7 +251,7 @@ namespace e10
                 });
             });
 
-            ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[1]);
+            ImGui::PushFont(xgpu::tools::imgui::getEmphasisFont());
             ImGui::Text("Status:");
             ImGui::SameLine();
             ImGui::PopFont();

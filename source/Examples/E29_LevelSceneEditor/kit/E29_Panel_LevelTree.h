@@ -62,10 +62,17 @@ namespace e29
                 // to fill the rest of the window's height (ImGuiTableFlags_ScrollY so it scrolls
                 // internally instead of pushing the window's own edge) rather than only as tall as its
                 // content.
-                if (ImGui::BeginTable("LevelTree", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersV | ImGuiTableFlags_ScrollY, ImVec2(0.0f, ImGui::GetContentRegionAvail().y)))
+                // NoSavedSettings: ImGui persists per-table column widths in imgui_e29.ini across
+                // sessions by table id+column-count hash - a width picked BEFORE E29_Theme.h switched
+                // the default font from Consolas to the wider proportional Segoe UI would otherwise keep
+                // overriding the (now correct) 80px default below forever, clipping "Remove" to "Remov"
+                // on every future launch. Neither column here is something a user meaningfully needs to
+                // hand-resize and remember between sessions, so always-reset-to-default is the right
+                // call, not a narrower one-off ini edit.
+                if (ImGui::BeginTable("LevelTree", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersV | ImGuiTableFlags_ScrollY | ImGuiTableFlags_NoSavedSettings, ImVec2(0.0f, ImGui::GetContentRegionAvail().y)))
                 {
                     ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
-                    ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed, 64.0f);
+                    ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed, 80.0f);
 
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0);

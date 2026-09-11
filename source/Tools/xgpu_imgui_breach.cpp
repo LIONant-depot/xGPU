@@ -1452,6 +1452,28 @@ ImFont*& getFont(int Index) noexcept
 
 //------------------------------------------------------------------------------------------------------------
 
+ImFont* getEmphasisFont(void) noexcept
+{
+    ImGuiIO& io = ImGui::GetIO();
+    // Fonts[0]/[1] = Consolas regular/bold (every example's original default).
+    // Fonts[4]/[5] = Segoe UI regular/semibold (E29's Unity-inspired theme, see E29_Theme.h).
+    if (io.FontDefault == io.Fonts->Fonts[4]) return io.Fonts->Fonts[5];
+    return io.Fonts->Fonts[1];
+}
+
+//------------------------------------------------------------------------------------------------------------
+
+ImFont* getLargeEmphasisFont(void) noexcept
+{
+    ImGuiIO& io = ImGui::GetIO();
+    // Fonts[3] = Consolas bold @ 16px (every example's original "genuinely larger" emphasis font).
+    // Fonts[6] = Segoe UI semibold @ 19px (E29's Unity-inspired theme equivalent).
+    if (io.FontDefault == io.Fonts->Fonts[4]) return io.Fonts->Fonts[6];
+    return io.Fonts->Fonts[3];
+}
+
+//------------------------------------------------------------------------------------------------------------
+
 xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
 {
     xgpu::instance  XGPUInstance;
@@ -1538,6 +1560,50 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
         // names used to do via ScaleText - direct user correction, replaced with this real font).
         ImFont* font6 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/consolab.ttf", 16.0f, &config1, glyph_ranges1);
         ImFont* font7 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segmdl2.ttf", 16.0f, &config2, glyph_ranges2);
+
+        // Fonts[4]/[5] - proportional Segoe UI (regular/semibold) for E29's Unity-inspired theme
+        // (see E29_Theme.h). Every font up to here is Consolas - fine for the original examples'
+        // code-adjacent tone, but a monospace default reads as a debug tool, not an editor, which is
+        // exactly what E29's theme pass is trying to fix. Additive only: nobody else references
+        // index 4/5, so E10/E19-28 are byte-for-byte unaffected.
+        ImFontConfig config3;
+        config3.PixelSnapH = true;
+        // Segoe UI's own baked ascent/descent metrics reserve much more headroom above cap-height than
+        // Consolas does (room for tall/accented glyphs Segoe UI supports that a plain button label like
+        // "Play" never uses) - ImGui centers a button's box using the font's FULL line height, not the
+        // actual ink height of the specific text drawn, so at the same nominal size Segoe UI text
+        // visually sits low with a large dead gap above it (direct user report, with a button
+        // screenshot: "look how much space there is at the top of the text"). GlyphOffset.y nudges the
+        // actual glyph draw position up to recenter it within that box - a layout-position fix, not a
+        // padding one, since the padding math itself was already symmetric.
+        config3.GlyphOffset.y = -3.0f;
+
+        // Segoe MDL2 icon glyphs fill nearly their whole em-square (almost no internal padding),
+        // while Segoe UI's letterforms use only a fraction of theirs (room for ascenders/descenders,
+        // side bearings) - baking both at the SAME pixel size (as config2 does for the original
+        // Consolas fonts, where the effect is far less noticeable against monospace's own blockier
+        // proportions) makes every icon look oversized next to the text beside it, e.g. the tab bar's
+        // icons (direct user comparison against Unity's own, much smaller/lighter tab icons: "why are
+        // the icons so big?"). A dedicated config bakes icons ~30% smaller than the paired text size,
+        // separate from config2 so the original Consolas-based fonts (used by every other example) are
+        // completely untouched.
+        ImFontConfig config4;
+        config4.MergeMode  = true;
+        config4.PixelSnapH = true;
+        config4.GlyphOffset.y = 1.0f;
+
+        // 15 -> 17: direct user feedback ("some fonts are too small, not easy to read") against a
+        // real monitor - bumped the base size, not just relying on the +33% "large emphasis" step.
+        ImFont* font8  = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segoeui.ttf",  17.0f, &config3, glyph_ranges1);
+        ImFont* font9  = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segmdl2.ttf",  13.0f, &config4, glyph_ranges2);
+        ImFont* font10 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segoeuib.ttf", 17.0f, &config3, glyph_ranges1);
+        ImFont* font11 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segmdl2.ttf",  13.0f, &config4, glyph_ranges2);
+
+        // Fonts[6] - Segoe UI Semibold @ 22px, the Unity-theme's "large emphasis" companion to
+        // Fonts[3] (Consolas Bold @ 16px) - see getLargeEmphasisFont(). Paired the same +33% size bump
+        // Fonts[3] itself uses over Fonts[1] (12px -> 16px), scaled from Segoe UI's own 17px base.
+        ImFont* font12 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segoeuib.ttf", 22.0f, &config3, glyph_ranges1);
+        ImFont* font13 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segmdl2.ttf",  17.0f, &config4, glyph_ranges2);
 
         // Build the atlas
         bool success = atlas->Build();

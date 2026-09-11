@@ -1131,7 +1131,7 @@ namespace e10
                 auto&      Seg    = Segments[i];
                 const bool bLast  = (i + 1 == Segments.size());
 
-                if (bLast) ImGui::PushFont(xgpu::tools::imgui::getFont(1));
+                if (bLast) ImGui::PushFont(xgpu::tools::imgui::getEmphasisFont());
                 if (ImGui::Button(Seg.m_Name.c_str())) PathHistoryUpdate(m_SelectedLibrary, Seg.m_Path, m_bBrowsingTrash);
                 if (bLast) ImGui::PopFont();
                 ImGui::SameLine(0, 0);

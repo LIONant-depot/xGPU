@@ -14,6 +14,7 @@
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetFiles.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_MakePrefab.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Compilation.h"
+#include "source/Examples/E29_LevelSceneEditor/E29_Theme.h"
 
 //-----------------------------------------------------------------------------------
 //
@@ -122,7 +123,17 @@ int E29_Example()
     // Setup Imgui interface
     //
     xgpu::tools::imgui::CreateInstance(MainWindow);
-    ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.85f;
+    e29::theme::ApplyUnityInspiredTheme();
+
+    // io.FontDefault (not a per-frame PushFont) - xgpu::tools::imgui::BeginRendering() calls
+    // ImGui::DockSpace() internally, BEFORE E29's own render code ever runs, and ImGui's docking tab
+    // bar renders using whatever font is current AT THAT POINT - a PushFont in E29's own loop (after
+    // BeginRendering returns) is too late to affect it, which is exactly why the dock tab labels
+    // ("Resources"/"Assets"/...) kept rendering in the old default Consolas even after every panel's
+    // own content switched to Segoe UI. Overriding io.FontDefault instead affects ImGui::NewFrame()'s
+    // own g.Font reset, which runs before DockSpace() - this is process-global IO state, but safe here
+    // because every xGPU example is its own separate process (E10/E19-28 never call this line).
+    ImGui::GetIO().FontDefault = ImGui::GetIO().Fonts->Fonts[4];
 
     //
     // ECS setup - first xGPU example to own an xecs::game_mgr::instance. A unique_ptr (not a plain
@@ -337,6 +348,32 @@ int E29_Example()
     // ones need live GameMgr/State access, so they're bundled into entity_inspector_bridge (kit).
     //
     xproperty::inspector          EntityInspector("Entity Properties");
+    // xproperty's default row tint (s_ColorCategories, xPropertyImGuiInspector.cpp) is a set of bright
+    // matplotlib-style categorical colors, tuned against ImGui's stock dark theme - against
+    // E29_Theme.h's darker/flatter Unity palette they read as a clashing, too-bright/too-saturated mess
+    // (direct user feedback: "the inspector right now looks horrible"). m_bRenderBackgroundDepth alone
+    // only stops DIFFERENT depths getting different hues - every row (including "Value"/"Target"
+    // leaves) still tinted from s_ColorCategories[0] (a light peachy tan). Real Unity's own Inspector
+    // doesn't tint rows at all - flat background, thin separators only - so both are disabled outright.
+    EntityInspector.m_Settings.m_bRenderBackgroundDepth   = false;
+    EntityInspector.m_Settings.m_bRenderLeftBackground    = false;
+    EntityInspector.m_Settings.m_bRenderRightBackground   = false;
+    // The inspector's own row spacing (m_FramePadding/m_ItemSpacing/m_TableFramePadding) is NOT tied
+    // to the ambient ImGuiStyle at all - Show() explicitly pushes these per-instance values on top
+    // (xPropertyImGuiInspector.cpp), which is why E29_Theme.h's global FramePadding/ItemSpacing
+    // reduction had zero visible effect on these rows (direct user report, with a comparison
+    // screenshot against Unity's own tightly-packed Transform/Position/Rotation/Scale rows: "Button
+    // spacing in ours still much larger vertically... headers too"). Tightened to match.
+    EntityInspector.m_Settings.m_FramePadding      = ImVec2(4.0f, 3.0f);   // was {1, 3.5} - +2px per direct user follow-up (the buttons/fields themselves, not the gap between rows)
+    // ItemSpacing.x specifically: this is what leaves an unpainted gap between a component header's
+    // own left box (TreeNodeEx) and its right-column fill (a separate AddRectFilled call) - confirmed
+    // by direct pixel measurement (an ~8px strip of raw background showing through at exactly 2x this
+    // value) after a direct user follow-up with a screenshot: "the dark divider that breaks the
+    // background color of the header... literally breaks it in two". Not a border/color issue (already
+    // checked) - genuinely unpainted space between two separately-drawn rects, from the columns' own
+    // gap reservation. Same fix as plugin_tab's own m_Settings override.
+    EntityInspector.m_Settings.m_ItemSpacing       = ImVec2(1.0f, 1.0f);   // was {0.5, 2.0}, then {4, 1}
+    EntityInspector.m_Settings.m_TableFramePadding = ImVec2(4.0f, 1.0f);   // was {2, 6}
     e29::entity_inspector_bridge  InspectorBridge;
     e29::WireResourcePickerCallbacks(EntityInspector);
     InspectorBridge.RegisterCallbacks(EntityInspector, *pGameMgr, State, E29Undo);
