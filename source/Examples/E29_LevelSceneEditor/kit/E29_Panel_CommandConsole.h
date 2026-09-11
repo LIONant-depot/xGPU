@@ -240,7 +240,11 @@ namespace e29
         // START on-screen.
         ImGui::SetNextWindowPos(ImVec2(990, 530), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(280, 220), ImGuiCond_FirstUseEver);
-        if (ImGui::Begin("Command Console"))
+        // "Commands" (was "Command Console") + an icon - direct user request, matching the same
+        // tab-icon convention already applied elsewhere (Resources/Assets/Compilation/Plugins/Log).
+        // E27_NodeOS has its own SEPARATE "Command Console" panel (NodeOS_UI_CommandConsole.h) -
+        // deliberately untouched, a different example entirely.
+        if (ImGui::Begin("\xEE\xA3\xBD Commands"))
         {
             ImGui::TextDisabled("E29/Edit/<Cmd> or E29/Query/<Cmd> - Down/Up: suggestions, or history when empty");
 

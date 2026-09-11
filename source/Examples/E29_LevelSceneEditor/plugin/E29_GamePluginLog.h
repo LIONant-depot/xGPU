@@ -52,7 +52,9 @@ namespace e29
         // problem, so it's kept in its simpler, proven-stable form regardless.
         ImGui::SetNextWindowPos(ImVec2(506, 530), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(480, 220), ImGuiCond_FirstUseEver);
-        if (ImGui::Begin("Game.dll Log"))
+        // "Log" (was "Game.dll Log") + an icon - direct user request, matching the same tab-icon
+        // convention already applied to Resources/Assets/Compilation/Resource Plugins.
+        if (ImGui::Begin("\xEE\x9F\x83 Log"))
         {
             std::lock_guard Lock(GetGamePluginLogMutex());
             if (ImGui::SmallButton("Clear")) GetGamePluginLog().clear();

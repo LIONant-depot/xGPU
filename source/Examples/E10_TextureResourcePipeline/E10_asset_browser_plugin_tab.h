@@ -224,7 +224,9 @@ namespace e10
 
     namespace
     {
-        inline browser_registration<plugin_tab, "\xEE\x9F\x85 Resource Plugins", 2.0f, true, true > g_PluginTab{};
+        // "Plugins" (was "Resource Plugins") - direct user request, same icon kept (already confirmed
+        // rendering correctly, no reason to change it).
+        inline browser_registration<plugin_tab, "\xEE\x9F\x85 Plugins", 2.0f, true, true > g_PluginTab{};
     }
 }
 
