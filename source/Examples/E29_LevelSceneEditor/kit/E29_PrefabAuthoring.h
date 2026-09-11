@@ -37,10 +37,9 @@ namespace e29
 
     // Loads PrefabGuid (if not already resident) and instantiates it into Scene under a fresh
     // permanent_id - the shared tail of both the drag-a-prefab-onto-the-scene-tree flow and (until it
-    // existed) the old "+ Instantiate Prefab" button. TargetFolder (invalid = loose, auto-adopted into
-    // "Default" the next render pass - see EnsureDefaultFolder) lets a drop directly onto a specific
-    // folder row land the new instance there instead of always defaulting away from wherever the user
-    // actually dropped it.
+    // existed) the old "+ Instantiate Prefab" button. TargetFolder (invalid = loose, rendered directly
+    // at scene root) lets a drop directly onto a specific folder row land the new instance there
+    // instead of always landing loose regardless of where the user actually dropped it.
     void InstantiatePrefabIntoScene(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::prefab::guid PrefabGuid, xecs::scene::folder_id TargetFolder = xecs::scene::invalid_folder_id_v) noexcept
     {
         if (auto Err = GameMgr.m_PrefabMgr.EnsureLoaded(PrefabGuid); Err)
@@ -168,8 +167,8 @@ namespace e29
             return TopLevel.front();
 
         // The synthetic root is brand new, so it has no history of its own to fall back on - without
-        // this, it always starts loose and gets auto-adopted into "Default" the next render, even when
-        // the entities it's about to wrap all came from the SAME real folder or the SAME real
+        // this, it always starts loose at scene root, even when the entities it's about to wrap all
+        // came from the SAME real folder or the SAME real
         // scene-hierarchy parent. A real PARENT wins over folder membership - matching how "an entity
         // with a parent is never ALSO in a folder" already works everywhere else in this tree - falling
         // back to whichever folder (if any) the FIRST top-level entity was in when there's no external
@@ -276,9 +275,8 @@ namespace e29
         // conversion) rather than by live entity handle, so in principle it wouldn't need capturing -
         // except DeleteEntitySubtree (below) explicitly scrubs it as part of deleting the OLD live
         // root (ReparentEntityIntoFolder(..., invalid_folder_id_v)), since from ITS point of view the
-        // entity is simply being removed. Without capturing and restoring it here, RootId ends up in
-        // no folder at all after re-registration, and the very next render's Default-folder auto-adopt
-        // pass silently sweeps it into "Default".
+        // entity is simply being removed. Without capturing and restoring it here, RootId would render
+        // loose at scene root after re-registration instead of back in its original folder.
         const auto OriginalFolderId = FindFolderContaining(Scene, RootId);
 
         std::string Name = "Prefab";

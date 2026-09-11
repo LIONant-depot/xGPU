@@ -350,9 +350,6 @@ namespace e29
     // under it), then repeats for its own parent, walking up until a non-empty/non-childless folder
     // is hit or the root is reached - keeps the tree free of folders left behind purely because
     // whatever used to justify their existence (an entity, a now-pruned child folder) is gone.
-    // Exempts the special auto-created "Default" bucket (EnsureDefaultFolder) - it's meant to always
-    // be there as a landing zone for loose entities, and gets recreated on demand anyway if ever
-    // pruned, so leaving it out just avoids the visible "Default (0)" row flickering away and back.
     void PruneEmptyFolderChain(xecs::scene::instance& Scene, xecs::scene::folder_id Id) noexcept
     {
         while( Id != xecs::scene::invalid_folder_id_v )
@@ -360,7 +357,6 @@ namespace e29
             auto It = std::find_if(Scene.m_Folders.begin(), Scene.m_Folders.end(), [&](auto& F) noexcept { return F.m_Id == Id; });
             if( It == Scene.m_Folders.end() ) return;
 
-            if( It->m_Parent == xecs::scene::invalid_folder_id_v && It->m_Name == "Default" ) return;
             if( It->m_Entities.empty() == false ) return;
 
             const bool bHasChildFolder = std::any_of(Scene.m_Folders.begin(), Scene.m_Folders.end(), [&](auto& F) noexcept { return F.m_Parent == Id; });
@@ -379,27 +375,10 @@ namespace e29
     // reached much later in the umbrella than either dependency, so moving it is a pure relocation -
     // see its own comment at the new location.
 
-    // Every scene always has somewhere for an entity to live - there's no more "loose at scene root"
-    // concept (direct user request: unfoldered entities belong in an auto-created "Default" folder
-    // instead). Idempotent: returns the existing one if a root-level folder already named "Default"
-    // exists, only creates it the first time it's actually needed. A REAL entry in Scene.m_Folders
-    // (unlike the synthesized "Dependencies" one - Default genuinely owns persisted entity membership)
-    // but rendered/treated as a special, locked folder just like Dependencies: no delete, no manual
-    // New Entity/New Folder inside it, no drag-drop INTO it - purely a temporary holding area for
-    // entities the user hasn't organized yet, populated only by this function.
-    xecs::scene::folder_id EnsureDefaultFolder(xecs::scene::instance& Scene) noexcept
-    {
-        for (auto& F : Scene.m_Folders)
-            if (F.m_Parent == xecs::scene::invalid_folder_id_v && F.m_Name == "Default")
-                return F.m_Id;
-
-        xecs::scene::folder NewFolder;
-        NewFolder.m_Id     = NextFreeFolderId(Scene);
-        NewFolder.m_Parent = xecs::scene::invalid_folder_id_v;
-        NewFolder.m_Name   = "Default";
-        Scene.m_Folders.push_back(std::move(NewFolder));
-        return Scene.m_Folders.back().m_Id;
-    }
+    // EnsureDefaultFolder (the auto-created "Default" bucket every unfoldered entity used to get
+    // adopted into) removed entirely - direct user request. Unfoldered entities now render loose at
+    // the scene root again (see kit/E29_Panel_LevelTree.h's own "Unfoldered" block), same as before
+    // "Default" was introduced.
 
     // Folders are purely organizational - deleting one must never delete gameplay content. Its
     // member entities and any child folders are promoted up to ITS OWN parent (which may itself be
@@ -432,6 +411,14 @@ namespace e29
     {
         return bHasChildren ? "\xEE\xA3\x95" : "\xEE\xA2\xB7";
     }
+
+    // Level/Scene row icons - direct user request. Segoe MDL2 Assets "Globe"/"Video" codepoints,
+    // distinct from FolderIcon's own pair above and from every icon already used elsewhere in this
+    // app (E10_AssetBrowser.h's tab icons) - picked and confirmed via a live screenshot, not inferred
+    // from font metadata (see e10_asset_tree_polish_pass2 memory for why metadata alone isn't
+    // trustworthy for this specific font).
+    constexpr const char* LevelIcon() noexcept { return "\xEE\x9D\xB4"; }
+    constexpr const char* SceneIcon() noexcept { return "\xEE\xA4\x9B"; }
 
     bool ContainsCaseInsensitive(std::string_view Haystack, std::string_view Needle) noexcept
     {
@@ -618,7 +605,7 @@ namespace e29
 namespace e29
 {
     // Shared "New Entity"/"New Folder" menu content, landing directly under TargetFolder (invalid =
-    // scene root, adopted into "Default" the next render pass - see EnsureDefaultFolder) - used by
+    // loose at scene root) - used by
     // BOTH the Scene row's and the Folder row's own right-click context menu. A separate toolbar "+"
     // with a persistent "which row is the target" selection was tried first and dropped per direct
     // user feedback once right-click-in-place existed - it made the "+" redundant.

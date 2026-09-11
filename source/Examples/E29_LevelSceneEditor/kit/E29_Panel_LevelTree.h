@@ -69,7 +69,8 @@ namespace e29
 
                     ImGui::TableNextRow();
                     ImGui::TableSetColumnIndex(0);
-                    const bool bLevelOpen = ImGui::TreeNodeEx(LevelLabel.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth);
+                    const std::string LevelLabelWithIcon = std::format("{} {}", e29::LevelIcon(), LevelLabel);
+                    const bool bLevelOpen = ImGui::TreeNodeEx(LevelLabelWithIcon.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth);
 
                     // Drag a Scene asset from the asset browser onto the Level's own row to add it.
                     // Same "DESCRIPTOR_GUID" payload the Scene row already decodes for
@@ -105,7 +106,8 @@ namespace e29
 
                             ImGui::TableNextRow();
                             ImGui::TableSetColumnIndex(0);
-                            const bool bSceneExpanded = ImGui::TreeNodeEx(SceneLabel.c_str(), ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth | (bIsOpenScene ? ImGuiTreeNodeFlags_Selected : 0));
+                            const std::string SceneLabelWithIcon = std::format("{} {}", e29::SceneIcon(), SceneLabel);
+                            const bool bSceneExpanded = ImGui::TreeNodeEx(SceneLabelWithIcon.c_str(), ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth | (bIsOpenScene ? ImGuiTreeNodeFlags_Selected : 0));
 
                             // Two independent pieces of state used to collide: ImGui's own
                             // expand/collapse (bSceneExpanded, toggled by ImGuiTreeNodeFlags_OpenOnArrow
@@ -411,11 +413,6 @@ namespace e29
                                             for (auto& F : pScene->m_Folders)
                                             {
                                                 if (F.m_Parent != ParentId) continue;
-                                                // "Default" is rendered separately as a special, locked
-                                                // folder - excluded here so it never ALSO gets the
-                                                // generic New Folder/Delete/drag-drop treatment every
-                                                // other root-level folder gets.
-                                                if (ParentId == xecs::scene::invalid_folder_id_v && F.m_Name == "Default") continue;
                                                 ChildIds.push_back(F.m_Id);
                                             }
 
@@ -465,7 +462,7 @@ namespace e29
                                                     // Drop a Prefab asset directly onto a folder row -
                                                     // matches the Scene row's own "DESCRIPTOR_GUID"
                                                     // handling, except the new instance lands in THIS
-                                                    // folder instead of always falling out to "Default".
+                                                    // folder instead of always landing loose at scene root.
                                                     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DESCRIPTOR_GUID"))
                                                     {
                                                         IM_ASSERT(payload->DataSize == sizeof(e10::drag_and_drop_folder_payload_t));
@@ -623,22 +620,18 @@ namespace e29
                                         for (auto& F : pScene->m_Folders)
                                             std::erase_if(F.m_Entities, [&](auto Id) noexcept { return !pScene->m_LocalToRuntime.contains(Id); });
 
-                                        // Any entity not currently in any folder gets adopted into
-                                        // "Default" (auto-created the first time it's actually needed)
-                                        // - there's no more "loose at scene root" state at all. Runs
-                                        // before the root-folder render below so a freshly-created
-                                        // Default folder (or one that just gained a new member) renders
-                                        // correctly the same frame.
+                                        // Any entity not currently in any folder renders directly at
+                                        // scene root, no wrapping folder - direct user request (reverses
+                                        // an earlier one: "remove the default folder"). An entity with a
+                                        // xecs::component::parent is neither "foldered" nor "unfoldered"
+                                        // - it's rendered nested under its parent's own row instead
+                                        // (RenderEntityRow's own RenderChildEntities call), so it must
+                                        // never ALSO render again here as if it were loose.
                                         {
                                             std::unordered_set<xecs::scene::permanent_id> FolderedEntities;
                                             for (auto& F : pScene->m_Folders)
                                                 for (auto EId : F.m_Entities) FolderedEntities.insert(EId);
 
-                                            // An entity with a xecs::component::parent is neither
-                                            // "foldered" nor "unfoldered" - it's rendered nested under its
-                                            // parent's own row instead (RenderEntityRow's own
-                                            // RenderChildEntities call), so it must never get force-
-                                            // adopted into Default just for lacking folder membership.
                                             std::vector<xecs::scene::permanent_id> Unfoldered;
                                             for (auto& Pair : pScene->m_LocalToRuntime)
                                             {
@@ -649,46 +642,12 @@ namespace e29
                                                 Unfoldered.push_back(Pair.first);
                                             }
 
-                                            // Always ensured, not just when something actually needs
-                                            // adopting into it - every scene should show a "Default (N)"
-                                            // row for discoverability/consistency, even at N=0, rather
-                                            // than only appearing the first time it's actually needed.
-                                            const auto DefaultId = e29::EnsureDefaultFolder(*pScene);
-                                            for (auto Id : Unfoldered) e29::ReparentEntityIntoFolder(*pScene, Id, DefaultId);
+                                            for (auto Id : Unfoldered)
+                                                if (auto EIt = pScene->m_LocalToRuntime.find(Id); EIt != pScene->m_LocalToRuntime.end())
+                                                    RenderEntityRow(Id, EIt->second);
                                         }
 
-                                        // "Default" is a special, locked folder - same treatment as
-                                        // Dependencies: no delete, no New Entity/New Folder menu (nothing
-                                        // can be created directly inside it, and no subfolders of it
-                                        // either), no manual drag-drop INTO it (only the automatic
-                                        // adoption pass above ever populates it) - it's a temporary
-                                        // holding area, not a real destination. The entities inside it
-                                        // are perfectly ordinary rows, freely draggable OUT to a real
-                                        // folder - that's the whole point. Rendered here, once,
-                                        // separately from the generic recursive walk below (which
-                                        // excludes it by name at the root level for exactly this reason).
-                                        if (auto It = std::find_if(pScene->m_Folders.begin(), pScene->m_Folders.end(), [](auto& F) noexcept { return F.m_Parent == xecs::scene::invalid_folder_id_v && F.m_Name == "Default"; }); It != pScene->m_Folders.end())
-                                        {
-                                            const auto DefaultId = It->m_Id;
-                                            ImGui::PushID("Default");
-                                            ImGui::TableNextRow();
-                                            ImGui::TableSetColumnIndex(0);
-                                            const std::string DefaultLabel = std::format("{} Default ({})", e29::FolderIcon(!It->m_Entities.empty()), It->m_Entities.size());
-                                            const bool bDefaultOpen = ImGui::TreeNodeEx(DefaultLabel.c_str(), ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth);
-                                            if (bDefaultOpen)
-                                            {
-                                                std::vector<xecs::scene::permanent_id> MemberIds;
-                                                if (auto FreshIt = std::find_if(pScene->m_Folders.begin(), pScene->m_Folders.end(), [&](auto& F) noexcept { return F.m_Id == DefaultId; }); FreshIt != pScene->m_Folders.end())
-                                                    MemberIds = FreshIt->m_Entities;
-                                                for (auto EId : MemberIds)
-                                                    if (auto EIt = pScene->m_LocalToRuntime.find(EId); EIt != pScene->m_LocalToRuntime.end())
-                                                        RenderEntityRow(EId, EIt->second);
-                                                ImGui::TreePop();
-                                            }
-                                            ImGui::PopID();
-                                        }
-
-                                        RenderFolderChildren(xecs::scene::invalid_folder_id_v); // root-level user folders (Default excluded - rendered specially above)
+                                        RenderFolderChildren(xecs::scene::invalid_folder_id_v); // root-level user folders
 
                                         // Prefabs are still instantiated by dragging one from the asset
                                         // browser onto this scene's own row in the tree (see the drop
@@ -704,6 +663,51 @@ namespace e29
                                 ImGui::TreePop();
                             }
                             ImGui::PopID();
+                        }
+
+                        // "Runtime" - a read-only row, sibling to this Level's own Scene rows, showing
+                        // how many live ECS entities exist right now that are NOT registered in ANY
+                        // currently-open Scene's own m_LocalToRuntime map - i.e. entities spawned
+                        // directly into the ECS (xecs::archetype::instance::CreateEntity) without ever
+                        // going through a Scene at all, which can only actually happen while the game
+                        // is Playing. Direct user request: "the only time that folder will be populated
+                        // is when the game is running and entities are spawned... those entities don't
+                        // belong in any scene," so this sits under the LEVEL, not inside any particular
+                        // Scene the way the old "Default" folder used to. No expand arrow (nothing to
+                        // list - this is a count only, not an entity browser), no drag-drop target, no
+                        // context menu, no delete button - inherently read-only by simply never wiring
+                        // up any of those affordances, same "synthesized every frame, not a real
+                        // persisted node" spirit as the "Dependencies" row already uses elsewhere in
+                        // this tree. The underlying "an entity can exist outside any Scene" capability
+                        // already exists at the ECS level (CreateEntity has never required a Scene) -
+                        // this row is purely a UI surface over it, no new engine plumbing.
+                        {
+                            int TotalLive = 0;
+                            for (auto& pArchetype : GameMgr.m_ArchetypeMgr.m_lArchetype)
+                                for (auto pF = pArchetype->getFamilyHead(); pF; pF = pF->m_Next.get())
+                                    for (auto pP = &pF->m_DefaultPool; pP; pP = pP->m_Next.get())
+                                        TotalLive += pP->Size();
+
+                            int Claimed = 0;
+                            for (auto& OpenSceneGuid : State.m_OpenScenes)
+                                if (auto* pOpenScene = GameMgr.m_SceneMgr.Find(OpenSceneGuid))
+                                    Claimed += static_cast<int>(pOpenScene->m_LocalToRuntime.size());
+
+                            const int RuntimeCount = std::max(0, TotalLive - Claimed);
+
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0);
+                            const std::string RuntimeLabel = std::format("{} Runtime ({})", e29::FolderIcon(RuntimeCount != 0), RuntimeCount);
+
+                            // Distinct color (not a distinct icon - FolderIcon's own codepoints are
+                            // already confirmed to render as blank tofu boxes in this font build, see
+                            // e10_asset_tree_polish_pass2 memory, so a new icon here would be equally
+                            // unreliable) - direct user request: "a special icon... or better yet a
+                            // different color" to visually set this read-only, synthesized row apart
+                            // from real user folders at a glance.
+                            ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(230, 200, 90, 255));
+                            ImGui::TreeNodeEx(RuntimeLabel.c_str(), ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_SpanFullWidth);
+                            ImGui::PopStyleColor();
                         }
 
                         // Adding a Scene to this Level is now drag-and-drop onto the Level's own row
