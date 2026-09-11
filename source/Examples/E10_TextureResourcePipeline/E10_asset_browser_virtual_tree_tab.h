@@ -2370,77 +2370,101 @@ namespace e10
 
                 if (ImGui::IsItemHovered() && !bBeenDrag)
                 {
-                    ImGui::BeginTooltip();
-                    std::string Text;
+                    // Real 2-column table instead of one hand-padded multi-line string ("Instance Name
+                    //        : {}", "Type Name            : {}", ...) - that padding was tuned to make
+                    // every label the same CHARACTER count, which only lines up under a monospace font;
+                    // a proportional font (E29's own Segoe UI theme) renders each label at a different
+                    // pixel width, breaking the alignment (same bug class as xproperty's own Help()
+                    // tooltip - see its fix in xPropertyImGuiInspector.cpp). A table's own column
+                    // boundaries align by pixel width, not character count, so this is correct for any
+                    // font. Width also capped via SetNextWindowSizeConstraints, matching the inspector's
+                    // own tooltips, so a resource with many dependencies can't grow this to fill the
+                    // screen - direct user request.
+                    std::string InstanceGuidText, TypeGuidText, InfoReadText, InfoWriteText, DescWriteText, ResWriteText, DependenciesText, CommentText;
 
                     m_AssetMgr.getNodeInfo( m_SelectedLibrary, E.m_ResourceGUID, [&]( e10::library_db::info_node& NodeInfo )
                     {
-                        Text = std::format(
-                              "Instance Name        : {}"
-                            "\nType Name            : {}"
-                            "\nInstance GUID        : {:X}"
-                            "\nType GUID            : {:X}"
-                            "\nInfo Last Read       : {:%Y-%m-%d %I:%M:%S %p %Z}"
-                            "\nInfo Last Write      : {:%Y-%m-%d %I:%M:%S %p %Z}"
-                            "\nDescriptor Last Write: {}"
-                            "\nResource Last Write  : {}"
-                            "\nDependencies         : {}"
-                            "\nComment              : {}"
-                            , StringOne
-                            , E.m_TypeNameView.empty() ? std::string_view("<Unknown>").data() : E.m_TypeNameView.data()
-                            , NodeInfo.m_Info.m_Guid.m_Instance.m_Value
-                            , NodeInfo.m_Info.m_Guid.m_Type.m_Value
-                            , ConvertToStdTime(NodeInfo.m_InfoReadTime)
-                            , ConvertToStdTime(NodeInfo.m_InfoTime)
-                            , NodeInfo.m_bHasDescriptor ? std::format("{:%Y-%m-%d %I:%M:%S %p %Z}", ConvertToStdTime(NodeInfo.m_DescriptorTime)) : "Never"
-                            , NodeInfo.m_bHasResource   ? std::format("{:%Y-%m-%d %I:%M:%S %p %Z}", ConvertToStdTime(NodeInfo.m_ResourceTime)) : "Never"
-                            , [&]()->std::string
+                        InstanceGuidText = std::format("{:X}", NodeInfo.m_Info.m_Guid.m_Instance.m_Value);
+                        TypeGuidText     = std::format("{:X}", NodeInfo.m_Info.m_Guid.m_Type.m_Value);
+                        InfoReadText     = std::format("{:%Y-%m-%d %I:%M:%S %p %Z}", ConvertToStdTime(NodeInfo.m_InfoReadTime));
+                        InfoWriteText    = std::format("{:%Y-%m-%d %I:%M:%S %p %Z}", ConvertToStdTime(NodeInfo.m_InfoTime));
+                        DescWriteText    = NodeInfo.m_bHasDescriptor ? std::format("{:%Y-%m-%d %I:%M:%S %p %Z}", ConvertToStdTime(NodeInfo.m_DescriptorTime)) : "Never";
+                        ResWriteText     = NodeInfo.m_bHasResource   ? std::format("{:%Y-%m-%d %I:%M:%S %p %Z}", ConvertToStdTime(NodeInfo.m_ResourceTime)) : "Never";
+
+                        DependenciesText = [&]()->std::string
+                        {
+                            if (NodeInfo.m_bHasDependencies == false || false == NodeInfo.m_Dependencies.hasDependencies() ) return {"No Dependencies"};
+
+                            std::string Dependencies;
+
+                            if (NodeInfo.m_Dependencies.m_Resources.empty() == false)
                             {
-                                if (NodeInfo.m_bHasDependencies == false || false == NodeInfo.m_Dependencies.hasDependencies() ) return {"No Dependencies"};
-
-                                std::string Dependencies;
-
-                                if (NodeInfo.m_Dependencies.m_Resources.empty() == false)
+                                std::string Assets = std::format("\n    Resources Count: {}", NodeInfo.m_Dependencies.m_Resources.size());
+                                for (auto& E : NodeInfo.m_Dependencies.m_Resources)
                                 {
-                                    std::string Assets = std::format("\n    Resources Count: {}", NodeInfo.m_Dependencies.m_Resources.size());
-                                    for (auto& E : NodeInfo.m_Dependencies.m_Resources)
-                                    {
-                                        //Assets = std::format("{}\n        [{}] {}", Assets, static_cast<int>(&E - NodeInfo.m_Dependencies.m_Resources.data()), E);
-                                    }
-
-                                    Dependencies += Assets;
+                                    //Assets = std::format("{}\n        [{}] {}", Assets, static_cast<int>(&E - NodeInfo.m_Dependencies.m_Resources.data()), E);
                                 }
 
-                                if ( NodeInfo.m_Dependencies.m_Assets.empty() == false )
-                                {
-                                    std::string Assets = std::format("\n    Asset Count: {}", NodeInfo.m_Dependencies.m_Assets.size() );
-                                    for (auto& E : NodeInfo.m_Dependencies.m_Assets)
-                                    {
-                                        Assets = std::format( "{}\n        [{}] {}", Assets, static_cast<int>(&E - NodeInfo.m_Dependencies.m_Assets.data()), xstrtool::To(E) );
-                                    }
+                                Dependencies += Assets;
+                            }
 
-                                    Dependencies += Assets;
+                            if ( NodeInfo.m_Dependencies.m_Assets.empty() == false )
+                            {
+                                std::string Assets = std::format("\n    Asset Count: {}", NodeInfo.m_Dependencies.m_Assets.size() );
+                                for (auto& E : NodeInfo.m_Dependencies.m_Assets)
+                                {
+                                    Assets = std::format( "{}\n        [{}] {}", Assets, static_cast<int>(&E - NodeInfo.m_Dependencies.m_Assets.data()), xstrtool::To(E) );
                                 }
 
-                                if (NodeInfo.m_Dependencies.m_VirtualAssets.empty() == false)
-                                {
-                                    std::string Assets = std::format("\n    Virtual Asset Count: {}", NodeInfo.m_Dependencies.m_VirtualAssets.size());
-                                    for (auto& E : NodeInfo.m_Dependencies.m_VirtualAssets)
-                                    {
-                                        Assets = std::format("{}\n        [{}] {}", Assets, static_cast<int>(&E - NodeInfo.m_Dependencies.m_VirtualAssets.data()), xstrtool::To(E) );
-                                    }
+                                Dependencies += Assets;
+                            }
 
-                                    Dependencies += Assets;
+                            if (NodeInfo.m_Dependencies.m_VirtualAssets.empty() == false)
+                            {
+                                std::string Assets = std::format("\n    Virtual Asset Count: {}", NodeInfo.m_Dependencies.m_VirtualAssets.size());
+                                for (auto& E : NodeInfo.m_Dependencies.m_VirtualAssets)
+                                {
+                                    Assets = std::format("{}\n        [{}] {}", Assets, static_cast<int>(&E - NodeInfo.m_Dependencies.m_VirtualAssets.data()), xstrtool::To(E) );
                                 }
 
+                                Dependencies += Assets;
+                            }
 
-                                return Dependencies;
-                            }()
-                            , NodeInfo.m_Info.m_Comment
-                        );
+                            return Dependencies;
+                        }();
+
+                        CommentText = NodeInfo.m_Info.m_Comment;
                     });
 
-                    ImGui::TextUnformatted(Text.c_str());
+                    e10::PlaceTooltipAwayFromEdges();
+                    ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(480.0f, FLT_MAX));
+                    ImGui::BeginTooltip();
+                    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + 440.0f);
+
+                    if (ImGui::BeginTable("##ResourceTooltip", 2, ImGuiTableFlags_SizingFixedFit))
+                    {
+                        auto Row = [](const char* pLabel, const std::string& Value) noexcept
+                        {
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0); ImGui::TextDisabled("%s", pLabel);
+                            ImGui::TableSetColumnIndex(1); ImGui::TextUnformatted(Value.c_str());
+                        };
+
+                        Row("Instance Name:",         StringOne);
+                        Row("Type Name:",              E.m_TypeNameView.empty() ? std::string("<Unknown>") : std::string(E.m_TypeNameView));
+                        Row("Instance GUID:",          InstanceGuidText);
+                        Row("Type GUID:",              TypeGuidText);
+                        Row("Info Last Read:",         InfoReadText);
+                        Row("Info Last Write:",        InfoWriteText);
+                        Row("Descriptor Last Write:",  DescWriteText);
+                        Row("Resource Last Write:",    ResWriteText);
+                        Row("Dependencies:",           DependenciesText);
+                        Row("Comment:",                CommentText);
+
+                        ImGui::EndTable();
+                    }
+
+                    ImGui::PopTextWrapPos();
                     ImGui::EndTooltip();
                 }
 

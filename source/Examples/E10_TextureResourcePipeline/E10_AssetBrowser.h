@@ -11,6 +11,64 @@ namespace e10
     struct asset_browser_tab_base;
 
     //------------------------------------------------------------------------------------------------
+    // ImGui's own tooltip auto-placement (FindBestWindowPosForPopup) tries to avoid the viewport edges
+    // using the tooltip's PREVIOUS frame size, but has nowhere left to flip to once the mouse itself is
+    // already right at an edge/corner - a wide/tall tooltip near the screen edge gets clipped past it,
+    // unreadable (direct user report: "you forgot to flip the tooltip direction if it is too close to
+    // the right edge of the screen... it will get cut off otherwise"). Anchoring the window's OWN pivot
+    // corner to whichever side of the viewport the mouse is on makes it grow back TOWARD the center
+    // instead of past the edge, regardless of content size.
+    //
+    // Same fix already exists as xproperty::inspector's own PlaceTooltipAwayFromEdges() (internal
+    // linkage inside xPropertyImGuiInspector.cpp's anonymous namespace, not reachable from here) -
+    // duplicated rather than exposed through a new public xproperty API, since it's this small and
+    // self-contained. Call once, right before ImGui::BeginTooltip().
+    //
+    // A plain "which half of the viewport is the mouse in" split (the first version of this function)
+    // picks a side without ever checking whether that side actually HAS enough room for the tooltip,
+    // so it could still get clipped up to ~50% in the worst case (direct user report, after confirming
+    // the flip existed but wasn't aggressive enough: "about 50% is being cut off by the screen worse
+    // case... you should be careful either edge (left/right)").
+    //
+    // A second attempt checked real remaining space against ImGui::GetMainViewport()'s own
+    // WorkPos/WorkSize - WORSE than the 50% split for the right edge specifically (direct user report,
+    // with a screenshot showing the tooltip rendering entirely past the real screen edge despite a
+    // "correctly" computed flip). Root cause, confirmed via a temporary diagnostic printf:
+    // GetMainViewport()->WorkPos/WorkSize reflects THIS APP WINDOW's own bounds (e.g. a window sitting
+    // at desktop x=1280..2552 on a multi-monitor desktop), NOT the real monitor/screen edge - and
+    // xgpu_imgui_breach.cpp registers exactly ONE fake, giant (10000x10000) "monitor" for its own
+    // unrelated reasons, so ImGui's own platform_io.Monitors list can't be used to find the real
+    // screen bounds either. There is no ImGui-level source of truth for "where does the real screen
+    // actually end" in this app - querying Win32 directly for the monitor under the cursor is the only
+    // reliable option. (This file already uses raw Win32 elsewhere in this codebase for exactly this
+    // reason - not a new precedent.)
+    inline void PlaceTooltipAwayFromEdges() noexcept
+    {
+        constexpr ImVec2 AssumedSize(480.0f, 400.0f);
+
+        const ImVec2 MouseF = ImGui::GetIO().MousePos;
+        const POINT  Mouse{ static_cast<LONG>(MouseF.x), static_cast<LONG>(MouseF.y) };
+        const HMONITOR hMonitor = ::MonitorFromPoint(Mouse, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO MonitorInfo{ sizeof(MONITORINFO) };
+        ::GetMonitorInfo(hMonitor, &MonitorInfo);
+
+        const float SpaceRight = static_cast<float>(MonitorInfo.rcWork.right)  - MouseF.x;
+        const float SpaceLeft  = MouseF.x - static_cast<float>(MonitorInfo.rcWork.left);
+        const float SpaceBelow = static_cast<float>(MonitorInfo.rcWork.bottom) - MouseF.y;
+        const float SpaceAbove = MouseF.y - static_cast<float>(MonitorInfo.rcWork.top);
+
+        const ImVec2 Pivot
+        ( (SpaceRight < AssumedSize.x && SpaceLeft  > SpaceRight) ? 1.0f : 0.0f
+        , (SpaceBelow < AssumedSize.y && SpaceAbove > SpaceBelow) ? 1.0f : 0.0f
+        );
+        // Small offset matching ImGui's own default tooltip placement, signed to lead AWAY from the
+        // edge the pivot just chose (e.g. pivot 1.0 on the right edge subtracts, so the window still
+        // clears the cursor instead of sitting under/on top of it).
+        constexpr float Offset = 16.0f;
+        ImGui::SetNextWindowPos(ImVec2(MouseF.x + (Pivot.x > 0.0f ? -Offset : Offset), MouseF.y + (Pivot.y > 0.0f ? -Offset : Offset)), ImGuiCond_Always, Pivot);
+    }
+
+    //------------------------------------------------------------------------------------------------
     // The GPU-upload half of the plugin icon atlas - deliberately NOT in E10_PluginMgr.h/
     // E10_PluginIconAtlas.h, which must stay headless (see asset_plugins_db::m_IconAtlasGPUHandle's
     // own comment). Lazily uploads Db.m_IconAtlasBitmap (built headlessly at OpenProject time) into

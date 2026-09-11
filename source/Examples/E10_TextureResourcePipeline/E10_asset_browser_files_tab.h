@@ -1525,6 +1525,12 @@ namespace e10
                                     {
                                         std::size_t Total = 0;
                                         const auto  Names = m_AssetMgr.GetDependentNames(m_SelectedLibrary, ToLibraryRelPath(m_SelectedFolder / E.m_Name), 10, Total);
+                                        // Flips toward screen center near an edge - direct user report
+                                        // (a long dependent list hovered near the right edge otherwise
+                                        // gets cut off past the viewport). Same fix applied to the
+                                        // resource tooltip in virtual_tree_tab.h.
+                                        e10::PlaceTooltipAwayFromEdges();
+                                        ImGui::SetNextWindowSizeConstraints(ImVec2(0, 0), ImVec2(480.0f, FLT_MAX));
                                         ImGui::BeginTooltip();
                                         ImGui::Text("Used by %zu resource%s:", Total, Total == 1 ? "" : "s");
                                         for (auto& N : Names) ImGui::BulletText("%s", N.c_str());
