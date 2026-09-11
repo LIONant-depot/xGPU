@@ -2746,6 +2746,54 @@ namespace e10
         }
 
         //------------------------------------------------------------------------------------------------
+        // Force every resource, in every library, back into the compilation queue - same "clear the
+        // timestamps then let AddToCompilationQueueIfNeeded decide" trick RecompileResource already
+        // uses for one resource, just walked across every info_node the same way Save() already walks
+        // them (library -> plugin type -> info_node, direct range-for over the node map - UI-thread-
+        // only, same established pattern, no extra locking beyond what FindAsReadOnly already gives).
+        void RecompileAllResources()
+        {
+            for (auto& L : m_mLibraryDB)
+            {
+                for (auto& P : m_AssetPluginsDB.m_lPlugins)
+                {
+                    L.second->m_InfoByTypeDataBase.FindAsReadOnly(P.m_TypeGUID, [&](const std::unique_ptr<library_db::info_db>& Entry)
+                    {
+                        for (auto& I : Entry->m_InfoDataBase)
+                        {
+                            I.second.m_DescriptorTime = {};
+                            I.second.m_ResourceTime   = {};
+                            L.second->AddToCompilationQueueIfNeeded(*Entry, I.second);
+                        }
+                    });
+                }
+            }
+        }
+
+        //------------------------------------------------------------------------------------------------
+        // Requeue only the resources currently known to have failed their last compile
+        // (compilation::instance::m_Failed, populated by CompilingThreadWorker on FAILURE and never
+        // cleared anywhere else today - it's a pure write-only log until now). Snapshots the map first
+        // (RecompileResource's own FindAsWrite must not run while m_Failed's own mutex is held - no
+        // ordering relationship is established between the two), then clears the failed set: a
+        // resource that fails again re-adds itself the normal way, so this never hides a real, still-
+        // broken resource - it just stops the menu from re-showing stale entries already requeued.
+        void RecompileFailedResources()
+        {
+            std::vector<compilation::historical_entry> Failed;
+            {
+                std::scoped_lock lock(m_Compilation.m_Failed.m_Mutex);
+                Failed.reserve(m_Compilation.m_Failed.m_Map.size());
+                for (auto& [Guid, Entry] : m_Compilation.m_Failed.m_Map)
+                    Failed.push_back(Entry);
+                m_Compilation.m_Failed.m_Map.clear();
+            }
+
+            for (auto& E : Failed)
+                RecompileResource(E.m_Entry.m_gLibrary, E.m_Entry.m_FullGuid);
+        }
+
+        //------------------------------------------------------------------------------------------------
 
         xresource::full_guid NewAsset(const library::guid LibraryGUID, xresource::full_guid ResourceGUID, const xresource::full_guid& ParentGUID, const std::string_view Name = {} )
         {

@@ -1532,6 +1532,13 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
 
         ImFont* font5 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segmdl2.ttf", 64.0f, &config1, glyph_ranges2);
 
+        // Fonts[3] - a genuinely larger BAKED font (bold Consolas @ 16px + merged icons), not the same
+        // 12px atlas glyphs stretched via ImGui::GetFont()->Scale at render time (which just upscales
+        // the existing low-res bitmap, i.e. the "resize a low res one" the Compilation view's resource
+        // names used to do via ScaleText - direct user correction, replaced with this real font).
+        ImFont* font6 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/consolab.ttf", 16.0f, &config1, glyph_ranges1);
+        ImFont* font7 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segmdl2.ttf", 16.0f, &config2, glyph_ranges2);
+
         // Build the atlas
         bool success = atlas->Build();
         assert(success && "Failed to build font atlas");

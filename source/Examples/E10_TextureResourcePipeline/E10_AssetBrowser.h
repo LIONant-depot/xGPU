@@ -679,7 +679,17 @@ namespace e10
                     }
                     else
                     {
-                        pTab->RightPanel();
+                        // Direct user correction: a no-left-panel DOCKABLE tab (Compilation today)
+                        // rendered its RightPanel() straight into the raw window, never getting the
+                        // same lighter ImGuiCol_ChildBg the has-left-panel branch above pushes around
+                        // its own "Left"/"Right" children - it read as flatly darker than Resources/
+                        // Assets/Plugins right next to it. Same color, same "Right"-shaped child, so
+                        // any tab taking this branch matches the others automatically.
+                        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.145f, 0.145f, 0.145f, 0.80f));
+                        if (ImGui::BeginChild("Right", ImGui::GetContentRegionAvail()))
+                            pTab->RightPanel();
+                        ImGui::EndChild();
+                        ImGui::PopStyleColor();
                     }
                 }
                 // Always call End() regardless of Begin()'s return value - same ImGui rule/gotcha

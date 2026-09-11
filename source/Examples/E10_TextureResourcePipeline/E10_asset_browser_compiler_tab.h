@@ -13,29 +13,6 @@ namespace e10
 {
     //=============================================================================
 
-    static bool ScaleButton(const char* pTxt, float Scale)
-    {
-        float old_font_size = ImGui::GetFont()->Scale;
-        ImGui::GetFont()->Scale *= Scale;
-        ImGui::PushFont(ImGui::GetFont());
-        bool x = ImGui::Button(pTxt);
-        ImGui::GetFont()->Scale = old_font_size;
-        ImGui::PopFont();
-        return x;
-    }
-
-    //=============================================================================
-
-    static void ScaleText(const char* pTxt, float Scale)
-    {
-        float old_font_size = ImGui::GetFont()->Scale;
-        ImGui::GetFont()->Scale *= Scale;
-        ImGui::PushFont(ImGui::GetFont());
-        ImGui::Text(pTxt);
-        ImGui::GetFont()->Scale = old_font_size;
-        ImGui::PopFont();
-    }
-
     //=============================================================================
 
     ImVec2 CalcWrappedTextSize(const char* text, float wrap_width) {
@@ -244,26 +221,31 @@ namespace e10
                     }
 
                     ImVec2 pos = ImGui::GetCursorScreenPos();
+                    // Fonts[3] - a real, larger BAKED font (see xgpu_imgui_breach.cpp's own comment on
+                    // it), not the old ScaleText(...,1.5f) hack, which just stretched Fonts[1]'s 12px
+                    // atlas glyphs at render time - readable, but visibly blurry/pixelated at that
+                    // scale. Direct user correction: "a larger size font... rather than resize a low
+                    // res one, so it looks more professional."
                     if ( false == InfoDB->m_InfoDataBase.FindAsReadOnly(E.m_Entry.m_FullGuid.m_Instance, [&](const library_db::info_node& InfoNode)
                     {
-                        ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[1]);
+                        ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[3]);
                         if (InfoNode.m_Info.m_Name.empty())
-                        {
-                            ScaleText(std::format("{:X}", E.m_Entry.m_FullGuid.m_Instance.m_Value).c_str(), 1.5f);
-                        }
+                            ImGui::TextUnformatted(std::format("{:X}", E.m_Entry.m_FullGuid.m_Instance.m_Value).c_str());
                         else
-                        {
-                            ScaleText(InfoNode.m_Info.m_Name.c_str(), 1.5f);
-                        }
+                            ImGui::TextUnformatted(InfoNode.m_Info.m_Name.c_str());
                         ImGui::PopFont();
                     }))
                     {
                         ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(255, 0, 0, 255));
-                        ScaleText(std::format("{:X} (Not in DBase)", E.m_Entry.m_FullGuid.m_Instance.m_Value).c_str(), 1.5f);
+                        ImGui::PushFont(ImGui::GetIO().Fonts->Fonts[3]);
+                        ImGui::TextUnformatted(std::format("{:X} (Not in DBase)", E.m_Entry.m_FullGuid.m_Instance.m_Value).c_str());
+                        ImGui::PopFont();
                         ImGui::PopStyleColor();
                     }
 
-                    pos.y += 24;
+                    // Direct user correction: bring "Status:" closer to the name - was a fixed offset
+                    // tuned for the old, taller 1.5x-scaled text; the real 16px font sits lower already.
+                    pos.y += 18;
                     ImGui::SetCursorScreenPos(pos);
                 });
             });
@@ -352,8 +334,12 @@ namespace e10
         {
             const ImVec4 normalColor = ImGui::GetStyle().Colors[ImGuiCol_Button];
 
-            // fully transparent (buttons and child windows)
-            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0, 0, 0, 0)); 
+            // Toolbar buttons stay transparent (flat against the header bar) - direct user correction:
+            // this used to ALSO force ImGuiCol_ChildBg fully transparent, which fell through to the
+            // plain window background for the whole items list + every entry's own child below,
+            // making this view look flat black instead of matching the Resources/Assets views' own
+            // (unmodified, theme-default) lighter panel background. Toolbar buttons above never sit
+            // inside a BeginChild anyway, so dropping the ChildBg override only affects the list.
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
 
             //
@@ -375,30 +361,20 @@ namespace e10
                 {
                     if (ImGui::BeginMenu("  Recompile"))
                     {
+                        // Was: delete Cache/Resources/Platforms and hope a later rescan notices the
+                        // compiled output is gone - it never actually re-queued anything itself. Now
+                        // uses the same "clear timestamps, let AddToCompilationQueueIfNeeded decide"
+                        // primitive RecompileResource already established for a single resource
+                        // (E10_AssetMgr.h), just walked across every resource in every library.
                         if (ImGui::MenuItem("  All Resources"))
-                        {
-                            std::wstring FullPath = std::format(L"{}//Cache/Resources/Platforms", m_AssetMgr.m_ProjectPath);
-                            try
-                            {
-                                if (std::filesystem::exists(FullPath)) {
-                                    std::filesystem::remove_all(FullPath);
-                                    std::cout << "Folder and all contents deleted successfully. " << xstrtool::To(FullPath) << "\n";
-                                }
-                                else 
-                                {
-                                    std::cout << "Folder does not exist." << xstrtool::To(FullPath) << "\n";
-                                }
-                            }
-                            catch (const std::filesystem::filesystem_error& e) 
-                            {
-                                std::cerr << "Filesystem error: " << e.what() << " While trying to delete folder " << xstrtool::To(FullPath) << "\n";
-                            }
-                        }
+                            m_AssetMgr.RecompileAllResources();
 
+                        // Was completely unimplemented (empty menu item). Requeues exactly the
+                        // resources currently sitting in compilation::instance::m_Failed (populated on
+                        // every FAILURE, never consumed anywhere else until now).
                         if (ImGui::MenuItem("  Errors Resources"))
-                        {
+                            m_AssetMgr.RecompileFailedResources();
 
-                        }
                         ImGui::EndMenu();
                     }
 
@@ -462,7 +438,13 @@ namespace e10
                     ImGui::PushStyleColor(ImGuiCol_Button, normalColor);
                 }
 
-                if ( ImGui::Button( " \xEE\x98\xAE " )) //OldState ? "\xEF\x96\xB0" : "\xEE\x98\xAE" ))
+                // Was "\xEE\x98\xAE" - rendered as a plain "?" tofu box in this font build (direct user
+                // report), same class of broken-codepoint issue already hit and fixed elsewhere this
+                // project (see e10_asset_tree_polish_pass2 memory) - only a live screenshot proves a
+                // codepoint actually renders here, never IsGlyphInFont/bbox checks. U+E769 ("Pause")/
+                // U+E768 ("Play", shown once already paused, to resume) - real Segoe MDL2 Assets
+                // codepoints, live-verified this pass.
+                if ( ImGui::Button( OldState ? "\xEE\x9D\xA8" : "\xEE\x9D\xA9" ))
                 {
                     m_AssetMgr.m_Compilation.PauseCompilation(!OldState);
                 }
@@ -588,7 +570,7 @@ namespace e10
 
             // sub window
             ImGui::EndChild();
-            ImGui::PopStyleColor(2);
+            ImGui::PopStyleColor(); // matches the single ImGuiCol_Button push at the top of this function
         }
 
         std::unordered_map<std::uint64_t, bool> m_Expanded;
