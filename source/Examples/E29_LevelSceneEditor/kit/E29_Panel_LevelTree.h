@@ -452,7 +452,10 @@ namespace e29
                                                     ImGui::Separator();
                                                     if (ImGui::MenuItem("Delete Folder"))
                                                     {
-                                                        e29::DeleteFolder(*pScene, FolderId);
+                                                        e29::commands::Run(Undo, std::format("DeleteFolder -Scene {} -Id {:08X}"
+                                                            , e29::commands::FormatSceneGuid(SceneGuid)
+                                                            , static_cast<std::uint32_t>(FolderId)
+                                                            ));
                                                         bFolderDeleted = true;
                                                     }
                                                     ImGui::EndPopup();
@@ -516,7 +519,10 @@ namespace e29
                                                 ImGui::TableSetColumnIndex(1);
                                                 if (ImGui::SmallButton("X"))
                                                 {
-                                                    e29::DeleteFolder(*pScene, FolderId);
+                                                    e29::commands::Run(Undo, std::format("DeleteFolder -Scene {} -Id {:08X}"
+                                                        , e29::commands::FormatSceneGuid(SceneGuid)
+                                                        , static_cast<std::uint32_t>(FolderId)
+                                                        ));
                                                     if (bFolderOpen) ImGui::TreePop();
                                                     ImGui::PopID();
                                                     continue; // It/this folder no longer exists - nothing left to render for it

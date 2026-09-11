@@ -303,6 +303,8 @@ int E29_Example()
     e29::commands::get_play_state_query_cmd CmdGetPlayState(E29Undo, &CmdContext);
     e29::commands::instantiate_prefab_cmd CmdInstantiatePrefab(E29Undo, &CmdContext);
     e29::commands::move_to_folder_cmd     CmdMoveToFolder(E29Undo, &CmdContext);
+    e29::commands::create_folder_cmd      CmdCreateFolder(E29Undo, &CmdContext);
+    e29::commands::delete_folder_cmd      CmdDeleteFolder(E29Undo, &CmdContext);
     e29::commands::list_assets_query_cmd  CmdListAssets(E29Undo, &CmdContext);
     e29::commands::describe_asset_query_cmd CmdDescribeAsset(E29Undo, &CmdContext);
     e29::commands::rename_asset_cmd       CmdRenameAsset(E29Undo, &CmdContext);

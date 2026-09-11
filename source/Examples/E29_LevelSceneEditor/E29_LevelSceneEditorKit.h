@@ -613,11 +613,13 @@ namespace e29
     //
     // "New Entity" routed through the command/undo system ([[e29_command_undo_system_plan]] memory,
     // phase 4 - commands/E29_Commands_EntityLifecycle.h) - create_entity_cmd::Redo does the exact
-    // migration this used to do inline, Undo deletes it again. "New Folder" is UNCHANGED (still a
-    // direct mutation) - phase 4's own scope is Create/Delete ENTITY only, folders aren't part of it.
-    // Moved here (was originally much earlier in this file) since this routing needs both
-    // e29::g_pGameMgr/g_pState (just declared, E29_PrefabAuthoring.h above) and e29::commands::Run
-    // (just included above) - neither was available at the function's original position.
+    // migration this used to do inline, Undo deletes it again. "New Folder" now routed too (external
+    // review flagged it as the one glaring inconsistency left next to CreateEntity/DeleteEntity sitting
+    // right beside it in this same menu) - CreateFolder/DeleteFolder commands, commands/
+    // E29_Commands_SceneOrganization.h. Moved here (was originally much earlier in this file) since
+    // this routing needs both e29::g_pGameMgr/g_pState (just declared, E29_PrefabAuthoring.h above) and
+    // e29::commands::Run (just included above) - neither was available at the function's original
+    // position.
     void ShowCreateMenuItems(xecs::scene::guid SceneGuid, xecs::scene::instance& Scene, xecs::scene::folder_id TargetFolder, xundo::system& Undo) noexcept
     {
         if (ImGui::MenuItem("New Entity"))
@@ -631,11 +633,13 @@ namespace e29
         }
         if (ImGui::MenuItem("New Folder"))
         {
-            xecs::scene::folder NewFolder;
-            NewFolder.m_Id     = NextFreeFolderId(Scene);
-            NewFolder.m_Parent = TargetFolder;
-            NewFolder.m_Name   = "New Folder";
-            Scene.m_Folders.push_back(std::move(NewFolder));
+            const auto Id = NextFreeFolderId(Scene);
+            e29::commands::Run(Undo, std::format("CreateFolder -Scene {} -Id {:08X} -Parent {:08X} -Name {}"
+                , e29::commands::FormatSceneGuid(SceneGuid)
+                , static_cast<std::uint32_t>(Id)
+                , static_cast<std::uint32_t>(TargetFolder)
+                , e29::commands::Base64Encode("New Folder")
+                ));
         }
     }
 
