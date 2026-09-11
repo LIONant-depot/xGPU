@@ -117,6 +117,17 @@ namespace e10
                     RebuildInspector();
                 }
 
+                // First entry of what will grow into a bigger context menu - explorer link only for now.
+                if (ImGui::BeginPopupContextItem("PluginContextMenu"))
+                {
+                    if (ImGui::MenuItem("  Open in Explorer"))
+                    {
+                        auto Str = std::format(L"explorer \"{}\"", Plugin.m_PluginPath);
+                        system(xstrtool::To(Str).data());
+                    }
+                    ImGui::EndPopup();
+                }
+
                 ImGui::PopID();
             }
         }
