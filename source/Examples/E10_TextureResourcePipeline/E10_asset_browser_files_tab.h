@@ -1592,7 +1592,18 @@ namespace e10
                                 // part of an active multi-selection, right-click selects just it first,
                                 // matching Explorer's own behavior, so "Delete" etc. never silently acts on
                                 // a stale, unrelated selection.
-                                if (ImGui::BeginPopupContextItem())
+                                //
+                                // REAL CRASH FOUND LIVE (2026-09-11): BeginPopupContextItem() with no
+                                // str_id uses the LAST SUBMITTED item's id, and Text()/TextColored() (the
+                                // "#N" dependent-count badge right above, for any file with at least one
+                                // dependent) always submits with id 0 - text has no interactive identity
+                                // by design (see ImGui::TextEx's own ItemAdd(bb, 0) call). That made this
+                                // hit ImGui's own IM_ASSERT(id != 0) and abort() on every single frame for
+                                // any file with a nonzero dependent badge, not just on an actual right-
+                                // click. Fix: pass an explicit id (this row already has its own PushID
+                                // scope from E.m_Name above) instead of depending on whichever widget
+                                // happened to render last.
+                                if (ImGui::BeginPopupContextItem("RowContext"))
                                 {
                                     if (!bMultiSelected) { SelectSingle(E.m_Name); m_SelectedFile = E.m_Name; }
 
@@ -1613,8 +1624,10 @@ namespace e10
                             else
                             {
                                 // Trash mode's only mutation - restore this one trashed item (file or
-                                // folder, recursively) back to its original location under Assets.
-                                if (ImGui::BeginPopupContextItem())
+                                // folder, recursively) back to its original location under Assets. Same
+                                // explicit-id fix as the non-trash branch above (this row can also follow
+                                // a Text()-based item with id 0).
+                                if (ImGui::BeginPopupContextItem("RowContext"))
                                 {
                                     if (!bMultiSelected) { SelectSingle(E.m_Name); m_SelectedFile = E.m_Name; }
                                     if (ImGui::MenuItem("Restore"))
