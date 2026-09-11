@@ -1058,7 +1058,11 @@ namespace e10
 
                     const char* pCon            = Folder.m_isTrash ? "\xEE\x9D\x8D" : Folder.m_isRoot ? (L.first.m_Type == e10::project::type_guid_v? "\xEE\xB0\xA6" : "\xEE\xA3\xB1") : Folder.m_isEmpty ? "\xEE\xA2\xB7" : "\xEE\xA3\x95";
                     const auto AdditionaFlags   = Folder.m_isEmpty ? (ImGuiTreeNodeFlags_Leaf ) : 0u;
+                    // Root gets a "(Resources)" suffix - direct user correction, matching the Assets
+                    // tab's own "{Library} (Assets)" root label convention (files_tab.h) so both trees
+                    // read the same way at their top node.
                     const auto Str              = Folder.m_isTrash ? std::format("{} {} ({})###{}", pCon, Folder.m_Name.data(), Folder.m_nDeletedItems, Folder.m_Guid.m_Instance.m_Value)
+                                                 : Folder.m_isRoot ? std::format("{} {} (Resources)###{}", pCon, Folder.m_Name.data(), Folder.m_Guid.m_Instance.m_Value)
                                                                    : std::format("{} {}###{}", pCon, Folder.m_Name.data(), Folder.m_Guid.m_Instance.m_Value);
 
                     if (IsInTheoryOpen) ImGui::SetNextItemOpen(IsInTheoryOpen);
@@ -2512,6 +2516,9 @@ namespace e10
 
     namespace
     {
-        inline browser_registration<virtual_tree_tab, "\xEE\xA3\xAF Virtual Tree", 0.0f > g_VirtualTree{};
+        // "Resources" (was "Virtual Tree") - direct user correction: matches the right concept, this
+        // tab browses the virtual RESOURCE/descriptor tree, not a second copy of the real Assets
+        // folder (that's the "Assets" tab, files_tab.h).
+        inline browser_registration<virtual_tree_tab, "\xEE\xA3\xAF Resources", 0.0f > g_VirtualTree{};
     }
 }

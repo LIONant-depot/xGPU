@@ -3138,6 +3138,32 @@ namespace e10
             return Result;
         }
 
+        // Permanently empties a library's raw-file trash (<Library>/.trash/assets) - direct user
+        // request: "The Trash folder should have an additional Red Button (Just like in the Resource
+        // Tree Trash)... This red button will work the same way," mirroring EmptyTrashcan's own real,
+        // irreversible, deliberately-NOT-undoable shape for the virtual descriptor tree's trash. Unlike
+        // EmptyTrashcan, there is no in-memory index to walk/update first - a trashed raw file was never
+        // added to m_AssetDataBase or any other index (dependency tracking only ever covers live Assets
+        // paths, see GetDependentNames' own file-only scope), so this is a plain recursive filesystem
+        // delete, nothing else. Empty string = success; a non-empty string is a real filesystem error
+        // (e.g. a file still open/locked elsewhere), reported rather than silently swallowed.
+        std::string EmptyAssetTrash(const library::guid LibraryGUID) const noexcept
+        {
+            std::string Result;
+            const bool bFoundLibrary = m_mLibraryDB.FindAsReadOnly(LibraryGUID, [&](const std::unique_ptr<library_db>& Library)
+            {
+                const auto      TrashRoot = std::filesystem::path(Library->m_Library.m_Path) / L".trash" / L"assets";
+                std::error_code Ec;
+                if (std::filesystem::exists(TrashRoot, Ec))
+                {
+                    std::filesystem::remove_all(TrashRoot, Ec);
+                    if (Ec) Result = std::format("Could not empty trash: {}", Ec.message());
+                }
+            });
+            if (!bFoundLibrary) Result = "Library not found";
+            return Result;
+        }
+
         // How many OTHER resources reference RelPath (or, if RelPath is a folder, everything under it)
         // - the basis for warning a user (or an AI, via a command's own -Force escape hatch) before a
         // rename/move/delete that could leave dependents pointing at a stale/trashed location.
@@ -3184,12 +3210,55 @@ namespace e10
             return Total;
         }
 
-        // Up to MaxCount human-readable resource NAMES that directly depend on RelPath - a single FILE,
-        // not a folder (unlike CountDependents above this deliberately does not recurse; it backs a
-        // per-file hover tooltip in the Asset Tree, direct user request: "on hover for the files you
-        // could open a hint popup showing which resources are using that file... (bound the list just
-        // in case)"). TotalOut receives the FULL dependent count even when the returned list itself was
-        // capped to MaxCount, so the caller can show "+N more" rather than silently truncating.
+        // Full virtual "Root > Folder > ... > Name" path for a resource, root-to-leaf INCLUDING the
+        // resource's own name - direct user correction on the dependent-hover tooltip: "show the entire
+        // virtual path for the resource... otherwise the user will be confused" (a bare name alone can't
+        // tell two same-named resources in different folders apart, or say where to actually find one in
+        // the Resources tree). Walks UP via each node's own first non-trash folder-type parent link
+        // (m_RscLinks), the same "one real parent" idiom virtual_tree_tab's own breadcrumb-building code
+        // already relies on - stops naturally once a node has no folder-type parent link (the root).
+        // Capped at 32 hops as a defensive guard against a cyclic parent chain - should never happen,
+        // but a tooltip must never be able to hang the UI thread.
+        std::string GetResourceVirtualPath(const library::guid LibraryGUID, xresource::full_guid Guid) const noexcept
+        {
+            std::vector<std::string> Segments;
+            for (int Hops = 0; Hops < 32 && Guid.isValid(); ++Hops)
+            {
+                std::string          Name;
+                xresource::full_guid Parent;
+                const bool bFound = getInfo(LibraryGUID, Guid, [&](const xresource_pipeline::info& Info)
+                {
+                    Name = Info.m_Name.empty() ? "<unnamed>" : Info.m_Name;
+                    for (auto& Link : Info.m_RscLinks)
+                    {
+                        if (Link.m_Type == e10::folder::type_guid_v && Link.m_Instance.m_Value != e10::folder::trash_guid_v.m_Instance.m_Value)
+                        {
+                            Parent = Link;
+                            break;
+                        }
+                    }
+                });
+                if (!bFound) break;
+                Segments.push_back(std::move(Name));
+                Guid = Parent;
+            }
+
+            std::string Result;
+            for (auto It = Segments.rbegin(); It != Segments.rend(); ++It)
+            {
+                if (!Result.empty()) Result += " > ";
+                Result += *It;
+            }
+            return Result;
+        }
+
+        // Up to MaxCount full virtual PATHS (see GetResourceVirtualPath above) for resources that
+        // directly depend on RelPath - a single FILE, not a folder (unlike CountDependents above this
+        // deliberately does not recurse; it backs a per-file hover tooltip in the Asset Tree, direct
+        // user request: "on hover for the files you could open a hint popup showing which resources are
+        // using that file... (bound the list just in case)"). TotalOut receives the FULL dependent count
+        // even when the returned list itself was capped to MaxCount, so the caller can show "+N more"
+        // rather than silently truncating.
         std::vector<std::string> GetDependentNames(const library::guid LibraryGUID, const std::wstring& RelPath, std::size_t MaxCount, std::size_t& TotalOut) const noexcept
         {
             std::vector<std::string> Result;
@@ -3198,10 +3267,11 @@ namespace e10
             // Flatten, not nested (real lock-order assert caught this live - see
             // xcontainer_unordered_lockless_map.h's own debug_lock_order_stack): AssetDataBase is level
             // 2 and must always be innermost/LAST, never a container for a further nested lock -
-            // getInfo() below acquires InfoByType/InfoData (level 1), so it must run AFTER the
-            // AssetDataBase lock has already been released, not from within its own callback. Copy the
-            // child-link list out under a short AssetDataBase-only lock, then resolve names afterward
-            // with no AssetDataBase lock held - the exact same pattern MoveAssetFile's own cascade uses.
+            // GetResourceVirtualPath below acquires InfoByType/InfoData (level 1) via getInfo, so it must
+            // run AFTER the AssetDataBase lock has already been released, not from within its own
+            // callback. Copy the child-link list out under a short AssetDataBase-only lock, then resolve
+            // paths afterward with no AssetDataBase lock held - the exact same pattern MoveAssetFile's
+            // own cascade uses.
             std::vector<xresource::full_guid> ChildLinksCopy;
             m_mLibraryDB.FindAsReadOnly(LibraryGUID, [&](const std::unique_ptr<library_db>& Library)
             {
@@ -3213,13 +3283,7 @@ namespace e10
             for (auto& Guid : ChildLinksCopy)
             {
                 if (Result.size() >= MaxCount) break;
-                // Deliberately NOT marked noexcept - this codebase's own function_traits-based
-                // callback introspection (getInfo's arg<0> detection, same class of issue as
-                // FindAsReadOnly's concept check) has repeatedly mis-detected noexcept lambda
-                // argument types before (see memory: xgpu_xproperty_noexcept_action_trap,
-                // xgpu_xcontainer_noexcept_lambda_trait_trap) - side-stepped here rather than
-                // risking a 3rd recurrence.
-                getInfo(LibraryGUID, Guid, [&](const xresource_pipeline::info& Info) { Result.push_back(Info.m_Name); });
+                Result.push_back(GetResourceVirtualPath(LibraryGUID, Guid));
             }
             return Result;
         }

@@ -9,6 +9,7 @@
 #include <format>
 #include "imgui_internal.h"     // For BeginDragDropTargetCustom (background drop target, 5C)
 #include "E10_AssetOleDrag.h"   // Real Win32 OLE drag-out to Explorer (Phase 6)
+#include <shellapi.h>           // ShellExecuteW - double-click-to-open (Phase 6 polish)
 
 // Asset (real filesystem) window - Phase 3 of the Asset Browser window-split plan (see plan file
 // lively-knitting-sifakis.md). READ-ONLY BROWSING ONLY - Phase 4 adds Copy/Cut/Rename/Delete plus
@@ -114,6 +115,22 @@ namespace e10
                 return false;
             }
             return true;
+        }
+
+        // Double-click-to-open (direct user request: "if we double click a file... we should be calling
+        // Open like in windows explorer") - hands the file to whatever app Windows has associated with
+        // its extension, exactly like a real Explorer double-click. Fire-and-forget: ShellExecuteW spawns
+        // the associated app asynchronously and returns immediately, this call never blocks the editor.
+        // No result is surfaced beyond the printf on failure (matching this file's own established
+        // "diagnostic log, don't pop a blocking modal for an external-process launch" convention).
+        static void OpenFileWithDefaultApp(const std::filesystem::path& FullPath) noexcept
+        {
+            const auto Result = reinterpret_cast<INT_PTR>(::ShellExecuteW(nullptr, L"open", FullPath.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+            if (Result <= 32) // ShellExecuteW's own "succeeded" threshold - anything <= 32 is an error code
+            {
+                std::printf("[AssetTree] Failed to open '%ls' (ShellExecuteW error %zd)\n", FullPath.c_str(), static_cast<std::ptrdiff_t>(Result));
+                std::fflush(stdout);
+            }
         }
 
         // Whether Ancestor is Target itself or a proper prefix of it (component-wise, not substring) -
@@ -361,7 +378,15 @@ namespace e10
         // occupied - MoveAssetFile's own existing "target already exists" check already covers this.
         void DoRestore(const library::guid& LibraryGuid, const std::filesystem::path& RelPathUnderTrash) noexcept
         {
-            const std::wstring TrashRel    = (std::filesystem::path(L".trash") / L"assets" / RelPathUnderTrash).wstring();
+            // The real on-disk trash path is always <Library>/.trash/assets/Assets/<original relative
+            // path> - ComputeTrashPath's own hardcoded "assets" folder PLUS the "Assets\" prefix already
+            // baked into the library-root-relative path every caller passes it (ToLibraryRelPath).
+            // RelPathUnderTrash here is relative to the COLLAPSED browsing root (.trash/assets/Assets -
+            // see the matching comment at the Trash tree's own injection site) - direct user correction:
+            // "we do not need to see that [Assets] folder... because we already know that they are all
+            // assets," so the extra "Assets" segment is skipped in the UI but still very much real on
+            // disk, and must be added back here to compute the true trash path.
+            const std::wstring TrashRel    = (std::filesystem::path(L".trash") / L"assets" / L"Assets" / RelPathUnderTrash).wstring();
             const std::wstring OriginalRel = (std::filesystem::path(L"Assets") / RelPathUnderTrash).wstring();
 
             m_bEntriesCacheDirty = true;
@@ -893,10 +918,20 @@ namespace e10
             // of virtual_tree_tab confirmed THIS specific codepoint renders as a real trash-can glyph
             // here, not a missing-glyph box - a different slice of the same private-use-area icon font,
             // not uniformly broken.
+            // The true library root ALSO gets a font-glyph icon instead of the vector folder icon -
+            // \xEE\xA3\xB1, the SAME "library" glyph virtual_tree_tab uses for its own (non-project)
+            // library roots - direct user correction: "that Icon signifies a library... it should be
+            // replacing the top folder icon in the Assets view tree... where it says example (Assets)."
+            // This is exactly why the Assets TAB itself was moved off this same codepoint (see
+            // g_FilesTab's own comment) - one codepoint, one meaning, used consistently in both trees.
             bool bOpen;
             if (bIsRoot && bTrashMode)
             {
                 bOpen = ImGui::TreeNodeEx(std::format("\xEE\x9D\x8D {}", Label).c_str(), Flags);
+            }
+            else if (bIsRoot)
+            {
+                bOpen = ImGui::TreeNodeEx(std::format("\xEE\xA3\xB1 {}", Label).c_str(), Flags);
             }
             else
             {
@@ -1008,8 +1043,17 @@ namespace e10
                 // than a real entry SubDirs would ever contain - deliberately only at the TRUE Assets
                 // root (bIsRoot && !bTrashMode), so the trash subtree itself never recurses into a
                 // trash-of-trash.
+                //
+                // The browsing root is .trash/assets/Assets, NOT .trash/assets - direct user correction:
+                // "when you click the trash the first folder you see is assets... we do not need to see
+                // that folder... we already know that they are all assets." The real on-disk path is
+                // always .trash/assets/<the ORIGINAL library-root-relative path, e.g. "Assets\PuppyDog">
+                // (ComputeTrashPath's own "assets" folder PLUS the "Assets\" prefix ToLibraryRelPath
+                // always bakes into every caller's path) - collapsing the browsing root past that extra
+                // "Assets" segment is a pure UI skip, not a change to where files actually get moved
+                // (DoRestore adds the segment back when computing the real trash path).
                 if (bIsRoot && !bTrashMode)
-                    RenderFolder(LibraryGuid, AssetsRoot.parent_path() / L".trash" / L"assets", {}, true);
+                    RenderFolder(LibraryGuid, AssetsRoot.parent_path() / L".trash" / L"assets" / L"Assets", {}, true);
 
                 for (auto& Dir : SubDirs) RenderFolder(LibraryGuid, AssetsRoot, RelPath / Dir, bTrashMode);
                 ImGui::TreePop();
@@ -1162,6 +1206,40 @@ namespace e10
         // is broken" caution doesn't apply wholesale.
         void RenderNavigationPath() noexcept
         {
+            // Empty Trash - a red button shown while browsing anywhere inside Trash, matching
+            // virtual_tree_tab's own AddResourceButton (which swaps its "+" button to an identical red
+            // trash-empty button + confirmation popup whenever the Resource Tree's own selection is the
+            // Trash folder) - direct user correction: put it in the SAME PLACE as the Resource tab's own
+            // version, meaning inline with back/forward/history in this navigation row (leftmost, kept
+            // OUTSIDE the transparent-button style below so it keeps its own red color), not as a
+            // separate labeled row above the tree.
+            if (m_bBrowsingTrash)
+            {
+                ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.5f, 0, 0, 1));
+                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.9f, 0, 0, 1));
+                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.9f, 0, 0, 1));
+                if (assert_browser::ScaleButton("\xEE\x9C\xB8", 1.2f)) ImGui::OpenPopup("Empty Asset Trash");
+                ImGui::PopStyleColor(3);
+
+                if (ImGui::BeginPopup("Empty Asset Trash"))
+                {
+                    ImGui::TextColored(ImVec4(1, 0, 0, 1), "Warning: This operation can not be undone");
+                    if (ImGui::MenuItem("\xEE\x9D\x8D  Empty Trash"))
+                    {
+                        if (auto Err = m_AssetMgr.EmptyAssetTrash(m_SelectedLibrary); !Err.empty())
+                        {
+                            std::printf("[AssetTree] Empty Trash failed: %s\n", Err.c_str());
+                            std::fflush(stdout);
+                        }
+                        ClearMultiSelect();
+                        m_SelectedFile.clear();
+                        m_bEntriesCacheDirty = true;
+                    }
+                    ImGui::EndPopup();
+                }
+                ImGui::SameLine();
+            }
+
             // Transparent button background for just these three icon buttons - matches
             // virtual_tree_tab's own TopControls() exactly (it pushes this around AddViewMenuButton()+
             // RenderNavigationPath(), popped right after). RenderPath()'s own breadcrumb buttons already
@@ -1223,8 +1301,10 @@ namespace e10
 
             const bool bFoundLibrary = m_AssetMgr.m_mLibraryDB.FindAsReadOnly(m_SelectedLibrary, [&](const std::unique_ptr<library_db>& Library)
             {
+                // .trash/assets/Assets, not .trash/assets - see RenderFolder's own trash-injection
+                // comment for why the extra "Assets" segment is real on disk but skipped in the UI.
                 const auto     AssetsRoot = m_bBrowsingTrash
-                    ? std::filesystem::path(Library->m_Library.m_Path) / L".trash" / L"assets"
+                    ? std::filesystem::path(Library->m_Library.m_Path) / L".trash" / L"assets" / L"Assets"
                     : std::filesystem::path(Library->m_Library.m_Path) / L"Assets";
                 const auto     FullPath   = AssetsRoot / m_SelectedFolder;
                 std::error_code Ec;
@@ -1412,45 +1492,39 @@ namespace e10
                             }
                             else
                             {
-                                if (ImGui::Selectable(Name.c_str(), bMultiSelected, ImGuiSelectableFlags_SpanAllColumns))
-                                    HandleRowClick(SortedNames, E.m_Name);
+                                // Double-click opens the file with its OS-associated app, matching real
+                                // Explorer - direct user request. Same AllowDoubleClick shape the folder
+                                // branch above already uses: the Selectable reports true on BOTH clicks
+                                // of a double-click, so only the SECOND one (IsMouseDoubleClicked) opens;
+                                // the first behaves as an ordinary select via HandleRowClick, same as
+                                // it always has for a ctrl/shift-aware single click.
+                                if (ImGui::Selectable(Name.c_str(), bMultiSelected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick))
+                                {
+                                    if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+                                        OpenFileWithDefaultApp(FullPath / E.m_Name);
+                                    else
+                                        HandleRowClick(SortedNames, E.m_Name);
+                                }
 
-                                // Captured BEFORE drawing the badge below - IsItemHovered() only ever
-                                // checks the MOST RECENTLY submitted item, so the detailed tooltip further
-                                // down (which wants to know if the FILENAME itself is hovered) would
-                                // otherwise silently start checking the badge widget instead the moment a
-                                // badge gets drawn, breaking it exactly for the files it matters most for.
-                                const bool bNameHovered = ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal);
-
-                                // Persistent dependency indicator (Phase 6, "beyond parity" - direct
-                                // user request: "a visual badge/icon in the list (no hover needed) was
-                                // the original 'beyond-parity' idea and wasn't built"). Unlike the hover
-                                // tooltip below (which needs a deliberate pause to reveal WHO depends on
-                                // a file), this small "#N" badge is always visible for any file with at
-                                // least one dependent - computed once per cache rebuild (E.m_DependentCount,
-                                // see file_entry's own comment), not here, so drawing it costs nothing
-                                // beyond one cheap conditional per row. ASCII-only text (no icon-font
-                                // glyph) so it renders correctly regardless of what the atlas covers.
+                                // Persistent dependency indicator + its own detail-on-hover (Phase 6,
+                                // "beyond parity" - direct user request: "a visual badge/icon in the list
+                                // (no hover needed)"). The "#N" badge is always visible for any file with
+                                // at least one dependent - computed once per cache rebuild
+                                // (E.m_DependentCount, see file_entry's own comment), not here. The named
+                                // list used to ALSO show on hovering the filename itself, a second,
+                                // redundant tooltip covering the same information - direct user
+                                // correction: "There are two pops ups now... I think we can remove the
+                                // one from hover the file." Consolidated onto the badge alone: nothing to
+                                // hover (and no GetDependentNames call at all) for a file with zero
+                                // dependents, one hover target for a file with any.
                                 if (E.m_DependentCount > 0)
                                 {
                                     ImGui::SameLine();
                                     ImGui::TextColored(ImVec4(0.4f, 0.75f, 1.0f, 1.0f), "#%zu", E.m_DependentCount);
-                                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
-                                        ImGui::SetTooltip("Used by %zu resource%s", E.m_DependentCount, E.m_DependentCount == 1 ? "" : "s");
-                                }
-
-                                // Dependent-usage hover hint (direct user request: "on hover for the
-                                // files you could open a hint popup showing which resources are using
-                                // that file... (bound the list just in case)"). DelayNormal matches
-                                // Explorer's own "don't pop instantly" tooltip feel; capped to 10 names
-                                // via GetDependentNames' own MaxCount so a heavily-referenced file (e.g.
-                                // a shared texture) can't spam an enormous tooltip.
-                                if (!m_bBrowsingTrash && bNameHovered)
-                                {
-                                    std::size_t Total = 0;
-                                    const auto  Names = m_AssetMgr.GetDependentNames(m_SelectedLibrary, ToLibraryRelPath(m_SelectedFolder / E.m_Name), 10, Total);
-                                    if (Total > 0)
+                                    if (!m_bBrowsingTrash && ImGui::IsItemHovered(ImGuiHoveredFlags_DelayNormal))
                                     {
+                                        std::size_t Total = 0;
+                                        const auto  Names = m_AssetMgr.GetDependentNames(m_SelectedLibrary, ToLibraryRelPath(m_SelectedFolder / E.m_Name), 10, Total);
                                         ImGui::BeginTooltip();
                                         ImGui::Text("Used by %zu resource%s:", Total, Total == 1 ? "" : "s");
                                         for (auto& N : Names) ImGui::BulletText("%s", N.c_str());
@@ -1656,7 +1730,19 @@ namespace e10
 
     namespace
     {
-        inline browser_registration<files_tab, "Asset Tree", 3.0f, true, true > g_FilesTab{};
+        // "Assets" (was "Asset Tree") - direct user correction, matching virtual_tree_tab's own
+        // "Resources" naming/icon convention rather than a bare, icon-less "Asset Tree" label.
+        // \xEE\xA3\xB1 (originally used here) turned out to be the SAME glyph virtual_tree_tab uses to
+        // mean "library" - a real conflict, not just a coincidence, per direct user correction: "that
+        // Icon has already been used by the resources to signify a library... you will need to choose a
+        // new icon for assets." Switched to \xEE\xA2\xB4 (Segoe MDL2 Assets "Package") - confirmed via a
+        // live screenshot, not just glyph-presence metadata (IsGlyphInFont alone is NOT a reliable
+        // predictor here - it reported U+E8B7 "Folder" as present despite that codepoint visibly
+        // rendering as a blank box in this exact font build, see the Trash-icon memory's own "check
+        // codepoints, don't assume" lesson - this one extends it further: even a per-glyph ink/bbox
+        // check said Folder "has ink", yet it still rendered blank live, so only a real screenshot is
+        // actually trustworthy here).
+        inline browser_registration<files_tab, "\xEE\xA2\xB4 Assets", 3.0f, true, true > g_FilesTab{};
     }
 }
 
