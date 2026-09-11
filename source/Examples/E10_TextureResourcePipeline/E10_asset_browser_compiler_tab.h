@@ -244,8 +244,9 @@ namespace e10
                     }
 
                     // Direct user correction: bring "Status:" closer to the name - was a fixed offset
-                    // tuned for the old, taller 1.5x-scaled text; the real 16px font sits lower already.
-                    pos.y += 18;
+                    // tuned for the old, taller 1.5x-scaled text; the real 16px font sits lower
+                    // already. 18 (first attempt) overcorrected and sat too close/overlapping.
+                    pos.y += 22;
                     ImGui::SetCursorScreenPos(pos);
                 });
             });
@@ -447,6 +448,16 @@ namespace e10
                 if ( ImGui::Button( OldState ? "\xEE\x9D\xA8" : "\xEE\x9D\xA9" ))
                 {
                     m_AssetMgr.m_Compilation.PauseCompilation(!OldState);
+
+                    // REAL BUG FOUND LIVE (2026-09-11): Pause correctly halts the queue (the
+                    // compilation_job's own ContinueCompiling() check makes OnRun() return/exit
+                    // entirely rather than wait), but flipping the flag back on Resume was never
+                    // enough on its own - nothing re-submits the now-exited job to the scheduler,
+                    // so queued items sat at "Waiting to Compile" forever after a resume, live-
+                    // verified stuck for 7+ seconds. Same fix the Auto-Compile toggle right above
+                    // already uses when re-enabling itself (StartCompilation() is a no-op if a job
+                    // is already running, so this is always safe to call).
+                    if (OldState) m_AssetMgr.m_Compilation.StartCompilation();
                 }
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip(OldState ? "Press if you want to resume the compilation process" : "Press to pause the compilation process");
 

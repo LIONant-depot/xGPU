@@ -663,7 +663,7 @@ namespace e10
                             ImGui::BeginGroup();
                             RenderSearchBar(ImVec2(size1, total_height));
 
-                            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.145f, 0.145f, 0.145f, 0.80f));
+                            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.11f, 0.11f, 0.11f, 0.75f)); // was 0.145/0.80 - direct user request, "a bit darker"
                             if (ImGui::BeginChild("Left", ImVec2(size1, total_height - (ImGui::GetCursorScreenPos().y - SearchBarTop.y))))
                                 pTab->LeftPanel();
                             ImGui::EndChild();
@@ -685,7 +685,7 @@ namespace e10
                         // its own "Left"/"Right" children - it read as flatly darker than Resources/
                         // Assets/Plugins right next to it. Same color, same "Right"-shaped child, so
                         // any tab taking this branch matches the others automatically.
-                        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.145f, 0.145f, 0.145f, 0.80f));
+                        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.11f, 0.11f, 0.11f, 0.75f)); // was 0.145/0.80 - direct user request, "a bit darker"
                         if (ImGui::BeginChild("Right", ImGui::GetContentRegionAvail()))
                             pTab->RightPanel();
                         ImGui::EndChild();
@@ -798,7 +798,7 @@ namespace e10
                 // Right panel
                 //
                 ImGui::BeginGroup();
-                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.145f, 0.145f, 0.145f, 0.80f)); 
+                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.11f, 0.11f, 0.11f, 0.75f)); // was 0.145/0.80 - direct user request, "a bit darker" 
                 if (ImGui::BeginChild("Panel", ImVec2(-1, total_height - (ImGui::GetCursorScreenPos().y - a.y))))
                 {
                     if (pTabSelected)

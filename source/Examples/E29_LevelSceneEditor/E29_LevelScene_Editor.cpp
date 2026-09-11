@@ -13,6 +13,7 @@
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetBrowser.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetFiles.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_MakePrefab.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Compilation.h"
 
 //-----------------------------------------------------------------------------------
 //
@@ -306,6 +307,12 @@ int E29_Example()
     e29::commands::copy_asset_file_cmd    CmdCopyAssetFile(E29Undo, &CmdContext);
     e29::commands::make_prefab_cmd        CmdMakePrefab(E29Undo, &CmdContext);
     e29::commands::make_prefab_variant_cmd CmdMakePrefabVariant(E29Undo, &CmdContext);
+    e29::commands::recompile_all_query_cmd    CmdRecompileAll(E29Undo, &CmdContext);
+    e29::commands::recompile_errors_query_cmd CmdRecompileErrors(E29Undo, &CmdContext);
+    e29::commands::compile_start_query_cmd    CmdCompileStart(E29Undo, &CmdContext);
+    e29::commands::compile_pause_query_cmd    CmdCompilePause(E29Undo, &CmdContext);
+    e29::commands::compile_auto_query_cmd     CmdCompileAuto(E29Undo, &CmdContext);
+    e29::commands::compile_status_query_cmd   CmdCompileStatus(E29Undo, &CmdContext);
     xundo::history                        E29History;
     E29History.AddSystem("E29", 1, E29Undo);
 

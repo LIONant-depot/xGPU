@@ -14,6 +14,7 @@
 #include <cstdlib>
 #include <chrono>
 #include <queue>
+#include <deque>
 #include <cwctype>
 #include <iostream>
 #include <fstream>
@@ -344,227 +345,6 @@ namespace e10
             std::shared_ptr<log>    m_Log       = {};
         };
 
-        namespace lockless
-        {
-            template<typename T_NODE>
-            struct tagged_ptr
-            {
-                std::size_t m_Tag=0;
-
-                inline constexpr static std::size_t shift_v         = 48;
-                inline constexpr static std::size_t one_shift_v     = 1ULL << shift_v;
-                inline constexpr static std::size_t bitmask_v       = 0xFFFFULL << shift_v;
-                inline constexpr static std::size_t ptrmask_v       = ~bitmask_v;
-
-                tagged_ptr(void)                          noexcept = default;
-                tagged_ptr(T_NODE* ptr, std::size_t tag)  noexcept { assert(!(tag & ptrmask_v)); m_Tag = (reinterpret_cast<std::size_t>(ptr) & ptrmask_v) | tag; }
-                tagged_ptr(T_NODE* ptr)                   noexcept : m_Tag{ reinterpret_cast<std::size_t>(ptr) } { m_Tag &= ptrmask_v; }
-
-                void        IncTag      (void)            noexcept { m_Tag = IncTagCopy() | (m_Tag & ptrmask_v); }
-                std::size_t IncTagCopy  (void)    const   noexcept { return (m_Tag + one_shift_v) & bitmask_v; }
-                T_NODE*     data        (void)    const   noexcept { return reinterpret_cast<T_NODE*>(m_Tag & ptrmask_v); }
-                std::size_t getTag      (void)    const   noexcept { return m_Tag & bitmask_v; }
-            };
-
-            template< typename T_USER_DATA >
-            struct entry
-            {
-                using user_data     = T_USER_DATA;
-                using tagged_ptr    = tagged_ptr<entry>;
-
-                user_data                m_UserData;
-                std::atomic<tagged_ptr>  m_pNext;
-            };
-
-            // (Michael-Scott algorithm queue (lockless queue) with ABA)
-            template< typename T_ENTRY, typename T_MEMORY_POOL >
-            struct queue
-            {
-                using entry         = T_ENTRY;
-                using user_data     = typename entry::user_data;
-                using tagged_ptr    = typename entry::tagged_ptr;
-
-                queue(T_MEMORY_POOL& Pool) noexcept : m_Pool{ Pool }
-                {
-                    auto pDummy = m_Pool.pop();
-                    assert(pDummy != nullptr);
-                    pDummy->m_pNext.store({ nullptr }, std::memory_order_relaxed);
-                    m_Head.store({ pDummy }, std::memory_order_relaxed);
-                    m_Tail.store({ pDummy }, std::memory_order_relaxed);
-                }
-
-                // transfer ownership by exchanging to null
-                queue(queue&& other) noexcept
-                    : m_Pool{other.m_Pool}, m_Head(nullptr), m_Tail(nullptr) {
-                    m_Head.store(other.m_Head.exchange(tagged_ptr{nullptr}, std::memory_order_relaxed),std::memory_order_relaxed);
-                    m_Tail.store(other.m_Tail.exchange(tagged_ptr{nullptr}, std::memory_order_relaxed),std::memory_order_relaxed);
-                }
-
-                // move assignment
-                queue& operator=(queue&& other) noexcept
-                {
-                    if (this != &other)
-                    {
-                        assert(&m_Pool == &other.m_Pool); // Pools must match
-                        auto old_head = m_Head.exchange(other.m_Head.exchange(tagged_ptr{ nullptr }, std::memory_order_relaxed),std::memory_order_relaxed);
-                        auto old_tail = m_Tail.exchange(other.m_Tail.exchange(tagged_ptr{ nullptr }, std::memory_order_relaxed),std::memory_order_relaxed);
-
-                        // Drain old queue
-                        for (entry* pCurrent = old_head.data(); pCurrent; pCurrent = pCurrent->m_pNext.load(std::memory_order_relaxed).data())
-                        {
-                            m_Pool.push(*pCurrent);
-                        }
-                    }
-                    return *this;
-                }
-
-                ~queue(void) noexcept
-                {
-                    tagged_ptr LocalHead = m_Head.load(std::memory_order_relaxed);
-                    for (entry* pCurrent = LocalHead.data(); pCurrent; pCurrent = pCurrent->m_pNext.load(std::memory_order_relaxed).data())
-                    {
-                        m_Pool.push(*pCurrent);
-                    }
-                }
-
-                void push(user_data&& UserData ) noexcept
-                {
-                    auto pNode = m_Pool.pop();
-                    assert(pNode != nullptr); // Ensure allocation succeeded
-                    pNode->m_UserData = std::move(UserData);
-                    pNode->m_pNext.store({nullptr}, std::memory_order_relaxed);
-
-                    do
-                    {
-                        tagged_ptr  LocalTail           = m_Tail.load(std::memory_order_relaxed);
-                        entry*      pLocalTail          = LocalTail.data();
-                        tagged_ptr  LocalNext           = pLocalTail->m_pNext.load(std::memory_order_relaxed);
-                        entry*      pLocalNext          = LocalNext.data();
-                        tagged_ptr  LocalCurrentTail    = m_Tail.load(std::memory_order_relaxed);
-
-                        if (LocalTail.m_Tag == LocalCurrentTail.m_Tag)
-                        {
-                            if (pLocalNext == nullptr)
-                            {
-                                tagged_ptr NewNext{ pNode, LocalNext.IncTagCopy() };
-                                if (pLocalTail->m_pNext.compare_exchange_weak(LocalNext, NewNext, std::memory_order_release))
-                                {
-                                    tagged_ptr NewTail{ pNode, LocalTail.IncTagCopy() };
-                                    m_Tail.compare_exchange_weak(LocalTail, NewTail, std::memory_order_release);
-                                    ++m_Count;
-                                    return;
-                                }
-                            }
-                            else
-                            {
-                                tagged_ptr NewTail{ pLocalNext, LocalTail.IncTagCopy() };
-                                m_Tail.compare_exchange_weak(LocalTail, NewTail, std::memory_order_release);
-                            }
-                        }
-                    } while (true);
-                }
-
-                bool pop(user_data& UserData) noexcept
-                {
-                    do
-                    {
-                        tagged_ptr  LocalHead   = m_Head.load(std::memory_order_relaxed);
-                        entry*      pLocalHead  = LocalHead.data();
-                        assert(pLocalHead != nullptr); // Head should always be valid
-
-                        tagged_ptr  LocalTail   = m_Tail.load(std::memory_order_relaxed);
-                        entry*      pLocalTail  = LocalTail.data();
-                        assert(pLocalTail != nullptr); // Tail should always be valid
-
-                        tagged_ptr  LocalNext   = pLocalHead->m_pNext.load(std::memory_order_acquire);
-                        entry*      pLocalNext  = LocalNext.data();
-                        if(LocalHead.m_Tag != m_Head.load(std::memory_order_relaxed).m_Tag)
-                            continue;
-
-                        if (pLocalHead == pLocalTail)
-                        {
-                            if (pLocalNext == nullptr) return false;
-
-                            tagged_ptr NewTail{ pLocalNext, LocalTail.IncTagCopy() };
-                            m_Tail.compare_exchange_weak(LocalTail, NewTail, std::memory_order_release);
-                        }
-                        else
-                        {
-                            if (pLocalNext == nullptr) continue; // Rare race safeguard
-
-                            tagged_ptr NewHead{ pLocalNext, LocalHead.IncTagCopy() };
-                            if (m_Head.compare_exchange_weak(LocalHead, NewHead, std::memory_order_release))
-                            {
-                                UserData = std::move(pLocalNext->m_UserData);
-                                m_Pool.push(*pLocalHead);
-                                --m_Count;
-                                return true;
-                            }
-                        }
-                    } while (true);
-                }
-
-                std::size_t size(void) const noexcept
-                {
-                    return m_Count.load(std::memory_order_relaxed);
-                }
-
-                // Iterator support (const, forward-only; assumes no concurrent modifications)
-                struct const_iterator
-                {
-                    using value_type        = const user_data;
-                    using pointer           = value_type*;
-                    using reference         = value_type&;
-                    using difference_type   = std::ptrdiff_t;
-                    using iterator_category = std::forward_iterator_tag;
-
-                    const_iterator() noexcept : m_current(nullptr) {}
-                    explicit const_iterator(entry* node) noexcept : m_current(node) {}
-
-                    reference   operator*()     const noexcept { return m_current->m_UserData; }
-                    pointer     operator->()    const noexcept { return &m_current->m_UserData; }
-
-                    const_iterator& operator++() noexcept
-                    {
-                        m_current = m_current->m_pNext.load(std::memory_order_acquire).data();
-                        return *this;
-                    }
-
-                    const_iterator operator++(int) noexcept
-                    {
-                        const_iterator tmp = *this;
-                        ++(*this);
-                        return tmp;
-                    }
-
-                    bool operator==(const const_iterator& other) const noexcept { return m_current == other.m_current; }
-                    bool operator!=(const const_iterator& other) const noexcept { return !(*this == other); }
-
-                    entry* m_current;
-                };
-
-                const_iterator begin() const noexcept
-                {
-                    tagged_ptr local_head = m_Head.load(std::memory_order_acquire);
-                    return const_iterator{ local_head.data()->m_pNext.load(std::memory_order_acquire).data() };
-                }
-
-                const_iterator end() const noexcept
-                {
-                    return const_iterator{};
-                }
-
-                const_iterator cbegin() const noexcept { return begin(); }
-                const_iterator cend() const noexcept { return end(); }
-
-
-                T_MEMORY_POOL&          m_Pool;
-                std::atomic<tagged_ptr> m_Head;
-                std::atomic<tagged_ptr> m_Tail;
-                std::atomic_int         m_Count;
-            };
-        }
-
         struct failed_container
         {
             mutable std::mutex                                          m_Mutex;
@@ -649,12 +429,23 @@ namespace e10
                             }
 
                             // Let's not saturate the workers that way the editor can do other things...
-                            if (Compilation.getJobsInQueue() > nWorkers)
+                            // REAL BUG FOUND LIVE (2026-09-11): this checked Compilation.getJobsInQueue()
+                            // - the count of jobs SUBMITTED BUT NOT YET PICKED UP by a worker - not how
+                            // many are actually EXECUTING right now. Once workers pick jobs up fast
+                            // enough, that count stays low even while dozens of compiles run truly
+                            // concurrently (m_WorkersWorking, the real concurrency counter, was observed
+                            // live reaching 44 on an 8-16 core machine during a big Recompile All) - the
+                            // throttle never engaged, every compiler subprocess fought the same CPU cores
+                            // at once, and a single expensive job (a cubemap GGX-roughness prefilter that
+                            // normally takes ~15s) took over 2 minutes as a result - it looked exactly
+                            // like a hang from the UI, but every process really was making progress, just
+                            // catastrophically slowly. Fixed by throttling on m_WorkersWorking itself.
+                            if (m_Instance.m_WorkersWorking.load() >= nWorkers)
                             {
                                 std::as_const(m_Instance.m_Queue).unlock();
                                 xscheduler::g_System.WorkerStartWorking([&]()
                                     {
-                                        return Compilation.getJobsInQueue();
+                                        return m_Instance.m_WorkersWorking.load() >= nWorkers;
                                     });
                                 std::as_const(m_Instance.m_Queue).lock();
                             }
@@ -672,12 +463,23 @@ namespace e10
                                 break;
                             }
 
-                            // Let us wait until all workers are done for this level
+                            // Let us wait until all workers are done for this level.
+                            // REAL BUG FOUND LIVE (2026-09-11): this never re-checked ContinueCompiling()
+                            // while waiting, so a single slow (or, before the duplicate-queue-entry fix
+                            // in AddToCompilationQueueIfNeeded, hung) worker made Pause/Stop completely
+                            // unresponsive - the whole job just sat here until every in-flight worker
+                            // finished on its own, however long that took. This does NOT touch the
+                            // in-flight workers themselves (they keep running - see m_WorkersWorking,
+                            // decremented by their own lambda above); it only stops THIS job from
+                            // babysitting them further, so a paused/stopped state is reflected
+                            // immediately rather than after an unbounded wait.
                             if (m_Instance.m_WorkersWorking)
                             {
                                 std::as_const(m_Instance.m_Queue).unlock();
                                 do
                                 {
+                                    if (not ContinueCompiling())
+                                        return;
                                     std::this_thread::yield();
                                 } while (m_Instance.m_WorkersWorking);
                                 std::as_const(m_Instance.m_Queue).lock();
@@ -705,8 +507,45 @@ namespace e10
             };
 
 
-            using entry_pool = xcontainer::pool::mpmc_bounded_dynamic_jitc<lockless::entry<entry>>;
-            using queue      = lockless::queue<lockless::entry<entry>, entry_pool>;
+            // Plain deque-backed queue, replacing a previous custom lock-free (Michael-Scott) queue.
+            // REAL BUG FOUND LIVE (2026-09-11): every single push()/pop() call site already runs
+            // under the SAME outer lock (m_Queue below, a real mutex-like xcontainer::lock::object),
+            // so the lock-free machinery bought nothing - it only added a subtle correctness hazard
+            // for zero benefit: every priority level's queue shared ONE node pool, so a node freed by
+            // a pop() on one level could be silently recycled by a push() on another while something
+            // elsewhere still held a stale reference across the unlock/relock windows
+            // compilation_job's own throttle and wait-for-workers blocks introduce. Live-reproduced:
+            // after a large "Recompile All", two resources stayed stuck showing "Waiting to Compile"
+            // in the UI forever, even though compilation_job's own Q.pop() (under the identical lock)
+            // reported that same level's queue empty and exited normally - a direct contradiction
+            // between what pop() saw and what the UI's own begin()/end() walk of the same list saw,
+            // both while serialized under the same lock. A plain std::deque, protected by the exact
+            // same pre-existing outer lock, is simpler and cannot exhibit this class of bug.
+            struct queue
+            {
+                bool push(entry&& Value) noexcept
+                {
+                    m_Deque.push_back(std::move(Value));
+                    return true;
+                }
+
+                bool pop(entry& Value) noexcept
+                {
+                    if (m_Deque.empty()) return false;
+                    Value = std::move(m_Deque.front());
+                    m_Deque.pop_front();
+                    return true;
+                }
+
+                std::size_t size(void) const noexcept { return m_Deque.size(); }
+
+                auto begin()       noexcept { return m_Deque.begin(); }
+                auto end()         noexcept { return m_Deque.end(); }
+                auto begin() const noexcept { return m_Deque.begin(); }
+                auto end()   const noexcept { return m_Deque.end(); }
+
+                std::deque<entry> m_Deque;
+            };
             using lock_queue = xcontainer::lock::object<std::vector<queue>, xcontainer::lock::semaphore_reentrant >;
 
             library_mgr&                                    m_LibraryMgr;
@@ -717,7 +556,6 @@ namespace e10
             std::atomic_bool                                m_PauseCompilation      = { false };
             std::atomic_bool                                m_isCompiling           = { false };
             std::atomic_int                                 m_WorkersWorking        = { 0 };
-            entry_pool                                      m_EntryPool             = {};
             lock_queue                                      m_Queue                 = {};
             failed_container                                m_Failed                = {};
             compiling_list                                  m_Compiling             = {};
@@ -727,7 +565,6 @@ namespace e10
 
             instance(library_mgr& LibMgr ) : m_LibraryMgr{ LibMgr }
             {
-                m_EntryPool.Init( 10000 );
             }
 
             void AllocateQueues( int Count )
@@ -739,7 +576,7 @@ namespace e10
 
                 for (int i = 0; i < Count; ++i)
                 {
-                    QueueList.emplace_back(m_EntryPool);
+                    QueueList.emplace_back();
                 }
             }
 
@@ -1136,27 +973,46 @@ namespace e10
             if (HasNoCompiler(InfoNode.m_Info.m_Guid.m_Type))
                 return false;
 
-            if (InfoNode.m_State != library_db::info_node::state::COMPILING && InfoNode.m_State != library_db::info_node::state::BEEN_EDITED_COMPILING )
+            // Already compiling, OR already sitting in the queue waiting to compile - never push a
+            // second entry for the same resource. REAL BUG FOUND LIVE (2026-09-11): this used to only
+            // exclude COMPILING/BEEN_EDITED_COMPILING, so calling this again while a resource was
+            // still WAITING_TO_COMPILE (queued but not yet popped by a worker - e.g. two file-watcher
+            // events close together, or RecompileAllResources() racing a resource that was already
+            // stale) pushed a SECOND queue entry for the exact same guid. Two workers then compiled
+            // the same resource concurrently and one hung indefinitely (contending over the same
+            // output file) - which in turn froze compilation_job::OnRun()'s own "wait for in-flight
+            // workers" loop forever, since that loop had no way to notice a request to stop while
+            // waiting (see that loop's own fix). Pause/Resume looked broken because the master job
+            // never got a chance to re-check either.
+            switch (InfoNode.m_State)
             {
-                if (InfoNode.m_NewestDependencyTime > InfoNode.m_ResourceTime || InfoNode.m_DescriptorTime > InfoNode.m_ResourceTime)
+                case library_db::info_node::state::COMPILING:
+                case library_db::info_node::state::BEEN_EDITED_COMPILING:
+                case library_db::info_node::state::WAITING_TO_COMPILE:
+                case library_db::info_node::state::BEEN_EDITED_WAITING_TO_COMPILE:
+                    return false;
+                default:
+                    break;
+            }
+
+            if (InfoNode.m_NewestDependencyTime > InfoNode.m_ResourceTime || InfoNode.m_DescriptorTime > InfoNode.m_ResourceTime)
+            {
+                if (InfoNode.m_State == library_db::info_node::state::BEEN_EDITED) InfoNode.m_State = library_db::info_node::state::BEEN_EDITED_WAITING_TO_COMPILE;
+                else InfoNode.m_State = library_db::info_node::state::WAITING_TO_COMPILE;
+
+                compilation::entry QueueEntry;
+                QueueEntry.m_FullGuid = InfoNode.m_Info.m_Guid;
+                QueueEntry.m_gLibrary = m_Library.m_GUID;
+                QueueEntry.m_Priority = getQueueIndexFromType(InfoNode.m_Info.m_Guid.m_Type);
+
+                // Insert the entry in the queue
                 {
-                    if (InfoNode.m_State == library_db::info_node::state::BEEN_EDITED) InfoNode.m_State = library_db::info_node::state::BEEN_EDITED_WAITING_TO_COMPILE;
-                    else if (InfoNode.m_State == library_db::info_node::state::IDLE) InfoNode.m_State = library_db::info_node::state::WAITING_TO_COMPILE;
-
-                    compilation::entry QueueEntry;
-                    QueueEntry.m_FullGuid = InfoNode.m_Info.m_Guid;
-                    QueueEntry.m_gLibrary = m_Library.m_GUID;
-                    QueueEntry.m_Priority = getQueueIndexFromType(InfoNode.m_Info.m_Guid.m_Type);
-
-                    // Insert the entry in the queue
-                    {
-                        xcontainer::lock::scope Lk(std::as_const(m_CompilationInstance.m_Queue));
-                        m_CompilationInstance.m_Queue.get()[QueueEntry.m_Priority].push(std::move(QueueEntry));
-                    }
-                    m_CompilationInstance.StartCompilation();
-
-                    return true;
+                    xcontainer::lock::scope Lk(std::as_const(m_CompilationInstance.m_Queue));
+                    m_CompilationInstance.m_Queue.get()[QueueEntry.m_Priority].push(std::move(QueueEntry));
                 }
+                m_CompilationInstance.StartCompilation();
+
+                return true;
             }
 
             return false;
@@ -3652,8 +3508,21 @@ namespace e10
     {
         auto& Compilation = LibMgr.m_Compilation;
 
-        // Let us start counting when they are awake and when they are sleeping
+        // Let us start counting when they are awake and when they are sleeping.
+        // REAL BUG FOUND LIVE (2026-09-11): the matching decrement used to be a single plain statement
+        // at the very bottom of this function, but the EARLY "if (...) return;" a few lines below
+        // (getNodeInfo failing to find the resource - e.g. it was deleted/trashed between being
+        // queued and being picked up by a worker) skipped straight over it, permanently leaking one
+        // count. m_WorkersWorking never recovers from a leak like this: the compilation_job's own
+        // "wait until all workers are done for this level" loop (OnRun(), above) waits for this exact
+        // counter to reach zero, so even ONE leaked count blocks that loop from EVER proceeding again
+        // - live-reproduced as two resources ("Assets\\arial.ttf") stuck showing "Waiting to Compile"
+        // forever after a large Recompile All, with WorkersWorking frozen at a nonzero value for
+        // 60+ seconds with zero actual compiler activity. A scope guard makes the decrement
+        // unconditional - it runs on every exit path (early return, normal fall-through, or an
+        // exception unwinding through here) exactly once, matching the single increment above.
         ++Compilation.m_WorkersWorking;
+        struct decrement_on_exit_t { std::atomic_int& Counter; ~decrement_on_exit_t() noexcept { --Counter; } } DecrementOnExit{ Compilation.m_WorkersWorking };
 
         compilation::historical_entry   NewEntry;
         std::wstring                    DescriptorPath;
@@ -3839,9 +3708,24 @@ namespace e10
                             if (Result != compilation::historical_entry::result::FAILURE)
                             {
                                 // Update the basic dates
-                                // Get the relative path of the resource from the descriptor
+                                // Get the relative path of the resource from the descriptor.
+                                // BUG FOUND LIVE (2026-09-11): Node.m_Path can live under either descriptor
+                                // root - Library.m_UserDescriptorPath ("ProjectPath\Descriptors\...", user-
+                                // authored) or Library.m_SysDescriptorPath ("ProjectPath\Cache\Descriptors\...",
+                                // e.g. self-contained/auto-imported resources like arial.ttf's embedded
+                                // texture/bitmap). The old code assumed a fixed offset that only matched the
+                                // User root's length - for a Sys-rooted resource it sliced mid-word, producing
+                                // a garbage ResourcePath, so m_bHasResource came back false and m_ResourceTime
+                                // got reset to the epoch on every single compile, looping forever. Strip
+                                // whichever real root actually prefixes the path instead of assuming one.
                                 std::error_code     Ec                  = {};
-                                auto                ResourceSubPath     = std::wstring_view(Node.m_Path.data() + 1 + LibMgr.m_ProjectPath.length() + sizeof("Descriptors"), Node.m_Path.find_last_of(L'\\') - sizeof("Descriptors\\.desc") - LibMgr.m_ProjectPath.length());
+                                std::wstring_view   PathView            = Node.m_Path;
+                                std::wstring_view   DescRoot            = PathView.starts_with(LibraryDB->m_Library.m_SysDescriptorPath)
+                                                                        ? std::wstring_view(LibraryDB->m_Library.m_SysDescriptorPath)
+                                                                        : std::wstring_view(LibraryDB->m_Library.m_UserDescriptorPath);
+                                std::wstring_view   DescFolder          = PathView.substr(DescRoot.length() + 1, PathView.find_last_of(L'\\') - DescRoot.length() - 1); // "Type\XX\YY\GUID.desc"
+                                constexpr std::wstring_view DescSuffix  = L".desc";
+                                auto                ResourceSubPath     = DescFolder.ends_with(DescSuffix) ? DescFolder.substr(0, DescFolder.length() - DescSuffix.length()) : DescFolder;
                                 const std::wstring  ResourcePath        = std::format(L"{}\\Cache//Resources\\Platforms\\WINDOWS\\{}", LibMgr.m_ProjectPath, ResourceSubPath);
                                 const std::wstring  DescriptorPath      = std::wstring{ Node.m_Path.substr(0, Node.m_Path.find_last_of(L'\\') + 1) } + L"Descriptor.txt";
                                 const std::wstring  DependencyPath      = std::format(L"{}/Cache/Resources/Logs/{}.log/dependencies.txt", LibMgr.m_ProjectPath, ResourceSubPath);
@@ -4017,9 +3901,7 @@ namespace e10
                 }
             }
         }
-
-        // Say good bye to the worker
-        --Compilation.m_WorkersWorking;
+        // DecrementOnExit's own destructor says good bye to the worker now, unconditionally.
     }
 
     //------------------------------------------------------------------------------------------------
