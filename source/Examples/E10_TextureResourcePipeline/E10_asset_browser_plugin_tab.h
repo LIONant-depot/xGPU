@@ -137,8 +137,14 @@ namespace e10
             const float TotalHeight = ImGui::GetContentRegionAvail().y;
             constexpr float ButtonWidth = 4.0f;
 
+            // 0.5 (was 0.7) - direct user request: the Plugins window should read as roughly three even
+            // columns (plugin list | properties | git), "1/3, 1/3, then the rest" - the OUTER List-vs-
+            // Right split already defaults the list to ~1/3 of the whole window
+            // (RenderDockableWindows()'s own m_DockableSplitSize default), so Properties needs to be
+            // about HALF of the remaining ~2/3 (not 70% of it) for Properties/Git to each land close to
+            // another 1/3 of the total width.
             if (m_PropertiesSplitSize < 0.0f)
-                m_PropertiesSplitSize = TotalWidth * 0.7f;
+                m_PropertiesSplitSize = TotalWidth * 0.5f;
             m_PropertiesSplitSize = std::clamp(m_PropertiesSplitSize, 100.0f, std::max(100.0f, TotalWidth - 100.0f - ButtonWidth));
 
             float PropertiesWidth = m_PropertiesSplitSize;

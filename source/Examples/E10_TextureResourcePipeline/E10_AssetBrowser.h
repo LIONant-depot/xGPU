@@ -616,36 +616,66 @@ namespace e10
                         const float total_height = ImGui::GetContentRegionAvail().y;
                         constexpr float ButtonWidth = 4.0f;
 
-                        if (pTab->m_DockableSplitSize < 0.0f)
-                            pTab->m_DockableSplitSize = total_width * 0.25f;
-                        pTab->m_DockableSplitSize = std::clamp(pTab->m_DockableSplitSize, 100.0f, std::max(100.0f, total_width - 100.0f - ButtonWidth));
+                        // total_width can be 0 on the very first frame a brand-new DOCKABLE window
+                        // renders (before its true docked size is established) - REAL BUG, caught live
+                        // by direct user correction after the first fix attempt (0.25 -> 0.5) still
+                        // showed "the default size": the OLD code unconditionally computed AND
+                        // PERSISTED total_width*0.5 into m_DockableSplitSize on whatever frame first ran
+                        // this, even when total_width was 0 that frame - the very next line's clamp then
+                        // locked it at the 100px FLOOR forever (m_DockableSplitSize was no longer
+                        // negative, so the "first-time default" branch never got a second chance to run
+                        // once total_width became real). Confirmed via a one-shot printf probe:
+                        // "total_width=0.0 -> m_DockableSplitSize=0.0" for every DOCKABLE tab, every
+                        // single launch. Fixed by gating the ENTIRE split/persist block on total_width
+                        // actually being real - on the rare single frame it isn't, this tab's left/right
+                        // content is simply skipped for that one frame (nothing has ever been drawn for
+                        // a just-created window yet anyway, so there's nothing visible to lose), and the
+                        // -1.0f sentinel survives untouched to try again next frame.
+                        if (total_width > 1.0f)
+                        {
+                            // ~0.32 (was 0.25, briefly 0.5 then 0.35) - direct user request: the left
+                            // tree's default width was too small to be useful. 0.5 (a literal "double")
+                            // turned out to be too much once seen live; settled on "1/3 or a bit less" -
+                            // still a real improvement (~28% wider than the original 0.25) without
+                            // giving away a third-plus of the window to the tree. m_DockableSplitSize is
+                            // per-instance runtime state (never persisted to imgui.ini the way window
+                            // pos/size are), so this default applies fresh every single launch, not just
+                            // the very first one - matching the complaint exactly ("the user to ALWAYS
+                            // have to resize it before it comes useful"). Applies to every DOCKABLE tab
+                            // that has a left panel (Resources, Assets, Plugins) - the POPUP-mode
+                            // default just below in MainWindow() (the 8 other examples' asset pickers)
+                            // is intentionally left alone, not part of this request.
+                            if (pTab->m_DockableSplitSize < 0.0f)
+                                pTab->m_DockableSplitSize = total_width * 0.32f;
+                            pTab->m_DockableSplitSize = std::clamp(pTab->m_DockableSplitSize, 100.0f, std::max(100.0f, total_width - 100.0f - ButtonWidth));
 
-                        float size1 = pTab->m_DockableSplitSize;
-                        float size2 = total_width - size1 - ButtonWidth;
-                        Splitter(true, ButtonWidth, &size1, &size2, 100.0f, 100.0f, total_width, total_height);
-                        pTab->m_DockableSplitSize = size1;
+                            float size1 = pTab->m_DockableSplitSize;
+                            float size2 = total_width - size1 - ButtonWidth;
+                            Splitter(true, ButtonWidth, &size1, &size2, 100.0f, 100.0f, total_width, total_height);
+                            pTab->m_DockableSplitSize = size1;
 
-                        // Search bar above the tree - same POPUP-mode placement (RenderSearchBar,
-                        // MainWindow()'s own left-column group), just re-hosted here. Only
-                        // virtual_tree_tab currently reads m_SearchString (its own RightPanel()'s
-                        // filtering), but this renders for any left-paneled DOCKABLE tab, matching where
-                        // it visually sat before rather than special-casing one tab by name.
-                        auto SearchBarTop = ImGui::GetCursorScreenPos();
-                        ImGui::BeginGroup();
-                        RenderSearchBar(ImVec2(size1, total_height));
+                            // Search bar above the tree - same POPUP-mode placement (RenderSearchBar,
+                            // MainWindow()'s own left-column group), just re-hosted here. Only
+                            // virtual_tree_tab currently reads m_SearchString (its own RightPanel()'s
+                            // filtering), but this renders for any left-paneled DOCKABLE tab, matching
+                            // where it visually sat before rather than special-casing one tab by name.
+                            auto SearchBarTop = ImGui::GetCursorScreenPos();
+                            ImGui::BeginGroup();
+                            RenderSearchBar(ImVec2(size1, total_height));
 
-                        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.145f, 0.145f, 0.145f, 0.80f));
-                        if (ImGui::BeginChild("Left", ImVec2(size1, total_height - (ImGui::GetCursorScreenPos().y - SearchBarTop.y))))
-                            pTab->LeftPanel();
-                        ImGui::EndChild();
-                        ImGui::EndGroup();
+                            ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.145f, 0.145f, 0.145f, 0.80f));
+                            if (ImGui::BeginChild("Left", ImVec2(size1, total_height - (ImGui::GetCursorScreenPos().y - SearchBarTop.y))))
+                                pTab->LeftPanel();
+                            ImGui::EndChild();
+                            ImGui::EndGroup();
 
-                        ImGui::SameLine();
+                            ImGui::SameLine();
 
-                        if (ImGui::BeginChild("Right", ImVec2(size2, total_height)))
-                            pTab->RightPanel();
-                        ImGui::EndChild();
-                        ImGui::PopStyleColor();
+                            if (ImGui::BeginChild("Right", ImVec2(size2, total_height)))
+                                pTab->RightPanel();
+                            ImGui::EndChild();
+                            ImGui::PopStyleColor();
+                        }
                     }
                     else
                     {
