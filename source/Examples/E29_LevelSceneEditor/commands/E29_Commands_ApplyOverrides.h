@@ -43,6 +43,12 @@ namespace e29::commands
                 WriteString(File, O.m_PropertyValueAsString);
             }
         }
+        File.Write(static_cast<std::uint32_t>(PI.m_HierarchyDiffs.size()));
+        for (auto& H : PI.m_HierarchyDiffs)
+        {
+            WriteMemberPath(File, H.m_MemberPath);
+            File.Write(H.m_bAdded);
+        }
     }
 
     inline void RestoreAllOverrideBookkeeping(xundo::undo_file& File, xecs::editor::prefab_instance& PI) noexcept
@@ -65,6 +71,16 @@ namespace e29::commands
                 Comp.m_PropertyOverrides.push_back(std::move(Prop));
             }
             PI.m_lComponents.push_back(std::move(Comp));
+        }
+        PI.m_HierarchyDiffs.clear();
+        std::uint32_t HierCount = 0; File.Read(HierCount);
+        PI.m_HierarchyDiffs.reserve(HierCount);
+        for (std::uint32_t i = 0; i < HierCount; ++i)
+        {
+            xecs::editor::prefab_hierarchy_diff H{};
+            H.m_MemberPath = ReadMemberPath(File);
+            File.Read(H.m_bAdded);
+            PI.m_HierarchyDiffs.push_back(std::move(H));
         }
     }
 
@@ -246,7 +262,8 @@ namespace e29::commands
 
             if (!e29::g_pGameMgr)
             {
-                File.Write(std::uint32_t{ 0 }); // empty override bookkeeping
+                File.Write(std::uint32_t{ 0 }); // m_lComponents
+                File.Write(std::uint32_t{ 0 }); // m_HierarchyDiffs
                 File.Write(std::uint32_t{ 0 }); // empty prefab-before list
                 return;
             }
@@ -257,6 +274,7 @@ namespace e29::commands
             {
                 File.Write(std::uint32_t{ 0 });
                 File.Write(std::uint32_t{ 0 });
+                File.Write(std::uint32_t{ 0 });
                 return;
             }
 
@@ -265,6 +283,7 @@ namespace e29::commands
             const auto iPI = Details.m_pPool ? Details.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) : -1;
             if (iPI < 0)
             {
+                File.Write(std::uint32_t{ 0 });
                 File.Write(std::uint32_t{ 0 });
                 File.Write(std::uint32_t{ 0 });
                 return;
@@ -301,7 +320,8 @@ namespace e29::commands
             RestoreAllOverrideBookkeeping(File, TempPI);
             RestorePrefabBeforeValues(File, *e29::g_pGameMgr, PI);
 
-            PI.m_lComponents = std::move(TempPI.m_lComponents);
+            PI.m_lComponents    = std::move(TempPI.m_lComponents);
+            PI.m_HierarchyDiffs = std::move(TempPI.m_HierarchyDiffs);
             if (auto Err = e29::g_pGameMgr->m_PrefabMgr.Save(PI.m_PrefabInstance); Err)
                 e29::Debugger(std::format("ApplyOverrides Undo: Prefab Save failed: {}", Err.getMessage()));
 
