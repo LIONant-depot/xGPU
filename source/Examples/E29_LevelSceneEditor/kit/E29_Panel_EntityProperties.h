@@ -100,25 +100,30 @@ namespace e29
                 // Prefabs are created by dragging an entity from the Level Editor tree onto a folder
                 // in the asset browser (see e29::entity_to_prefab_drop) - Unity-style, no button.
 
-                // Unity's "Apply to Prefab" - only shown when the selected entity is structurally
-                // part of SOME prefab instance (root or plain member), matching how the blue tint/
-                // "(Prefab: X)" label already decide the same thing. Applies EVERY override this one
-                // instance currently has recorded, across however many members its own m_MemberPath
-                // entries address, in one action - the closest Unity equivalent to its default
-                // top-level "Apply All".
-                if (auto Ctx = e29::FindContainingPrefabInstance(GameMgr, State.m_SelectedEntity); Ctx.m_pPI && !Ctx.m_pPI->m_lComponents.empty())
+// Unity-style Apply / Revert for instance overrides. Shown when the selection is
+                // under a prefab instance that has property overrides and/or HierarchyDiffs.
+                if (auto Ctx = e29::FindContainingPrefabInstance(GameMgr, State.m_SelectedEntity); Ctx.m_pPI
+                    && (!Ctx.m_pPI->m_lComponents.empty() || !Ctx.m_pPI->m_HierarchyDiffs.empty()))
                 {
-                    if (ImGui::Button("Apply Overrides to Prefab"))
+                    if (auto RootIt = pScene->m_RuntimeToLocal.find(Ctx.m_RootEntity.m_Value); RootIt != pScene->m_RuntimeToLocal.end())
                     {
-                        // Routed through ApplyOverrides (commands/E29_Commands_ApplyOverrides.h) so
-                        // Apply is Ctrl+Z-able - restores Prefab property values AND this instance's
-                        // override bookkeeping. Id is the prefab_instance-carrying root, not necessarily
-                        // the currently selected member.
-                        if (auto RootIt = pScene->m_RuntimeToLocal.find(Ctx.m_RootEntity.m_Value); RootIt != pScene->m_RuntimeToLocal.end())
+                        const auto SceneHex = e29::commands::FormatSceneGuid(State.m_SelectedEntityScene);
+                        const auto RootHex  = e29::commands::FormatEntityId(RootIt->second);
+
+                        if (!Ctx.m_pPI->m_lComponents.empty() || !Ctx.m_pPI->m_HierarchyDiffs.empty())
                         {
-                            e29::commands::Run(Undo, std::format("ApplyOverrides -Scene {} -Id {}"
-                                , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
-                                , e29::commands::FormatEntityId(RootIt->second)));
+                            if (ImGui::Button("Apply Overrides to Prefab"))
+                            {
+                                e29::commands::Run(Undo, std::format("ApplyOverrides -Scene {} -Id {}", SceneHex, RootHex));
+                            }
+                        }
+                        if (!Ctx.m_pPI->m_HierarchyDiffs.empty())
+                        {
+                            ImGui::SameLine();
+                            if (ImGui::Button("Revert Hierarchy Overrides"))
+                            {
+                                e29::commands::Run(Undo, std::format("RevertHierarchyOverrides -Scene {} -Id {}", SceneHex, RootHex));
+                            }
                         }
                     }
                 }
