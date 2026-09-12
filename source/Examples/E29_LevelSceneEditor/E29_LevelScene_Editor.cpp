@@ -251,6 +251,7 @@ int E29_Example()
     e29::g_pGameMgr    = pGameMgr.get();
     e29::g_pState      = &State;
     e29::g_pGamePlugin = &GamePlugin;
+    e29::g_MakePrefabDropHandler = &e29::MakePrefabDropViaCommands;
 
     // Visible from the start and never closable - browsing/creating Levels and Scenes is this
     // editor's primary activity (not an occasional lookup), so it's a permanent, dockable part of the
@@ -276,6 +277,7 @@ int E29_Example()
     xundo::system                      E29Undo;
     if (auto Err = E29Undo.Init({}, false); !Err.empty())
         e29::Debugger(std::format("E29: xundo Init failed: {}", Err));
+    e29::g_pUndo = &E29Undo;
     e29::commands::select_cmd             CmdSelect(E29Undo, &CmdContext);
     e29::commands::toggle_multi_select_cmd CmdToggleMultiSelect(E29Undo, &CmdContext);
     e29::commands::clear_selection_cmd    CmdClearSelection(E29Undo, &CmdContext);

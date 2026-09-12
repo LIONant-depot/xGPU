@@ -405,6 +405,12 @@ namespace e29
     inline xecs::game_mgr::instance* g_pGameMgr = nullptr;
     inline editor_state*             g_pState   = nullptr;
 
+    // Set by the editor once the command/undo system exists (same lifetime as g_pGameMgr/g_pState).
+    // entity_to_prefab_drop::OnDrop cannot include the MakePrefab command headers (include order /
+    // cycle with this file), so the drop path calls through this hook instead of CreatePrefab* directly.
+    using make_prefab_drop_fn_t = xresource::full_guid(*)(e10::library_mgr&, e10::library::guid, xresource::full_guid, const entity_drag_payload_t&) noexcept;
+    inline make_prefab_drop_fn_t g_MakePrefabDropHandler = nullptr;
+
     // Unity's own "Prefab Variant" fast path: dragging a SINGLE existing prefab instance (no other
     // entity in the active selection) into the asset browser creates a variant WITHOUT touching the
     // scene object's own live identity - Unity re-points that same GameObject's prefab connection at
@@ -454,36 +460,11 @@ namespace e29
         xresource::full_guid OnDrop(e10::library_mgr& AssetMgr, e10::library::guid LibraryGUID, xresource::full_guid ParentGUID, const void* pData, std::size_t Size) const noexcept override
         {
             if (Size != sizeof(entity_drag_payload_t) || g_pGameMgr == nullptr) return {};
+            if (g_MakePrefabDropHandler == nullptr) return {};
             auto& Payload = *reinterpret_cast<const entity_drag_payload_t*>(pData);
-
-            auto* pScene = g_pGameMgr->m_SceneMgr.Find(Payload.m_SceneGuid);
-            if (pScene == nullptr) return {};
-
-            auto SourceIt = pScene->m_LocalToRuntime.find(Payload.m_Id);
-            if (SourceIt == pScene->m_LocalToRuntime.end()) return {};
-
-            // Single-instance Prefab Variant fast path - see CreatePrefabVariantFromInstance's own
-            // comment. Only when NOT part of a real (2+) active multi-selection, and only when the
-            // dragged entity already carries editor::prefab_instance.
-            const bool bIsMultiSelect = g_pState && g_pState->m_MultiSelectScene == Payload.m_SceneGuid && g_pState->m_MultiSelectedEntityIds.size() > 1 && g_pState->m_MultiSelectedEntityIds.contains(Payload.m_Id);
-            if (!bIsMultiSelect)
-            {
-                auto& SourceDetails = g_pGameMgr->m_ComponentMgr.getEntityDetails(SourceIt->second);
-                if (SourceDetails.m_pPool && SourceDetails.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) >= 0)
-                    return CreatePrefabVariantFromInstance(*g_pGameMgr, *pScene, Payload.m_Id, SourceIt->second, AssetMgr, LibraryGUID, ParentGUID);
-            }
-
-            // If the dragged entity is part of an active multi-selection (2+, ctrl-clicked in the
-            // Level tree, this same scene), the WHOLE selection becomes the prefab's group - this is
-            // the primary way to make a multi-entity prefab (drag-and-drop, exactly like the existing
-            // single-entity flow, just generalized): ctrl-click to build a selection, then drag any
-            // one of the selected rows onto the asset browser, same as before. A single dragged entity
-            // with no active multi-selection behaves exactly as it always has.
-            auto Root = g_pState ? DetermineGroupRoot(*g_pGameMgr, *pScene, Payload.m_SceneGuid, *g_pState, Payload.m_Id)
-                                 : pScene->m_LocalToRuntime.find(Payload.m_Id)->second;
-            if (Root.isValid() == false) return {};
-
-            return CreatePrefabFromGroupRoot(*g_pGameMgr, *pScene, Payload.m_SceneGuid, g_pState, AssetMgr, LibraryGUID, ParentGUID, Root);
+            // Routed through MakePrefab / MakePrefabVariant commands (see MakePrefabDropViaCommands) so
+            // drag-to-browser Make Prefab is undoable like every other scene/asset mutation.
+            return g_MakePrefabDropHandler(AssetMgr, LibraryGUID, ParentGUID, Payload);
         }
     };
     inline static entity_to_prefab_drop g_EntityToPrefabDrop{};

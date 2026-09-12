@@ -2496,6 +2496,26 @@ namespace e10
             ImGui::GetFont()->Scale = old_font_size;
             ImGui::PopFont();
 
+            // Empty right-panel background: drop into the currently open folder (m_ParentGUID).
+            // Per-item BeginDragDropTarget above still handles "onto this row"; this covers the
+            // natural empty space (same idea as files_tab's FilesBackgroundDropTarget). Skip trash.
+            if (m_SelectedLibrary.isValid() && m_ParentGUID != e10::folder::trash_guid_v
+                && ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->ContentRegionRect, ImGui::GetID("ResourcesBackgroundDropTarget")))
+            {
+                for (auto pReg = e10::external_drop_registration_base::g_pHead; pReg; pReg = pReg->m_pNext)
+                {
+                    if (const ImGuiPayload* ExtPayload = ImGui::AcceptDragDropPayload(pReg->m_pPayloadName))
+                    {
+                        if (auto NewGuid = pReg->OnDrop(m_AssetMgr, m_SelectedLibrary, m_ParentGUID, ExtPayload->Data, static_cast<std::size_t>(ExtPayload->DataSize)); NewGuid.empty() == false)
+                        {
+                            m_SelectedItems.clear();
+                            m_SelectedItems.push_back(NewGuid);
+                        }
+                    }
+                }
+                ImGui::EndDragDropTarget();
+            }
+
             if (ClearSelection)
             {
                 m_SelectedItems.clear();

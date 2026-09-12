@@ -429,4 +429,61 @@ namespace e29::commands
     };
 }
 
+// Drop-path entry used by entity_to_prefab_drop via g_MakePrefabDropHandler. Lives here (not in
+// PrefabAuthoring.h) so it can call commands::Run / Format* without an include cycle. Preserves the
+// existing Variant-vs-MakePrefab decision and still runs DetermineGroupRoot for multi-select BEFORE
+// MakePrefab (that synthesis step remains a known separate undo gap - see this file's top comment).
+namespace e29
+{
+    inline xundo::system* g_pUndo = nullptr;
+
+    inline xresource::full_guid MakePrefabDropViaCommands(e10::library_mgr& AssetMgr, e10::library::guid LibraryGUID, xresource::full_guid ParentGUID, const entity_drag_payload_t& Payload) noexcept
+    {
+        (void)AssetMgr;
+        if (g_pUndo == nullptr || g_pGameMgr == nullptr) return {};
+
+        auto* pScene = g_pGameMgr->m_SceneMgr.Find(Payload.m_SceneGuid);
+        if (pScene == nullptr) return {};
+
+        auto SourceIt = pScene->m_LocalToRuntime.find(Payload.m_Id);
+        if (SourceIt == pScene->m_LocalToRuntime.end()) return {};
+
+        xresource::instance_guid NewInstance{};
+        NewInstance.GenerateGUID();
+        const xresource::full_guid NewAsset{ .m_Instance = NewInstance, .m_Type = xecs::prefab::type_guid_v };
+
+        const bool bIsMultiSelect = g_pState && g_pState->m_MultiSelectScene == Payload.m_SceneGuid && g_pState->m_MultiSelectedEntityIds.size() > 1 && g_pState->m_MultiSelectedEntityIds.contains(Payload.m_Id);
+        if (!bIsMultiSelect)
+        {
+            auto& SourceDetails = g_pGameMgr->m_ComponentMgr.getEntityDetails(SourceIt->second);
+            if (SourceDetails.m_pPool && SourceDetails.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) >= 0)
+            {
+                e29::commands::Run(*g_pUndo, std::format("MakePrefabVariant -Scene {} -Id {} -Library {} -Asset {} -Parent {}"
+                    , e29::commands::FormatSceneGuid(Payload.m_SceneGuid)
+                    , e29::commands::FormatEntityId(Payload.m_Id)
+                    , e29::commands::FormatLibraryGuid(LibraryGUID)
+                    , e29::commands::FormatAssetGuid(NewAsset)
+                    , e29::commands::FormatAssetGuid(ParentGUID)));
+                return NewAsset;
+            }
+        }
+
+        auto Root = g_pState ? DetermineGroupRoot(*g_pGameMgr, *pScene, Payload.m_SceneGuid, *g_pState, Payload.m_Id)
+                             : SourceIt->second;
+        if (Root.isValid() == false) return {};
+
+        auto RootIdIt = pScene->m_RuntimeToLocal.find(Root.m_Value);
+        if (RootIdIt == pScene->m_RuntimeToLocal.end()) return {};
+
+        e29::commands::Run(*g_pUndo, std::format("MakePrefab -Scene {} -Id {} -Library {} -Asset {} -Parent {}"
+            , e29::commands::FormatSceneGuid(Payload.m_SceneGuid)
+            , e29::commands::FormatEntityId(RootIdIt->second)
+            , e29::commands::FormatLibraryGuid(LibraryGUID)
+            , e29::commands::FormatAssetGuid(NewAsset)
+            , e29::commands::FormatAssetGuid(ParentGUID)));
+        return NewAsset;
+    }
+}
+
+
 #endif // E29_COMMANDS_MAKE_PREFAB_H
