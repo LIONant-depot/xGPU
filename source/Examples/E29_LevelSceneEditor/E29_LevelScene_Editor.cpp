@@ -423,18 +423,24 @@ int E29_Example()
 
         // Deferred "Stop" click (see the button's own comment) - runs here, same clean frame
         // boundary as PollGameReload above, never nested inside an active ImGui menu-bar scope.
+        // State.m_PendingKeepTweaksCommands has already been decided by the time this flag is set
+        // (RequestStop/E29_PlaySession.h resolves it immediately - either right away, via -Keep or the
+        // confirmation modal's own button, or finds nothing to ask about) - never re-collected here.
         if (State.m_bStopRequested)
         {
             State.m_bStopRequested = false;
             e29::StopPlaySession
             ( pGameMgr, State, GamePlugin, EntityInspector, InspectorBridge, E29Undo, ProjectPath
             , RegisterHostComponents, RegisterHostSystems
+            , State.m_PendingKeepTweaksCommands
             );
+            State.m_PendingKeepTweaksCommands.clear();
         }
 
         if (xgpu::tools::imgui::BeginRendering(true)) continue;
 
         e29::RenderErrorPopup();
+        e29::RenderKeepTweaksModal(State, E29Undo);
 
         //
         // Main menu bar - same "File > Asset Browser..."/"Save Project" pattern every other editor
@@ -518,9 +524,11 @@ int E29_Example()
             // heavy destroy-and-recreate-the-world work PollGameReload does, and this click happens
             // nested inside the still-active BeginMainMenuBar()/EndMainMenuBar() scope, which is
             // exactly the "corrupts ImGui's window-stack bookkeeping" bug this file's own comment
-            // above already warns about.
+            // above already warns about. RequestStop (E29_PlaySession.h) decides right here whether
+            // there's anything to ask about - if there is, it opens the "keep these?" confirmation
+            // (RenderKeepTweaksModal, called every frame below) instead of setting the flag directly.
             if (ImGui::Button("Stop"))
-                State.m_bStopRequested = true;
+                e29::RequestStop(State, E29Undo, std::nullopt);
             ImGui::EndDisabled();
 
             ImGui::EndMainMenuBar();

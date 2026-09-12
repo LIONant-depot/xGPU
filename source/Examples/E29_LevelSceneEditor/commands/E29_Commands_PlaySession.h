@@ -86,24 +86,42 @@ namespace e29::commands
     };
 
     //================================================================================================
-    // Stop - mirrors the "Stop" button: sets the SAME deferred flag (m_bStopRequested), consumed at
-    // the same clean top-of-frame point PollGameReload runs from - never performed immediately here,
-    // for the exact reason the button's own comment gives (StopPlaySession's destroy/recreate can't
-    // safely run nested inside an active ImGui frame, and Query() runs outside one anyway, so setting
-    // the flag is not just safe but the ONLY correct way to trigger it from here too).
+    // Stop - mirrors the "Stop" button: routes through the SAME RequestStop (E29_PlaySession.h) the
+    // button itself calls, which sets the deferred flag (m_bStopRequested) consumed at the same clean
+    // top-of-frame point PollGameReload runs from - never performed immediately here, for the exact
+    // reason the button's own comment gives (StopPlaySession's destroy/recreate can't safely run
+    // nested inside an active ImGui frame, and Query() runs outside one anyway, so deferring is not
+    // just safe but the ONLY correct way to trigger it from here too).
+    //
+    // -Keep answers "keep property tweaks made during Play?" up front - for AI/script use, there is no
+    // confirmation dialog for a script to click (same reasoning as -Force on the Asset File commands,
+    // E29_Commands_AssetFiles.h: "there is no dialog to click"). Omitting it when there IS something
+    // to ask about defers to the same confirmation modal the UI shows (RequestStop sets the identical
+    // m_bAwaitingKeepTweaksAnswer flag either way) - Stop stays on hold until it's answered one way or
+    // the other, by a human or a follow-up -Keep call.
     //================================================================================================
     struct stop_query_cmd : xundo::query_command_base
     {
         stop_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "Stop", pDataBase) { RegisterArguments(); }
-        const char* getCommandHelp() const noexcept override { return "Stops Play/Pause, reverting to the pre-Play disk state. Usage: Stop"; }
-        void RegisterArguments() noexcept override {}
+        const char* getCommandHelp() const noexcept override { return "Stops Play/Pause, reverting to the pre-Play disk state. If properties changed while Playing, pass -Keep true|false to decide up front, or answer the confirmation dialog. Usage: Stop [-Keep true|false]"; }
+        void RegisterArguments() noexcept override
+        {
+            m_hKeep = m_Parser.addOption("Keep", "true to keep property tweaks made while Playing, false to discard them - answers the 'keep changes?' question up front (for AI/script use - there is no dialog to click)", false, 1);
+        }
         std::string Query() noexcept override
         {
             auto& State = get<e29_command_context>().m_State;
-            if (State.m_PlayState == e29::editor_state::play_state::Stopped) return "Stop: already stopped";
-            State.m_bStopRequested = true;
-            return "Stop requested";
+
+            std::optional<bool> KeepOverride;
+            if (auto KeepArg = m_Parser.getOptionArgAs<std::string>(m_hKeep, 0); !std::holds_alternative<xerr>(KeepArg))
+            {
+                const auto& S = std::get<std::string>(KeepArg);
+                KeepOverride = (S == "true" || S == "1");
+            }
+
+            return e29::RequestStop(State, m_System, KeepOverride);
         }
+        xcmdline::parser::handle m_hKeep;
     };
 
     //================================================================================================

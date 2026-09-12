@@ -285,6 +285,20 @@ namespace e29
         // the play session's history - so Ctrl+Z after Stop never lands on a stale, play-session-only
         // undo entry.
         int m_PlayHistoryBoundary = 0;
+
+        // The exact "SetProperty ..." command strings StopPlaySession will replay if the answer to
+        // "keep these Play-mode tweaks?" is yes - populated by RequestStop() (E29_PlaySession.h)
+        // either right away (an explicit -Keep on the CLI Stop, or the modal's own Keep/Discard
+        // button) or left pending for m_bAwaitingKeepTweaksAnswer's modal to resolve. Cleared once
+        // consumed by the deferred Stop itself.
+        std::vector<std::string> m_PendingKeepTweaksCommands;
+
+        // True while "You changed N properties while Playing - keep them?" is open and the real Stop
+        // is on hold (world frozen via Paused so nothing else can happen mid-question) - direct user
+        // request: a lightweight confirmation rather than silently always-keep or a full per-entity/
+        // per-property picker (deferred - "we can always add that later, the core system is in place
+        // now"). Never set at all when there's nothing to ask about (RequestStop stops right there).
+        bool m_bAwaitingKeepTweaksAnswer = false;
     };
 
     // GUID-like rather than sequential (was "Max + 1"): a random id means two branches each creating

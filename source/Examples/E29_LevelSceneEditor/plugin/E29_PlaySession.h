@@ -18,6 +18,7 @@
 #include <sstream>
 #include <iterator>
 #include <unordered_map>
+#include <optional>
 
 namespace e29
 {
@@ -456,22 +457,131 @@ namespace e29
     }
 
     //---------------------------------------------------------------------------
-    // Replays every collected tweak as a BRAND-NEW SetProperty against the just-restored (post-Stop,
-    // V1/disk) scene - same command, same code path as a normal manual edit, so it lands as one clean,
-    // individually-undoable entry (prefab-override bookkeeping included, same as any other
-    // SetProperty) rather than needing any bespoke "apply" logic of its own. An entity that didn't
-    // survive Stop (created only during Play) simply fails to resolve - set_property_cmd::Redo returns
-    // an error string rather than crashing, so this is a silent, safe no-op for exactly the entities
-    // this feature was never meant to touch (matches Unreal's own "only actors already in the level"
-    // restriction).
+    // Formats each collected tweak into the exact "SetProperty ..." command string StopPlaySession
+    // will later Run() if the answer to "keep these?" turns out to be yes - done up front (rather than
+    // carrying the kept_property_tweak structs themselves all the way to Stop time) so
+    // editor_state::m_PendingKeepTweaksCommands (E29_LevelSceneEditorKit.h, needed by the confirmation
+    // modal below - which is declared and used well before this file's own types would otherwise be
+    // visible there) can just be a plain std::vector<std::string>, no new type dependency.
     //---------------------------------------------------------------------------
-    inline void ReapplyKeptPropertyTweaks(xundo::system& Undo, const std::vector<kept_property_tweak>& Tweaks) noexcept
+    inline std::vector<std::string> CollectPlayModeKeepCommands(xundo::system& Undo, int BoundaryIndex) noexcept
     {
-        for (auto& T : Tweaks)
+        std::vector<std::string> Out;
+        for (auto& T : CollectPlayModePropertyTweaks(Undo, BoundaryIndex))
         {
-            e29::commands::Run(Undo, std::format("SetProperty -Scene {} -Id {} -Component {} -Path {} -TypeGuid {} -Before {} -After {}"
+            Out.push_back(std::format("SetProperty -Scene {} -Id {} -Component {} -Path {} -TypeGuid {} -Before {} -After {}"
                 , T.m_Scene, T.m_Id, T.m_Component, T.m_Path, T.m_TypeGuid, T.m_Before, T.m_After
                 ));
+        }
+        return Out;
+    }
+
+    //---------------------------------------------------------------------------
+    // Drops any kept-tweak command whose target entity did NOT survive the V1 restore (created only
+    // during Play - the one case this feature was deliberately never meant to touch, matching
+    // Unreal's own "actors already in the level" restriction). Filtering here, BEFORE the group runs,
+    // rather than letting a stale target fail inside it matters because xundo's own
+    // Execute(group_name, Cmds) (xundo_system.h) aborts the ENTIRE group - and pushes NO history entry
+    // at all - the moment any one sub-command's Redo() fails. Without this filter, one stale target
+    // among several legitimate kept properties would silently swallow every other one alongside it
+    // AND leave the ones that already ran for real un-recorded (mutated, but with no undo entry to
+    // revert them).
+    //---------------------------------------------------------------------------
+    inline std::vector<std::string> FilterSurvivingTargets(xecs::game_mgr::instance& GameMgr, const std::vector<std::string>& Commands) noexcept
+    {
+        std::vector<std::string> Out;
+        Out.reserve(Commands.size());
+        for (auto& Cmd : Commands)
+        {
+            const auto Args = ParseFlatArgs(Cmd);
+            const auto ItScene = Args.find("Scene"); if (ItScene == Args.end()) continue;
+            const auto ItId    = Args.find("Id");    if (ItId    == Args.end()) continue;
+
+            const auto SceneGuid = e29::commands::ParseSceneGuid(ItScene->second);
+            const auto Id        = e29::commands::ParseEntityId(ItId->second);
+            auto* pScene = GameMgr.m_SceneMgr.Find(SceneGuid);
+            if (pScene && pScene->m_LocalToRuntime.contains(Id))
+                Out.push_back(Cmd);
+        }
+        return Out;
+    }
+
+    //---------------------------------------------------------------------------
+    // The single decision point for BOTH real Stop triggers (the menu-bar button, via
+    // std::nullopt - it never knows the answer up front; the CLI Stop command, via its own -Keep
+    // argument when given) - direct user request for a lightweight confirmation rather than either
+    // silent always-keep or a full per-entity/per-property picker ("we do not need Unreal's per-entity
+    // or per-property selection... we can always add that later, the core system is in place now").
+    //
+    // KeepOverride already decided (an explicit -Keep, or the confirmation modal's own Keep/Discard
+    // button): resolves m_PendingKeepTweaksCommands right now and flags the real (deferred)
+    // StopPlaySession to run next frame. KeepOverride absent: finds out whether there's even anything
+    // to ask about; if not, Stops immediately same as always; if so, stages the pending commands,
+    // freezes the world (Paused - nothing else should happen mid-question) and sets
+    // m_bAwaitingKeepTweaksAnswer so RenderKeepTweaksModal (below) opens the dialog on the very next
+    // frame - the real Stop stays on hold until that dialog (or a script's own follow-up -Keep call)
+    // answers it. Returns a short status string - useful for a CLI/AI caller, ignored by the button.
+    //---------------------------------------------------------------------------
+    inline std::string RequestStop(editor_state& State, xundo::system& Undo, std::optional<bool> KeepOverride) noexcept
+    {
+        if (State.m_PlayState == editor_state::play_state::Stopped) return "Stop: already stopped";
+
+        if (KeepOverride.has_value())
+        {
+            State.m_PendingKeepTweaksCommands = *KeepOverride ? CollectPlayModeKeepCommands(Undo, State.m_PlayHistoryBoundary) : std::vector<std::string>{};
+            State.m_bAwaitingKeepTweaksAnswer = false;
+            State.m_bStopRequested = true;
+            return "Stop requested";
+        }
+
+        auto Pending = CollectPlayModeKeepCommands(Undo, State.m_PlayHistoryBoundary);
+        if (Pending.empty())
+        {
+            State.m_PendingKeepTweaksCommands.clear();
+            State.m_bStopRequested = true;
+            return "Stop requested";
+        }
+
+        State.m_PendingKeepTweaksCommands = std::move(Pending);
+        State.m_bAwaitingKeepTweaksAnswer = true;
+        State.m_PlayState = editor_state::play_state::Paused;
+        return std::format("Stop: {} propert{} changed during Play - pass -Keep true|false, or answer the confirmation dialog"
+            , State.m_PendingKeepTweaksCommands.size(), State.m_PendingKeepTweaksCommands.size() == 1 ? "y" : "ies");
+    }
+
+    //---------------------------------------------------------------------------
+    // "You changed N properties while Playing - keep them?" - renders every frame regardless (same
+    // ImGui::OpenPopup/BeginPopupModal-every-frame convention the Asset Tree's own
+    // RenderPendingConfirmationModal already established, E10_asset_browser_files_tab.h), so the
+    // dialog keeps showing across frames until answered, including one opened by a CLI Stop call with
+    // no -Keep (RequestStop sets the exact same m_bAwaitingKeepTweaksAnswer flag either way). Only
+    // decides Keep-vs-Discard here; the real Stop itself still runs at the usual deferred, safe frame
+    // boundary (RequestStop just re-flags m_bStopRequested).
+    //---------------------------------------------------------------------------
+    inline void RenderKeepTweaksModal(editor_state& State, xundo::system& Undo) noexcept
+    {
+        if (State.m_bAwaitingKeepTweaksAnswer)
+            ImGui::OpenPopup("Keep Play Mode Changes?");
+
+        if (ImGui::BeginPopupModal("Keep Play Mode Changes?", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            const auto Count = State.m_PendingKeepTweaksCommands.size();
+            ImGui::Text("You changed %zu propert%s while Playing.", Count, Count == 1 ? "y" : "ies");
+            ImGui::TextWrapped("Keep them in the scene, or discard and revert to how it was before Play?");
+            ImGui::Separator();
+
+            if (ImGui::Button("Keep", ImVec2(120.0f, 0.0f)))
+            {
+                RequestStop(State, Undo, true);
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Discard", ImVec2(120.0f, 0.0f)))
+            {
+                RequestStop(State, Undo, false);
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
         }
     }
 
@@ -483,17 +593,22 @@ namespace e29
     // doesn't imply a code change, so the currently loaded generation is re-registered in place
     // (bSwapDll=false) rather than paying for an unload/reload cycle it doesn't need.
     //
-    // Property edits made WHILE Playing (a value tweaked in the Inspector to watch it react) are
-    // carried back into the persistent scene automatically - direct user decision after researching
-    // Unity/Unreal/Godot precedent ("the reality is the user would not make changes often, and when
-    // they do it was because of a surprise finding" - i.e. always-on, never a separate "keep?" prompt
-    // to remember to hit). Collected BEFORE the world gets torn down (CollectPlayModePropertyTweaks
-    // just reads already-stored command TEXT, no entity access needed), then JumpTo() properly Undoes
-    // them off the still-live pre-Stop world (cheap - about to be replaced anyway), then reapplied
-    // AFTER RebuildWorld's own V1 reload as brand-new commands. TruncateRedoBranch() guarantees the
-    // stale play-session tail is gone from history even when there's nothing to reapply (the common
-    // case) - without it, those entries would sit Redo()-able, reopening the exact "Ctrl+Z/Redo after
-    // Stop gets weird" hazard this whole pass exists to close.
+    // KeepCommands is whatever RequestStop/the confirmation modal already decided (empty = nothing to
+    // keep, the common case) - JumpTo() properly Undoes every play-session entry off the still-live
+    // pre-Stop world (cheap - about to be replaced anyway) BEFORE it's replaced, then the usual V1/
+    // OpenLevel restore runs unchanged, then TruncateRedoBranch() guarantees the stale play-session
+    // tail is gone from history even when KeepCommands is empty (without it, those entries would sit
+    // Redo()-able, reopening the exact "Ctrl+Z/Redo after Stop gets weird" hazard this whole pass
+    // exists to close) - and only then are the kept commands replayed, as brand-new SetProperty calls
+    // against the just-restored scene (prefab-override bookkeeping included, same as any manual edit).
+    //
+    // Reapplied as ONE grouped command (RunGroup, E29_CommandContext.h - the exact same "N sub-
+    // commands, one history entry" primitive multi-item asset Delete/Paste already uses), not one
+    // Run() per property - direct user correction: the user's own "yes, keep these" answer is itself
+    // one decision, so undoing it should be one Ctrl+Z, not N separate steps to peel back one property
+    // at a time. Stop itself (the Playing->Stopped transition) still isn't undo-routed - same
+    // "transport state, not scene content" reasoning stop_query_cmd's own comment already gives - only
+    // the merged property VALUES are.
     //---------------------------------------------------------------------------
     template< typename T_REGISTER_HOST_COMPONENTS_FN, typename T_REGISTER_HOST_SYSTEMS_FN >
     void StopPlaySession
@@ -506,9 +621,9 @@ namespace e29
     , const std::wstring&                         ProjectPath
     , T_REGISTER_HOST_COMPONENTS_FN&&              RegisterHostComponents
     , T_REGISTER_HOST_SYSTEMS_FN&&                 RegisterHostSystems
+    , const std::vector<std::string>&              KeepCommands
     ) noexcept
     {
-        const auto KeptTweaks = CollectPlayModePropertyTweaks(Undo, State.m_PlayHistoryBoundary);
         Undo.JumpTo(State.m_PlayHistoryBoundary);
 
         pGameMgr->Stop();
@@ -519,7 +634,10 @@ namespace e29
         );
 
         Undo.TruncateRedoBranch();
-        ReapplyKeptPropertyTweaks(Undo, KeptTweaks);
+        if (const auto Surviving = FilterSurvivingTargets(*pGameMgr, KeepCommands); !Surviving.empty())
+        {
+            [[maybe_unused]] const bool bAllApplied = e29::commands::RunGroup(Undo, "Keep Play Mode Changes", Surviving);
+        }
 
         State.m_PlayState = editor_state::play_state::Stopped;
     }
