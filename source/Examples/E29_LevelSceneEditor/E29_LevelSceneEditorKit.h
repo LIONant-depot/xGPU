@@ -676,11 +676,10 @@ namespace e29
     }
 
     // Refuses remove when a LIVE, VALID entity reference in Owner still targets a scene that would
-    // drop out of the reachable parent set (SaveEntity xassert path). Stale ExternalRefTable rows
-    // left behind by soft-failed loads or cleared refs are NOT a block - those encode as null on
-    // save (ResolveReferenceForSave returns true for !isValid) and would otherwise pin the
-    // dependency forever. Still-resolved ExternalToRuntime slots are checked as a belt-and-suspenders
-    // match for live handles the property walk might miss.
+    // drop out of the reachable parent set (SaveEntity xassert path). Count comes ONLY from the live
+    // component walk - ExternalToRuntime is the same handles remapped at load, so counting both
+    // double-charges one ref and can disagree with CollectClearableRefsToLostParents (dialog showed
+    // "0 entity reference(s)" while WhyCannot was non-empty).
     inline std::string WhyCannotRemoveSceneDependency(xecs::game_mgr::instance& GameMgr, xecs::scene::guid OwnerGuid, xecs::scene::guid DirectParent) noexcept
     {
         auto* pOwner = GameMgr.m_SceneMgr.Find(OwnerGuid);
@@ -698,22 +697,12 @@ namespace e29
         int HitCount = 0;
         xecs::scene::guid FirstLost{};
 
-        for (std::size_t i = 0; i < pOwner->m_ExternalRefTable.size(); ++i)
-        {
-            auto& Addr = pOwner->m_ExternalRefTable[i];
-            if (!IsLost(Addr.m_ParentScene)) continue;
-            if (i >= pOwner->m_ExternalToRuntime.size()) continue;
-            if (!pOwner->m_ExternalToRuntime[i].isValid()) continue; // soft-failed / cleared - ignore
-            if (HitCount == 0) FirstLost = Addr.m_ParentScene;
-            ++HitCount;
-        }
-
         for (auto& [Id, Entity] : pOwner->m_LocalToRuntime)
         {
             ForEachLiveEntityReference(GameMgr, Entity, [&](xecs::component::entity Target) noexcept
             {
                 const auto TargetScene = FindOwningSceneGuid(GameMgr, Target);
-                if (TargetScene.m_Instance.m_Value == 0) return; // valid handle, unknown owner - rare; don't block forever
+                if (TargetScene.m_Instance.m_Value == 0) return;
                 if (!IsLost(TargetScene)) return;
                 if (HitCount == 0) FirstLost = TargetScene;
                 ++HitCount;
@@ -751,6 +740,73 @@ namespace e29
         Owner.m_ExternalRefTable  = std::move(NewTable);
         Owner.m_ExternalToRuntime = std::move(NewRuntime);
     }
+
+    // One live entity-typed property in Owner that currently targets a scene in Lost - enough to
+    // build SetEntityReference clears / RemoveSceneDependency -ClearRefs undo records.
+    struct clearable_cross_scene_ref
+    {
+        xecs::scene::permanent_id m_HolderId    = xecs::scene::invalid_permanent_id_v;
+        std::uint64_t             m_ComponentGuid = 0;
+        std::string               m_Path;
+        xecs::scene::guid         m_BeforeScene{};
+        xecs::scene::permanent_id m_BeforeId    = xecs::scene::invalid_permanent_id_v;
+    };
+
+    // Property-table entity refs in Owner whose target lives in Lost (same coverage WhyCannot's
+    // live walk uses for inspector EntityReference fields). BY_FUNCTION-only refs are skipped here
+    // - EntityReference and other authoring refs go through properties.
+    inline void CollectClearableRefsToLostParents(xecs::game_mgr::instance& GameMgr, const xecs::scene::instance& Owner, const std::vector<xecs::scene::guid>& Lost, std::vector<clearable_cross_scene_ref>& Out) noexcept
+    {
+        Out.clear();
+        if (Lost.empty()) return;
+        auto IsLost = [&](xecs::scene::guid G) noexcept
+        {
+            return std::find(Lost.begin(), Lost.end(), G) != Lost.end();
+        };
+
+        for (auto& [Id, Entity] : Owner.m_LocalToRuntime)
+        {
+            auto& IDetails = GameMgr.m_ComponentMgr.getEntityDetails(Entity);
+            if (!IDetails.m_pPool) continue;
+            auto& Archetype = *IDetails.m_pPool->m_pArchetype;
+            auto  DataSpan  = Archetype.getDataComponentInfos();
+
+            for (auto pInfo : DataSpan)
+            {
+                if (pInfo->m_ReferenceMode == xecs::component::type::reference_mode::NO_REFERENCES
+                 || xecs::component::type::IsComponentType<xecs::component::entity>(pInfo)
+                 || !pInfo->m_pPropertyTable)
+                    continue;
+
+                const auto iType = IDetails.m_pPool->findIndexComponentFromInfo(*pInfo);
+                if (iType < 0) continue;
+                auto* pData = &IDetails.m_pPool->m_pComponent[iType][IDetails.m_PoolIndex.m_Value * pInfo->m_Size];
+
+                xproperty::settings::context Context{};
+                xproperty::sprop::collector(pData, *pInfo->m_pPropertyTable, Context, [&](const char* pPropertyName, xproperty::any&& Data, const xproperty::type::members&, bool, const void*) noexcept
+                {
+                    if (Data.getTypeGuid() != xproperty::settings::var_type<xecs::component::entity>::guid_v) return;
+                    auto& Target = Data.get<xecs::component::entity>();
+                    if (!Target.isValid()) return;
+                    const auto TargetScene = FindOwningSceneGuid(GameMgr, Target);
+                    if (TargetScene.m_Instance.m_Value == 0 || !IsLost(TargetScene)) return;
+                    auto* pTargetScene = GameMgr.m_SceneMgr.Find(TargetScene);
+                    if (!pTargetScene) return;
+                    auto It = pTargetScene->m_RuntimeToLocal.find(Target.m_Value);
+                    if (It == pTargetScene->m_RuntimeToLocal.end()) return;
+
+                    clearable_cross_scene_ref Hit{};
+                    Hit.m_HolderId      = Id;
+                    Hit.m_ComponentGuid = pInfo->m_Guid.m_Value;
+                    Hit.m_Path          = pPropertyName ? pPropertyName : "";
+                    Hit.m_BeforeScene   = TargetScene;
+                    Hit.m_BeforeId      = It->second;
+                    Out.push_back(std::move(Hit));
+                });
+            }
+        }
+    }
+
     void OpenScene(xecs::game_mgr::instance& GameMgr, editor_state& State, xresource::full_guid SceneGuid)
     {
         const xecs::scene::guid Guid{ .m_Instance = SceneGuid.m_Instance };

@@ -643,9 +643,7 @@ namespace e29
                                                     if (bDepRemoved || ImGui::SmallButton("X"))
                                                     {
                                                         const auto ParentGuid = pScene->m_ParentScenes[iDep];
-                                                        e29::commands::Run(Undo, std::format("RemoveSceneDependency -Scene {} -Parent {}"
-                                                            , e29::commands::FormatSceneGuid(SceneGuid)
-                                                            , e29::commands::FormatSceneGuid(ParentGuid)));
+                                                        e29::RequestRemoveSceneDependency(Undo, SceneGuid, ParentGuid);
                                                         ImGui::PopID();
                                                         break; // pScene->m_ParentScenes was just mutated mid-iteration
                                                     }

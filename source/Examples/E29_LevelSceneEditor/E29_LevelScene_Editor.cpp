@@ -473,6 +473,7 @@ int E29_Example()
 
         e29::RenderErrorPopup();
         e29::RenderKeepTweaksModal(State, E29Undo);
+        e29::RenderRemoveDependencyConfirmModal(E29Undo);
 
         //
         // Main menu bar - same "File > Asset Browser..."/"Save Project" pattern every other editor
