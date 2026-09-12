@@ -34,11 +34,12 @@ namespace e29::commands
         open_level_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "OpenLevel", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
-            return "Loads a Level and activates every Scene it owns. Usage: OpenLevel -Level hexguid";
+            return "Loads a Level and activates every Scene it owns. If another Level is open and dirty, pass -Save 1 or -Save 0 first. Usage: OpenLevel -Level hexguid [-Save 0|1]";
         }
         void RegisterArguments() noexcept override
         {
             m_hLevel = m_Parser.addOption("Level", "Level instance guid, 16 hex digits", true, 1);
+            m_hSave  = m_Parser.addOption("Save", "When the current Level has unsaved changes: 1/true = save then switch, 0/false = discard then switch. Ignored when clean or nothing open.", false, 1);
         }
 
         std::string Query() noexcept override
@@ -49,10 +50,43 @@ namespace e29::commands
 
             if (!e29::g_pGameMgr) return "OpenLevel: no game world";
 
-            const std::uint64_t Value = std::strtoull(std::get<std::string>(LevelArg).c_str(), nullptr, 16);
             auto& State = get<e29_command_context>().m_State;
+            if (State.isPlaying()) return "OpenLevel: blocked while Play/Paused";
 
-            e29::OpenLevel(*e29::g_pGameMgr, State, xresource::full_guid{ .m_Instance = { Value }, .m_Type = {} });
+            const std::uint64_t Value = std::strtoull(std::get<std::string>(LevelArg).c_str(), nullptr, 16);
+            const xresource::full_guid LevelGuid{
+                .m_Instance = { Value },
+                .m_Type     = xecs::level::type_guid_v
+            };
+            const xecs::level::guid AsLevel{ .m_Instance = LevelGuid.m_Instance };
+
+            if (!State.m_CurrentLevel.empty() && State.m_CurrentLevel.m_Instance == AsLevel.m_Instance)
+                return std::format("OpenLevel: {:016X} is already open", Value);
+
+            std::optional<bool> SaveOverride;
+            if (auto SaveArg = m_Parser.getOptionArgAs<std::string>(m_hSave, 0); !std::holds_alternative<xerr>(SaveArg))
+            {
+                const auto& S = std::get<std::string>(SaveArg);
+                SaveOverride = (S == "true" || S == "1");
+            }
+
+            const bool bHaveDoc = !State.m_CurrentLevel.empty() || !State.m_OpenScenes.empty();
+            const bool bDirty   = e29::HasUnsavedDocumentChanges(State, m_System);
+            if (bHaveDoc && bDirty && !SaveOverride.has_value())
+                return "OpenLevel: current Level has unsaved changes; pass -Save 1 (save) or -Save 0 (discard)";
+
+            if (bHaveDoc)
+            {
+                if (bDirty && SaveOverride.value())
+                {
+                    e29::SaveEverything(*e29::g_pGameMgr, State);
+                    e29::MarkDocumentClean(State, m_System);
+                }
+                e29::CloseLevel(*e29::g_pGameMgr, State, m_System);
+            }
+
+            e29::OpenLevel(*e29::g_pGameMgr, State, LevelGuid);
+            e29::MarkDocumentClean(State, m_System);
 
             if (State.m_CurrentLevel.m_Instance.m_Value != Value)
                 return std::format("OpenLevel: failed to open {:016X} - see the app's own error popup for details", Value);
@@ -61,6 +95,7 @@ namespace e29::commands
         }
 
         xcmdline::parser::handle m_hLevel;
+        xcmdline::parser::handle m_hSave;
     };
 
     //================================================================================================

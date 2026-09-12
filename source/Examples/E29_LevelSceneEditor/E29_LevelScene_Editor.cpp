@@ -304,6 +304,7 @@ int E29_Example()
     e29::commands::undo_query_cmd         CmdUndo(E29Undo, &CmdContext);
     e29::commands::redo_query_cmd         CmdRedo(E29Undo, &CmdContext);
     e29::commands::save_query_cmd         CmdSave(E29Undo, &CmdContext);
+    e29::commands::close_query_cmd        CmdClose(E29Undo, &CmdContext);
     e29::commands::describe_entity_query_cmd CmdDescribeEntity(E29Undo, &CmdContext);
     e29::commands::list_component_types_query_cmd CmdListComponentTypes(E29Undo, &CmdContext);
     e29::commands::set_entity_reference_cmd CmdSetEntityReference(E29Undo, &CmdContext);
@@ -474,6 +475,16 @@ int E29_Example()
         e29::RenderErrorPopup();
         e29::RenderKeepTweaksModal(State, E29Undo);
         e29::RenderRemoveDependencyConfirmModal(E29Undo);
+        e29::RenderSaveBeforeCloseModal(*pGameMgr, State, E29Undo);
+        // Modal may have opened a Level after Save/Don't Save - same reload kick as an
+        // immediate RequestOpenLevel that returned true.
+        if (State.m_bPendingStartGameReloadAfterOpen)
+        {
+            State.m_bPendingStartGameReloadAfterOpen = false;
+#if defined(XECS_BUILD_SHARED)
+            e29::StartGameReload(GamePlugin);
+#endif
+        }
 
         //
         // Main menu bar - same "File > Asset Browser..."/"Save Project" pattern every other editor
@@ -495,9 +506,26 @@ int E29_Example()
                 // in-flight play-mode mutations, silently defeating "Stop restores exactly what it
                 // was before Play." Neither Unity nor Unreal lets you commit play-mode state into the
                 // real project this way. The Ctrl+S shortcut below is gated identically.
-                ImGui::BeginDisabled(State.isPlaying());
+                // Save greys out when Playing (same V1-protect rule as before) OR when there is no
+                // open Level OR when undo is still at the last-save watermark (no edits).
+                const bool bCanSave = !State.isPlaying()
+                    && !State.m_CurrentLevel.empty()
+                    && e29::HasUnsavedDocumentChanges(State, E29Undo);
+                ImGui::BeginDisabled(!bCanSave);
                 if (ImGui::MenuItem("Save", "Ctrl+S"))
+                {
                     e29::SaveEverything(*pGameMgr, State);
+                    e29::MarkDocumentClean(State, E29Undo);
+                }
+                ImGui::EndDisabled();
+
+                // Close greys out with no Level (or while Playing - Stop first). Dirty -> Save/
+                // Don't Save/Cancel modal; clean -> unload immediately.
+                const bool bCanClose = !State.isPlaying()
+                    && (!State.m_CurrentLevel.empty() || !State.m_OpenScenes.empty());
+                ImGui::BeginDisabled(!bCanClose);
+                if (ImGui::MenuItem("Close"))
+                    e29::RequestCloseLevel(*pGameMgr, State, E29Undo);
                 ImGui::EndDisabled();
                 ImGui::EndMenu();
             }
@@ -570,8 +598,14 @@ int E29_Example()
         // The menu item above only ever LABELS "Ctrl+S" - ImGui::MenuItem's shortcut string is
         // purely decorative and doesn't bind anything on its own. Checked once per frame,
         // unconditionally (not gated behind the File menu being open).
-        if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S) && !State.isPlaying())
+        if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)
+            && !State.isPlaying()
+            && !State.m_CurrentLevel.empty()
+            && e29::HasUnsavedDocumentChanges(State, E29Undo))
+        {
             e29::SaveEverything(*pGameMgr, State);
+            e29::MarkDocumentClean(State, E29Undo);
+        }
 
         // Ctrl+Z / Ctrl+Y (also Ctrl+Shift+Z for Redo) - same shortcut convention as E27_NodeOS's own
         // (E27_NodeOS_Editor.cpp), guarded by WantTextInput so typing "z" into a property text field
@@ -610,16 +644,13 @@ int E29_Example()
         {
             if (NewAsset.m_Type == xecs::level::type_guid_v)
             {
-                e29::OpenLevel(*pGameMgr, State, NewAsset);
-                // Opening a Level is also a natural "am I looking at current code" moment, same as
-                // regaining window focus or pressing Play - direct user request: code added/removed
-                // since the last check (e.g. edited while this Level wasn't even open yet) should be
-                // reflected the moment a Level is loaded, not only on the next focus-regain/Play. A
-                // no-op if a build is already in flight (see StartGameReload's own guard); edge-
-                // triggered here too (getNewAsset()/getSelectedAsset() only return non-empty once per
-                // actual selection - see E10_AssetBrowser.h), so this can't spam a build per frame.
+                // Close-current-first when dirty (Save/Don't Save/Cancel); same OpenLevel +
+                // StartGameReload path once the document action finishes.
 #if defined(XECS_BUILD_SHARED)
-                e29::StartGameReload(GamePlugin);
+                if (e29::RequestOpenLevel(*pGameMgr, State, E29Undo, NewAsset, /*bStartGameReload*/ true))
+                    e29::StartGameReload(GamePlugin);
+#else
+                e29::RequestOpenLevel(*pGameMgr, State, E29Undo, NewAsset, /*bStartGameReload*/ false);
 #endif
             }
             else if (NewAsset.m_Type == xecs::scene::type_guid_v) e29::OpenScene(*pGameMgr, State, NewAsset);
@@ -628,19 +659,21 @@ int E29_Example()
         {
             if (SelAsset.m_Type == xecs::level::type_guid_v)
             {
-                e29::OpenLevel(*pGameMgr, State, SelAsset);
 #if defined(XECS_BUILD_SHARED)
-                e29::StartGameReload(GamePlugin);
+                if (e29::RequestOpenLevel(*pGameMgr, State, E29Undo, SelAsset, /*bStartGameReload*/ true))
+                    e29::StartGameReload(GamePlugin);
+#else
+                e29::RequestOpenLevel(*pGameMgr, State, E29Undo, SelAsset, /*bStartGameReload*/ false);
 #endif
             }
             else if (SelAsset.m_Type == xecs::scene::type_guid_v) e29::OpenScene(*pGameMgr, State, SelAsset);
         }
 
         e29::RenderLevelTreePanel(*pGameMgr, State, E29Undo);
-            // Level drop from Resources onto Level Tree (deferred during panel draw) - same
-            // OpenLevel + StartGameReload sequence as double-clicking a Level asset above.
-            if (e29::FlushPendingOpenLevelFromTree(*pGameMgr, State))
-                e29::StartGameReload(GamePlugin);
+        // Level drop from Resources onto Level Tree (deferred during panel draw) - goes through
+        // RequestOpenLevel so a dirty open Level prompts Save/Don't Save/Cancel first.
+        if (e29::FlushPendingOpenLevelFromTree(*pGameMgr, State, E29Undo))
+            e29::StartGameReload(GamePlugin);
         e29::RenderEntityPropertiesPanel(*pGameMgr, State, EntityInspector, InspectorBridge, E29Undo);
         e29::RenderSystemRegistryPanel(*pGameMgr, State);
         e29::RenderIdleWorkPanel(IdleWork, pGameMgr.get(), State);

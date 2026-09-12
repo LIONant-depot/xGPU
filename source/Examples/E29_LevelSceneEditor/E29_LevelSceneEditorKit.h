@@ -299,6 +299,21 @@ namespace e29
         // per-property picker (deferred - "we can always add that later, the core system is in place
         // now"). Never set at all when there's nothing to ask about (RequestStop stops right there).
         bool m_bAwaitingKeepTweaksAnswer = false;
+
+        // Undo.GetUndoIndex() at last Save / successful Level open / Close. File>Save greys out
+        // when equal; Close / open-another-Level prompt when unequal (HasUnsavedDocumentChanges).
+        int m_CleanUndoIndex = 0;
+
+        // Save-before-Close / Save-before-OpenLevel modal (RenderSaveBeforeCloseModal).
+        bool                 m_bAwaitingSaveBeforeClose = false;
+        // empty Instance+Type = Close only; otherwise open this Level after Save/Don't Save.
+        xresource::full_guid m_PendingOpenLevelAfterClose = {};
+        // Intent while the Save-before-close modal is open (or stored across Finish). NOT the
+        // one-shot consume flag - that is m_bPendingStartGameReloadAfterOpen, set only after a
+        // Level actually opened so the editor cannot StartGameReload before the user answers.
+        bool                 m_bPendingOpenWantsGameReload = false;
+        // One-shot: FinishPendingDocumentAction sets this after OpenLevel; editor frame consumes.
+        bool                 m_bPendingStartGameReloadAfterOpen = false;
     };
 
     // GUID-like rather than sequential (was "Max + 1"): a random id means two branches each creating
@@ -914,7 +929,13 @@ namespace e29
         e10::g_LibMgr.Save(Context);
     }
 
+
+
 } // namespace e29
+
+// Level document Close / Save-before-open (File menu + double-click/drop). Own namespace e29
+// block - included AFTER the kit's namespace closes (same ODR-nesting rule as PropertyEdit).
+#include "kit/E29_DocumentSession.h"
 
 // Property-edit command (phase 2 of the kit split's own follow-on, [[e29_command_undo_system_plan]]
 // memory) included directly here, not relying on E29_LevelScene_Editor.cpp's own later include -

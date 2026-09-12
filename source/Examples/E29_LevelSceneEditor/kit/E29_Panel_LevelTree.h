@@ -82,14 +82,15 @@ namespace e29
     // Returns true when a Level open was applied (caller should StartGameReload, same as
     // double-click OpenLevel in E29_LevelScene_Editor.cpp). Kept out of this panel so we do
     // not need g_pGamePlugin / StartGameReload visible through the kit include order.
-    inline bool FlushPendingOpenLevelFromTree(xecs::game_mgr::instance& GameMgr, editor_state& State) noexcept
+    // Returns true when RequestOpenLevel opened immediately (caller StartGameReload). false when
+    // nothing pending, already-open, or deferred to the Save-before-close modal.
+    inline bool FlushPendingOpenLevelFromTree(xecs::game_mgr::instance& GameMgr, editor_state& State, xundo::system& Undo) noexcept
     {
         if (!g_bPendingOpenLevelFromTree) return false;
         g_bPendingOpenLevelFromTree = false;
         const auto LevelGuid = g_PendingOpenLevelFromTree;
         g_PendingOpenLevelFromTree = {};
-        OpenLevel(GameMgr, State, LevelGuid);
-        return true;
+        return RequestOpenLevel(GameMgr, State, Undo, LevelGuid, /*bStartGameReload*/ true);
     }
 
     void RenderLevelTreePanel(xecs::game_mgr::instance& GameMgr, editor_state& State, xundo::system& Undo) noexcept

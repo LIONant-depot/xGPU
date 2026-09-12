@@ -77,8 +77,59 @@ namespace e29::commands
             auto& State = get<e29_command_context>().m_State;
             if (State.isPlaying()) return "Save: blocked while Play/Paused";
             e29::SaveEverything(*e29::g_pGameMgr, State);
+            e29::MarkDocumentClean(State, m_System);
             return "Saved";
         }
+    };
+
+    //================================================================================================
+    // Close - File>Close for the current Level document. Query (not Edit): closing is a session
+    // action, not an undoable scene mutation. When the Level is dirty, CLI/scripts must pass
+    // -Save 1 (persist then close) or -Save 0 (discard then close) - there is no modal to click.
+    // Clean Levels close with no -Save. Blocked while Play/Paused, same gate as Save/UI Close.
+    //================================================================================================
+    struct close_query_cmd : xundo::query_command_base
+    {
+        close_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "Close", pDataBase) { RegisterArguments(); }
+        const char* getCommandHelp() const noexcept override
+        {
+            return "Closes the current Level (unload scenes, clear document). If modified, pass -Save 1 or -Save 0. Usage: Close [-Save 0|1]";
+        }
+        void RegisterArguments() noexcept override
+        {
+            m_hSave = m_Parser.addOption("Save", "When the Level has unsaved changes: 1/true = save then close, 0/false = discard then close. Ignored when clean.", false, 1);
+        }
+        std::string Query() noexcept override
+        {
+            if (!e29::g_pGameMgr) return "Close: no game world";
+            auto& State = get<e29_command_context>().m_State;
+            if (State.isPlaying()) return "Close: blocked while Play/Paused";
+            if (State.m_CurrentLevel.empty() && State.m_OpenScenes.empty())
+                return "Close: nothing open";
+
+            std::optional<bool> SaveOverride;
+            if (auto SaveArg = m_Parser.getOptionArgAs<std::string>(m_hSave, 0); !std::holds_alternative<xerr>(SaveArg))
+            {
+                const auto& S = std::get<std::string>(SaveArg);
+                SaveOverride = (S == "true" || S == "1");
+            }
+
+            const bool bDirty = e29::HasUnsavedDocumentChanges(State, m_System);
+            if (bDirty && !SaveOverride.has_value())
+                return "Close: Level has unsaved changes; pass -Save 1 (save) or -Save 0 (discard)";
+
+            if (bDirty && SaveOverride.value())
+            {
+                e29::SaveEverything(*e29::g_pGameMgr, State);
+                e29::MarkDocumentClean(State, m_System);
+                e29::CloseLevel(*e29::g_pGameMgr, State, m_System);
+                return "Saved and closed";
+            }
+
+            e29::CloseLevel(*e29::g_pGameMgr, State, m_System);
+            return bDirty ? "Closed without saving" : "Closed";
+        }
+        xcmdline::parser::handle m_hSave;
     };
 
     //================================================================================================
