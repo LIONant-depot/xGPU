@@ -861,7 +861,10 @@ namespace e29
             };
             Inspector.m_OnOverrideCheck.Register(m_OnOverrideCheck);
 
-            m_OnOverrideReset = [this, &GameMgr, &State](xproperty::inspector& Inspector, const xproperty::type::object& Obj, void* pInstance, std::string_view Path)
+            // Routed through RevertOverride (commands/E29_Commands_PropertyEdit.h) instead of the
+            // old inline BeginEdit/setProperty/erase_if path - same live+bookkeeping result, but
+            // Ctrl+Z restores the overridden value and re-records the override entry.
+            m_OnOverrideReset = [this, &GameMgr, &State, &Undo](xproperty::inspector& /*Inspector*/, const xproperty::type::object& Obj, void* pInstance, std::string_view Path)
             {
                 auto It = m_ComponentMap.find(pInstance);
                 if (It == m_ComponentMap.end()) return;
@@ -891,48 +894,36 @@ namespace e29
 
                 xproperty::settings::context Context;
                 xproperty::any               BaseValue;
-                bool                         bFoundValue = false;
+                xproperty::any               CurrentValue;
+                bool                         bFoundBase = false;
+                bool                         bFoundCurrent = false;
                 xproperty::sprop::collector(pRootData, Obj, Context, [&](const char* pPropertyName, xproperty::any&& Data, const xproperty::type::members&, bool, const void*) noexcept
                 {
-                    if (Path == pPropertyName) { BaseValue = std::move(Data); bFoundValue = true; }
+                    if (Path == pPropertyName) { BaseValue = std::move(Data); bFoundBase = true; }
                 });
-                if (bFoundValue == false) return;
-
-                std::string SetError;
-                m_bSuppressOverrideTracking = true;
-                Inspector.BeginEdit(Obj, pInstance, "Revert Override");
-                xproperty::sprop::setProperty(SetError, pInstance, Obj, xproperty::sprop::container::prop{ std::string(Path), BaseValue }, Context);
-                Inspector.CommitEdit(Context);
-                m_bSuppressOverrideTracking = false;
-
-                for (auto& C : Ctx.m_pPI->m_lComponents)
+                xproperty::sprop::collector(pInstance, Obj, Context, [&](const char* pPropertyName, xproperty::any&& Data, const xproperty::type::members&, bool, const void*) noexcept
                 {
-                    if (C.m_ComponentTypeGuid != It->second->m_Guid.m_Value) continue;
-                    if (std::ranges::equal(C.m_MemberPath, Ctx.m_MemberPath) == false) continue;
-                    std::erase_if(C.m_PropertyOverrides, [&](auto& O) noexcept { return O.m_PropertyName == Path; });
-                    if (C.m_PropertyOverrides.empty())
-                    {
-                        auto& MemberPath = Ctx.m_MemberPath;
-                        std::erase_if(Ctx.m_pPI->m_lComponents, [&](auto& CC) noexcept { return CC.m_ComponentTypeGuid == It->second->m_Guid.m_Value && std::ranges::equal(CC.m_MemberPath, MemberPath); });
-                    }
-                    break;
-                }
+                    if (Path == pPropertyName) { CurrentValue = std::move(Data); bFoundCurrent = true; }
+                });
+                if (bFoundBase == false || bFoundCurrent == false) return;
 
-                // Two entities just changed and must both be (re)saved: the edited member itself (its
-                // live data just went back to the prefab's base value - CommitEdit above ran with
-                // m_bSuppressOverrideTracking held, so the property-changed callback never fired for
-                // it) and Ctx.m_RootEntity, whose m_lComponents bookkeeping the erase_if above just
-                // mutated (a DIFFERENT entity than the edited one whenever m_MemberPath is non-empty).
-                // Missing either one would silently leave the revert un-persisted on next save.
-                GameMgr.m_SceneMgr.MarkEntityDirty(State.m_SelectedEntityScene, State.m_SelectedEntityId);
-                if (Ctx.m_RootEntity.m_Value != State.m_SelectedEntity.m_Value)
-                {
-                    if (auto* pScene = GameMgr.m_SceneMgr.Find(State.m_SelectedEntityScene))
-                    {
-                        if (auto RootIt2 = pScene->m_RuntimeToLocal.find(Ctx.m_RootEntity.m_Value); RootIt2 != pScene->m_RuntimeToLocal.end())
-                            GameMgr.m_SceneMgr.MarkEntityDirty(State.m_SelectedEntityScene, RootIt2->second);
-                    }
-                }
+                std::array<char, 256> BeforeBuffer{}, AfterBuffer{};
+                const auto BeforeLen = e29::commands::FormatPropertyValue(BeforeBuffer, CurrentValue);
+                const auto AfterLen  = e29::commands::FormatPropertyValue(AfterBuffer, BaseValue);
+                const std::string Before(BeforeBuffer.data(), BeforeLen > 0 ? static_cast<std::size_t>(BeforeLen) : 0);
+                const std::string After(AfterBuffer.data(), AfterLen > 0 ? static_cast<std::size_t>(AfterLen) : 0);
+                const std::uint32_t TypeGuid = BaseValue.m_pType ? BaseValue.m_pType->m_GUID
+                    : (CurrentValue.m_pType ? CurrentValue.m_pType->m_GUID : 0);
+
+                e29::commands::Run(Undo, std::format("RevertOverride -Scene {} -Id {} -Component {:016X} -Path {} -TypeGuid {:08X} -Before {} -After {}"
+                    , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
+                    , e29::commands::FormatEntityId(State.m_SelectedEntityId)
+                    , It->second->m_Guid.m_Value
+                    , e29::commands::Base64Encode(std::string(Path))
+                    , TypeGuid
+                    , e29::commands::Base64Encode(Before)
+                    , e29::commands::Base64Encode(After)
+                    ));
             };
             Inspector.m_OnOverrideReset.Register(m_OnOverrideReset);
 
