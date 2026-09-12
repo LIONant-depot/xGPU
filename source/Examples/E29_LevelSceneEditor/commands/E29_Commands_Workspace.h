@@ -133,6 +133,35 @@ namespace e29::commands
     };
 
     //================================================================================================
+    // SerializeRoundtrip - write+read the same binary SerializeGameState path mid-play reload uses
+    // (Vn bridge). Forces the DLL/host BitID landmine without waiting for a Game.dll rebuild.
+    //================================================================================================
+    struct serialize_roundtrip_query_cmd : xundo::query_command_base
+    {
+        serialize_roundtrip_query_cmd(xundo::system& System, void* pDataBase) noexcept
+            : query_command_base(System, "SerializeRoundtrip", pDataBase) { RegisterArguments(); }
+        void RegisterArguments() noexcept override {}
+        const char* getCommandHelp() const noexcept override
+        {
+            return "Writes then reads game_mgr SerializeGameState (binary) via the reload-bridge path. Usage: SerializeRoundtrip";
+        }
+        std::string Query() noexcept override
+        {
+            if (!e29::g_pGameMgr) return "SerializeRoundtrip: no game world";
+            auto& State = get<e29_command_context>().m_State;
+            if (State.m_CurrentLevel.empty() && State.m_OpenScenes.empty())
+                return "SerializeRoundtrip: nothing open (open a Level first)";
+
+            const auto Path = e29::GetReloadBridgeSnapshotPath();
+            if (!e29::SaveSnapshot(*e29::g_pGameMgr, Path))
+                return "SerializeRoundtrip: SaveSnapshot failed (see Game.dll log)";
+            if (!e29::LoadSnapshot(*e29::g_pGameMgr, Path))
+                return "SerializeRoundtrip: LoadSnapshot failed (see Game.dll log)";
+            return std::format("SerializeRoundtrip: ok ({})", std::filesystem::path(Path).string());
+        }
+    };
+
+    //================================================================================================
     // DescribeEntity - every component on an entity, with every property's path/current value/type
     // guid - everything needed to build a working SetProperty (or confirm what AddComponent/
     // RemoveComponent already did). Reuses the exact xproperty::sprop::collector pattern already

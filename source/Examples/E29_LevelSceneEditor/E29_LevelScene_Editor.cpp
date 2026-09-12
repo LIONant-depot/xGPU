@@ -305,6 +305,7 @@ int E29_Example()
     e29::commands::redo_query_cmd         CmdRedo(E29Undo, &CmdContext);
     e29::commands::save_query_cmd         CmdSave(E29Undo, &CmdContext);
     e29::commands::close_query_cmd        CmdClose(E29Undo, &CmdContext);
+    e29::commands::serialize_roundtrip_query_cmd CmdSerializeRoundtrip(E29Undo, &CmdContext);
     e29::commands::describe_entity_query_cmd CmdDescribeEntity(E29Undo, &CmdContext);
     e29::commands::list_component_types_query_cmd CmdListComponentTypes(E29Undo, &CmdContext);
     e29::commands::set_entity_reference_cmd CmdSetEntityReference(E29Undo, &CmdContext);
