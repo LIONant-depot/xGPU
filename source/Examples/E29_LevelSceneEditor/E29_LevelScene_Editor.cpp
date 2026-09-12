@@ -14,6 +14,7 @@
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetFiles.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_MakePrefab.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Compilation.h"
+#include "source/Examples/E29_LevelSceneEditor/kit/E29_IdleWork.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_Theme.h"
 
 //-----------------------------------------------------------------------------------
@@ -326,6 +327,8 @@ int E29_Example()
     e29::commands::compile_pause_query_cmd    CmdCompilePause(E29Undo, &CmdContext);
     e29::commands::compile_auto_query_cmd     CmdCompileAuto(E29Undo, &CmdContext);
     e29::commands::compile_status_query_cmd   CmdCompileStatus(E29Undo, &CmdContext);
+    e29::commands::run_sanity_check_query_cmd CmdRunSanityCheck(E29Undo, &CmdContext);
+    e29::idle_work_state                  IdleWork;
     xundo::history                        E29History;
     E29History.AddSystem("E29", 1, E29Undo);
 
@@ -418,8 +421,14 @@ int E29_Example()
         // A no-op unless a pipe client (E29CLI.cpp) has a request waiting - see
         // commands/E29_CommandConsolePipe.h's own comment for why this must run here (same clean
         // frame boundary as PollGameReload above) rather than after BeginRendering the way E27's own
-        // equivalent pump does.
+        // equivalent pump does. Comparing ConsoleLog's size before/after (rather than threading a new
+        // parameter into PumpCommandConsolePipe itself) is how Idle Work (kit/E29_IdleWork.h) learns a
+        // CLI/AI command actually ran this frame - it only ever appends, never shrinks, so a size
+        // change means real activity happened.
+        const auto ConsoleLogCountBefore = ConsoleLog.size();
         e29::PumpCommandConsolePipe(ConsolePipeBridge, E29History, ConsoleLog);
+        if (ConsoleLog.size() != ConsoleLogCountBefore)
+            e29::NotifyActivity(IdleWork);
 
         // Deferred "Stop" click (see the button's own comment) - runs here, same clean frame
         // boundary as PollGameReload above, never nested inside an active ImGui menu-bar scope.
@@ -438,6 +447,20 @@ int E29_Example()
         }
 
         if (xgpu::tools::imgui::BeginRendering(true)) continue;
+
+        // Real mouse/keyboard activity this frame resets Idle Work's clock AND cancels any in-flight
+        // idle task ASAP (direct user request) - checked right after BeginRendering (which polls this
+        // frame's input), same as every other per-frame pump here. CLI/pipe activity (below) only
+        // resets the clock, never cancels - see RequestIdleWorkCancel's own comment for why (an
+        // AI/script command that itself STARTS idle work, e.g. RunSanityCheck, must not immediately
+        // kill the very thing it just asked for).
+        if (e29::DetectUserInputActivity())
+        {
+            e29::NotifyActivity(IdleWork);
+            e29::RequestIdleWorkCancel();
+        }
+        if (pGameMgr)
+            e29::PumpIdleWork(IdleWork, *pGameMgr, State);
 
         e29::RenderErrorPopup();
         e29::RenderKeepTweaksModal(State, E29Undo);
@@ -606,6 +629,7 @@ int E29_Example()
         e29::RenderLevelTreePanel(*pGameMgr, State, E29Undo);
         e29::RenderEntityPropertiesPanel(*pGameMgr, State, EntityInspector, InspectorBridge, E29Undo);
         e29::RenderSystemRegistryPanel(*pGameMgr, State);
+        e29::RenderIdleWorkPanel(IdleWork, pGameMgr.get(), State);
         e29::RenderGamePluginLogPanel();
         e29::DrawCommandConsolePanel(E29History, ConsoleLog);
 
