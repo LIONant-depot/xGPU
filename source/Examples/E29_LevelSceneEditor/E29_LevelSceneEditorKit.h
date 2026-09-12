@@ -458,7 +458,7 @@ namespace e29
     // glass placeholder icon, gray "X" to clear, rounded InputText - reimplemented standalone rather
     // than called directly since that method is bound to assert_browser's own m_SearchString member;
     // it's the VISUAL pattern being reused here, backed by E29's own tree-search state instead. Skips
-    // the original's leading "ÃƒÂ¢Ã¢â‚¬â€œÃ‚Â¼" sort/filter-type dropdown button - there's no equivalent filter-type
+    // the original's leading "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¼" sort/filter-type dropdown button - there's no equivalent filter-type
     // concept for the Level tree, just a plain substring search.
     void RenderTreeSearchBar(std::string& SearchString, float AvailWidth) noexcept
     {
@@ -619,7 +619,8 @@ namespace e29
     }
 
     // Read-only walk of every live entity-typed reference field on one entity (same coverage as
-    // RemapLoadedEntityReferences / SaveEntity's reference pass).
+    // RemapLoadedEntityReferences / SaveEntity's reference pass). Uses findIndexComponentFromInfo
+    // (not InSequence) so a mismatched DataSpan/pool order cannot OOB into m_pComponent[-1].
     template<typename T_FN>
     inline void ForEachLiveEntityReference(xecs::game_mgr::instance& GameMgr, xecs::component::entity Entity, T_FN&& Fn) noexcept
     {
@@ -629,14 +630,15 @@ namespace e29
         auto  DataSpan  = Archetype.getDataComponentInfos();
 
         std::vector<xecs::component::entity*> References;
-        int iSequence = 0;
         for (auto pInfo : DataSpan)
         {
             if (pInfo->m_ReferenceMode == xecs::component::type::reference_mode::NO_REFERENCES
              || xecs::component::type::IsComponentType<xecs::component::entity>(pInfo))
                 continue;
 
-            auto pData = IDetails.m_pPool->getComponentInSequenceByInfo(*pInfo, IDetails.m_PoolIndex, iSequence);
+            const auto iType = IDetails.m_pPool->findIndexComponentFromInfo(*pInfo);
+            if (iType < 0) continue;
+            auto* pData = &IDetails.m_pPool->m_pComponent[iType][IDetails.m_PoolIndex.m_Value * pInfo->m_Size];
 
             if (pInfo->m_ReferenceMode == xecs::component::type::reference_mode::BY_FUNCTION)
             {
@@ -659,8 +661,6 @@ namespace e29
             }
         }
     }
-
-    // Owning scene of a live entity handle among registered scene instances.
     inline xecs::scene::guid FindOwningSceneGuid(xecs::game_mgr::instance& GameMgr, xecs::component::entity Entity) noexcept
     {
         if (!Entity.isValid()) return {};
@@ -670,8 +670,12 @@ namespace e29
         return {};
     }
 
-    // If removing DirectParent from Owner would leave any live entity reference in Owner pointing at
-    // a scene that drops out of the reachable parent set, returns a non-empty refusal message.
+    // Refuses remove when a LIVE, VALID entity reference in Owner still targets a scene that would
+    // drop out of the reachable parent set (SaveEntity xassert path). Stale ExternalRefTable rows
+    // left behind by soft-failed loads or cleared refs are NOT a block - those encode as null on
+    // save (ResolveReferenceForSave returns true for !isValid) and would otherwise pin the
+    // dependency forever. Still-resolved ExternalToRuntime slots are checked as a belt-and-suspenders
+    // match for live handles the property walk might miss.
     inline std::string WhyCannotRemoveSceneDependency(xecs::game_mgr::instance& GameMgr, xecs::scene::guid OwnerGuid, xecs::scene::guid DirectParent) noexcept
     {
         auto* pOwner = GameMgr.m_SceneMgr.Find(OwnerGuid);
@@ -681,27 +685,67 @@ namespace e29
         CollectLostParentsOnRemove(GameMgr, *pOwner, DirectParent, Lost);
         if (Lost.empty()) return {};
 
+        auto IsLost = [&](xecs::scene::guid G) noexcept
+        {
+            return std::find(Lost.begin(), Lost.end(), G) != Lost.end();
+        };
+
         int HitCount = 0;
         xecs::scene::guid FirstLost{};
+
+        for (std::size_t i = 0; i < pOwner->m_ExternalRefTable.size(); ++i)
+        {
+            auto& Addr = pOwner->m_ExternalRefTable[i];
+            if (!IsLost(Addr.m_ParentScene)) continue;
+            if (i >= pOwner->m_ExternalToRuntime.size()) continue;
+            if (!pOwner->m_ExternalToRuntime[i].isValid()) continue; // soft-failed / cleared - ignore
+            if (HitCount == 0) FirstLost = Addr.m_ParentScene;
+            ++HitCount;
+        }
+
         for (auto& [Id, Entity] : pOwner->m_LocalToRuntime)
         {
             ForEachLiveEntityReference(GameMgr, Entity, [&](xecs::component::entity Target) noexcept
             {
                 const auto TargetScene = FindOwningSceneGuid(GameMgr, Target);
-                if (TargetScene.m_Instance.m_Value == 0) return;
-                if (std::find(Lost.begin(), Lost.end(), TargetScene) == Lost.end()) return;
+                if (TargetScene.m_Instance.m_Value == 0) return; // valid handle, unknown owner - rare; don't block forever
+                if (!IsLost(TargetScene)) return;
                 if (HitCount == 0) FirstLost = TargetScene;
                 ++HitCount;
             });
         }
         if (HitCount == 0) return {};
-        return std::format("Can't remove that dependency: {} entity reference(s) still target scene(s) that would become unreachable (e.g. {:016X})", HitCount, FirstLost.m_Instance.m_Value);
+        return std::format("Can't remove that dependency: {} reference(s) still target scene(s) that would become unreachable (e.g. {:016X})", HitCount, FirstLost.m_Instance.m_Value);
     }
 
-    // Opens a scene ALONGSIDE whatever is already open - the user explicitly wants every scene they
-    // click to stay resident and expanded, not force-close whichever one was open before. A no-op if
-    // this scene is already open (matches RequestLoad's own "second request just bumps residency"
-    // semantics, so repeatedly clicking an already-open scene's row is harmless).
+    // After ParentScenes loses DirectParent, drop ExternalRefTable rows that pointed at scenes no
+    // longer reachable AND whose ExternalToRuntime slot is already invalid (soft-failed / cleared).
+    // Live-resolved slots must not appear here - WhyCannotRemove already refused. Compacts the table
+    // and ExternalToRuntime together so SaveSceneDescriptor does not keep ghost ParentScenes edges.
+    inline void PruneStaleExternalRefsAfterDependencyRemove(xecs::scene::instance& Owner, const std::vector<xecs::scene::guid>& Lost) noexcept
+    {
+        if (Lost.empty()) return;
+        auto IsLost = [&](xecs::scene::guid G) noexcept
+        {
+            return std::find(Lost.begin(), Lost.end(), G) != Lost.end();
+        };
+
+        std::vector<xecs::scene::external_entity_address> NewTable;
+        std::vector<xecs::component::entity>              NewRuntime;
+        NewTable.reserve(Owner.m_ExternalRefTable.size());
+        NewRuntime.reserve(Owner.m_ExternalToRuntime.size());
+        for (std::size_t i = 0; i < Owner.m_ExternalRefTable.size(); ++i)
+        {
+            const bool bLost = IsLost(Owner.m_ExternalRefTable[i].m_ParentScene);
+            const bool bLive = i < Owner.m_ExternalToRuntime.size() && Owner.m_ExternalToRuntime[i].isValid();
+            if (bLost && !bLive) continue; // drop stale ghost
+            NewTable.push_back(Owner.m_ExternalRefTable[i]);
+            if (i < Owner.m_ExternalToRuntime.size()) NewRuntime.push_back(Owner.m_ExternalToRuntime[i]);
+            else NewRuntime.push_back({});
+        }
+        Owner.m_ExternalRefTable  = std::move(NewTable);
+        Owner.m_ExternalToRuntime = std::move(NewRuntime);
+    }
     void OpenScene(xecs::game_mgr::instance& GameMgr, editor_state& State, xresource::full_guid SceneGuid)
     {
         const xecs::scene::guid Guid{ .m_Instance = SceneGuid.m_Instance };

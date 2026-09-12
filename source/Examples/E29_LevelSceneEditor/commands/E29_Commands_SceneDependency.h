@@ -1,4 +1,4 @@
-﻿#ifndef E29_COMMANDS_SCENE_DEPENDENCY_H
+#ifndef E29_COMMANDS_SCENE_DEPENDENCY_H
 #define E29_COMMANDS_SCENE_DEPENDENCY_H
 #pragma once
 
@@ -126,7 +126,10 @@ namespace e29::commands
             if (auto Why = e29::WhyCannotRemoveSceneDependency(*e29::g_pGameMgr, SceneGuid, ParentGuid); !Why.empty())
                 return Why;
 
+            std::vector<xecs::scene::guid> Lost;
+            e29::CollectLostParentsOnRemove(*e29::g_pGameMgr, *pScene, ParentGuid, Lost);
             pScene->m_ParentScenes.erase(std::find(pScene->m_ParentScenes.begin(), pScene->m_ParentScenes.end(), ParentGuid));
+            e29::PruneStaleExternalRefsAfterDependencyRemove(*pScene, Lost);
             return {};
         }
 
