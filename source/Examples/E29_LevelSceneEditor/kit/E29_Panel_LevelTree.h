@@ -114,7 +114,18 @@ namespace e29
                             ImGui::TableNextRow();
                             ImGui::TableSetColumnIndex(0);
                             const std::string SceneLabelWithIcon = std::format("{} {}", e29::SceneIcon(), SceneLabel);
+                            // Open/loaded is STATUS, not selection focus. Still use Selected so
+                            // TreeNode paints a fill, but tint Header* grey locally so it does not
+                            // collide with entity-selection blue (ImGuiCol_Header from E29_Theme).
+                            if (bIsOpenScene)
+                            {
+                                ImGui::PushStyleColor(ImGuiCol_Header,        ImVec4(0.29f, 0.29f, 0.29f, 1.0f)); // ~0x4A
+                                ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0.35f, 0.35f, 0.35f, 1.0f)); // ~0x59
+                                ImGui::PushStyleColor(ImGuiCol_HeaderActive,  ImVec4(0.40f, 0.40f, 0.40f, 1.0f)); // ~0x66
+                            }
                             const bool bSceneExpanded = ImGui::TreeNodeEx(SceneLabelWithIcon.c_str(), ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth | (bIsOpenScene ? ImGuiTreeNodeFlags_Selected : 0));
+                            if (bIsOpenScene)
+                                ImGui::PopStyleColor(3);
 
                             // Two independent pieces of state used to collide: ImGui's own
                             // expand/collapse (bSceneExpanded, toggled by ImGuiTreeNodeFlags_OpenOnArrow
