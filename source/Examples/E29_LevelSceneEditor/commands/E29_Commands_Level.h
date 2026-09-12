@@ -89,7 +89,7 @@ namespace e29::commands
             e29::MarkDocumentClean(State, m_System);
 
             if (State.m_CurrentLevel.m_Instance.m_Value != Value)
-                return std::format("OpenLevel: failed to open {:016X} - see the app's own error popup for details", Value);
+                return std::format("OpenLevel: failed to open {:016X} (unknown Level guid or load error)", Value);
 
             return std::format("Opened Level {:016X}, {} scene(s) now open", Value, State.m_OpenScenes.size());
         }
