@@ -173,15 +173,57 @@ namespace e29
         for (auto& D : PI.m_HierarchyDiffs) ShiftOne(D.m_MemberPath);
     }
 
+    // Call AFTER parenting a new child while links are intact. Records an added-child
+    // hierarchy diff when the new entity sits under a prefab_instance (not the PI root).
+    inline void RecordAddedChildOverride(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::scene::guid SceneGuid, xecs::component::entity Entity) noexcept
+    {
+        auto Ctx = FindContainingPrefabInstance(GameMgr, Entity);
+        if (Ctx.m_pPI == nullptr || Ctx.m_MemberPath.empty()) return;
+
+        auto& PI = *Ctx.m_pPI;
+        // Re-adding after a remove: drop the matching Removed entry first.
+        std::erase_if(PI.m_HierarchyDiffs, [&](auto& D) noexcept
+        {
+            return !D.m_bAdded && std::ranges::equal(D.m_MemberPath, Ctx.m_MemberPath);
+        });
+        for (auto& D : PI.m_HierarchyDiffs)
+        {
+            if (D.m_bAdded && std::ranges::equal(D.m_MemberPath, Ctx.m_MemberPath))
+                return;
+        }
+
+        PI.m_HierarchyDiffs.push_back(xecs::editor::prefab_hierarchy_diff{
+            .m_MemberPath = Ctx.m_MemberPath,
+            .m_bAdded     = true
+        });
+
+        if (auto It = Scene.m_RuntimeToLocal.find(Ctx.m_RootEntity.m_Value); It != Scene.m_RuntimeToLocal.end())
+            GameMgr.m_SceneMgr.MarkEntityDirty(SceneGuid, It->second);
+    }
+
     // Call BEFORE destroying Entity while parent/children links are still intact. Records a
     // removed-child hierarchy diff on the containing prefab_instance when Entity is a member
-    // under that instance (not the PI root itself).
+    // under that instance (not the PI root itself). If this path was an Added override, cancel
+    // that entry instead of writing a Removed (create-under-PI Undo goes through delete).
     inline void RecordRemovedChildOverride(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::scene::guid SceneGuid, xecs::component::entity Entity) noexcept
     {
         auto Ctx = FindContainingPrefabInstance(GameMgr, Entity);
         if (Ctx.m_pPI == nullptr || Ctx.m_MemberPath.empty()) return;
 
         auto& PI = *Ctx.m_pPI;
+        const auto AddedIt = std::ranges::find_if(PI.m_HierarchyDiffs, [&](auto& D) noexcept
+        {
+            return D.m_bAdded && std::ranges::equal(D.m_MemberPath, Ctx.m_MemberPath);
+        });
+        if (AddedIt != PI.m_HierarchyDiffs.end())
+        {
+            PI.m_HierarchyDiffs.erase(AddedIt);
+            ScrubAndShiftPathsAfterRemovedChild(PI, Ctx.m_MemberPath);
+            if (auto It = Scene.m_RuntimeToLocal.find(Ctx.m_RootEntity.m_Value); It != Scene.m_RuntimeToLocal.end())
+                GameMgr.m_SceneMgr.MarkEntityDirty(SceneGuid, It->second);
+            return;
+        }
+
         for (auto& D : PI.m_HierarchyDiffs)
         {
             if (!D.m_bAdded && std::ranges::equal(D.m_MemberPath, Ctx.m_MemberPath))

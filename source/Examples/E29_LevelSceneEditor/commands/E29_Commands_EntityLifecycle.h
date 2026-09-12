@@ -600,6 +600,9 @@ namespace e29::commands
                 auto& ParentDetails = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(ParentEntity);
                 ParentDetails.m_pPool->getComponent<xecs::component::children>(ParentDetails.m_PoolIndex).m_List.push_back(NewChildEntity);
 
+                // Prefab composition: child under a PI is an instance hierarchy add (m_bAdded).
+                e29::RecordAddedChildOverride(*e29::g_pGameMgr, *pScene, SceneGuid, NewChildEntity);
+
                 e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, ParentId);
             }
             else if (FolderVal != xecs::scene::invalid_folder_id_v)
