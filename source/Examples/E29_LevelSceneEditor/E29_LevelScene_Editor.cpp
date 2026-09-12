@@ -283,6 +283,7 @@ int E29_Example()
     e29::commands::clear_selection_cmd    CmdClearSelection(E29Undo, &CmdContext);
     e29::commands::set_property_cmd       CmdSetProperty(E29Undo, &CmdContext);
     e29::commands::revert_override_cmd    CmdRevertOverride(E29Undo, &CmdContext);
+    e29::commands::apply_overrides_cmd    CmdApplyOverrides(E29Undo, &CmdContext);
     e29::commands::add_component_cmd      CmdAddComponent(E29Undo, &CmdContext);
     e29::commands::remove_component_cmd   CmdRemoveComponent(E29Undo, &CmdContext);
     e29::commands::create_entity_cmd      CmdCreateEntity(E29Undo, &CmdContext);

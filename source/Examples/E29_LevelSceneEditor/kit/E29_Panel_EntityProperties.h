@@ -11,6 +11,7 @@
 // E29_Commands_PropertyEdit.h/E29_CommandContext.h/xundo_system.h itself) included directly here -
 // same self-sufficiency reasoning as kit/E29_Panel_LevelTree.h's own top comment for why.
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_ComponentEdit.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_ApplyOverrides.h"
 
 namespace e29
 {
@@ -109,14 +110,15 @@ namespace e29
                 {
                     if (ImGui::Button("Apply Overrides to Prefab"))
                     {
-                        if (auto Err = xecs::persist::details::ApplyInstanceOverridesToPrefab(GameMgr, Ctx.m_RootEntity); Err)
+                        // Routed through ApplyOverrides (commands/E29_Commands_ApplyOverrides.h) so
+                        // Apply is Ctrl+Z-able - restores Prefab property values AND this instance's
+                        // override bookkeeping. Id is the prefab_instance-carrying root, not necessarily
+                        // the currently selected member.
+                        if (auto RootIt = pScene->m_RuntimeToLocal.find(Ctx.m_RootEntity.m_Value); RootIt != pScene->m_RuntimeToLocal.end())
                         {
-                            e29::Debugger(std::format("Failed to apply overrides to prefab: {}", Err.getMessage()));
-                        }
-                        else if (auto RootIt = pScene->m_RuntimeToLocal.find(Ctx.m_RootEntity.m_Value); RootIt != pScene->m_RuntimeToLocal.end())
-                        {
-                            GameMgr.m_SceneMgr.MarkEntityDirty(State.m_SelectedEntityScene, RootIt->second);
-                            State.m_bEntityInspectorDirty = true; // the just-applied property no longer shows as overridden
+                            e29::commands::Run(Undo, std::format("ApplyOverrides -Scene {} -Id {}"
+                                , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
+                                , e29::commands::FormatEntityId(RootIt->second)));
                         }
                     }
                 }
