@@ -122,6 +122,115 @@ namespace e29::commands
         }
     }
 
+
+    // Snapshot/restore the containing prefab_instance's override bookkeeping when RootId is a
+    // prefab MEMBER (not the PI root). DeleteEntitySubtree → RecordRemovedChildOverride mutates
+    // PI.m_HierarchyDiffs and ScrubAndShiftPathsAfterRemovedChild also rewrites sibling
+    // m_lComponents MemberPaths — neither lives on the deleted subtree, so the shadow-id
+    // SaveEntity walk alone cannot undo them. Same IO shape as make_prefab_variant_cmd's own
+    // BackupCurrenState/Undo for m_lComponents + m_HierarchyDiffs (E29_Commands_MakePrefab.h).
+    // Always writes a bool so Restore can drain the record even when Snapshot early-outs.
+    inline void SnapshotContainingPrefabOverrides(xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
+    {
+        xecs::editor::prefab_instance* pPI = nullptr;
+        xecs::scene::permanent_id      PIRootId = xecs::scene::invalid_permanent_id_v;
+        if (e29::g_pGameMgr)
+        {
+            if (auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid); pScene && pScene->m_LocalToRuntime.contains(RootId))
+            {
+                auto Ctx = e29::FindContainingPrefabInstance(*e29::g_pGameMgr, pScene->m_LocalToRuntime.at(RootId));
+                // MemberPath empty ⇒ RootId IS the PI root (or not under a PI). RecordRemovedChildOverride
+                // no-ops in that case, so there is nothing extra to restore.
+                if (Ctx.m_pPI != nullptr && !Ctx.m_MemberPath.empty())
+                {
+                    pPI = Ctx.m_pPI;
+                    if (auto It = pScene->m_RuntimeToLocal.find(Ctx.m_RootEntity.m_Value); It != pScene->m_RuntimeToLocal.end())
+                        PIRootId = It->second;
+                }
+            }
+        }
+
+        File.Write(pPI != nullptr && PIRootId != xecs::scene::invalid_permanent_id_v);
+        if (!pPI || PIRootId == xecs::scene::invalid_permanent_id_v) return;
+
+        File.Write(static_cast<std::uint32_t>(PIRootId));
+
+        File.Write(static_cast<std::uint32_t>(pPI->m_lComponents.size()));
+        for (auto& C : pPI->m_lComponents)
+        {
+            File.Write(C.m_ComponentTypeGuid);
+            File.Write(static_cast<std::uint32_t>(C.m_MemberPath.size()));
+            for (auto P : C.m_MemberPath) File.Write(P);
+            File.Write(static_cast<std::uint32_t>(C.m_PropertyOverrides.size()));
+            for (auto& O : C.m_PropertyOverrides)
+            {
+                WriteString(File, O.m_PropertyName);
+                WriteString(File, O.m_PropertyValueAsString);
+            }
+        }
+
+        File.Write(static_cast<std::uint32_t>(pPI->m_HierarchyDiffs.size()));
+        for (auto& H : pPI->m_HierarchyDiffs)
+        {
+            File.Write(static_cast<std::uint32_t>(H.m_MemberPath.size()));
+            for (auto P : H.m_MemberPath) File.Write(P);
+            File.Write(H.m_bAdded);
+        }
+    }
+
+    inline void RestoreContainingPrefabOverrides(xundo::undo_file& File, xecs::scene::guid SceneGuid) noexcept
+    {
+        bool bHad = false; File.Read(bHad);
+        if (!bHad) return;
+
+        std::uint32_t PIRootIdVal = 0; File.Read(PIRootIdVal);
+
+        std::vector<xecs::editor::prefab_component_override> OldComponents;
+        std::vector<xecs::editor::prefab_hierarchy_diff>     OldHierarchy;
+
+        std::uint32_t CompCount = 0; File.Read(CompCount);
+        OldComponents.resize(CompCount);
+        for (auto& C : OldComponents)
+        {
+            File.Read(C.m_ComponentTypeGuid);
+            std::uint32_t PathCount = 0; File.Read(PathCount);
+            C.m_MemberPath.resize(PathCount);
+            for (auto& P : C.m_MemberPath) File.Read(P);
+            std::uint32_t OverrideCount = 0; File.Read(OverrideCount);
+            C.m_PropertyOverrides.resize(OverrideCount);
+            for (auto& O : C.m_PropertyOverrides)
+            {
+                O.m_PropertyName          = ReadString(File);
+                O.m_PropertyValueAsString = ReadString(File);
+            }
+        }
+
+        std::uint32_t HierCount = 0; File.Read(HierCount);
+        OldHierarchy.resize(HierCount);
+        for (auto& H : OldHierarchy)
+        {
+            std::uint32_t PathCount = 0; File.Read(PathCount);
+            H.m_MemberPath.resize(PathCount);
+            for (auto& P : H.m_MemberPath) File.Read(P);
+            File.Read(H.m_bAdded);
+        }
+
+        if (!e29::g_pGameMgr) return;
+        auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+        if (!pScene) return;
+        const auto PIRootId = static_cast<xecs::scene::permanent_id>(PIRootIdVal);
+        if (!pScene->m_LocalToRuntime.contains(PIRootId)) return;
+        auto Entity = pScene->m_LocalToRuntime.at(PIRootId);
+        auto& Details = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(Entity);
+        const auto iType = Details.m_pPool ? Details.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) : -1;
+        if (iType < 0) return;
+
+        auto& PI = Details.m_pPool->getComponent<xecs::editor::prefab_instance>(Details.m_PoolIndex);
+        PI.m_lComponents    = std::move(OldComponents);
+        PI.m_HierarchyDiffs = std::move(OldHierarchy);
+        e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, PIRootId);
+    }
+
     // Snapshots RootId's whole live subtree under shadow ids (SaveEntity, per-entity, per this file's
     // own top comment on why raw-handle snapshotting isn't safe here) PLUS its own position (which
     // folder/index, or which parent/child-index) so RestoreSubtreeFromSnapshot can put it back exactly
@@ -146,6 +255,7 @@ namespace e29::commands
             File.Write(static_cast<std::uint32_t>(xecs::scene::invalid_permanent_id_v));
             File.Write(std::uint32_t{ 0 });
             File.Write(std::uint32_t{ 0 });
+            File.Write(false); // no containing-PI override snapshot (matches SnapshotContainingPrefabOverrides)
             return;
         }
 
@@ -251,6 +361,10 @@ namespace e29::commands
             File.Write(static_cast<std::uint32_t>(E.m_RealId));
             File.Write(static_cast<std::uint32_t>(E.m_ShadowId));
         }
+
+        // AFTER the subtree entries: containing-PI override bookkeeping (see helpers above). Must
+        // stay last so RestoreSubtreeFromSnapshot can read it after draining Entries.
+        SnapshotContainingPrefabOverrides(File, SceneGuid, RootId);
     }
 
     // Counterpart to SnapshotSubtreeForRestore - reads back everything it wrote and restores the whole
@@ -273,10 +387,20 @@ namespace e29::commands
             File.Read(ShadowId);
             E = { static_cast<xecs::scene::permanent_id>(RealId), static_cast<xecs::scene::permanent_id>(ShadowId) };
         }
-        if (!e29::g_pGameMgr || Entries.empty()) return;
+        if (!e29::g_pGameMgr || Entries.empty())
+        {
+            // Still drain the trailing containing-PI record so the undo_file cursor stays aligned
+            // for any later steps sharing this file layout.
+            RestoreContainingPrefabOverrides(File, SceneGuid);
+            return;
+        }
 
         auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
-        if (!pScene) return;
+        if (!pScene)
+        {
+            RestoreContainingPrefabOverrides(File, SceneGuid);
+            return;
+        }
 
         // Pass 1: load each entity under its own shadow id (the path SnapshotSubtreeForRestore
         // actually wrote to), then immediately remap the scene's own maps from shadow -> real. Must
@@ -382,6 +506,10 @@ namespace e29::commands
         }
 
         if (e29::g_pState) e29::g_pState->m_bEntityInspectorDirty = true;
+
+        // Last: undo RecordRemovedChildOverride / ScrubAndShiftPathsAfterRemovedChild on the
+        // containing PI (written last by SnapshotSubtreeForRestore).
+        RestoreContainingPrefabOverrides(File, SceneGuid);
     }
 
     //================================================================================================
@@ -579,7 +707,7 @@ namespace e29::commands
         delete_entity_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "DeleteEntity", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
-            return "Deletes an entity and its whole child subtree (undoable - restores hierarchy, references, and prefab overrides on Undo). Usage: DeleteEntity -Scene hexguid -Id hexid";
+            return "Deletes an entity and its whole child subtree (undoable - restores hierarchy, references, prefab overrides, and containing-PI HierarchyDiffs on Undo). Usage: DeleteEntity -Scene hexguid -Id hexid";
         }
         void RegisterArguments() noexcept override
         {
