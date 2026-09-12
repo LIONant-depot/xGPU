@@ -136,6 +136,68 @@ namespace e29
             || pInfo == &xecs::component::type::info_v<xecs::editor::prefab_instance>;
     }
 
+
+    inline bool MemberPathStartsWith(std::span<const std::uint32_t> Path, std::span<const std::uint32_t> Prefix) noexcept
+    {
+        if (Path.size() < Prefix.size()) return false;
+        return std::equal(Prefix.begin(), Prefix.end(), Path.begin());
+    }
+
+    // After deleting the prefab member at MemberPath, drop overrides/diffs under it and shift
+    // sibling index paths that sat to its right (same parent prefix, higher index).
+    inline void ScrubAndShiftPathsAfterRemovedChild(xecs::editor::prefab_instance& PI, std::span<const std::uint32_t> RemovedPath) noexcept
+    {
+        if (RemovedPath.empty()) return;
+        const auto PrefixLen = RemovedPath.size() - 1;
+        const auto DeletedIndex = RemovedPath.back();
+
+        std::erase_if(PI.m_lComponents, [&](auto& C) noexcept
+        {
+            return MemberPathStartsWith(C.m_MemberPath, RemovedPath);
+        });
+        std::erase_if(PI.m_HierarchyDiffs, [&](auto& D) noexcept
+        {
+            if (D.m_MemberPath.size() == RemovedPath.size()
+             && std::equal(RemovedPath.begin(), RemovedPath.end(), D.m_MemberPath.begin()))
+                return false;
+            return MemberPathStartsWith(D.m_MemberPath, RemovedPath);
+        });
+
+        auto ShiftOne = [&](std::vector<std::uint32_t>& Path) noexcept
+        {
+            if (Path.size() <= PrefixLen) return;
+            if (!std::equal(RemovedPath.begin(), RemovedPath.begin() + static_cast<std::ptrdiff_t>(PrefixLen), Path.begin())) return;
+            if (Path[PrefixLen] > DeletedIndex) --Path[PrefixLen];
+        };
+        for (auto& C : PI.m_lComponents) ShiftOne(C.m_MemberPath);
+        for (auto& D : PI.m_HierarchyDiffs) ShiftOne(D.m_MemberPath);
+    }
+
+    // Call BEFORE destroying Entity while parent/children links are still intact. Records a
+    // removed-child hierarchy diff on the containing prefab_instance when Entity is a member
+    // under that instance (not the PI root itself).
+    inline void RecordRemovedChildOverride(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::scene::guid SceneGuid, xecs::component::entity Entity) noexcept
+    {
+        auto Ctx = FindContainingPrefabInstance(GameMgr, Entity);
+        if (Ctx.m_pPI == nullptr || Ctx.m_MemberPath.empty()) return;
+
+        auto& PI = *Ctx.m_pPI;
+        for (auto& D : PI.m_HierarchyDiffs)
+        {
+            if (!D.m_bAdded && std::ranges::equal(D.m_MemberPath, Ctx.m_MemberPath))
+                return;
+        }
+
+        PI.m_HierarchyDiffs.push_back(xecs::editor::prefab_hierarchy_diff{
+            .m_MemberPath = Ctx.m_MemberPath,
+            .m_bAdded     = false
+        });
+        ScrubAndShiftPathsAfterRemovedChild(PI, Ctx.m_MemberPath);
+
+        if (auto It = Scene.m_RuntimeToLocal.find(Ctx.m_RootEntity.m_Value); It != Scene.m_RuntimeToLocal.end())
+            GameMgr.m_SceneMgr.MarkEntityDirty(SceneGuid, It->second);
+    }
+
     // Finds the override-tracking entry for a given (component type, group member) pair on a prefab
     // instance, creating one (as OVERRIDES) if none exists yet - fixes the old, never-finished
     // design's bug of always appending a new entry even when one already exists. MemberPath empty

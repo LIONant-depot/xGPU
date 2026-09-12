@@ -393,6 +393,14 @@ namespace e29::commands
                 File.Write(D.m_ComponentTypeGuid);
                 File.Write(D.m_bAdded);
             }
+
+            File.Write(static_cast<std::uint32_t>(pOldPI->m_HierarchyDiffs.size()));
+            for (auto& H : pOldPI->m_HierarchyDiffs)
+            {
+                File.Write(static_cast<std::uint32_t>(H.m_MemberPath.size()));
+                for (auto P : H.m_MemberPath) File.Write(P);
+                File.Write(H.m_bAdded);
+            }
         }
 
         void Undo(xundo::undo_file& File) noexcept override
@@ -407,6 +415,7 @@ namespace e29::commands
             std::uint64_t OldInstance = 0, OldType = 0;
             std::vector<xecs::editor::prefab_component_override> OldComponents;
             std::vector<xecs::editor::prefab_component_diff>     OldDiffs;
+            std::vector<xecs::editor::prefab_hierarchy_diff>     OldHierarchy;
 
             if (bHadPI)
             {
@@ -437,6 +446,16 @@ namespace e29::commands
                     File.Read(D.m_ComponentTypeGuid);
                     File.Read(D.m_bAdded);
                 }
+
+                std::uint32_t HierCount = 0; File.Read(HierCount);
+                OldHierarchy.resize(HierCount);
+                for (auto& H : OldHierarchy)
+                {
+                    std::uint32_t PathCount = 0; File.Read(PathCount);
+                    H.m_MemberPath.resize(PathCount);
+                    for (auto& P : H.m_MemberPath) File.Read(P);
+                    File.Read(H.m_bAdded);
+                }
             }
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
@@ -457,6 +476,7 @@ namespace e29::commands
             PI.m_PrefabInstance = xecs::prefab::guid{ .m_Instance = { OldInstance }, .m_Type = { OldType } };
             PI.m_lComponents    = std::move(OldComponents);
             PI.m_ComponentDiffs = std::move(OldDiffs);
+            PI.m_HierarchyDiffs = std::move(OldHierarchy);
             e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, static_cast<xecs::scene::permanent_id>(Id));
         }
 

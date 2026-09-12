@@ -69,8 +69,13 @@ namespace e29
     // Recursively deletes Entity and (if it has children) its whole live descendant subtree, scrubbing
     // scene bookkeeping/folder membership for each - the "whole group" analog of a single-entity
     // delete action.
-    void DeleteEntitySubtree(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::scene::guid SceneGuid, xecs::component::entity Entity) noexcept
+    void DeleteEntitySubtree(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::scene::guid SceneGuid, xecs::component::entity Entity, bool bRecordPrefabOverride = true) noexcept
     {
+        // Only the top-level delete records a hierarchy diff - recursive child deletes are covered
+        // by that one removed path (and would scramble MemberPath bookkeeping mid-teardown).
+        if (bRecordPrefabOverride)
+            RecordRemovedChildOverride(GameMgr, Scene, SceneGuid, Entity);
+
         auto& Details = GameMgr.m_ComponentMgr.getEntityDetails(Entity);
 
         // Scrub Entity out of its own parent's children list, if it has one - otherwise the parent
@@ -99,7 +104,7 @@ namespace e29
         {
             auto ChildEntities = Details.m_pPool->getComponent<xecs::component::children>(Details.m_PoolIndex).m_List;
             for (auto Child : ChildEntities)
-                DeleteEntitySubtree(GameMgr, Scene, SceneGuid, Child);
+                DeleteEntitySubtree(GameMgr, Scene, SceneGuid, Child, /*bRecordPrefabOverride*/ false);
         }
 
         if (auto It = Scene.m_RuntimeToLocal.find(Entity.m_Value); It != Scene.m_RuntimeToLocal.end())
@@ -448,6 +453,7 @@ namespace e29
         PI.m_PrefabInstance = PrefabGuid;
         PI.m_lComponents.clear();
         PI.m_ComponentDiffs.clear();
+        PI.m_HierarchyDiffs.clear();
         GameMgr.m_SceneMgr.MarkEntityDirty(Scene.m_Guid, Id);
 
         return NewGuid;
