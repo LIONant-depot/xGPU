@@ -11,6 +11,14 @@
 // and only caller is RebuildWorld, right below it. Meant to be included via the umbrella
 // (E29_GamePlugin.h) only, after E29_GamePluginLog.h/E29_GamePluginBuild.h/E29_GamePluginLoad.h.
 
+// e29::commands::Run (StopPlaySession's own "keep property tweaks" pass, right below) - included
+// directly rather than relying on the .cpp's own later include of it, same "a file that names a
+// symbol should include what declares it" reasoning every other kit/plugin file here already follows.
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
+#include <sstream>
+#include <iterator>
+#include <unordered_map>
+
 namespace e29
 {
     //---------------------------------------------------------------------------
@@ -372,12 +380,120 @@ namespace e29
     }
 
     //---------------------------------------------------------------------------
+    // Splits one flat "-Key value -Key2 value2 ..." command string (the exact shape every command in
+    // this system's own std::format calls already produces - no embedded spaces, every value here is
+    // hex or Base64) into a name->value map. A throwaway xcmdline::parser/command_base could do this
+    // too, but that machinery exists to VALIDATE input as it's typed; this is just reading text this
+    // same codebase already wrote, so a plain split is enough. Token[0] (the command name itself,
+    // e.g. "SetProperty") is skipped - callers that need it already filtered on it before calling this.
+    //---------------------------------------------------------------------------
+    inline std::unordered_map<std::string, std::string> ParseFlatArgs(const std::string& CmdStr) noexcept
+    {
+        std::unordered_map<std::string, std::string> Out;
+        std::istringstream Stream(CmdStr);
+        const std::vector<std::string> Tokens{ std::istream_iterator<std::string>(Stream), std::istream_iterator<std::string>() };
+        for (std::size_t i = 1; i + 1 < Tokens.size(); i += 2)
+        {
+            if (Tokens[i].empty() || Tokens[i][0] != '-') continue;
+            Out[Tokens[i].substr(1)] = Tokens[i + 1];
+        }
+        return Out;
+    }
+
+    // One property, on one entity, that changed at least once while Playing - After is whatever it
+    // was left at when Stop was pressed (the LAST SetProperty seen for this exact Scene/Id/Component/
+    // Path); Before is the value it had the FIRST time it changed during this play session, which is
+    // exactly the value V1 already captured at Play-entry (Play always writes V1 before anything can
+    // change) - reusing it here means Undo-ing this "keep" back to what it truly was pre-Play needs no
+    // separate live read of the just-restored entity.
+    struct kept_property_tweak
+    {
+        std::string m_Scene, m_Id, m_Component, m_Path, m_TypeGuid, m_Before, m_After;
+    };
+
+    //---------------------------------------------------------------------------
+    // Walks every history entry pushed since Play started (State.m_PlayHistoryBoundary), keeping only
+    // SetProperty entries - direct user request/scope decision: only plain property edits are ever
+    // carried back into the persistent scene, never anything structural (CreateEntity/AddComponent/
+    // etc, if they somehow also happened while Playing) - matches Unreal's own "Keep Simulation
+    // Changes", which is similarly restricted to actors that already existed before simulating (see
+    // [[e29_playmode_keep_property_tweaks]] memory for the full research/design). Deduplicated by
+    // (Scene, Id, Component, Path) - a property dragged back and forth several times during one play
+    // session collapses to a single entry, not a replay of every intermediate value.
+    //---------------------------------------------------------------------------
+    inline std::vector<kept_property_tweak> CollectPlayModePropertyTweaks(xundo::system& Undo, int BoundaryIndex) noexcept
+    {
+        std::vector<kept_property_tweak> Tweaks;
+        std::unordered_map<std::string, std::size_t> KeyToIndex;
+
+        const auto Count = static_cast<int>(Undo.GetHistoryCount());
+        for (int i = BoundaryIndex; i < Count; ++i)
+        {
+            const std::string& Cmd = Undo.GetHistoryCommandString(static_cast<std::size_t>(i));
+            if (Cmd.compare(0, 12, "SetProperty ") != 0) continue;
+
+            const auto Args = ParseFlatArgs(Cmd);
+            const auto ItScene = Args.find("Scene");     if (ItScene == Args.end()) continue;
+            const auto ItId    = Args.find("Id");        if (ItId    == Args.end()) continue;
+            const auto ItComp  = Args.find("Component"); if (ItComp  == Args.end()) continue;
+            const auto ItPath  = Args.find("Path");      if (ItPath  == Args.end()) continue;
+            const auto ItType  = Args.find("TypeGuid");  if (ItType  == Args.end()) continue;
+            const auto ItAfter = Args.find("After");     if (ItAfter == Args.end()) continue;
+            const auto ItBefore = Args.find("Before");   if (ItBefore == Args.end()) continue;
+
+            const std::string Key = ItScene->second + '|' + ItId->second + '|' + ItComp->second + '|' + ItPath->second;
+            if (auto KIt = KeyToIndex.find(Key); KIt != KeyToIndex.end())
+            {
+                Tweaks[KIt->second].m_After = ItAfter->second; // later entries win - keep the LAST value
+            }
+            else
+            {
+                KeyToIndex[Key] = Tweaks.size();
+                Tweaks.push_back({ ItScene->second, ItId->second, ItComp->second, ItPath->second, ItType->second, ItBefore->second, ItAfter->second });
+            }
+        }
+        return Tweaks;
+    }
+
+    //---------------------------------------------------------------------------
+    // Replays every collected tweak as a BRAND-NEW SetProperty against the just-restored (post-Stop,
+    // V1/disk) scene - same command, same code path as a normal manual edit, so it lands as one clean,
+    // individually-undoable entry (prefab-override bookkeeping included, same as any other
+    // SetProperty) rather than needing any bespoke "apply" logic of its own. An entity that didn't
+    // survive Stop (created only during Play) simply fails to resolve - set_property_cmd::Redo returns
+    // an error string rather than crashing, so this is a silent, safe no-op for exactly the entities
+    // this feature was never meant to touch (matches Unreal's own "only actors already in the level"
+    // restriction).
+    //---------------------------------------------------------------------------
+    inline void ReapplyKeptPropertyTweaks(xundo::system& Undo, const std::vector<kept_property_tweak>& Tweaks) noexcept
+    {
+        for (auto& T : Tweaks)
+        {
+            e29::commands::Run(Undo, std::format("SetProperty -Scene {} -Id {} -Component {} -Path {} -TypeGuid {} -Before {} -After {}"
+                , T.m_Scene, T.m_Id, T.m_Component, T.m_Path, T.m_TypeGuid, T.m_Before, T.m_After
+                ));
+        }
+    }
+
+    //---------------------------------------------------------------------------
     // The "Stop" button's own handler - always discards whatever a play session did (including any
     // mid-play raw-snapshot reloads along the way - see RebuildWorld's own comment) in favor of a
     // proper, fully correct reload from the last real disk save (the one Play itself made on the way
     // in - see the Play button's own handler in E29_LevelScene_Editor.cpp). No DLL swap here: Stop
     // doesn't imply a code change, so the currently loaded generation is re-registered in place
     // (bSwapDll=false) rather than paying for an unload/reload cycle it doesn't need.
+    //
+    // Property edits made WHILE Playing (a value tweaked in the Inspector to watch it react) are
+    // carried back into the persistent scene automatically - direct user decision after researching
+    // Unity/Unreal/Godot precedent ("the reality is the user would not make changes often, and when
+    // they do it was because of a surprise finding" - i.e. always-on, never a separate "keep?" prompt
+    // to remember to hit). Collected BEFORE the world gets torn down (CollectPlayModePropertyTweaks
+    // just reads already-stored command TEXT, no entity access needed), then JumpTo() properly Undoes
+    // them off the still-live pre-Stop world (cheap - about to be replaced anyway), then reapplied
+    // AFTER RebuildWorld's own V1 reload as brand-new commands. TruncateRedoBranch() guarantees the
+    // stale play-session tail is gone from history even when there's nothing to reapply (the common
+    // case) - without it, those entries would sit Redo()-able, reopening the exact "Ctrl+Z/Redo after
+    // Stop gets weird" hazard this whole pass exists to close.
     //---------------------------------------------------------------------------
     template< typename T_REGISTER_HOST_COMPONENTS_FN, typename T_REGISTER_HOST_SYSTEMS_FN >
     void StopPlaySession
@@ -392,12 +508,19 @@ namespace e29
     , T_REGISTER_HOST_SYSTEMS_FN&&                 RegisterHostSystems
     ) noexcept
     {
+        const auto KeptTweaks = CollectPlayModePropertyTweaks(Undo, State.m_PlayHistoryBoundary);
+        Undo.JumpTo(State.m_PlayHistoryBoundary);
+
         pGameMgr->Stop();
         RebuildWorld
         ( pGameMgr, State, Plugin, EntityInspector, InspectorBridge, Undo, ProjectPath
         , RegisterHostComponents, RegisterHostSystems
         , /*bSwapDll*/ false, persist_mode::RestoreFromV1
         );
+
+        Undo.TruncateRedoBranch();
+        ReapplyKeptPropertyTweaks(Undo, KeptTweaks);
+
         State.m_PlayState = editor_state::play_state::Stopped;
     }
 
@@ -459,6 +582,7 @@ namespace e29
                 // comment for why this must be disk, not the fast binary Vn bridge - Stop needs the
                 // Level tree back, not just raw component values).
                 SaveEverything(*pGameMgr, State);
+                State.m_PlayHistoryBoundary = Undo.GetUndoIndex();
                 State.m_PlayState = editor_state::play_state::Playing;
             }
             return false;
@@ -478,6 +602,7 @@ namespace e29
             // RawSnapshotBridge (never touches disk), so unlike before this removed the
             // DiskSaveAndReload mode, V1 is no longer a free side effect of the reload itself.
             SaveEverything(*pGameMgr, State);
+            State.m_PlayHistoryBoundary = Undo.GetUndoIndex();
             State.m_PlayState = editor_state::play_state::Playing;
         }
 

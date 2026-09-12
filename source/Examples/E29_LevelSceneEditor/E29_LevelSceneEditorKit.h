@@ -273,6 +273,18 @@ namespace e29
         // E29_LevelScene_Editor.cpp for why (StopPlaySession does the same heavy destroy/recreate
         // work a reload does, and the click happens nested inside an active ImGui menu-bar scope).
         bool m_bStopRequested = false;
+
+        // Undo.GetUndoIndex() at the exact moment Play actually starts (PollGameReload, right where
+        // it writes V1 via SaveEverything) - direct user request: property edits made while Playing
+        // (a value tweaked in the Inspector while watching it react) are automatically carried back
+        // into the persistent scene on Stop, same reasoning as Unreal's own "Keep Simulation Changes"
+        // (researched against Unity/Godot too - neither has a first-party equivalent; see
+        // [[e29_playmode_keep_property_tweaks]] memory for the full design). StopPlaySession reads
+        // every SetProperty entry pushed since this index, replays the deduped result as brand-new
+        // SetProperty commands against the just-restored (V1/disk) scene, then discards the rest of
+        // the play session's history - so Ctrl+Z after Stop never lands on a stale, play-session-only
+        // undo entry.
+        int m_PlayHistoryBoundary = 0;
     };
 
     // GUID-like rather than sequential (was "Max + 1"): a random id means two branches each creating

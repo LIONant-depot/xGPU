@@ -58,6 +58,7 @@ namespace e29::commands
 #else
                 if (!e29::g_pGameMgr) return "Play: no game world";
                 e29::SaveEverything(*e29::g_pGameMgr, State);
+                State.m_PlayHistoryBoundary = m_System.GetUndoIndex();
                 State.m_PlayState = e29::editor_state::play_state::Playing;
                 return "Playing";
 #endif

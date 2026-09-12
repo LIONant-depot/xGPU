@@ -494,6 +494,7 @@ int E29_Example()
                     // straight to what PollGameReload's own UpToDate branch does: write V1 (Stop's
                     // revert point) and enter Play directly.
                     e29::SaveEverything(*pGameMgr, State);
+                    State.m_PlayHistoryBoundary = E29Undo.GetUndoIndex();
                     State.m_PlayState = e29::editor_state::play_state::Playing;
 #endif
                 }
