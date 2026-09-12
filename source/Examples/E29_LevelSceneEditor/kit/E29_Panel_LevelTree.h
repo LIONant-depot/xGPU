@@ -23,6 +23,11 @@
 // reached before the umbrella's own later include runs" reasoning as the two includes just above.
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SceneOrganization.h"
 
+// AddScene/RemoveScene (E29_Commands_Level.h) - Level membership edits, same "include what you name"
+// self-sufficiency as the command includes above. OpenLevel/List* live here too; this panel only
+// needs the two undoable membership commands.
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Level.h"
+
 namespace e29
 {
     //---------------------------------------------------------------------------
@@ -93,7 +98,9 @@ namespace e29
                             {
                                 const xecs::scene::guid NewSceneGuid{ .m_Instance = Dropped.m_Source.m_Instance };
                                 if (std::find(pLevel->m_Scenes.begin(), pLevel->m_Scenes.end(), NewSceneGuid) == pLevel->m_Scenes.end())
-                                    pLevel->m_Scenes.push_back(NewSceneGuid);
+                                    e29::commands::Run(Undo, std::format("AddScene -Level {:016X} -Scene {}"
+                                        , State.m_CurrentLevel.m_Instance.m_Value
+                                        , e29::commands::FormatSceneGuid(NewSceneGuid)));
                             }
                         }
                         ImGui::EndDragDropTarget();
@@ -150,8 +157,9 @@ namespace e29
                                 ImGui::Separator();
                                 if (ImGui::MenuItem("Remove Scene"))
                                 {
-                                    pLevel->m_Scenes.erase(pLevel->m_Scenes.begin() + iScene);
-                                    e29::CloseScene(GameMgr, State, SceneGuid);
+                                    e29::commands::Run(Undo, std::format("RemoveScene -Level {:016X} -Scene {}"
+                                        , State.m_CurrentLevel.m_Instance.m_Value
+                                        , e29::commands::FormatSceneGuid(SceneGuid)));
                                     ImGui::EndPopup();
                                     if (bSceneExpanded) ImGui::TreePop();
                                     ImGui::PopID();
@@ -197,8 +205,9 @@ namespace e29
                             ImGui::TableSetColumnIndex(1);
                             if (ImGui::SmallButton("Remove"))
                             {
-                                pLevel->m_Scenes.erase(pLevel->m_Scenes.begin() + iScene);
-                                e29::CloseScene(GameMgr, State, SceneGuid);
+                                e29::commands::Run(Undo, std::format("RemoveScene -Level {:016X} -Scene {}"
+                                    , State.m_CurrentLevel.m_Instance.m_Value
+                                    , e29::commands::FormatSceneGuid(SceneGuid)));
                                 if (bSceneExpanded) ImGui::TreePop();
                                 ImGui::PopID();
                                 break; // pLevel->m_Scenes was just mutated mid-iteration

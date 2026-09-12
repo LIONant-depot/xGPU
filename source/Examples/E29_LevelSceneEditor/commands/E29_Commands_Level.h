@@ -11,12 +11,10 @@
 // the fix: OpenLevel/CloseScene (workspace actions) plus ListLevels/ListScenes/ListEntities/
 // ListFolders (pure discovery, read the live state, never mutate anything).
 //
-// All QUERY commands (xundo::query_command_base), not Edit ones: none of these mutate SCENE CONTENT
-// the way every phase 1-4 command does - they're workspace/session operations (which files am I
-// looking at) or pure read-only discovery, the same category Play/Stop already sit in without being
-// undo-routed. "Undo" of opening a level would really mean "close it again," a distinct, deliberate
-// action of its own, not the inverse of this one - matches Say/GetLog's own reasoning for why THEY
-// are Query commands too (commands/E29_Commands_Chat.h).
+// Mostly QUERY commands (xundo::query_command_base): OpenLevel/CloseScene/List* are workspace or
+// read-only discovery, same category as Play/Stop - not undo-routed. AddScene/RemoveScene below ARE
+// undoable edits of Level.m_Scenes membership (no LevelMgr.Save; Add does not OpenScene) - same
+// commands::Run pattern as ApplyOverrides / CreateEntity.
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
 
 namespace e29::commands
@@ -290,6 +288,205 @@ namespace e29::commands
 
         xcmdline::parser::handle m_hScene, m_hFrom;
     };
+
+//================================================================================================
+// AddScene - Redo appends Scene to Level.m_Scenes (no OpenScene, no LevelMgr.Save). Undo erases
+// it again if we were the ones who added it. Already-present is a no-op both ways (UI already
+// skips Run when present; Redo still guards so a CLI re-add cannot duplicate).
+//
+// Usage: AddScene -Level hexguid -Scene hexguid
+//================================================================================================
+struct add_scene_cmd : xundo::command_base
+{
+    add_scene_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "AddScene", pDataBase) { RegisterArguments(); }
+    const char* getCommandHelp() const noexcept override
+    {
+        return "Adds a Scene to a Level's membership list (undoable). Does not open the scene or save the level. Usage: AddScene -Level hexguid -Scene hexguid";
+    }
+    void RegisterArguments() noexcept override
+    {
+        m_hLevel = m_Parser.addOption("Level", "Level instance guid, 16 hex digits", true, 1);
+        m_hScene = m_Parser.addOption("Scene", "Scene guid, 16 hex digits",          true, 1);
+    }
+
+    std::string Redo() noexcept override
+    {
+        auto LevelArg = m_Parser.getOptionArgAs<std::string>(m_hLevel, 0);
+        auto SceneArg = m_Parser.getOptionArgAs<std::string>(m_hScene, 0);
+        if (std::holds_alternative<xerr>(LevelArg) || std::holds_alternative<xerr>(SceneArg))
+            return "AddScene: bad arguments";
+
+        const auto LevelGuid = xecs::level::guid{ .m_Instance = { std::strtoull(std::get<std::string>(LevelArg).c_str(), nullptr, 16) } };
+        const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
+
+        if (!e29::g_pGameMgr) return "AddScene: no game world";
+        auto* pLevel = e29::g_pGameMgr->m_LevelMgr.Find(LevelGuid);
+        if (!pLevel) return "AddScene: level not found";
+
+        // Already a member: empty success, no mutation. Backup wrote bWasPresent=1 so Undo is a no-op.
+        if (std::find(pLevel->m_Scenes.begin(), pLevel->m_Scenes.end(), SceneGuid) != pLevel->m_Scenes.end())
+            return {};
+
+        pLevel->m_Scenes.push_back(SceneGuid);
+        return {};
+    }
+
+    void BackupCurrenState(xundo::undo_file& File) noexcept override
+    {
+        // Runs BEFORE Redo. Record whether Scene is already in the level so Undo can no-op on a
+        // re-add, and erase only if we are about to be the ones who add it.
+        auto LevelArg = m_Parser.getOptionArgAs<std::string>(m_hLevel, 0);
+        auto SceneArg = m_Parser.getOptionArgAs<std::string>(m_hScene, 0);
+
+        const std::uint64_t Level = std::holds_alternative<xerr>(LevelArg) ? 0 : std::strtoull(std::get<std::string>(LevelArg).c_str(), nullptr, 16);
+        const std::uint64_t Scene = std::holds_alternative<xerr>(SceneArg) ? 0 : std::strtoull(std::get<std::string>(SceneArg).c_str(), nullptr, 16);
+        std::uint32_t       bWasPresent = 0;
+
+        if (!std::holds_alternative<xerr>(LevelArg) && !std::holds_alternative<xerr>(SceneArg) && e29::g_pGameMgr)
+        {
+            const auto LevelGuid = xecs::level::guid{ .m_Instance = { Level } };
+            const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
+            if (auto* pLevel = e29::g_pGameMgr->m_LevelMgr.Find(LevelGuid))
+                bWasPresent = (std::find(pLevel->m_Scenes.begin(), pLevel->m_Scenes.end(), SceneGuid) != pLevel->m_Scenes.end()) ? 1u : 0u;
+        }
+
+        File.Write(Level);
+        File.Write(Scene);
+        File.Write(bWasPresent);
+    }
+
+    void Undo(xundo::undo_file& File) noexcept override
+    {
+        std::uint64_t Level = 0; File.Read(Level);
+        std::uint64_t Scene = 0; File.Read(Scene);
+        std::uint32_t bWasPresent = 0; File.Read(bWasPresent);
+
+        if (bWasPresent) return;
+        if (!e29::g_pGameMgr) return;
+
+        const auto LevelGuid = xecs::level::guid{ .m_Instance = { Level } };
+        const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
+        auto* pLevel = e29::g_pGameMgr->m_LevelMgr.Find(LevelGuid);
+        if (!pLevel) return;
+
+        if (auto It = std::find(pLevel->m_Scenes.begin(), pLevel->m_Scenes.end(), SceneGuid); It != pLevel->m_Scenes.end())
+            pLevel->m_Scenes.erase(It);
+
+        // If the user opened the scene after we added it (row expand), drop residency too.
+        // CloseScene is a no-op when the guid is not in State.m_OpenScenes.
+        auto& State = get<e29_command_context>().m_State;
+        e29::CloseScene(*e29::g_pGameMgr, State, SceneGuid);
+    }
+
+    xcmdline::parser::handle m_hLevel, m_hScene;
+};
+
+//================================================================================================
+// RemoveScene - Redo erases Scene from Level.m_Scenes and CloseScene's it. Undo inserts it back
+// at the recorded index (clamped if the list shrank) and re-opens it if it was open.
+//
+// Usage: RemoveScene -Level hexguid -Scene hexguid
+//================================================================================================
+struct remove_scene_cmd : xundo::command_base
+{
+    remove_scene_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "RemoveScene", pDataBase) { RegisterArguments(); }
+    const char* getCommandHelp() const noexcept override
+    {
+        return "Removes a Scene from a Level's membership list (undoable). Closes the scene if open. Does not save the level. Usage: RemoveScene -Level hexguid -Scene hexguid";
+    }
+    void RegisterArguments() noexcept override
+    {
+        m_hLevel = m_Parser.addOption("Level", "Level instance guid, 16 hex digits", true, 1);
+        m_hScene = m_Parser.addOption("Scene", "Scene guid, 16 hex digits",          true, 1);
+    }
+
+    std::string Redo() noexcept override
+    {
+        auto LevelArg = m_Parser.getOptionArgAs<std::string>(m_hLevel, 0);
+        auto SceneArg = m_Parser.getOptionArgAs<std::string>(m_hScene, 0);
+        if (std::holds_alternative<xerr>(LevelArg) || std::holds_alternative<xerr>(SceneArg))
+            return "RemoveScene: bad arguments";
+
+        const auto LevelGuid = xecs::level::guid{ .m_Instance = { std::strtoull(std::get<std::string>(LevelArg).c_str(), nullptr, 16) } };
+        const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
+
+        if (!e29::g_pGameMgr) return "RemoveScene: no game world";
+        auto* pLevel = e29::g_pGameMgr->m_LevelMgr.Find(LevelGuid);
+        if (!pLevel) return "RemoveScene: level not found";
+
+        auto It = std::find(pLevel->m_Scenes.begin(), pLevel->m_Scenes.end(), SceneGuid);
+        if (It == pLevel->m_Scenes.end()) return "RemoveScene: scene not in level";
+
+        pLevel->m_Scenes.erase(It);
+
+        auto& State = get<e29_command_context>().m_State;
+        e29::CloseScene(*e29::g_pGameMgr, State, SceneGuid);
+        return {};
+    }
+
+    void BackupCurrenState(xundo::undo_file& File) noexcept override
+    {
+        // Runs BEFORE Redo. Index is the current slot; bWasOpen is current residency so Undo can
+        // restore both membership and OpenScene if the row was live.
+        auto LevelArg = m_Parser.getOptionArgAs<std::string>(m_hLevel, 0);
+        auto SceneArg = m_Parser.getOptionArgAs<std::string>(m_hScene, 0);
+
+        const std::uint64_t Level = std::holds_alternative<xerr>(LevelArg) ? 0 : std::strtoull(std::get<std::string>(LevelArg).c_str(), nullptr, 16);
+        const std::uint64_t Scene = std::holds_alternative<xerr>(SceneArg) ? 0 : std::strtoull(std::get<std::string>(SceneArg).c_str(), nullptr, 16);
+        std::uint32_t       Index = 0;
+        std::uint32_t       bWasOpen = 0;
+
+        const auto LevelGuid = xecs::level::guid{ .m_Instance = { Level } };
+        const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
+
+        if (e29::g_pGameMgr)
+        {
+            if (auto* pLevel = e29::g_pGameMgr->m_LevelMgr.Find(LevelGuid))
+            {
+                auto It = std::find(pLevel->m_Scenes.begin(), pLevel->m_Scenes.end(), SceneGuid);
+                if (It != pLevel->m_Scenes.end())
+                    Index = static_cast<std::uint32_t>(std::distance(pLevel->m_Scenes.begin(), It));
+            }
+        }
+
+        auto& State = get<e29_command_context>().m_State;
+        bWasOpen = (std::find(State.m_OpenScenes.begin(), State.m_OpenScenes.end(), SceneGuid) != State.m_OpenScenes.end()) ? 1u : 0u;
+
+        File.Write(Level);
+        File.Write(Scene);
+        File.Write(Index);
+        File.Write(bWasOpen);
+    }
+
+    void Undo(xundo::undo_file& File) noexcept override
+    {
+        std::uint64_t Level = 0; File.Read(Level);
+        std::uint64_t Scene = 0; File.Read(Scene);
+        std::uint32_t Index = 0; File.Read(Index);
+        std::uint32_t bWasOpen = 0; File.Read(bWasOpen);
+
+        if (!e29::g_pGameMgr) return;
+
+        const auto LevelGuid = xecs::level::guid{ .m_Instance = { Level } };
+        const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
+        auto* pLevel = e29::g_pGameMgr->m_LevelMgr.Find(LevelGuid);
+        if (!pLevel) return;
+
+        if (std::find(pLevel->m_Scenes.begin(), pLevel->m_Scenes.end(), SceneGuid) == pLevel->m_Scenes.end())
+        {
+            const auto Idx = std::min<std::size_t>(Index, pLevel->m_Scenes.size());
+            pLevel->m_Scenes.insert(pLevel->m_Scenes.begin() + static_cast<std::ptrdiff_t>(Idx), SceneGuid);
+        }
+
+        if (bWasOpen)
+        {
+            auto& State = get<e29_command_context>().m_State;
+            e29::OpenScene(*e29::g_pGameMgr, State, xresource::full_guid{ SceneGuid.m_Instance, xecs::scene::type_guid_v });
+        }
+    }
+
+    xcmdline::parser::handle m_hLevel, m_hScene;
+};
 }
 
 #endif // E29_COMMANDS_LEVEL_H
