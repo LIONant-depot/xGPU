@@ -22,10 +22,8 @@
 // sentinel in both directions, so no separate "is this cleared" flag is needed.
 //
 // Deliberately does NOT own the cross-scene Dependencies edge (pOwningScene->m_ParentScenes) or the
-// circular-dependency refusal check - both stay exactly where they already correctly live, in the
-// drag-drop ACCEPTANCE logic (m_OnEntityReferenceRender itself, before it calls Run() with this
-// command), the same way CreateEntity's own command doesn't decide "is this a valid drop location"
-// either - that's a decision made before the command runs, not part of the command itself.
+// cycle / missing-dep refusal - those live in m_OnEntityReferenceRender (must already be an explicit
+// Dependencies-folder edge; never auto-added) and in AddSceneDependency / RemoveSceneDependency.
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PropertyEdit.h"
 
 namespace e29::commands

@@ -458,7 +458,7 @@ namespace e29
     // glass placeholder icon, gray "X" to clear, rounded InputText - reimplemented standalone rather
     // than called directly since that method is bound to assert_browser's own m_SearchString member;
     // it's the VISUAL pattern being reused here, backed by E29's own tree-search state instead. Skips
-    // the original's leading "▼" sort/filter-type dropdown button - there's no equivalent filter-type
+    // the original's leading "ÃƒÂ¢Ã¢â‚¬â€œÃ‚Â¼" sort/filter-type dropdown button - there's no equivalent filter-type
     // concept for the Level tree, just a plain substring search.
     void RenderTreeSearchBar(std::string& SearchString, float AvailWidth) noexcept
     {
@@ -556,36 +556,146 @@ namespace e29
         }
     }
 
-    // Would adding "NewDependency" to Candidate's own m_ParentScenes close a cycle in the scene
-    // dependency graph? True iff Candidate is already (transitively) reachable FROM NewDependency by
-    // walking m_ParentScenes edges - i.e. NewDependency already depends on Candidate, directly or
-    // through some chain, so making Candidate ALSO depend on NewDependency would create a loop.
-    // The engine's own Scene::EnsureLoaded already DETECTS a cycle at LOAD time ("Scene dependency
-    // cycle detected"), but nothing stops one from being AUTHORED in the first place, which is a much
-    // worse failure mode (the mistake surfaces later, as a load error, far from whichever
-    // drag/assignment actually caused it). Only walks scenes that are CURRENTLY LOADED (via Find()) -
-    // an unloaded scene's own m_ParentScenes can't be inspected without loading it, the same
-    // pragmatic limit the existing load-time detection itself lives with (it only ever encounters
-    // scenes actively in the middle of loading).
-    bool WouldCreateDependencyCycle(xecs::game_mgr::instance& GameMgr, xecs::scene::guid Candidate, xecs::scene::guid NewDependency) noexcept
+    // Reads ParentScenes for a scene that may not be loaded - prefers the live instance, else the
+    // on-disk Descriptor.txt. Used by cycle / remove-reachability walks so an unloaded dependency
+    // still participates in the transitive check (authoring must not wait for EnsureLoaded).
+    inline void ReadParentScenesList(xecs::game_mgr::instance& GameMgr, xecs::scene::guid SceneGuid, std::vector<xecs::scene::guid>& Out) noexcept
     {
-        if (Candidate == NewDependency) return true;
+        Out.clear();
+        if (auto* pScene = GameMgr.m_SceneMgr.Find(SceneGuid))
+        {
+            Out = pScene->m_ParentScenes;
+            return;
+        }
+        const auto Path = xecs::scene::details::DescriptorPath(GameMgr.m_SceneMgr, SceneGuid);
+        xecs::scene::descriptor Descriptor;
+        xproperty::settings::context Context{};
+        if (auto Err = Descriptor.Serialize(true, Path, Context); Err)
+            return;
+        Out = std::move(Descriptor.m_ParentScenes);
+    }
 
-        std::vector<xecs::scene::guid> Visited;
-        std::vector<xecs::scene::guid> Stack{ NewDependency };
+    // Transitive ParentScenes closure starting from Roots (BFS). If Skip is non-empty, that guid is
+    // never expanded as a node (used to simulate "remove this direct parent" when computing Lost).
+    inline void CollectTransitiveParents(xecs::game_mgr::instance& GameMgr, const std::vector<xecs::scene::guid>& Roots, xecs::scene::guid Skip, std::vector<xecs::scene::guid>& Out) noexcept
+    {
+        Out.clear();
+        std::vector<xecs::scene::guid> Stack = Roots;
         while (!Stack.empty())
         {
             const auto Cur = Stack.back();
             Stack.pop_back();
-            if (Cur == Candidate) return true;
-            if (std::find(Visited.begin(), Visited.end(), Cur) != Visited.end()) continue;
-            Visited.push_back(Cur);
-
-            if (auto* pScene = GameMgr.m_SceneMgr.Find(Cur))
-                for (auto& Parent : pScene->m_ParentScenes)
-                    Stack.push_back(Parent);
+            if (Cur.m_Instance.m_Value != 0 && Cur == Skip) continue;
+            if (std::find(Out.begin(), Out.end(), Cur) != Out.end()) continue;
+            Out.push_back(Cur);
+            std::vector<xecs::scene::guid> Parents;
+            ReadParentScenesList(GameMgr, Cur, Parents);
+            for (auto& P : Parents) Stack.push_back(P);
         }
-        return false;
+    }
+
+    // Would adding "NewDependency" to Candidate's own m_ParentScenes close a cycle in the scene
+    // dependency graph? True iff Candidate is already (transitively) reachable FROM NewDependency by
+    // walking m_ParentScenes edges. Walks live ParentScenes when loaded, else Descriptor.txt on disk.
+    bool WouldCreateDependencyCycle(xecs::game_mgr::instance& GameMgr, xecs::scene::guid Candidate, xecs::scene::guid NewDependency) noexcept
+    {
+        if (Candidate == NewDependency) return true;
+        std::vector<xecs::scene::guid> Reachable;
+        CollectTransitiveParents(GameMgr, std::vector<xecs::scene::guid>{ NewDependency }, xecs::scene::guid{}, Reachable);
+        return std::find(Reachable.begin(), Reachable.end(), Candidate) != Reachable.end();
+    }
+
+    // Scenes that become unreachable from Owner once DirectParent is removed from Owner.m_ParentScenes
+    // (DirectParent itself plus anything only reachable through it).
+    inline void CollectLostParentsOnRemove(xecs::game_mgr::instance& GameMgr, const xecs::scene::instance& Owner, xecs::scene::guid DirectParent, std::vector<xecs::scene::guid>& OutLost) noexcept
+    {
+        std::vector<xecs::scene::guid> Before, After;
+        CollectTransitiveParents(GameMgr, Owner.m_ParentScenes, xecs::scene::guid{}, Before);
+        CollectTransitiveParents(GameMgr, Owner.m_ParentScenes, DirectParent, After);
+        OutLost.clear();
+        for (auto& G : Before)
+            if (std::find(After.begin(), After.end(), G) == After.end())
+                OutLost.push_back(G);
+    }
+
+    // Read-only walk of every live entity-typed reference field on one entity (same coverage as
+    // RemapLoadedEntityReferences / SaveEntity's reference pass).
+    template<typename T_FN>
+    inline void ForEachLiveEntityReference(xecs::game_mgr::instance& GameMgr, xecs::component::entity Entity, T_FN&& Fn) noexcept
+    {
+        auto& IDetails = GameMgr.m_ComponentMgr.getEntityDetails(Entity);
+        if (!IDetails.m_pPool) return;
+        auto& Archetype = *IDetails.m_pPool->m_pArchetype;
+        auto  DataSpan  = Archetype.getDataComponentInfos();
+
+        std::vector<xecs::component::entity*> References;
+        int iSequence = 0;
+        for (auto pInfo : DataSpan)
+        {
+            if (pInfo->m_ReferenceMode == xecs::component::type::reference_mode::NO_REFERENCES
+             || xecs::component::type::IsComponentType<xecs::component::entity>(pInfo))
+                continue;
+
+            auto pData = IDetails.m_pPool->getComponentInSequenceByInfo(*pInfo, IDetails.m_PoolIndex, iSequence);
+
+            if (pInfo->m_ReferenceMode == xecs::component::type::reference_mode::BY_FUNCTION)
+            {
+                pInfo->m_pReportReferencesFn(References, pData);
+                for (auto pRef : References)
+                    if (pRef && pRef->isValid()) Fn(*pRef);
+                References.clear();
+            }
+            else if (pInfo->m_pPropertyTable)
+            {
+                xproperty::settings::context Context{};
+                xproperty::sprop::collector(pData, *pInfo->m_pPropertyTable, Context, [&](const char*, xproperty::any&& Data, const xproperty::type::members&, bool, const void*) noexcept
+                {
+                    if (Data.getTypeGuid() == xproperty::settings::var_type<xecs::component::entity>::guid_v)
+                    {
+                        auto& E = Data.get<xecs::component::entity>();
+                        if (E.isValid()) Fn(E);
+                    }
+                });
+            }
+        }
+    }
+
+    // Owning scene of a live entity handle among registered scene instances.
+    inline xecs::scene::guid FindOwningSceneGuid(xecs::game_mgr::instance& GameMgr, xecs::component::entity Entity) noexcept
+    {
+        if (!Entity.isValid()) return {};
+        for (auto& pScene : GameMgr.m_SceneMgr.m_SceneInstances)
+            if (pScene && pScene->m_RuntimeToLocal.contains(Entity.m_Value))
+                return pScene->m_Guid;
+        return {};
+    }
+
+    // If removing DirectParent from Owner would leave any live entity reference in Owner pointing at
+    // a scene that drops out of the reachable parent set, returns a non-empty refusal message.
+    inline std::string WhyCannotRemoveSceneDependency(xecs::game_mgr::instance& GameMgr, xecs::scene::guid OwnerGuid, xecs::scene::guid DirectParent) noexcept
+    {
+        auto* pOwner = GameMgr.m_SceneMgr.Find(OwnerGuid);
+        if (!pOwner) return "RemoveSceneDependency: owning scene is not loaded";
+
+        std::vector<xecs::scene::guid> Lost;
+        CollectLostParentsOnRemove(GameMgr, *pOwner, DirectParent, Lost);
+        if (Lost.empty()) return {};
+
+        int HitCount = 0;
+        xecs::scene::guid FirstLost{};
+        for (auto& [Id, Entity] : pOwner->m_LocalToRuntime)
+        {
+            ForEachLiveEntityReference(GameMgr, Entity, [&](xecs::component::entity Target) noexcept
+            {
+                const auto TargetScene = FindOwningSceneGuid(GameMgr, Target);
+                if (TargetScene.m_Instance.m_Value == 0) return;
+                if (std::find(Lost.begin(), Lost.end(), TargetScene) == Lost.end()) return;
+                if (HitCount == 0) FirstLost = TargetScene;
+                ++HitCount;
+            });
+        }
+        if (HitCount == 0) return {};
+        return std::format("Can't remove that dependency: {} entity reference(s) still target scene(s) that would become unreachable (e.g. {:016X})", HitCount, FirstLost.m_Instance.m_Value);
     }
 
     // Opens a scene ALONGSIDE whatever is already open - the user explicitly wants every scene they
@@ -1012,15 +1122,11 @@ namespace e29
                         {
                             if (auto It = pDropScene->m_LocalToRuntime.find(Dropped.m_Id); It != pDropScene->m_LocalToRuntime.end())
                             {
-                                // A reference pointing outside the owning entity's own scene needs a
-                                // Dependencies entry (pOwningScene->m_ParentScenes) to ever resolve
-                                // again on save/reload - added automatically here rather than leaving
-                                // the reference dangling until the user separately remembers to add it
-                                // by hand. Checked (and, if it would close a cycle, REFUSED) before the
-                                // property assignment itself runs, not after - creating the assignment
-                                // AND then skipping just the dependency edge would leave a cross-scene
-                                // reference with nothing to make it resolvable, an even more confusing
-                                // state than refusing outright.
+                                // A reference pointing outside the owning entity's own scene needs an
+                                // EXPLICIT Dependencies entry (pOwningScene->m_ParentScenes) to resolve
+                                // on save/reload. That edge is authored only via the Dependencies folder
+                                // (AddSceneDependency) - never auto-inferred from this drop. Missing or
+                                // cyclic edges are refused before SetEntityReference runs.
                                 bool bRefused = false;
                                 if (Dropped.m_SceneGuid != State.m_SelectedEntityScene)
                                 {
@@ -1034,7 +1140,12 @@ namespace e29
                                         }
                                         else if (!bAlreadyDependency)
                                         {
-                                            pOwningScene->m_ParentScenes.push_back(Dropped.m_SceneGuid);
+                                            // Explicit deps only: cross-scene refs require the user to
+                                            // drag the target scene into this scene's Dependencies folder
+                                            // first. Auto-adding ParentScenes from entity refs is what made
+                                            // the graph unstable / hard to reason about.
+                                            e29::Debugger("Can't assign that reference: add the target scene under Dependencies first");
+                                            bRefused = true;
                                         }
                                     }
                                 }

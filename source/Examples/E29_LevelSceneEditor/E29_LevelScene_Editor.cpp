@@ -7,6 +7,7 @@
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandConsolePipe.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Chat.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Level.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SceneDependency.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Workspace.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PlaySession.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SceneOrganization.h"
@@ -294,6 +295,8 @@ int E29_Example()
     e29::commands::close_scene_cmd        CmdCloseScene(E29Undo, &CmdContext);
     e29::commands::add_scene_cmd          CmdAddScene(E29Undo, &CmdContext);
     e29::commands::remove_scene_cmd       CmdRemoveScene(E29Undo, &CmdContext);
+    e29::commands::add_scene_dependency_cmd    CmdAddSceneDependency(E29Undo, &CmdContext);
+    e29::commands::remove_scene_dependency_cmd CmdRemoveSceneDependency(E29Undo, &CmdContext);
     e29::commands::list_levels_query_cmd  CmdListLevels(E29Undo, &CmdContext);
     e29::commands::list_scenes_query_cmd  CmdListScenes(E29Undo, &CmdContext);
     e29::commands::list_entities_query_cmd CmdListEntities(E29Undo, &CmdContext);

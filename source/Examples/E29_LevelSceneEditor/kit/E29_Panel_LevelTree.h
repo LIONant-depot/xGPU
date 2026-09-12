@@ -24,6 +24,7 @@
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SceneOrganization.h"
 
 // AddScene/RemoveScene (E29_Commands_Level.h) - Level membership edits, same "include what you name"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SceneDependency.h"
 // self-sufficiency as the command includes above. OpenLevel/List* live here too; this panel only
 // needs the two undoable membership commands.
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Level.h"
@@ -595,10 +596,9 @@ namespace e29
                                                         const xecs::scene::guid NewParent{ .m_Instance = Dropped.m_Source.m_Instance };
                                                         if (std::find(pScene->m_ParentScenes.begin(), pScene->m_ParentScenes.end(), NewParent) == pScene->m_ParentScenes.end())
                                                         {
-                                                            if (e29::WouldCreateDependencyCycle(GameMgr, SceneGuid, NewParent))
-                                                                e29::Debugger("Can't add that dependency: it already depends on this scene (would create a circular scene dependency)");
-                                                            else
-                                                                pScene->m_ParentScenes.push_back(NewParent);
+                                                            e29::commands::Run(Undo, std::format("AddSceneDependency -Scene {} -Parent {}"
+                                                                , e29::commands::FormatSceneGuid(SceneGuid)
+                                                                , e29::commands::FormatSceneGuid(NewParent)));
                                                         }
                                                     }
                                                 }
@@ -627,7 +627,10 @@ namespace e29
                                                     ImGui::TableSetColumnIndex(1);
                                                     if (bDepRemoved || ImGui::SmallButton("X"))
                                                     {
-                                                        pScene->m_ParentScenes.erase(pScene->m_ParentScenes.begin() + iDep);
+                                                        const auto ParentGuid = pScene->m_ParentScenes[iDep];
+                                                        e29::commands::Run(Undo, std::format("RemoveSceneDependency -Scene {} -Parent {}"
+                                                            , e29::commands::FormatSceneGuid(SceneGuid)
+                                                            , e29::commands::FormatSceneGuid(ParentGuid)));
                                                         ImGui::PopID();
                                                         break; // pScene->m_ParentScenes was just mutated mid-iteration
                                                     }
