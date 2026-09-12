@@ -10,6 +10,8 @@
 // Undo can put the Prefab asset AND the instance's override list back.
 
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PropertyEdit.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_EntityLifecycle.h"
+#include "source/Examples/E29_LevelSceneEditor/kit/E29_PrefabAuthoring.h"
 
 namespace e29::commands
 {
@@ -331,6 +333,286 @@ namespace e29::commands
 
         xcmdline::parser::handle m_hScene, m_hId;
     };
+
+    //------------------------------------------------------------------------------------------------
+    // RevertHierarchyOverrides - Unity-style discard of hierarchy overrides on one PI root:
+    //   Added  -> delete the instance-only child subtree
+    //   Removed -> clone the prefab member back under the instance parent
+    // Undo restores HierarchyDiffs bookkeeping and reverses those structural edits via the shared
+    // subtree snapshot helpers.
+    //------------------------------------------------------------------------------------------------
+    struct revert_hierarchy_overrides_cmd : xundo::command_base
+    {
+        revert_hierarchy_overrides_cmd(xundo::system& System, void* pDataBase) noexcept
+            : command_base(System, "RevertHierarchyOverrides", pDataBase) { RegisterArguments(); }
+        const char* getCommandHelp() const noexcept override
+        {
+            return "Reverts hierarchy overrides on a prefab instance (deletes Added children; restores Removed children from the Prefab). Usage: RevertHierarchyOverrides -Scene hexguid -Id hexid";
+        }
+        void RegisterArguments() noexcept override
+        {
+            m_hScene = m_Parser.addOption("Scene", "Scene guid, 16 hex digits", true, 1);
+            m_hId    = m_Parser.addOption("Id",    "Prefab-instance root permanent_id, 8 hex digits", true, 1);
+        }
+
+        // Clone a prefab-resident entity (and plain children) into the open scene under Parent.
+        static xecs::component::entity ClonePrefabEntityIntoScene(
+            xecs::game_mgr::instance& GameMgr,
+            xecs::scene::instance& Scene,
+            xecs::scene::guid SceneGuid,
+            xecs::component::entity Source,
+            xecs::component::entity ParentEntity,
+            std::uint32_t InsertIndex) noexcept
+        {
+            auto& SourceDetails   = GameMgr.m_ComponentMgr.getEntityDetails(Source);
+            if (!SourceDetails.m_pPool) return {};
+            auto& SourceArchetype = *SourceDetails.m_pPool->m_pArchetype;
+            auto  DataSpan        = SourceArchetype.getDataComponentInfos();
+
+            std::vector<const xecs::component::type::info*> Infos;
+            Infos.push_back(&xecs::component::type::info_v<xecs::component::entity>);
+            for (auto pInfo : DataSpan)
+            {
+                if (xecs::component::type::IsComponentType<xecs::component::entity>(pInfo)) continue;
+                // Nested PI: copy as opaque member (include prefab_instance); still skip rebuilding
+                // its inner children below.
+                Infos.push_back(pInfo);
+            }
+            if (ParentEntity.isValid()
+             && std::find_if(Infos.begin(), Infos.end(), [](auto* p) noexcept {
+                    return xecs::component::type::IsComponentType<xecs::component::parent>(p);
+                }) == Infos.end())
+            {
+                Infos.push_back(&xecs::component::type::info_v<xecs::component::parent>);
+            }
+
+            auto& NewArchetype = GameMgr.getOrCreateArchetype({ Infos.data(), Infos.size() });
+            std::vector<const xecs::component::type::info*> DataInfos;
+            for (auto pInfo : Infos)
+                if (pInfo->m_TypeID != xecs::component::type::id::TAG)
+                    DataInfos.push_back(pInfo);
+            std::vector<std::byte*> MoveData(DataInfos.size(), nullptr);
+            auto NewEntity = NewArchetype.CreateEntity({ DataInfos.data(), DataInfos.size() }, { MoveData.data(), MoveData.size() });
+
+            const auto Id = e29::NextFreeEntityId(Scene);
+            Scene.m_LocalToRuntime[Id] = NewEntity;
+            Scene.m_RuntimeToLocal[NewEntity.m_Value] = Id;
+            GameMgr.m_SceneMgr.MarkEntityNew(SceneGuid, Id);
+
+            auto& NewDetails = GameMgr.m_ComponentMgr.getEntityDetails(NewEntity);
+            auto& NewPool    = *NewDetails.m_pPool;
+            for (auto pInfo : DataSpan)
+            {
+                if (xecs::component::type::IsComponentType<xecs::component::entity>(pInfo)) continue;
+                if (xecs::component::type::IsComponentType<xecs::component::parent>(pInfo)) continue;
+                if (xecs::component::type::IsComponentType<xecs::component::children>(pInfo)) continue;
+                const auto iSrc = SourceDetails.m_pPool->findIndexComponentFromInfo(*pInfo);
+                const auto iDst = NewPool.findIndexComponentFromInfo(*pInfo);
+                if (iSrc < 0 || iDst < 0) continue;
+                auto* pSrc = &SourceDetails.m_pPool->m_pComponent[iSrc][SourceDetails.m_PoolIndex.m_Value * pInfo->m_Size];
+                auto* pDst = &NewPool.m_pComponent[iDst][NewDetails.m_PoolIndex.m_Value * pInfo->m_Size];
+                if (pInfo->m_pCopyFn) pInfo->m_pCopyFn(pDst, pSrc);
+                else std::memcpy(pDst, pSrc, pInfo->m_Size);
+            }
+
+            if (ParentEntity.isValid()
+             && NewPool.findIndexComponentFromInfo(xecs::component::type::info_v<xecs::component::parent>) >= 0)
+            {
+                NewPool.getComponent<xecs::component::parent>(NewDetails.m_PoolIndex).m_Value = ParentEntity;
+                auto& PDetails = GameMgr.m_ComponentMgr.getEntityDetails(ParentEntity);
+                if (PDetails.m_pPool
+                 && PDetails.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::component::children>) >= 0)
+                {
+                    auto& List = PDetails.m_pPool->getComponent<xecs::component::children>(PDetails.m_PoolIndex).m_List;
+                    if (InsertIndex <= List.size())
+                        List.insert(List.begin() + static_cast<std::ptrdiff_t>(InsertIndex), NewEntity);
+                    else
+                        List.push_back(NewEntity);
+                }
+                if (auto It = Scene.m_RuntimeToLocal.find(ParentEntity.m_Value); It != Scene.m_RuntimeToLocal.end())
+                    GameMgr.m_SceneMgr.MarkEntityDirty(SceneGuid, It->second);
+            }
+
+            // Opaque nested prefab instance: do not recurse.
+            if (SourceDetails.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) >= 0)
+                return NewEntity;
+
+            if (SourceDetails.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::component::children>) >= 0)
+            {
+                auto ChildList = SourceDetails.m_pPool->getComponent<xecs::component::children>(SourceDetails.m_PoolIndex).m_List;
+                std::uint32_t i = 0;
+                for (auto Child : ChildList)
+                {
+                    ClonePrefabEntityIntoScene(GameMgr, Scene, SceneGuid, Child, NewEntity, i);
+                    ++i;
+                }
+            }
+            return NewEntity;
+        }
+
+        std::string Redo() noexcept override
+        {
+            auto SceneArg = m_Parser.getOptionArgAs<std::string>(m_hScene, 0);
+            auto IdArg    = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
+            if (std::holds_alternative<xerr>(SceneArg) || std::holds_alternative<xerr>(IdArg))
+                return "RevertHierarchyOverrides: bad arguments";
+            const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
+            const auto Id        = ParseEntityId(std::get<std::string>(IdArg));
+            if (!e29::g_pGameMgr) return "RevertHierarchyOverrides: no game world";
+            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            if (!pScene || !pScene->m_LocalToRuntime.contains(Id))
+                return "RevertHierarchyOverrides: target not found";
+
+            const auto RootEntity = pScene->m_LocalToRuntime.at(Id);
+            auto* pPI = e29::FindPrefabInstance(*e29::g_pGameMgr, RootEntity);
+            if (!pPI) return "RevertHierarchyOverrides: not a prefab instance";
+            if (pPI->m_HierarchyDiffs.empty()) return {};
+
+            if (auto Err = e29::g_pGameMgr->m_PrefabMgr.EnsureLoaded(pPI->m_PrefabInstance); Err)
+                return std::format("RevertHierarchyOverrides: {}", Err.getMessage());
+            auto RootIt = e29::g_pGameMgr->m_PrefabMgr.m_PrefabList.find(pPI->m_PrefabInstance.m_Instance.m_Value);
+            if (RootIt == e29::g_pGameMgr->m_PrefabMgr.m_PrefabList.end())
+                return "RevertHierarchyOverrides: prefab root missing";
+
+            auto Diffs = pPI->m_HierarchyDiffs;
+
+            // Added: delete deepest-first
+            std::vector<std::vector<std::uint32_t>> Added;
+            for (auto& D : Diffs) if (D.m_bAdded && !D.m_MemberPath.empty()) Added.push_back(D.m_MemberPath);
+            std::sort(Added.begin(), Added.end(), [](const auto& A, const auto& B) noexcept {
+                if (A.size() != B.size()) return A.size() > B.size();
+                return std::lexicographical_compare(A.rbegin(), A.rend(), B.rbegin(), B.rend());
+            });
+            for (auto& Path : Added)
+            {
+                const auto Target = xecs::persist::details::ResolveMemberPath(*e29::g_pGameMgr, RootEntity, Path);
+                if (!Target.isValid()) continue;
+                if (auto It = pScene->m_RuntimeToLocal.find(Target.m_Value); It != pScene->m_RuntimeToLocal.end())
+                    e29::DeleteEntitySubtree(*e29::g_pGameMgr, *pScene, SceneGuid, Target, /*bRecordPrefabOverride*/ true);
+            }
+
+            // Removed: restore shallowest-first
+            std::vector<std::vector<std::uint32_t>> Removed;
+            for (auto& D : Diffs) if (!D.m_bAdded && !D.m_MemberPath.empty()) Removed.push_back(D.m_MemberPath);
+            std::sort(Removed.begin(), Removed.end(), [](const auto& A, const auto& B) noexcept {
+                if (A.size() != B.size()) return A.size() < B.size();
+                return std::lexicographical_compare(A.begin(), A.end(), B.begin(), B.end());
+            });
+            for (auto& Path : Removed)
+            {
+                const auto PrefabSrc = xecs::persist::details::ResolveMemberPath(*e29::g_pGameMgr, RootIt->second, Path);
+                if (!PrefabSrc.isValid()) continue;
+                const auto InsertIndex = Path.back();
+                std::vector<std::uint32_t> ParentPath(Path.begin(), Path.end() - 1);
+                const auto InstParent = ParentPath.empty()
+                    ? RootEntity
+                    : xecs::persist::details::ResolveMemberPath(*e29::g_pGameMgr, RootEntity, ParentPath);
+                if (!InstParent.isValid()) continue;
+                ClonePrefabEntityIntoScene(*e29::g_pGameMgr, *pScene, SceneGuid, PrefabSrc, InstParent, InsertIndex);
+            }
+
+            // Cancel any leftover hierarchy diffs that matched (delete-added already cleared Added;
+            // strip Remaining Removed entries we restored).
+            pPI->m_HierarchyDiffs.clear();
+            e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, Id);
+            if (e29::g_pState) e29::g_pState->m_bEntityInspectorDirty = true;
+            return {};
+        }
+
+        void BackupCurrenState(xundo::undo_file& File) noexcept override
+        {
+            auto SceneArg = m_Parser.getOptionArgAs<std::string>(m_hScene, 0);
+            auto IdArg    = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
+            const std::uint64_t Scene = std::holds_alternative<xerr>(SceneArg) ? 0 : std::strtoull(std::get<std::string>(SceneArg).c_str(), nullptr, 16);
+            const std::uint32_t Id    = std::holds_alternative<xerr>(IdArg) ? 0 : ParseEntityId(std::get<std::string>(IdArg));
+            File.Write(Scene);
+            File.Write(Id);
+
+            if (!e29::g_pGameMgr)
+            {
+                File.Write(std::uint32_t{ 0 });
+                File.Write(std::uint32_t{ 0 });
+                return;
+            }
+            const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
+            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            if (!pScene || !pScene->m_LocalToRuntime.contains(static_cast<xecs::scene::permanent_id>(Id)))
+            {
+                File.Write(std::uint32_t{ 0 });
+                File.Write(std::uint32_t{ 0 });
+                return;
+            }
+            const auto RootEntity = pScene->m_LocalToRuntime.at(static_cast<xecs::scene::permanent_id>(Id));
+            auto* pPI = e29::FindPrefabInstance(*e29::g_pGameMgr, RootEntity);
+            if (!pPI)
+            {
+                File.Write(std::uint32_t{ 0 });
+                File.Write(std::uint32_t{ 0 });
+                return;
+            }
+
+            // Bookkeeping + snapshot each Added child subtree (deleted in Redo).
+            SnapshotAllOverrideBookkeeping(File, *pPI);
+            std::vector<xecs::scene::permanent_id> AddedIds;
+            for (auto& D : pPI->m_HierarchyDiffs)
+            {
+                if (!D.m_bAdded || D.m_MemberPath.empty()) continue;
+                const auto Target = xecs::persist::details::ResolveMemberPath(*e29::g_pGameMgr, RootEntity, D.m_MemberPath);
+                if (!Target.isValid()) continue;
+                if (auto It = pScene->m_RuntimeToLocal.find(Target.m_Value); It != pScene->m_RuntimeToLocal.end())
+                    AddedIds.push_back(It->second);
+            }
+            File.Write(static_cast<std::uint32_t>(AddedIds.size()));
+            for (auto Aid : AddedIds)
+            {
+                File.Write(static_cast<std::uint32_t>(Aid));
+                SnapshotSubtreeForRestore(File, SceneGuid, Aid);
+            }
+        }
+
+        void Undo(xundo::undo_file& File) noexcept override
+        {
+            std::uint64_t Scene = 0; File.Read(Scene);
+            std::uint32_t Id = 0;    File.Read(Id);
+            if (!e29::g_pGameMgr) return;
+            const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
+            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            if (!pScene || !pScene->m_LocalToRuntime.contains(static_cast<xecs::scene::permanent_id>(Id))) return;
+            const auto RootEntity = pScene->m_LocalToRuntime.at(static_cast<xecs::scene::permanent_id>(Id));
+            auto* pPI = e29::FindPrefabInstance(*e29::g_pGameMgr, RootEntity);
+            if (!pPI) return;
+
+            xecs::editor::prefab_instance TempPI;
+            TempPI.m_PrefabInstance = pPI->m_PrefabInstance;
+            RestoreAllOverrideBookkeeping(File, TempPI);
+
+            std::uint32_t AddedCount = 0; File.Read(AddedCount);
+            for (std::uint32_t i = 0; i < AddedCount; ++i)
+            {
+                std::uint32_t Aid = 0; File.Read(Aid);
+                RestoreSubtreeFromSnapshot(File, SceneGuid, static_cast<xecs::scene::permanent_id>(Aid));
+            }
+
+            // Drop children that Undo-of-Removed restored: any live child path that was a Removed
+            // entry in TempPI and is present now but wasn't an Added restore. Simplest: delete
+            // resolved Removed paths on the instance (they were re-cloned in Redo).
+            for (auto& D : TempPI.m_HierarchyDiffs)
+            {
+                if (D.m_bAdded || D.m_MemberPath.empty()) continue;
+                const auto Target = xecs::persist::details::ResolveMemberPath(*e29::g_pGameMgr, RootEntity, D.m_MemberPath);
+                if (!Target.isValid()) continue;
+                e29::DeleteEntitySubtree(*e29::g_pGameMgr, *pScene, SceneGuid, Target, /*bRecordPrefabOverride*/ false);
+            }
+
+            pPI->m_lComponents    = std::move(TempPI.m_lComponents);
+            pPI->m_HierarchyDiffs = std::move(TempPI.m_HierarchyDiffs);
+            e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, static_cast<xecs::scene::permanent_id>(Id));
+            if (e29::g_pState) e29::g_pState->m_bEntityInspectorDirty = true;
+        }
+
+        xcmdline::parser::handle m_hScene, m_hId;
+    };
+
 }
 
 #endif // E29_COMMANDS_APPLY_OVERRIDES_H
