@@ -637,6 +637,10 @@ int E29_Example()
         }
 
         e29::RenderLevelTreePanel(*pGameMgr, State, E29Undo);
+            // Level drop from Resources onto Level Tree (deferred during panel draw) - same
+            // OpenLevel + StartGameReload sequence as double-clicking a Level asset above.
+            if (e29::FlushPendingOpenLevelFromTree(*pGameMgr, State))
+                e29::StartGameReload(GamePlugin);
         e29::RenderEntityPropertiesPanel(*pGameMgr, State, EntityInspector, InspectorBridge, E29Undo);
         e29::RenderSystemRegistryPanel(*pGameMgr, State);
         e29::RenderIdleWorkPanel(IdleWork, pGameMgr.get(), State);

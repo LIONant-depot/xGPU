@@ -29,6 +29,10 @@
 // needs the two undoable membership commands.
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Level.h"
 
+// BeginDragDropTargetCustom (window-wide Level drop highlight when a level is already open) -
+// same include E10_asset_browser_files_tab.h uses for FilesBackgroundDropTarget.
+#include "imgui_internal.h"
+
 namespace e29
 {
     //---------------------------------------------------------------------------
@@ -39,6 +43,55 @@ namespace e29
     // under that scene's own row, not a separate section. Owns its own ImGui::Begin/End - callable
     // directly from a main loop with no surrounding window boilerplate needed.
     //---------------------------------------------------------------------------
+    // Dropping a Level from Resources mid-tree can mutate open scenes while rows are still drawing -
+    // stash and open after ImGui::End (same OpenLevel + StartGameReload path as double-click).
+    inline xresource::full_guid g_PendingOpenLevelFromTree{};
+    inline bool                 g_bPendingOpenLevelFromTree = false;
+
+    inline void RequestOpenLevelFromTreeDrop(const xresource::full_guid& LevelGuid) noexcept
+    {
+        if (LevelGuid.m_Type != xecs::level::type_guid_v) return;
+        g_PendingOpenLevelFromTree  = LevelGuid;
+        g_bPendingOpenLevelFromTree = true;
+    }
+
+    // True when the current DESCRIPTOR_GUID drag is a Level asset (PeekOnly-safe).
+    inline bool PeekDescriptorPayloadIsLevel(const ImGuiPayload* Peek) noexcept
+    {
+        if (!Peek || Peek->DataSize != sizeof(e10::drag_and_drop_folder_payload_t)) return false;
+        return reinterpret_cast<const e10::drag_and_drop_folder_payload_t*>(Peek->Data)->m_Source.m_Type == xecs::level::type_guid_v;
+    }
+
+    // Inside an active BeginDragDropTarget / Custom: accept Level only, open on delivery.
+    // Returns true when the payload is a Level (so callers skip Prefab/Scene handling and
+    // let the window-wide target own the full-panel highlight).
+    inline bool TryAcceptOpenLevelDescriptorDrop() noexcept
+    {
+        const ImGuiPayload* Peek = ImGui::AcceptDragDropPayload("DESCRIPTOR_GUID", ImGuiDragDropFlags_AcceptPeekOnly);
+        if (!PeekDescriptorPayloadIsLevel(Peek)) return false;
+        if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload("DESCRIPTOR_GUID"))
+        {
+            IM_ASSERT(Payload->DataSize == sizeof(e10::drag_and_drop_folder_payload_t));
+            auto& Dropped = *reinterpret_cast<const e10::drag_and_drop_folder_payload_t*>(Payload->Data);
+            if (Payload->IsDelivery())
+                RequestOpenLevelFromTreeDrop(Dropped.m_Source);
+        }
+        return true;
+    }
+
+    // Returns true when a Level open was applied (caller should StartGameReload, same as
+    // double-click OpenLevel in E29_LevelScene_Editor.cpp). Kept out of this panel so we do
+    // not need g_pGamePlugin / StartGameReload visible through the kit include order.
+    inline bool FlushPendingOpenLevelFromTree(xecs::game_mgr::instance& GameMgr, editor_state& State) noexcept
+    {
+        if (!g_bPendingOpenLevelFromTree) return false;
+        g_bPendingOpenLevelFromTree = false;
+        const auto LevelGuid = g_PendingOpenLevelFromTree;
+        g_PendingOpenLevelFromTree = {};
+        OpenLevel(GameMgr, State, LevelGuid);
+        return true;
+    }
+
     void RenderLevelTreePanel(xecs::game_mgr::instance& GameMgr, editor_state& State, xundo::system& Undo) noexcept
     {
         ImGui::SetNextWindowPos(ImVec2(915, 18), ImGuiCond_FirstUseEver);
@@ -47,7 +100,26 @@ namespace e29
         {
             if (State.m_CurrentLevel.empty())
             {
-                ImGui::TextDisabled("Create or open a Level from the asset browser.");
+                ImGui::TextDisabled("Create or open a Level from the asset browser (or drop a Level here).");
+                // Fill the rest of the panel so a Level dragged from Resources/asset browser can land
+                // anywhere in the empty Level Tree - same OpenLevel path as double-clicking the asset.
+                // Clamp: ImGui::InvisibleButton asserts size_arg.x/y != 0 (imgui_widgets.cpp) - on the
+                // first frame / empty layout GetContentRegionAvail can be (0,0) and aborted startup.
+                ImVec2 EmptyDropSize = ImGui::GetContentRegionAvail();
+                if (EmptyDropSize.x < 1.0f) EmptyDropSize.x = 1.0f;
+                if (EmptyDropSize.y < 1.0f) EmptyDropSize.y = 1.0f;
+                ImGui::InvisibleButton("##EmptyLevelDrop", EmptyDropSize);
+                if (ImGui::BeginDragDropTarget())
+                {
+                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DESCRIPTOR_GUID"))
+                    {
+                        IM_ASSERT(payload->DataSize == sizeof(e10::drag_and_drop_folder_payload_t));
+                        auto& Dropped = *reinterpret_cast<const e10::drag_and_drop_folder_payload_t*>(payload->Data);
+                        if (Dropped.m_Source.m_Type == xecs::level::type_guid_v)
+                            e29::RequestOpenLevelFromTreeDrop(Dropped.m_Source);
+                    }
+                    ImGui::EndDragDropTarget();
+                }
             }
             else if (auto* pLevel = GameMgr.m_LevelMgr.Find(State.m_CurrentLevel))
             {
@@ -85,13 +157,18 @@ namespace e29
                     const std::string LevelLabelWithIcon = std::format("{} {}", e29::LevelIcon(), LevelLabel);
                     const bool bLevelOpen = ImGui::TreeNodeEx(LevelLabelWithIcon.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth);
 
-                    // Drag a Scene asset from the asset browser onto the Level's own row to add it.
-                    // Same "DESCRIPTOR_GUID" payload the Scene row already decodes for
-                    // prefab-instantiation, just checked against the Scene type instead. Skips an
-                    // already-present scene rather than adding a duplicate.
+                    // DESCRIPTOR_GUID from Resources/asset browser:
+                    //   Level  -> deferred to window-wide Custom target (full-panel highlight + OpenLevel)
+                    //   Scene  -> AddScene to this Level (skips duplicates)
                     if (ImGui::BeginDragDropTarget())
                     {
-                        if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DESCRIPTOR_GUID"))
+                        const ImGuiPayload* PeekLevel = ImGui::AcceptDragDropPayload("DESCRIPTOR_GUID", ImGuiDragDropFlags_AcceptPeekOnly);
+                        if (e29::PeekDescriptorPayloadIsLevel(PeekLevel))
+                        {
+                            // Leave Level for the panel-wide Custom target so the accept rect
+                            // covers the whole Level Tree (same UX as the empty-panel drop).
+                        }
+                        else if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DESCRIPTOR_GUID"))
                         {
                             IM_ASSERT(payload->DataSize == sizeof(e10::drag_and_drop_folder_payload_t));
                             auto& Dropped = *reinterpret_cast<const e10::drag_and_drop_folder_payload_t*>(payload->Data);
@@ -192,7 +269,12 @@ namespace e29
                             // it already carries exactly {SceneGuid, Id}).
                             if (bIsOpenScene && ImGui::BeginDragDropTarget())
                             {
-                                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DESCRIPTOR_GUID"))
+                                const ImGuiPayload* PeekLevel = ImGui::AcceptDragDropPayload("DESCRIPTOR_GUID", ImGuiDragDropFlags_AcceptPeekOnly);
+                                if (e29::PeekDescriptorPayloadIsLevel(PeekLevel))
+                                {
+                                    // Level -> window-wide Custom (full-panel highlight)
+                                }
+                                else if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DESCRIPTOR_GUID"))
                                 {
                                     IM_ASSERT(payload->DataSize == sizeof(e10::drag_and_drop_folder_payload_t));
                                     auto& Dropped = *reinterpret_cast<const e10::drag_and_drop_folder_payload_t*>(payload->Data);
@@ -509,7 +591,12 @@ namespace e29
                                                     // matches the Scene row's own "DESCRIPTOR_GUID"
                                                     // handling, except the new instance lands in THIS
                                                     // folder instead of always landing loose at scene root.
-                                                    if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DESCRIPTOR_GUID"))
+                                                    const ImGuiPayload* PeekLevel = ImGui::AcceptDragDropPayload("DESCRIPTOR_GUID", ImGuiDragDropFlags_AcceptPeekOnly);
+                                                    if (e29::PeekDescriptorPayloadIsLevel(PeekLevel))
+                                                    {
+                                                        // Level -> window-wide Custom (full-panel highlight)
+                                                    }
+                                                    else if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DESCRIPTOR_GUID"))
                                                     {
                                                         IM_ASSERT(payload->DataSize == sizeof(e10::drag_and_drop_folder_payload_t));
                                                         auto& Dropped = *reinterpret_cast<const e10::drag_and_drop_folder_payload_t*>(payload->Data);
@@ -602,7 +689,12 @@ namespace e29
 
                                             if (ImGui::BeginDragDropTarget())
                                             {
-                                                if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DESCRIPTOR_GUID"))
+                                                const ImGuiPayload* PeekLevel = ImGui::AcceptDragDropPayload("DESCRIPTOR_GUID", ImGuiDragDropFlags_AcceptPeekOnly);
+                                                if (e29::PeekDescriptorPayloadIsLevel(PeekLevel))
+                                                {
+                                                    // Level -> window-wide Custom (full-panel highlight)
+                                                }
+                                                else if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DESCRIPTOR_GUID"))
                                                 {
                                                     IM_ASSERT(payload->DataSize == sizeof(e10::drag_and_drop_folder_payload_t));
                                                     auto& Dropped = *reinterpret_cast<const e10::drag_and_drop_folder_payload_t*>(payload->Data);
@@ -765,6 +857,15 @@ namespace e29
                         ImGui::TreePop();
                     }
                     ImGui::EndTable();
+                }
+
+                // Window-wide Level drop (E10 FilesBackgroundDropTarget pattern): ImGui picks the
+                // smallest accepting target, so row Prefab/Scene targets still win for those types.
+                // Rows PeekOnly-skip Level, so this large ContentRegionRect owns Level highlight + open.
+                if (ImGui::BeginDragDropTargetCustom(ImGui::GetCurrentWindow()->ContentRegionRect, ImGui::GetID("LevelTreeLevelDrop")))
+                {
+                    e29::TryAcceptOpenLevelDescriptorDrop();
+                    ImGui::EndDragDropTarget();
                 }
                 // Scene dependencies now render as a fixed "Dependencies" folder directly under each
                 // Scene's own row inside the tree above, not a separate section here.
