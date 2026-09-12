@@ -446,6 +446,11 @@ namespace e29
     constexpr const char* LevelIcon() noexcept { return "\xEE\x9D\xB4"; }
     constexpr const char* SceneIcon() noexcept { return "\xEE\xA4\x9B"; }
 
+    // Dependencies folder - Segoe MDL2 Assets "Link" (U+E71B). Same E7xx band as Search
+    // (\xEE\x9C\xA1) / Refresh (\xEE\x9C\xAC), which already render in this atlas; deliberately
+    // NOT FolderIcon so the synthesized Dependencies row can't be mistaken for a user folder.
+    constexpr const char* DependenciesIcon() noexcept { return "\xEE\x9C\x9B"; }
+
     bool ContainsCaseInsensitive(std::string_view Haystack, std::string_view Needle) noexcept
     {
         if (Needle.empty()) return true;

@@ -169,6 +169,21 @@ namespace e29
                                 ImGui::EndPopup();
                             }
 
+                            // Drag this Level-Tree scene onto another scene's Dependencies folder
+                            // (same DESCRIPTOR_GUID + e10::drag_and_drop_folder_payload_t the asset
+                            // browser emits for Scene assets). Also works as a drop onto the Level
+                            // row (AddScene skips duplicates). SourceAllowNullID: TreeNodeEx items
+                            // don't always have a stable ImGui ID the way Button/Selectable do.
+                            if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
+                            {
+                                e10::drag_and_drop_folder_payload_t Payload{};
+                                Payload.m_Source     = xresource::full_guid{ SceneGuid.m_Instance, SceneGuid.m_Type };
+                                Payload.m_bSelection = false;
+                                ImGui::SetDragDropPayload("DESCRIPTOR_GUID", &Payload, sizeof(Payload));
+                                ImGui::Text("%s", SceneLabel.c_str());
+                                ImGui::EndDragDropSource();
+                            }
+
                             // Drop a Prefab asset from the asset browser here to instantiate it -
                             // decodes the SAME "DESCRIPTOR_GUID" payload the browser's own asset icons
                             // already drag (see e10::drag_and_drop_folder_payload_t). ALSO accepts an
@@ -576,13 +591,13 @@ namespace e29
                                         // scene's own row: "there are no parent scenes in reality, Scenes
                                         // have dependencies" - and the folder itself "can not be moved or
                                         // touched", so no delete/drag-source on the folder row, only a
-                                        // drop target (drag a Scene asset onto it to add a dependency)
+                                        // drop target (drag a Scene from the asset browser OR from this Level Tree onto it to add a dependency)
                                         // and a per-entry delete button below.
                                         {
                                             ImGui::PushID("Dependencies");
                                             ImGui::TableNextRow();
                                             ImGui::TableSetColumnIndex(0);
-                                            const std::string DepLabel = std::format("{} Dependencies", e29::FolderIcon(!pScene->m_ParentScenes.empty()));
+                                            const std::string DepLabel = std::format("{} Dependencies", e29::DependenciesIcon());
                                             const bool bDepOpen = ImGui::TreeNodeEx(DepLabel.c_str(), ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth);
 
                                             if (ImGui::BeginDragDropTarget())
