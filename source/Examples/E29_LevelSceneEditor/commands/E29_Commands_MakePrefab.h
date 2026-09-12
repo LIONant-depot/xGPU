@@ -139,6 +139,39 @@ namespace e29::commands
         return ExplicitPrefabAssetGuid;
     }
 
+
+    // MoveToTrash alone is in-memory until a library Save - and its return value used to be ignored
+    // here, so a silent miss (bad guid/library) left the Prefab visible in Resources forever after
+    // Ctrl+Z. Persist the trashed info.txt immediately so the hide sticks across any reload, and
+    // surface failures through Debugger.
+    inline void TrashCreatedPrefabAsset(e10::library::guid LibraryGuid, xresource::full_guid AssetGuid) noexcept
+    {
+        if (AssetGuid.empty())
+        {
+            e29::Debugger("MakePrefab Undo: refusing to trash an empty asset guid");
+            return;
+        }
+        if (auto Err = e10::g_LibMgr.MoveToTrash(LibraryGuid, AssetGuid); !Err.empty())
+        {
+            e29::Debugger(std::format("MakePrefab Undo: MoveToTrash failed: {}", Err));
+            return;
+        }
+
+        xproperty::settings::context Context;
+        const bool bFound = e10::g_LibMgr.getNodeInfo(LibraryGuid, AssetGuid, [&](e10::library_db::info_node& Node)
+        {
+            if (Node.m_Path.empty()) return;
+            if (auto SerErr = Node.m_Info.Serialize(false, Node.m_Path.c_str(), Context); SerErr)
+            {
+                e29::Debugger(std::format("MakePrefab Undo: failed to persist trashed info.txt: {}", SerErr.getMessage()));
+                return;
+            }
+            Node.m_InfoChangeCount = 0;
+        });
+        if (!bFound)
+            e29::Debugger("MakePrefab Undo: MoveToTrash succeeded but getNodeInfo missed the asset");
+    }
+
     //================================================================================================
     // MakePrefab - the general path. BackupCurrenState snapshots the ORIGINAL group (same shadow-id
     // machinery delete_entity_cmd's own Undo already relies on) BEFORE Redo converts it. Undo deletes
@@ -227,9 +260,11 @@ namespace e29::commands
 
             // Same documented asymmetry as CreateAsset's own Undo - trash, don't attempt to make the
             // on-disk info.txt vanish (MoveToTrash/MoveFromTrashTo is the only reversal primitive this
-            // asset system has).
+            // asset system has). Persist the trash tag to info.txt immediately - see
+            // TrashCreatedPrefabAsset's own comment (silent MoveToTrash misses left "Entity" Prefabs
+            // visible in Resources after Ctrl+Z).
             const auto LibraryGuid = ParseLibraryGuid(std::format("{:016X}", Library));
-            e10::g_LibMgr.MoveToTrash(LibraryGuid, ParseAssetGuid(Asset));
+            TrashCreatedPrefabAsset(LibraryGuid, ParseAssetGuid(Asset));
         }
 
         xcmdline::parser::handle m_hScene, m_hId, m_hLibrary, m_hAsset, m_hParent;
@@ -408,7 +443,7 @@ namespace e29::commands
             const auto LibraryGuid = ParseLibraryGuid(std::format("{:016X}", Library));
 
             // Trash the created asset first (same asymmetric-Undo shape as CreateAsset/MakePrefab).
-            e10::g_LibMgr.MoveToTrash(LibraryGuid, ParseAssetGuid(Asset));
+            TrashCreatedPrefabAsset(LibraryGuid, ParseAssetGuid(Asset));
 
             if (!bHadPI || !e29::g_pGameMgr) return;
             auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
@@ -458,12 +493,13 @@ namespace e29
             auto& SourceDetails = g_pGameMgr->m_ComponentMgr.getEntityDetails(SourceIt->second);
             if (SourceDetails.m_pPool && SourceDetails.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) >= 0)
             {
-                e29::commands::Run(*g_pUndo, std::format("MakePrefabVariant -Scene {} -Id {} -Library {} -Asset {} -Parent {}"
+                const auto Cmd = std::format("MakePrefabVariant -Scene {} -Id {} -Library {} -Asset {} -Parent {}"
                     , e29::commands::FormatSceneGuid(Payload.m_SceneGuid)
                     , e29::commands::FormatEntityId(Payload.m_Id)
                     , e29::commands::FormatLibraryGuid(LibraryGUID)
                     , e29::commands::FormatAssetGuid(NewAsset)
-                    , e29::commands::FormatAssetGuid(ParentGUID)));
+                    , e29::commands::FormatAssetGuid(ParentGUID));
+                if (!e29::commands::RunGroup(*g_pUndo, "MakePrefabVariant", { Cmd })) return {};
                 return NewAsset;
             }
         }
@@ -475,12 +511,13 @@ namespace e29
         auto RootIdIt = pScene->m_RuntimeToLocal.find(Root.m_Value);
         if (RootIdIt == pScene->m_RuntimeToLocal.end()) return {};
 
-        e29::commands::Run(*g_pUndo, std::format("MakePrefab -Scene {} -Id {} -Library {} -Asset {} -Parent {}"
+        const auto Cmd = std::format("MakePrefab -Scene {} -Id {} -Library {} -Asset {} -Parent {}"
             , e29::commands::FormatSceneGuid(Payload.m_SceneGuid)
             , e29::commands::FormatEntityId(RootIdIt->second)
             , e29::commands::FormatLibraryGuid(LibraryGUID)
             , e29::commands::FormatAssetGuid(NewAsset)
-            , e29::commands::FormatAssetGuid(ParentGUID)));
+            , e29::commands::FormatAssetGuid(ParentGUID));
+        if (!e29::commands::RunGroup(*g_pUndo, "MakePrefab", { Cmd })) return {};
         return NewAsset;
     }
 }
