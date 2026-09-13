@@ -15,17 +15,17 @@
 // unable to dock into the application root.
 namespace e29::editor_tabs
 {
-    inline constexpr char kParentEditorWindow[] = "Parent Editor Window###E29.ParentEditor";
-    inline constexpr char kParentEditorDockspaceId[] = "E29.ParentEditor.Dockspace.V1";
+    inline constexpr char kLevelEditorWindow[] = "Level Editor###E29.LevelEditor";
+    inline constexpr char kLevelEditorDockspaceId[] = "E29.LevelEditor.Dockspace.V1";
 
-    inline constexpr char kResourceBrowserWindow[] = "Resource Browser###E29.ParentEditor.ResourceBrowser";
-    inline constexpr char kEditorWindow[] = "Editor###E29.ParentEditor.Editor";
-    inline constexpr char kLevelEditorWindow[] = "Level Editor###E29.ParentEditor.LevelEditor";
-    inline constexpr char kEntityPropertiesWindow[] = "Inspector###E29.ParentEditor.Inspector";
-    inline constexpr char kSystemRegistryWindow[] = "System Registry###E29.ParentEditor.SystemRegistry";
-    inline constexpr char kIdleWorkWindow[] = "Idle Work###E29.ParentEditor.IdleWork";
-    inline constexpr char kGamePluginLogWindow[] = "\xEE\x9F\x83 Log###E29.ParentEditor.GamePluginLog";
-    inline constexpr char kCommandConsoleWindow[] = "\xEE\xA3\xBD Commands###E29.ParentEditor.CommandConsole";
+    inline constexpr char kResourceBrowserWindow[] = "Resource Browser###E29.LevelEditor.ResourceBrowser";
+    inline constexpr char kEditorWindow[] = "Editor###E29.LevelEditor.Editor";
+    inline constexpr char kLevelTreeWindow[] = "Level Tree###E29.LevelEditor.LevelTree";
+     inline constexpr char kInspectorWindow[] = "Inspector###E29.LevelEditor.Inspector";
+    inline constexpr char kSystemRegistryWindow[] = "System Registry###E29.LevelEditor.SystemRegistry";
+    inline constexpr char kIdleWorkWindow[] = "Idle Work###E29.LevelEditor.IdleWork";
+    inline constexpr char kGamePluginLogWindow[] = "\xEE\x9F\x83 Log###E29.LevelEditor.GamePluginLog";
+    inline constexpr char kCommandConsoleWindow[] = "\xEE\xA3\xBD Commands###E29.LevelEditor.CommandConsole";
     inline constexpr ImGuiID kParentEditorDockClassId = 0xE290A17u;
 
     inline ImGuiWindowClass ParentEditorDockClass() noexcept
@@ -72,8 +72,8 @@ namespace e29::editor_tabs
 
         ImGui::DockBuilderDockWindow(kEditorWindow,              Top);
         ImGui::DockBuilderDockWindow(kResourceBrowserWindow,     Left);
-        ImGui::DockBuilderDockWindow(kLevelEditorWindow,         Left);
-        ImGui::DockBuilderDockWindow(kEntityPropertiesWindow,    Right);
+        ImGui::DockBuilderDockWindow(kLevelTreeWindow,           Left);
+        ImGui::DockBuilderDockWindow(kInspectorWindow,           Right);
         ImGui::DockBuilderDockWindow(kSystemRegistryWindow,      Right);
         ImGui::DockBuilderDockWindow(kCommandConsoleWindow,      Bottom);
         ImGui::DockBuilderDockWindow(kIdleWorkWindow,            Bottom);
@@ -91,9 +91,9 @@ namespace e29::editor_tabs
         ImGui::SetNextWindowClass(&ParentWindowClass);
         ImGui::SetNextWindowSize(ImVec2(1280.0f, 800.0f), ImGuiCond_FirstUseEver);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        const bool bParentVisible = ImGui::Begin(kParentEditorWindow, nullptr, ImGuiWindowFlags_MenuBar);
-        diagnostics::Log("window begin: %s visible=%d", kParentEditorWindow, bParentVisible ? 1 : 0);
-        const ImGuiID ParentDockspaceId = ImGui::GetID(kParentEditorDockspaceId);
+        const bool bParentVisible = ImGui::Begin(kLevelEditorWindow, nullptr, ImGuiWindowFlags_MenuBar);
+        diagnostics::Log("window begin: %s visible=%d", kLevelEditorWindow, bParentVisible ? 1 : 0);
+        const ImGuiID ParentDockspaceId = ImGui::GetID(kLevelEditorDockspaceId);
         const ImGuiWindowClass ParentDockClass = ParentEditorDockClass();
         if (bParentVisible)
         {
@@ -105,7 +105,7 @@ namespace e29::editor_tabs
             ImGui::DockSpace(ParentDockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_KeepAliveOnly, &ParentDockClass);
         ApplyDockClassToTree(ImGui::DockBuilderGetNode(ParentDockspaceId), ParentDockClass);
         ImGui::End();
-        diagnostics::Log("window end: %s", kParentEditorWindow);
+        diagnostics::Log("window end: %s", kLevelEditorWindow);
         ImGui::PopStyleVar();
         return bParentVisible;
     }

@@ -26,8 +26,8 @@ namespace e29
     {
         ImGui::SetNextWindowPos(ImVec2(18, 18), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(480, 500), ImGuiCond_FirstUseEver);
-        const bool bWindowVisible = ImGui::Begin(e29::editor_tabs::kEntityPropertiesWindow);
-        e29::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kEntityPropertiesWindow, bWindowVisible ? 1 : 0);
+        const bool bWindowVisible = ImGui::Begin(e29::editor_tabs::kInspectorWindow);
+        e29::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kInspectorWindow, bWindowVisible ? 1 : 0);
         if (bWindowVisible)
         {
             if (State.m_SelectedEntity.isValid() == false || State.m_SelectedEntityScene.empty())
@@ -183,8 +183,14 @@ namespace e29
                 // ship a broken column-ID state. The actual reported issue (a dark divider line
                 // splitting the header's own background) is separate from column width entirely -
                 // being investigated on its own, not re-attempting this approach.
+                // ShowEmbedded (not Show(Context, Callback)) - that overload always opens its OWN
+                // independent ImGui::Begin/End window using EntityInspector's own name ("Inspector"),
+                // which, called from INSIDE this panel's already-open kInspectorWindow, created a
+                // second, genuinely separate floating "Inspector" window instead of rendering the
+                // properties into this one - the real bug behind "two windows both called Inspector".
+                // ShowEmbedded draws directly into the current window, no Begin/End of its own.
                 xproperty::settings::context Context;
-                EntityInspector.Show(Context, []{});
+                EntityInspector.ShowEmbedded(Context);
                 ImGui::PopStyleColor(4);
 
                 // A component header's "[X]" (entity_inspector_bridge::m_OnComponentHeaderRender) only
@@ -208,7 +214,7 @@ namespace e29
             }
         }
         ImGui::End();
-        e29::diagnostics::Log("window end: %s", e29::editor_tabs::kEntityPropertiesWindow);
+        e29::diagnostics::Log("window end: %s", e29::editor_tabs::kInspectorWindow);
     }
 } // namespace e29
 

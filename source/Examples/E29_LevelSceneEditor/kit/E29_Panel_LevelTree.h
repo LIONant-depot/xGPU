@@ -97,8 +97,8 @@ namespace e29
     {
         ImGui::SetNextWindowPos(ImVec2(915, 18), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(360, 680), ImGuiCond_FirstUseEver);
-        const bool bWindowVisible = ImGui::Begin(e29::editor_tabs::kLevelEditorWindow);
-        e29::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kLevelEditorWindow, bWindowVisible ? 1 : 0);
+        const bool bWindowVisible = ImGui::Begin(e29::editor_tabs::kLevelTreeWindow);
+        e29::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kLevelTreeWindow, bWindowVisible ? 1 : 0);
         if (bWindowVisible)
         {
             if (State.m_CurrentLevel.empty())
@@ -875,7 +875,7 @@ namespace e29
             }
         }
         ImGui::End();
-        e29::diagnostics::Log("window end: %s", e29::editor_tabs::kLevelEditorWindow);
+        e29::diagnostics::Log("window end: %s", e29::editor_tabs::kLevelTreeWindow);
     }
 
 } // namespace e29

@@ -451,7 +451,7 @@ int E29_Example()
     // callbacks are stateless (WireResourcePickerCallbacks); the prefab-override/entity-reference
     // ones need live GameMgr/State access, so they're bundled into entity_inspector_bridge (kit).
     //
-    xproperty::inspector          EntityInspector("Entity Properties");
+    xproperty::inspector          EntityInspector("Inspector");
     // xproperty's default row tint (s_ColorCategories, xPropertyImGuiInspector.cpp) is a set of bright
     // matplotlib-style categorical colors, tuned against ImGui's stock dark theme - against
     // E29_Theme.h's darker/flatter Unity palette they read as a clashing, too-bright/too-saturated mess
@@ -877,8 +877,8 @@ int E29_Example()
                     e29::RequestStop(State, E29Undo, std::nullopt);
                 });
                 ToolbarSeparator();
-                ToolbarButton("Hierarchy", "H", false, false, [&]() { ImGui::SetWindowFocus(e29::editor_tabs::kLevelEditorWindow); });
-                ToolbarButton("Inspector", "I", false, false, [&]() { ImGui::SetWindowFocus(e29::editor_tabs::kEntityPropertiesWindow); });
+                ToolbarButton("Hierarchy", "H", false, false, [&]() { ImGui::SetWindowFocus(e29::editor_tabs::kLevelTreeWindow); });
+                ToolbarButton("Inspector", "I", false, false, [&]() { ImGui::SetWindowFocus(e29::editor_tabs::kInspectorWindow); });
                 ToolbarButton("Systems", "Y", false, false, [&]() { ImGui::SetWindowFocus(e29::editor_tabs::kSystemRegistryWindow); });
             }
             else
