@@ -26,7 +26,9 @@ namespace e29
     {
         ImGui::SetNextWindowPos(ImVec2(18, 18), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(480, 500), ImGuiCond_FirstUseEver);
-        if (ImGui::Begin("Entity Properties"))
+        const bool bWindowVisible = ImGui::Begin(e29::editor_tabs::kEntityPropertiesWindow);
+        e29::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kEntityPropertiesWindow, bWindowVisible ? 1 : 0);
+        if (bWindowVisible)
         {
             if (State.m_SelectedEntity.isValid() == false || State.m_SelectedEntityScene.empty())
             {
@@ -206,8 +208,8 @@ namespace e29
             }
         }
         ImGui::End();
+        e29::diagnostics::Log("window end: %s", e29::editor_tabs::kEntityPropertiesWindow);
     }
-
 } // namespace e29
 
 #endif // E29_PANEL_ENTITY_PROPERTIES_H

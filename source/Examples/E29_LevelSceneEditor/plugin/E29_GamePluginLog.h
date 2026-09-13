@@ -2,6 +2,8 @@
 #define E29_GAME_PLUGIN_LOG_H
 #pragma once
 
+#include "source/Examples/E29_LevelSceneEditor/E29_EditorTabs.h"
+
 // Extracted from E29_GamePlugin.h (mechanical move, phase 3 of the kit split - see the umbrella
 // file's own top comment). The on-screen log surface for Game.dll build/load activity - mutex-
 // guarded since BuildGamePluginIfStale (E29_GamePluginBuild.h) logs from a background thread while
@@ -54,7 +56,9 @@ namespace e29
         ImGui::SetNextWindowSize(ImVec2(480, 220), ImGuiCond_FirstUseEver);
         // "Log" (was "Game.dll Log") + an icon - direct user request, matching the same tab-icon
         // convention already applied to Resources/Assets/Compilation/Resource Plugins.
-        if (ImGui::Begin("\xEE\x9F\x83 Log"))
+        const bool bWindowVisible = ImGui::Begin(e29::editor_tabs::kGamePluginLogWindow);
+        e29::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kGamePluginLogWindow, bWindowVisible ? 1 : 0);
+        if (bWindowVisible)
         {
             std::lock_guard Lock(GetGamePluginLogMutex());
             if (ImGui::SmallButton("Clear")) GetGamePluginLog().clear();
@@ -71,8 +75,8 @@ namespace e29
             ImGui::EndChild();
         }
         ImGui::End();
+        e29::diagnostics::Log("window end: %s", e29::editor_tabs::kGamePluginLogWindow);
     }
-
 } // namespace e29
 
 #endif // E29_GAME_PLUGIN_LOG_H

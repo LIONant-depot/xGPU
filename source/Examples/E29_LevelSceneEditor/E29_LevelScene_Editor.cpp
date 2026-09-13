@@ -17,6 +17,8 @@
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Compilation.h"
 #include "source/Examples/E29_LevelSceneEditor/kit/E29_IdleWork.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_Theme.h"
+#include "source/Examples/E29_LevelSceneEditor/E29_EditorTabs.h"
+#include "source/Examples/E29_LevelSceneEditor/E29_Diagnostics.h"
 #include "ximgui_toolbar.h"
 
 //-----------------------------------------------------------------------------------
@@ -108,25 +110,56 @@ namespace e29
 
 int E29_Example()
 {
+    e29::diagnostics::Start();
+    e29::diagnostics::InstallCrtReportHook();
+    e29::diagnostics::InstallTerminateHandler();
+    e29::diagnostics::Log("startup: E29_Example begin");
+
     xgpu::instance Instance;
+    e29::diagnostics::Log("startup: creating xgpu instance");
     if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_pLogErrorFunc = e29::Debugger, .m_pLogWarning = e29::Debugger }); Err)
+    {
+        e29::diagnostics::Log("startup: xgpu instance creation failed");
+        e29::diagnostics::RemoveCrtReportHook();
+        e29::diagnostics::RemoveTerminateHandler();
+        e29::diagnostics::Stop();
         return xgpu::getErrorInt(Err);
+    }
 
     xgpu::device Device;
+    e29::diagnostics::Log("startup: creating xgpu device");
     if (auto Err = Instance.Create(Device); Err)
+    {
+        e29::diagnostics::Log("startup: xgpu device creation failed");
+        e29::diagnostics::RemoveCrtReportHook();
+        e29::diagnostics::RemoveTerminateHandler();
+        e29::diagnostics::Stop();
         return xgpu::getErrorInt(Err);
+    }
 
     xgpu::window MainWindow;
+    e29::diagnostics::Log("startup: creating main window");
     if (auto Err = Device.Create(MainWindow, {}); Err)
+    {
+        e29::diagnostics::Log("startup: main window creation failed");
+        e29::diagnostics::RemoveCrtReportHook();
+        e29::diagnostics::RemoveTerminateHandler();
+        e29::diagnostics::Stop();
         return xgpu::getErrorInt(Err);
+    }
 
+    e29::diagnostics::Log("startup: initializing resource manager");
     xresource::g_Mgr.Initiallize(20000);
 
     //
     // Setup Imgui interface
     //
+    e29::diagnostics::Log("startup: xgpu/imgui CreateInstance begin");
     xgpu::tools::imgui::CreateInstance(MainWindow);
+    e29::diagnostics::Log("startup: xgpu/imgui CreateInstance complete");
+    e29::diagnostics::Log("startup: applying E29 theme begin");
     e29::theme::ApplyUnityInspiredTheme();
+    e29::diagnostics::Log("startup: applying E29 theme complete");
 
     // io.FontDefault (not a per-frame PushFont) - xgpu::tools::imgui::BeginRendering() calls
     // ImGui::DockSpace() internally, BEFORE E29's own render code ever runs, and ImGui's docking tab
@@ -136,7 +169,9 @@ int E29_Example()
     // own content switched to Segoe UI. Overriding io.FontDefault instead affects ImGui::NewFrame()'s
     // own g.Font reset, which runs before DockSpace() - this is process-global IO state, but safe here
     // because every xGPU example is its own separate process (E10/E19-28 never call this line).
+    e29::diagnostics::Log("startup: selecting E29 default font begin");
     ImGui::GetIO().FontDefault = ImGui::GetIO().Fonts->Fonts[4];
+    e29::diagnostics::Log("startup: selecting E29 default font complete");
 
     //
     // ECS setup - first xGPU example to own an xecs::game_mgr::instance. A unique_ptr (not a plain
@@ -144,7 +179,9 @@ int E29_Example()
     // in place - see E29_GamePlugin.h's own comment on why that's the correct, sufficient operation
     // for a hot reload rather than something narrower.
     //
+    e29::diagnostics::Log("startup: constructing ECS game manager begin");
     auto pGameMgr = std::make_unique<xecs::game_mgr::instance>();
+    e29::diagnostics::Log("startup: constructing ECS game manager complete");
     e29::game_plugin_state GamePlugin;
 
     // Registers e29's own demo content - kept as a local lambda (not inlined at each of the two call
@@ -159,7 +196,9 @@ int E29_Example()
         GameMgr.RegisterSystems<e29::tick_logger_a, e29::tick_logger_b>();
     };
 
+    e29::diagnostics::Log("startup: registering host components begin");
     RegisterHostComponents(*pGameMgr);
+    e29::diagnostics::Log("startup: registering host components complete");
 
     // E29's sample Game.dll (source/Examples/E29_LevelSceneEditor/GameProject/E29_Game.cpp) -
     // loading it here, BEFORE RegisterSystems below locks the component registry, is what makes an
@@ -196,31 +235,71 @@ int E29_Example()
     e29::LogGamePlugin("Game.dll: this build was configured without XECS_BUILD_SHARED_LIBRARY (see CMakeLists.txt) - Game.dll support is disabled, Play just ticks the host's own systems.");
 #endif
 
+    e29::diagnostics::Log("startup: registering host systems begin");
     RegisterHostSystems(*pGameMgr);
+    e29::diagnostics::Log("startup: registering host systems complete");
+    e29::diagnostics::Log("startup: registering game plugin systems begin");
     e29::RegisterGamePluginSystems(*pGameMgr, GamePlugin);
+    e29::diagnostics::Log("startup: registering game plugin systems complete");
 
     //
     // Project path (same lookup every editor example uses) - kept around (not just a local) so
     // PollGameReload can re-apply it to a freshly reconstructed pGameMgr.
     //
+    // Historically this located the repo root by searching the executable's own path for the
+    // first literal "xGPU" substring and assumed everything up to (and including) it was the repo
+    // root. That breaks the moment the checkout itself sits under a directory that ALSO contains
+    // "xGPU" earlier in the path - e.g. a git worktree at .../copilot-worktrees/xGPU/<branch>/... -
+    // the substring match fires on the outer container folder, which has no example.lionprj of its
+    // own, and OpenProject/plugin enumeration then aborts. Fixed by walking UP the executable's own
+    // ancestor directories and picking the first (closest) one that actually has a bootstrapped
+    // example.lionprj\Cache\Plugins - i.e. finding the repo root structurally, never by name.
     std::wstring ProjectPath;
     {
-        TCHAR szFileName[MAX_PATH];
-        GetModuleFileName(NULL, szFileName, MAX_PATH);
+        e29::diagnostics::Log("startup: opening project begin");
+        TCHAR szModulePath[MAX_PATH];
+        GetModuleFileName(NULL, szModulePath, MAX_PATH);
 
-        if (auto I = xstrtool::findI(std::wstring{ szFileName }, { L"xGPU" }); I != std::string::npos)
+        std::filesystem::path RepoRoot;
+        for (std::filesystem::path Dir = std::filesystem::path(szModulePath).parent_path(); ; )
         {
-            I += 4; // Skip the xGPU part
-            szFileName[I] = 0;
+            std::error_code Ec;
+            if (std::filesystem::exists(Dir / L"example.lionprj" / L"Cache" / L"Plugins", Ec) && !Ec)
+            {
+                RepoRoot = Dir;
+                break;
+            }
+            const std::filesystem::path Parent = Dir.parent_path();
+            if (Parent.empty() || Parent == Dir)
+                break; // reached the filesystem root without finding a bootstrapped project
+            Dir = Parent;
+        }
 
-            TCHAR LIONantProject[] = L"\\example.lionprj";
-            for (int i = 0; szFileName[I++] = LIONantProject[i]; ++i);
+        if (!RepoRoot.empty())
+        {
+            const std::wstring ProjectPathW = (RepoRoot / L"example.lionprj").wstring();
+            TCHAR szFileName[MAX_PATH];
+            wcscpy_s(szFileName, MAX_PATH, ProjectPathW.c_str());
 
+            const std::filesystem::path ProjectPathForLog(szFileName);
+            const std::filesystem::path PluginPathForLog = ProjectPathForLog / "cache" / "plugins";
+            std::error_code PluginPathError;
+            const bool bPluginPathExists = std::filesystem::exists(PluginPathForLog, PluginPathError);
+            e29::diagnostics::Log
+            ( "startup: project path=%s plugin path=%s exists=%d ec=%d"
+            , ProjectPathForLog.string().c_str(), PluginPathForLog.string().c_str()
+            , bPluginPathExists ? 1 : 0, PluginPathError.value()
+            );
             if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
             {
                 e29::Debugger(Err.getMessage());
+                e29::diagnostics::Log("startup: opening project failed");
+                e29::diagnostics::RemoveCrtReportHook();
+                e29::diagnostics::RemoveTerminateHandler();
+                e29::diagnostics::Stop();
                 return 1;
             }
+            e29::diagnostics::Log("startup: opening project complete");
 
             ImGuiIO& io = ImGui::GetIO();
             static std::string IniSave = std::format("{}/Assets/imgui_e29.ini", xstrtool::To(szFileName));
@@ -239,6 +318,10 @@ int E29_Example()
             if (auto Err = pGameMgr->m_SystemMgr.Load(); Err)
                 e29::Debugger(std::format("Failed to load System Registry order: {}", Err.getMessage()));
         }
+        else
+        {
+            e29::diagnostics::Log("startup: could not locate a bootstrapped example.lionprj above the executable");
+        }
     }
 
     //
@@ -246,6 +329,7 @@ int E29_Example()
     //
     e10::assert_browser  AsserBrowser;
     e29::editor_state    State;
+    e29::diagnostics::Log("startup: editor state and asset browser constructed");
 
     // Lets entity_to_prefab_drop::OnDrop (a static, globally-registered object) reach the live
     // GameMgr/State at drop time - see their own declaration comment for why this is safe here.
@@ -262,6 +346,8 @@ int E29_Example()
     // elsewhere in this file use a separate e10::assert_browser instance, e29::g_AssetBrowserPopup,
     // which stays at the POPUP default.)
     AsserBrowser.setDisplayMode(e10::assert_browser::display_mode::DOCKABLE);
+    AsserBrowser.SetWindowName(e29::editor_tabs::kResourceBrowserWindow);
+    AsserBrowser.SetDockableWindowClass(e29::editor_tabs::ParentEditorDockClass());
     AsserBrowser.Show(true);
 
     //
@@ -411,8 +497,12 @@ int E29_Example()
     static bool bLocalSpace = false;
     static bool bGridVisible = true;
 
+    e29::diagnostics::Log("startup: initialization complete, entering frame loop");
+    std::uint64_t FrameNumber = 0;
     while (Instance.ProcessInputEvents())
     {
+        ++FrameNumber;
+        e29::diagnostics::Log("frame %llu begin", static_cast<unsigned long long>(FrameNumber));
         // No more manual "Reload Game" button - recompiling is something the editor just does for
         // you, per direct user direction to follow Unity's own model. Two automatic triggers only:
         // the window regaining OS focus (the user tabbed back in after editing code - checked here,
@@ -470,7 +560,14 @@ int E29_Example()
             State.m_PendingKeepTweaksCommands.clear();
         }
 
-        if (xgpu::tools::imgui::BeginRendering(true)) continue;
+        // The main dockspace hosts complete editor contexts. The Level Editor context in turn owns
+        // its private nested dockspace for tools such as Level, Inspector, and Commands.
+        if (xgpu::tools::imgui::BeginRendering(true))
+        {
+            e29::diagnostics::Log("frame %llu BeginRendering skipped", static_cast<unsigned long long>(FrameNumber));
+            continue;
+        }
+        e29::diagnostics::Log("frame %llu BeginRendering complete", static_cast<unsigned long long>(FrameNumber));
 
         // Real mouse/keyboard activity this frame resets Idle Work's clock AND cancels any in-flight
         // idle task ASAP (direct user request) - checked right after BeginRendering (which polls this
@@ -486,42 +583,17 @@ int E29_Example()
         if (pGameMgr)
             e29::PumpIdleWork(IdleWork, *pGameMgr, State);
 
-        e29::RenderErrorPopup();
-        e29::RenderKeepTweaksModal(State, E29Undo);
-        e29::RenderRemoveDependencyConfirmModal(E29Undo);
-        e29::RenderSaveBeforeCloseModal(*pGameMgr, State, E29Undo);
-        // Modal may have opened a Level after Save/Don't Save - same reload kick as an
-        // immediate RequestOpenLevel that returned true.
-        if (State.m_bPendingStartGameReloadAfterOpen)
+        auto RenderParentEditorToolbar = [&]()
         {
-            State.m_bPendingStartGameReloadAfterOpen = false;
-#if defined(XECS_BUILD_SHARED)
-            e29::StartGameReload(GamePlugin);
-#endif
-        }
+            if (!ImGui::BeginMenuBar())
+                return;
 
-        //
-        // Main menu bar - same "File > Asset Browser..."/"Save Project" pattern every other editor
-        // example uses (see E24_AnimPackage_Editor.cpp's identical menu). AsserBrowser.Render() is a
-        // no-op until Show(true) is called at least once - every other example gates that behind this
-        // exact menu item, not an always-on window.
-        //
-        if (ImGui::BeginMainMenuBar())
-        {
             if (ImGui::BeginMenu("File"))
             {
                 if (ImGui::MenuItem("Asset Browser..."))
                     AsserBrowser.Show(true);
 
                 ImGui::Separator();
-                // Gated while Playing/Paused, direct user request after an external review correctly
-                // flagged it: V1 (the disk save Stop reverts to) is the SAME file SaveEverything
-                // writes - an unguarded Save mid-play-session would overwrite that revert point with
-                // in-flight play-mode mutations, silently defeating "Stop restores exactly what it
-                // was before Play." Neither Unity nor Unreal lets you commit play-mode state into the
-                // real project this way. The Ctrl+S shortcut below is gated identically.
-                // Save greys out when Playing (same V1-protect rule as before) OR when there is no
-                // open Level OR when undo is still at the last-save watermark (no edits).
                 const bool bCanSave = !State.isPlaying()
                     && !State.m_CurrentLevel.empty()
                     && e29::HasUnsavedDocumentChanges(State, E29Undo);
@@ -533,8 +605,6 @@ int E29_Example()
                 }
                 ImGui::EndDisabled();
 
-                // Close greys out with no Level (or while Playing - Stop first). Dirty -> Save/
-                // Don't Save/Cancel modal; clean -> unload immediately.
                 const bool bCanClose = !State.isPlaying()
                     && (!State.m_CurrentLevel.empty() || !State.m_OpenScenes.empty());
                 ImGui::BeginDisabled(!bCanClose);
@@ -544,23 +614,12 @@ int E29_Example()
                 ImGui::EndMenu();
             }
 
-            // Recompile status - purely informational now (no button; see the focus-regain/Play
-            // triggers above). Only shown while a background build is actually running, so the menu
-            // bar stays quiet the rest of the time.
             if (GamePlugin.m_bBuilding)
             {
                 ImGui::SameLine(ImGui::GetWindowWidth() - 250.0f);
                 ImGui::TextDisabled("Game.dll: building...");
             }
 
-            // Play / Pause / Stop transport - matches Unity's own: Play (Stopped -> Playing) kicks
-            // off a recompile-check first (StartGameReload) and defers actually entering play until
-            // that resolves (State.m_bPlayRequested - see PollGameReload), so play never starts
-            // against a DLL that might still be mid-rebuild; Play again while Paused is just a
-            // resume, no check needed (nothing about the code could have changed while already
-            // mid-session without already having gone through a reload). Pause halts ticking without
-            // touching the world at all - Stop is the only transition that discards anything, via
-            // StopPlaySession's own proper disk-based revert (see E29_GamePlugin.h).
             ImGui::SameLine(ImGui::GetWindowWidth() - 170.0f);
             ImGui::BeginDisabled(State.m_PlayState == e29::editor_state::play_state::Playing || GamePlugin.m_bBuilding);
             if (ImGui::Button(State.m_PlayState == e29::editor_state::play_state::Paused ? "Resume" : "Play"))
@@ -571,15 +630,12 @@ int E29_Example()
                     State.m_bPlayRequested = true;
                     e29::StartGameReload(GamePlugin);
 #else
-                    // No Game.dll in this build config - nothing to recompile-check, so skip
-                    // straight to what PollGameReload's own UpToDate branch does: write V1 (Stop's
-                    // revert point) and enter Play directly.
                     e29::SaveEverything(*pGameMgr, State);
                     State.m_PlayHistoryBoundary = E29Undo.GetUndoIndex();
                     State.m_PlayState = e29::editor_state::play_state::Playing;
 #endif
                 }
-                else // Paused -> Playing, plain resume
+                else
                 {
                     State.m_PlayState = e29::editor_state::play_state::Playing;
                 }
@@ -594,19 +650,33 @@ int E29_Example()
 
             ImGui::SameLine(ImGui::GetWindowWidth() - 60.0f);
             ImGui::BeginDisabled(State.m_PlayState == e29::editor_state::play_state::Stopped);
-            // Deferred to the top of next frame (State.m_bStopRequested, consumed alongside
-            // PollGameReload above) rather than run here directly - StopPlaySession does the same
-            // heavy destroy-and-recreate-the-world work PollGameReload does, and this click happens
-            // nested inside the still-active BeginMainMenuBar()/EndMainMenuBar() scope, which is
-            // exactly the "corrupts ImGui's window-stack bookkeeping" bug this file's own comment
-            // above already warns about. RequestStop (E29_PlaySession.h) decides right here whether
-            // there's anything to ask about - if there is, it opens the "keep these?" confirmation
-            // (RenderKeepTweaksModal, called every frame below) instead of setting the flag directly.
             if (ImGui::Button("Stop"))
                 e29::RequestStop(State, E29Undo, std::nullopt);
             ImGui::EndDisabled();
+            ImGui::EndMenuBar();
+        };
 
-            ImGui::EndMainMenuBar();
+        const bool bParentEditorVisible = e29::editor_tabs::RenderParentEditorDockspace(RenderParentEditorToolbar);
+        e29::diagnostics::Log
+        ( "frame %llu Parent Editor Window visible=%d"
+        , static_cast<unsigned long long>(FrameNumber), bParentEditorVisible ? 1 : 0
+        );
+        if (bParentEditorVisible)
+        {
+            e29::diagnostics::Log("frame %llu Parent Editor Window active", static_cast<unsigned long long>(FrameNumber));
+
+        e29::RenderErrorPopup();
+        e29::RenderKeepTweaksModal(State, E29Undo);
+        e29::RenderRemoveDependencyConfirmModal(E29Undo);
+        e29::RenderSaveBeforeCloseModal(*pGameMgr, State, E29Undo);
+        // Modal may have opened a Level after Save/Don't Save - same reload kick as an
+        // immediate RequestOpenLevel that returned true.
+        if (State.m_bPendingStartGameReloadAfterOpen)
+        {
+            State.m_bPendingStartGameReloadAfterOpen = false;
+#if defined(XECS_BUILD_SHARED)
+            e29::StartGameReload(GamePlugin);
+#endif
         }
 
         // The menu item above only ever LABELS "Ctrl+S" - ImGui::MenuItem's shortcut string is
@@ -646,11 +716,17 @@ int E29_Example()
         // every frame the way this simpler Run()/Stop() toggle used to). E29 has no viewport yet, so
         // "Play" here only means "the ECS's own systems tick" - proving the System Registry feature,
         // not adding a game view.
+        }
+
         if (State.m_PlayState == e29::editor_state::play_state::Playing)
             pGameMgr->Run();
 
+        if (bParentEditorVisible)
+        {
+        e29::diagnostics::Log("frame %llu asset browser render begin", static_cast<unsigned long long>(FrameNumber));
         AsserBrowser.SetDevice(Device);
         AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
+        e29::diagnostics::Log("frame %llu asset browser render end", static_cast<unsigned long long>(FrameNumber));
         e29::g_AssetBrowserPopup.SetDevice(Device);
         e29::g_AssetBrowserPopup.RenderAsPopup(e10::g_LibMgr, xresource::g_Mgr);
 
@@ -683,13 +759,22 @@ int E29_Example()
             else if (SelAsset.m_Type == xecs::scene::type_guid_v) e29::OpenScene(*pGameMgr, State, SelAsset);
         }
 
+        e29::diagnostics::Log("frame %llu level tree render begin", static_cast<unsigned long long>(FrameNumber));
+        e29::editor_tabs::SetNextParentEditorToolClass();
         e29::RenderLevelTreePanel(*pGameMgr, State, E29Undo);
+        e29::diagnostics::Log("frame %llu level tree render end", static_cast<unsigned long long>(FrameNumber));
         // Level drop from Resources onto Level Tree (deferred during panel draw) - goes through
         // RequestOpenLevel so a dirty open Level prompts Save/Don't Save/Cancel first.
         if (e29::FlushPendingOpenLevelFromTree(*pGameMgr, State, E29Undo))
             e29::StartGameReload(GamePlugin);
+        e29::diagnostics::Log("frame %llu entity properties render begin", static_cast<unsigned long long>(FrameNumber));
+        e29::editor_tabs::SetNextParentEditorToolClass();
         e29::RenderEntityPropertiesPanel(*pGameMgr, State, EntityInspector, InspectorBridge, E29Undo);
+        e29::diagnostics::Log("frame %llu entity properties render end", static_cast<unsigned long long>(FrameNumber));
+        e29::diagnostics::Log("frame %llu system registry render begin", static_cast<unsigned long long>(FrameNumber));
+        e29::editor_tabs::SetNextParentEditorToolClass();
         e29::RenderSystemRegistryPanel(*pGameMgr, State);
+        e29::diagnostics::Log("frame %llu system registry render end", static_cast<unsigned long long>(FrameNumber));
 
         if (EditorToolbarHost.m_Items.empty())
         {
@@ -792,9 +877,9 @@ int E29_Example()
                     e29::RequestStop(State, E29Undo, std::nullopt);
                 });
                 ToolbarSeparator();
-                ToolbarButton("Hierarchy", "H", false, false, [&]() { ImGui::SetWindowFocus("Level Editor"); });
-                ToolbarButton("Inspector", "I", false, false, [&]() { ImGui::SetWindowFocus("Entity Properties"); });
-                ToolbarButton("Systems", "Y", false, false, [&]() { ImGui::SetWindowFocus("System Registry"); });
+                ToolbarButton("Hierarchy", "H", false, false, [&]() { ImGui::SetWindowFocus(e29::editor_tabs::kLevelEditorWindow); });
+                ToolbarButton("Inspector", "I", false, false, [&]() { ImGui::SetWindowFocus(e29::editor_tabs::kEntityPropertiesWindow); });
+                ToolbarButton("Systems", "Y", false, false, [&]() { ImGui::SetWindowFocus(e29::editor_tabs::kSystemRegistryWindow); });
             }
             else
             {
@@ -848,8 +933,12 @@ int E29_Example()
         ImGui::SetNextWindowPos(ImVec2(250.0f, 90.0f), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(1050.0f, 480.0f), ImGuiCond_FirstUseEver);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        if (ImGui::Begin("Editor"))
+        e29::editor_tabs::SetNextParentEditorToolClass();
+        const bool bEditorWindowVisible = ImGui::Begin(e29::editor_tabs::kEditorWindow);
+        e29::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kEditorWindow, bEditorWindowVisible ? 1 : 0);
+        if (bEditorWindowVisible)
         {
+            e29::diagnostics::Log("toolbar host render begin");
             ximgui::toolbar::RenderToolbarHost
             ( EditorToolbarHost
             , ImGui::GetContentRegionAvail()
@@ -859,21 +948,43 @@ int E29_Example()
                 ImGui::TextDisabled("Editor");
             }
             );
+            e29::diagnostics::Log("toolbar host render end");
         }
         ImGui::End();
+        e29::diagnostics::Log("window end: %s", e29::editor_tabs::kEditorWindow);
         ImGui::PopStyleVar();
 
+        e29::diagnostics::Log("frame %llu idle work render begin", static_cast<unsigned long long>(FrameNumber));
+        e29::editor_tabs::SetNextParentEditorToolClass();
         e29::RenderIdleWorkPanel(IdleWork, pGameMgr.get(), State);
+        e29::diagnostics::Log("frame %llu idle work render end", static_cast<unsigned long long>(FrameNumber));
+        e29::diagnostics::Log("frame %llu game/plugin log render begin", static_cast<unsigned long long>(FrameNumber));
+        e29::editor_tabs::SetNextParentEditorToolClass();
         e29::RenderGamePluginLogPanel();
+        e29::diagnostics::Log("frame %llu game/plugin log render end", static_cast<unsigned long long>(FrameNumber));
+        e29::diagnostics::Log("frame %llu command console render begin", static_cast<unsigned long long>(FrameNumber));
+        e29::editor_tabs::SetNextParentEditorToolClass();
         e29::DrawCommandConsolePanel(E29History, ConsoleLog);
+        e29::diagnostics::Log("frame %llu command console render end", static_cast<unsigned long long>(FrameNumber));
+
+        }
 
         xgpu::tools::imgui::Render();
         MainWindow.PageFlip();
         xresource::g_Mgr.OnEndFrameDelegate();
+        e29::diagnostics::Log("frame %llu end", static_cast<unsigned long long>(FrameNumber));
     }
 
+    e29::diagnostics::Log("shutdown: frame loop ended");
     e29::UnloadGamePlugin(GamePlugin);
+    e29::diagnostics::Log("shutdown: game plugin unloaded");
 
+    e29::diagnostics::Log("shutdown: xgpu/imgui Shutdown begin");
     xgpu::tools::imgui::Shutdown();
+    e29::diagnostics::Log("shutdown: xgpu/imgui Shutdown complete");
+    e29::diagnostics::RemoveCrtReportHook();
+    e29::diagnostics::RemoveTerminateHandler();
+    e29::diagnostics::Log("shutdown: E29_Example return");
+    e29::diagnostics::Stop();
     return 0;
 }
