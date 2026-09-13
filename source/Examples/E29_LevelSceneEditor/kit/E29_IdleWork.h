@@ -298,10 +298,14 @@ namespace e29
     // exact same LaunchSceneSanityScan the idle trigger and the CLI command both call - one code path,
     // three ways to reach it.
     //---------------------------------------------------------------------------
-    inline void RenderIdleWorkPanel(idle_work_state& IdleState, xecs::game_mgr::instance* pGameMgr, editor_state& State) noexcept
+    inline void RenderIdleWorkPanel
+    ( idle_work_state& IdleState
+    , xecs::game_mgr::instance* pGameMgr
+    , editor_state& State
+    ) noexcept
     {
         ImGui::SetNextWindowPos(ImVec2(505, 530), ImGuiCond_FirstUseEver);
-        ImGui::SetNextWindowSize(ImVec2(480, 220), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(900, 320), ImGuiCond_FirstUseEver);
         if (ImGui::Begin("Idle Work"))
         {
             const double SecondsIdle = std::chrono::duration<double>(std::chrono::steady_clock::now() - IdleState.m_LastActivityTime).count();
@@ -310,7 +314,7 @@ namespace e29
             else
                 ImGui::TextDisabled("Active (%.0fs since last activity, idles at %.0fs)", SecondsIdle, idle_threshold_seconds_v);
 
-            ImGui::SameLine(ImGui::GetWindowWidth() - 100.0f);
+            ImGui::SameLine(ImGui::GetContentRegionAvail().x - 90.0f);
             ImGui::BeginDisabled(pGameMgr == nullptr || State.m_OpenScenes.empty());
             if (ImGui::Button("Run Now"))
             {
@@ -322,9 +326,8 @@ namespace e29
 
             ImGui::Separator();
 
-            // Fully generic - the panel just prints whatever each task recorded, with no scene (or
-            // any other task-specific) knowledge baked in here at all. See idle_task_record's own
-            // comment.
+            // Fully generic - the panel just prints whatever each task recorded, with no
+            // scene (or any other task-specific) knowledge baked into this panel.
             if (ImGui::BeginTable("##IdleTasks", 5, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY))
             {
                 ImGui::TableSetupColumn("Task");

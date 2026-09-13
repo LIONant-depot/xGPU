@@ -17,6 +17,7 @@
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Compilation.h"
 #include "source/Examples/E29_LevelSceneEditor/kit/E29_IdleWork.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_Theme.h"
+#include "ximgui_toolbar.h"
 
 //-----------------------------------------------------------------------------------
 //
@@ -399,6 +400,17 @@ int E29_Example()
     //
     // Main Loop
     //
+    static ximgui::toolbar::toolbar_host_state EditorToolbarHost;
+    static constexpr float EditorToolbarWidth = 570.0f;
+    static constexpr float SceneToolbarWidth = 390.0f;
+    static constexpr float EditorToolbarHeight = 20.0f;
+    static constexpr float EditorToolbarFontScale = 1.0f;
+    static constexpr float EditorToolbarItemSpacing = 2.0f;
+    static int SceneTool = 0; // Q=select, W=move, E=rotate, R=scale, F=frame
+    static bool bPivotCenter = true;
+    static bool bLocalSpace = false;
+    static bool bGridVisible = true;
+
     while (Instance.ProcessInputEvents())
     {
         // No more manual "Reload Game" button - recompiling is something the editor just does for
@@ -678,6 +690,179 @@ int E29_Example()
             e29::StartGameReload(GamePlugin);
         e29::RenderEntityPropertiesPanel(*pGameMgr, State, EntityInspector, InspectorBridge, E29Undo);
         e29::RenderSystemRegistryPanel(*pGameMgr, State);
+
+        if (EditorToolbarHost.m_Items.empty())
+        {
+            EditorToolbarHost.m_Items.push_back
+            ({ "Editor", ximgui::toolbar::toolbar_host_edge::Top, ximgui::toolbar::axis::Horizontal
+             , ImVec2(EditorToolbarWidth, EditorToolbarHeight), ImVec2(32.0f, 250.0f), ImVec2(24.0f, 24.0f) });
+            EditorToolbarHost.m_Items.push_back
+            ({ "Scene", ximgui::toolbar::toolbar_host_edge::Top, ximgui::toolbar::axis::Horizontal
+             , ImVec2(SceneToolbarWidth, EditorToolbarHeight), ImVec2(32.0f, 250.0f), ImVec2(24.0f, 72.0f) });
+        }
+
+        auto RenderEditorToolbar = [&](const char* Name, ximgui::toolbar::axis Axis)
+        {
+            const bool bHorizontal = Axis == ximgui::toolbar::axis::Horizontal;
+            const float ButtonHeight = bHorizontal ? EditorToolbarHeight - 4.0f : 28.0f;
+            ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(EditorToolbarItemSpacing, ImGui::GetStyle().ItemSpacing.y));
+            ImGui::PushFont(nullptr, ImGui::GetStyle().FontSizeBase * EditorToolbarFontScale);
+            bool bFirstButton = true;
+            auto ToolbarButton = [&](const char* LongLabel, const char* ShortLabel, bool bActive, bool bDisabled, auto&& OnClick)
+            {
+                if (bHorizontal && !bFirstButton)
+                    ImGui::SameLine();
+                bFirstButton = false;
+                if (bActive)
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_Header]);
+                ImGui::BeginDisabled(bDisabled);
+                if (ImGui::Button(bHorizontal ? LongLabel : ShortLabel, bHorizontal
+                    ? ImVec2(52.0f, ButtonHeight) : ImVec2(32.0f, ButtonHeight)))
+                    OnClick();
+                ImGui::EndDisabled();
+                if (bActive)
+                    ImGui::PopStyleColor();
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::BeginTooltip();
+                    ImGui::TextUnformatted(LongLabel);
+                    ImGui::EndTooltip();
+                }
+            };
+            auto ToolbarSeparator = [&]()
+            {
+                if (bHorizontal)
+                {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("|");
+                }
+                else
+                {
+                    ImGui::Separator();
+                }
+            };
+
+            if (std::strcmp(Name, "Editor") == 0)
+            {
+                const bool bCanSave = !State.isPlaying()
+                    && !State.m_CurrentLevel.empty()
+                    && e29::HasUnsavedDocumentChanges(State, E29Undo);
+                ToolbarButton("Save", "S", false, !bCanSave, [&]()
+                {
+                    e29::SaveEverything(*pGameMgr, State);
+                    e29::MarkDocumentClean(State, E29Undo);
+                });
+                ToolbarButton("Undo", "U", false, State.isPlaying(), [&]() { E29Undo.Undo(); });
+                ToolbarButton("Redo", "R", false, State.isPlaying(), [&]() { E29Undo.Redo(); });
+                ToolbarButton("Assets", "A", false, false, [&]() { AsserBrowser.Show(true); });
+                ToolbarSeparator();
+
+                const bool bPlayDisabled = State.m_PlayState == e29::editor_state::play_state::Playing
+                    || GamePlugin.m_bBuilding;
+                ToolbarButton
+                ( State.m_PlayState == e29::editor_state::play_state::Paused ? "Resume" : "Play"
+                , "P"
+                , State.m_PlayState != e29::editor_state::play_state::Stopped
+                , bPlayDisabled
+                , [&]()
+                  {
+                      if (State.m_PlayState == e29::editor_state::play_state::Stopped)
+                      {
+#if defined(XECS_BUILD_SHARED)
+                          State.m_bPlayRequested = true;
+                          e29::StartGameReload(GamePlugin);
+#else
+                          e29::SaveEverything(*pGameMgr, State);
+                          State.m_PlayHistoryBoundary = E29Undo.GetUndoIndex();
+                          State.m_PlayState = e29::editor_state::play_state::Playing;
+#endif
+                      }
+                      else
+                      {
+                          State.m_PlayState = e29::editor_state::play_state::Playing;
+                      }
+                  }
+                );
+                ToolbarButton("Pause", "||", false, State.m_PlayState != e29::editor_state::play_state::Playing, [&]()
+                {
+                    State.m_PlayState = e29::editor_state::play_state::Paused;
+                });
+                ToolbarButton("Stop", "[]", false, State.m_PlayState == e29::editor_state::play_state::Stopped, [&]()
+                {
+                    e29::RequestStop(State, E29Undo, std::nullopt);
+                });
+                ToolbarSeparator();
+                ToolbarButton("Hierarchy", "H", false, false, [&]() { ImGui::SetWindowFocus("Level Editor"); });
+                ToolbarButton("Inspector", "I", false, false, [&]() { ImGui::SetWindowFocus("Entity Properties"); });
+                ToolbarButton("Systems", "Y", false, false, [&]() { ImGui::SetWindowFocus("System Registry"); });
+            }
+            else
+            {
+                auto SceneButton = [&](const char* Label, int ToolIndex, const char* Tooltip)
+                {
+                    if (bHorizontal && !bFirstButton)
+                        ImGui::SameLine();
+                    bFirstButton = false;
+                    if (SceneTool == ToolIndex)
+                        ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_Header]);
+                    if (ImGui::Button(Label, ImVec2(32.0f, ButtonHeight)))
+                        SceneTool = ToolIndex;
+                    if (SceneTool == ToolIndex)
+                        ImGui::PopStyleColor();
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::BeginTooltip();
+                        ImGui::TextUnformatted(Tooltip);
+                        ImGui::EndTooltip();
+                    }
+                };
+                SceneButton("Q", 0, "Select tool");
+                SceneButton("W", 1, "Move tool");
+                SceneButton("E", 2, "Rotate tool");
+                SceneButton("R", 3, "Scale tool");
+                SceneButton("F", 4, "Frame selected");
+                ToolbarSeparator();
+
+                auto SceneToggle = [&](const char* LongLabel, const char* ShortLabel, bool& bValue)
+                {
+                    if (bHorizontal)
+                        ImGui::SameLine();
+                    if (ImGui::Button(bHorizontal ? LongLabel : ShortLabel
+                        , bHorizontal ? ImVec2(58.0f, ButtonHeight) : ImVec2(32.0f, ButtonHeight)))
+                        bValue = !bValue;
+                    if (ImGui::IsItemHovered())
+                    {
+                        ImGui::BeginTooltip();
+                        ImGui::TextUnformatted(LongLabel);
+                        ImGui::EndTooltip();
+                    }
+                };
+                SceneToggle("Pivot", "P", bPivotCenter);
+                SceneToggle("Local", "L", bLocalSpace);
+                SceneToggle("Grid", "G", bGridVisible);
+            }
+            ImGui::PopFont();
+            ImGui::PopStyleVar();
+        };
+
+        ImGui::SetNextWindowPos(ImVec2(250.0f, 90.0f), ImGuiCond_FirstUseEver);
+        ImGui::SetNextWindowSize(ImVec2(1050.0f, 480.0f), ImGuiCond_FirstUseEver);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+        if (ImGui::Begin("Editor"))
+        {
+            ximgui::toolbar::RenderToolbarHost
+            ( EditorToolbarHost
+            , ImGui::GetContentRegionAvail()
+            , RenderEditorToolbar
+            , [&]()
+            {
+                ImGui::TextDisabled("Editor");
+            }
+            );
+        }
+        ImGui::End();
+        ImGui::PopStyleVar();
+
         e29::RenderIdleWorkPanel(IdleWork, pGameMgr.get(), State);
         e29::RenderGamePluginLogPanel();
         e29::DrawCommandConsolePanel(E29History, ConsoleLog);

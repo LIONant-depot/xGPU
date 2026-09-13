@@ -111,6 +111,7 @@ FetchAndPopulate("https://github.com/LIONant-depot/xECS.git" "Lesson09_Prefabs")
 FetchAndPopulate("https://github.com/LIONant-depot/xECSV2.git" "main")
 FetchAndPopulate("https://github.com/LIONant-depot/xundo.git" "main")
 FetchAndPopulate("https://github.com/thedmd/imgui-node-editor.git" "master")
+FetchAndPopulate("https://github.com/LIONant-depot/toolbar.imgui.git" "main")
 
 #
 # Add ImGui files directly
@@ -482,6 +483,8 @@ set(XGPU_SOURCES
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetFiles.h"
   "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_MakePrefab.h"
   "source/Examples/E29_LevelSceneEditor/E29_LevelScene_Editor.cpp"
+  "dependencies/toolbar.imgui/ximgui_toolbar.h"
+  "dependencies/toolbar.imgui/README.md"
 
   "source/tools/editors/xgpu_editor_viewport.h"
   "source/tools/editors/xgpu_editor_anim_pose.h"
@@ -516,6 +519,10 @@ endif()
 
 # Define the main executable
 add_executable(${TARGET_PROJECT} ${XGPU_SOURCES})
+target_include_directories(${TARGET_PROJECT} PRIVATE
+  "${CMAKE_SOURCE_DIR}"
+  "${CMAKE_SOURCE_DIR}/dependencies/toolbar.imgui"
+)
 
 # xECSV2 type-registration architecture plan, Phase 7 - build xECSV2 as its own shared library
 # instead of compiling xecs.cpp directly into ${TARGET_PROJECT}. Self-contained target: rather than
@@ -688,6 +695,11 @@ source_group("Tools" FILES
   "source/tools/xgpu_imgui_breach.cpp"
   "source/tools/xgpu_imgui_timeline.h"
   "source/tools/xgpu_basis_universal_texture_loader.h"
+)
+
+source_group("Dependencies/toolbar.imgui" FILES
+  "dependencies/toolbar.imgui/ximgui_toolbar.h"
+  "dependencies/toolbar.imgui/README.md"
 )
 
 source_group("Tools/Import3D" FILES
