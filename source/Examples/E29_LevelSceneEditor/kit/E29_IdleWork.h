@@ -306,7 +306,9 @@ namespace e29
     {
         ImGui::SetNextWindowPos(ImVec2(505, 530), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(900, 320), ImGuiCond_FirstUseEver);
-        if (ImGui::Begin("Idle Work"))
+        const bool bWindowVisible = ImGui::Begin(e29::editor_tabs::kIdleWorkWindow);
+        e29::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kIdleWorkWindow, bWindowVisible ? 1 : 0);
+        if (bWindowVisible)
         {
             const double SecondsIdle = std::chrono::duration<double>(std::chrono::steady_clock::now() - IdleState.m_LastActivityTime).count();
             if (SecondsIdle >= idle_threshold_seconds_v)
@@ -365,6 +367,7 @@ namespace e29
             }
         }
         ImGui::End();
+        e29::diagnostics::Log("window end: %s", e29::editor_tabs::kIdleWorkWindow);
     }
 }
 

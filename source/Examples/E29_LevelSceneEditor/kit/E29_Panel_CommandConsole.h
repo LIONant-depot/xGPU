@@ -178,7 +178,9 @@ namespace e29
         // tab-icon convention already applied elsewhere (Resources/Assets/Compilation/Plugins/Log).
         // E27_NodeOS has its own SEPARATE "Command Console" panel (NodeOS_UI_CommandConsole.h) -
         // deliberately untouched, a different example entirely.
-        if (ImGui::Begin("\xEE\xA3\xBD Commands"))
+        const bool bWindowVisible = ImGui::Begin(e29::editor_tabs::kCommandConsoleWindow);
+        e29::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kCommandConsoleWindow, bWindowVisible ? 1 : 0);
+        if (bWindowVisible)
         {
             // Applying a picked suggestion/history entry (or refocusing) must happen HERE, immediately
             // before the input widget is drawn - ImGui's InputText(Multiline) owns its own internal
@@ -559,6 +561,7 @@ namespace e29
             }
         }
         ImGui::End();
+        e29::diagnostics::Log("window end: %s", e29::editor_tabs::kCommandConsoleWindow);
     }
 }
 

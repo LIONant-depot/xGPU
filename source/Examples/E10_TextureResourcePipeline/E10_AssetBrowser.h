@@ -320,6 +320,19 @@ namespace e10
         // called later, once a device is actually live, is the only shape that works for those too.
         void SetDevice(xgpu::device& Device) noexcept { m_pDevice = &Device; }
 
+        // Persistent DOCKABLE consumers can give their browser a context-specific ImGui name so
+        // multiple editor tabs do not share one dock window or saved layout entry.
+        void SetWindowName(std::string_view Name) noexcept { xstrtool::Copy(m_WindowName, Name); }
+
+        // DOCKABLE mode renders one independent ImGui window per registered browser tab. A caller
+        // may provide a shared docking class so every one of those windows stays inside its editor
+        // workspace, rather than only the first caller-created window receiving SetNextWindowClass.
+        void SetDockableWindowClass(const ImGuiWindowClass& WindowClass) noexcept
+        {
+            m_DockableWindowClass = WindowClass;
+            m_bHasDockableWindowClass = true;
+        }
+
         //=============================================================================
 
         void Render( e10::library_mgr& AssetMgr, xresource::mgr& ResourceMgr )
@@ -665,6 +678,8 @@ namespace e10
                 // remembers whatever the user arranges afterward.
                 ImGui::SetNextWindowPos(ImVec2(20.0f + 40.0f * Index, 20.0f + 40.0f * Index), ImGuiCond_FirstUseEver);
                 ImGui::SetNextWindowSize(ImVec2(500, 500), ImGuiCond_FirstUseEver);
+                if (m_bHasDockableWindowClass)
+                    ImGui::SetNextWindowClass(&m_DockableWindowClass);
                 ++Index;
                 if (ImGui::Begin(pTab->m_pName))
                 {
@@ -906,6 +921,8 @@ namespace e10
         float                               m_SplitSize1            = -1.0f;
         tab_list                            m_Tabs                  = {};
         std::array<char,256>                m_WindowName            = {"Resource Browser"};
+        ImGuiWindowClass                    m_DockableWindowClass   = {};
+        bool                                m_bHasDockableWindowClass = false;
 
     public:
 

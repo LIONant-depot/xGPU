@@ -29,6 +29,7 @@
 #include "source/Examples/E10_TextureResourcePipeline/E10_Resources.h"
 #include "source/Examples/E10_TextureResourcePipeline/E10_AssetMgr.h"
 #include "source/Examples/E10_TextureResourcePipeline/E10_AssetBrowser.h"
+#include "source/Examples/E29_LevelSceneEditor/E29_EditorTabs.h"
 
 //-----------------------------------------------------------------------------------
 //
