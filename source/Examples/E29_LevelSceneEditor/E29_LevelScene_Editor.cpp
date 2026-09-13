@@ -492,6 +492,30 @@ int E29_Example()
     static constexpr float EditorToolbarHeight = 20.0f;
     static constexpr float EditorToolbarFontScale = 1.0f;
     static constexpr float EditorToolbarItemSpacing = 2.0f;
+    // Registered here (one-time setup), NOT lazily on the first render frame as this used to be (an
+    // "if (EditorToolbarHost.m_Items.empty())" check inside the per-frame code) - moved after finding
+    // a real bug: ImGui loads io.IniFilename automatically during the FIRST ImGui::NewFrame() call,
+    // which happens BEFORE the per-frame render code below ever runs once. With items only created
+    // lazily on that first render, RegisterSettingsHandler's own ReadLineFn (below) fired against a
+    // still-EMPTY m_Items during the actual ini load, found nothing named "Editor"/"Scene" to apply the
+    // saved edge/position to, and silently discarded it - by the time m_Items.push_back finally ran a
+    // moment later, the loaded data was already gone, so it looked LOADED (m_bInitialized flips true)
+    // but the values were just the hardcoded push_back defaults the whole time. Items must exist
+    // before the ini load happens, not after.
+    EditorToolbarHost.m_Items.push_back
+    ({ "Editor", ximgui::toolbar::toolbar_host_edge::Top, ximgui::toolbar::axis::Horizontal
+     , ImVec2(EditorToolbarWidth, EditorToolbarHeight), ImVec2(32.0f, 250.0f), ImVec2(24.0f, 24.0f) });
+    EditorToolbarHost.m_Items.push_back
+    ({ "Scene", ximgui::toolbar::toolbar_host_edge::Top, ximgui::toolbar::axis::Horizontal
+     , ImVec2(SceneToolbarWidth, EditorToolbarHeight), ImVec2(32.0f, 250.0f), ImVec2(24.0f, 72.0f) });
+
+    // toolbar_host_state has no serialization of its own (a real gap - direct user report: "the
+    // toolbars don't seem to save their position") - this persists each toolbar's dragged-to edge/
+    // position/order into the SAME imgui_e29.ini this app already writes every docked window's
+    // position into (io.IniFilename, set above). Must run before the first ImGui::NewFrame() of this
+    // run (it does - this is one-time setup code executed before "entering frame loop" below) AND
+    // after the items above are registered (see this block's own comment for why the order matters).
+    ximgui::toolbar::RegisterSettingsHandler(EditorToolbarHost, "E29Toolbar");
     static int SceneTool = 0; // Q=select, W=move, E=rotate, R=scale, F=frame
     static bool bPivotCenter = true;
     static bool bLocalSpace = false;
@@ -776,15 +800,6 @@ int E29_Example()
         e29::RenderSystemRegistryPanel(*pGameMgr, State);
         e29::diagnostics::Log("frame %llu system registry render end", static_cast<unsigned long long>(FrameNumber));
 
-        if (EditorToolbarHost.m_Items.empty())
-        {
-            EditorToolbarHost.m_Items.push_back
-            ({ "Editor", ximgui::toolbar::toolbar_host_edge::Top, ximgui::toolbar::axis::Horizontal
-             , ImVec2(EditorToolbarWidth, EditorToolbarHeight), ImVec2(32.0f, 250.0f), ImVec2(24.0f, 24.0f) });
-            EditorToolbarHost.m_Items.push_back
-            ({ "Scene", ximgui::toolbar::toolbar_host_edge::Top, ximgui::toolbar::axis::Horizontal
-             , ImVec2(SceneToolbarWidth, EditorToolbarHeight), ImVec2(32.0f, 250.0f), ImVec2(24.0f, 72.0f) });
-        }
 
         auto RenderEditorToolbar = [&](const char* Name, ximgui::toolbar::axis Axis)
         {
