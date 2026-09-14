@@ -16,7 +16,7 @@ namespace e29
 
     inline bool HasUnsavedDocumentChanges(const editor_state& State, const xundo::system& Undo) noexcept
     {
-        if (State.m_CurrentLevel.empty()) return false;
+        if (State.m_CurrentLevel.empty() && State.m_OpenScenes.empty()) return false;
         return Undo.GetUndoIndex() != State.m_CleanUndoIndex;
     }
 
@@ -145,7 +145,9 @@ namespace e29
         if (ImGui::BeginPopupModal("Save changes?##E29Document", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
         {
             const bool bOpeningOther = !State.m_PendingOpenLevelAfterClose.empty();
-            ImGui::TextUnformatted("The current Level has unsaved changes.");
+            ImGui::TextUnformatted(State.m_CurrentLevel.empty()
+                ? "The open scene(s) have unsaved changes."
+                : "The current Level has unsaved changes.");
             ImGui::TextWrapped(bOpeningOther
                 ? "Save before opening the other Level?"
                 : "Save before closing?");

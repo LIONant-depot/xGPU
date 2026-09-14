@@ -73,7 +73,7 @@ namespace e29
         // line-buffered, so without this, a crash (or a debug-assert dialog that blocks the process
         // indefinitely) silently loses whatever log lines hadn't been flushed yet - exactly the
         // "can't tell what happened right before the crash" gap that makes these bugs hard to chase.
-        printf("%s\n", View.data());
+        printf("%.*s\n", static_cast<int>(View.size()), View.data());
         fflush(stdout);
 
         // Only the FLAG is set here, not ImGui::OpenPopup itself - Debugger is called from arbitrary,

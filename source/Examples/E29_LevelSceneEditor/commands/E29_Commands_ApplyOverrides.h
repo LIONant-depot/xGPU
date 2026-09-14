@@ -481,7 +481,7 @@ namespace e29::commands
             for (auto& D : Diffs) if (D.m_bAdded && !D.m_MemberPath.empty()) Added.push_back(D.m_MemberPath);
             std::sort(Added.begin(), Added.end(), [](const auto& A, const auto& B) noexcept {
                 if (A.size() != B.size()) return A.size() > B.size();
-                return std::lexicographical_compare(A.rbegin(), A.rend(), B.rbegin(), B.rend());
+                return std::lexicographical_compare(B.begin(), B.end(), A.begin(), A.end());
             });
             for (auto& Path : Added)
             {
@@ -595,11 +595,18 @@ namespace e29::commands
 
             // Drop children that Undo-of-Removed restored: any live child path that was a Removed
             // entry in TempPI and is present now but wasn't an Added restore. Simplest: delete
-            // resolved Removed paths on the instance (they were re-cloned in Redo).
+            // resolved Removed paths on the instance (they were re-cloned in Redo), deepest-first
+            // and descending-index order so sibling shifts don't invalidate subsequent paths.
+            std::vector<std::vector<std::uint32_t>> ToDelete;
             for (auto& D : TempPI.m_HierarchyDiffs)
+                if (!D.m_bAdded && !D.m_MemberPath.empty()) ToDelete.push_back(D.m_MemberPath);
+            std::sort(ToDelete.begin(), ToDelete.end(), [](const auto& A, const auto& B) noexcept {
+                if (A.size() != B.size()) return A.size() > B.size();
+                return std::lexicographical_compare(B.begin(), B.end(), A.begin(), A.end());
+            });
+            for (auto& Path : ToDelete)
             {
-                if (D.m_bAdded || D.m_MemberPath.empty()) continue;
-                const auto Target = xecs::persist::details::ResolveMemberPath(*e29::g_pGameMgr, RootEntity, D.m_MemberPath);
+                const auto Target = xecs::persist::details::ResolveMemberPath(*e29::g_pGameMgr, RootEntity, Path);
                 if (!Target.isValid()) continue;
                 e29::DeleteEntitySubtree(*e29::g_pGameMgr, *pScene, SceneGuid, Target, /*bRecordPrefabOverride*/ false);
             }

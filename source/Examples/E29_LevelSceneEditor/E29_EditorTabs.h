@@ -61,16 +61,14 @@ namespace e29::editor_tabs
         ImGui::DockBuilderSetNodeSize(DockspaceId, Size);
 
         ImGuiID Remaining = DockspaceId;
-        ImGuiID Top = 0;
         ImGuiID Left = 0;
         ImGuiID Right = 0;
         ImGuiID Bottom = 0;
-        ImGui::DockBuilderSplitNode(Remaining, ImGuiDir_Up,    0.10f, &Top,    &Remaining);
         ImGui::DockBuilderSplitNode(Remaining, ImGuiDir_Left,  0.22f, &Left,   &Remaining);
         ImGui::DockBuilderSplitNode(Remaining, ImGuiDir_Right, 0.28f, &Right,  &Remaining);
         ImGui::DockBuilderSplitNode(Remaining, ImGuiDir_Down,  0.30f, &Bottom, &Remaining);
 
-        ImGui::DockBuilderDockWindow(kEditorWindow,              Top);
+        ImGui::DockBuilderDockWindow(kEditorWindow,              Remaining);
         ImGui::DockBuilderDockWindow(kResourceBrowserWindow,     Left);
         ImGui::DockBuilderDockWindow(kLevelTreeWindow,           Left);
         ImGui::DockBuilderDockWindow(kInspectorWindow,           Right);

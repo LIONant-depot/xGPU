@@ -619,7 +619,7 @@ int E29_Example()
 
                 ImGui::Separator();
                 const bool bCanSave = !State.isPlaying()
-                    && !State.m_CurrentLevel.empty()
+                    && (!State.m_CurrentLevel.empty() || !State.m_OpenScenes.empty())
                     && e29::HasUnsavedDocumentChanges(State, E29Undo);
                 ImGui::BeginDisabled(!bCanSave);
                 if (ImGui::MenuItem("Save", "Ctrl+S"))
@@ -708,7 +708,7 @@ int E29_Example()
         // unconditionally (not gated behind the File menu being open).
         if (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)
             && !State.isPlaying()
-            && !State.m_CurrentLevel.empty()
+            && (!State.m_CurrentLevel.empty() || !State.m_OpenScenes.empty())
             && e29::HasUnsavedDocumentChanges(State, E29Undo))
         {
             e29::SaveEverything(*pGameMgr, State);
@@ -845,7 +845,7 @@ int E29_Example()
             if (std::strcmp(Name, "Editor") == 0)
             {
                 const bool bCanSave = !State.isPlaying()
-                    && !State.m_CurrentLevel.empty()
+                    && (!State.m_CurrentLevel.empty() || !State.m_OpenScenes.empty())
                     && e29::HasUnsavedDocumentChanges(State, E29Undo);
                 ToolbarButton("Save", "S", false, !bCanSave, [&]()
                 {
