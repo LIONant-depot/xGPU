@@ -644,61 +644,103 @@ int E29_Example()
                 ImGui::TextDisabled("Game.dll: building...");
             }
 
-            // Unity-style Play/Stop toggle + Pause, direct user request ("mirror Unity behavior") -
-            // ONE button now doubles as Play (Stopped state) and Stop (Playing/Paused state), instead
-            // of three separate always-present buttons; Pause is a second toggle (Pause/Resume),
-            // disabled only while Stopped. Icons: U+E768/E769 (Play/Pause) are the ALREADY-VERIFIED
-            // codepoints this codebase uses elsewhere (xgpu_editor_anim_pose.h's g_PlayIcon/g_PauseIcon,
-            // shared by E24/E25's transport bar); U+E71A (Stop) confirmed live in this same panel.
-            // Icons are merged into Fonts[4] (17px Segoe UI + 13px MDL2 merged) - NOT Fonts[9], which
-            // doesn't exist (see [[e29_playpause_icon_fixes]] memory for the full story).
+            // Unity-style transport controls, direct user design (worked out together after two
+            // earlier attempts both re-shifted buttons under the mouse): TWO fixed slots, centered as
+            // a PAIR, that never move - Slot1 is always Play/Stop; Slot2 shows Step while
+            // Stopped/Paused, or Pause while Playing (same screen position, icon/action just changes).
+            // A THIRD slot - Pause again, to Resume - appears ONLY while Paused, to the right of the
+            // fixed pair. The key insight: clicking Slot2's Pause (Playing->Paused) leaves the mouse
+            // sitting on Slot2, which INSTANTLY becomes Step - no new button appears under the cursor,
+            // an existing one just changes what it does. Only Slot3 (Pause/Resume) is genuinely new,
+            // and it appears further right, away from the click.
+            // Icons: U+E768/E769 (Play/Pause) and U+E893 (Step - "Next" glyph, doubles as the classic
+            // play-triangle-into-a-bar step icon) are ALREADY-VERIFIED codepoints this codebase uses
+            // elsewhere (xgpu_editor_anim_pose.h's g_PlayIcon/g_PauseIcon/g_GoToEndIcon, shared by
+            // E24/E25's transport bar); U+E71A (Stop) confirmed live in this same panel. Merged into
+            // Fonts[4] (17px Segoe UI + 13px MDL2 merged) - NOT Fonts[9], which doesn't exist.
             const char* playIcon  = "\xEE\x9D\xA8";  // U+E768
             const char* pauseIcon = "\xEE\x9D\xA9";  // U+E769
             const char* stopIcon  = "\xEE\x9C\x9A";  // U+E71A
-            const bool  bIsRunning = State.m_PlayState != e29::editor_state::play_state::Stopped; // Playing or Paused
+            const char* stepIcon  = "\xEE\xA2\x93";  // U+E893
+            const bool  bStopped  = State.m_PlayState == e29::editor_state::play_state::Stopped;
+            const bool  bPlaying  = State.m_PlayState == e29::editor_state::play_state::Playing;
+            const bool  bPaused   = State.m_PlayState == e29::editor_state::play_state::Paused;
 
-            ImGui::SameLine(ImGui::GetWindowWidth() - 115.0f);
+            // Shared with Slot2's own Stopped-state branch below - Step starting a session must go
+            // through the EXACT same start sequence Play does (recompile-check gating via
+            // m_bPlayRequested on a shared build, or the immediate Save+Playing path otherwise).
+            auto StartPlaying = [&]()
+            {
+#if defined(XECS_BUILD_SHARED)
+                State.m_bPlayRequested = true;
+                e29::StartGameReload(GamePlugin);
+#else
+                e29::SaveEverything(*pGameMgr, State);
+                State.m_PlayHistoryBoundary = E29Undo.GetUndoIndex();
+                State.m_PlayState = e29::editor_state::play_state::Playing;
+#endif
+            };
+
+            // Centered on the TWO-slot pair width ALWAYS (never the 3-slot width) - this is what keeps
+            // Slot1/Slot2 pixel-fixed even when Slot3 appears; Slot3 just extends the group rightward
+            // from there, direct user request ("center base on the two buttons").
+            constexpr float TransportBtnW = 30.0f;
+            const float     ItemSpacingX  = ImGui::GetStyle().ItemSpacing.x;
+            const float     GroupW2       = TransportBtnW * 2.0f + ItemSpacingX;
+            ImGui::SameLine((ImGui::GetWindowWidth() - GroupW2) * 0.5f);
+
+            // Slot1 - Play/Stop toggle.
             ImGui::BeginDisabled(GamePlugin.m_bBuilding);
             ImGui::PushFont(xgpu::tools::imgui::getFont(4));
-            if (ImGui::Button(bIsRunning ? stopIcon : playIcon))
+            if (ImGui::Button(bStopped ? playIcon : stopIcon, ImVec2(TransportBtnW, 0.0f)))
             {
-                if (bIsRunning)
-                {
-                    e29::RequestStop(State, E29Undo, std::nullopt);
-                }
-                else
-                {
-#if defined(XECS_BUILD_SHARED)
-                    State.m_bPlayRequested = true;
-                    e29::StartGameReload(GamePlugin);
-#else
-                    e29::SaveEverything(*pGameMgr, State);
-                    State.m_PlayHistoryBoundary = E29Undo.GetUndoIndex();
-                    State.m_PlayState = e29::editor_state::play_state::Playing;
-#endif
-                }
+                if (bStopped) StartPlaying();
+                else          e29::RequestStop(State, E29Undo, std::nullopt);
             }
             ImGui::PopFont();
             ImGui::EndDisabled();
 
-            ImGui::SameLine(ImGui::GetWindowWidth() - 60.0f);
-            ImGui::BeginDisabled(State.m_PlayState == e29::editor_state::play_state::Stopped);
+            // Slot2 - Pause while Playing, Step while Stopped/Paused.
+            ImGui::SameLine();
             ImGui::PushFont(xgpu::tools::imgui::getFont(4));
-            // bWasPaused captured ONCE, before the button - real crash, found live: clicking Pause
-            // while Playing changes State.m_PlayState to Paused INSIDE the click handler below, so
-            // re-reading State.m_PlayState after Button() for the Pop disagreed with the Push decision
-            // made before it (push skipped, pop fired) - "PopStyleColor() without matching Push" abort.
-            const bool bWasPaused = State.m_PlayState == e29::editor_state::play_state::Paused;
-            if (bWasPaused)
-                ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_Header]); // highlighted while paused, matching Unity's own pressed-Pause look
-            if (ImGui::Button(pauseIcon))
-                State.m_PlayState = bWasPaused
-                    ? e29::editor_state::play_state::Playing   // Resume
-                    : e29::editor_state::play_state::Paused;
-            if (bWasPaused)
-                ImGui::PopStyleColor();
+            if (bPlaying)
+            {
+                if (ImGui::Button(pauseIcon, ImVec2(TransportBtnW, 0.0f)))
+                    State.m_PlayState = e29::editor_state::play_state::Paused;
+            }
+            else
+            {
+                ImGui::BeginDisabled(GamePlugin.m_bBuilding);
+                if (ImGui::Button(stepIcon, ImVec2(TransportBtnW, 0.0f)))
+                {
+                    if (bStopped)
+                    {
+                        StartPlaying();
+                        State.m_bStepOneFrame = true; // run exactly the first tick, then land Paused
+                    }
+                    else
+                    {
+                        State.m_bStepOneFrame = true; // Paused: one tick, stays Paused
+                    }
+                }
+                ImGui::EndDisabled();
+            }
             ImGui::PopFont();
-            ImGui::EndDisabled();
+
+            // Slot3 - Pause (pressed/highlighted, to Resume), ONLY while Paused. bPaused was captured
+            // ONCE above, before any button this frame - it never changes mid-block, so (unlike the
+            // earlier PopStyleColor crash) there is no risk of the Push/Pop decision disagreeing with
+            // itself here: Slot3's own click sets Playing, but that only takes effect NEXT frame.
+            if (bPaused)
+            {
+                ImGui::SameLine();
+                ImGui::PushFont(xgpu::tools::imgui::getFont(4));
+                ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_Header]); // matches Unity's own pressed-Pause look
+                if (ImGui::Button(pauseIcon, ImVec2(TransportBtnW, 0.0f)))
+                    State.m_PlayState = e29::editor_state::play_state::Playing; // Resume
+                ImGui::PopStyleColor();
+                ImGui::PopFont();
+            }
             ImGui::EndMenuBar();
         };
 
@@ -764,8 +806,22 @@ int E29_Example()
         // not adding a game view.
         }
 
+        // The Step button's one-shot flag is consumed HERE, at the same real tick gate, regardless of
+        // which state it was set from - see editor_state::m_bStepOneFrame's own comment.
         if (State.m_PlayState == e29::editor_state::play_state::Playing)
+        {
             pGameMgr->Run();
+            if (State.m_bStepOneFrame)
+            {
+                State.m_bStepOneFrame = false;
+                State.m_PlayState = e29::editor_state::play_state::Paused; // Stopped->Step: run exactly the first tick, then land Paused
+            }
+        }
+        else if (State.m_PlayState == e29::editor_state::play_state::Paused && State.m_bStepOneFrame)
+        {
+            State.m_bStepOneFrame = false;
+            pGameMgr->Run(); // one tick, stays Paused
+        }
 
         if (bParentEditorVisible)
         {
@@ -879,58 +935,93 @@ int E29_Example()
                 ToolbarButton("Assets", "A", false, false, [&]() { AsserBrowser.Show(true); });
                 ToolbarSeparator();
 
-                // Unity-style Play/Stop toggle + Pause - see the other occurrence's own comment (above
-                // in this file) for the full icon/font story. Note: We need to manually render these
-                // buttons since ToolbarButton uses the default font.
+                // Unity-style transport controls - see the other occurrence's own comment (above in
+                // this file) for the full design/icon/font story. Note: We need to manually render
+                // these buttons since ToolbarButton uses the default font. Centering only applied in
+                // the common bHorizontal (Top/Bottom-docked) case - a toolbar dragged to a Left/Right
+                // edge just falls back to plain top-to-bottom stacking, same as every other button here.
                 const char* playIcon  = "\xEE\x9D\xA8";  // U+E768
                 const char* pauseIcon = "\xEE\x9D\xA9";  // U+E769
                 const char* stopIcon  = "\xEE\x9C\x9A";  // U+E71A
-                const bool  bIsRunning = State.m_PlayState != e29::editor_state::play_state::Stopped;
+                const char* stepIcon  = "\xEE\xA2\x93";  // U+E893
+                const bool  bStopped  = State.m_PlayState == e29::editor_state::play_state::Stopped;
+                const bool  bPlaying  = State.m_PlayState == e29::editor_state::play_state::Playing;
+                const bool  bPaused   = State.m_PlayState == e29::editor_state::play_state::Paused;
 
+                auto StartPlaying = [&]()
+                {
+#if defined(XECS_BUILD_SHARED)
+                    State.m_bPlayRequested = true;
+                    e29::StartGameReload(GamePlugin);
+#else
+                    e29::SaveEverything(*pGameMgr, State);
+                    State.m_PlayHistoryBoundary = E29Undo.GetUndoIndex();
+                    State.m_PlayState = e29::editor_state::play_state::Playing;
+#endif
+                };
+
+                // Centered on the TWO-slot pair width ALWAYS - see the other occurrence's own comment
+                // for why (keeps Slot1/Slot2 pixel-fixed; Slot3 extends rightward from there).
                 if (bHorizontal)
-                    ImGui::SameLine();
+                {
+                    const float ToolbarItemSpacingX = ImGui::GetStyle().ItemSpacing.x;
+                    const float GroupW2 = 52.0f * 2.0f + ToolbarItemSpacingX;
+                    ImGui::SameLine((ImGui::GetWindowWidth() - GroupW2) * 0.5f);
+                }
                 bFirstButton = false;
+
+                // Slot1 - Play/Stop toggle.
                 ImGui::PushFont(xgpu::tools::imgui::getFont(4));
                 ImGui::BeginDisabled(GamePlugin.m_bBuilding);
-                if (ImGui::Button(bIsRunning ? stopIcon : playIcon, ImVec2(52.0f, ButtonHeight)))
+                if (ImGui::Button(bStopped ? playIcon : stopIcon, ImVec2(52.0f, ButtonHeight)))
                 {
-                    if (bIsRunning)
-                    {
-                        e29::RequestStop(State, E29Undo, std::nullopt);
-                    }
-                    else
-                    {
-#if defined(XECS_BUILD_SHARED)
-                        State.m_bPlayRequested = true;
-                        e29::StartGameReload(GamePlugin);
-#else
-                        e29::SaveEverything(*pGameMgr, State);
-                        State.m_PlayHistoryBoundary = E29Undo.GetUndoIndex();
-                        State.m_PlayState = e29::editor_state::play_state::Playing;
-#endif
-                    }
+                    if (bStopped) StartPlaying();
+                    else          e29::RequestStop(State, E29Undo, std::nullopt);
                 }
                 ImGui::EndDisabled();
                 ImGui::PopFont();
 
+                // Slot2 - Pause while Playing, Step while Stopped/Paused (same screen position either way).
                 if (bHorizontal)
                     ImGui::SameLine();
-                bFirstButton = false;
                 ImGui::PushFont(xgpu::tools::imgui::getFont(4));
-                ImGui::BeginDisabled(State.m_PlayState == e29::editor_state::play_state::Stopped);
-                // bWasPaused captured ONCE, before the button - see the other occurrence's own comment
-                // (above in this file) for the real crash this avoids.
-                const bool bWasPaused = State.m_PlayState == e29::editor_state::play_state::Paused;
-                if (bWasPaused)
-                    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_Header]); // highlighted while paused, matching Unity's own pressed-Pause look
-                if (ImGui::Button(pauseIcon, ImVec2(52.0f, ButtonHeight)))
-                    State.m_PlayState = bWasPaused
-                        ? e29::editor_state::play_state::Playing   // Resume
-                        : e29::editor_state::play_state::Paused;
-                if (bWasPaused)
-                    ImGui::PopStyleColor();
-                ImGui::EndDisabled();
+                if (bPlaying)
+                {
+                    if (ImGui::Button(pauseIcon, ImVec2(52.0f, ButtonHeight)))
+                        State.m_PlayState = e29::editor_state::play_state::Paused;
+                }
+                else
+                {
+                    ImGui::BeginDisabled(GamePlugin.m_bBuilding);
+                    if (ImGui::Button(stepIcon, ImVec2(52.0f, ButtonHeight)))
+                    {
+                        if (bStopped)
+                        {
+                            StartPlaying();
+                            State.m_bStepOneFrame = true; // run exactly the first tick, then land Paused
+                        }
+                        else
+                        {
+                            State.m_bStepOneFrame = true; // Paused: one tick, stays Paused
+                        }
+                    }
+                    ImGui::EndDisabled();
+                }
                 ImGui::PopFont();
+
+                // Slot3 - Pause (pressed, to Resume), ONLY while Paused. bPaused captured ONCE above -
+                // see the other occurrence's own comment for why that avoids the earlier crash class.
+                if (bPaused)
+                {
+                    if (bHorizontal)
+                        ImGui::SameLine();
+                    ImGui::PushFont(xgpu::tools::imgui::getFont(4));
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_Header]); // matches Unity's own pressed-Pause look
+                    if (ImGui::Button(pauseIcon, ImVec2(52.0f, ButtonHeight)))
+                        State.m_PlayState = e29::editor_state::play_state::Playing; // Resume
+                    ImGui::PopStyleColor();
+                    ImGui::PopFont();
+                }
                 ToolbarSeparator();
                 ToolbarButton("Hierarchy", "H", false, false, [&]() { ImGui::SetWindowFocus(e29::editor_tabs::kLevelTreeWindow); });
                 ToolbarButton("Inspector", "I", false, false, [&]() { ImGui::SetWindowFocus(e29::editor_tabs::kInspectorWindow); });

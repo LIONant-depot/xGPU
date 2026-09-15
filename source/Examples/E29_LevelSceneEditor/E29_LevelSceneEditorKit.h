@@ -263,6 +263,16 @@ namespace e29
         play_state m_PlayState = play_state::Stopped;
         bool isPlaying() const noexcept { return m_PlayState != play_state::Stopped; }
 
+        // Set by the toolbar's "Step" button, direct user request to mirror Unity's own frame-advance
+        // control - consumed at the SAME tick gate that calls GameMgr.Run() (E29_LevelScene_Editor.cpp,
+        // "if (m_PlayState == Playing) Run()"), regardless of how Playing was reached (the immediate
+        // path or the XECS_BUILD_SHARED async reload path via m_bPlayRequested above) - the flag just
+        // waits until the NEXT real tick happens, whenever that is, then consumes itself. From Stopped,
+        // Step starts play normally and this makes that very first tick immediately re-pause; from
+        // Paused, the tick gate runs ONE tick without ever leaving Paused (this flag is the only thing
+        // that authorizes Run() while Paused).
+        bool m_bStepOneFrame = false;
+
         // Set by the "Play" button (Stopped -> Playing only - Paused -> Playing is just a resume,
         // no recompile-check needed) and consumed by PollGameReload once the recompile-check it
         // kicks off resolves - Play must never actually start ticking against a DLL that might still
