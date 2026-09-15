@@ -644,29 +644,29 @@ int E29_Example()
                 ImGui::TextDisabled("Game.dll: building...");
             }
 
-            ImGui::SameLine(ImGui::GetWindowWidth() - 170.0f);
-            ImGui::BeginDisabled(State.m_PlayState == e29::editor_state::play_state::Playing || GamePlugin.m_bBuilding);
-            // Play/Pause icons from Segoe MDL2 Assets
-            // U+E204 = Play glyph, U+E20B = Pause glyph
-            // The icons are merged into Fonts[4] (17px Segoe UI + 13px MDL2 merged, see
-            // xgpu_imgui_breach.cpp's font-atlas setup) - NOT Fonts[9], which doesn't exist: several
-            // AddFontFromFileTTF calls there use MergeMode and never add a new Fonts[] entry, so the
-            // atlas only ever has 7 real fonts (indices 0-6). Fonts[9] was out-of-bounds UB, which is
-            // why the wrong glyphs rendered - xgpu::tools::imgui::getFont(4) is the same accessor
-            // E10's asset browser already uses for exactly this reason.
+            // Unity-style Play/Stop toggle + Pause, direct user request ("mirror Unity behavior") -
+            // ONE button now doubles as Play (Stopped state) and Stop (Playing/Paused state), instead
+            // of three separate always-present buttons; Pause is a second toggle (Pause/Resume),
+            // disabled only while Stopped. Icons: U+E768/E769 (Play/Pause) are the ALREADY-VERIFIED
+            // codepoints this codebase uses elsewhere (xgpu_editor_anim_pose.h's g_PlayIcon/g_PauseIcon,
+            // shared by E24/E25's transport bar); U+E71A (Stop) confirmed live in this same panel.
+            // Icons are merged into Fonts[4] (17px Segoe UI + 13px MDL2 merged) - NOT Fonts[9], which
+            // doesn't exist (see [[e29_playpause_icon_fixes]] memory for the full story).
+            const char* playIcon  = "\xEE\x9D\xA8";  // U+E768
+            const char* pauseIcon = "\xEE\x9D\xA9";  // U+E769
+            const char* stopIcon  = "\xEE\x9C\x9A";  // U+E71A
+            const bool  bIsRunning = State.m_PlayState != e29::editor_state::play_state::Stopped; // Playing or Paused
+
+            ImGui::SameLine(ImGui::GetWindowWidth() - 115.0f);
+            ImGui::BeginDisabled(GamePlugin.m_bBuilding);
             ImGui::PushFont(xgpu::tools::imgui::getFont(4));
-            // U+E204/U+E20B/U+E20D turned out to be the WRONG codepoints (confirmed live: rendered as
-            // fallback/tofu diamond-ish shapes, not real icons) - not a font-index problem this time,
-            // the font itself just doesn't have a Play/Pause/Stop glyph there. U+E768/E769 are the
-            // ALREADY-VERIFIED codepoints this codebase uses for Play/Pause elsewhere (see
-            // xgpu_editor_anim_pose.h's own g_PlayIcon/g_PauseIcon, shared by E24/E25's transport bar) -
-            // reused here instead of re-guessing. U+E71A (Stop) is a new, not-yet-elsewhere-verified
-            // pick - screenshot-confirm this one specifically if it still looks off.
-            const char* playIcon = "\xEE\x9D\xA8";  // U+E768 in UTF-8
-            const char* pauseIcon = "\xEE\x9D\xA9";  // U+E769 in UTF-8
-            if (ImGui::Button(State.m_PlayState == e29::editor_state::play_state::Paused ? pauseIcon : playIcon))
+            if (ImGui::Button(bIsRunning ? stopIcon : playIcon))
             {
-                if (State.m_PlayState == e29::editor_state::play_state::Stopped)
+                if (bIsRunning)
+                {
+                    e29::RequestStop(State, E29Undo, std::nullopt);
+                }
+                else
                 {
 #if defined(XECS_BUILD_SHARED)
                     State.m_bPlayRequested = true;
@@ -677,31 +677,28 @@ int E29_Example()
                     State.m_PlayState = e29::editor_state::play_state::Playing;
 #endif
                 }
-                else
-                {
-                    State.m_PlayState = e29::editor_state::play_state::Playing;
-                }
             }
-            ImGui::EndDisabled();
             ImGui::PopFont();
-
-            ImGui::SameLine(ImGui::GetWindowWidth() - 115.0f);
-            ImGui::BeginDisabled(State.m_PlayState != e29::editor_state::play_state::Playing);
-            // Pause icon: U+E20B
-            ImGui::PushFont(xgpu::tools::imgui::getFont(4));
-            if (ImGui::Button("\xEE\x9D\xA9"))  // U+E769 Pause (verified)
-                State.m_PlayState = e29::editor_state::play_state::Paused;
             ImGui::EndDisabled();
-            ImGui::PopFont();
 
             ImGui::SameLine(ImGui::GetWindowWidth() - 60.0f);
             ImGui::BeginDisabled(State.m_PlayState == e29::editor_state::play_state::Stopped);
-            // Stop icon: U+E20D
             ImGui::PushFont(xgpu::tools::imgui::getFont(4));
-            if (ImGui::Button("\xEE\x9C\x9A"))  // U+E71A Stop (not yet elsewhere-verified in this codebase)
-                e29::RequestStop(State, E29Undo, std::nullopt);
-            ImGui::EndDisabled();
+            // bWasPaused captured ONCE, before the button - real crash, found live: clicking Pause
+            // while Playing changes State.m_PlayState to Paused INSIDE the click handler below, so
+            // re-reading State.m_PlayState after Button() for the Pop disagreed with the Push decision
+            // made before it (push skipped, pop fired) - "PopStyleColor() without matching Push" abort.
+            const bool bWasPaused = State.m_PlayState == e29::editor_state::play_state::Paused;
+            if (bWasPaused)
+                ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_Header]); // highlighted while paused, matching Unity's own pressed-Pause look
+            if (ImGui::Button(pauseIcon))
+                State.m_PlayState = bWasPaused
+                    ? e29::editor_state::play_state::Playing   // Resume
+                    : e29::editor_state::play_state::Paused;
+            if (bWasPaused)
+                ImGui::PopStyleColor();
             ImGui::PopFont();
+            ImGui::EndDisabled();
             ImGui::EndMenuBar();
         };
 
@@ -882,24 +879,26 @@ int E29_Example()
                 ToolbarButton("Assets", "A", false, false, [&]() { AsserBrowser.Show(true); });
                 ToolbarSeparator();
 
-                const bool bPlayDisabled = State.m_PlayState == e29::editor_state::play_state::Playing
-                    || GamePlugin.m_bBuilding;
-                // Play/Pause/Stop icons from Segoe MDL2 Assets
-                // U+E204 = Play glyph, U+E20B = Pause glyph, U+E20D = Stop glyph
-                // The icons are merged into Fonts[4] (17px Segoe UI + 13px MDL2 merged) - NOT Fonts[9],
-                // which doesn't exist (see the other occurrence's own comment, above in this file, for
-                // the full explanation - out-of-bounds UB on an atlas that only has 7 real entries).
-                // Note: We need to manually render these buttons since ToolbarButton uses the default font
+                // Unity-style Play/Stop toggle + Pause - see the other occurrence's own comment (above
+                // in this file) for the full icon/font story. Note: We need to manually render these
+                // buttons since ToolbarButton uses the default font.
+                const char* playIcon  = "\xEE\x9D\xA8";  // U+E768
+                const char* pauseIcon = "\xEE\x9D\xA9";  // U+E769
+                const char* stopIcon  = "\xEE\x9C\x9A";  // U+E71A
+                const bool  bIsRunning = State.m_PlayState != e29::editor_state::play_state::Stopped;
+
                 if (bHorizontal)
                     ImGui::SameLine();
                 bFirstButton = false;
                 ImGui::PushFont(xgpu::tools::imgui::getFont(4));
-                ImGui::BeginDisabled(bPlayDisabled);
-                const char* playIcon = "\xEE\x9D\xA8";  // U+E768 (verified - see the other occurrence's own comment)
-                const char* pauseIcon = "\xEE\x9D\xA9";  // U+E769 (verified)
-                if (ImGui::Button(State.m_PlayState == e29::editor_state::play_state::Paused ? pauseIcon : playIcon, ImVec2(52.0f, ButtonHeight)))
+                ImGui::BeginDisabled(GamePlugin.m_bBuilding);
+                if (ImGui::Button(bIsRunning ? stopIcon : playIcon, ImVec2(52.0f, ButtonHeight)))
                 {
-                    if (State.m_PlayState == e29::editor_state::play_state::Stopped)
+                    if (bIsRunning)
+                    {
+                        e29::RequestStop(State, E29Undo, std::nullopt);
+                    }
+                    else
                     {
 #if defined(XECS_BUILD_SHARED)
                         State.m_bPlayRequested = true;
@@ -910,31 +909,26 @@ int E29_Example()
                         State.m_PlayState = e29::editor_state::play_state::Playing;
 #endif
                     }
-                    else
-                    {
-                        State.m_PlayState = e29::editor_state::play_state::Playing;
-                    }
                 }
                 ImGui::EndDisabled();
                 ImGui::PopFont();
-                // Pause icon: U+E20B
-                if (bHorizontal)
-                    ImGui::SameLine();
-                bFirstButton = false;
-                ImGui::PushFont(xgpu::tools::imgui::getFont(4));
-                ImGui::BeginDisabled(State.m_PlayState != e29::editor_state::play_state::Playing);
-                if (ImGui::Button("\xEE\x9D\xA9", ImVec2(52.0f, ButtonHeight)))  // U+E769 Pause (verified)
-                    State.m_PlayState = e29::editor_state::play_state::Paused;
-                ImGui::EndDisabled();
-                ImGui::PopFont();
-                // Stop icon: U+E20D
+
                 if (bHorizontal)
                     ImGui::SameLine();
                 bFirstButton = false;
                 ImGui::PushFont(xgpu::tools::imgui::getFont(4));
                 ImGui::BeginDisabled(State.m_PlayState == e29::editor_state::play_state::Stopped);
-                if (ImGui::Button("\xEE\x9C\x9A", ImVec2(52.0f, ButtonHeight)))  // U+E71A Stop (not yet elsewhere-verified)
-                    e29::RequestStop(State, E29Undo, std::nullopt);
+                // bWasPaused captured ONCE, before the button - see the other occurrence's own comment
+                // (above in this file) for the real crash this avoids.
+                const bool bWasPaused = State.m_PlayState == e29::editor_state::play_state::Paused;
+                if (bWasPaused)
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyle().Colors[ImGuiCol_Header]); // highlighted while paused, matching Unity's own pressed-Pause look
+                if (ImGui::Button(pauseIcon, ImVec2(52.0f, ButtonHeight)))
+                    State.m_PlayState = bWasPaused
+                        ? e29::editor_state::play_state::Playing   // Resume
+                        : e29::editor_state::play_state::Paused;
+                if (bWasPaused)
+                    ImGui::PopStyleColor();
                 ImGui::EndDisabled();
                 ImGui::PopFont();
                 ToolbarSeparator();
