@@ -699,6 +699,14 @@ int E29_Example()
             }
             ImGui::PopFont();
             ImGui::EndDisabled();
+            // Tooltip (only show when hovering)
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::BeginTooltip();
+                ImGui::Text(bStopped ? "Play" : "Stop");
+                ImGui::TextDisabled(bStopped ? "Start playback" : "Stop playback");
+                ImGui::EndTooltip();
+            }
 
             // Slot2 - Pause while Playing, Step while Stopped/Paused.
             ImGui::SameLine();
@@ -726,6 +734,14 @@ int E29_Example()
                 ImGui::EndDisabled();
             }
             ImGui::PopFont();
+            // Tooltip (only show when hovering)
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::BeginTooltip();
+                ImGui::Text(bPlaying ? "Pause" : "Step");
+                ImGui::TextDisabled(bPlaying ? "Pause playback" : "Run one frame");
+                ImGui::EndTooltip();
+            }
 
             // Slot3 - Pause (pressed/highlighted, to Resume), ONLY while Paused. bPaused was captured
             // ONCE above, before any button this frame - it never changes mid-block, so (unlike the
@@ -740,6 +756,14 @@ int E29_Example()
                     State.m_PlayState = e29::editor_state::play_state::Playing; // Resume
                 ImGui::PopStyleColor();
                 ImGui::PopFont();
+                // Tooltip (only show when hovering)
+                if (ImGui::IsItemHovered())
+                {
+                    ImGui::BeginTooltip();
+                    ImGui::Text("Resume");
+                    ImGui::TextDisabled("Resume playback");
+                    ImGui::EndTooltip();
+                }
             }
             ImGui::EndMenuBar();
         };
