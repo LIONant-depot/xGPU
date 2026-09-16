@@ -104,7 +104,9 @@ namespace e10
         static int WrappedButton2(xresource::instance_guid G, const char* label, const ImVec2& size, ImU32 Color, const char* pIcon, bool& held, bool bModified = false
                                  , char* pRenameBuf = nullptr, size_t RenameBufSize = 0, bool bRenameJustActivated = false
                                  , bool* pOutRenameCommit = nullptr, bool* pOutRenameCancel = nullptr
-                                 , e10::plugin_icon_ref AtlasIcon = {} )
+                                 , e10::plugin_icon_ref AtlasIcon = {}
+                                 , e10::asset_status_badge StatusBadge = e10::asset_status_badge::None
+                                 , e10::asset_lock_badge LockBadge = e10::asset_lock_badge::None )
         {
             ImGuiContext& g = *ImGui::GetCurrentContext();
             ImGuiWindow* window = ImGui::GetCurrentWindow();
@@ -212,14 +214,49 @@ namespace e10
             // Move cursor below icon with spacing (but ensure it stays within bounds)
             float text_start_y = ImGui::GetCursorPosY() + padding.y;
 
-            // Print a green start if the resource has been modified
+            // Tile decoration zones - direct user design (several exploratory rounds, converged on
+            // this): LEFT edge is reserved for source-control icons (this tile's own git status/
+            // lock state, now a single consolidated slot - see below), TOP edge for runtime/editor
+            // info (today: only the unsaved-in-editor tick below), CORNERS reserved/unused for now -
+            // for a future signal that's genuinely about something else entirely.
+            constexpr float BadgeSize = 12.0f;
+
+            // Anchored to the ICON's own vertical center, not a fixed fraction of the whole tile -
+            // direct user correction: positions keyed off `size.y` alone drifted down into the
+            // label area on a real screenshot ("it has moved down way too much... it needs to be
+            // where the icon is"). Same IconSize formula as the icon-render block above (duplicated
+            // rather than threaded out as a shared local, since that block's own scope ends before
+            // this one begins) - keeps both badges genuinely anchored to the icon, not just visually
+            // close to it by coincidence of today's padding/font metrics.
+            const float LabelReserveForBadges = c_LabelMaxLines * ImGui::GetTextLineHeightWithSpacing() + padding.y;
+            const float IconSizeForBadges     = std::min(size.x - padding.x * 2.0f, size.y - padding.y * 2.0f - LabelReserveForBadges);
+            const float IconCenterY           = pos.y + padding.y + IconSizeForBadges * 0.5f;
+
+            // Runtime info (TOP edge, centered) - the unsaved-in-editor tick, pre-existing, just
+            // repositioned. Relies on whatever font is already active at this point already having
+            // this glyph merged in (same as before this move - no PushFont added, matching the
+            // original's own behavior exactly).
             if (bModified)
             {
-                ImGui::SetCursorScreenPos({ pos.x + padding.x, pos.y + padding.y });
-                ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(0, 189, 0, 255)); // Green (R=0, G=255, B=0, A=255)
+                const float TickWidth = ImGui::CalcTextSize("\xEE\xB6\xAD").x;
+                ImGui::SetCursorScreenPos({ pos.x + (size.x - TickWidth) * 0.5f, pos.y + padding.y });
+                ImGui::PushStyleColor(ImGuiCol_Text, IM_COL32(0, 189, 0, 255)); // Green
                 ImGui::Text("\xEE\xB6\xAD");
-                ImGui::PopStyleColor(); // Restore default
+                ImGui::PopStyleColor();
             }
+
+            // Source control (LEFT edge, ONE slot, anchored to the icon's own vertical center - a
+            // fixed fraction of the whole tile drifted into the label area on a real screenshot -
+            // "it needs to be where the icon is"). Lock and status used to be two separately-
+            // positioned signals; consolidated into one slot by direct user design once both were
+            // confirmed working independently - a lock, when present, already implies a specific
+            // status story, so its own color carries that instead of needing a second spot (gold
+            // lock = yours + modified, green lock = yours + clean, red lock = someone else's,
+            // regardless of your own local state). Shape/color logic lives in the shared
+            // e10::DrawSourceControlBadge (E10_AssetBrowser.h) - files_tab's own table-row badge
+            // reuses the exact same function; see that file's own comment for the full history
+            // (unverified codepoint, VS palette, inverted polarity).
+            e10::DrawSourceControlBadge(ImGui::GetWindowDrawList(), { pos.x + padding.x + BadgeSize * 0.5f, IconCenterY }, BadgeSize, StatusBadge, LockBadge);
 
             ImGui::SetCursorPosY(text_start_y);
 
@@ -1403,6 +1440,8 @@ namespace e10
                 // items belonging to the same group when rendering.
                 int                     m_VirtualDepth      = 0;
                 xresource::full_guid    m_VirtualGroupRoot  = {};
+                e10::asset_status_badge m_StatusBadge       = e10::asset_status_badge::None;
+                e10::asset_lock_badge   m_LockBadge         = e10::asset_lock_badge::None;
             };
 
             //
@@ -1484,6 +1523,34 @@ namespace e10
                                                 Temp.m_bHasChildren = !Node.m_lChildLinks.empty();
                                                 Temp.m_bModified = Node.m_InfoChangeCount > 0;
                                                 Temp.m_bDeleted = Node.m_Info.m_RscLinks.empty() == false && Node.m_Info.m_RscLinks[0] == e10::folder::trash_guid_v;
+
+                                                // Real repo-relative path of this asset's Descriptor.txt (the
+                                                // sibling of info.txt - same derivation idiom used elsewhere in
+                                                // this codebase, e.g. E10_AssetMgr.h's CompilingThreadWorker),
+                                                // stripped of the library root prefix to match the source-
+                                                // control status cache's own key convention. Computed once and
+                                                // reused for both hooks; only computed when at least one hook
+                                                // is set - zero cost for every consumer that never wires either.
+                                                if (m_Browser.m_OnGetAssetStatusBadge || m_Browser.m_OnGetAssetLockBadge)
+                                                {
+                                                    const auto SlashPos = Node.m_Path.find_last_of(L'\\');
+                                                    std::wstring DescriptorPath = (SlashPos == std::wstring::npos)
+                                                        ? Node.m_Path
+                                                        : (Node.m_Path.substr(0, SlashPos + 1) + L"Descriptor.txt");
+
+                                                    const std::wstring& LibRoot = Lib->m_Library.m_Path;
+                                                    if (DescriptorPath.size() > LibRoot.size() && DescriptorPath.compare(0, LibRoot.size(), LibRoot) == 0)
+                                                    {
+                                                        DescriptorPath = DescriptorPath.substr(LibRoot.size());
+                                                        while (!DescriptorPath.empty() && (DescriptorPath.front() == L'\\' || DescriptorPath.front() == L'/'))
+                                                            DescriptorPath.erase(DescriptorPath.begin());
+                                                    }
+
+                                                    if (m_Browser.m_OnGetAssetStatusBadge)
+                                                        Temp.m_StatusBadge = static_cast<e10::asset_status_badge>(m_Browser.m_OnGetAssetStatusBadge(m_SelectedLibrary, DescriptorPath));
+                                                    if (m_Browser.m_OnGetAssetLockBadge)
+                                                        Temp.m_LockBadge = static_cast<e10::asset_lock_badge>(m_Browser.m_OnGetAssetLockBadge(m_SelectedLibrary, DescriptorPath));
+                                                }
                                             });
                                     });
 
@@ -1823,7 +1890,7 @@ namespace e10
                                                   , bIsRenamingThis ? m_RenameNewName.data() : nullptr
                                                   , bIsRenamingThis ? m_RenameNewName.size() : 0
                                                   , bIsRenamingThis && m_RenameFirstOpen
-                                                  , &bRenameCommit, &bRenameCancel, E.m_Icon); PressType == 2)
+                                                  , &bRenameCommit, &bRenameCancel, E.m_Icon, E.m_StatusBadge, E.m_LockBadge); PressType == 2)
                 {
                     if (E.m_ResourceGUID.m_Type == e10::folder::type_guid_v)
                     {
@@ -1906,7 +1973,7 @@ namespace e10
                                  , bIsRenamingThis ? m_RenameNewName.data() : nullptr
                                  , bIsRenamingThis ? m_RenameNewName.size() : 0
                                  , bIsRenamingThis && m_RenameFirstOpen
-                                 , &bRenameCommit, &bRenameCancel, E.m_Icon);
+                                 , &bRenameCommit, &bRenameCancel, E.m_Icon, E.m_StatusBadge, E.m_LockBadge);
                     ImGui::PopStyleColor();
                     m_IsExpanded[E.m_ResourceGUID] = !bExpandedBefore;
                 }
@@ -1968,7 +2035,7 @@ namespace e10
                         {
                             ImGui::PushStyleColor(ImGuiCol_Text, LabelColor);
                             WrappedButton2(E.m_ResourceGUID.m_Instance, std::format("{}", StringOne).c_str(), button_sz, Color, pIcon, held, E.m_bModified
-                                         , nullptr, 0, false, nullptr, nullptr, E.m_Icon);
+                                         , nullptr, 0, false, nullptr, nullptr, E.m_Icon, E.m_StatusBadge, E.m_LockBadge);
                             ImGui::PopStyleColor();
                         }
                         ImGui::EndDragDropSource();

@@ -1,0 +1,678 @@
+#ifndef E29_PANEL_SOURCE_CONTROL_H
+#define E29_PANEL_SOURCE_CONTROL_H
+#pragma once
+
+// Source Control panel - Phase 4C/4D of the source-control plan (source_control_abstraction_spec_v1_3.md).
+// An INDEPENDENT tab, not a mode of the Asset Tree/Resource Browser - direct user correction
+// (2026-09-17): "the asset window has its mission and is completely different to the source control
+// window... Source control is involved in Assets, Resources, Entities, Project settings, etc." This
+// panel talks only to e10::source_control:: (the centralized cache, E10_SourceControlCache.h) and the
+// E29_Commands_SourceControl.h command bus - it never reaches into
+// E10_asset_browser_files_tab.h/E10_asset_browser_virtual_tree_tab.h's own code, and they never reach
+// into this file either.
+//
+// Same self-sufficiency convention as every other kit/E29_Panel_*.h (see E29_Panel_LevelTree.h's own
+// top comment) - includes what it names rather than relying on a distant caller's include order.
+#include "source/Examples/E29_LevelSceneEditor/E29_EditorTabs.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SourceControl.h"
+#include "source/Examples/E10_TextureResourcePipeline/E10_SourceControlCache.h"
+#include <cmath>
+#include <unordered_set>
+
+namespace e29
+{
+    // A small rotating-dots spinner, drawn with plain ImDrawList primitives - same "never a font
+    // glyph" discipline the SC badges themselves already follow. Animates off ImGui::GetTime(), so
+    // it only actually spins while this panel is visible and rendering (every frame, like any other
+    // ImGui content) - no separate timer/state needed.
+    //
+    // Real bug found live (2026-09-17): the first version sized each dot as Radius*0.22 with Radius
+    // itself already small (a fraction of the text line height) - the dots rounded down to well
+    // under a pixel and were effectively invisible, which is why "nothing is spinning" even though
+    // the code was running. Dot radius is now floored at a real, always-visible pixel size instead
+    // of a pure percentage of an already-small orbit radius.
+    inline void DrawLoadingSpinner(ImDrawList* DrawList, ImVec2 Center, float Radius, ImU32 Color) noexcept
+    {
+        constexpr int   NumDots = 8;
+        constexpr float SpeedRadPerSec = 3.0f;
+        const float DotRadius = std::max(1.75f, Radius * 0.35f);
+        const float Time = static_cast<float>(ImGui::GetTime());
+        for (int i = 0; i < NumDots; ++i)
+        {
+            const float Fraction = static_cast<float>(i) / static_cast<float>(NumDots);
+            const float Angle    = Time * SpeedRadPerSec - Fraction * 2.0f * 3.14159265f;
+            const ImVec2 P{ Center.x + Radius * std::cos(Angle), Center.y + Radius * std::sin(Angle) };
+            const float Alpha = 0.15f + 0.85f * (1.0f - Fraction); // brightest dot leads, tail fades out
+            const ImU32 DotColor = (Color & 0x00FFFFFFu) | (static_cast<ImU32>(Alpha * 255.0f) << 24);
+            DrawList->AddCircleFilled(P, DotRadius, DotColor);
+        }
+    }
+}
+
+namespace e29
+{
+    // One row = one pending (modified/untracked/conflicted) or locked file, from ANY currently open
+    // library - "whole project" scope, not scoped to one library's Assets folder (direct user
+    // direction: Assets/Resources/Entities/Project-settings are all just files under the same repo,
+    // and GetStatus/ListLocks already run unfiltered against the real working tree).
+    struct sc_panel_row
+    {
+        e10::library::guid       m_Library;
+        std::wstring             m_RootPath;      // this library's real root - what ResolveLibraryRootPath would return
+        std::wstring             m_RelativePath;  // NormalizeKey'd, relative to m_RootPath
+        std::wstring             m_Key;            // composite "<LibraryHex>|<RelativePath>" - unique across the whole project
+        sc::FileStatus            m_Status{};
+        std::optional<sc::LockInfo> m_Lock;
+    };
+
+    inline std::wstring SourceControlRowKey(e10::library::guid LibraryGuid, const std::wstring& RelativePath) noexcept
+    {
+        return xstrtool::To(e29::commands::FormatLibraryGuid(LibraryGuid)) + L"|" + RelativePath;
+    }
+
+    // A changelist is purely LOCAL bookkeeping - which pending files the user currently intends to
+    // commit together, and under what message - never written to git in any form until Commit is
+    // actually pressed. It can never drift out of sync with the real repo because it doesn't
+    // represent repo state at all, just a grouping of it (see the plan's "Research" section for the
+    // full reasoning vs. Perforce-style server-side changelists).
+    struct sc_changelist
+    {
+        std::string                m_Name;
+        std::string                m_Comment;
+        std::vector<std::wstring>  m_Keys; // sc_panel_row::m_Key, insertion order preserved
+    };
+
+    struct source_control_panel_state
+    {
+        std::vector<sc_changelist> m_Changelists{ sc_changelist{ "Default Changelist", "", {} } };
+        int                         m_ActiveChangelist = 0;
+
+        // Multi-select, scoped to whichever list (Pending Changes or a changelist's own file list)
+        // was clicked last - same unordered_set/order/anchor idiom already proven in
+        // E10_asset_browser_files_tab.h, a fresh instance here rather than reused from there (Phase 4C
+        // correction: this panel owns its own interaction state end to end).
+        std::unordered_set<std::wstring> m_MultiSelected;
+        std::vector<std::wstring>         m_MultiSelectOrder;
+        std::wstring                      m_MultiSelectAnchor;
+
+        std::string m_StatusLine;
+        char        m_NewChangelistName[128] = {};
+
+        // Revision-gated row cache (direct user report: rebuilding this list was "taking a long
+        // time" - it was being rebuilt from scratch, across every open library, EVERY FRAME the
+        // panel was visible, the exact class of bug already fixed once for files_tab's own badges -
+        // "there is no reason to sync the FPS of the editor with the computation"). Rebuilt only when
+        // e10::source_control::SourceControlRevision() has actually changed since the last time this
+        // panel applied it, same idiom files_tab already uses.
+        std::vector<sc_panel_row> m_CachedRows;
+        std::uint64_t              m_LastAppliedRevision = static_cast<std::uint64_t>(-1);
+
+        // Minimum-visible-duration debounce for the loading spinner: a scan of a small repo can
+        // start and finish inside a single frame, which would make IsScanInProgress() true for zero
+        // perceivable time - the user would never actually see it, even though it's genuinely
+        // working. Bumped forward every frame a scan is really in progress; the spinner stays drawn
+        // until this time passes, so even an instant scan flashes it at least once.
+        double m_SpinnerVisibleUntil = 0.0;
+    };
+    inline source_control_panel_state g_SourceControlPanel;
+
+    inline void SourceControlSelectSingle(const std::wstring& Key) noexcept
+    {
+        auto& S = g_SourceControlPanel;
+        S.m_MultiSelected.clear();
+        S.m_MultiSelectOrder.clear();
+        S.m_MultiSelected.insert(Key);
+        S.m_MultiSelectOrder.push_back(Key);
+        S.m_MultiSelectAnchor = Key;
+    }
+
+    inline void SourceControlToggleMultiSelect(const std::wstring& Key) noexcept
+    {
+        auto& S = g_SourceControlPanel;
+        if (S.m_MultiSelected.erase(Key))
+        {
+            S.m_MultiSelectOrder.erase(std::remove(S.m_MultiSelectOrder.begin(), S.m_MultiSelectOrder.end(), Key), S.m_MultiSelectOrder.end());
+        }
+        else
+        {
+            S.m_MultiSelected.insert(Key);
+            S.m_MultiSelectOrder.push_back(Key);
+        }
+        S.m_MultiSelectAnchor = Key;
+    }
+
+    inline void SourceControlHandleRowClick(const std::vector<std::wstring>& OrderedKeys, const std::wstring& Key) noexcept
+    {
+        auto& S = g_SourceControlPanel;
+        ImGuiIO& IO = ImGui::GetIO();
+        if (IO.KeyCtrl)
+        {
+            SourceControlToggleMultiSelect(Key);
+            return;
+        }
+        if (IO.KeyShift && !S.m_MultiSelectAnchor.empty())
+        {
+            auto ItAnchor = std::find(OrderedKeys.begin(), OrderedKeys.end(), S.m_MultiSelectAnchor);
+            auto ItTarget = std::find(OrderedKeys.begin(), OrderedKeys.end(), Key);
+            if (ItAnchor != OrderedKeys.end() && ItTarget != OrderedKeys.end())
+            {
+                if (ItAnchor > ItTarget) std::swap(ItAnchor, ItTarget);
+                S.m_MultiSelected.clear();
+                S.m_MultiSelectOrder.clear();
+                for (auto It = ItAnchor; It <= ItTarget; ++It)
+                {
+                    S.m_MultiSelected.insert(*It);
+                    S.m_MultiSelectOrder.push_back(*It);
+                }
+                return;
+            }
+        }
+        SourceControlSelectSingle(Key);
+    }
+
+    // Which changelist (index into m_Changelists) currently owns Key, or -1 - a file not explicitly
+    // moved shows under "Default Changelist" (index 0) by construction (every key starts unassigned,
+    // and unassigned == shown under Default without actually being inserted into it - see
+    // BuildSourceControlRows's own caller).
+    inline int SourceControlChangelistOf(const std::wstring& Key) noexcept
+    {
+        auto& S = g_SourceControlPanel;
+        for (std::size_t i = 0; i < S.m_Changelists.size(); ++i)
+            if (std::find(S.m_Changelists[i].m_Keys.begin(), S.m_Changelists[i].m_Keys.end(), Key) != S.m_Changelists[i].m_Keys.end())
+                return static_cast<int>(i);
+        return -1;
+    }
+
+    inline void SourceControlAssignToChangelist(const std::wstring& Key, int ChangelistIndex) noexcept
+    {
+        auto& S = g_SourceControlPanel;
+        for (auto& CL : S.m_Changelists)
+            CL.m_Keys.erase(std::remove(CL.m_Keys.begin(), CL.m_Keys.end(), Key), CL.m_Keys.end());
+        if (ChangelistIndex > 0 && ChangelistIndex < static_cast<int>(S.m_Changelists.size()))
+            S.m_Changelists[ChangelistIndex].m_Keys.push_back(Key);
+        // ChangelistIndex == 0 (Default) needs no insertion - "not in any OTHER changelist" already
+        // means "shows under Default", matching SourceControlChangelistOf's own -1-means-Default rule.
+    }
+
+    // Aggregates GetAllPendingChanges across EVERY currently open library - "whole project" scope.
+    // Same e10::g_LibMgr.m_mLibraryDB iteration idiom PumpSourceControlIdleWork already uses.
+    inline std::vector<sc_panel_row> BuildSourceControlRows() noexcept
+    {
+        std::vector<sc_panel_row> Rows;
+        for (auto& Lib : e10::g_LibMgr.m_mLibraryDB)
+        {
+            const auto& RootPath = Lib.second->m_Library.m_Path;
+            for (auto& Entry : e10::source_control::GetAllPendingChanges(RootPath))
+            {
+                sc_panel_row Row;
+                Row.m_Library      = Lib.first;
+                Row.m_RootPath     = RootPath;
+                Row.m_RelativePath = Entry.m_RelativePath;
+                Row.m_Key          = SourceControlRowKey(Lib.first, Entry.m_RelativePath);
+                Row.m_Status       = Entry.m_Status;
+                Row.m_Lock         = Entry.m_Lock;
+                Rows.push_back(std::move(Row));
+            }
+        }
+        return Rows;
+    }
+
+    // Shared by the Pending Changes list AND a changelist's own file list (Phase 4C - ONE
+    // implementation, not duplicated per list, per [[feedback_no_redundant_data]]). Acts on the whole
+    // active multi-selection when the right-clicked row is part of one, otherwise just that one row -
+    // same "right-click preserves/collapses selection" rule E10_asset_browser_files_tab.h's own
+    // RowContext popup already established (independently re-implemented here, not shared code, per
+    // the Phase 4C design correction).
+    inline void RenderSourceControlContextMenu(xundo::system& Undo, const std::vector<sc_panel_row>& AllRows, const std::wstring& ClickedKey) noexcept
+    {
+        auto& S = g_SourceControlPanel;
+        if (!S.m_MultiSelected.contains(ClickedKey))
+            SourceControlSelectSingle(ClickedKey);
+
+        if (ImGui::BeginPopupContextItem("SCRowContext"))
+        {
+            std::vector<const sc_panel_row*> Selected;
+            for (auto& Row : AllRows)
+                if (S.m_MultiSelected.contains(Row.m_Key))
+                    Selected.push_back(&Row);
+
+            const bool bAnyLfsUnlocked = std::any_of(Selected.begin(), Selected.end(), [](const sc_panel_row* R)
+                { return R->m_Status.lfsTracked && (!R->m_Lock || R->m_Lock->ownership != sc::LockOwnership::CurrentUser); });
+            const bool bAnyLockedByMe  = std::any_of(Selected.begin(), Selected.end(), [](const sc_panel_row* R)
+                { return R->m_Lock && R->m_Lock->ownership == sc::LockOwnership::CurrentUser; });
+            const bool bAnyModified    = std::any_of(Selected.begin(), Selected.end(), [](const sc_panel_row* R)
+                { return R->m_Status.modified; });
+
+            if (ImGui::MenuItem("Lock", nullptr, false, bAnyLfsUnlocked))
+            {
+                for (auto* R : Selected)
+                    e29::commands::Run(Undo, std::format("SourceControlLock -Library {} -Path {}"
+                        , e29::commands::FormatLibraryGuid(R->m_Library), e29::commands::EncodeAssetPath(R->m_RelativePath)));
+            }
+            if (ImGui::MenuItem("Unlock", nullptr, false, bAnyLockedByMe))
+            {
+                for (auto* R : Selected)
+                    e29::commands::Run(Undo, std::format("SourceControlUnlock -Library {} -Path {}"
+                        , e29::commands::FormatLibraryGuid(R->m_Library), e29::commands::EncodeAssetPath(R->m_RelativePath)));
+            }
+            if (ImGui::MenuItem("Undo Changes...", nullptr, false, bAnyModified))
+                ImGui::OpenPopup("Undo Changes##SCConfirm");
+
+            if (ImGui::BeginMenu("Add to Changelist"))
+            {
+                for (std::size_t i = 0; i < S.m_Changelists.size(); ++i)
+                {
+                    if (ImGui::MenuItem(S.m_Changelists[i].m_Name.c_str()))
+                        for (auto* R : Selected) SourceControlAssignToChangelist(R->m_Key, static_cast<int>(i));
+                }
+                ImGui::EndMenu();
+            }
+
+            // Confirm modal for "Undo Changes" - real, destructive to local edits, same "ask first"
+            // shape as files_tab's own RenderPendingConfirmationModal/RenderPendingOpenConfirmModal.
+            if (ImGui::BeginPopupModal("Undo Changes##SCConfirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            {
+                ImGui::Text("Discard local changes to %zu file(s)? This cannot be undone.", Selected.size());
+                ImGui::Separator();
+                if (ImGui::Button("Discard Changes", ImVec2(160, 0)))
+                {
+                    for (auto* R : Selected)
+                        e29::commands::Run(Undo, std::format("SourceControlRevert -Library {} -Path {}"
+                            , e29::commands::FormatLibraryGuid(R->m_Library), e29::commands::EncodeAssetPath(R->m_RelativePath)));
+                    ImGui::CloseCurrentPopup();
+                    ImGui::CloseCurrentPopup(); // also closes the parent context menu popup
+                }
+                ImGui::SetItemDefaultFocus();
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+                ImGui::EndPopup();
+            }
+
+            ImGui::EndPopup();
+        }
+    }
+
+    // Same badge derivation the Asset Tree's own badges/tooltip already use - one place, not
+    // recomputed ad hoc at each of the 3 sites below (draw, tooltip, sort).
+    inline e10::asset_status_badge SourceControlRowStatusBadge(const sc_panel_row& Row) noexcept
+    {
+        if (Row.m_Status.untracked) return e10::asset_status_badge::Untracked;
+        if (Row.m_Status.modified || Row.m_Status.staged || Row.m_Status.conflicted) return e10::asset_status_badge::Modified;
+        return e10::asset_status_badge::Clean; // reached via a lock-only row - see GetAllPendingChanges' own comment
+    }
+
+    inline e10::asset_lock_badge SourceControlRowLockBadge(const sc_panel_row& Row) noexcept
+    {
+        if (!Row.m_Lock) return e10::asset_lock_badge::None;
+        return Row.m_Lock->ownership == sc::LockOwnership::CurrentUser ? e10::asset_lock_badge::LockedByMe : e10::asset_lock_badge::LockedByOther;
+    }
+
+    // Identical priority order to files_tab's own SourceControlSortRank (untracked, modified,
+    // locked+modified(gold), locked-by-other(red), clean, locked+clean(green)) - direct user
+    // request: this panel should look and sort "very similar to the asset view".
+    inline int SourceControlSortRank(const sc_panel_row& Row) noexcept
+    {
+        const auto Status = SourceControlRowStatusBadge(Row);
+        const auto Lock   = SourceControlRowLockBadge(Row);
+
+        if (Lock == e10::asset_lock_badge::None)
+        {
+            switch (Status)
+            {
+                case e10::asset_status_badge::Untracked: return 0;
+                case e10::asset_status_badge::Modified:  return 1;
+                case e10::asset_status_badge::Clean:     return 4;
+                default:                                 return 6;
+            }
+        }
+        if (Lock == e10::asset_lock_badge::LockedByOther) return 3;
+        return (Status == e10::asset_status_badge::Modified) ? 2 : 5;
+    }
+
+    // Renders one row's CELLS - caller must already be inside an active table row (TableNextRow()
+    // already called), same split files_tab's own row loop uses. Column 0 = the real drawn SC badge
+    // (DrawSourceControlBadge - not a text glyph, matching the Asset Tree's own icon look exactly);
+    // column 1 = the FULL relative path (not a bare filename - this list spans every folder in the
+    // project, so a bare name would be ambiguous, direct user request to show the whole path here).
+    inline void RenderSourceControlRowCells(xundo::system& Undo, const std::vector<sc_panel_row>& AllRows, const sc_panel_row& Row) noexcept
+    {
+        auto& S = g_SourceControlPanel;
+        ImGui::PushID(reinterpret_cast<const void*>(&Row));
+
+        const auto StatusBadge = SourceControlRowStatusBadge(Row);
+        const auto LockBadge   = SourceControlRowLockBadge(Row);
+
+        ImGui::TableSetColumnIndex(0);
+        {
+            const ImVec2 CellMin = ImGui::GetCursorScreenPos();
+            const float  RowH    = ImGui::GetTextLineHeight();
+            constexpr float BadgeSize = 11.0f; // matches files_tab's own SC column badge size
+            e10::DrawSourceControlBadge(ImGui::GetWindowDrawList()
+                , { CellMin.x + BadgeSize * 0.5f, CellMin.y + RowH * 0.5f }, BadgeSize, StatusBadge, LockBadge);
+
+            ImGui::InvisibleButton("##SCHover", ImVec2(ImGui::GetContentRegionAvail().x, RowH));
+            if (ImGui::IsItemHovered())
+            {
+                const char* Title = ""; const char* Desc = "";
+                e10::GetSourceControlTooltipText(StatusBadge, LockBadge, Title, Desc);
+                ImGui::BeginTooltip();
+                ImGui::Text("%s", Title);
+                ImGui::TextDisabled("%s", Desc);
+                ImGui::EndTooltip();
+            }
+        }
+
+        ImGui::TableSetColumnIndex(1);
+        const bool bSelected = S.m_MultiSelected.contains(Row.m_Key);
+        if (ImGui::Selectable(xstrtool::To(Row.m_RelativePath).c_str(), bSelected, ImGuiSelectableFlags_SpanAllColumns))
+        {
+            std::vector<std::wstring> OrderedKeys;
+            OrderedKeys.reserve(AllRows.size());
+            for (auto& R : AllRows) OrderedKeys.push_back(R.m_Key);
+            SourceControlHandleRowClick(OrderedKeys, Row.m_Key);
+        }
+        RenderSourceControlContextMenu(Undo, AllRows, Row.m_Key);
+
+        ImGui::PopID();
+    }
+
+    // Shared table shell for both the Pending Changes list and a changelist's own file list (Phase 4
+    // follow-up, direct user request: "it should look very similar to the asset view... the
+    // sorting, the look, etc"). RowsToShow is a FILTERED subset of AllRows (e.g. "not yet assigned to
+    // any changelist", or "assigned to THIS changelist") - AllRows stays the full list so
+    // multi-select/context-menu keep operating across the whole selection, not just what's visible
+    // in this particular table.
+    inline void RenderSourceControlTable(xundo::system& Undo, const std::vector<sc_panel_row>& AllRows
+        , std::vector<const sc_panel_row*> RowsToShow, const char* TableId) noexcept
+    {
+        if (!ImGui::BeginTable(TableId, 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersV | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable, ImGui::GetContentRegionAvail()))
+            return;
+
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableSetupColumn("##SC",  ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize | ImGuiTableColumnFlags_PreferSortAscending, 16.0f);
+        ImGui::TableSetupColumn("Path",  ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_PreferSortAscending);
+
+        // Manual header row - same "drawn icon instead of a text label" discipline as files_tab's
+        // own SC column header.
+        ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
+        ImGui::TableSetColumnIndex(0);
+        ImGui::TableHeader("##SC");
+        {
+            const ImVec2 CellMin = ImGui::GetItemRectMin();
+            const ImVec2 CellMax = ImGui::GetItemRectMax();
+            const ImVec2 Center{ (CellMin.x + CellMax.x) * 0.5f, (CellMin.y + CellMax.y) * 0.5f };
+            e10::DrawPadlockShape(ImGui::GetWindowDrawList(), Center, 11.0f, IM_COL32(180, 180, 185, 255));
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::BeginTooltip();
+                ImGui::Text("Source Control");
+                ImGui::TextDisabled("Tracked/untracked/modified status, and lock ownership");
+                ImGui::EndTooltip();
+            }
+        }
+        ImGui::TableSetColumnIndex(1);
+        ImGui::TableHeader("Path");
+
+        // Sorted every frame (not gated on SpecsDirty like files_tab's own table) - RowsToShow is a
+        // cheap filter of an already-cached row list, re-sorting it is inexpensive even for a large
+        // pending-changes list, and this sidesteps a real staleness case files_tab doesn't have to
+        // worry about: a background scan can add/remove rows between header clicks, and those need
+        // to land in the right sorted position without the user re-clicking a header to force it.
+        if (ImGuiTableSortSpecs* SortSpecs = ImGui::TableGetSortSpecs())
+        {
+            const int  SortColumn  = SortSpecs->SpecsCount > 0 ? SortSpecs->Specs[0].ColumnIndex : 1;
+            const bool bDescending = SortSpecs->SpecsCount > 0 && SortSpecs->Specs[0].SortDirection == ImGuiSortDirection_Descending;
+            std::sort(RowsToShow.begin(), RowsToShow.end(), [SortColumn, bDescending](const sc_panel_row* A, const sc_panel_row* B) noexcept
+            {
+                const int Cmp = (SortColumn == 0) ? (SourceControlSortRank(*A) - SourceControlSortRank(*B)) : A->m_RelativePath.compare(B->m_RelativePath);
+                return bDescending ? (Cmp > 0) : (Cmp < 0);
+            });
+            SortSpecs->SpecsDirty = false;
+        }
+
+        for (auto* Row : RowsToShow)
+        {
+            ImGui::TableNextRow();
+            RenderSourceControlRowCells(Undo, AllRows, *Row);
+        }
+
+        ImGui::EndTable();
+    }
+
+    // RunQuery, not Run() - Run() treats ANY non-empty Execute() result as a routing failure and logs
+    // it as "command failed" (see E29_CommandContext.h's own Run), which is wrong for a Query command
+    // whose OWN successful result text (e.g. "Pulled", "Outcome: Published") is exactly that non-empty
+    // string. This panel needs the literal text back to decide Pull-succeeded vs. Pull-hit-a-conflict,
+    // so it calls System.Execute directly and classifies the result itself via each command's own
+    // "<Verb>: " failure-message convention (every SourceControl* command already formats its
+    // failures that way - see E29_Commands_SourceControl.h).
+    [[nodiscard]] inline std::string SourceControlRunQuery(xundo::system& Undo, const std::string& Cmd) noexcept
+    {
+        if (e29::commands::g_pConsoleLog) e29::commands::g_pConsoleLog->push_back({ Cmd, e29::commands::console_log_source::User });
+        std::string Result = Undo.Execute(Cmd);
+        if (!Result.empty() && e29::commands::g_pConsoleLog) e29::commands::g_pConsoleLog->push_back({ Result, e29::commands::console_log_source::System });
+        return Result;
+    }
+
+    // Commit flow for one changelist: Pull -> (abort on conflict) -> Commit (stage+commit+push all of
+    // this changelist's paths, grouped per library, as one real commit per library). Implements the
+    // user's confirmed "pull first, then merge, then submit, then push" order at the UI level -
+    // SourceControlCommit already stages+commits+pushes in one call, so "submit" and "push" are one
+    // step here, matching the command's own existing behavior rather than inventing a separate push.
+    inline void SourceControlCommitChangelist(xundo::system& Undo, sc_changelist& CL) noexcept
+    {
+        if (CL.m_Keys.empty() || CL.m_Comment.empty()) return;
+
+        // Group this changelist's keys by library - a commit is scoped to one repo.
+        std::unordered_map<std::string, std::vector<std::wstring>> PathsByLibraryHex; // FormatLibraryGuid -> relative paths
+        std::unordered_map<std::string, e10::library::guid> LibraryByHex;
+        for (auto& Key : CL.m_Keys)
+        {
+            const auto Sep = Key.find(L'|');
+            if (Sep == std::wstring::npos) continue;
+            const std::string LibHex = xstrtool::To(Key.substr(0, Sep));
+            const std::wstring RelPath = Key.substr(Sep + 1);
+            PathsByLibraryHex[LibHex].push_back(RelPath);
+        }
+        for (auto& Row : BuildSourceControlRows())
+        {
+            const std::string LibHex = e29::commands::FormatLibraryGuid(Row.m_Library);
+            if (PathsByLibraryHex.count(LibHex)) LibraryByHex[LibHex] = Row.m_Library;
+        }
+
+        std::string Summary;
+        for (auto& [LibHex, Paths] : PathsByLibraryHex)
+        {
+            if (!LibraryByHex.count(LibHex)) continue; // library no longer open - skip, report below
+            const auto LibraryGuidStr = LibHex;
+
+            const std::string PullResult = SourceControlRunQuery(Undo, std::format("SourceControlPull -Library {}", LibraryGuidStr));
+            if (PullResult.starts_with("SourceControlPull: "))
+            {
+                Summary += std::format("Pull failed for library {}: {} - resolve with your normal git tooling, then retry.\n", LibraryGuidStr, PullResult);
+                continue; // never auto-resolve - skip committing THIS library's paths, try the rest
+            }
+
+            std::string JoinedPaths;
+            for (auto& P : Paths) { JoinedPaths += xstrtool::To(P); JoinedPaths += '\n'; }
+            const auto PathsB64 = e29::commands::Base64Encode(JoinedPaths);
+            const auto MsgB64   = e29::commands::Base64Encode(CL.m_Comment);
+
+            const std::string CommitResult = SourceControlRunQuery(Undo, std::format("SourceControlCommit -Library {} -Paths {} -Message {}"
+                , LibraryGuidStr, PathsB64, MsgB64));
+            Summary += CommitResult + "\n";
+
+            if (!CommitResult.starts_with("SourceControlCommit: "))
+            {
+                // Committed (successfully or at least attempted, per Submit's own Outcome reporting) -
+                // these keys are no longer pending-for-this-changelist; drop them so a stale entry
+                // doesn't linger after the next Pending Changes refresh removes the underlying file.
+                for (auto& P : Paths)
+                {
+                    const auto Key = SourceControlRowKey(LibraryByHex[LibHex], P);
+                    CL.m_Keys.erase(std::remove(CL.m_Keys.begin(), CL.m_Keys.end(), Key), CL.m_Keys.end());
+                }
+            }
+
+            // Neither Pull nor Commit themselves bump SourceControlRevision() - kick a fresh scan so
+            // the Pending Changes list catches up promptly instead of waiting for the next idle period.
+            e29::source_control::LaunchSourceControlStatusScan(e29::commands::ResolveLibraryRootPath(LibraryByHex[LibHex]));
+        }
+
+        g_SourceControlPanel.m_StatusLine = Summary;
+    }
+
+    void RenderSourceControlPanel(xundo::system& Undo) noexcept
+    {
+        auto& S = g_SourceControlPanel;
+
+        ImGui::SetNextWindowSize(ImVec2(760, 320), ImGuiCond_FirstUseEver);
+        const bool bVisible = ImGui::Begin(e29::editor_tabs::kSourceControlWindow);
+        if (!bVisible) { ImGui::End(); return; }
+
+        // Rebuild only when a background scan actually published something new - see
+        // source_control_panel_state::m_CachedRows' own comment. BuildSourceControlRows() copies both
+        // caches' contents out from under a mutex for every open library, then formats/sorts them
+        // into rows - real, non-trivial work that has no reason to repeat 60 times a second.
+        const std::uint64_t CurrentRevision = e10::source_control::SourceControlRevision().load(std::memory_order_relaxed);
+        if (S.m_LastAppliedRevision != CurrentRevision)
+        {
+            S.m_CachedRows = BuildSourceControlRows();
+            S.m_LastAppliedRevision = CurrentRevision;
+        }
+        const auto& Rows = S.m_CachedRows;
+
+        if (ImGui::Button("Pull All"))
+        {
+            for (auto& Lib : e10::g_LibMgr.m_mLibraryDB)
+            {
+                S.m_StatusLine = SourceControlRunQuery(Undo, std::format("SourceControlPull -Library {}", e29::commands::FormatLibraryGuid(Lib.first)));
+                e29::source_control::LaunchSourceControlStatusScan(Lib.second->m_Library.m_Path); // Pull doesn't itself bump the revision - kick a fresh scan so the list catches up promptly
+            }
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("%zu pending change(s) across %zu open library/ies", Rows.size(), (std::size_t)e10::g_LibMgr.m_mLibraryDB.size());
+
+        const float TotalWidth = ImGui::GetContentRegionAvail().x;
+        const float LeftWidth  = TotalWidth * 0.55f;
+
+        ImGui::BeginChild("SCPending", ImVec2(LeftWidth, -ImGui::GetFrameHeightWithSpacing()), true);
+        ImGui::TextUnformatted("Pending Changes");
+        {
+            // TEMP diagnostic (2026-09-17) - edge-print only (not every frame) so we can confirm
+            // whether the RENDER loop ever actually observes IsScanInProgress()==true at all.
+            static bool bWasScanning = false;
+            const bool bIsScanning = e29::source_control::IsScanInProgress();
+            if (bIsScanning != bWasScanning)
+            {
+                std::printf("[SC] panel observed IsScanInProgress() -> %s at t=%.3f\n", bIsScanning ? "true" : "false", ImGui::GetTime());
+                std::fflush(stdout);
+                bWasScanning = bIsScanning;
+            }
+        }
+        if (e29::source_control::IsScanInProgress())
+            S.m_SpinnerVisibleUntil = ImGui::GetTime() + 0.4; // keep bumping forward while genuinely scanning
+        if (ImGui::GetTime() < S.m_SpinnerVisibleUntil)
+        {
+            // Direct user request: without this, nothing on screen distinguishes "scan finished,
+            // this IS the whole list" from "still filling in" - the chunked/parallel scan (previous
+            // phase) means the list can legitimately grow for a little while after the tab opens.
+            // The 0.4s floor above (not just a raw IsScanInProgress() check) matters in practice: a
+            // scan of a small repo can start and finish inside one frame, and without a minimum
+            // visible duration the spinner would never actually be seen even though it ran for real.
+            ImGui::SameLine();
+            const float LineH = ImGui::GetTextLineHeight();
+            const float R     = LineH * 0.55f; // real, always-visible size - see DrawLoadingSpinner's own comment on the sizing bug this replaces
+            const ImVec2 CursorPos = ImGui::GetCursorScreenPos();
+            const ImVec2 Center{ CursorPos.x + R, CursorPos.y + LineH * 0.5f };
+            DrawLoadingSpinner(ImGui::GetWindowDrawList(), Center, R, IM_COL32(230, 180, 60, 255));
+            ImGui::Dummy(ImVec2(R * 2.0f + 4.0f, LineH));
+            if (ImGui::IsItemHovered())
+            {
+                ImGui::BeginTooltip();
+                ImGui::Text("Scanning for changes...");
+                ImGui::TextDisabled("The list below may still be filling in.");
+                ImGui::EndTooltip();
+            }
+        }
+        {
+            std::vector<const sc_panel_row*> PendingRows;
+            for (auto& Row : Rows)
+                if (SourceControlChangelistOf(Row.m_Key) <= 0) PendingRows.push_back(&Row); // not yet in another changelist
+            RenderSourceControlTable(Undo, Rows, std::move(PendingRows), "SCPendingTable");
+        }
+        ImGui::EndChild();
+
+        ImGui::SameLine();
+
+        ImGui::BeginChild("SCChangelists", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), true);
+        ImGui::TextUnformatted("Changelists");
+        ImGui::Separator();
+        for (std::size_t i = 0; i < S.m_Changelists.size(); ++i)
+        {
+            ImGui::PushID(static_cast<int>(i));
+            const bool bSelected = (S.m_ActiveChangelist == static_cast<int>(i));
+            if (ImGui::Selectable(std::format("{} ({})", S.m_Changelists[i].m_Name, S.m_Changelists[i].m_Keys.size()).c_str(), bSelected))
+                S.m_ActiveChangelist = static_cast<int>(i);
+            ImGui::PopID();
+        }
+
+        ImGui::InputTextWithHint("##NewChangelist", "New changelist name...", S.m_NewChangelistName, sizeof(S.m_NewChangelistName));
+        ImGui::SameLine();
+        if (ImGui::Button("+ New") && S.m_NewChangelistName[0] != '\0')
+        {
+            S.m_Changelists.push_back(sc_changelist{ S.m_NewChangelistName, "", {} });
+            S.m_NewChangelistName[0] = '\0';
+        }
+
+        ImGui::Separator();
+
+        if (S.m_ActiveChangelist >= 0 && S.m_ActiveChangelist < static_cast<int>(S.m_Changelists.size()))
+        {
+            auto& CL = S.m_Changelists[S.m_ActiveChangelist];
+
+            // Comment + Commit sit ABOVE the file list (direct user request) - the file list below
+            // then stretches to fill whatever's left, maximizing its use of the tab's space instead of
+            // being capped at a fixed height.
+            char CommentBuf[4096];
+            std::snprintf(CommentBuf, sizeof(CommentBuf), "%s", CL.m_Comment.c_str());
+            if (ImGui::InputTextMultiline("##SCComment", CommentBuf, sizeof(CommentBuf), ImVec2(-1.0f, 60)))
+                CL.m_Comment = CommentBuf;
+
+            const bool bCanCommit = !CL.m_Keys.empty() && !CL.m_Comment.empty();
+            if (!bCanCommit) ImGui::BeginDisabled();
+            if (ImGui::Button("Commit && Push"))
+                SourceControlCommitChangelist(Undo, CL);
+            if (!bCanCommit) ImGui::EndDisabled();
+
+            if (!S.m_StatusLine.empty())
+                ImGui::TextWrapped("%s", S.m_StatusLine.c_str());
+
+            ImGui::Separator();
+            ImGui::TextDisabled("Files in \"%s\":", CL.m_Name.c_str());
+            // Size (0,0): the last element in this child, so it fills every remaining pixel down to
+            // the bottom of the tab rather than a fixed height.
+            ImGui::BeginChild("SCChangelistFiles", ImVec2(0, 0), true);
+            {
+                // Default (index 0) never actually populates its own m_Keys (see
+                // SourceControlAssignToChangelist's own comment) - "in Default" means "not in any
+                // OTHER changelist", the same predicate the Pending Changes list above uses.
+                std::vector<const sc_panel_row*> ChangelistRows;
+                for (auto& Row : Rows)
+                {
+                    const bool bInThisOne = (S.m_ActiveChangelist == 0)
+                        ? (SourceControlChangelistOf(Row.m_Key) <= 0)
+                        : (std::find(CL.m_Keys.begin(), CL.m_Keys.end(), Row.m_Key) != CL.m_Keys.end());
+                    if (bInThisOne) ChangelistRows.push_back(&Row);
+                }
+                RenderSourceControlTable(Undo, Rows, std::move(ChangelistRows), "SCChangelistTable");
+            }
+            ImGui::EndChild();
+        }
+        ImGui::EndChild();
+
+        ImGui::End();
+    }
+}
+
+#endif // E29_PANEL_SOURCE_CONTROL_H

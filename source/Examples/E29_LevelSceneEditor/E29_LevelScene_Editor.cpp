@@ -15,6 +15,7 @@
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetFiles.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_MakePrefab.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Compilation.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SourceControl.h"
 #include "source/Examples/E29_LevelSceneEditor/kit/E29_IdleWork.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_Theme.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_EditorTabs.h"
@@ -427,6 +428,16 @@ int E29_Example()
     e29::commands::compile_auto_query_cmd     CmdCompileAuto(E29Undo, &CmdContext);
     e29::commands::compile_status_query_cmd   CmdCompileStatus(E29Undo, &CmdContext);
     e29::commands::run_sanity_check_query_cmd CmdRunSanityCheck(E29Undo, &CmdContext);
+    e29::commands::source_control_status_query_cmd  CmdSourceControlStatus(E29Undo, &CmdContext);
+    e29::commands::source_control_refresh_query_cmd CmdSourceControlRefresh(E29Undo, &CmdContext);
+    e29::commands::source_control_list_locks_query_cmd CmdSourceControlListLocks(E29Undo, &CmdContext);
+    e29::commands::source_control_lock_query_cmd    CmdSourceControlLock(E29Undo, &CmdContext);
+    e29::commands::source_control_unlock_query_cmd  CmdSourceControlUnlock(E29Undo, &CmdContext);
+    e29::commands::source_control_revert_query_cmd  CmdSourceControlRevert(E29Undo, &CmdContext);
+    e29::commands::source_control_stage_query_cmd   CmdSourceControlStage(E29Undo, &CmdContext);
+    e29::commands::source_control_commit_query_cmd  CmdSourceControlCommit(E29Undo, &CmdContext);
+    e29::commands::source_control_pull_query_cmd    CmdSourceControlPull(E29Undo, &CmdContext);
+    e29::commands::source_control_push_query_cmd    CmdSourceControlPush(E29Undo, &CmdContext);
     e29::idle_work_state                  IdleWork;
     xundo::history                        E29History;
     E29History.AddSystem("E29", 1, E29Undo);
@@ -482,6 +493,89 @@ int E29_Example()
     e29::WireResourcePickerCallbacks(EntityInspector);
     InspectorBridge.RegisterCallbacks(EntityInspector, *pGameMgr, State, E29Undo);
     e29::RegisterAssetBrowserCallbacks(AsserBrowser, E29Undo, MainWindow);
+
+    // Source Control status/lock badges (Phase 3) - wired directly here rather than inside
+    // RegisterAssetBrowserCallbacks (kit/E29_LevelSceneEditorKit.h): that function is defined in a
+    // header included FIRST in this .cpp, before commands/E29_Commands_SourceControl.h and
+    // plugins/source_control/E29_SourceControlStatus.h are - a lambda body referencing their
+    // symbols from inside that header would fail to compile. This call site, further down the
+    // .cpp, is past every needed include.
+    //
+    // Two separate hooks, not one combined value (direct user design decision, see
+    // asset_status_badge/asset_lock_badge's own comment in E10_AssetBrowser.h): a file can be both
+    // modified AND locked by you at once, and the lock signal must stay visible either way.
+    AsserBrowser.m_OnGetAssetStatusBadge = [](e10::library::guid LibraryGuid, const std::wstring& RelativePath) -> int
+    {
+        const auto RootPath = e29::commands::ResolveLibraryRootPath(LibraryGuid);
+        if (RootPath.empty()) return static_cast<int>(e10::asset_status_badge::None);
+
+        // Untracked (new, not yet known to source control) vs Modified (tracked, has changes) -
+        // direct user distinction: "usually most editors have a small + signifying a new file...
+        // the dot does usually mean modified". GetCachedFileStatus only ever holds entries git
+        // itself reported as changed (see its own comment) - a path present here but with neither
+        // flag set (e.g. staged-only) still reads as Modified, matching "not clean" being the
+        // meaningful signal for those.
+        if (auto Status = e10::source_control::GetCachedFileStatus(RootPath, RelativePath))
+            return static_cast<int>(Status->untracked ? e10::asset_status_badge::Untracked : e10::asset_status_badge::Modified);
+
+        // Not in the changed-files cache: Clean if this root has actually been scanned at least
+        // once, None (draw nothing) if it hasn't - GetLastRefreshTime is the only way to tell
+        // "checked, all good" apart from "haven't checked yet" (see asset_status_badge's own
+        // comment on why None and Clean are different values, not the same thing).
+        return static_cast<int>(e10::source_control::GetLastRefreshTime(RootPath)
+            ? e10::asset_status_badge::Clean : e10::asset_status_badge::None);
+    };
+
+    AsserBrowser.m_OnGetAssetLockBadge = [](e10::library::guid LibraryGuid, const std::wstring& RelativePath) -> int
+    {
+        const auto RootPath = e29::commands::ResolveLibraryRootPath(LibraryGuid);
+        if (RootPath.empty()) return static_cast<int>(e10::asset_lock_badge::None);
+
+        if (auto Lock = e10::source_control::GetCachedLockStatus(RootPath, RelativePath))
+        {
+            return static_cast<int>(Lock->ownership == sc::LockOwnership::CurrentUser
+                ? e10::asset_lock_badge::LockedByMe : e10::asset_lock_badge::LockedByOther);
+        }
+        return static_cast<int>(e10::asset_lock_badge::None);
+    };
+
+    AsserBrowser.m_OnGetSourceControlRevision = []() -> std::uint64_t
+    {
+        return e10::source_control::SourceControlRevision().load(std::memory_order_relaxed);
+    };
+
+    // Lock-before-edit gating (Phase 4B). Always calls PrepareEdit rather than pre-filtering with the
+    // status cache: PrepareEdit already runs BatchIsLfsTracked internally and reports success
+    // trivially for a non-LFS/text file (see sc_git_lfs_provider.hpp's own PrepareEdit), so there's no
+    // separate "is this even lockable" check to duplicate here - one call already covers both "not
+    // lockable" and "lockable and I got/kept the lock" as success, and only "lockable but someone else
+    // holds it" (or another Require failure) as the one real refusal case files_tab needs to ask about.
+    AsserBrowser.m_OnBeforeOpenAssetFile = [](e10::library::guid LibraryGuid, const std::wstring& RelativePath) -> bool
+    {
+        const auto RootPath = e29::commands::ResolveLibraryRootPath(LibraryGuid);
+        if (RootPath.empty()) return true; // not a recognized library - nothing to gate
+
+        auto* pWorkspace = e29::source_control::GetOrCreateWorkspace(RootPath);
+        if (!pWorkspace) return true; // not a git working tree
+
+        sc::PrepareEditRequest Request;
+        Request.paths = { sc::WorkspacePath{ RelativePath } };
+        Request.policy.lockRequirement = sc::LockRequirement::Require;
+
+        const auto Result = pWorkspace->PrepareEdit(Request);
+        if (Result.files.empty()) return true; // shouldn't happen - fail open rather than block
+        return Result.files.front().OperationSucceeded();
+    };
+
+    // Demand-driven scan priority (direct user request, 2026-09-17): when the Asset Tree navigates
+    // to a real folder, that folder's status/lock data is requested at HIGH priority right away,
+    // rather than waiting for its turn in the idle-triggered background sweep.
+    AsserBrowser.m_OnFolderNavigated = [](e10::library::guid LibraryGuid, const std::wstring& RelativeFolderPath)
+    {
+        const auto RootPath = e29::commands::ResolveLibraryRootPath(LibraryGuid);
+        if (RootPath.empty()) return;
+        e29::source_control::RequestPriorityScan(RootPath, RelativeFolderPath);
+    };
 
     //
     // Main Loop
@@ -606,6 +700,7 @@ int E29_Example()
         }
         if (pGameMgr)
             e29::PumpIdleWork(IdleWork, *pGameMgr, State);
+        e29::source_control::PumpSourceControlIdleWork(IdleWork);
 
         auto RenderParentEditorToolbar = [&]()
         {
@@ -1136,6 +1231,8 @@ int E29_Example()
         e29::editor_tabs::SetNextParentEditorToolClass();
         e29::DrawCommandConsolePanel(E29History, ConsoleLog);
         e29::diagnostics::Log("frame %llu command console render end", static_cast<unsigned long long>(FrameNumber));
+        e29::editor_tabs::SetNextParentEditorToolClass();
+        e29::RenderSourceControlPanel(E29Undo);
 
         }
 

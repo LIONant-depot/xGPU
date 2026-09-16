@@ -72,7 +72,8 @@ namespace e10
             const ImVec2 P0   = ImGui::GetCursorScreenPos();
             DrawFolderIconAt(P0, Size, bEmpty);
             ImGui::Dummy(ImVec2(Size, Size));
-            ImGui::SameLine(0.0f, 2.0f);
+            // One actual space character's width, not an arbitrary pixel gap - direct user request.
+            ImGui::SameLine(0.0f, ImGui::CalcTextSize(" ").x);
         }
 
         // For tree rows: TreeNodeEx draws its own arrow + label as one atomic call, so the icon can't
@@ -133,6 +134,20 @@ namespace e10
             }
         }
 
+        // Lock-before-edit gating (Phase 4B) - runs m_Browser.m_OnBeforeOpenAssetFile (default-empty,
+        // so every consumer that never wires source control in opens exactly as before) before
+        // actually handing the file to the OS. A refusal doesn't just drop the open - it defers to
+        // RenderPendingOpenConfirmModal so the user can still choose to open read-only anyway.
+        void TryOpenFile(const std::filesystem::path& FullPath, const std::wstring& RelativePath) noexcept
+        {
+            if (!m_Browser.m_OnBeforeOpenAssetFile || m_Browser.m_OnBeforeOpenAssetFile(m_SelectedLibrary, RelativePath))
+            {
+                OpenFileWithDefaultApp(FullPath);
+                return;
+            }
+            m_PendingOpenConfirm = pending_open_confirm{ FullPath };
+        }
+
         // Whether Ancestor is Target itself or a proper prefix of it (component-wise, not substring) -
         // used to decide which tree nodes to force-open so a history/breadcrumb jump is visible in the
         // tree, mirroring virtual_tree_tab's own OpenLeftTreeTo.
@@ -176,7 +191,21 @@ namespace e10
         // for one file, but still real work), and re-running it 60 times a second per visible row would
         // reintroduce exactly the kind of unnecessary per-frame cost this cache was built to eliminate.
         // Files only (folders stay 0, unbadged) - matches the existing hover-tooltip's own file-only scope.
-        struct file_entry { std::wstring m_Name; bool m_bDirectory; std::uintmax_t m_Size; std::filesystem::file_time_type m_LastWriteTime; std::size_t m_DependentCount = 0; };
+        //
+        // m_StatusBadge/m_LockBadge (source control) went through two wrong designs before landing
+        // here: caching them only at folder-rebuild time (like m_DependentCount) reproduced real,
+        // confusing staleness during testing (a lock that had genuinely changed kept showing stale
+        // until the folder was re-entered) - because unlike m_DependentCount, source-control state
+        // changes on its OWN schedule (the idle-refreshed background scan), which this tab had no
+        // way to know just happened. Recomputing them fresh every frame instead fixed the staleness
+        // but was rightly rejected too - "there is no reason to sync the FPS of the editor with the
+        // computation of the badges." The actual fix: batch-recompute for every cached entry, but
+        // ONLY when m_Browser.m_OnGetSourceControlRevision() (backed by e10::source_control::
+        // SourceControlRevision(), bumped once per completed
+        // background scan) has actually changed since the last time this tab applied it - see
+        // RightPanel()'s own m_LastAppliedSourceControlRevision check. Decoupled from both frame
+        // rate AND folder navigation; reacts to the real event (a scan finishing), nothing else.
+        struct file_entry { std::wstring m_Name; bool m_bDirectory; std::uintmax_t m_Size; std::filesystem::file_time_type m_LastWriteTime; std::size_t m_DependentCount = 0; e10::asset_status_badge m_StatusBadge = e10::asset_status_badge::None; e10::asset_lock_badge m_LockBadge = e10::asset_lock_badge::None; };
 
         void UpdateHistoryLRU() noexcept
         {
@@ -205,6 +234,7 @@ namespace e10
             {
                 ClearMultiSelect();
                 m_bEntriesCacheDirty = true;
+                if (m_Browser.m_OnFolderNavigated) m_Browser.m_OnFolderNavigated(Cur.m_gLibrary, ToLibraryRelPath(Cur.m_Folder));
             }
 
             m_SelectedLibrary = Cur.m_gLibrary;
@@ -345,6 +375,43 @@ namespace e10
             return (std::filesystem::path(L"Assets") / RelToAssets).wstring();
         }
 
+        // Recomputes ONE row's source-control badges - called only from RightPanel()'s own batch
+        // refresh (revision-gated, see file_entry's own comment), never per-frame. Folders always
+        // report None/None (no git status of their own worth showing).
+        void GetSourceControlBadges(const file_entry& E, e10::asset_status_badge& OutStatus, e10::asset_lock_badge& OutLock) const noexcept
+        {
+            OutStatus = e10::asset_status_badge::None;
+            OutLock   = e10::asset_lock_badge::None;
+            if (E.m_bDirectory || m_bBrowsingTrash) return;
+
+            const std::wstring RelPath = ToLibraryRelPath(m_SelectedFolder / E.m_Name);
+            if (m_Browser.m_OnGetAssetStatusBadge) OutStatus = static_cast<e10::asset_status_badge>(m_Browser.m_OnGetAssetStatusBadge(m_SelectedLibrary, RelPath));
+            if (m_Browser.m_OnGetAssetLockBadge)   OutLock   = static_cast<e10::asset_lock_badge>(m_Browser.m_OnGetAssetLockBadge(m_SelectedLibrary, RelPath));
+        }
+
+        // Sort priority for the SC column - direct user-specified order: untracked, modified,
+        // locked+modified (gold), locked-by-other (red), clean, locked+clean (green), then nothing.
+        // Reads the already-batch-refreshed E.m_StatusBadge/m_LockBadge - NOT a fresh lookup (this
+        // runs inside std::sort's own comparator, potentially many times per sort).
+        static int SourceControlSortRank(const file_entry& E) noexcept
+        {
+            const auto Status = E.m_StatusBadge;
+            const auto Lock   = E.m_LockBadge;
+
+            if (Lock == e10::asset_lock_badge::None)
+            {
+                switch (Status)
+                {
+                    case e10::asset_status_badge::Untracked: return 0;
+                    case e10::asset_status_badge::Modified:  return 1;
+                    case e10::asset_status_badge::Clean:     return 4;
+                    default:                                 return 6; // None
+                }
+            }
+            if (Lock == e10::asset_lock_badge::LockedByOther) return 3;
+            return (Status == e10::asset_status_badge::Modified) ? 2 : 5; // LockedByMe: gold vs green
+        }
+
         // Every mutation takes an EXPLICIT LibraryGuid rather than assuming m_SelectedLibrary (the
         // library currently open in the RIGHT panel) - the LEFT tree browses every open library at
         // once, so a rename/cut/paste/drop started from a tree row belonging to a DIFFERENT library
@@ -422,6 +489,11 @@ namespace e10
         // Move/Rename.
         struct pending_item { library::guid m_Library; std::wstring m_Old; std::wstring m_New; };
         struct pending_confirmation { std::vector<pending_item> m_Items; std::size_t m_DependentCount; };
+
+        // Set when m_Browser.m_OnBeforeOpenAssetFile refuses a double-click-to-open (e.g. the file is
+        // locked by someone else) - m_FullPath is what OpenFileWithDefaultApp would have received, kept
+        // as-is so "open anyway" doesn't need to re-derive it from a possibly-stale selection.
+        struct pending_open_confirm { std::filesystem::path m_FullPath; };
 
         // Distinguishes "ran right away and every item succeeded" from "ran right away but something
         // failed" - a real bug found live: PasteClipboardInto used to spend the cut clipboard on ANY
@@ -565,6 +637,38 @@ namespace e10
                     if (ImGui::Button("Cancel", ImVec2(120, 0)))
                     {
                         m_PendingConfirmation.reset();
+                        ImGui::CloseCurrentPopup();
+                    }
+                }
+                ImGui::EndPopup();
+            }
+        }
+
+        // Same "called every frame from LeftPanel()" shape as RenderPendingConfirmationModal, for the
+        // same reason - this modal must keep rendering across frames until answered, regardless of
+        // what the right panel is currently showing (Phase 4B - lock-before-edit gating).
+        void RenderPendingOpenConfirmModal() noexcept
+        {
+            if (m_PendingOpenConfirm.has_value())
+                ImGui::OpenPopup("File Locked");
+
+            if (ImGui::BeginPopupModal("File Locked", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+            {
+                if (m_PendingOpenConfirm.has_value())
+                {
+                    ImGui::Text("This file appears to be locked by someone else, or could not be\nlocked for editing. Opening it now means your changes may not be\nmergeable later.");
+                    ImGui::Separator();
+                    if (ImGui::Button("Open Anyway (Read-Only)", ImVec2(220, 0)))
+                    {
+                        OpenFileWithDefaultApp(m_PendingOpenConfirm->m_FullPath);
+                        m_PendingOpenConfirm.reset();
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::SetItemDefaultFocus();
+                    ImGui::SameLine();
+                    if (ImGui::Button("Cancel", ImVec2(120, 0)))
+                    {
+                        m_PendingOpenConfirm.reset();
                         ImGui::CloseCurrentPopup();
                     }
                 }
@@ -1067,6 +1171,7 @@ namespace e10
             // LeftPanel(), unlike RightPanel(), never early-returns - the one reliable place to render
             // this every frame regardless of what's currently selected.
             RenderPendingConfirmationModal();
+            RenderPendingOpenConfirmModal();
 
             // Trash browsing (direct user correction: keep this consistent with virtual_tree_tab, where
             // trash is a normal CHILD node of the root - not a separate top-of-panel mode toggle, which
@@ -1343,6 +1448,7 @@ namespace e10
                         const bool bDir = It.is_directory(TypeEc) && !TypeEc;
                         const std::size_t DependentCount = (bDir || m_bBrowsingTrash) ? 0
                             : m_AssetMgr.CountDependents(m_SelectedLibrary, ToLibraryRelPath(m_SelectedFolder / It.path().filename()));
+
                         m_CachedEntries.push_back({ It.path().filename().wstring(), bDir, bDir ? 0 : It.file_size(SizeEc), It.last_write_time(TimeEc), DependentCount });
                     }
                     // Sorted below, once the table's own sort specs (persisted per-table by ImGui
@@ -1352,6 +1458,25 @@ namespace e10
                     bFreshlyRebuilt       = true;
                 }
                 std::vector<file_entry>& Entries = m_CachedEntries;
+
+                // Batch-refresh source-control badges - ONLY when the background scan has actually
+                // produced new data since we last applied it (revision check, see file_entry's own
+                // comment for the full reasoning), or right after a fresh folder rebuild (new
+                // entries need their initial badge applied at least once, not left at their
+                // just-constructed None/None default until the next scan completes, which could be
+                // up to 30s away). One pass over every cached entry, not per-frame, not per-row.
+                // m_OnGetSourceControlRevision (optional, like the two badge hooks themselves) is
+                // how this stays provider-agnostic - this shared file has no business knowing
+                // e29::source_control exists; unset means "no revision signal available", which
+                // this simplifies to "only refresh on folder rebuild", same as m_DependentCount's
+                // own behavior, for every consumer that never wires source control in at all.
+                const std::uint64_t CurrentRevision = m_Browser.m_OnGetSourceControlRevision ? m_Browser.m_OnGetSourceControlRevision() : m_LastAppliedSourceControlRevision;
+                if (bFreshlyRebuilt || m_LastAppliedSourceControlRevision != CurrentRevision)
+                {
+                    for (auto& E : m_CachedEntries)
+                        GetSourceControlBadges(E, E.m_StatusBadge, E.m_LockBadge);
+                    m_LastAppliedSourceControlRevision = CurrentRevision;
+                }
 
                 // Keyboard shortcuts (5B) - only while this window has focus and nothing else (like the
                 // rename InputText itself) is the active widget, so typing "x"/"c"/"v" while renaming
@@ -1365,13 +1490,51 @@ namespace e10
                 // per-column sort flags give the "Name"/"Size"/"Date Modified" headers real Explorer-
                 // style sort arrows - direct user request (the "Date Modified" column itself is also a
                 // direct user request, "like explorer").
-                if (ImGui::BeginTable("Files", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersV | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable, ImGui::GetContentRegionAvail()))
+                if (ImGui::BeginTable("Files", 4, ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersV | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable, ImGui::GetContentRegionAvail()))
                 {
                     ImGui::TableSetupScrollFreeze(0, 1);
-                    ImGui::TableSetupColumn("Name",          ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_PreferSortAscending);
+                    // Source control - LEFTMOST (direct user correction, was originally placed at the
+                    // far right), fixed width sized to exactly fit one badge (~16px: the original
+                    // 20px tight-fit width, then reduced 20% further by direct user request) and NOT
+                    // user-resizable - NoResize alone still allows sort clicks on the header, unlike
+                    // disabling the column's own sort flag. "##SC" (## prefix hides the literal text,
+                    // matching ImGui's own id-vs-label convention) - the header shows a small drawn
+                    // padlock icon instead of a text label, rendered manually below instead of via
+                    // TableHeadersRow(), same "no font glyph" primitive-drawing discipline as the row
+                    // badges themselves. Sortable with a custom priority order (direct user spec):
+                    // untracked, modified, locked+modified(gold), locked-by-other(red), clean,
+                    // locked+clean(green), then nothing - see SourceControlSortRank below, which the
+                    // sort switch calls for this column instead of a plain field comparison.
+                    ImGui::TableSetupColumn("##SC",          ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize | ImGuiTableColumnFlags_PreferSortAscending, 8.0f);
+                    ImGui::TableSetupColumn("Name",          ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_PreferSortAscending);
                     ImGui::TableSetupColumn("Size",          ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortAscending, 90.0f);
-                    ImGui::TableSetupColumn("Date Modified", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_PreferSortDescending, 160.0f);
-                    ImGui::TableHeadersRow();
+                    // Default sort column - direct user request (was "Name").
+                    ImGui::TableSetupColumn("Date Modified", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_DefaultSort | ImGuiTableColumnFlags_PreferSortDescending, 160.0f);
+
+                    // Manual header row instead of a plain TableHeadersRow() - only the SC column
+                    // needs custom content (an icon instead of text); the other three still get
+                    // ImGui's own standard clickable/sortable header cell via TableHeader().
+                    ImGui::TableNextRow(ImGuiTableRowFlags_Headers);
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::TableHeader("##SC");
+                    {
+                        const ImVec2 CellMin = ImGui::GetItemRectMin();
+                        const ImVec2 CellMax = ImGui::GetItemRectMax();
+                        const ImVec2 Center{ (CellMin.x + CellMax.x) * 0.5f, (CellMin.y + CellMax.y) * 0.5f };
+                        e10::DrawPadlockShape(ImGui::GetWindowDrawList(), Center, 11.0f, IM_COL32(180, 180, 185, 255)); // neutral grey - just a generic "source control" marker
+                        if (ImGui::IsItemHovered())
+                        {
+                            ImGui::BeginTooltip();
+                            ImGui::Text("Source Control");
+                            ImGui::TextDisabled("Tracked/untracked/modified status, and lock ownership");
+                            ImGui::EndTooltip();
+                        }
+                    }
+                    for (int Col = 1; Col < 4; ++Col)
+                    {
+                        ImGui::TableSetColumnIndex(Col);
+                        ImGui::TableHeader(ImGui::TableGetColumnName(Col));
+                    }
 
                     // Folders always cluster first regardless of sort column (matches Explorer); within
                     // each cluster, sort by whichever column/direction the user clicked. Re-sort on an
@@ -1386,15 +1549,16 @@ namespace e10
                             const int  SortColumn  = SortSpecs->SpecsCount > 0 ? SortSpecs->Specs[0].ColumnIndex : 0;
                             const bool bDescending = SortSpecs->SpecsCount > 0 && SortSpecs->Specs[0].SortDirection == ImGuiSortDirection_Descending;
 
-                            std::sort(Entries.begin(), Entries.end(), [SortColumn, bDescending](const file_entry& A, const file_entry& B) noexcept
+                            std::sort(Entries.begin(), Entries.end(), [this, SortColumn, bDescending](const file_entry& A, const file_entry& B) noexcept
                             {
                                 if (A.m_bDirectory != B.m_bDirectory) return A.m_bDirectory > B.m_bDirectory; // folders first, always
 
                                 int Cmp;
                                 switch (SortColumn)
                                 {
-                                    case 1:  Cmp = (A.m_Size < B.m_Size) ? -1 : (A.m_Size > B.m_Size ? 1 : 0); break;
-                                    case 2:  Cmp = (A.m_LastWriteTime < B.m_LastWriteTime) ? -1 : (A.m_LastWriteTime > B.m_LastWriteTime ? 1 : 0); break;
+                                    case 0:  Cmp = SourceControlSortRank(A) - SourceControlSortRank(B); break;
+                                    case 2:  Cmp = (A.m_Size < B.m_Size) ? -1 : (A.m_Size > B.m_Size ? 1 : 0); break;
+                                    case 3:  Cmp = (A.m_LastWriteTime < B.m_LastWriteTime) ? -1 : (A.m_LastWriteTime > B.m_LastWriteTime ? 1 : 0); break;
                                     default: Cmp = A.m_Name.compare(B.m_Name); break;
                                 }
                                 return bDescending ? (Cmp > 0) : (Cmp < 0);
@@ -1437,7 +1601,39 @@ namespace e10
                     {
                         ImGui::PushID(E.m_Name.c_str());
                         ImGui::TableNextRow();
+
+                        // Source control - LEFTMOST column, reading the already-batch-refreshed
+                        // E.m_StatusBadge/m_LockBadge (see file_entry's own comment - NOT a fresh
+                        // per-frame lookup). No Selectable/click target here - this column is
+                        // display-only - but an InvisibleButton reserves a hoverable region the same
+                        // size as the cell so a tooltip can explain the icon, matching the transport
+                        // buttons' own tooltip formatting (E29_LevelScene_Editor.cpp: a plain Text
+                        // title line + a TextDisabled description line, direct user reference).
                         ImGui::TableSetColumnIndex(0);
+                        if (E.m_StatusBadge != e10::asset_status_badge::None || E.m_LockBadge != e10::asset_lock_badge::None)
+                        {
+                            const ImVec2 CellMin = ImGui::GetCursorScreenPos();
+                            const float  RowH    = ImGui::GetTextLineHeight();
+                            constexpr float BadgeSize = 11.0f; // matches the header icon's own size
+                            e10::DrawSourceControlBadge(ImGui::GetWindowDrawList(),
+                                { CellMin.x + BadgeSize * 0.5f, CellMin.y + RowH * 0.5f }, BadgeSize, E.m_StatusBadge, E.m_LockBadge);
+
+                            ImGui::InvisibleButton("##SCHover", ImVec2(ImGui::GetContentRegionAvail().x, RowH));
+                            if (ImGui::IsItemHovered())
+                            {
+                                const char* Title; const char* Desc;
+                                e10::GetSourceControlTooltipText(E.m_StatusBadge, E.m_LockBadge, Title, Desc);
+                                if (Title)
+                                {
+                                    ImGui::BeginTooltip();
+                                    ImGui::Text("%s", Title);
+                                    ImGui::TextDisabled("%s", Desc);
+                                    ImGui::EndTooltip();
+                                }
+                            }
+                        }
+
+                        ImGui::TableSetColumnIndex(1);
 
                         const std::string Name           = xstrtool::To(E.m_Name);
                         const bool        bMultiSelected = m_MultiSelected.contains(E.m_Name);
@@ -1448,7 +1644,7 @@ namespace e10
                         {
                             const bool bEmpty = IsFolderEmpty(FullPath / E.m_Name);
                             DrawFolderIcon(bEmpty);
-                            if (!bIsRenamingThis) ImGui::PushStyleColor(ImGuiCol_Text, bEmpty ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled) : ImVec4(1.0f, 0.85f, 0.4f, 1.0f));
+                            if (!bIsRenamingThis) ImGui::PushStyleColor(ImGuiCol_Text, bEmpty ? ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled) : ImVec4(1.0f, 1.0f, 1.0f, 1.0f)); // white - direct user request
                         }
 
                         if (bIsRenamingThis)
@@ -1501,7 +1697,7 @@ namespace e10
                                 if (ImGui::Selectable(Name.c_str(), bMultiSelected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick))
                                 {
                                     if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                                        OpenFileWithDefaultApp(FullPath / E.m_Name);
+                                        TryOpenFile(FullPath / E.m_Name, ToLibraryRelPath(m_SelectedFolder / E.m_Name));
                                     else
                                         HandleRowClick(SortedNames, E.m_Name);
                                 }
@@ -1645,14 +1841,14 @@ namespace e10
 
                         if (E.m_bDirectory && !bIsRenamingThis) ImGui::PopStyleColor();
 
-                        ImGui::TableSetColumnIndex(1);
+                        ImGui::TableSetColumnIndex(2);
                         if (!E.m_bDirectory) ImGui::Text("%llu", static_cast<unsigned long long>(E.m_Size));
 
                         // Date Modified - direct user request, "like explorer". Reuses this codebase's
                         // own existing ConvertToStdTime helper (E10_AssetMgr.h) for consistency with
                         // the Virtual Tree's own descriptor-timestamp display, just a shorter format
                         // (no seconds/timezone) matching Explorer's own compact column.
-                        ImGui::TableSetColumnIndex(2);
+                        ImGui::TableSetColumnIndex(3);
                         ImGui::Text("%s", std::format("{:%m/%d/%Y %I:%M %p}", e10::ConvertToStdTime(E.m_LastWriteTime)).c_str());
                         ImGui::PopID();
                     }
@@ -1741,10 +1937,18 @@ namespace e10
         std::vector<file_entry>               m_CachedEntries       = {};
         std::filesystem::path                 m_CachedEntriesFolder = {};
         bool                                  m_bEntriesCacheDirty  = true;
+        // (std::uint64_t)-1 so the very first RightPanel() call always applies badges at least
+        // once, even before any real scan has bumped the revision past 0 - see file_entry's own
+        // comment and RightPanel()'s revision-check for the full reasoning.
+        std::uint64_t                         m_LastAppliedSourceControlRevision = static_cast<std::uint64_t>(-1);
 
         // Descriptor-impact confirmation (5E) - see StageOrExecute/RenderPendingConfirmationModal's
         // own comments. Empty = nothing pending.
         std::optional<pending_confirmation>   m_PendingConfirmation = {};
+
+        // "Open anyway (read-only)?" confirmation (Phase 4B) - see pending_open_confirm/
+        // RenderPendingOpenConfirmModal's own comments. Empty = nothing pending.
+        std::optional<pending_open_confirm>   m_PendingOpenConfirm = {};
     };
 
     namespace

@@ -10,6 +10,129 @@ namespace e10
     struct assert_browser;
     struct asset_browser_tab_base;
 
+    // Values returned by assert_browser::m_OnGetAssetStatusBadge / m_OnGetAssetLockBadge - plain
+    // ints in the callback signatures (std::function's own erased type can't easily forward-declare
+    // an enum class defined after it), cast to/from these enums at each of the two call sites
+    // (virtual_tree_tab's own render code, and whoever implements the hooks). Deliberately generic/
+    // provider-agnostic naming - this file has no idea the only implementation today is git.
+    //
+    // TWO independent signals, not one combined enum - direct user design decision: a file can be
+    // BOTH modified AND locked by you at once (you locked it, then started editing), and the lock
+    // signal is important enough that it must never be hidden by whichever status happens to also
+    // be true. Rendered on two fixed, independent positions (left edge: status upper, lock lower -
+    // "most users would expect fixed positions", not a collapsing/floating layout) rather than one
+    // badge that picks a single winner.
+    //
+    // Clean/Untracked/Modified matches common editor convention (VS Code, VS's own Git tooling): a
+    // brand-new file not yet known to source control reads differently from a tracked file with
+    // real changes. None means "never scanned" (nothing drawn) - distinct from Clean ("scanned, and
+    // it's clean" - also nothing drawn, matching VS/VS Code's own "no decoration = clean" - but kept
+    // as a separate value since a future caller might want to tell the two apart even if today's
+    // rendering doesn't).
+    enum class asset_status_badge : std::uint8_t { None, Clean, Untracked, Modified };
+    enum class asset_lock_badge   : std::uint8_t { None, LockedByMe, LockedByOther };
+
+    // Shared badge-drawing primitives - used by both virtual_tree_tab (tile corner) and files_tab
+    // (table row, in its own narrow column). Plain ImDrawList shapes, never a font glyph - a first
+    // attempt at the lock shape used an unverified Segoe MDL2 codepoint and it rendered as a huge,
+    // wrong tofu/fallback glyph engulfing the whole tile, confirmed live via screenshot.
+    //
+    // ONE combined function, ONE slot - direct user consolidation, arrived at after confirming lock
+    // and status render correctly as two separate signals: since a lock, when present, already
+    // implies a specific status story, the status color can ride ON the lock shape instead of
+    // needing its own separate spot. Lock present -> always draw the lock shape, colored by what it
+    // means: LockedByOther is always red regardless of local modified state (someone else holding
+    // the reservation is the more urgent fact); LockedByMe is gold if the file is also locally
+    // modified, green if it's locked-but-clean (e.g. reserved ahead of editing). Lock absent -> fall
+    // back to the plain status shape (+/check/dot) exactly as before. `Center` is where the shape is
+    // drawn; `Size` is the shape's own bounding box (both callers currently use 12.0f).
+    // Just the padlock shape (filled body + open shackle arc), any color - shared by
+    // DrawSourceControlBadge's own real lock states (colored by meaning) and the SC column's
+    // header icon (neutral grey - not tied to any specific row's state).
+    inline void DrawPadlockShape(ImDrawList* dl, ImVec2 Center, float Size, ImU32 Color) noexcept
+    {
+        const ImVec2 BadgeMin{ Center.x - Size * 0.5f, Center.y - Size * 0.5f };
+        const ImVec2 BadgeMax{ Center.x + Size * 0.5f, Center.y + Size * 0.5f };
+
+        const ImVec2 BodyMin{ BadgeMin.x, BadgeMin.y + Size * 0.42f };
+        dl->AddRectFilled(BodyMin, BadgeMax, Color, 1.5f);
+
+        const ImVec2 ShackleCenter{ Center.x, BadgeMin.y + Size * 0.40f };
+        const float  ShackleRadius = Size * 0.28f;
+        constexpr float PiF = 3.14159265358979323846f; // IM_PI itself is only visible via imgui_internal.h, not included here
+        dl->PathArcTo(ShackleCenter, ShackleRadius, PiF, 2.0f * PiF, 8);
+        dl->PathStroke(Color, 0, Size * 0.14f);
+    }
+
+    inline void DrawSourceControlBadge(ImDrawList* dl, ImVec2 Center, float Size, asset_status_badge StatusBadge, asset_lock_badge LockBadge) noexcept
+    {
+        if (LockBadge != asset_lock_badge::None)
+        {
+            const ImU32 Color = (LockBadge == asset_lock_badge::LockedByOther) ? IM_COL32(210, 60, 60, 255)    // red - someone else has it
+                               : (StatusBadge == asset_status_badge::Modified) ? IM_COL32(220, 155, 40, 255)   // gold - you have it, and it's changed
+                               :                                                 IM_COL32(90, 200, 90, 255);   // green - you have it, unchanged
+            DrawPadlockShape(dl, Center, Size, Color);
+            return;
+        }
+
+        if (StatusBadge == asset_status_badge::Untracked)
+        {
+            // New/untracked - a green plus sign (VS/VS Code convention: "about to be added").
+            const ImU32 Color = IM_COL32(90, 200, 90, 255);
+            const float Half  = Size * 0.32f;
+            const float Thick = Size * 0.16f;
+            dl->AddLine({ Center.x - Half, Center.y }, { Center.x + Half, Center.y }, Color, Thick);
+            dl->AddLine({ Center.x, Center.y - Half }, { Center.x, Center.y + Half }, Color, Thick);
+        }
+        else if (StatusBadge == asset_status_badge::Clean)
+        {
+            // Tracked, no changes, not locked - a green checkmark (positive "this is safely
+            // tracked" confirmation, not VS's own "no decoration" - polarity inverted by direct
+            // user request: an asset-heavy project where many files may never be meant for source
+            // control, so a positive "this was actually checked" signal beats VS's own "silence
+            // means fine" default).
+            const ImU32 Color = IM_COL32(90, 200, 90, 255);
+            const float Thick = Size * 0.16f;
+            dl->PathLineTo({ Center.x - Size * 0.30f, Center.y });
+            dl->PathLineTo({ Center.x - Size * 0.06f, Center.y + Size * 0.24f });
+            dl->PathLineTo({ Center.x + Size * 0.32f, Center.y - Size * 0.26f });
+            dl->PathStroke(Color, 0, Thick);
+        }
+        else if (StatusBadge == asset_status_badge::Modified)
+        {
+            // Modified, not locked - a gold/orange dot (VS's own modified color).
+            dl->AddCircleFilled(Center, Size * 0.4f, IM_COL32(220, 155, 40, 255));
+        }
+        // None: nothing to draw.
+    }
+
+    // Title/description pair for a hover tooltip explaining one source-control badge state - shared
+    // by every place DrawSourceControlBadge is used (files_tab's row + header, virtual_tree_tab's
+    // tile), so the wording never drifts between them. Either output is nullptr when there's
+    // nothing to show (both badges None) - the caller skips the tooltip entirely in that case.
+    inline void GetSourceControlTooltipText(asset_status_badge StatusBadge, asset_lock_badge LockBadge, const char*& OutTitle, const char*& OutDesc) noexcept
+    {
+        if (LockBadge == asset_lock_badge::LockedByOther)
+        {
+            OutTitle = "Locked by another user";
+            OutDesc  = "Someone else has this reserved for editing - avoid editing it until they release the lock";
+            return;
+        }
+        if (LockBadge == asset_lock_badge::LockedByMe)
+        {
+            if (StatusBadge == asset_status_badge::Modified) { OutTitle = "Locked by you - modified"; OutDesc = "You have this reserved for editing, and it has local changes"; }
+            else                                              { OutTitle = "Locked by you";            OutDesc = "You have this reserved for editing - no local changes yet"; }
+            return;
+        }
+        switch (StatusBadge)
+        {
+            case asset_status_badge::Untracked: OutTitle = "Untracked";   OutDesc = "Not yet known to source control"; break;
+            case asset_status_badge::Clean:     OutTitle = "Clean";       OutDesc = "Tracked in source control, no local changes"; break;
+            case asset_status_badge::Modified:  OutTitle = "Modified";    OutDesc = "Tracked in source control, has local changes"; break;
+            default:                            OutTitle = nullptr;      OutDesc = nullptr; break;
+        }
+    }
+
     //------------------------------------------------------------------------------------------------
     // ImGui's own tooltip auto-placement (FindBestWindowPosForPopup) tries to avoid the viewport edges
     // using the tooltip's PREVIOUS frame size, but has nowhere left to flip to once the mouse itself is
@@ -985,6 +1108,48 @@ namespace e10
             m_OnRestoreAssetFileFromTrash;
         std::function<void(library::guid, const std::wstring& /*SourceRelPath*/, const std::wstring& /*NewRelPath*/)>
             m_OnCopyAssetFile;
+
+        // Optional hooks so virtual_tree_tab's own tiles can show small status/lock badges without
+        // this shared file knowing anything about WHERE that status comes from - default-empty, so
+        // every existing consumer (E10, E19-E21, E23-E25, E28) renders exactly as before. Takes the
+        // REAL relative path (not the virtual descriptor guid) because status/locking are properties
+        // of the real file on disk, resolved by whoever wires this up - today only E29
+        // (RegisterAssetBrowserCallbacks), backed by plugins/source_control/E29_SourceControlStatus.h.
+        // Two separate hooks, not one combined value - a file can be both modified AND locked by you
+        // at once, and the lock signal must never be hidden by whichever status also happens to be
+        // true (direct user design decision). See asset_status_badge/asset_lock_badge above.
+        std::function<int(library::guid, const std::wstring& /*RelativePath*/)> m_OnGetAssetStatusBadge;
+        std::function<int(library::guid, const std::wstring& /*RelativePath*/)> m_OnGetAssetLockBadge;
+
+        // Optional - a monotonic counter that increments once each time the backing source-control
+        // data actually changed (a completed background scan), so files_tab can batch-refresh its
+        // own cached badges only when there's genuinely something new, instead of either re-reading
+        // on every frame (ties badge computation to the editor's own FPS for no reason - direct
+        // user correction) or only on folder navigation (real staleness - a lock/status that
+        // changed while the SAME folder stayed open kept showing the pre-change badge). Unset means
+        // "no revision signal available" - files_tab falls back to refreshing only on folder
+        // rebuild, same as every other consumer that never wires source control in at all.
+        std::function<std::uint64_t(void)> m_OnGetSourceControlRevision;
+
+        // Optional hook - called right before files_tab hands a raw file to OpenFileWithDefaultApp
+        // (double-click-to-open). Default-empty means "no gating, just open" (today's exact behavior
+        // for every consumer that never wires source control in). Returns true to proceed with the
+        // open, false to block it - the registered handler (today only E29) is expected to have
+        // already attempted whatever lock is needed (e.g. sc::iworkspace_session::PrepareEdit) as
+        // part of deciding; a false return means that attempt failed (e.g. locked by someone else),
+        // and the caller shows its own "open anyway (read-only)?" confirmation rather than silently
+        // refusing. For a non-lockable/text file this hook still runs but the handler's own
+        // PrepareEdit call is a no-op success, so it always returns true without blocking anything.
+        std::function<bool(library::guid, const std::wstring& /*RelativePath*/)> m_OnBeforeOpenAssetFile;
+
+        // Optional hook - fired on a REAL folder navigation (not a re-click of the already-open
+        // folder). Default-empty means nothing extra happens, same as every other consumer. Lets the
+        // registered handler (today only E29) prioritize a background status scan for whatever folder
+        // the user just opened, instead of waiting for that folder's turn in an idle-triggered sweep -
+        // direct user request (2026-09-17): "the priority should be based on what the views
+        // request... the views should get almost instant answers." This is a one-way notification
+        // (view -> source control), not a query - it never reaches back into files_tab's own code.
+        std::function<void(library::guid, const std::wstring& /*RelativeFolderPath*/)> m_OnFolderNavigated;
 
         // Optional hook so files_tab can find the real Win32 HWND currently hosting this browser, for
         // real OS-level (Explorer) drag-out (E10_AssetOleDrag.h) - it needs a screen-space window rect

@@ -26,6 +26,7 @@ namespace e29::editor_tabs
     inline constexpr char kIdleWorkWindow[] = "Idle Work###E29.LevelEditor.IdleWork";
     inline constexpr char kGamePluginLogWindow[] = "\xEE\x9F\x83 Log###E29.LevelEditor.GamePluginLog";
     inline constexpr char kCommandConsoleWindow[] = "\xEE\xA3\xBD Commands###E29.LevelEditor.CommandConsole";
+    inline constexpr char kSourceControlWindow[] = "Source Control###E29.LevelEditor.SourceControl";
     inline constexpr ImGuiID kParentEditorDockClassId = 0xE290A17u;
 
     inline ImGuiWindowClass ParentEditorDockClass() noexcept
@@ -76,6 +77,7 @@ namespace e29::editor_tabs
         ImGui::DockBuilderDockWindow(kCommandConsoleWindow,      Bottom);
         ImGui::DockBuilderDockWindow(kIdleWorkWindow,            Bottom);
         ImGui::DockBuilderDockWindow(kGamePluginLogWindow,       Bottom);
+        ImGui::DockBuilderDockWindow(kSourceControlWindow,       Bottom);
         ImGui::DockBuilderFinish(DockspaceId);
     }
 
