@@ -564,6 +564,13 @@ int E29_Example()
 
         const auto Result = pWorkspace->PrepareEdit(Request);
         if (Result.files.empty()) return true; // shouldn't happen - fail open rather than block
+
+        // Same immediate-cache-update fix as the SourceControlLock/Unlock commands - "Open for Edit"
+        // reaches PrepareEdit directly (not through the command bus), so it needs its own copy of
+        // this rather than relying on theirs.
+        if (Result.files.front().coordination.lock)
+            e10::source_control::PublishSingleLock(RootPath, RelativePath, Result.files.front().coordination.lock);
+
         return Result.files.front().OperationSucceeded();
     };
 
@@ -575,6 +582,22 @@ int E29_Example()
         const auto RootPath = e29::commands::ResolveLibraryRootPath(LibraryGuid);
         if (RootPath.empty()) return;
         e29::source_control::RequestPriorityScan(RootPath, RelativeFolderPath);
+    };
+
+    // Manual Lock/Unlock from the Asset Tree's own right-click menu (direct user request, 2026-09-17:
+    // "we should always give the user the manual option to do it... just in case the user is doing
+    // something special"). Same Run()-through-the-command-bus convention as every other UI-driven
+    // callback (e.g. m_OnRenameAsset in E29_LevelSceneEditorKit.h) - SourceControlLock/Unlock already
+    // no-op safely on a non-lockable/already-in-the-requested-state file, so no pre-filtering here.
+    AsserBrowser.m_OnLockAssetFile = [&E29Undo](e10::library::guid LibraryGuid, const std::wstring& RelativePath)
+    {
+        e29::commands::Run(E29Undo, std::format("SourceControlLock -Library {} -Path {}"
+            , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::EncodeAssetPath(RelativePath)));
+    };
+    AsserBrowser.m_OnUnlockAssetFile = [&E29Undo](e10::library::guid LibraryGuid, const std::wstring& RelativePath)
+    {
+        e29::commands::Run(E29Undo, std::format("SourceControlUnlock -Library {} -Path {}"
+            , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::EncodeAssetPath(RelativePath)));
     };
 
     //

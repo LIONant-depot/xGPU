@@ -10,6 +10,7 @@
 #include "imgui_internal.h"     // For BeginDragDropTargetCustom (background drop target, 5C)
 #include "E10_AssetOleDrag.h"   // Real Win32 OLE drag-out to Explorer (Phase 6)
 #include <shellapi.h>           // ShellExecuteW - double-click-to-open (Phase 6 polish)
+#include <shlobj.h>             // SHOpenWithDialog - "Open With..." (Phase 4B follow-up)
 
 // Asset (real filesystem) window - Phase 3 of the Asset Browser window-split plan (see plan file
 // lively-knitting-sifakis.md). READ-ONLY BROWSING ONLY - Phase 4 adds Copy/Cut/Rename/Delete plus
@@ -124,8 +125,37 @@ namespace e10
         // the associated app asynchronously and returns immediately, this call never blocks the editor.
         // No result is surfaced beyond the printf on failure (matching this file's own established
         // "diagnostic log, don't pop a blocking modal for an external-process launch" convention).
-        static void OpenFileWithDefaultApp(const std::filesystem::path& FullPath) noexcept
+        // bOpenWithDialog wants Windows' own native "Open With" picker (direct user request: "showing
+        // some apps that can edit that asset, similar to how windows does it"). Two real, live-tested
+        // failures before landing on this one (2026-09-17): ShellExecuteW's "openas" verb silently
+        // no-ops on a file that already has an associated app (confirmed: exit succeeds, nothing
+        // visible happens); `rundll32.exe shell32.dll,OpenAs_RunDLL` ALSO returned success (exit 0)
+        // with no visible dialog and the process exiting within ~500ms - the undocumented DLL export
+        // Explorer's own context menu uses apparently isn't reliable to invoke this way in every
+        // environment. SHOpenWithDialog is the actual DOCUMENTED Win32 API for this - called
+        // in-process (no external rundll32/shell verb indirection to go wrong), needs COM initialized
+        // for this one call.
+        static void OpenFileWithDialog(const std::filesystem::path& FullPath) noexcept
         {
+            const bool bNeedsUninit = SUCCEEDED(::CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED));
+            const std::wstring PathStr = FullPath.wstring();
+            OPENASINFO Info{};
+            Info.pcszFile     = PathStr.c_str();
+            Info.pcszClass    = nullptr;
+            Info.oaifInFlags  = OAIF_EXEC | OAIF_ALLOW_REGISTRATION | OAIF_REGISTER_EXT | OAIF_HIDE_REGISTRATION;
+            const HRESULT Hr = ::SHOpenWithDialog(nullptr, &Info);
+            if (bNeedsUninit) ::CoUninitialize();
+            if (FAILED(Hr) && Hr != HRESULT_FROM_WIN32(ERROR_CANCELLED)) // user just closing the dialog isn't a failure worth logging
+            {
+                std::printf("[AssetTree] SHOpenWithDialog failed for '%ls' (hr=0x%08lX)\n", FullPath.c_str(), static_cast<unsigned long>(Hr));
+                std::fflush(stdout);
+            }
+        }
+
+        static void OpenFileWithApp(const std::filesystem::path& FullPath, bool bOpenWithDialog) noexcept
+        {
+            if (bOpenWithDialog) { OpenFileWithDialog(FullPath); return; }
+
             const auto Result = reinterpret_cast<INT_PTR>(::ShellExecuteW(nullptr, L"open", FullPath.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
             if (Result <= 32) // ShellExecuteW's own "succeeded" threshold - anything <= 32 is an error code
             {
@@ -133,19 +163,22 @@ namespace e10
                 std::fflush(stdout);
             }
         }
+        static void OpenFileWithDefaultApp(const std::filesystem::path& FullPath) noexcept { OpenFileWithApp(FullPath, false); }
 
         // Lock-before-edit gating (Phase 4B) - runs m_Browser.m_OnBeforeOpenAssetFile (default-empty,
         // so every consumer that never wires source control in opens exactly as before) before
         // actually handing the file to the OS. A refusal doesn't just drop the open - it defers to
         // RenderPendingOpenConfirmModal so the user can still choose to open read-only anyway.
-        void TryOpenFile(const std::filesystem::path& FullPath, const std::wstring& RelativePath) noexcept
+        // bOpenWithDialog threads through to the eventual OpenFileWithApp call either way, so "Open
+        // With..." still asks Windows for an app choice even after a read-only confirm.
+        void TryOpenFile(const std::filesystem::path& FullPath, const std::wstring& RelativePath, bool bOpenWithDialog = false) noexcept
         {
             if (!m_Browser.m_OnBeforeOpenAssetFile || m_Browser.m_OnBeforeOpenAssetFile(m_SelectedLibrary, RelativePath))
             {
-                OpenFileWithDefaultApp(FullPath);
+                OpenFileWithApp(FullPath, bOpenWithDialog);
                 return;
             }
-            m_PendingOpenConfirm = pending_open_confirm{ FullPath };
+            m_PendingOpenConfirm = pending_open_confirm{ FullPath, bOpenWithDialog };
         }
 
         // Whether Ancestor is Target itself or a proper prefix of it (component-wise, not substring) -
@@ -490,10 +523,12 @@ namespace e10
         struct pending_item { library::guid m_Library; std::wstring m_Old; std::wstring m_New; };
         struct pending_confirmation { std::vector<pending_item> m_Items; std::size_t m_DependentCount; };
 
-        // Set when m_Browser.m_OnBeforeOpenAssetFile refuses a double-click-to-open (e.g. the file is
-        // locked by someone else) - m_FullPath is what OpenFileWithDefaultApp would have received, kept
-        // as-is so "open anyway" doesn't need to re-derive it from a possibly-stale selection.
-        struct pending_open_confirm { std::filesystem::path m_FullPath; };
+        // Set when m_Browser.m_OnBeforeOpenAssetFile refuses an open (double-click, "Open for Edit", or
+        // "Open With...") - e.g. the file is locked by someone else. m_FullPath/m_bOpenWithDialog are
+        // exactly what OpenFileWithApp would have received, kept as-is so "open anyway" doesn't need to
+        // re-derive them (or the user's original open-with-vs-default choice) from a possibly-stale
+        // selection.
+        struct pending_open_confirm { std::filesystem::path m_FullPath; bool m_bOpenWithDialog = false; };
 
         // Distinguishes "ran right away and every item succeeded" from "ran right away but something
         // failed" - a real bug found live: PasteClipboardInto used to spend the cut clipboard on ANY
@@ -660,7 +695,7 @@ namespace e10
                     ImGui::Separator();
                     if (ImGui::Button("Open Anyway (Read-Only)", ImVec2(220, 0)))
                     {
-                        OpenFileWithDefaultApp(m_PendingOpenConfirm->m_FullPath);
+                        OpenFileWithApp(m_PendingOpenConfirm->m_FullPath, m_PendingOpenConfirm->m_bOpenWithDialog);
                         m_PendingOpenConfirm.reset();
                         ImGui::CloseCurrentPopup();
                     }
@@ -1602,6 +1637,22 @@ namespace e10
                         ImGui::PushID(E.m_Name.c_str());
                         ImGui::TableNextRow();
 
+                        // Captured right after THIS row's own Selectable (below), before anything else
+                        // (the "#N" dependent badge, drag/drop handling, ...) gets a chance to become
+                        // the new "last item" - a real, live bug: BeginPopupContextItem() ALWAYS anchors
+                        // its hover/right-click check to g.LastItemData regardless of the str_id passed
+                        // (str_id only avoids an id collision/crash, it does NOT change which widget's
+                        // rect is tested) - so for any row with a dependent badge, right-clicking the
+                        // filename itself landed on the Selectable's rect while BeginPopupContextItem was
+                        // actually testing the BADGE's rect (the true last item by then), silently
+                        // falling through to the window's own background "Paste" popup instead. Direct
+                        // user report: "I am definitely right clicking on the file... the only option
+                        // was Paste." Fixed by capturing the click intent immediately, then opening/
+                        // rendering the popup separately below (OpenPopup + BeginPopup, not the combined
+                        // BeginPopupContextItem helper) - the standard fix for "context menu on a row
+                        // with trailing content" in Dear ImGui.
+                        bool bWantRowContext = false;
+
                         // Source control - LEFTMOST column, reading the already-batch-refreshed
                         // E.m_StatusBadge/m_LockBadge (see file_entry's own comment - NOT a fresh
                         // per-frame lookup). No Selectable/click target here - this column is
@@ -1685,6 +1736,7 @@ namespace e10
                                     else
                                         HandleRowClick(SortedNames, E.m_Name);
                                 }
+                                bWantRowContext = ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Right); // release, not press - matches BeginPopupContextItem's own convention; trash mode still wants this too, see the Restore popup below
                             }
                             else
                             {
@@ -1694,13 +1746,20 @@ namespace e10
                                 // of a double-click, so only the SECOND one (IsMouseDoubleClicked) opens;
                                 // the first behaves as an ordinary select via HandleRowClick, same as
                                 // it always has for a ctrl/shift-aware single click.
+                                //
+                                // Direct user correction (2026-09-17): double-click is a casual, assumed-
+                                // read-only peek - it does NOT attempt a lock (no TryOpenFile/gating,
+                                // just a plain open). Locking is now an explicit, deliberate act, reached
+                                // via "Open for Edit"/"Open With..." in the row's own context menu below,
+                                // which DO go through TryOpenFile's gating - "the edit will lock."
                                 if (ImGui::Selectable(Name.c_str(), bMultiSelected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick))
                                 {
                                     if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
-                                        TryOpenFile(FullPath / E.m_Name, ToLibraryRelPath(m_SelectedFolder / E.m_Name));
+                                        OpenFileWithApp(FullPath / E.m_Name, false);
                                     else
                                         HandleRowClick(SortedNames, E.m_Name);
                                 }
+                                bWantRowContext = ImGui::IsItemHovered() && ImGui::IsMouseReleased(ImGuiMouseButton_Right); // release, not press - matches BeginPopupContextItem's own convention; trash mode still wants this too, see the Restore popup below
 
                                 // Persistent dependency indicator + its own detail-on-hover (Phase 6,
                                 // "beyond parity" - direct user request: "a visual badge/icon in the list
@@ -1802,13 +1861,54 @@ namespace e10
                                 // by design (see ImGui::TextEx's own ItemAdd(bb, 0) call). That made this
                                 // hit ImGui's own IM_ASSERT(id != 0) and abort() on every single frame for
                                 // any file with a nonzero dependent badge, not just on an actual right-
-                                // click. Fix: pass an explicit id (this row already has its own PushID
-                                // scope from E.m_Name above) instead of depending on whichever widget
-                                // happened to render last.
-                                if (ImGui::BeginPopupContextItem("RowContext"))
+                                // click. Passing an explicit id fixed THAT crash, but not a second, later
+                                // bug from the exact same root cause: BeginPopupContextItem ALWAYS tests
+                                // g.LastItemData for hover/right-click regardless of the str_id passed -
+                                // str_id only renames the POPUP, it doesn't change which widget's rect is
+                                // tested. For any row with a dependent badge, the badge (not the filename
+                                // Selectable) was still the true "last item" by the time this ran, so
+                                // right-clicking the filename silently fell through to the window's own
+                                // background "Paste" popup instead. Direct user report: "I am definitely
+                                // right clicking on the file... the only option was Paste." Fixed by
+                                // capturing the click intent (bWantRowContext) immediately after THIS
+                                // row's own Selectable, before the badge or anything else can become the
+                                // new last item - the standard OpenPopup+BeginPopup split for exactly this
+                                // class of problem.
+                                if (bWantRowContext) ImGui::OpenPopup("RowContext");
+                                if (ImGui::BeginPopup("RowContext"))
                                 {
                                     if (!bMultiSelected) { SelectSingle(E.m_Name); m_SelectedFile = E.m_Name; }
 
+                                    // Open for Edit/Open With (direct user request) - not offered for a
+                                    // folder row (E.m_bDirectory) or a multi-selection (opening several
+                                    // files at once via a menu click is ambiguous - matches Rename's own
+                                    // "exactly one" constraint). Both go through TryOpenFile, so the SAME
+                                    // lock-before-edit gate double-click already uses applies here too -
+                                    // this is just a second, explicit way to reach the identical path.
+                                    const bool bSingleFile = !E.m_bDirectory && m_MultiSelected.size() == 1;
+                                    if (ImGui::MenuItem("Open for Edit", nullptr, false, bSingleFile))
+                                        TryOpenFile(FullPath / E.m_Name, ToLibraryRelPath(m_SelectedFolder / E.m_Name), false);
+                                    if (ImGui::MenuItem("Open With...", nullptr, false, bSingleFile))
+                                        TryOpenFile(FullPath / E.m_Name, ToLibraryRelPath(m_SelectedFolder / E.m_Name), true);
+
+                                    // Manual Lock/Unlock (direct user request: "we should always give the
+                                    // user the manual option to do it... just in case the user is doing
+                                    // something special") - offered for every file in the selection, not
+                                    // just a single one; a file this doesn't apply to (already unlocked,
+                                    // not a lockable type at all) is expected to no-op safely rather than
+                                    // needing to be pre-filtered out of this menu.
+                                    if (!E.m_bDirectory && (m_Browser.m_OnLockAssetFile || m_Browser.m_OnUnlockAssetFile))
+                                    {
+                                        ImGui::Separator();
+                                        if (m_Browser.m_OnLockAssetFile && ImGui::MenuItem("Lock"))
+                                            for (auto& Name : m_MultiSelectOrder)
+                                                m_Browser.m_OnLockAssetFile(m_SelectedLibrary, ToLibraryRelPath(m_SelectedFolder / Name));
+                                        if (m_Browser.m_OnUnlockAssetFile && ImGui::MenuItem("Unlock"))
+                                            for (auto& Name : m_MultiSelectOrder)
+                                                m_Browser.m_OnUnlockAssetFile(m_SelectedLibrary, ToLibraryRelPath(m_SelectedFolder / Name));
+                                    }
+
+                                    ImGui::Separator();
                                     if (ImGui::MenuItem("Rename", "F2", false, m_MultiSelected.size() == 1))
                                         StartRename(m_SelectedLibrary, m_SelectedFolder / m_SelectedFile);
                                     if (ImGui::MenuItem("Cut", "Ctrl+X"))
@@ -1827,9 +1927,9 @@ namespace e10
                             {
                                 // Trash mode's only mutation - restore this one trashed item (file or
                                 // folder, recursively) back to its original location under Assets. Same
-                                // explicit-id fix as the non-trash branch above (this row can also follow
-                                // a Text()-based item with id 0).
-                                if (ImGui::BeginPopupContextItem("RowContext"))
+                                // bWantRowContext fix as the non-trash branch above.
+                                if (bWantRowContext) ImGui::OpenPopup("RowContext");
+                                if (ImGui::BeginPopup("RowContext"))
                                 {
                                     if (!bMultiSelected) { SelectSingle(E.m_Name); m_SelectedFile = E.m_Name; }
                                     if (ImGui::MenuItem("Restore"))

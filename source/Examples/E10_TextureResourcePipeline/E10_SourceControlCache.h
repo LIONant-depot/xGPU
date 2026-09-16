@@ -140,6 +140,24 @@ namespace e10::source_control
         SourceControlRevision().fetch_add(1, std::memory_order_relaxed);
     }
 
+    // Updates (or clears) exactly ONE path's lock entry, instantly - no subprocess call, no waiting
+    // on the 20s lock-refresh cooldown. Direct user report (2026-09-17): "I right click and selected
+    // open for edit... the check mark did not change to the green lock" - Lock/Unlock/PrepareEdit
+    // already KNOW the new lock state the instant they succeed (it's right there in their own
+    // result), but nothing was telling the cache about it - the badge only ever changed after the
+    // NEXT full scan, whenever that happened to be. The caller (E29's Lock/Unlock commands and the
+    // PrepareEdit gate) already has the real LockInfo in hand; this just writes it in immediately.
+    // Lock == std::nullopt means "no longer locked" (a successful Unlock).
+    inline void PublishSingleLock(const std::wstring& RootPath, const std::wstring& RelativePath, std::optional<sc::LockInfo> Lock) noexcept
+    {
+        std::lock_guard<std::mutex> LockGuard(LockCacheMutex());
+        auto& Entry = LockCacheRegistry()[RootPath];
+        const auto Key = NormalizeKey(RelativePath);
+        if (Lock) Entry.m_ByPath[Key] = *Lock;
+        else      Entry.m_ByPath.erase(Key);
+        SourceControlRevision().fetch_add(1, std::memory_order_relaxed);
+    }
+
     // Read accessor for any consumer. std::nullopt means either "never scanned yet" or "clean as of
     // the last scan" - the caller can't tell those apart from this call alone; GetLastRefreshTime
     // (below) answers "has this root even been scanned" separately.

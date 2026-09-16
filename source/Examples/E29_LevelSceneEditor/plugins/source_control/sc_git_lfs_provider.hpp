@@ -412,17 +412,64 @@ public:
             }
             else
             {
-                const Error classified = ClassifyLfsLockFailure(lockRes, path);
+                // REAL BUG FOUND LIVE (2026-09-17): `git lfs lock` on a path you ALREADY hold the lock
+                // on fails - confirmed directly against the real repo: exit code 2, stderr "Lock
+                // exists" - not "already locked"/"locked by" (the only phrases
+                // ClassifyLfsLockFailure's own text-matching recognized), so this fell all the way
+                // through to its generic "unrecognized reason" fallback and PrepareEdit reported it as
+                // a hard failure - opening a file you yourself already had locked incorrectly showed
+                // the "File Locked" (locked by someone else) dialog. Text-matching git-lfs's own error
+                // wording is inherently fragile (different server implementations phrase this
+                // differently) - the only actually-correct fix is to ask who really holds the lock
+                // (ListLocks --verify, server-authoritative, the same mechanism ListLocks already uses
+                // rather than a local heuristic) and decide from THAT, not from error-message text.
+                const auto Verify = ListLocks(ListLocksRequest{ path });
+                const std::string RequestedGitPath = ToGitPath(path);
+                const auto ExistingIt = std::find_if(Verify.locks.begin(), Verify.locks.end()
+                    , [&](const LockInfo& L) { return L.path.relative.generic_string() == RequestedGitPath; });
 
-                if (request.policy.lockRequirement == LockRequirement::Require)
+                // TEMP diagnostic (2026-09-17) - the fix above still reports LockedByOther for a lock
+                // that's genuinely ours; this prints exactly what the verify parse produced so we can
+                // tell a parsing bug apart from a real identity mismatch.
+                std::printf("[SC] PrepareEdit verify: requested='%s' initial-lock-exit=%d launchFailed=%d locks-found=%zu\n"
+                    , RequestedGitPath.c_str(), lockRes.exitCode, lockRes.launchFailed ? 1 : 0, Verify.locks.size());
+                for (auto& L : Verify.locks)
+                    std::printf("[SC]   lock path='%s' ownership=%d ownerDisplayName='%s'\n"
+                        , L.path.relative.generic_string().c_str(), static_cast<int>(L.ownership), L.ownerDisplayName.c_str());
+                std::fflush(stdout);
+
+                if (ExistingIt != Verify.locks.end() && ExistingIt->ownership == LockOwnership::CurrentUser)
                 {
-                    fileResult.error = classified;
+                    // Already locked by us - this is success, not a failure. Report the EXISTING lock
+                    // rather than fabricating a fresh "just acquired" one.
+                    acquiredLocks_[ToGitPath(path)] = *ExistingIt;
+
+                    fileResult.coordination.lock      = *ExistingIt;
+                    fileResult.coordination.effects   = ExistingIt->effects;
+                    fileResult.coordination.authority = ExistingIt->authority;
+                    fileResult.coordination.freshness = ExistingIt->freshness;
+                    fileResult.actions |= EditActionFlags::LocalIntentRecorded; // NOT LockAcquired - it pre-existed, nothing was newly acquired
+
+                    EnsureWritableAndReport(path, fileResult);
                 }
                 else
                 {
-                    fileResult.warnings.push_back(
-                        "Could not acquire lock (" + classified.message + "); proceeding without one.");
-                    EnsureWritableAndReport(path, fileResult);
+                    const Error classified = (ExistingIt != Verify.locks.end())
+                        ? [&] { Error e; e.code = ErrorCode::LockedByOther;
+                                e.message = "File is locked by " + (ExistingIt->ownerDisplayName.empty() ? std::string("another user") : ExistingIt->ownerDisplayName) + ": " + ToGitPath(path);
+                                return e; }()
+                        : ClassifyLfsLockFailure(lockRes, path);
+
+                    if (request.policy.lockRequirement == LockRequirement::Require)
+                    {
+                        fileResult.error = classified;
+                    }
+                    else
+                    {
+                        fileResult.warnings.push_back(
+                            "Could not acquire lock (" + classified.message + "); proceeding without one.");
+                        EnsureWritableAndReport(path, fileResult);
+                    }
                 }
             }
 
@@ -503,8 +550,16 @@ public:
             }
         }
 
+        // REAL BUG FOUND LIVE (2026-09-17): `git-lfs` itself refuses `--verify` combined with
+        // `--path` - confirmed directly: "--verify option can't be combined with filters", exit code
+        // 2. That meant EVERY scoped (single-path) verify call here silently fell through to the
+        // unverified plain listing below, reporting LockOwnership::Unknown for a file you actually
+        // hold the lock on - which is exactly what made PrepareEdit misreport a self-held lock as
+        // belonging to someone else (surfaced as the "File Locked" dialog on a file the user already
+        // had locked). Fix: --verify is NEVER combined with --path - always fetch the full,
+        // unscoped ours/theirs split, then filter to the requested path locally in C++ afterward
+        // (ListLocksResult::locks already gets filtered by the request.path check further below).
         std::vector<std::string> verifyArgs = {"locks", "--verify", "--json"};
-        if (request.path) { verifyArgs.push_back("--path"); verifyArgs.push_back(ToGitPath(*request.path)); }
 
         const auto verifyRes = RunGitLfs(verifyArgs);
         if (!verifyRes.launchFailed && verifyRes.exitCode == 0)
@@ -515,6 +570,14 @@ public:
             if (auto Theirs = detail::ExtractJsonArrayField(verifyRes.stdOut, "theirs"))
                 for (auto& Obj : detail::SplitJsonObjects(*Theirs))
                     result.locks.push_back(ParseLockObject(Obj, LockOwnership::OtherUser));
+
+            if (request.path)
+            {
+                const std::string RequestedGitPath = ToGitPath(*request.path);
+                result.locks.erase(std::remove_if(result.locks.begin(), result.locks.end()
+                    , [&](const LockInfo& L) { return L.path.relative.generic_string() != RequestedGitPath; })
+                    , result.locks.end());
+            }
             return result;
         }
 

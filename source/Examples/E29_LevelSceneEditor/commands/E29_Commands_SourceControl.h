@@ -259,8 +259,21 @@ namespace e29::commands
             if (!File.OperationSucceeded())
                 return std::format("SourceControlLock: [{}] {}", ToString(File.error->code), File.error->message);
 
-            std::string Out = sc::HasFlag(File.actions, sc::EditActionFlags::LockAcquired) ? "Locked" : "Proceeding without a lock";
+            // "Proceeding without a lock" is specifically the Try-and-couldn't-get-one wording - wrong
+            // for the "already locked by you" case (real bug found live, 2026-09-17: PrepareEdit
+            // correctly reports success here via LocalIntentRecorded, not LockAcquired, since nothing
+            // NEW was acquired - but this message used to collapse both cases into the same misleading
+            // text even though the user does, in fact, hold a lock).
+            std::string Out = sc::HasFlag(File.actions, sc::EditActionFlags::LockAcquired) ? "Locked"
+                : (File.coordination.lock.has_value() ? "Already locked (by you)" : "Proceeding without a lock");
             for (auto& W : File.warnings) Out += std::format(" ({})", W);
+
+            // Real bug found live (2026-09-17): "I right click and selected open for edit... the check
+            // mark did not change to the green lock" - the lock badge only ever refreshed on the NEXT
+            // full scan. We already know the real new lock state right here - write it into the cache
+            // immediately instead of waiting.
+            if (File.coordination.lock) e10::source_control::PublishSingleLock(RootPath, Path, File.coordination.lock);
+
             return Out;
         }
 
@@ -313,6 +326,12 @@ namespace e29::commands
             const auto& Item = Result.items.front();
             if (!Item.Succeeded())
                 return std::format("SourceControlUnlock: [{}] {}", ToString(Item.error->code), Item.error->message);
+
+            // Same immediate-cache-update fix as SourceControlLock - a successful Unlock means the
+            // cache's own entry for this path is now stale (still shows locked) until the next scan,
+            // which nothing here should have to wait for.
+            e10::source_control::PublishSingleLock(RootPath, Path, std::nullopt);
+
             return "Unlocked";
         }
 

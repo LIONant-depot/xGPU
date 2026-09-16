@@ -1151,6 +1151,16 @@ namespace e10
         // (view -> source control), not a query - it never reaches back into files_tab's own code.
         std::function<void(library::guid, const std::wstring& /*RelativeFolderPath*/)> m_OnFolderNavigated;
 
+        // Optional hooks - manual Lock/Unlock from the Asset Tree's own right-click menu (direct user
+        // request: "we should always give the user the manual option to do it... just in case the user
+        // is doing something special"). Default-empty means the menu items simply aren't offered. Fire-
+        // and-forget, matching m_OnRenameAsset/m_OnCopyAssetFile's own shape - the registered handler
+        // (today only E29) is expected to report success/failure through its own status surface (the
+        // Command Console log), not a return value here; a file this doesn't apply to (already
+        // unlocked, not lockable at all, etc.) is expected to no-op safely rather than erroring loudly.
+        std::function<void(library::guid, const std::wstring& /*RelativePath*/)> m_OnLockAssetFile;
+        std::function<void(library::guid, const std::wstring& /*RelativePath*/)> m_OnUnlockAssetFile;
+
         // Optional hook so files_tab can find the real Win32 HWND currently hosting this browser, for
         // real OS-level (Explorer) drag-out (E10_AssetOleDrag.h) - it needs a screen-space window rect
         // to decide "has the drag left our own app" every frame. Returns a std::size_t castable to HWND
