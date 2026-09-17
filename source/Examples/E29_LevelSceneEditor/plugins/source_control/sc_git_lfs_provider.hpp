@@ -220,6 +220,24 @@ public:
             return MakeError(ErrorCode::WorkspaceNotFound,
                 "Path is not inside a Git working tree.", gitCheck);
         }
+
+        // "Inside SOME work tree" isn't enough on its own - direct user correction: a directory can
+        // sit underneath an unrelated enclosing repo's .git (found only because rev-parse walks
+        // upward looking for one) while that SAME enclosing repo's own .gitignore excludes it
+        // entirely. Git itself will never track/see anything under an ignored path, so treating that
+        // enclosing repo as this library's real depot would be actively misleading - same severity as
+        // not being in a work tree at all. Delegated entirely to `git check-ignore` (the CLI's own
+        // authoritative answer, not a .gitignore parse of our own - matching this whole design's
+        // "as long as the CLI can answer that question is none of our problem" rule) rather than
+        // reimplementing gitignore semantics here.
+        const auto ignoreCheck = RunGit({"check-ignore", "--quiet", repoRoot_.string()});
+        if (!ignoreCheck.launchFailed && ignoreCheck.exitCode == 0)
+        {
+            return MakeError(ErrorCode::WorkspaceNotFound,
+                "Path is inside a Git working tree, but is itself .gitignore'd by it - "
+                "not a real depot association.", ignoreCheck);
+        }
+
         capabilities_.sourceControlAvailable = true;
 
         const auto lfsCheck = RunGitLfs({"version"});
