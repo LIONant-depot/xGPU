@@ -176,6 +176,34 @@ namespace e29
         return { Category, std::wstring(Type), HexInstance };
     }
 
+    // A resource's identity, globally unique across every open library/depot - "LibraryHex|
+    // TypeLower|Hex" - used to track a changelist's LIVE reference to a whole resource ("drag the
+    // Scene 1 folder" - direct user design, 2026-09-18) rather than a frozen snapshot of whichever
+    // files happened to be pending at drop time. sc_resource_group::m_GroupKey (left-tree-only,
+    // "TypeLower|Hex") is scoped inside one already-known library's own bucket, so it isn't unique on
+    // its own outside that context - this is the same identity with the library folded in, safe to
+    // compare/store anywhere in the panel.
+    inline std::wstring SourceControlGlobalGroupKey(e10::library::guid LibraryGuid, const std::wstring& TypeNameLower, const std::wstring& HexInstance) noexcept
+    {
+        return xstrtool::To(e29::commands::FormatLibraryGuid(LibraryGuid)) + L"|" + TypeNameLower + L"|" + HexInstance;
+    }
+
+    // A whole CATEGORY's identity within one library - "LibraryHex|CategoryIndex" - the same live-
+    // reference concept as SourceControlGlobalGroupKey one level up the hierarchy (direct user design,
+    // 2026-09-18: dragging a category folder like "Scenes & Levels" as a whole superset).
+    inline std::wstring SourceControlGlobalCategoryKey(e10::library::guid LibraryGuid, sc_category Category) noexcept
+    {
+        return xstrtool::To(e29::commands::FormatLibraryGuid(LibraryGuid)) + L"|" + std::to_wstring(static_cast<int>(Category));
+    }
+
+    // A whole LIBRARY's identity - just "LibraryHex" - the same live-reference concept one level up
+    // from SourceControlGlobalCategoryKey (direct user design, 2026-09-18: "drag the entire library to
+    // my change list... this means the same thing as (All)", scoped to one library instead of a depot).
+    inline std::wstring SourceControlGlobalLibraryKey(e10::library::guid LibraryGuid) noexcept
+    {
+        return xstrtool::To(e29::commands::FormatLibraryGuid(LibraryGuid));
+    }
+
     // Groups by the CACHED depot identity (library::m_DepotProviderId/m_DepotRepositoryId, Phase B) -
     // two libraries sharing one depot correctly land in the same group, rather than each getting its
     // own redundant top-level entry. A library never yet validated (empty m_DepotProviderId) falls
@@ -228,7 +256,46 @@ namespace e29
         std::string                m_DepotKey;
         std::string                m_Name;
         std::string                m_Comment;
-        std::vector<std::wstring>  m_Keys; // sc_panel_row::m_Key, insertion order preserved
+        std::vector<std::wstring>  m_Keys; // sc_panel_row::m_Key, insertion order preserved - explicit,
+                                            // individually-picked files (or what a live group flattens
+                                            // down to once its own membership is edited - see below).
+
+        // A LIVE reference to a whole resource (SourceControlGlobalGroupKey format) - direct user
+        // design (2026-09-18): "if the user drags the 'Scene 1' folder... he does not care about the
+        // actual files there... before submitting[,] if the user does something to make more entities
+        // ready to check in in 'scene 1' those entities will automatically be included." Resolved
+        // fresh from the live row set EVERY time this changelist's files are displayed/committed - NOT
+        // a snapshot - so a resource's newly-pending files ride along automatically. The moment the
+        // user edits this group's own membership from inside the changelist (removes one specific
+        // file), it "flattens": the entry here is dropped and every file it currently resolved to
+        // (minus the one removed) is added to m_Keys instead - the group stops being tracked as a
+        // concept because it no longer matches "the whole resource" (see
+        // SourceControlRemoveRowFromChangelist).
+        std::vector<std::wstring>  m_LiveGroupKeys;
+
+        // A LIVE reference to a whole CATEGORY within one library (SourceControlGlobalCategoryKey
+        // format - e.g. dragging the "Scenes & Levels" folder as a whole) - the same live-reference
+        // concept as m_LiveGroupKeys, one level up the hierarchy. Direct user design (2026-09-18): "the
+        // superset already includes the subset... we just want the superset" - assigning a category
+        // live absorbs (removes) any resource-level m_LiveGroupKeys/explicit m_Keys entries it already
+        // covers, in every changelist, since tracking both would be redundant. Flattens the same way a
+        // resource group does - editing one row's membership degrades this ONE level (the category
+        // reference is dropped, its OTHER resources become individual live m_LiveGroupKeys entries so
+        // they keep their own folders, and only the specific resource the edited row belonged to
+        // flattens further into explicit m_Keys) rather than exploding the whole category to flat
+        // files at once.
+        std::vector<std::wstring>  m_LiveCategoryKeys;
+
+        // A LIVE reference to a WHOLE LIBRARY (SourceControlGlobalLibraryKey format) - one level up
+        // from m_LiveCategoryKeys, same concept. Direct user design (2026-09-18): "I should be able to
+        // drag the entire library to my change list... this means the same thing as (All)" - i.e.
+        // dynamically tracks every currently AND later pending file in this one library, never a
+        // snapshot, exactly like "(All)" does for a whole depot but scoped to one library. Absorbs any
+        // already-tracked category/resource/explicit entries this library covers (same "superset
+        // includes the subset" rule as m_LiveCategoryKeys). Degrades ONE level on edit: the library
+        // reference drops, every OTHER category becomes its own live m_LiveCategoryKeys entry, and only
+        // the specific category the edited row belonged to degrades further (same rule, recursively).
+        std::vector<std::wstring>  m_LiveLibraryKeys;
     };
 
     struct source_control_panel_state
@@ -249,6 +316,21 @@ namespace e29
         std::unordered_set<std::wstring> m_MultiSelected;
         std::vector<std::wstring>         m_MultiSelectOrder;
         std::wstring                      m_MultiSelectAnchor;
+
+        // Set ONLY by a resource-group or category FOLDER's own drag source (RenderSourceControlFolder/
+        // RenderSourceControlCategoryFolder/the top-level category drag), never by a plain row-level
+        // drag - tags the drag-in-flight as "a whole concept" (a resource, or a whole category) rather
+        // than a flat file selection, so the drop handler assigns it to the target changelist as a
+        // LIVE reference (m_LiveGroupKeys/m_LiveCategoryKeys) instead of a snapshot of individual keys.
+        // Reset by every OTHER drag source at its own drag-start so a stale value never leaks into an
+        // unrelated drag, and consumed (reset again) by the drop handler once read. m_ImplicitChildKey
+        // covers the one real nested-folder case in this tree - dragging the OUTER "Resources" category
+        // must also carry its own nested "Scenes & Levels" child along (real bug found live: "If I drag
+        // the resources[,] the Scenes & Levels stay behind" - Resources is now the visual PARENT of
+        // Scenes & Levels, so dragging it should behave like dragging any parent folder, taking its
+        // child with it, matching "the superset already includes the subset").
+        struct drag_scope { enum class kind { Resource, Category, Library } m_Kind; std::wstring m_Key; std::optional<std::wstring> m_ImplicitChildKey; };
+        std::optional<drag_scope>        m_DragSourceScope;
 
         std::string m_StatusLine;
         // Per-depot, not one shared buffer - keeps a partially-typed name intact if the user picks a
@@ -352,20 +434,44 @@ namespace e29
         SourceControlSelectSingle(Key);
     }
 
-    // Which custom changelist (index into m_Changelists) currently owns Key, or -1 meaning "not in
+    // Which custom changelist (index into m_Changelists) currently owns Row, or -1 meaning "not in
     // any custom changelist" - i.e. still shown in the Depot -> Library -> Category auto-tree. No
-    // more "index 0 is Default" special case (there is no Default entry anymore).
-    inline int SourceControlChangelistOf(const std::wstring& Key) noexcept
+    // more "index 0 is Default" special case (there is no Default entry anymore). Takes the whole Row
+    // (not just its Key) because live-group membership needs Row's own classification to compute the
+    // SAME global group key a changelist's m_LiveGroupKeys entry would carry.
+    inline int SourceControlChangelistOf(const sc_panel_row& Row) noexcept
     {
         auto& S = g_SourceControlPanel;
         for (std::size_t i = 0; i < S.m_Changelists.size(); ++i)
-            if (std::find(S.m_Changelists[i].m_Keys.begin(), S.m_Changelists[i].m_Keys.end(), Key) != S.m_Changelists[i].m_Keys.end())
+            if (std::find(S.m_Changelists[i].m_Keys.begin(), S.m_Changelists[i].m_Keys.end(), Row.m_Key) != S.m_Changelists[i].m_Keys.end())
                 return static_cast<int>(i);
+
+        const auto Class = ClassifyPendingPath(Row.m_RelativePath);
+
+        const auto LibraryKey = SourceControlGlobalLibraryKey(Row.m_Library);
+        for (std::size_t i = 0; i < S.m_Changelists.size(); ++i)
+            if (std::find(S.m_Changelists[i].m_LiveLibraryKeys.begin(), S.m_Changelists[i].m_LiveLibraryKeys.end(), LibraryKey) != S.m_Changelists[i].m_LiveLibraryKeys.end())
+                return static_cast<int>(i);
+
+        const auto CategoryKey = SourceControlGlobalCategoryKey(Row.m_Library, Class.m_Category);
+        for (std::size_t i = 0; i < S.m_Changelists.size(); ++i)
+            if (std::find(S.m_Changelists[i].m_LiveCategoryKeys.begin(), S.m_Changelists[i].m_LiveCategoryKeys.end(), CategoryKey) != S.m_Changelists[i].m_LiveCategoryKeys.end())
+                return static_cast<int>(i);
+
+        if (!Class.m_HexInstance.empty())
+        {
+            const auto GlobalKey = SourceControlGlobalGroupKey(Row.m_Library, Class.m_TypeNameLower, Class.m_HexInstance);
+            for (std::size_t i = 0; i < S.m_Changelists.size(); ++i)
+                if (std::find(S.m_Changelists[i].m_LiveGroupKeys.begin(), S.m_Changelists[i].m_LiveGroupKeys.end(), GlobalKey) != S.m_Changelists[i].m_LiveGroupKeys.end())
+                    return static_cast<int>(i);
+        }
         return -1;
     }
 
-    // ChangelistIndex < 0 removes Key from every custom changelist (back to the auto-tree) without
-    // re-inserting anywhere - the "Remove from Changelist" case.
+    // ChangelistIndex < 0 removes Key from every custom changelist's EXPLICIT list (back to the
+    // auto-tree) without re-inserting anywhere. Only ever touches m_Keys - callers dealing with a row
+    // that might be live-group-owned should go through SourceControlRemoveRowFromChangelist instead,
+    // which knows how to flatten a group properly.
     inline void SourceControlAssignToChangelist(const std::wstring& Key, int ChangelistIndex) noexcept
     {
         auto& S = g_SourceControlPanel;
@@ -373,6 +479,345 @@ namespace e29
             CL.m_Keys.erase(std::remove(CL.m_Keys.begin(), CL.m_Keys.end(), Key), CL.m_Keys.end());
         if (ChangelistIndex >= 0 && ChangelistIndex < static_cast<int>(S.m_Changelists.size()))
             S.m_Changelists[ChangelistIndex].m_Keys.push_back(Key);
+    }
+
+    // Assigns a WHOLE LIBRARY to a changelist as a LIVE reference - direct user design (2026-09-18):
+    // "I should be able to drag the entire library to my change list... this means the same thing as
+    // (All)" - dynamically tracks every currently and later pending file in this one library.
+    // Absorbs (removes) any category/resource-level live reference AND explicit key this library
+    // already covers, in every changelist - "the superset already includes the subset." Defined before
+    // SourceControlAssignGroupToChangelist/SourceControlAssignCategoryToChangelist (which now call the
+    // auto-promotion check right below) so both can call it directly.
+    inline void SourceControlAssignLibraryToChangelist(const std::vector<sc_panel_row>& AllRows, const std::wstring& LibraryKey, int ChangelistIndex) noexcept
+    {
+        auto& S = g_SourceControlPanel;
+        for (auto& CL : S.m_Changelists)
+            CL.m_LiveLibraryKeys.erase(std::remove(CL.m_LiveLibraryKeys.begin(), CL.m_LiveLibraryKeys.end(), LibraryKey), CL.m_LiveLibraryKeys.end());
+
+        for (auto& Row : AllRows)
+        {
+            if (SourceControlGlobalLibraryKey(Row.m_Library) != LibraryKey) continue;
+            const auto Class = ClassifyPendingPath(Row.m_RelativePath);
+
+            for (auto& CL : S.m_Changelists)
+            {
+                CL.m_Keys.erase(std::remove(CL.m_Keys.begin(), CL.m_Keys.end(), Row.m_Key), CL.m_Keys.end());
+                const auto CategoryKey = SourceControlGlobalCategoryKey(Row.m_Library, Class.m_Category);
+                CL.m_LiveCategoryKeys.erase(std::remove(CL.m_LiveCategoryKeys.begin(), CL.m_LiveCategoryKeys.end(), CategoryKey), CL.m_LiveCategoryKeys.end());
+                if (!Class.m_HexInstance.empty())
+                {
+                    const auto ResourceKey = SourceControlGlobalGroupKey(Row.m_Library, Class.m_TypeNameLower, Class.m_HexInstance);
+                    CL.m_LiveGroupKeys.erase(std::remove(CL.m_LiveGroupKeys.begin(), CL.m_LiveGroupKeys.end(), ResourceKey), CL.m_LiveGroupKeys.end());
+                }
+            }
+        }
+
+        if (ChangelistIndex >= 0 && ChangelistIndex < static_cast<int>(S.m_Changelists.size()))
+            S.m_Changelists[ChangelistIndex].m_LiveLibraryKeys.push_back(LibraryKey);
+    }
+
+    // After a resource/category gets assigned live to a changelist, checks whether EVERY pending row
+    // in the owning library now resolves to that SAME changelist (whether via that assignment, an
+    // earlier one, or an explicit key) - if so, auto-promotes the whole thing to ONE
+    // m_LiveLibraryKeys reference. Direct user design (2026-09-18): "once all the sub-folders of the
+    // library are in the 'Files In' they should all be replaced by the library name (because that is
+    // the equivalent of them)... if then you open the library name you will find all the folders as
+    // expected" - so this isn't just a display grouping, it's a real promotion (SourceControlAssignLibraryToChangelist
+    // already renders identically whether "genuinely" live or auto-promoted, and still shows every
+    // category nested inside when opened).
+    inline void SourceControlPromoteToLibraryIfFullyCovered(const std::vector<sc_panel_row>& AllRows, e10::library::guid LibraryGuid, int ChangelistIndex) noexcept
+    {
+        if (ChangelistIndex < 0) return;
+        bool bAnyRow = false;
+        for (auto& Row : AllRows)
+        {
+            if (Row.m_Library != LibraryGuid) continue;
+            bAnyRow = true;
+            if (SourceControlChangelistOf(Row) != ChangelistIndex) return;
+        }
+        if (!bAnyRow) return;
+        SourceControlAssignLibraryToChangelist(AllRows, SourceControlGlobalLibraryKey(LibraryGuid), ChangelistIndex);
+    }
+
+    // Assigns a WHOLE CATEGORY within one library to a changelist as a LIVE reference - the same
+    // concept as SourceControlAssignGroupToChangelist, one level up. Direct user design (2026-09-18):
+    // "the superset already includes the subset... we just want the superset" - sweeps away every
+    // resource-level live reference AND explicit key this category already covers, in every
+    // changelist, so a previously-separate "Scene 1" folder collapses into the new, broader category
+    // reference instead of being tracked twice. Defined before SourceControlAssignGroupToChangelist
+    // (which now calls SourceControlPromoteToCategoryIfFullyCovered, defined right below) so both can
+    // call it directly.
+    inline void SourceControlAssignCategoryToChangelist(const std::vector<sc_panel_row>& AllRows, const std::wstring& CategoryKey, int ChangelistIndex) noexcept
+    {
+        auto& S = g_SourceControlPanel;
+        for (auto& CL : S.m_Changelists)
+            CL.m_LiveCategoryKeys.erase(std::remove(CL.m_LiveCategoryKeys.begin(), CL.m_LiveCategoryKeys.end(), CategoryKey), CL.m_LiveCategoryKeys.end());
+
+        e10::library::guid OwningLibrary{};
+        for (auto& Row : AllRows)
+        {
+            const auto Class = ClassifyPendingPath(Row.m_RelativePath);
+            if (SourceControlGlobalCategoryKey(Row.m_Library, Class.m_Category) != CategoryKey) continue;
+            OwningLibrary = Row.m_Library;
+
+            for (auto& CL : S.m_Changelists)
+            {
+                CL.m_Keys.erase(std::remove(CL.m_Keys.begin(), CL.m_Keys.end(), Row.m_Key), CL.m_Keys.end());
+                if (!Class.m_HexInstance.empty())
+                {
+                    const auto ResourceKey = SourceControlGlobalGroupKey(Row.m_Library, Class.m_TypeNameLower, Class.m_HexInstance);
+                    CL.m_LiveGroupKeys.erase(std::remove(CL.m_LiveGroupKeys.begin(), CL.m_LiveGroupKeys.end(), ResourceKey), CL.m_LiveGroupKeys.end());
+                }
+            }
+        }
+
+        if (ChangelistIndex >= 0 && ChangelistIndex < static_cast<int>(S.m_Changelists.size()))
+            S.m_Changelists[ChangelistIndex].m_LiveCategoryKeys.push_back(CategoryKey);
+        SourceControlPromoteToLibraryIfFullyCovered(AllRows, OwningLibrary, ChangelistIndex);
+    }
+
+    // After a resource gets assigned/left live in a changelist, checks whether EVERY pending row in
+    // its OWN (library, category) now resolves to that SAME changelist - if so, auto-promotes them
+    // all into ONE m_LiveCategoryKeys reference (which itself may cascade into a full library
+    // promotion too). Real bug found live: "sections of the folder seem to have been left behind" -
+    // degrading a live CATEGORY (or a live LIBRARY, whose own degrade explodes the dragged row's own
+    // category straight to per-resource entries) scatters that category's OTHER resources into N
+    // independent live-group references and NEVER re-consolidates them, even once every one of them
+    // ends up back in the same changelist together - this is the missing, symmetric counterpart to
+    // SourceControlPromoteToLibraryIfFullyCovered, one level down.
+    inline void SourceControlPromoteToCategoryIfFullyCovered(const std::vector<sc_panel_row>& AllRows, e10::library::guid LibraryGuid, sc_category Category, int ChangelistIndex) noexcept
+    {
+        if (ChangelistIndex < 0) return;
+        bool bAnyRow = false;
+        for (auto& Row : AllRows)
+        {
+            if (Row.m_Library != LibraryGuid) continue;
+            if (ClassifyPendingPath(Row.m_RelativePath).m_Category != Category) continue;
+            bAnyRow = true;
+            if (SourceControlChangelistOf(Row) != ChangelistIndex) return;
+        }
+        if (!bAnyRow) return;
+        SourceControlAssignCategoryToChangelist(AllRows, SourceControlGlobalCategoryKey(LibraryGuid, Category), ChangelistIndex);
+    }
+
+    // Assigns a WHOLE resource (by its global group key) to a changelist as a LIVE reference - direct
+    // user design: "drags the 'Scene 1' folder... he does not care about the actual files there."
+    // Removes the live reference from every OTHER changelist first (a resource can only be live-
+    // tracked in one place), and also sweeps every explicit m_Keys entry belonging to this SAME
+    // resource out of every changelist - otherwise re-dragging a previously-flattened group would
+    // leave stale duplicate flat entries sitting alongside the new live one.
+    inline void SourceControlAssignGroupToChangelist(const std::vector<sc_panel_row>& AllRows, const std::wstring& GlobalGroupKey, int ChangelistIndex) noexcept
+    {
+        auto& S = g_SourceControlPanel;
+        for (auto& CL : S.m_Changelists)
+            CL.m_LiveGroupKeys.erase(std::remove(CL.m_LiveGroupKeys.begin(), CL.m_LiveGroupKeys.end(), GlobalGroupKey), CL.m_LiveGroupKeys.end());
+
+        e10::library::guid OwningLibrary{};
+        sc_category OwningCategory = sc_category::Resources;
+        for (auto& Row : AllRows)
+        {
+            const auto Class = ClassifyPendingPath(Row.m_RelativePath);
+            if (Class.m_HexInstance.empty()) continue;
+            if (SourceControlGlobalGroupKey(Row.m_Library, Class.m_TypeNameLower, Class.m_HexInstance) != GlobalGroupKey) continue;
+            OwningLibrary = Row.m_Library;
+            OwningCategory = Class.m_Category;
+            for (auto& CL : S.m_Changelists)
+                CL.m_Keys.erase(std::remove(CL.m_Keys.begin(), CL.m_Keys.end(), Row.m_Key), CL.m_Keys.end());
+        }
+
+        if (ChangelistIndex >= 0 && ChangelistIndex < static_cast<int>(S.m_Changelists.size()))
+            S.m_Changelists[ChangelistIndex].m_LiveGroupKeys.push_back(GlobalGroupKey);
+        SourceControlPromoteToCategoryIfFullyCovered(AllRows, OwningLibrary, OwningCategory, ChangelistIndex);
+        SourceControlPromoteToLibraryIfFullyCovered(AllRows, OwningLibrary, ChangelistIndex);
+    }
+
+    // Removes exactly Row from whichever changelist currently contains it, explicit-key, live-library,
+    // live-category, or live-group membership alike - direct user design: editing a live concept's own
+    // membership one file at a time "flattens" it, since it no longer matches "the whole
+    // resource"/"the whole category"/"the whole library" as a concept - and ONLY that edit ever
+    // flattens anything ("the only way that a folder should be flatten is if I remove a file/folder
+    // from inside the folder"). Each level degrades by exactly ONE step rather than exploding straight
+    // to flat files: dropping a live LIBRARY turns every OTHER category in it into its own live
+    // category reference, except the one Row belonged to, which degrades ONE level further (turns every
+    // OTHER resource in THAT category into its own live resource reference, except the one Row
+    // belonged to, which flattens fully into explicit keys) - the same rule applied recursively.
+    inline void SourceControlRemoveRowFromChangelist(const std::vector<sc_panel_row>& AllRows, const sc_panel_row& Row) noexcept
+    {
+        auto& S = g_SourceControlPanel;
+        const int Index = SourceControlChangelistOf(Row);
+        if (Index < 0) return;
+        auto& CL = S.m_Changelists[Index];
+
+        if (std::find(CL.m_Keys.begin(), CL.m_Keys.end(), Row.m_Key) != CL.m_Keys.end())
+        {
+            CL.m_Keys.erase(std::remove(CL.m_Keys.begin(), CL.m_Keys.end(), Row.m_Key), CL.m_Keys.end());
+            return;
+        }
+
+        const auto Class = ClassifyPendingPath(Row.m_RelativePath);
+        const auto LibraryKey  = SourceControlGlobalLibraryKey(Row.m_Library);
+        const auto CategoryKey = SourceControlGlobalCategoryKey(Row.m_Library, Class.m_Category);
+        const std::wstring ResourceKey = Class.m_HexInstance.empty() ? std::wstring{}
+            : SourceControlGlobalGroupKey(Row.m_Library, Class.m_TypeNameLower, Class.m_HexInstance);
+
+        if (auto It = std::find(CL.m_LiveLibraryKeys.begin(), CL.m_LiveLibraryKeys.end(), LibraryKey); It != CL.m_LiveLibraryKeys.end())
+        {
+            CL.m_LiveLibraryKeys.erase(It);
+            std::unordered_set<std::wstring> SeenCategoryKeys;
+            std::unordered_set<std::wstring> SeenResourceKeys;
+            for (auto& OtherRow : AllRows)
+            {
+                if (OtherRow.m_Key == Row.m_Key) continue;
+                if (OtherRow.m_Library != Row.m_Library) continue;
+                const auto OtherClass = ClassifyPendingPath(OtherRow.m_RelativePath);
+                if (OtherClass.m_Category != Class.m_Category)
+                {
+                    // A different category - one level down, its own live category reference, not
+                    // split any further.
+                    const auto OtherCategoryKey = SourceControlGlobalCategoryKey(OtherRow.m_Library, OtherClass.m_Category);
+                    if (SeenCategoryKeys.insert(OtherCategoryKey).second) CL.m_LiveCategoryKeys.push_back(OtherCategoryKey);
+                    continue;
+                }
+                // Same category as Row - degrade it exactly like a live-category removal would.
+                if (OtherClass.m_HexInstance.empty()) { CL.m_Keys.push_back(OtherRow.m_Key); continue; }
+                const auto OtherResourceKey = SourceControlGlobalGroupKey(OtherRow.m_Library, OtherClass.m_TypeNameLower, OtherClass.m_HexInstance);
+                if (OtherResourceKey == ResourceKey) { CL.m_Keys.push_back(OtherRow.m_Key); continue; }
+                if (SeenResourceKeys.insert(OtherResourceKey).second) CL.m_LiveGroupKeys.push_back(OtherResourceKey);
+            }
+            return;
+        }
+
+        if (auto It = std::find(CL.m_LiveCategoryKeys.begin(), CL.m_LiveCategoryKeys.end(), CategoryKey); It != CL.m_LiveCategoryKeys.end())
+        {
+            CL.m_LiveCategoryKeys.erase(It);
+            std::unordered_set<std::wstring> SeenResourceKeys;
+            for (auto& OtherRow : AllRows)
+            {
+                if (OtherRow.m_Key == Row.m_Key) continue;
+                if (OtherRow.m_Library != Row.m_Library) continue;
+                const auto OtherClass = ClassifyPendingPath(OtherRow.m_RelativePath);
+                if (OtherClass.m_Category != Class.m_Category) continue;
+
+                if (OtherClass.m_HexInstance.empty()) { CL.m_Keys.push_back(OtherRow.m_Key); continue; }
+                const auto OtherResourceKey = SourceControlGlobalGroupKey(OtherRow.m_Library, OtherClass.m_TypeNameLower, OtherClass.m_HexInstance);
+                if (OtherResourceKey == ResourceKey) { CL.m_Keys.push_back(OtherRow.m_Key); continue; }
+                if (SeenResourceKeys.insert(OtherResourceKey).second) CL.m_LiveGroupKeys.push_back(OtherResourceKey);
+            }
+            return;
+        }
+
+        if (Class.m_HexInstance.empty()) return; // not explicit, not live at any level, not resource-
+                                                  // shaped - nothing left to flatten (shouldn't
+                                                  // normally happen).
+        CL.m_LiveGroupKeys.erase(std::remove(CL.m_LiveGroupKeys.begin(), CL.m_LiveGroupKeys.end(), ResourceKey), CL.m_LiveGroupKeys.end());
+        for (auto& OtherRow : AllRows)
+        {
+            if (OtherRow.m_Key == Row.m_Key) continue;
+            const auto OtherClass = ClassifyPendingPath(OtherRow.m_RelativePath);
+            if (OtherClass.m_HexInstance.empty()) continue;
+            if (SourceControlGlobalGroupKey(OtherRow.m_Library, OtherClass.m_TypeNameLower, OtherClass.m_HexInstance) != ResourceKey) continue;
+            CL.m_Keys.push_back(OtherRow.m_Key);
+        }
+    }
+
+    // Detaches EVERY row currently matching a Category/Resource scope from wherever it actually
+    // lives right now - explicit key, live-resource, live-category, OR a BROADER live-category/
+    // live-library reference covering it - by routing each one through
+    // SourceControlRemoveRowFromChangelist (which already knows how to degrade whatever level
+    // actually covers a row). Real bug found live: "I can drag sub folder from the Pending list to
+    // the Files in... I can not do the opposite" - dragging a nested folder (e.g. "Scene 1" sitting
+    // inside a live "Resources" category, or "Resources" sitting inside a live library) back out via
+    // SourceControlAssignGroupToChangelist(Key, -1)/SourceControlAssignCategoryToChangelist(Key, -1)
+    // was a silent no-op, because m_LiveGroupKeys/m_LiveCategoryKeys never actually held this item's
+    // OWN key when a BROADER reference was what covered it instead - only the "main library" level
+    // ever really worked, because a library is never itself nested under anything broader. Library-
+    // kind scopes don't need this (already always their own top-level entry, nothing broader exists
+    // above them) - only used for Category/Resource kinds.
+    inline void SourceControlDetachScopeRows(const std::vector<sc_panel_row>& AllRows, const source_control_panel_state::drag_scope& Scope) noexcept
+    {
+        std::vector<const sc_panel_row*> Matching;
+        for (auto& Row : AllRows)
+        {
+            const auto Class = ClassifyPendingPath(Row.m_RelativePath);
+            bool bMatches = false;
+            switch (Scope.m_Kind)
+            {
+                case source_control_panel_state::drag_scope::kind::Resource:
+                    bMatches = !Class.m_HexInstance.empty() && SourceControlGlobalGroupKey(Row.m_Library, Class.m_TypeNameLower, Class.m_HexInstance) == Scope.m_Key;
+                    break;
+                case source_control_panel_state::drag_scope::kind::Category:
+                {
+                    const auto RowCategoryKey = SourceControlGlobalCategoryKey(Row.m_Library, Class.m_Category);
+                    bMatches = (RowCategoryKey == Scope.m_Key) || (Scope.m_ImplicitChildKey.has_value() && RowCategoryKey == *Scope.m_ImplicitChildKey);
+                    break;
+                }
+                case source_control_panel_state::drag_scope::kind::Library:
+                    bMatches = SourceControlGlobalLibraryKey(Row.m_Library) == Scope.m_Key;
+                    break;
+            }
+            if (bMatches) Matching.push_back(&Row);
+        }
+        for (auto* Row : Matching)
+            SourceControlRemoveRowFromChangelist(AllRows, *Row);
+    }
+
+    // Guards a drop onto a changelist's own file box - a changelist belongs to exactly ONE depot
+    // (direct user requirement, and already enforced by the context menu's "Add to Changelist"
+    // submenu only offering same-depot lists) - real bug found live: dragging from a DIFFERENT depot
+    // was never checked at all, letting a changelist end up with files from two repos it could never
+    // actually commit together. Stale keys (a row no longer in AllRows) are skipped, not treated as a
+    // mismatch - they can't block a legitimate same-depot drop. Returns the FIRST mismatching row (so
+    // the caller can name it - real user confusion found live: two different libraries can have a
+    // pending file at the identical relative path, e.g. each one's own "library.config.txt", making a
+    // genuine cross-depot mismatch look like an unexplained rejection without naming which file it
+    // actually was) or nullptr when everything matches.
+    inline const sc_panel_row* SourceControlFindDepotMismatch(const std::vector<sc_panel_row>& AllRows, const std::vector<std::wstring>& Keys, const std::string& DepotKey) noexcept
+    {
+        for (auto& Key : Keys)
+        {
+            auto It = std::find_if(AllRows.begin(), AllRows.end(), [&](const sc_panel_row& R) { return R.m_Key == Key; });
+            if (It == AllRows.end()) continue;
+            if (SourceControlDepotKeyAndName(It->m_Library).first != DepotKey) return &*It;
+        }
+        return nullptr;
+    }
+
+    // Same depot guard as SourceControlFindDepotMismatch, but for a resource/category/library-SCOPED
+    // drag (m_DragSourceScope) - checks the scope's own key directly against a matching row's depot,
+    // instead of going through m_MultiSelectOrder. A scoped drag's real assignment
+    // (SourceControlAssign*ToChangelist) is driven entirely by the scope's key re-scanning AllRows, NOT
+    // by m_MultiSelectOrder - m_MultiSelectOrder is only a highlight/display side effect of starting
+    // the drag, updated purely on IsItemActive()/IsMouseDragging() timing, so checking it here risked
+    // testing stale or already-superseded content instead of what's actually about to be assigned
+    // (real bug found live: dragging "Assets" right after a successful "Resources" drag into the same
+    // changelist was wrongly rejected as cross-depot). Every row matching one scope's key necessarily
+    // shares one library (the key format embeds the library hex), so checking just the first match is
+    // exact, not a sample. Returns that representative row on mismatch (for naming it), or nullptr.
+    inline const sc_panel_row* SourceControlFindScopeDepotMismatch(const std::vector<sc_panel_row>& AllRows, const source_control_panel_state::drag_scope& Scope, const std::string& DepotKey) noexcept
+    {
+        for (auto& Row : AllRows)
+        {
+            const auto Class = ClassifyPendingPath(Row.m_RelativePath);
+            bool bMatches = false;
+            switch (Scope.m_Kind)
+            {
+                case source_control_panel_state::drag_scope::kind::Resource:
+                    bMatches = !Class.m_HexInstance.empty() && SourceControlGlobalGroupKey(Row.m_Library, Class.m_TypeNameLower, Class.m_HexInstance) == Scope.m_Key;
+                    break;
+                case source_control_panel_state::drag_scope::kind::Category:
+                {
+                    const auto RowCategoryKey = SourceControlGlobalCategoryKey(Row.m_Library, Class.m_Category);
+                    bMatches = (RowCategoryKey == Scope.m_Key) || (Scope.m_ImplicitChildKey.has_value() && RowCategoryKey == *Scope.m_ImplicitChildKey);
+                    break;
+                }
+                case source_control_panel_state::drag_scope::kind::Library:
+                    bMatches = SourceControlGlobalLibraryKey(Row.m_Library) == Scope.m_Key;
+                    break;
+            }
+            if (!bMatches) continue;
+            return (SourceControlDepotKeyAndName(Row.m_Library).first == DepotKey) ? nullptr : &Row;
+        }
+        return nullptr; // nothing currently matches this scope - nothing to reject
     }
 
     // Aggregates GetAllPendingChanges across EVERY currently open library - "whole project" scope.
@@ -482,7 +927,7 @@ namespace e29
         std::vector<sc_depot_group> Depots;
         for (auto& Row : Rows)
         {
-            if (SourceControlChangelistOf(Row.m_Key) >= 0) continue; // already in a custom changelist
+            if (SourceControlChangelistOf(Row) >= 0) continue; // already in a custom changelist
 
             auto [DepotKey, DepotName] = SourceControlDepotKeyAndName(Row.m_Library);
 
@@ -630,16 +1075,27 @@ namespace e29
                 {
                     if (S.m_Changelists[i].m_DepotKey != CommonDepotKey) continue;
                     if (ImGui::MenuItem(S.m_Changelists[i].m_Name.c_str()))
-                        for (auto* R : Selected) SourceControlAssignToChangelist(R->m_Key, static_cast<int>(i));
+                        for (auto* R : Selected)
+                        {
+                            // Clears any PRIOR membership first (explicit, or flattens a live group
+                            // this one row was part of elsewhere) before adding it here explicitly -
+                            // this context-menu path always picks individual files, never "the whole
+                            // resource concept" (only a folder drag does that).
+                            SourceControlRemoveRowFromChangelist(AllRows, *R);
+                            SourceControlAssignToChangelist(R->m_Key, static_cast<int>(i));
+                        }
                 }
                 ImGui::EndMenu();
             }
 
             // Only meaningful when the clicked selection is currently sitting in a custom changelist
-            // at all - moves it back to the Depot -> Library -> Category auto-tree.
-            const bool bAnyInCustomList = std::any_of(Selected.begin(), Selected.end(), [](const sc_panel_row* R) { return SourceControlChangelistOf(R->m_Key) >= 0; });
+            // at all - moves it back to the Depot -> Library -> Category auto-tree. Goes through
+            // SourceControlRemoveRowFromChangelist (not a flat SourceControlAssignToChangelist(-1))
+            // so removing one file out of a LIVE resource group flattens the rest of that group into
+            // explicit entries instead of silently vanishing them too.
+            const bool bAnyInCustomList = std::any_of(Selected.begin(), Selected.end(), [](const sc_panel_row* R) { return SourceControlChangelistOf(*R) >= 0; });
             if (ImGui::MenuItem("Remove from Changelist", nullptr, false, bAnyInCustomList))
-                for (auto* R : Selected) SourceControlAssignToChangelist(R->m_Key, -1);
+                for (auto* R : Selected) SourceControlRemoveRowFromChangelist(AllRows, *R);
 
             // Confirm modal for "Undo Changes" - real, destructive to local edits, same "ask first"
             // shape as files_tab's own RenderPendingConfirmationModal/RenderPendingOpenConfirmModal.
@@ -773,6 +1229,10 @@ namespace e29
         if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 12.0f) && ImGui::BeginDragDropSource())
         {
             if (!bSelected) SourceControlSelectSingle(Row.m_Key);
+            // A single row is always a flat, explicit pick - even if it happens to be the only
+            // pending file for its resource right now, dragging the ROW (not the folder heading)
+            // means "just this file," never "the whole resource concept."
+            S.m_DragSourceScope.reset();
             int Dummy = 0;
             ImGui::SetDragDropPayload("SC_DRAG_SELECTION", &Dummy, sizeof(Dummy));
             ImGui::Text("%zu file(s)", S.m_MultiSelectOrder.size());
@@ -882,12 +1342,26 @@ namespace e29
     // flat ungrouped rows. Renders the TreeNodeEx, its "Select All" context menu, its drag source
     // (direct user requirement: "drag a folder or 'files' to it"), and (if open) the row table
     // itself - one implementation shared by every folder level instead of three near-duplicates.
+    // GlobalGroupKey (SourceControlGlobalGroupKey format, empty = "not a single coherent resource" -
+    // never the case at either real call site today, but kept optional for robustness) tags this
+    // folder's OWN drag source as "the whole resource concept" (direct user design, 2026-09-18:
+    // "drags the 'Scene 1' folder... he does not care about the actual files there") so a drop onto a
+    // changelist assigns it as a LIVE reference rather than a flat snapshot of whatever files happen
+    // to be in it right now.
     inline void RenderSourceControlFolder(xundo::system& Undo, const std::vector<sc_panel_row>& AllRows
-        , const std::string& Label, const std::vector<const sc_panel_row*>& RowsInFolder) noexcept
+        , const std::string& Label, const std::vector<const sc_panel_row*>& RowsInFolder, const std::wstring& GlobalGroupKey = L"") noexcept
     {
         if (RowsInFolder.empty()) return;
 
-        const bool bOpen = ImGui::TreeNodeEx(std::format("{} ({})", Label, RowsInFolder.size()).c_str(), ImGuiTreeNodeFlags_SpanFullWidth);
+        auto& S = g_SourceControlPanel;
+        // Real bug found live ("every time I drag a file the folder... closes"): a bare
+        // "Label (Count)" string IS the TreeNodeEx's own identity hash input when no "###" separator
+        // pins a stable id - ImGui persists open/closed state per ID, so the instant Count changes
+        // (a background rescan, a badge recompute, anything) this becomes a DIFFERENT widget to ImGui
+        // and reverts to its default (closed - this folder has no DefaultOpen flag). "###Node" pins
+        // the identity to just the enclosing PushID scope (already unique per folder), leaving only
+        // the DISPLAY text free to vary with Count.
+        const bool bOpen = ImGui::TreeNodeEx(std::format("{} ({})###Node", Label, RowsInFolder.size()).c_str(), ImGuiTreeNodeFlags_SpanFullWidth);
         if (ImGui::BeginPopupContextItem())
         {
             if (ImGui::MenuItem("Select All")) SourceControlSelectRows(RowsInFolder);
@@ -900,6 +1374,8 @@ namespace e29
         if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 12.0f) && ImGui::BeginDragDropSource())
         {
             SourceControlSelectRows(RowsInFolder);
+            S.m_DragSourceScope = GlobalGroupKey.empty() ? std::optional<source_control_panel_state::drag_scope>{}
+                : std::optional<source_control_panel_state::drag_scope>{ source_control_panel_state::drag_scope{ source_control_panel_state::drag_scope::kind::Resource, GlobalGroupKey } };
             int Dummy = 0;
             ImGui::SetDragDropPayload("SC_DRAG_SELECTION", &Dummy, sizeof(Dummy));
             ImGui::Text("%s (%zu file(s))", Label.c_str(), RowsInFolder.size());
@@ -914,110 +1390,202 @@ namespace e29
         }
     }
 
+    // A category bucket's own direct content (its resource-group folders, then its ungrouped rows) -
+    // factored out so it can be reused both for a real top-level category AND for the nested
+    // "Scenes & Levels" folder (direct user correction, 2026-09-18: "Scene & Levels should be under
+    // Resources" - it's a subfolder of Resources now, not a sibling top-level category).
+    inline void RenderSourceControlCategoryContents(xundo::system& Undo, const std::vector<sc_panel_row>& AllRows, const sc_category_bucket& Bucket) noexcept
+    {
+        for (auto& Group : Bucket.m_ResourceGroups)
+        {
+            // Group.m_GroupKey, NOT &Group's address - see RenderSourceControlDepotTree's own comment
+            // on this exact bug class.
+            const auto GroupIdStr = xstrtool::To(Group.m_GroupKey);
+            ImGui::PushID(GroupIdStr.c_str());
+            // Group.m_GroupKey is "TypeLower|Hex" (library-scoped, since Group already lives inside
+            // one known library's own bucket) - prefixing the library turns it into the SAME global
+            // format SourceControlGlobalGroupKey produces, without re-deriving Type/Hex from scratch.
+            const std::wstring GlobalGroupKey = Group.m_Rows.empty() ? std::wstring{}
+                : (xstrtool::To(e29::commands::FormatLibraryGuid(Group.m_Rows.front()->m_Library)) + L"|" + Group.m_GroupKey);
+            RenderSourceControlFolder(Undo, AllRows, std::format("\xEE\xA3\x95 {}", Group.m_DisplayName), Group.m_Rows, GlobalGroupKey);
+            ImGui::PopID();
+        }
+        if (!Bucket.m_UngroupedRows.empty())
+            RenderSourceControlTable(Undo, AllRows, Bucket.m_UngroupedRows, "SCCategoryTable", 180.0f);
+    }
+
+    // One category-shaped folder node: TreeNodeEx + "Select All" + drag source + its contents when
+    // open, PLUS an optional NESTED child category rendered first inside it (used for exactly one real
+    // case today - "Scenes & Levels" living under "Resources"). Shared by every real top-level category
+    // AND the nested "Scenes & Levels" folder itself - one implementation instead of near-duplicating
+    // the same TreeNodeEx/Select-All/drag block again. LibraryGuid/Category identify this bucket for
+    // the drag source, exactly the way RenderSourceControlFolder's own GlobalGroupKey identifies a
+    // resource - dragging this WHOLE category tags the drag as "a whole category concept" (direct user
+    // design, 2026-09-18: "the superset already includes the subset... we just want the superset").
+    // When NestedBucket is non-null, "Select All"/drag/commit-resolution for THIS folder include the
+    // nested bucket's rows too, and the drag tags m_ImplicitChildKey with the nested category's own key
+    // - real bug found live: "if I drag the resources[,] the Scenes & Levels stay behind" - Resources
+    // is Scenes & Levels' actual visual PARENT, so dragging it must take its child along, same as
+    // dragging any other parent folder would.
+    inline void RenderSourceControlCategoryFolder(xundo::system& Undo, const std::vector<sc_panel_row>& AllRows, const char* Label
+        , const sc_category_bucket& Bucket, e10::library::guid LibraryGuid, sc_category Category
+        , const char* NestedLabel = nullptr, const sc_category_bucket* NestedBucket = nullptr, sc_category NestedCategory = sc_category::Resources) noexcept
+    {
+        const std::size_t Total = Bucket.RowCount() + (NestedBucket ? NestedBucket->RowCount() : 0);
+        if (Total == 0) return;
+
+        // "###Node" pins this TreeNodeEx's identity to the enclosing PushID scope, not the visible
+        // "Label (Total)" text - see RenderSourceControlFolder's own comment for why a bare count-
+        // bearing label breaks persisted open/closed state the instant the count changes.
+        const bool bOpen = ImGui::TreeNodeEx(std::format("{} ({})###Node", Label, Total).c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanFullWidth);
+        auto CollectEverything = [&]() noexcept
+        {
+            std::vector<const sc_panel_row*> Everything = Bucket.m_UngroupedRows;
+            for (auto& G : Bucket.m_ResourceGroups) Everything.insert(Everything.end(), G.m_Rows.begin(), G.m_Rows.end());
+            if (NestedBucket)
+            {
+                Everything.insert(Everything.end(), NestedBucket->m_UngroupedRows.begin(), NestedBucket->m_UngroupedRows.end());
+                for (auto& G : NestedBucket->m_ResourceGroups) Everything.insert(Everything.end(), G.m_Rows.begin(), G.m_Rows.end());
+            }
+            return Everything;
+        };
+        if (ImGui::BeginPopupContextItem())
+        {
+            if (ImGui::MenuItem("Select All")) SourceControlSelectRows(CollectEverything());
+            ImGui::EndPopup();
+        }
+        // Same explicit 12px drag-distance guard as every other drag source in this file.
+        if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 12.0f) && ImGui::BeginDragDropSource())
+        {
+            const auto Everything = CollectEverything();
+            SourceControlSelectRows(Everything);
+            g_SourceControlPanel.m_DragSourceScope = source_control_panel_state::drag_scope{ source_control_panel_state::drag_scope::kind::Category, SourceControlGlobalCategoryKey(LibraryGuid, Category)
+                , NestedBucket ? std::optional<std::wstring>{ SourceControlGlobalCategoryKey(LibraryGuid, NestedCategory) } : std::optional<std::wstring>{} };
+            int Dummy = 0;
+            ImGui::SetDragDropPayload("SC_DRAG_SELECTION", &Dummy, sizeof(Dummy));
+            ImGui::Text("%s (%zu file(s))", Label, Everything.size());
+            ImGui::EndDragDropSource();
+        }
+        if (bOpen)
+        {
+            ImGui::Indent();
+            if (NestedBucket)
+                RenderSourceControlCategoryFolder(Undo, AllRows, NestedLabel, *NestedBucket, LibraryGuid, NestedCategory);
+            RenderSourceControlCategoryContents(Undo, AllRows, Bucket);
+            ImGui::Unindent();
+            ImGui::TreePop();
+        }
+    }
+
+    // One LIBRARY node - Category -> Resource nested underneath (with Scenes & Levels folded under
+    // Resources, per the earlier nesting correction) - plus its own Select All/drag source. Direct
+    // user request (2026-09-18): "I should be able to drag the entire library to my change list...
+    // this means the same thing as (All)" (dynamically tracks everything in this one library, the same
+    // "live, not a snapshot" way a resource/category is, just one level further up). Shared by the left
+    // Pending Changes tree AND (via a throwaway sc_library_group) a changelist's own file-box display,
+    // so a live-tracked whole library nests identically in both places.
+    inline void RenderSourceControlLibraryFolder(xundo::system& Undo, const std::vector<sc_panel_row>& AllRows, const sc_library_group& Lib) noexcept
+    {
+        auto& S = g_SourceControlPanel;
+        std::size_t LibTotal = 0;
+        for (auto& Cat : Lib.m_Categories) LibTotal += Cat.RowCount();
+        if (LibTotal == 0) return;
+
+        ImGui::PushID(static_cast<int>(Lib.m_Library.m_Instance.m_Value));
+        // "###Node" - same stable-id-vs-display-text separation as RenderSourceControlFolder's own.
+        const bool bLibOpen = ImGui::TreeNodeEx(std::format("{} ({})###Node", Lib.m_DisplayName, LibTotal).c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanFullWidth);
+        auto CollectEverything = [&]() noexcept
+        {
+            std::vector<const sc_panel_row*> Everything;
+            for (auto& Cat : Lib.m_Categories)
+            {
+                Everything.insert(Everything.end(), Cat.m_UngroupedRows.begin(), Cat.m_UngroupedRows.end());
+                for (auto& G : Cat.m_ResourceGroups) Everything.insert(Everything.end(), G.m_Rows.begin(), G.m_Rows.end());
+            }
+            return Everything;
+        };
+        if (ImGui::BeginPopupContextItem())
+        {
+            if (ImGui::MenuItem("Select All")) SourceControlSelectRows(CollectEverything());
+            ImGui::EndPopup();
+        }
+        // Same explicit 12px drag-distance guard as every other drag source in this file.
+        if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 12.0f) && ImGui::BeginDragDropSource())
+        {
+            const auto Everything = CollectEverything();
+            SourceControlSelectRows(Everything);
+            S.m_DragSourceScope = source_control_panel_state::drag_scope{ source_control_panel_state::drag_scope::kind::Library, SourceControlGlobalLibraryKey(Lib.m_Library) };
+            int Dummy = 0;
+            ImGui::SetDragDropPayload("SC_DRAG_SELECTION", &Dummy, sizeof(Dummy));
+            ImGui::Text("%s (%zu file(s))", Lib.m_DisplayName.c_str(), Everything.size());
+            ImGui::EndDragDropSource();
+        }
+        if (bLibOpen)
+        {
+            for (auto& Category : Lib.m_Categories)
+            {
+                // Scenes & Levels is rendered NESTED under Resources (direct user correction,
+                // 2026-09-18: "Scene & Levels should be under Resources" - a subfolder, not a sibling
+                // top-level category) via RenderSourceControlCategoryFolder's own NestedBucket - skip
+                // its own top-level slot entirely here.
+                if (Category.m_Category == sc_category::ScenesAndLevels) continue;
+
+                auto& ScenesBucket = Lib.m_Categories[static_cast<std::size_t>(sc_category::ScenesAndLevels)];
+                const bool bIsResources = (Category.m_Category == sc_category::Resources);
+                ImGui::PushID(static_cast<int>(Category.m_Category));
+                RenderSourceControlCategoryFolder(Undo, AllRows, SourceControlCategoryLabel(Category.m_Category), Category, Lib.m_Library, Category.m_Category
+                    , bIsResources ? "Scenes & Levels" : nullptr, bIsResources ? &ScenesBucket : nullptr, sc_category::ScenesAndLevels);
+                ImGui::PopID();
+            }
+            ImGui::TreePop();
+        }
+        ImGui::PopID();
+    }
+
     inline void RenderSourceControlDepotTree(xundo::system& Undo, const std::vector<sc_panel_row>& AllRows) noexcept
     {
         auto& S = g_SourceControlPanel;
         const auto Depots = BuildDepotGroups(AllRows);
+        // Every depot that has ANY pending row at all, regardless of changelist membership - direct
+        // user correction, 2026-09-18: "the depot is gone (should not be gone)". BuildDepotGroups only
+        // returns depots with something STILL unassigned, so a depot whose entire pending list has
+        // already been moved into changelists would otherwise vanish from this tree entirely, leaving
+        // no way to click it again to re-select it for the Changelists panel on the right.
+        const auto AllDepots = CollectDistinctDepots(AllRows);
 
-        if (Depots.empty())
+        if (AllDepots.empty())
         {
             ImGui::TextDisabled("(clean - nothing pending)");
             return;
         }
 
-        for (auto& Depot : Depots)
+        for (auto& [DepotKey, DepotDisplayName] : AllDepots)
         {
-            ImGui::PushID(Depot.m_Key.c_str());
+            ImGui::PushID(DepotKey.c_str());
 
+            auto DepotIt = std::find_if(Depots.begin(), Depots.end(), [&](const sc_depot_group& D) { return D.m_Key == DepotKey; });
             std::size_t DepotTotal = 0;
-            for (auto& Lib : Depot.m_Libraries) for (auto& Cat : Lib.m_Categories) DepotTotal += Cat.RowCount();
+            if (DepotIt != Depots.end())
+                for (auto& Lib : DepotIt->m_Libraries) for (auto& Cat : Lib.m_Categories) DepotTotal += Cat.RowCount();
 
             // Clicking a depot's own row selects it for the Changelists panel too (direct user
             // design: "to select the depot the user can click on the depot on the left. Then a
             // special selection will select it and stay selected") - one gesture, one place, instead
             // of a separate depot picker duplicated on the right. ImGuiTreeNodeFlags_Selected gives
             // it the same persistent highlight ImGui already uses for a selected tree row elsewhere.
-            const bool bDepotSelected = (Depot.m_Key == S.m_SelectedChangelistDepotKey);
-            const bool bDepotOpen = ImGui::TreeNodeEx(std::format("\xEE\xA3\xB1 {} ({})", Depot.m_DisplayName, DepotTotal).c_str()
+            const bool bDepotSelected = (DepotKey == S.m_SelectedChangelistDepotKey);
+            // "###Node" - same stable-id-vs-display-text separation as RenderSourceControlFolder's own.
+            const bool bDepotOpen = ImGui::TreeNodeEx(std::format("\xEE\xA3\xB1 {} ({})###Node", DepotDisplayName, DepotTotal).c_str()
                 , ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanFullWidth | (bDepotSelected ? ImGuiTreeNodeFlags_Selected : 0));
             if (ImGui::IsItemClicked())
-                S.m_SelectedChangelistDepotKey = Depot.m_Key;
+                S.m_SelectedChangelistDepotKey = DepotKey;
             if (bDepotOpen)
             {
-                for (auto& Lib : Depot.m_Libraries)
-                {
-                    ImGui::PushID(static_cast<int>(Lib.m_Library.m_Instance.m_Value));
-
-                    std::size_t LibTotal = 0;
-                    for (auto& Cat : Lib.m_Categories) LibTotal += Cat.RowCount();
-
-                    const bool bLibOpen = ImGui::TreeNodeEx(std::format("{} ({})", Lib.m_DisplayName, LibTotal).c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanFullWidth);
-                    if (bLibOpen)
-                    {
-                        for (auto& Category : Lib.m_Categories)
-                        {
-                            if (Category.RowCount() == 0) continue;
-                            ImGui::PushID(static_cast<int>(Category.m_Category));
-
-                            const bool bCatOpen = ImGui::TreeNodeEx(std::format("{} ({})", SourceControlCategoryLabel(Category.m_Category), Category.RowCount()).c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanFullWidth);
-                            if (ImGui::BeginPopupContextItem())
-                            {
-                                if (ImGui::MenuItem("Select All"))
-                                {
-                                    std::vector<const sc_panel_row*> Everything = Category.m_UngroupedRows;
-                                    for (auto& G : Category.m_ResourceGroups) Everything.insert(Everything.end(), G.m_Rows.begin(), G.m_Rows.end());
-                                    SourceControlSelectRows(Everything);
-                                }
-                                ImGui::EndPopup();
-                            }
-                            // Same explicit 12px drag-distance guard as every other drag source in
-                            // this file (see RenderSourceControlFolder's own comment) - a bare
-                            // BeginDragDropSource() here spuriously fires on a plain click too.
-                            if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 12.0f) && ImGui::BeginDragDropSource())
-                            {
-                                std::vector<const sc_panel_row*> Everything = Category.m_UngroupedRows;
-                                for (auto& G : Category.m_ResourceGroups) Everything.insert(Everything.end(), G.m_Rows.begin(), G.m_Rows.end());
-                                SourceControlSelectRows(Everything);
-                                int Dummy = 0;
-                                ImGui::SetDragDropPayload("SC_DRAG_SELECTION", &Dummy, sizeof(Dummy));
-                                ImGui::Text("%s (%zu file(s))", SourceControlCategoryLabel(Category.m_Category), Category.RowCount());
-                                ImGui::EndDragDropSource();
-                            }
-                            if (bCatOpen)
-                            {
-                                ImGui::Indent();
-                                // Resource groups first ("one scene should be one folder" - direct
-                                // user design) - every pending file belonging to the SAME resource
-                                // (info.txt, Descriptor.txt, compiled binary, dependencies.txt) shows
-                                // together under its own real name, not as disconnected rows.
-                                for (auto& Group : Category.m_ResourceGroups)
-                                {
-                                    // Group.m_GroupKey (stable, content-derived - "TypeLower|Hex"),
-                                    // NOT &Group's own address - same real bug as the row-level fix
-                                    // above: Depots/m_ResourceGroups is a fresh, freshly-reallocated
-                                    // vector EVERY SINGLE CALL to RenderSourceControlDepotTree (i.e.
-                                    // every frame), so an address-keyed PushID scope is a DIFFERENT,
-                                    // effectively random ID each frame - confirmed live as the root
-                                    // cause of BOTH "folder/file drag doesn't work" (breaks
-                                    // IsItemActive()'s cross-frame continuity) AND "opening a folder
-                                    // goes crazy" (breaks TreeNodeEx's own persisted open/closed
-                                    // state, which is looked up by ID).
-                                    const auto GroupIdStr = xstrtool::To(Group.m_GroupKey);
-                                    ImGui::PushID(GroupIdStr.c_str());
-                                    RenderSourceControlFolder(Undo, AllRows, std::format("\xEE\xA3\x95 {}", Group.m_DisplayName), Group.m_Rows);
-                                    ImGui::PopID();
-                                }
-                                if (!Category.m_UngroupedRows.empty())
-                                    RenderSourceControlTable(Undo, AllRows, Category.m_UngroupedRows, "SCCategoryTable", 180.0f);
-                                ImGui::Unindent();
-                                ImGui::TreePop();
-                            }
-                            ImGui::PopID();
-                        }
-                        ImGui::TreePop();
-                    }
-                    ImGui::PopID();
-                }
+                if (DepotIt != Depots.end())
+                    for (auto& Lib : DepotIt->m_Libraries)
+                        RenderSourceControlLibraryFolder(Undo, AllRows, Lib);
+                else
+                    ImGui::TextDisabled("(everything here is already in a changelist)");
                 ImGui::TreePop();
             }
             ImGui::PopID();
@@ -1112,9 +1680,272 @@ namespace e29
         return Summary;
     }
 
-    inline void SourceControlCommitChangelist(xundo::system& Undo, sc_changelist& CL) noexcept
+    // Resolves a changelist's FULL current row set - its explicit m_Keys, every row any of its
+    // m_LiveLibraryKeys/m_LiveCategoryKeys covers, and every row any of its m_LiveGroupKeys resolves
+    // to - fresh from AllRows every call (never a stale snapshot). Shared by the commit flow, the "can
+    // commit" check, and the file-box display, so all three agree on exactly the same set at all times.
+    inline std::vector<const sc_panel_row*> SourceControlResolveChangelistRows(const std::vector<sc_panel_row>& AllRows, const sc_changelist& CL) noexcept
     {
-        g_SourceControlPanel.m_StatusLine = SourceControlCommitKeys(Undo, CL.m_Keys, CL.m_Comment);
+        std::vector<const sc_panel_row*> Result;
+        for (auto& Row : AllRows)
+        {
+            if (std::find(CL.m_Keys.begin(), CL.m_Keys.end(), Row.m_Key) != CL.m_Keys.end()) { Result.push_back(&Row); continue; }
+
+            if (!CL.m_LiveLibraryKeys.empty())
+            {
+                const auto LibraryKey = SourceControlGlobalLibraryKey(Row.m_Library);
+                if (std::find(CL.m_LiveLibraryKeys.begin(), CL.m_LiveLibraryKeys.end(), LibraryKey) != CL.m_LiveLibraryKeys.end())
+                {
+                    Result.push_back(&Row);
+                    continue;
+                }
+            }
+
+            const auto Class = ClassifyPendingPath(Row.m_RelativePath);
+
+            if (!CL.m_LiveCategoryKeys.empty())
+            {
+                const auto CategoryKey = SourceControlGlobalCategoryKey(Row.m_Library, Class.m_Category);
+                if (std::find(CL.m_LiveCategoryKeys.begin(), CL.m_LiveCategoryKeys.end(), CategoryKey) != CL.m_LiveCategoryKeys.end())
+                {
+                    Result.push_back(&Row);
+                    continue;
+                }
+            }
+
+            if (CL.m_LiveGroupKeys.empty() || Class.m_HexInstance.empty()) continue;
+            const auto GlobalKey = SourceControlGlobalGroupKey(Row.m_Library, Class.m_TypeNameLower, Class.m_HexInstance);
+            if (std::find(CL.m_LiveGroupKeys.begin(), CL.m_LiveGroupKeys.end(), GlobalKey) != CL.m_LiveGroupKeys.end())
+                Result.push_back(&Row);
+        }
+        return Result;
+    }
+
+    inline void SourceControlCommitChangelist(xundo::system& Undo, const std::vector<sc_panel_row>& AllRows, sc_changelist& CL) noexcept
+    {
+        // Resolve live groups fresh and commit them together with the explicit keys as ONE real
+        // commit - direct user design: a live "Scene 1" reference commits together with whatever it
+        // currently, actually resolves to, not a snapshot taken back when it was dragged in.
+        const auto ResolvedRows = SourceControlResolveChangelistRows(AllRows, CL);
+        std::vector<std::wstring> Keys;
+        Keys.reserve(ResolvedRows.size());
+        for (auto* Row : ResolvedRows) Keys.push_back(Row->m_Key);
+
+        g_SourceControlPanel.m_StatusLine = SourceControlCommitKeys(Undo, Keys, CL.m_Comment);
+
+        // Keys was pruned in place to whatever did NOT commit. A live group's members always share
+        // one library (a resource group is a single-library concept), and SourceControlCommitKeys
+        // commits/fails per library atomically - so a live group either fully committed (none of its
+        // rows remain pending) or fully failed (all of them do), never partially, making "does any
+        // resolved row of this group still remain" an exact test, not a guess.
+        const std::unordered_set<std::wstring> StillPending(Keys.begin(), Keys.end());
+        CL.m_Keys.erase(std::remove_if(CL.m_Keys.begin(), CL.m_Keys.end(), [&](const std::wstring& Key) { return !StillPending.contains(Key); }), CL.m_Keys.end());
+        CL.m_LiveGroupKeys.erase(std::remove_if(CL.m_LiveGroupKeys.begin(), CL.m_LiveGroupKeys.end(), [&](const std::wstring& GroupKey)
+        {
+            for (auto* Row : ResolvedRows)
+            {
+                const auto Class = ClassifyPendingPath(Row->m_RelativePath);
+                if (Class.m_HexInstance.empty()) continue;
+                if (SourceControlGlobalGroupKey(Row->m_Library, Class.m_TypeNameLower, Class.m_HexInstance) == GroupKey && StillPending.contains(Row->m_Key))
+                    return false; // still pending - keep tracking this group live
+            }
+            return true; // nothing from this group remains pending - drop the now-empty live reference
+        }), CL.m_LiveGroupKeys.end());
+        CL.m_LiveCategoryKeys.erase(std::remove_if(CL.m_LiveCategoryKeys.begin(), CL.m_LiveCategoryKeys.end(), [&](const std::wstring& CategoryKey)
+        {
+            for (auto* Row : ResolvedRows)
+            {
+                const auto Class = ClassifyPendingPath(Row->m_RelativePath);
+                if (SourceControlGlobalCategoryKey(Row->m_Library, Class.m_Category) == CategoryKey && StillPending.contains(Row->m_Key))
+                    return false; // still pending - keep tracking this category live
+            }
+            return true; // nothing from this category remains pending - drop the now-empty live reference
+        }), CL.m_LiveCategoryKeys.end());
+        CL.m_LiveLibraryKeys.erase(std::remove_if(CL.m_LiveLibraryKeys.begin(), CL.m_LiveLibraryKeys.end(), [&](const std::wstring& LibraryKey)
+        {
+            for (auto* Row : ResolvedRows)
+                if (SourceControlGlobalLibraryKey(Row->m_Library) == LibraryKey && StillPending.contains(Row->m_Key))
+                    return false; // still pending - keep tracking this library live
+            return true; // nothing from this library remains pending - drop the now-empty live reference
+        }), CL.m_LiveLibraryKeys.end());
+    }
+
+    // Renders a changelist's (or the "(All)" pseudo-entry's) own file set - direct user design
+    // (2026-09-18): "keep the folder form over just flatten things out... larger concepts [are]
+    // easier to understand than piece by piece."
+    //
+    // CL == nullptr (the "(All)" pseudo-entry - no per-item live/flat tracking exists there at all)
+    // groups EVERY classified row by its owning resource unconditionally, for the same readability
+    // reason the left Pending Changes tree always folders a resource regardless of file count
+    // (RenderSourceControlFolder never flattens a 1-file resource either). No category-level nesting
+    // there - "(All)" is a flat everything-in-the-depot view, not backed by any live tracking to nest.
+    //
+    // CL != nullptr (a real changelist) is stricter and mirrors the Pending Changes tree's own
+    // Library -> Category -> Resource nesting exactly - direct user correction, 2026-09-18: "if I open
+    // B [a live category, or now a live library] I will find A [what it covers] in there... the same
+    // way it was in the pending list." A row whose Library is one of CL's m_LiveLibraryKeys renders
+    // nested under that library folder (via RenderSourceControlLibraryFolder, same as the left tree,
+    // reusing a real sc_library_group built on the fly); otherwise a row whose (Library, Category) is
+    // one of CL's m_LiveCategoryKeys renders nested under a category folder; otherwise a row whose
+    // resource is one of CL's m_LiveGroupKeys renders as its own top-level resource folder. Everything
+    // else (explicit m_Keys, including files that merely happen to share a resource with a live one)
+    // stays flat, never auto-folding into a look-alike group. A row count is NEVER the deciding factor
+    // for whether something folders (a live reference with only 1 pending file right now still renders
+    // as a folder) - the ONLY thing that turns a live folder back into flat rows is
+    // SourceControlRemoveRowFromChangelist actually dropping its live reference (removing one member
+    // from inside it) - never a display-time heuristic here ("the only way that a folder should be
+    // flatten is if I remove a file/folder from inside the folder").
+    inline void RenderSourceControlChangelistFiles(xundo::system& Undo, const std::vector<sc_panel_row>& AllRows
+        , const std::vector<const sc_panel_row*>& RowsToShow, const char* TableId, const sc_changelist* CL = nullptr) noexcept
+    {
+        struct changelist_group { std::wstring m_GroupKey; std::string m_DisplayName; std::vector<const sc_panel_row*> m_Rows; };
+        struct changelist_category { std::wstring m_CategoryKey; sc_category m_Category; e10::library::guid m_Library; std::vector<changelist_group> m_Groups; std::vector<const sc_panel_row*> m_Ungrouped; };
+
+        std::vector<sc_library_group> Libraries; // reuses the real left-tree type directly - a live
+                                                  // library's rows slot into it exactly like BuildDepotGroups
+                                                  // already does, so RenderSourceControlLibraryFolder
+                                                  // renders it identically to the left tree.
+        std::vector<changelist_category> Categories;
+        std::vector<changelist_group> Groups;
+        std::vector<const sc_panel_row*> Flat;
+
+        for (auto* Row : RowsToShow)
+        {
+            const auto Class = ClassifyPendingPath(Row->m_RelativePath);
+
+            if (CL != nullptr)
+            {
+                const auto LibraryKey = SourceControlGlobalLibraryKey(Row->m_Library);
+                if (std::find(CL->m_LiveLibraryKeys.begin(), CL->m_LiveLibraryKeys.end(), LibraryKey) != CL->m_LiveLibraryKeys.end())
+                {
+                    auto LIt = std::find_if(Libraries.begin(), Libraries.end(), [&](const sc_library_group& L) { return L.m_Library == Row->m_Library; });
+                    if (LIt == Libraries.end())
+                    {
+                        sc_library_group NewLib;
+                        NewLib.m_Library     = Row->m_Library;
+                        NewLib.m_DisplayName = SourceControlLibraryDisplayName(Row->m_Library);
+                        for (std::size_t i = 0; i < NewLib.m_Categories.size(); ++i)
+                            NewLib.m_Categories[i].m_Category = static_cast<sc_category>(i);
+                        Libraries.push_back(std::move(NewLib));
+                        LIt = std::prev(Libraries.end());
+                    }
+                    auto& Bucket = LIt->m_Categories[static_cast<std::size_t>(Class.m_Category)];
+                    if (Class.m_HexInstance.empty()) { Bucket.m_UngroupedRows.push_back(Row); continue; }
+
+                    const std::wstring LocalResKey = Class.m_TypeNameLower + L"|" + Class.m_HexInstance;
+                    auto GIt = std::find_if(Bucket.m_ResourceGroups.begin(), Bucket.m_ResourceGroups.end(), [&](const sc_resource_group& G) { return G.m_GroupKey == LocalResKey; });
+                    if (GIt == Bucket.m_ResourceGroups.end())
+                    {
+                        Bucket.m_ResourceGroups.push_back(sc_resource_group{ LocalResKey, SourceControlResolveResourceName(Row->m_Library, Class.m_TypeNameLower, Class.m_HexInstance), {} });
+                        GIt = std::prev(Bucket.m_ResourceGroups.end());
+                    }
+                    GIt->m_Rows.push_back(Row);
+                    continue;
+                }
+
+                const auto CategoryKey = SourceControlGlobalCategoryKey(Row->m_Library, Class.m_Category);
+                if (std::find(CL->m_LiveCategoryKeys.begin(), CL->m_LiveCategoryKeys.end(), CategoryKey) != CL->m_LiveCategoryKeys.end())
+                {
+                    auto CIt = std::find_if(Categories.begin(), Categories.end(), [&](const changelist_category& C) { return C.m_CategoryKey == CategoryKey; });
+                    if (CIt == Categories.end())
+                    {
+                        Categories.push_back(changelist_category{ CategoryKey, Class.m_Category, Row->m_Library, {}, {} });
+                        CIt = std::prev(Categories.end());
+                    }
+                    if (Class.m_HexInstance.empty()) { CIt->m_Ungrouped.push_back(Row); continue; }
+
+                    const std::wstring LocalResKey = Class.m_TypeNameLower + L"|" + Class.m_HexInstance;
+                    auto GIt = std::find_if(CIt->m_Groups.begin(), CIt->m_Groups.end(), [&](const changelist_group& G) { return G.m_GroupKey == LocalResKey; });
+                    if (GIt == CIt->m_Groups.end())
+                    {
+                        CIt->m_Groups.push_back(changelist_group{ LocalResKey, SourceControlResolveResourceName(Row->m_Library, Class.m_TypeNameLower, Class.m_HexInstance), {} });
+                        GIt = std::prev(CIt->m_Groups.end());
+                    }
+                    GIt->m_Rows.push_back(Row);
+                    continue;
+                }
+            }
+
+            if (Class.m_HexInstance.empty()) { Flat.push_back(Row); continue; }
+
+            const std::wstring GroupKey = SourceControlGlobalGroupKey(Row->m_Library, Class.m_TypeNameLower, Class.m_HexInstance);
+            const bool bGroupable = (CL == nullptr) || (std::find(CL->m_LiveGroupKeys.begin(), CL->m_LiveGroupKeys.end(), GroupKey) != CL->m_LiveGroupKeys.end());
+            if (!bGroupable) { Flat.push_back(Row); continue; }
+
+            auto It = std::find_if(Groups.begin(), Groups.end(), [&](const changelist_group& G) { return G.m_GroupKey == GroupKey; });
+            if (It == Groups.end())
+            {
+                Groups.push_back(changelist_group{ GroupKey, SourceControlResolveResourceName(Row->m_Library, Class.m_TypeNameLower, Class.m_HexInstance), {} });
+                It = std::prev(Groups.end());
+            }
+            It->m_Rows.push_back(Row);
+        }
+
+        // NOTE: there is deliberately NO "group multiple separate live entries under a cosmetic
+        // library heading" step here - direct user correction, 2026-09-18: "the library name should
+        // not show up in the 'Files in' unless everything is in there." A library folder appears in
+        // this view ONLY via a real m_LiveLibraryKeys reference (dragged directly, or auto-promoted by
+        // SourceControlPromoteToLibraryIfFullyCovered once every pending row in that library resolves
+        // to this SAME changelist) - partial coverage (e.g. Resources + Assets dragged separately, but
+        // Project Files still pending elsewhere) stays as independent top-level folders, never
+        // prematurely wrapped.
+
+        if (Libraries.empty() && Categories.empty() && Groups.empty())
+        {
+            RenderSourceControlTable(Undo, AllRows, Flat, TableId);
+            return;
+        }
+
+        ImGui::BeginChild(std::format("{}Scroll", TableId).c_str(), ImVec2(0, 0));
+        for (auto& L : Libraries)
+            RenderSourceControlLibraryFolder(Undo, AllRows, L);
+        for (auto& C : Categories)
+        {
+            // Scenes & Levels nests under its own library's Resources entry when one is ALSO present
+            // here (matches the Pending Changes tree's own nesting, and how dragging Resources now
+            // always carries Scenes & Levels along too) - skip its own top-level slot to avoid
+            // rendering it twice. If Resources isn't live here (only Scenes & Levels was dragged on
+            // its own), fall through and render it as its own top-level folder below.
+            if (C.m_Category == sc_category::ScenesAndLevels
+                && std::any_of(Categories.begin(), Categories.end(), [&](const changelist_category& Other) { return Other.m_Category == sc_category::Resources && Other.m_Library == C.m_Library; }))
+                continue;
+
+            ImGui::PushID(xstrtool::To(C.m_CategoryKey).c_str());
+            sc_category_bucket Bucket;
+            Bucket.m_Category = C.m_Category;
+            Bucket.m_UngroupedRows = C.m_Ungrouped;
+            for (auto& G : C.m_Groups)
+                Bucket.m_ResourceGroups.push_back(sc_resource_group{ G.m_GroupKey, G.m_DisplayName, G.m_Rows });
+
+            if (C.m_Category == sc_category::Resources)
+            {
+                auto ScenesIt = std::find_if(Categories.begin(), Categories.end(), [&](const changelist_category& Other) { return Other.m_Category == sc_category::ScenesAndLevels && Other.m_Library == C.m_Library; });
+                if (ScenesIt != Categories.end())
+                {
+                    sc_category_bucket ScenesBucket;
+                    ScenesBucket.m_Category = sc_category::ScenesAndLevels;
+                    ScenesBucket.m_UngroupedRows = ScenesIt->m_Ungrouped;
+                    for (auto& G : ScenesIt->m_Groups)
+                        ScenesBucket.m_ResourceGroups.push_back(sc_resource_group{ G.m_GroupKey, G.m_DisplayName, G.m_Rows });
+                    RenderSourceControlCategoryFolder(Undo, AllRows, SourceControlCategoryLabel(C.m_Category), Bucket, C.m_Library, C.m_Category
+                        , "Scenes & Levels", &ScenesBucket, sc_category::ScenesAndLevels);
+                    ImGui::PopID();
+                    continue;
+                }
+            }
+
+            RenderSourceControlCategoryFolder(Undo, AllRows, SourceControlCategoryLabel(C.m_Category), Bucket, C.m_Library, C.m_Category);
+            ImGui::PopID();
+        }
+        for (auto& G : Groups)
+        {
+            ImGui::PushID(xstrtool::To(G.m_GroupKey).c_str());
+            RenderSourceControlFolder(Undo, AllRows, std::format("\xEE\xA3\x95 {}", G.m_DisplayName), G.m_Rows, G.m_GroupKey);
+            ImGui::PopID();
+        }
+        if (!Flat.empty())
+            RenderSourceControlTable(Undo, AllRows, Flat, std::format("{}Ungrouped", TableId).c_str(), 180.0f);
+        ImGui::EndChild();
     }
 
     void RenderSourceControlPanel(xundo::system& Undo) noexcept
@@ -1239,6 +2070,50 @@ namespace e29
         // drag/assign the selection into a changelist (an existing one, or a quick new one created
         // for exactly this) and comment/commit from there.
         ImGui::BeginChild("SCDepotTreeScroll", ImVec2(0, 0));
+        // Drop target for "SC_DRAG_SELECTION" - direct user request: dragging back FROM a changelist's
+        // "Files in" box TO here restores it to the auto-tree, and "no matter how much back and
+        // forth... if I move all the folders from Files In back to the Pending list[,] the Pending
+        // list will be restored back fully as it was originally." A resource/category folder drag
+        // (m_DragSourceScope tagged) is removed as ONE clean live reference (via the same
+        // Assign*ToChangelist(..., -1) "unassign" path a real assign already supports) rather than
+        // flattening then re-erasing row by row; a plain row/multi-select drag goes through
+        // SourceControlRemoveRowFromChangelist per row, same as the context menu's own "Remove from
+        // Changelist" action. BeginDragDropTargetCustom + an explicit rect, NOT the bare
+        // BeginDragDropTarget() - see the file box's own drop-target fix for why the bare form binds
+        // to the wrong item.
+        {
+            const ImVec2 PendingBoxMin = ImGui::GetWindowPos();
+            const ImVec2 PendingBoxSize = ImGui::GetWindowSize();
+            const ImRect PendingBoxRect(PendingBoxMin, ImVec2(PendingBoxMin.x + PendingBoxSize.x, PendingBoxMin.y + PendingBoxSize.y));
+            if (ImGui::BeginDragDropTargetCustom(PendingBoxRect, ImGui::GetID("SCPendingDropTarget")))
+            {
+                if (ImGui::AcceptDragDropPayload("SC_DRAG_SELECTION"))
+                {
+                    // Category/Resource kinds go through SourceControlDetachScopeRows, NOT a direct
+                    // Assign*ToChangelist(..., -1) call - real bug found live: that direct call is a
+                    // no-op when the item is nested inside a BROADER live reference (e.g. "Scene 1"
+                    // covered by a live "Resources" category, or "Resources" covered by a live
+                    // library) rather than its own independent entry, since m_LiveGroupKeys/
+                    // m_LiveCategoryKeys never actually held this item's key in that case. Library
+                    // kind is unaffected (never nested under anything broader) so it keeps the direct
+                    // call, which already worked correctly.
+                    if (S.m_DragSourceScope.has_value() && S.m_DragSourceScope->m_Kind == source_control_panel_state::drag_scope::kind::Resource)
+                        SourceControlDetachScopeRows(Rows, *S.m_DragSourceScope);
+                    else if (S.m_DragSourceScope.has_value() && S.m_DragSourceScope->m_Kind == source_control_panel_state::drag_scope::kind::Category)
+                        SourceControlDetachScopeRows(Rows, *S.m_DragSourceScope);
+                    else if (S.m_DragSourceScope.has_value() && S.m_DragSourceScope->m_Kind == source_control_panel_state::drag_scope::kind::Library)
+                        SourceControlAssignLibraryToChangelist(Rows, S.m_DragSourceScope->m_Key, -1);
+                    else
+                        for (auto& Key : S.m_MultiSelectOrder)
+                        {
+                            auto ItRow = std::find_if(Rows.begin(), Rows.end(), [&](const sc_panel_row& R) { return R.m_Key == Key; });
+                            if (ItRow != Rows.end()) SourceControlRemoveRowFromChangelist(Rows, *ItRow);
+                        }
+                    S.m_DragSourceScope.reset();
+                }
+                ImGui::EndDragDropTarget();
+            }
+        }
         RenderSourceControlDepotTree(Undo, Rows);
         ImGui::EndChild();
         ImGui::EndChild(); // closes the OUTER "SCPending" child (BeginChild above) - real bug found
@@ -1331,7 +2206,7 @@ namespace e29
             ImGui::Separator();
             ImGui::TextDisabled("Files (all pending in this depot):");
             ImGui::BeginChild("SCChangelistFiles", ImVec2(0, 0), true);
-            RenderSourceControlTable(Undo, Rows, DepotRows, "SCChangelistTable");
+            RenderSourceControlChangelistFiles(Undo, Rows, DepotRows, "SCChangelistTable");
             ImGui::EndChild();
         }
         else if (S.m_ActiveChangelist >= 0 && S.m_ActiveChangelist < static_cast<int>(S.m_Changelists.size()))
@@ -1346,10 +2221,13 @@ namespace e29
             if (ImGui::InputTextMultiline("##SCComment", CommentBuf, sizeof(CommentBuf), ImVec2(-1.0f, 60)))
                 CL.m_Comment = CommentBuf;
 
-            const bool bCanCommit = !CL.m_Keys.empty() && !CL.m_Comment.empty();
+            // Resolved ONCE here (explicit keys + live-group members, fresh) and reused below for both
+            // the "can commit" check and the file-box display, so they never disagree.
+            const auto ChangelistRows = SourceControlResolveChangelistRows(Rows, CL);
+            const bool bCanCommit = !ChangelistRows.empty() && !CL.m_Comment.empty();
             if (!bCanCommit) ImGui::BeginDisabled();
             if (ImGui::Button("Commit && Push"))
-                SourceControlCommitChangelist(Undo, CL);
+                SourceControlCommitChangelist(Undo, Rows, CL);
             if (!bCanCommit) ImGui::EndDisabled();
 
             if (!S.m_StatusLine.empty())
@@ -1363,22 +2241,80 @@ namespace e29
             // box[,] of the change list") - drops the CURRENT global multi-selection (set by the drag
             // source at pickup time) into THIS active changelist.
             ImGui::BeginChild("SCChangelistFiles", ImVec2(0, 0), true);
-            // Registered as a drop target for the WHOLE child window immediately after BeginChild -
-            // NOT after the table below, since an item-level BeginDragDropTarget() checks the LAST
-            // SUBMITTED ITEM's own rect (the table, in that case), not the file box as a whole.
-            if (ImGui::BeginDragDropTarget())
+            // Real bug found live (2026-09-17, direct user report: "the target is in the list box in
+            // the name of the change list. That should not be the case"): the bare
+            // ImGui::BeginDragDropTarget() does NOT bind to "the current child window" - per its own
+            // implementation (imgui.cpp), it binds to whatever g.LastItemData was, i.e. the LAST
+            // ITEM SUBMITTED BEFORE BeginChild() (here, the "Files in ..." label, itself right below
+            // the changelist picker section) - BeginChild() only registers the child frame as an item
+            // of the PARENT window at EndChild() time, not at BeginChild() time. So the real
+            // drop-accept rect ended up bound near/inside the changelist list section above, not this
+            // file box. Fixed with BeginDragDropTargetCustom() + an EXPLICIT rect taken from THIS
+            // child window's own bounds (valid now that we're actually inside it) - this is the
+            // correct way to make a whole child window (not just its last item) a drop target.
+            const ImVec2 SCFilesBoxMin = ImGui::GetWindowPos();
+            const ImVec2 SCFilesBoxSize = ImGui::GetWindowSize();
+            const ImRect SCFilesBoxRect(SCFilesBoxMin, ImVec2(SCFilesBoxMin.x + SCFilesBoxSize.x, SCFilesBoxMin.y + SCFilesBoxSize.y));
+            if (ImGui::BeginDragDropTargetCustom(SCFilesBoxRect, ImGui::GetID("SCChangelistFilesDropTarget")))
             {
                 if (ImGui::AcceptDragDropPayload("SC_DRAG_SELECTION"))
-                    for (auto& Key : S.m_MultiSelectOrder) SourceControlAssignToChangelist(Key, S.m_ActiveChangelist);
+                {
+                    // A changelist belongs to exactly ONE depot - real bug found live: dragging from a
+                    // DIFFERENT depot into this changelist was never checked, letting one changelist
+                    // end up spanning two repos it could never actually commit together. Reject the
+                    // whole drop (no partial assignment) when the dragged selection isn't entirely
+                    // from CL's own depot - same invariant the "Add to Changelist" context menu already
+                    // enforces, just missing here until now. A scoped (folder) drag is checked against
+                    // its OWN key, not m_MultiSelectOrder - see SourceControlFindScopeDepotMismatch's
+                    // own comment for why. Both variants return the actual mismatching row (not just a
+                    // bool) so the message can name it - real user confusion found live: two different
+                    // libraries can have a pending file at the identical relative path (e.g. each
+                    // library's own "library.config.txt"), so an unqualified "wrong depot" message left
+                    // the user unable to tell what was actually dragged.
+                    const sc_panel_row* pMismatch = S.m_DragSourceScope.has_value()
+                        ? SourceControlFindScopeDepotMismatch(Rows, *S.m_DragSourceScope, CL.m_DepotKey)
+                        : SourceControlFindDepotMismatch(Rows, S.m_MultiSelectOrder, CL.m_DepotKey);
+                    if (pMismatch != nullptr)
+                    {
+                        auto TargetDepotRowIt = std::find_if(Rows.begin(), Rows.end(), [&](const sc_panel_row& R) { return SourceControlDepotKeyAndName(R.m_Library).first == CL.m_DepotKey; });
+                        const std::string TargetDepotName = (TargetDepotRowIt != Rows.end()) ? SourceControlDepotKeyAndName(TargetDepotRowIt->m_Library).second : CL.m_DepotKey;
+                        S.m_StatusLine = std::format("Can't move \"{}\" into \"{}\" - it belongs to {}, not {} (a changelist can only hold files from one depot)."
+                            , xstrtool::To(pMismatch->m_RelativePath), CL.m_Name
+                            , SourceControlDepotKeyAndName(pMismatch->m_Library).second, TargetDepotName);
+                    }
+                    // A resource-folder drag (RenderSourceControlFolder) or a category-folder drag
+                    // (RenderSourceControlCategoryFolder / the top-level category node) tags
+                    // m_DragSourceScope - assign the WHOLE concept as a live reference (direct user
+                    // design: "drags the 'Scene 1' folder... more entities ready to check in... will
+                    // automatically be included"; a category drag additionally absorbs any
+                    // already-tracked subset - "the superset already includes the subset"). A plain
+                    // row drag is a flat, explicit pick. Category/Resource kinds are DETACHED first
+                    // (SourceControlDetachScopeRows) - real bug found live: re-dragging an item that's
+                    // currently nested inside a BROADER live reference (e.g. moving "Scene 1" - itself
+                    // covered by a live "Resources" category - into a DIFFERENT changelist) must
+                    // actually pull it out of that broader reference first, or it silently ends up
+                    // "in" both changelists at once since the covering reference was never touched.
+                    else if (S.m_DragSourceScope.has_value() && S.m_DragSourceScope->m_Kind == source_control_panel_state::drag_scope::kind::Resource)
+                    {
+                        SourceControlDetachScopeRows(Rows, *S.m_DragSourceScope);
+                        SourceControlAssignGroupToChangelist(Rows, S.m_DragSourceScope->m_Key, S.m_ActiveChangelist);
+                    }
+                    else if (S.m_DragSourceScope.has_value() && S.m_DragSourceScope->m_Kind == source_control_panel_state::drag_scope::kind::Category)
+                    {
+                        SourceControlDetachScopeRows(Rows, *S.m_DragSourceScope);
+                        SourceControlAssignCategoryToChangelist(Rows, S.m_DragSourceScope->m_Key, S.m_ActiveChangelist);
+                        if (S.m_DragSourceScope->m_ImplicitChildKey.has_value())
+                            SourceControlAssignCategoryToChangelist(Rows, *S.m_DragSourceScope->m_ImplicitChildKey, S.m_ActiveChangelist);
+                    }
+                    else if (S.m_DragSourceScope.has_value() && S.m_DragSourceScope->m_Kind == source_control_panel_state::drag_scope::kind::Library)
+                        SourceControlAssignLibraryToChangelist(Rows, S.m_DragSourceScope->m_Key, S.m_ActiveChangelist);
+                    else
+                        for (auto& Key : S.m_MultiSelectOrder) SourceControlAssignToChangelist(Key, S.m_ActiveChangelist);
+                    S.m_DragSourceScope.reset();
+                }
                 ImGui::EndDragDropTarget();
             }
-            {
-                std::vector<const sc_panel_row*> ChangelistRows;
-                for (auto& Row : Rows)
-                    if (std::find(CL.m_Keys.begin(), CL.m_Keys.end(), Row.m_Key) != CL.m_Keys.end())
-                        ChangelistRows.push_back(&Row);
-                RenderSourceControlTable(Undo, Rows, std::move(ChangelistRows), "SCChangelistTable");
-            }
+            RenderSourceControlChangelistFiles(Undo, Rows, ChangelistRows, "SCChangelistTable", &CL);
             ImGui::EndChild();
         }
         ImGui::EndChild();
