@@ -33,6 +33,18 @@
 // same include E10_asset_browser_files_tab.h uses for FilesBackgroundDropTarget.
 #include "imgui_internal.h"
 
+// ResolveLibraryRootPath (library::guid -> real root path) and e10::source_control::
+// GetCachedFileStatus/GetCachedLockStatus/GetLastRefreshTime - needed for this panel's own Scene/
+// Level source-control badge column. E10_AssetBrowser.h (asset_status_badge/asset_lock_badge/
+// DrawSourceControlBadge/GetSourceControlTooltipText) is already pulled in much earlier by the kit
+// umbrella (E29_LevelSceneEditorKit.h, well before this panel's own include), so it isn't repeated
+// here - these two are the only pieces this panel doesn't already have "for free" by include order,
+// same "include what you name, don't rely on a distant caller's order" discipline as the includes
+// above (E29_Panel_SourceControl.h itself pulls both in too, but only LATER in the umbrella's own
+// include list - after this panel).
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SourceControl.h"
+#include "source/Examples/E10_TextureResourcePipeline/E10_SourceControlCache.h"
+
 namespace e29
 {
     //---------------------------------------------------------------------------
@@ -93,6 +105,102 @@ namespace e29
         return RequestOpenLevel(GameMgr, State, Undo, LevelGuid, /*bStartGameReload*/ true);
     }
 
+    // Renders the Level Tree's own source-control status/lock badge for a Scene or Level resource -
+    // direct user request: "the 'level Tree' left source control column... similar to the one we
+    // have done in all other views." Scoped to Scene/Level rows only, same granularity the Source
+    // Control panel itself already uses (E29_Panel_SourceControl.h's own top comment: a Scene is one
+    // committable file as far as git is concerned - an Entity/Folder has no file of its own to track,
+    // "a real, separate future feature," not this one). Draws directly into the CURRENT table cell
+    // (call this right after TableSetColumnIndex for the dedicated "##SC" column), reusing the exact
+    // same e10::DrawSourceControlBadge/GetSourceControlTooltipText helpers the Asset Tree and Source
+    // Control panel already share, so all three views read identically.
+    //
+    // There is no existing "given only a full_guid, which library owns it" helper - getNodeInfo's own
+    // global-search overload (E10_AssetMgr.h) loops every open library internally but never surfaces
+    // which one matched - so this does that resolution itself via the per-library overload, same
+    // "try each open library" idiom BuildSourceControlRows/CollectDistinctDepots already use elsewhere
+    // for depot-wide scans. The Descriptor.txt path derivation (info.txt's own path -> sibling
+    // Descriptor.txt -> strip the owning library's root) mirrors
+    // E10_asset_browser_virtual_tree_tab.h's own tile-badge derivation exactly, so a Scene/Level's
+    // badge here and its badge in the Asset Tree (if ever shown there) would always agree.
+    inline void RenderLevelTreeSourceControlBadge(const xresource::full_guid& ResourceGuid) noexcept
+    {
+        for (auto& Lib : e10::g_LibMgr.m_mLibraryDB)
+        {
+            std::wstring DescriptorPath;
+            // NOT noexcept - getNodeInfo's own function_traits deduction (E10_AssetMgr.h) doesn't
+            // handle a noexcept lambda's operator() type (the established noexcept-lambda trait trap,
+            // see memory xgpu_xcontainer_noexcept_lambda_trait_trap - recurs anywhere a lambda is
+            // passed to one of these FindAsReadOnly-style helpers).
+            const bool bFound = e10::g_LibMgr.getNodeInfo(Lib.first, ResourceGuid, [&](const e10::library_db::info_node& Node)
+            {
+                const auto SlashPos = Node.m_Path.find_last_of(L'\\');
+                DescriptorPath = (SlashPos == std::wstring::npos) ? Node.m_Path : (Node.m_Path.substr(0, SlashPos + 1) + L"Descriptor.txt");
+                const auto& LibRoot = Lib.second->m_Library.m_Path;
+                if (DescriptorPath.size() > LibRoot.size() && DescriptorPath.compare(0, LibRoot.size(), LibRoot) == 0)
+                {
+                    DescriptorPath = DescriptorPath.substr(LibRoot.size());
+                    while (!DescriptorPath.empty() && (DescriptorPath.front() == L'\\' || DescriptorPath.front() == L'/'))
+                        DescriptorPath.erase(DescriptorPath.begin());
+                }
+            });
+            if (!bFound) continue;
+
+            const auto RootPath = e29::commands::ResolveLibraryRootPath(Lib.first);
+            if (RootPath.empty()) return;
+
+            e10::asset_status_badge StatusBadge = e10::asset_status_badge::None;
+            if (auto Status = e10::source_control::GetCachedFileStatus(RootPath, DescriptorPath))
+                StatusBadge = Status->untracked ? e10::asset_status_badge::Untracked : e10::asset_status_badge::Modified;
+            else if (e10::source_control::GetLastRefreshTime(RootPath))
+                StatusBadge = e10::asset_status_badge::Clean;
+
+            e10::asset_lock_badge LockBadge = e10::asset_lock_badge::None;
+            if (auto Lock = e10::source_control::GetCachedLockStatus(RootPath, DescriptorPath))
+                LockBadge = (Lock->ownership == sc::LockOwnership::CurrentUser) ? e10::asset_lock_badge::LockedByMe : e10::asset_lock_badge::LockedByOther;
+
+            if (StatusBadge == e10::asset_status_badge::None && LockBadge == e10::asset_lock_badge::None) return;
+
+            constexpr float BadgeSize = 12.0f; // matches E10_asset_browser_virtual_tree_tab.h/files_tab's own badge size - direct user correction, never asked to change the icon size
+            const ImVec2 CellMin  = ImGui::GetCursorScreenPos();
+            const ImVec2 CellSize = ImGui::GetContentRegionAvail();
+            const ImVec2 Center{ CellMin.x + CellSize.x * 0.5f, CellMin.y + ImGui::GetTextLineHeight() * 0.5f };
+            e10::DrawSourceControlBadge(ImGui::GetWindowDrawList(), Center, BadgeSize, StatusBadge, LockBadge);
+
+            // Invisible placeholder so the cell has a real item (row-height/clip participation) and a
+            // hover target for the tooltip - the badge itself is drawn via raw ImDrawList primitives,
+            // which never register as hoverable on their own.
+            ImGui::Dummy(ImVec2(BadgeSize, ImGui::GetTextLineHeight()));
+            if (ImGui::IsItemHovered())
+            {
+                const char* Title = ""; const char* Desc = "";
+                e10::GetSourceControlTooltipText(StatusBadge, LockBadge, Title, Desc);
+                ImGui::BeginTooltip();
+                ImGui::Text("%s", Title);
+                ImGui::TextDisabled("%s", Desc);
+                ImGui::EndTooltip();
+            }
+            return;
+        }
+    }
+
+    // Selects the "##SC" column (always table column 0) and draws the badge into it. The real
+    // positional bug (direct user report: "some of them seems missing, and others look like they are
+    // too far on the left") was Dear ImGui's own default table-column indent policy
+    // (imgui_tables.cpp: "flags |= (column index == 0) ? IndentEnable : IndentDisable") - by default
+    // ONLY column 0 receives the current tree-indent, every other column ignores it. Our layout has
+    // that backwards for what we want (the badge sits in column 0, the actual tree lives in column
+    // 1), so the badge drifted right with tree depth and clipped past its fixed 20px column while the
+    // Name column's own tree drew with NO indent at all (a second, related user report: "the
+    // indentation for the tree seems to be missing"). Fixed at the RenderLevelTreePanel table setup
+    // via explicit ImGuiTableColumnFlags_IndentDisable/_IndentEnable per column - this function no
+    // longer needs to fight the default itself.
+    inline void RenderLevelTreeSourceControlBadgeColumn(const xresource::full_guid& ResourceGuid) noexcept
+    {
+        ImGui::TableSetColumnIndex(0);
+        RenderLevelTreeSourceControlBadge(ResourceGuid);
+    }
+
     void RenderLevelTreePanel(xecs::game_mgr::instance& GameMgr, editor_state& State, xundo::system& Undo) noexcept
     {
         ImGui::SetNextWindowPos(ImVec2(915, 18), ImGuiCond_FirstUseEver);
@@ -150,13 +258,44 @@ namespace e29
                 // on every future launch. Neither column here is something a user meaningfully needs to
                 // hand-resize and remember between sessions, so always-reset-to-default is the right
                 // call, not a narrower one-off ini edit.
+                // 2 columns: "##SC" (leftmost, narrow, unlabeled - matches files_tab's own SC column
+                // convention) shows a Scene/Level's status/lock badge via
+                // RenderLevelTreeSourceControlBadgeColumn; empty for every other row kind (Entity/
+                // Folder/Dependencies/Runtime - none of them have a file of their own to track). The
+                // old 3rd "Actions" column (a per-row Remove/X button) was removed - every row kind
+                // that had one already offers the identical action via its own right-click context
+                // menu (Scene's "Remove Scene", Entity's "Delete Entity", Folder's "Delete Folder", a
+                // dependency entry's "Remove Dependency") - direct user observation the button was
+                // redundant: "you should be able to right click to delete any of them."
+                // Halved from E29_Theme.h's own global Style.IndentSpacing (16.0f) - direct user
+                // request, scoped to just this panel's tree via Push/PopStyleVar rather than editing
+                // the shared theme default (which would also shrink every other tree in the app).
+                ImGui::PushStyleVar(ImGuiStyleVar_IndentSpacing, 8.0f);
+                // The theme's global CellPadding.x (6, E29_Theme.h) applied on BOTH sides of a cell
+                // left only 10 - 2*6 = -2px of actual content room in the halved 10px "##SC" column -
+                // padding alone already exceeded the column width, so the 6px badge rendered past the
+                // column (and past the window's own edge) instead of inside it - direct user report
+                // "the source control icons are clipped" (after the column-width halving below).
+                // Zeroed out (direct user suggestion) rather than just shrunk - CellPadding is a
+                // whole-table style var, not per-column, but the Name column already has its own
+                // visual breathing room from each row's icon glyph, so losing its padding too is fine.
+                ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(0.0f, 1.0f));
                 if (ImGui::BeginTable("LevelTree", 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable | ImGuiTableFlags_BordersV | ImGuiTableFlags_ScrollY | ImGuiTableFlags_NoSavedSettings, ImVec2(0.0f, ImGui::GetContentRegionAvail().y)))
                 {
-                    ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch);
-                    ImGui::TableSetupColumn("Actions", ImGuiTableColumnFlags_WidthFixed, 80.0f);
+                    // IndentDisable/IndentEnable explicit on both columns (Dear ImGui's own default
+                    // is the other way around - see RenderLevelTreeSourceControlBadgeColumn's own
+                    // comment): the SC badge column must NOT drift with tree depth, and the Name
+                    // column - where every TreeNodeEx in this panel actually lives - must actually
+                    // show the tree's indentation, which the table default would otherwise suppress.
+                    // "##SC" width history: 20 (original) -> 10 -> 14 -> 30 -> 21 (direct user
+                    // request: "reduce the column by 30%" off of 30). BadgeSize itself is back to
+                    // 12 (matching every other view - see RenderLevelTreeSourceControlBadge's own
+                    // comment) - only the column's own empty margin shrinks here, not the icon.
+                    ImGui::TableSetupColumn("##SC", ImGuiTableColumnFlags_WidthFixed | ImGuiTableColumnFlags_NoResize | ImGuiTableColumnFlags_IndentDisable, 21.0f);
+                    ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch | ImGuiTableColumnFlags_IndentEnable);
 
                     ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
+                    ImGui::TableSetColumnIndex(1);
                     const std::string LevelLabelWithIcon = std::format("{} {}", e29::LevelIcon(), LevelLabel);
                     const bool bLevelOpen = ImGui::TreeNodeEx(LevelLabelWithIcon.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth);
 
@@ -187,6 +326,15 @@ namespace e29
                         ImGui::EndDragDropTarget();
                     }
 
+                    // Badge drawn AFTER the Name column's own TreeNodeEx (not before) - a
+                    // SpanFullWidth tree row paints its Selected/Hover background across every table
+                    // column, so a badge drawn earlier in submission order was silently painted over
+                    // by that background on any highlighted row (direct user report: a selected row's
+                    // badge "seemed missing"). Routed through *Column (not the plain helper) - it also
+                    // neutralizes ImGui's own indent-into-column-0 table quirk, see that helper's own
+                    // comment.
+                    RenderLevelTreeSourceControlBadgeColumn(xresource::full_guid{ State.m_CurrentLevel.m_Instance, State.m_CurrentLevel.m_Type });
+
                     if (bLevelOpen)
                     {
                         for (std::size_t iScene = 0; iScene < pLevel->m_Scenes.size(); ++iScene)
@@ -200,7 +348,7 @@ namespace e29
                             const bool bIsOpenScene = std::find(State.m_OpenScenes.begin(), State.m_OpenScenes.end(), SceneGuid) != State.m_OpenScenes.end();
 
                             ImGui::TableNextRow();
-                            ImGui::TableSetColumnIndex(0);
+                            ImGui::TableSetColumnIndex(1);
                             const std::string SceneLabelWithIcon = std::format("{} {}", e29::SceneIcon(), SceneLabel);
                             // Open/loaded is STATUS, not selection focus. Still use Selected so
                             // TreeNode paints a fill, but tint Header* grey locally so it does not
@@ -303,16 +451,11 @@ namespace e29
                                 ImGui::EndDragDropTarget();
                             }
 
-                            ImGui::TableSetColumnIndex(1);
-                            if (ImGui::SmallButton("Remove"))
-                            {
-                                e29::commands::Run(Undo, std::format("RemoveScene -Level {:016X} -Scene {}"
-                                    , State.m_CurrentLevel.m_Instance.m_Value
-                                    , e29::commands::FormatSceneGuid(SceneGuid)));
-                                if (bSceneExpanded) ImGui::TreePop();
-                                ImGui::PopID();
-                                break; // pLevel->m_Scenes was just mutated mid-iteration
-                            }
+                            // Badge after the Name column's own TreeNodeEx - see the Level row's
+                            // identical comment above (SpanFullWidth Selected/Hover paint-over fix).
+                            // The old "Remove" button (column 2) is gone - "Remove Scene" above
+                            // (the row's own right-click context menu) already does the same thing.
+                            RenderLevelTreeSourceControlBadgeColumn(xresource::full_guid{ SceneGuid.m_Instance, SceneGuid.m_Type });
 
                             if (bSceneExpanded)
                             {
@@ -382,7 +525,7 @@ namespace e29
 
                                             ImGui::PushID(static_cast<int>(Id));
                                             ImGui::TableNextRow();
-                                            ImGui::TableSetColumnIndex(0);
+                                            ImGui::TableSetColumnIndex(1);
                                             const bool bEntitySelected = (State.m_SelectedEntityId == Id);
                                             const bool bMultiSelected  = (State.m_MultiSelectScene == SceneGuid) && State.m_MultiSelectedEntityIds.contains(Id);
                                             // Prefab instances render in blue, matching Unity's own
@@ -505,8 +648,30 @@ namespace e29
                                                 ImGui::EndPopup();
                                             }
 
-                                            ImGui::TableSetColumnIndex(1);
-                                            if (!bDeleted && ImGui::SmallButton("X")) DoDeleteEntity();
+                                            // Badge after the Name column's own TreeNodeEx - see the
+                                            // Level row's identical comment above (SpanFullWidth
+                                            // Selected/Hover paint-over fix). The old "X" button
+                                            // (column 2) is gone - "Delete Entity" above (the row's own
+                                            // right-click context menu) already does the same thing.
+                                            // An entity has no file of its own (its data lives inside
+                                            // its owning Scene's single file - see this panel's own top
+                                            // comment) - direct user correction, "you forgot the
+                                            // entities": show the OWNING SCENE's own badge here too, so
+                                            // a scene's pending change is visible drilled all the way
+                                            // down to whichever entity you're actually looking at, not
+                                            // just at the Scene row itself. A PREFAB INSTANCE root is
+                                            // the one exception - direct user follow-up, "also the
+                                            // prefab instances": it references a REAL, separately-
+                                            // tracked Prefab resource (its own file, own git status,
+                                            // own lock state, independent of the scene it's placed in),
+                                            // so that resource's OWN badge is the more specific, more
+                                            // relevant signal here - shown instead of the owning
+                                            // scene's, not alongside it (only one badge slot exists). A
+                                            // non-root entity nested INSIDE a prefab instance subtree
+                                            // still just shows the scene's own badge - it has no
+                                            // resource identity of its own either.
+                                            if (!bDeleted)
+                                                RenderLevelTreeSourceControlBadgeColumn(pPI ? pPI->m_PrefabInstance : xresource::full_guid{ SceneGuid.m_Instance, SceneGuid.m_Type });
 
                                             // TreeNodeEx above (no NoTreePushOnOpen for a bHasChildren
                                             // row) already pushed a node onto ImGui's own ID/tree stack
@@ -561,7 +726,7 @@ namespace e29
 
                                                 ImGui::PushID(static_cast<int>(FolderId));
                                                 ImGui::TableNextRow();
-                                                ImGui::TableSetColumnIndex(0);
+                                                ImGui::TableSetColumnIndex(1);
                                                 const bool bFolderHasChildren = !It->m_Entities.empty() || std::any_of(pScene->m_Folders.begin(), pScene->m_Folders.end(), [&](auto& F) noexcept { return F.m_Parent == FolderId; });
                                                 const std::string FolderLabel = std::format("{} {}", e29::FolderIcon(bFolderHasChildren), It->m_Name);
                                                 const bool bFolderOpen = ImGui::TreeNodeEx(FolderLabel.c_str(), ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth);
@@ -642,17 +807,16 @@ namespace e29
                                                     ImGui::EndDragDropTarget();
                                                 }
 
-                                                ImGui::TableSetColumnIndex(1);
-                                                if (ImGui::SmallButton("X"))
-                                                {
-                                                    e29::commands::Run(Undo, std::format("DeleteFolder -Scene {} -Id {:08X}"
-                                                        , e29::commands::FormatSceneGuid(SceneGuid)
-                                                        , static_cast<std::uint32_t>(FolderId)
-                                                        ));
-                                                    if (bFolderOpen) ImGui::TreePop();
-                                                    ImGui::PopID();
-                                                    continue; // It/this folder no longer exists - nothing left to render for it
-                                                }
+                                                // Badge after the Name column's own TreeNodeEx - see
+                                                // the Level row's identical comment above (SpanFullWidth
+                                                // Selected/Hover paint-over fix). The old "X" button
+                                                // (column 2) is gone - "Delete Folder" above (the row's
+                                                // own right-click context menu) already does the same
+                                                // thing. Same reasoning as RenderEntityRow's own badge -
+                                                // a folder is purely an in-memory organizational node
+                                                // inside its owning Scene's single file, so it shows
+                                                // that scene's own badge too.
+                                                RenderLevelTreeSourceControlBadgeColumn(xresource::full_guid{ SceneGuid.m_Instance, SceneGuid.m_Type });
 
                                                 if (bFolderOpen)
                                                 {
@@ -686,7 +850,7 @@ namespace e29
                                         {
                                             ImGui::PushID("Dependencies");
                                             ImGui::TableNextRow();
-                                            ImGui::TableSetColumnIndex(0);
+                                            ImGui::TableSetColumnIndex(1);
                                             const std::string DepLabel = std::format("{} Dependencies", e29::DependenciesIcon());
                                             const bool bDepOpen = ImGui::TreeNodeEx(DepLabel.c_str(), ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth);
 
@@ -724,7 +888,7 @@ namespace e29
                                                     e29::RemapGUIDToString(DepName, xresource::full_guid{ pScene->m_ParentScenes[iDep].m_Instance, pScene->m_ParentScenes[iDep].m_Type });
 
                                                     ImGui::TableNextRow();
-                                                    ImGui::TableSetColumnIndex(0);
+                                                    ImGui::TableSetColumnIndex(1);
                                                     ImGui::TreeNodeEx(DepName.c_str(), ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_Bullet | ImGuiTreeNodeFlags_SpanFullWidth);
 
                                                     bool bDepRemoved = false;
@@ -734,8 +898,9 @@ namespace e29
                                                         ImGui::EndPopup();
                                                     }
 
-                                                    ImGui::TableSetColumnIndex(1);
-                                                    if (bDepRemoved || ImGui::SmallButton("X"))
+                                                    // Old "X" button (column 2) is gone - "Remove
+                                                    // Dependency" above (right-click) already does this.
+                                                    if (bDepRemoved)
                                                     {
                                                         const auto ParentGuid = pScene->m_ParentScenes[iDep];
                                                         e29::RequestRemoveSceneDependency(Undo, SceneGuid, ParentGuid);
@@ -801,7 +966,7 @@ namespace e29
                                 else
                                 {
                                     ImGui::TableNextRow();
-                                    ImGui::TableSetColumnIndex(0);
+                                    ImGui::TableSetColumnIndex(1);
                                     ImGui::TextDisabled("(click to open)");
                                 }
                                 ImGui::TreePop();
@@ -840,7 +1005,7 @@ namespace e29
                             const int RuntimeCount = std::max(0, TotalLive - Claimed);
 
                             ImGui::TableNextRow();
-                            ImGui::TableSetColumnIndex(0);
+                            ImGui::TableSetColumnIndex(1);
                             const std::string RuntimeLabel = std::format("{} Runtime ({})", e29::FolderIcon(RuntimeCount != 0), RuntimeCount);
 
                             // Distinct color (not a distinct icon - FolderIcon's own codepoints are
@@ -861,6 +1026,7 @@ namespace e29
                     }
                     ImGui::EndTable();
                 }
+                ImGui::PopStyleVar(2); // IndentSpacing + CellPadding, both pushed unconditionally above BeginTable
 
                 // Window-wide Level drop (E10 FilesBackgroundDropTarget pattern): ImGui picks the
                 // smallest accepting target, so row Prefab/Scene targets still win for those types.
