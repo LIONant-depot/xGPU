@@ -91,25 +91,41 @@ namespace e29
         }
     }
 
+    // A pending path's classification: which tier it belongs to, plus (for anything under a real
+    // descriptor/resource root) enough to group EVERY pending file belonging to the SAME resource
+    // together - direct user design: "one scene should be one folder" - a single Scene resource can
+    // have several simultaneously-pending files (info.txt, Descriptor.txt, the compiled binary, its
+    // dependencies.txt log) that would otherwise show as disconnected, unrelated-looking rows.
+    // m_TypeNameLower/m_HexInstance are empty for Assets/Project Files - those have no "owning
+    // resource" concept to group by.
+    struct sc_path_classification
+    {
+        sc_category  m_Category;
+        std::wstring m_TypeNameLower;
+        std::wstring m_HexInstance;
+    };
+
     // Classifies a library-root-relative, NormalizeKey'd (lowercase, backslash-normalized) pending
     // path - path-based, not resource-guid-based, deliberately: git status (or a deleted file) only
     // ever gives us a path, which may not even resolve to a currently-loaded resource. Mirrors the
     // real on-disk roots library::m_UserDescriptorPath/m_SysDescriptorPath/m_ResourcePath establish
     // (E10_AssetMgr.h) and process_info_job::LoadInfo's own DependencyPath formula for the Logs root -
-    // every one of them shares the same "<TypeName>\..." shape right after its own root segment.
-    // Level/Scene resources (xecs_level.h/xecs_scene.h) are the only two type names singled out into
-    // their own tier; every other resource type (Material, Texture, Font, GeomStatic, ...) shares the
-    // generic "Resources" tier. Anything under neither Assets\ nor a recognized descriptor/resource
-    // root (e.g. .gitattributes, .pi\settings.json, Project.config\Library.config.txt itself) falls
-    // into "Project Files" - real pending files this system already showed with nowhere better to go.
-    inline sc_category ClassifyPendingPath(const std::wstring& RelativePath) noexcept
+    // every one of them shares the same "<TypeName>\<xx>\<yy>\<hexInstance...>" shape right after its
+    // own root segment (the instance hex is NOT zero-padded to a fixed width - e.g. a real Folder
+    // resource's own file is literally "1.desc", not "0000...0001.desc"). Level/Scene resources
+    // (xecs_level.h/xecs_scene.h) are the only two type names singled out into their own tier; every
+    // other resource type (Material, Texture, Font, GeomStatic, ...) shares the generic "Resources"
+    // tier. Anything under neither Assets\ nor a recognized descriptor/resource root (e.g.
+    // .gitattributes, .pi\settings.json, Project.config\Library.config.txt itself) falls into
+    // "Project Files" - real pending files this system already showed with nowhere better to go.
+    inline sc_path_classification ClassifyPendingPath(const std::wstring& RelativePath) noexcept
     {
         auto StartsWith = [&](std::wstring_view Prefix) noexcept
         {
             return RelativePath.size() >= Prefix.size() && std::wstring_view(RelativePath).substr(0, Prefix.size()) == Prefix;
         };
 
-        if (StartsWith(L"assets\\")) return sc_category::Assets;
+        if (StartsWith(L"assets\\")) return { sc_category::Assets, {}, {} };
 
         std::wstring_view TypeSegment;
         if (StartsWith(L"descriptors\\"))
@@ -125,15 +141,39 @@ namespace e29
                 TypeSegment = Rest.substr(Slash + 1);
         }
 
-        if (!TypeSegment.empty())
+        if (TypeSegment.empty()) return { sc_category::ProjectFiles, {}, {} };
+
+        // TypeSegment = "<Type>\<xx>\<yy>\<hexInstance...>" (trailing suffix like ".desc\info.txt" or
+        // ".log\dependencies.txt" or nothing at all for a compiled binary - only the LEADING hex run
+        // right after the second '\' is the instance value).
+        const auto Slash1 = TypeSegment.find(L'\\');
+        const auto Type   = Slash1 == std::wstring_view::npos ? TypeSegment : TypeSegment.substr(0, Slash1);
+        const auto Category = (Type == L"level" || Type == L"scene") ? sc_category::ScenesAndLevels : sc_category::Resources;
+
+        // TypeSegment's remaining segments are exactly [xx, yy, hexInstance(+suffix), ...] - three
+        // more '\'-splits needed to walk past xx and yy and land on the hex segment itself.
+        std::wstring HexInstance;
+        if (Slash1 != std::wstring_view::npos)
         {
-            const auto Slash = TypeSegment.find(L'\\');
-            const auto Type  = Slash == std::wstring_view::npos ? TypeSegment : TypeSegment.substr(0, Slash);
-            if (Type == L"level" || Type == L"scene") return sc_category::ScenesAndLevels;
-            return sc_category::Resources;
+            const auto Rest1 = TypeSegment.substr(Slash1 + 1); // "<xx>\<yy>\<hexInstance...>"
+            if (const auto Slash2 = Rest1.find(L'\\'); Slash2 != std::wstring_view::npos)
+            {
+                const auto Rest2 = Rest1.substr(Slash2 + 1); // "<yy>\<hexInstance...>"
+                if (const auto Slash3 = Rest2.find(L'\\'); Slash3 != std::wstring_view::npos)
+                {
+                    const auto Rest3 = Rest2.substr(Slash3 + 1); // "<hexInstance...>[\<rest>]"
+                    const auto Slash4 = Rest3.find(L'\\');
+                    const auto HexSeg = Slash4 == std::wstring_view::npos ? Rest3 : Rest3.substr(0, Slash4);
+
+                    auto IsHexDigit = [](wchar_t C) noexcept { return (C >= L'0' && C <= L'9') || (C >= L'a' && C <= L'f') || (C >= L'A' && C <= L'F'); };
+                    std::size_t Len = 0;
+                    while (Len < HexSeg.size() && IsHexDigit(HexSeg[Len])) ++Len;
+                    HexInstance = std::wstring(HexSeg.substr(0, Len));
+                }
+            }
         }
 
-        return sc_category::ProjectFiles;
+        return { Category, std::wstring(Type), HexInstance };
     }
 
     // Groups by the CACHED depot identity (library::m_DepotProviderId/m_DepotRepositoryId, Phase B) -
@@ -178,8 +218,14 @@ namespace e29
     // actually pressed. It can never drift out of sync with the real repo because it doesn't
     // represent repo state at all, just a grouping of it (see the plan's "Research" section for the
     // full reasoning vs. Perforce-style server-side changelists).
+    // A changelist belongs to exactly one depot (direct user requirement) - a real commit is always
+    // scoped to one repo, so a changelist spanning two depots could never actually be submitted as
+    // one unit anyway; scoping it up front means the UI never lets you build one you can't commit.
+    // m_DepotKey matches SourceControlDepotKeyAndName's own key shape, so membership can be checked
+    // directly against whichever depot group a row currently falls under.
     struct sc_changelist
     {
+        std::string                m_DepotKey;
         std::string                m_Name;
         std::string                m_Comment;
         std::vector<std::wstring>  m_Keys; // sc_panel_row::m_Key, insertion order preserved
@@ -205,7 +251,11 @@ namespace e29
         std::wstring                      m_MultiSelectAnchor;
 
         std::string m_StatusLine;
-        char        m_NewChangelistName[128] = {};
+        // Per-depot, not one shared buffer - each depot section in the Changelists panel has its own
+        // "New changelist name..." field; a single shared buffer would show identical (and
+        // confusing) text in every depot's own input at once. Keyed by depot key, default-
+        // constructed (zero-filled) on first access.
+        std::unordered_map<std::string, std::array<char, 128>> m_NewChangelistNameByDepot;
         char        m_SelectedCommitMessage[4096] = {};
 
         // Revision-gated row cache (direct user report: rebuilding this list was "taking a long
@@ -326,10 +376,60 @@ namespace e29
         return Rows;
     }
 
+    // Resolves a resource's own display name given its TypeName (lowercase, as parsed from a path)
+    // and hex instance value, within a specific library - "one scene should be one folder" (direct
+    // user design) needs a real name for that folder, not a bare hex guid. Looks up the plugin
+    // registered under that type name (case-insensitive linear scan over m_lPlugins - cheap, ~15
+    // plugins) to get its real type_guid, then the resource's own stored Name via getInfo. Falls back
+    // to "<TypeName> <hex>" when either step can't resolve (a deleted info.txt, an unregistered/
+    // renamed plugin) - never silently drops a real pending file for lack of a pretty name.
+    inline std::string SourceControlResolveResourceName(e10::library::guid LibraryGuid, const std::wstring& TypeNameLower, const std::wstring& HexInstance) noexcept
+    {
+        const std::string Fallback = std::format("{} {}", xstrtool::To(TypeNameLower), xstrtool::To(HexInstance));
+        if (HexInstance.empty()) return Fallback;
+
+        xresource::type_guid TypeGuid{};
+        bool bFoundType = false;
+        for (auto& Plugin : e10::g_LibMgr.m_AssetPluginsDB.m_lPlugins)
+        {
+            std::wstring Lower = xstrtool::To(Plugin.m_TypeName);
+            std::transform(Lower.begin(), Lower.end(), Lower.begin(), [](wchar_t C) { return static_cast<wchar_t>(std::towlower(C)); });
+            if (Lower == TypeNameLower) { TypeGuid = Plugin.m_TypeGUID; bFoundType = true; break; }
+        }
+        if (!bFoundType) return Fallback;
+
+        const auto Instance = std::strtoull(xstrtool::To(HexInstance).c_str(), nullptr, 16);
+        std::string Name;
+        e10::g_LibMgr.getInfo(LibraryGuid, xresource::full_guid{ .m_Instance = { Instance }, .m_Type = TypeGuid }, [&](const xresource_pipeline::info& Info)
+        {
+            if (!Info.m_Name.empty()) Name = Info.m_Name;
+        });
+        return Name.empty() ? Fallback : Name;
+    }
+
+    // One resource's own pending files, grouped together under its real name (direct user design:
+    // "one scene should be one folder") - a single Scene/Material/etc. resource can have several
+    // simultaneously-pending files (info.txt, Descriptor.txt, compiled binary, dependencies.txt) that
+    // would otherwise show as disconnected rows with no visible connection to each other.
+    struct sc_resource_group
+    {
+        std::wstring                       m_GroupKey; // "TypeLower|Hex" - unique within one library
+        std::string                        m_DisplayName;
+        std::vector<const sc_panel_row*>  m_Rows;
+    };
+
     struct sc_category_bucket
     {
-        sc_category                       m_Category;
-        std::vector<const sc_panel_row*>  m_Rows;
+        sc_category                        m_Category;
+        std::vector<sc_resource_group>    m_ResourceGroups; // Scenes & Levels / Resources - grouped by owning resource
+        std::vector<const sc_panel_row*>  m_UngroupedRows;   // Assets / Project Files - no owning-resource concept to group by
+
+        std::size_t RowCount() const noexcept
+        {
+            std::size_t N = m_UngroupedRows.size();
+            for (auto& G : m_ResourceGroups) N += G.m_Rows.size();
+            return N;
+        }
     };
 
     struct sc_library_group
@@ -348,12 +448,13 @@ namespace e29
 
     // Groups every row NOT already assigned to a custom changelist (same "in Default" predicate the
     // manual-changelist system below already uses - SourceControlChangelistOf's own -1/0-means-
-    // unassigned rule) into Depot -> Resource Library -> Category. This IS the replacement for the
-    // old flat "Default Changelist" display - direct user requirement: the common case needs zero
-    // manual sorting, a file only leaves this auto-tree once explicitly moved into a custom
-    // changelist via the existing "Add to Changelist" context menu. Cheap to rebuild every call - a
-    // handful of pending files in practice, no separate revision-gate needed beyond
-    // BuildSourceControlRows' own caller-side caching.
+    // unassigned rule) into Depot -> Resource Library -> Category -> (Resource, for Scenes & Levels/
+    // Resources) or a flat list (for Assets/Project Files). This IS the replacement for the old flat
+    // "Default Changelist" display - direct user requirement: the common case needs zero manual
+    // sorting, a file only leaves this auto-tree once explicitly moved into a custom changelist via
+    // the existing "Add to Changelist" context menu. Cheap to rebuild every call - a handful of
+    // pending files in practice, no separate revision-gate needed beyond BuildSourceControlRows' own
+    // caller-side caching.
     inline std::vector<sc_depot_group> BuildDepotGroups(const std::vector<sc_panel_row>& Rows) noexcept
     {
         std::vector<sc_depot_group> Depots;
@@ -382,14 +483,55 @@ namespace e29
                 LibIt = std::prev(DepotIt->m_Libraries.end());
             }
 
-            const auto Category = ClassifyPendingPath(Row.m_RelativePath);
-            LibIt->m_Categories[static_cast<std::size_t>(Category)].m_Rows.push_back(&Row);
+            const auto Class = ClassifyPendingPath(Row.m_RelativePath);
+            auto& Bucket = LibIt->m_Categories[static_cast<std::size_t>(Class.m_Category)];
+            Bucket.m_Category = Class.m_Category;
+
+            if (Class.m_HexInstance.empty())
+            {
+                Bucket.m_UngroupedRows.push_back(&Row);
+                continue;
+            }
+
+            const std::wstring GroupKey = Class.m_TypeNameLower + L"|" + Class.m_HexInstance;
+            auto GroupIt = std::find_if(Bucket.m_ResourceGroups.begin(), Bucket.m_ResourceGroups.end(), [&](const sc_resource_group& G) { return G.m_GroupKey == GroupKey; });
+            if (GroupIt == Bucket.m_ResourceGroups.end())
+            {
+                sc_resource_group NewGroup;
+                NewGroup.m_GroupKey    = GroupKey;
+                NewGroup.m_DisplayName = SourceControlResolveResourceName(Row.m_Library, Class.m_TypeNameLower, Class.m_HexInstance);
+                Bucket.m_ResourceGroups.push_back(std::move(NewGroup));
+                GroupIt = std::prev(Bucket.m_ResourceGroups.end());
+            }
+            GroupIt->m_Rows.push_back(&Row);
         }
 
         std::sort(Depots.begin(), Depots.end(), [](const sc_depot_group& A, const sc_depot_group& B) { return A.m_DisplayName < B.m_DisplayName; });
         for (auto& D : Depots)
+        {
             std::sort(D.m_Libraries.begin(), D.m_Libraries.end(), [](const sc_library_group& A, const sc_library_group& B) { return A.m_DisplayName < B.m_DisplayName; });
+            for (auto& L : D.m_Libraries)
+                for (auto& Bucket : L.m_Categories)
+                    std::sort(Bucket.m_ResourceGroups.begin(), Bucket.m_ResourceGroups.end(), [](const sc_resource_group& A, const sc_resource_group& B) { return A.m_DisplayName < B.m_DisplayName; });
+        }
 
+        return Depots;
+    }
+
+    // Every depot ANY pending row belongs to, regardless of custom-changelist membership - unlike
+    // BuildDepotGroups (which only covers rows still in the auto-tree), the Changelists panel needs
+    // to know a depot exists even once every one of its files has already been moved into a custom
+    // changelist, so "+ New Changelist" still has somewhere to attach a brand-new one.
+    inline std::vector<std::pair<std::string, std::string>> CollectDistinctDepots(const std::vector<sc_panel_row>& Rows) noexcept
+    {
+        std::vector<std::pair<std::string, std::string>> Depots; // Key, DisplayName
+        for (auto& Row : Rows)
+        {
+            auto KeyName = SourceControlDepotKeyAndName(Row.m_Library);
+            if (std::find_if(Depots.begin(), Depots.end(), [&](auto& D) { return D.first == KeyName.first; }) == Depots.end())
+                Depots.push_back(std::move(KeyName));
+        }
+        std::sort(Depots.begin(), Depots.end(), [](auto& A, auto& B) { return A.second < B.second; });
         return Depots;
     }
 
@@ -434,10 +576,24 @@ namespace e29
             if (ImGui::MenuItem("Undo Changes...", nullptr, false, bAnyModified))
                 ImGui::OpenPopup("Undo Changes##SCConfirm");
 
-            if (ImGui::BeginMenu("Add to Changelist", !S.m_Changelists.empty()))
+            // A changelist belongs to one depot (direct user requirement) - only offer changelists
+            // whose depot matches every selected row's own depot. A selection spanning more than one
+            // depot has no matching changelist to offer at all (there's no such thing as a single
+            // changelist that could ever actually commit files from two different repos).
+            std::string CommonDepotKey;
+            bool bSingleDepot = !Selected.empty();
+            for (auto* R : Selected)
+            {
+                const auto Key = SourceControlDepotKeyAndName(R->m_Library).first;
+                if (CommonDepotKey.empty()) CommonDepotKey = Key;
+                else if (CommonDepotKey != Key) { bSingleDepot = false; break; }
+            }
+
+            if (ImGui::BeginMenu("Add to Changelist", bSingleDepot && std::any_of(S.m_Changelists.begin(), S.m_Changelists.end(), [&](const sc_changelist& CL) { return CL.m_DepotKey == CommonDepotKey; })))
             {
                 for (std::size_t i = 0; i < S.m_Changelists.size(); ++i)
                 {
+                    if (S.m_Changelists[i].m_DepotKey != CommonDepotKey) continue;
                     if (ImGui::MenuItem(S.m_Changelists[i].m_Name.c_str()))
                         for (auto* R : Selected) SourceControlAssignToChangelist(R->m_Key, static_cast<int>(i));
                 }
@@ -553,6 +709,35 @@ namespace e29
             for (auto& R : AllRows) OrderedKeys.push_back(R.m_Key);
             SourceControlHandleRowClick(OrderedKeys, Row.m_Key);
         }
+
+        // Drag source, onto a changelist in the right panel (direct user requirement: "the user can
+        // create a change list and either drag a folder or 'files' to it"). Drags the WHOLE active
+        // multi-selection when this row is part of one - same "drag the group, not just the one row
+        // you happened to grab" rule this codebase already established for the Asset Tree - otherwise
+        // just this single row. The payload itself carries no data - the real content is read
+        // directly from g_SourceControlPanel.m_MultiSelectOrder at drop time, since it's already
+        // shared global state and every row here is a stable key into it.
+        //
+        // Gated behind an explicit 12px drag-distance check, NOT a bare BeginDragDropSource() call -
+        // same real, already-diagnosed bug class E10_asset_browser_files_tab.h's own row drag source
+        // hit and fixed: imgui_widgets.cpp's ButtonBehavior() refuses to report a PressedOnClickRelease
+        // item (a plain Selectable()) as "pressed" on release once g.DragDropActive went true during
+        // that same press-hold, so an unguarded BeginDragDropSource() swallows ordinary clicks the
+        // instant the mouse crosses ImGui's own tiny ~6px default drag threshold - trivially crossed by
+        // a real mouse's natural jitter (confirmed live: a plain click on a folder row silently turned
+        // into a spurious selection-only "drag" here). The 12px LOCAL override (IsMouseDragging's own
+        // threshold param, not the global io.MouseDragThreshold) is deliberately far past ordinary
+        // click jitter, so a plain click's own Selectable-driven selection logic above is never
+        // preempted.
+        if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 12.0f) && ImGui::BeginDragDropSource())
+        {
+            if (!bSelected) SourceControlSelectSingle(Row.m_Key);
+            int Dummy = 0;
+            ImGui::SetDragDropPayload("SC_DRAG_SELECTION", &Dummy, sizeof(Dummy));
+            ImGui::Text("%zu file(s)", S.m_MultiSelectOrder.size());
+            ImGui::EndDragDropSource();
+        }
+
         RenderSourceControlContextMenu(Undo, AllRows, Row.m_Key);
 
         ImGui::PopID();
@@ -639,9 +824,57 @@ namespace e29
     // Empty categories/libraries/depots are skipped entirely - showing an empty "Resources (0)" node
     // for every library in every depot would be exactly the "adds more work" clutter this whole
     // redesign is meant to avoid.
-    inline void RenderSourceControlDepotTree(xundo::system& Undo, const std::vector<sc_panel_row>& AllRows) noexcept
+    // Shared by every "folder" level (category, resource group) in the tree below - selects exactly
+    // RowsToSelect, replacing whatever was selected before. Used both by a folder's own right-click
+    // "Select All" and as the first step of starting a drag (so dragging a folder that ISN'T already
+    // the active selection still drags everything under it, not just whatever was selected before).
+    inline void SourceControlSelectRows(const std::vector<const sc_panel_row*>& RowsToSelect) noexcept
     {
         auto& S = g_SourceControlPanel;
+        S.m_MultiSelected.clear();
+        S.m_MultiSelectOrder.clear();
+        for (auto* Row : RowsToSelect) { S.m_MultiSelected.insert(Row->m_Key); S.m_MultiSelectOrder.push_back(Row->m_Key); }
+        S.m_MultiSelectAnchor.clear();
+    }
+
+    // One "folder" node in the tree - a category bucket's own resource group, or the category's
+    // flat ungrouped rows. Renders the TreeNodeEx, its "Select All" context menu, its drag source
+    // (direct user requirement: "drag a folder or 'files' to it"), and (if open) the row table
+    // itself - one implementation shared by every folder level instead of three near-duplicates.
+    inline void RenderSourceControlFolder(xundo::system& Undo, const std::vector<sc_panel_row>& AllRows
+        , const std::string& Label, const std::vector<const sc_panel_row*>& RowsInFolder) noexcept
+    {
+        if (RowsInFolder.empty()) return;
+
+        const bool bOpen = ImGui::TreeNodeEx(std::format("{} ({})", Label, RowsInFolder.size()).c_str(), ImGuiTreeNodeFlags_SpanFullWidth);
+        if (ImGui::BeginPopupContextItem())
+        {
+            if (ImGui::MenuItem("Select All")) SourceControlSelectRows(RowsInFolder);
+            ImGui::EndPopup();
+        }
+        // Same explicit 12px drag-distance guard as the row-level drag source above (see its own
+        // comment) - without it, a plain click on the folder's TreeNodeEx spuriously fires this
+        // block and silently overwrites the current selection (confirmed live) instead of just
+        // toggling the tree open/closed the way a plain click on a folder should.
+        if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 12.0f) && ImGui::BeginDragDropSource())
+        {
+            SourceControlSelectRows(RowsInFolder);
+            int Dummy = 0;
+            ImGui::SetDragDropPayload("SC_DRAG_SELECTION", &Dummy, sizeof(Dummy));
+            ImGui::Text("%s (%zu file(s))", Label.c_str(), RowsInFolder.size());
+            ImGui::EndDragDropSource();
+        }
+        if (bOpen)
+        {
+            ImGui::Indent();
+            RenderSourceControlTable(Undo, AllRows, RowsInFolder, "SCFolderTable", 180.0f);
+            ImGui::Unindent();
+            ImGui::TreePop();
+        }
+    }
+
+    inline void RenderSourceControlDepotTree(xundo::system& Undo, const std::vector<sc_panel_row>& AllRows) noexcept
+    {
         const auto Depots = BuildDepotGroups(AllRows);
 
         if (Depots.empty())
@@ -655,7 +888,7 @@ namespace e29
             ImGui::PushID(Depot.m_Key.c_str());
 
             std::size_t DepotTotal = 0;
-            for (auto& Lib : Depot.m_Libraries) for (auto& Cat : Lib.m_Categories) DepotTotal += Cat.m_Rows.size();
+            for (auto& Lib : Depot.m_Libraries) for (auto& Cat : Lib.m_Categories) DepotTotal += Cat.RowCount();
 
             const bool bDepotOpen = ImGui::TreeNodeEx(std::format("\xEE\xA3\xB1 {} ({})", Depot.m_DisplayName, DepotTotal).c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanFullWidth);
             if (bDepotOpen)
@@ -665,32 +898,55 @@ namespace e29
                     ImGui::PushID(static_cast<int>(Lib.m_Library.m_Instance.m_Value));
 
                     std::size_t LibTotal = 0;
-                    for (auto& Cat : Lib.m_Categories) LibTotal += Cat.m_Rows.size();
+                    for (auto& Cat : Lib.m_Categories) LibTotal += Cat.RowCount();
 
                     const bool bLibOpen = ImGui::TreeNodeEx(std::format("{} ({})", Lib.m_DisplayName, LibTotal).c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanFullWidth);
                     if (bLibOpen)
                     {
                         for (auto& Category : Lib.m_Categories)
                         {
-                            if (Category.m_Rows.empty()) continue;
+                            if (Category.RowCount() == 0) continue;
                             ImGui::PushID(static_cast<int>(Category.m_Category));
 
-                            const bool bCatOpen = ImGui::TreeNodeEx(std::format("{} ({})", SourceControlCategoryLabel(Category.m_Category), Category.m_Rows.size()).c_str(), ImGuiTreeNodeFlags_SpanFullWidth);
+                            const bool bCatOpen = ImGui::TreeNodeEx(std::format("{} ({})", SourceControlCategoryLabel(Category.m_Category), Category.RowCount()).c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanFullWidth);
                             if (ImGui::BeginPopupContextItem())
                             {
                                 if (ImGui::MenuItem("Select All"))
                                 {
-                                    S.m_MultiSelected.clear();
-                                    S.m_MultiSelectOrder.clear();
-                                    for (auto* Row : Category.m_Rows) { S.m_MultiSelected.insert(Row->m_Key); S.m_MultiSelectOrder.push_back(Row->m_Key); }
-                                    S.m_MultiSelectAnchor.clear();
+                                    std::vector<const sc_panel_row*> Everything = Category.m_UngroupedRows;
+                                    for (auto& G : Category.m_ResourceGroups) Everything.insert(Everything.end(), G.m_Rows.begin(), G.m_Rows.end());
+                                    SourceControlSelectRows(Everything);
                                 }
                                 ImGui::EndPopup();
+                            }
+                            // Same explicit 12px drag-distance guard as every other drag source in
+                            // this file (see RenderSourceControlFolder's own comment) - a bare
+                            // BeginDragDropSource() here spuriously fires on a plain click too.
+                            if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 12.0f) && ImGui::BeginDragDropSource())
+                            {
+                                std::vector<const sc_panel_row*> Everything = Category.m_UngroupedRows;
+                                for (auto& G : Category.m_ResourceGroups) Everything.insert(Everything.end(), G.m_Rows.begin(), G.m_Rows.end());
+                                SourceControlSelectRows(Everything);
+                                int Dummy = 0;
+                                ImGui::SetDragDropPayload("SC_DRAG_SELECTION", &Dummy, sizeof(Dummy));
+                                ImGui::Text("%s (%zu file(s))", SourceControlCategoryLabel(Category.m_Category), Category.RowCount());
+                                ImGui::EndDragDropSource();
                             }
                             if (bCatOpen)
                             {
                                 ImGui::Indent();
-                                RenderSourceControlTable(Undo, AllRows, Category.m_Rows, "SCCategoryTable", 180.0f);
+                                // Resource groups first ("one scene should be one folder" - direct
+                                // user design) - every pending file belonging to the SAME resource
+                                // (info.txt, Descriptor.txt, compiled binary, dependencies.txt) shows
+                                // together under its own real name, not as disconnected rows.
+                                for (auto& Group : Category.m_ResourceGroups)
+                                {
+                                    ImGui::PushID(reinterpret_cast<const void*>(&Group));
+                                    RenderSourceControlFolder(Undo, AllRows, std::format("\xEE\xA3\x95 {}", Group.m_DisplayName), Group.m_Rows);
+                                    ImGui::PopID();
+                                }
+                                if (!Category.m_UngroupedRows.empty())
+                                    RenderSourceControlTable(Undo, AllRows, Category.m_UngroupedRows, "SCCategoryTable", 180.0f);
                                 ImGui::Unindent();
                                 ImGui::TreePop();
                             }
@@ -903,24 +1159,46 @@ namespace e29
         ImGui::BeginChild("SCChangelists", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), true);
         ImGui::TextUnformatted("Changelists");
         ImGui::Separator();
-        for (std::size_t i = 0; i < S.m_Changelists.size(); ++i)
+
+        // A changelist belongs to one depot (direct user requirement) - grouped here the same way as
+        // the auto-tree, so "+ New" always creates one scoped to a real depot rather than a floating,
+        // depot-less list that could never actually be committed. Each entry is a DROP TARGET for
+        // "SC_DRAG_SELECTION" (direct user requirement: "drag a folder or 'files' to it") - drops the
+        // CURRENT global multi-selection (set by the drag source at pickup time) into that changelist.
+        for (auto& [DepotKey, DepotName] : CollectDistinctDepots(Rows))
         {
-            ImGui::PushID(static_cast<int>(i));
-            const bool bSelected = (S.m_ActiveChangelist == static_cast<int>(i));
-            if (ImGui::Selectable(std::format("{} ({})", S.m_Changelists[i].m_Name, S.m_Changelists[i].m_Keys.size()).c_str(), bSelected))
-                S.m_ActiveChangelist = static_cast<int>(i);
+            ImGui::PushID(DepotKey.c_str());
+            ImGui::TextDisabled("%s", DepotName.c_str());
+
+            for (std::size_t i = 0; i < S.m_Changelists.size(); ++i)
+            {
+                if (S.m_Changelists[i].m_DepotKey != DepotKey) continue;
+                ImGui::PushID(static_cast<int>(i));
+                const bool bSelected = (S.m_ActiveChangelist == static_cast<int>(i));
+                ImGui::Selectable(std::format("  {} ({})", S.m_Changelists[i].m_Name, S.m_Changelists[i].m_Keys.size()).c_str(), bSelected);
+                if (ImGui::IsItemClicked()) S.m_ActiveChangelist = static_cast<int>(i);
+                if (ImGui::BeginDragDropTarget())
+                {
+                    if (ImGui::AcceptDragDropPayload("SC_DRAG_SELECTION"))
+                        for (auto& Key : S.m_MultiSelectOrder) SourceControlAssignToChangelist(Key, static_cast<int>(i));
+                    ImGui::EndDragDropTarget();
+                }
+                ImGui::PopID();
+            }
+
+            auto& NameBuf = S.m_NewChangelistNameByDepot[DepotKey];
+            ImGui::SetNextItemWidth(-60.0f);
+            ImGui::InputTextWithHint("##NewChangelist", "New changelist name...", NameBuf.data(), NameBuf.size());
+            ImGui::SameLine();
+            if (ImGui::Button("+ New") && NameBuf[0] != '\0')
+            {
+                S.m_Changelists.push_back(sc_changelist{ DepotKey, NameBuf.data(), "", {} });
+                S.m_ActiveChangelist = static_cast<int>(S.m_Changelists.size()) - 1;
+                NameBuf[0] = '\0';
+            }
             ImGui::PopID();
+            ImGui::Separator();
         }
-
-        ImGui::InputTextWithHint("##NewChangelist", "New changelist name...", S.m_NewChangelistName, sizeof(S.m_NewChangelistName));
-        ImGui::SameLine();
-        if (ImGui::Button("+ New") && S.m_NewChangelistName[0] != '\0')
-        {
-            S.m_Changelists.push_back(sc_changelist{ S.m_NewChangelistName, "", {} });
-            S.m_NewChangelistName[0] = '\0';
-        }
-
-        ImGui::Separator();
 
         if (S.m_ActiveChangelist >= 0 && S.m_ActiveChangelist < static_cast<int>(S.m_Changelists.size()))
         {
