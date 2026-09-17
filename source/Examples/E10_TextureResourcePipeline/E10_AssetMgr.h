@@ -3508,6 +3508,51 @@ namespace e10
             return {};
         }
 
+        //------------------------------------------------------------------------------------------------
+
+        // Transitive m_ParentLibraries closure starting from Roots (BFS), walking only currently-
+        // loaded libraries (m_mLibraryDB) - a library's Path lives only inside another library's own
+        // m_ParentLibraries entry pointing at it, unlike a scene's fixed-folder-derivable Descriptor
+        // path, so there's no generic way to read an arbitrary UNLOADED library's config from just its
+        // guid. Documented limitation, not silently hidden - correct for the common case (every
+        // library actually in play this session is loaded). Lives here (not in E29's own command
+        // layer) so BOTH the command layer AND the generic, shared Asset Browser UI (E10, used by 8
+        // examples) can walk the same graph without either depending on the other - E29_Commands_
+        // LibraryDependency.h calls this directly instead of keeping its own private copy.
+        void CollectTransitiveLibraryParents(const std::vector<library::guid>& Roots, library::guid Skip, std::vector<library::guid>& Out) noexcept
+        {
+            Out.clear();
+            std::vector<library::guid> Stack = Roots;
+            while (!Stack.empty())
+            {
+                const auto Cur = Stack.back();
+                Stack.pop_back();
+                if (!Skip.empty() && Cur == Skip) continue;
+                if (std::find(Out.begin(), Out.end(), Cur) != Out.end()) continue;
+                Out.push_back(Cur);
+
+                m_mLibraryDB.FindAsReadOnly(Cur, [&](const std::unique_ptr<library_db>& DB)
+                {
+                    for (auto& Parent : DB->m_Library.m_ParentLibraries)
+                        Stack.push_back(Parent.m_GUID);
+                });
+            }
+        }
+
+        // Is a resource owned by TargetLibrary a LEGAL reference target for a resource owned by
+        // HostLibrary - "Resources can have a dependency to other resources... as long as the other
+        // resources are part of the dependency chain... it is a rule that must be observed and forced
+        // compliance" (direct user requirement, mirroring the entity-reference precedent one level up
+        // at the library graph instead of the scene graph). True iff TargetLibrary IS HostLibrary, or
+        // is reachable by walking HostLibrary's own m_ParentLibraries edges.
+        bool IsLibraryLegalReferenceTarget(library::guid HostLibrary, library::guid TargetLibrary) noexcept
+        {
+            if (HostLibrary == TargetLibrary) return true;
+            std::vector<library::guid> Reachable;
+            CollectTransitiveLibraryParents(std::vector<library::guid>{ HostLibrary }, library::guid{}, Reachable);
+            return std::find(Reachable.begin(), Reachable.end(), TargetLibrary) != Reachable.end();
+        }
+
         xerr OpenProject( std::wstring_view ProjectPath )
         {
             assert(m_mLibraryDB.empty());

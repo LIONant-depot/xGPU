@@ -992,6 +992,15 @@ namespace e10
             bool SelectedItemFound = false;
             for (auto& L : m_AssetMgr.m_mLibraryDB)
             {
+                // Resource-reference legality filter (m_Browser.m_FilterByLibrary, see its own
+                // comment) - hides a whole disallowed library's root from the tree entirely, not just
+                // its contents after navigating in, matching the direct user requirement that the
+                // picker "only show really the only ones that are legally allowed." Empty (the
+                // default, every consumer today) means unrestricted - this loop is unchanged.
+                if (!m_Browser.m_FilterByLibrary.empty()
+                 && std::find(m_Browser.m_FilterByLibrary.begin(), m_Browser.m_FilterByLibrary.end(), L.first) == m_Browser.m_FilterByLibrary.end())
+                    continue;
+
                 //
                 // Collect the library folder information
                 //

@@ -39,28 +39,10 @@ namespace e29::commands
     inline std::string  EncodeLibraryPath(const std::wstring& Path) noexcept { return Base64Encode(xstrtool::To(Path)); }
     inline std::wstring DecodeLibraryPath(const std::string& Encoded) noexcept { return xstrtool::To(Base64Decode(Encoded)); }
 
-    // Transitive m_ParentLibraries closure starting from Roots (BFS), walking only currently-loaded
-    // libraries (e10::g_LibMgr.m_mLibraryDB) - see this file's own top comment for why an unloaded
-    // dependency simply stops the walk at that node rather than reading its config off disk.
-    inline void CollectTransitiveLibraryParents(const std::vector<e10::library::guid>& Roots, e10::library::guid Skip, std::vector<e10::library::guid>& Out) noexcept
-    {
-        Out.clear();
-        std::vector<e10::library::guid> Stack = Roots;
-        while (!Stack.empty())
-        {
-            const auto Cur = Stack.back();
-            Stack.pop_back();
-            if (!Skip.empty() && Cur == Skip) continue;
-            if (std::find(Out.begin(), Out.end(), Cur) != Out.end()) continue;
-            Out.push_back(Cur);
-
-            e10::g_LibMgr.m_mLibraryDB.FindAsReadOnly(Cur, [&](const std::unique_ptr<e10::library_db>& DB)
-            {
-                for (auto& Parent : DB->m_Library.m_ParentLibraries)
-                    Stack.push_back(Parent.m_GUID);
-            });
-        }
-    }
+    // Graph-walking primitives (CollectTransitiveLibraryParents/IsLibraryLegalReferenceTarget) now
+    // live on library_mgr itself (E10_AssetMgr.h) - shared with the generic Asset Browser UI's own
+    // picker filtering, which cannot depend on this E29-only command file. This file's own commands
+    // just call e10::g_LibMgr.CollectTransitiveLibraryParents(...) directly below.
 
     // Would adding "NewDependency" to Candidate's own m_ParentLibraries close a cycle? True iff
     // Candidate is already (transitively) reachable FROM NewDependency by walking m_ParentLibraries
@@ -69,7 +51,7 @@ namespace e29::commands
     {
         if (Candidate == NewDependency) return true;
         std::vector<e10::library::guid> Reachable;
-        CollectTransitiveLibraryParents(std::vector<e10::library::guid>{ NewDependency }, e10::library::guid{}, Reachable);
+        e10::g_LibMgr.CollectTransitiveLibraryParents(std::vector<e10::library::guid>{ NewDependency }, e10::library::guid{}, Reachable);
         return std::find(Reachable.begin(), Reachable.end(), Candidate) != Reachable.end();
     }
 
@@ -86,8 +68,8 @@ namespace e29::commands
         });
 
         std::vector<e10::library::guid> Before, After;
-        CollectTransitiveLibraryParents(DirectParents, e10::library::guid{}, Before);
-        CollectTransitiveLibraryParents(DirectParents, DirectParent, After);
+        e10::g_LibMgr.CollectTransitiveLibraryParents(DirectParents, e10::library::guid{}, Before);
+        e10::g_LibMgr.CollectTransitiveLibraryParents(DirectParents, DirectParent, After);
 
         OutLost.clear();
         for (auto& G : Before)
@@ -432,6 +414,53 @@ namespace e29::commands
         }
 
         xcmdline::parser::handle m_hPath;
+    };
+
+    //================================================================================================
+    // ListLegalReferenceLibraries - discovery command for the resource-to-resource reference rule
+    // ("Resources can have a dependency to other resources... as long as the other resources are part
+    // of the dependency chain... it is a rule that must be observed and forced compliance" - direct
+    // user requirement). Lists every library a resource OWNED BY -Library is legally allowed to
+    // reference a resource from - itself, plus every library reachable by walking its own
+    // m_ParentLibraries edges (e10::library_mgr::IsLibraryLegalReferenceTarget's own rule, exposed here
+    // so an AI/script can check "am I allowed to point at this" without needing the ImGui picker at
+    // all - same "never need to read a raw file / open a dialog by hand" reasoning every other
+    // discovery command in this system was built for).
+    // Usage: ListLegalReferenceLibraries -Library hexguid
+    //================================================================================================
+    struct list_legal_reference_libraries_query_cmd : xundo::query_command_base
+    {
+        list_legal_reference_libraries_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "ListLegalReferenceLibraries", pDataBase) { RegisterArguments(); }
+        const char* getCommandHelp() const noexcept override
+        {
+            return "Lists every library a resource owned by -Library may legally reference a resource from (itself + its own transitive dependency chain). Usage: ListLegalReferenceLibraries -Library hexguid";
+        }
+        void RegisterArguments() noexcept override
+        {
+            m_hLibrary = m_Parser.addOption("Library", "Library instance guid, 16 hex digits", true, 1);
+        }
+
+        std::string Query() noexcept override
+        {
+            auto LibraryArg = m_Parser.getOptionArgAs<std::string>(m_hLibrary, 0);
+            if (std::holds_alternative<xerr>(LibraryArg)) return "ListLegalReferenceLibraries: bad arguments";
+
+            const auto LibraryGuid = ParseLibraryGuid(std::get<std::string>(LibraryArg));
+
+            std::vector<e10::library::guid> Legal;
+            e10::g_LibMgr.CollectTransitiveLibraryParents(std::vector<e10::library::guid>{ LibraryGuid }, e10::library::guid{}, Legal);
+
+            std::string Out;
+            for (auto& G : Legal)
+            {
+                std::wstring Path;
+                e10::g_LibMgr.m_mLibraryDB.FindAsReadOnly(G, [&](const std::unique_ptr<e10::library_db>& DB) { Path = DB->m_Library.m_Path; });
+                Out += std::format("{}  {}\n", FormatLibraryGuid(G), xstrtool::To(Path));
+            }
+            return Out;
+        }
+
+        xcmdline::parser::handle m_hLibrary;
     };
 }
 

@@ -390,6 +390,7 @@ int E29_Example()
     e29::commands::add_library_dependency_cmd    CmdAddLibraryDependency(E29Undo, &CmdContext);
     e29::commands::remove_library_dependency_cmd CmdRemoveLibraryDependency(E29Undo, &CmdContext);
     e29::commands::create_library_query_cmd      CmdCreateLibrary(E29Undo, &CmdContext);
+    e29::commands::list_legal_reference_libraries_query_cmd CmdListLegalReferenceLibraries(E29Undo, &CmdContext);
     e29::commands::list_levels_query_cmd  CmdListLevels(E29Undo, &CmdContext);
     e29::commands::list_scenes_query_cmd  CmdListScenes(E29Undo, &CmdContext);
     e29::commands::list_entities_query_cmd CmdListEntities(E29Undo, &CmdContext);

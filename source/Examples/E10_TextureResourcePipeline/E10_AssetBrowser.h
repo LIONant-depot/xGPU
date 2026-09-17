@@ -350,12 +350,21 @@ namespace e10
 
         //=============================================================================
 
-        void ShowAsPopup(e10::library_mgr& AssetMgr, const void* pUID, std::span<const xresource::type_guid> Types, xresource::type_guid AdditionalType )
+        // AllowedLibraries (default empty = unrestricted, matching every other opt-in filter in this
+        // class) is the resource-reference legality rule's own picker-side enforcement - see
+        // m_FilterByLibrary's own comment. No existing call site passes this yet (none of the 8
+        // examples' own resource-reference pickers currently resolve "which library owns the resource
+        // being edited" - that context doesn't exist anywhere in their own state today), so this is
+        // real, ready infrastructure with zero current consumers, same as several of assert_browser's
+        // own m_On* hooks were when they first landed.
+        void ShowAsPopup(e10::library_mgr& AssetMgr, const void* pUID, std::span<const xresource::type_guid> Types, xresource::type_guid AdditionalType, std::span<const library::guid> AllowedLibraries = {} )
         {
             assert(m_pPopupUID == nullptr);
 
             m_bRenderBrowser = true;
             m_pPopupUID      = pUID;
+
+            m_FilterByLibrary.assign(AllowedLibraries.begin(), AllowedLibraries.end());
 
             //
             // Select all the filters
@@ -1065,6 +1074,17 @@ namespace e10
         const void*                         m_pPopupUID             = {};
         std::vector<xresource::type_guid>   m_FilterByType          = {};
         std::string                         m_SearchString          = {};
+
+        // Opt-in, INCLUSION-list companion to m_FilterByType, for the "a resource can only reference
+        // another resource whose owning library is reachable in its own dependency chain" rule (see
+        // the "Multi-library project model" plan section) - direct user requirement: "the resource
+        // picker... should only show really the only ones that are legally allowed." Empty (default)
+        // means unrestricted - every existing consumer (all 8 examples, none of which open multi-
+        // library projects today) is byte-for-byte unaffected. Set via ShowAsPopup's own optional
+        // AllowedLibraries parameter; checked in virtual_tree_tab.h's own per-entry filter alongside
+        // m_FilterByType - a type filter alone can't express this, since two resources of the SAME
+        // type can be owned by two DIFFERENT libraries, only one of which may be legal.
+        std::vector<library::guid>          m_FilterByLibrary       = {};
 
         // Optional interception hooks for the browser's own real mutations (rename/move-between-
         // folders/trash/create) - default-empty, so every existing consumer (E10, E19-E21, E23-E25,
