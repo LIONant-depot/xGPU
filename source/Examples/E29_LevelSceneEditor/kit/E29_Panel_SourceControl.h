@@ -1130,6 +1130,18 @@ namespace e29
         }
         const auto& Rows = S.m_CachedRows;
 
+        // Depot selection + display name - computed here (not inside the Changelists panel below)
+        // so it can render on the SAME line as "Pull All" (direct user request). Selected by
+        // clicking a depot's own row in the LEFT tree (RenderSourceControlDepotTree); auto-picks a
+        // sensible default (the only depot if there's just one, else the first alphabetically) so
+        // the common single-depot case shows something useful with zero clicks.
+        const auto AllDepots = CollectDistinctDepots(Rows);
+        if (S.m_SelectedChangelistDepotKey.empty() || std::none_of(AllDepots.begin(), AllDepots.end(), [&](auto& D) { return D.first == S.m_SelectedChangelistDepotKey; }))
+            S.m_SelectedChangelistDepotKey = AllDepots.empty() ? std::string{} : AllDepots.front().first;
+        std::string SelectedDepotName;
+        for (auto& [DepotKey, DepotName] : AllDepots)
+            if (DepotKey == S.m_SelectedChangelistDepotKey) SelectedDepotName = DepotName;
+
         if (ImGui::Button("Pull All"))
         {
             for (auto& Lib : e10::g_LibMgr.m_mLibraryDB)
@@ -1140,6 +1152,11 @@ namespace e29
         }
         ImGui::SameLine();
         ImGui::TextDisabled("%zu pending change(s) across %zu open library/ies", Rows.size(), (std::size_t)e10::g_LibMgr.m_mLibraryDB.size());
+        ImGui::SameLine();
+        if (SelectedDepotName.empty())
+            ImGui::TextDisabled("| no depot selected");
+        else
+            ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "| \xEE\xA3\xB1 %s", SelectedDepotName.c_str());
 
         const float TotalWidth = ImGui::GetContentRegionAvail().x;
         const float LeftWidth  = TotalWidth * 0.55f;
@@ -1202,23 +1219,9 @@ namespace e29
 
         ImGui::BeginChild("SCChangelists", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), true);
 
-        // The depot name sits ABOVE the "Changelists" section entirely (direct user correction) -
-        // picked by clicking its row in the LEFT tree (RenderSourceControlDepotTree), not a separate
-        // selector here. Auto-picks a sensible default (the only depot if there's just one, else the
-        // first alphabetically) so the common single-depot case shows something useful immediately.
-        const auto AllDepots = CollectDistinctDepots(Rows);
-        if (S.m_SelectedChangelistDepotKey.empty() || std::none_of(AllDepots.begin(), AllDepots.end(), [&](auto& D) { return D.first == S.m_SelectedChangelistDepotKey; }))
-            S.m_SelectedChangelistDepotKey = AllDepots.empty() ? std::string{} : AllDepots.front().first;
-
-        std::string SelectedDepotName;
-        for (auto& [DepotKey, DepotName] : AllDepots)
-            if (DepotKey == S.m_SelectedChangelistDepotKey) SelectedDepotName = DepotName;
-
-        if (SelectedDepotName.empty())
-            ImGui::TextDisabled("Select a depot on the left");
-        else
-            ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "\xEE\xA3\xB1 %s", SelectedDepotName.c_str());
-        ImGui::Separator();
+        // Depot name now renders up on the shared top bar, next to "Pull All" (direct user
+        // request) - AllDepots/SelectedDepotName are computed there, once, before either child
+        // panel begins; this panel just uses S.m_SelectedChangelistDepotKey directly.
         ImGui::TextUnformatted("Changelists");
         ImGui::Separator();
 
