@@ -367,6 +367,18 @@ namespace sc
         [[nodiscard]] virtual std::optional<Error> Connect() = 0;
         [[nodiscard]] virtual const SessionCapabilities& Capabilities() const noexcept = 0;
 
+        // Canonical, resolved workspace identity - added for the "Multi-library project model" plan
+        // section's Phase B (depot-as-cache validation): Connect() only ever answers "is this path
+        // inside SOME work tree", never what that tree's own canonical root or remote actually is, so
+        // there was nothing concrete for a depot-link validator to diff a cached identity against.
+        // Only valid to call after a successful Connect(). `.root` must be the fully resolved root
+        // (for Git: `git rev-parse --show-toplevel`, NOT just the path the session happened to be
+        // constructed with - a library given a subdirectory of a repo must still resolve to the same
+        // root a library given the repo's own root would). `.repository.value` is the provider's own
+        // best identity for the same physical depot regardless of which local clone/subdirectory it's
+        // viewed from (for Git: `git remote get-url origin`, empty if there is no remote yet).
+        [[nodiscard]] virtual WorkspaceInfo GetWorkspaceInfo() = 0;
+
         [[nodiscard]] virtual StatusResult      GetStatus  (const StatusRequest&)      = 0;
         [[nodiscard]] virtual PrepareEditResult PrepareEdit(const PrepareEditRequest&) = 0;
         [[nodiscard]] virtual AddResult         Add        (const AddRequest&)         = 0;

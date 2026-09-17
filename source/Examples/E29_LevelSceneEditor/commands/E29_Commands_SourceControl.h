@@ -142,6 +142,56 @@ namespace e29::commands
     };
 
     //================================================================================================
+    // SourceControlDepotStatus - reports a library's CACHED depot identity plus the live validation
+    // outcome from the last time it was actually checked (Phase B, "Multi-library project model" plan
+    // section) - "the proper warning to the User and AI... should be made" (direct user requirement),
+    // so a CLI/AI session sees exactly what a human would in the UI, no separate discovery path.
+    // Instant, reads memory only - the check itself runs once per library (GetOrCreateWorkspace's own
+    // first-connect path); this command never re-triggers it.
+    //================================================================================================
+    struct source_control_depot_status_query_cmd : xundo::query_command_base
+    {
+        source_control_depot_status_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "SourceControlDepotStatus", pDataBase) { RegisterArguments(); }
+        const char* getCommandHelp() const noexcept override { return "Reports a library's cached depot identity and the last live validation outcome (Confirmed/Mismatch/NoProvider/Unknown). Usage: SourceControlDepotStatus -Library hexguid"; }
+        void RegisterArguments() noexcept override
+        {
+            m_hLibrary = m_Parser.addOption("Library", "Library instance guid, 16 hex digits", true, 1);
+        }
+
+        std::string Query() noexcept override
+        {
+            auto LibraryArg = m_Parser.getOptionArgAs<std::string>(m_hLibrary, 0);
+            if (std::holds_alternative<xerr>(LibraryArg)) return "SourceControlDepotStatus: bad arguments";
+
+            const auto LibraryGuid = ParseLibraryGuid(std::get<std::string>(LibraryArg));
+
+            std::string Out;
+            const bool bFound = e10::g_LibMgr.m_mLibraryDB.FindAsReadOnly(LibraryGuid, [&](const std::unique_ptr<e10::library_db>& DB)
+            {
+                const char* StateStr = "Unknown";
+                switch (DB->m_DepotLinkState)
+                {
+                    case e10::library_db::depot_link_state::Confirmed:  StateStr = "Confirmed";  break;
+                    case e10::library_db::depot_link_state::Mismatch:   StateStr = "Mismatch";    break;
+                    case e10::library_db::depot_link_state::NoProvider: StateStr = "NoProvider";  break;
+                    default: break;
+                }
+
+                Out = std::format("Provider: {}\nRepositoryId: {}\nState: {}\n"
+                    , DB->m_Library.m_DepotProviderId.empty() ? "(never cached)" : DB->m_Library.m_DepotProviderId
+                    , DB->m_Library.m_DepotRepositoryId.empty() ? "(none)" : DB->m_Library.m_DepotRepositoryId
+                    , StateStr);
+                if (!DB->m_DepotLinkDetail.empty())
+                    Out += std::format("Detail: {}\n", DB->m_DepotLinkDetail);
+            });
+            if (!bFound) return "SourceControlDepotStatus: library not open";
+            return Out;
+        }
+
+        xcmdline::parser::handle m_hLibrary;
+    };
+
+    //================================================================================================
     // SourceControlRefresh - manually kicks an immediate status scan, bypassing the idle gate. Same
     // "for testing/verification, and for an AI/script that wants one on demand" reasoning
     // RunSanityCheck was built for (E29_IdleWork.h).

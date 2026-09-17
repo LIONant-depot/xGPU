@@ -44,6 +44,94 @@ namespace e29::source_control
         return R;
     }
 
+    // Finds which currently-open library owns RootPath - m_mLibraryDB is keyed by guid, not path, and
+    // this whole file only ever has the path (library_db::m_Library.m_Path is its own identity key
+    // throughout, see this file's own top comment). Returns false if no open library matches (should
+    // not happen for a path this file itself sourced from m_mLibraryDB, but a library could in theory
+    // have been closed between that read and this call).
+    inline bool FindLibraryGuidByPath(const std::wstring& RootPath, e10::library::guid& OutGuid) noexcept
+    {
+        for (auto& L : e10::g_LibMgr.m_mLibraryDB)
+        {
+            if (L.second->m_Library.m_Path == RootPath) { OutGuid = L.first; return true; }
+        }
+        return false;
+    }
+
+    // Depot-as-cache validation (Phase B, "Multi-library project model" plan section) - direct user
+    // requirement: treat the library-to-depot link as a CACHE, not authority; discover fresh and
+    // compare, never silently trust OR silently overwrite stale data; warn (to both the CLI-queryable
+    // library_db::m_DepotLinkState AND this log) on a real mismatch; keep operating either way. Runs
+    // once, right after a library's workspace session is first created+connected (GetOrCreateWorkspace
+    // below) - not on every cache-hit call.
+    inline void ValidateDepotLinkConnected(const std::wstring& RootPath, sc::git_lfs::GitLfsWorkspaceSession& Workspace) noexcept
+    {
+        e10::library::guid LibGuid{};
+        if (!FindLibraryGuidByPath(RootPath, LibGuid)) return;
+
+        const auto Info = Workspace.GetWorkspaceInfo();
+        const std::string Discovered = !Info.repository.value.empty() ? Info.repository.value : xstrtool::To(Info.root.wstring());
+
+        std::string CachedProvider;
+        e10::g_LibMgr.m_mLibraryDB.FindAsReadOnly(LibGuid, [&](const std::unique_ptr<e10::library_db>& DB) { CachedProvider = DB->m_Library.m_DepotProviderId; });
+
+        if (CachedProvider.empty())
+        {
+            // Never cached before - bootstrap and persist. Adoption, not a mismatch: there is nothing
+            // to compare against yet.
+            e10::g_LibMgr.m_mLibraryDB.FindAsWrite(LibGuid, [&](std::unique_ptr<e10::library_db>& DB)
+            {
+                DB->m_Library.m_DepotProviderId   = "git";
+                DB->m_Library.m_DepotRepositoryId = Discovered;
+                DB->m_DepotLinkState              = e10::library_db::depot_link_state::Confirmed;
+                e10::g_LibMgr.SaveLibraryConfig(DB->m_Library);
+            });
+            return;
+        }
+
+        std::string CachedId;
+        e10::g_LibMgr.m_mLibraryDB.FindAsReadOnly(LibGuid, [&](const std::unique_ptr<e10::library_db>& DB) { CachedId = DB->m_Library.m_DepotRepositoryId; });
+
+        if (CachedId == Discovered)
+        {
+            e10::g_LibMgr.m_mLibraryDB.FindAsWrite(LibGuid, [&](std::unique_ptr<e10::library_db>& DB) { DB->m_DepotLinkState = e10::library_db::depot_link_state::Confirmed; });
+            return;
+        }
+
+        // Real mismatch - the cache is NEVER silently overwritten here; only an explicit re-cache
+        // action (not built yet - CLI/UI would call the same bootstrap write above) would accept it.
+        const auto Detail = std::format("cached '{}', now resolves to '{}'", CachedId, Discovered);
+        e10::g_LibMgr.m_mLibraryDB.FindAsWrite(LibGuid, [&](std::unique_ptr<e10::library_db>& DB)
+        {
+            DB->m_DepotLinkState  = e10::library_db::depot_link_state::Mismatch;
+            DB->m_DepotLinkDetail = Detail;
+        });
+        std::printf("[SC] DEPOT LINK MISMATCH for library at %ls: %s\n", RootPath.c_str(), Detail.c_str()); std::fflush(stdout);
+    }
+
+    // Companion to ValidateDepotLinkConnected for the "not a git working tree at all" case
+    // (GetOrCreateWorkspace's own WorkspaceNotFound branch) - only worth flagging if this library
+    // WAS cached as belonging to a depot before (a real regression - moved out from under source
+    // control, or the whole .git folder went missing), not for a library that was simply never in
+    // one to begin with (nothing to warn about, matches Unknown's own "haven't looked/nothing to
+    // report" semantics rather than manufacturing a false alarm).
+    inline void ValidateDepotLinkNoProvider(const std::wstring& RootPath) noexcept
+    {
+        e10::library::guid LibGuid{};
+        if (!FindLibraryGuidByPath(RootPath, LibGuid)) return;
+
+        std::string CachedProvider;
+        e10::g_LibMgr.m_mLibraryDB.FindAsReadOnly(LibGuid, [&](const std::unique_ptr<e10::library_db>& DB) { CachedProvider = DB->m_Library.m_DepotProviderId; });
+        if (CachedProvider.empty()) return; // never cached - nothing regressed
+
+        e10::g_LibMgr.m_mLibraryDB.FindAsWrite(LibGuid, [&](std::unique_ptr<e10::library_db>& DB)
+        {
+            DB->m_DepotLinkState  = e10::library_db::depot_link_state::NoProvider;
+            DB->m_DepotLinkDetail = std::format("cached as '{}' but no working Git tree found here now", DB->m_Library.m_DepotRepositoryId);
+        });
+        std::printf("[SC] DEPOT LINK REGRESSION for library at %ls: was under source control, no longer found\n", RootPath.c_str()); std::fflush(stdout);
+    }
+
     inline sc::git_lfs::GitLfsWorkspaceSession* GetOrCreateWorkspace(const std::wstring& RootPath) noexcept
     {
         std::lock_guard<std::mutex> Lock(WorkspaceRegistryMutex());
@@ -55,12 +143,14 @@ namespace e29::source_control
         if (Err && Err->code == sc::ErrorCode::WorkspaceNotFound)
         {
             Registry.emplace(RootPath, nullptr);
+            ValidateDepotLinkNoProvider(RootPath);
             return nullptr;
         }
         // Unsupported (git-lfs missing) is a soft warning per Connect()'s own comment - plain Git
         // operations still work, so the session is kept either way.
         auto* pRaw = pSession.get();
         Registry.emplace(RootPath, std::move(pSession));
+        ValidateDepotLinkConnected(RootPath, *pRaw);
         return pRaw;
     }
 

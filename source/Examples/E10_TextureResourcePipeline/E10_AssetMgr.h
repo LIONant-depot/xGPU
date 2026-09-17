@@ -298,11 +298,28 @@ namespace e10
         // been persisted by anything to date.
         bool                            m_bRootProject      = false;
 
+        // Depot-as-CACHE (Phase B, "Multi-library project model" plan section) - direct user
+        // requirement: "The link from a library to a depot could also be fragile... treating it more
+        // like a cache than a hardcore link... when broken it could try to discover if it depot has
+        // change or if it is not longer part of the source control system... the proper warning to
+        // the User and AI... should be made." These two fields are the CACHED depot identity as last
+        // confirmed - empty m_DepotProviderId means "never cached yet" (bootstraps silently on first
+        // real validation, not a mismatch). They are NEVER written by anything except
+        // ValidateDepotLink's own bootstrap/re-confirm path and are NEVER read for anything except
+        // comparison against a fresh discovery result - live validation OUTCOME (Confirmed/Mismatch/
+        // NoProvider) is runtime-only state on library_db, not persisted here (a stale warning flag
+        // baked into a config file would itself become exactly the kind of silently-trusted stale
+        // data this whole design is trying to avoid).
+        std::string                     m_DepotProviderId;      // e.g. "git" - provider id, not the depot identity itself
+        std::string                     m_DepotRepositoryId;    // provider-specific identity (git: remote URL, or canonical root if no remote yet)
+
         XPROPERTY_DEF
         ( "Library", library
         , obj_member <"GUID", +[](library& L)->std::uint64_t& { return L.m_GUID.m_Instance.m_Value; } >
         , obj_member <"Path", &library::m_Path>
         , obj_member <"ParentLibraries", &library::m_ParentLibraries>
+        , obj_member <"DepotProviderId", &library::m_DepotProviderId>
+        , obj_member <"DepotRepositoryId", &library::m_DepotRepositoryId>
         , obj_member <"Libraries", &library::m_Libraries
             , member_dynamic_flags<+[]( const library& O )
             {
@@ -1061,6 +1078,19 @@ namespace e10
         residency_state                         m_ResidencyState                    = residency_state::Unloaded;
         int                                      m_ExplicitRequests                  = 0;
         int                                      m_DependentLibraryCount             = 0;
+
+        // Depot-link LIVE validation outcome (Phase B, "Multi-library project model" plan section) -
+        // runtime-only, never persisted (see library::m_DepotProviderId's own comment for why). Set by
+        // whoever actually calls the provider (E29-only today, via ValidateDepotLink in
+        // E29_SourceControlStatus.h - this field itself has zero provider/UI dependency, so any of the
+        // other 7 examples could set it too without pulling anything new in). Unknown = never
+        // validated this session (e.g. no source-control integration wired up, or not checked yet) -
+        // deliberately distinct from NoProvider (checked, and this library genuinely isn't in any
+        // depot the provider can see), so a UI can tell "haven't looked" apart from "looked, and it's
+        // plain not tracked."
+        enum class depot_link_state : std::uint8_t { Unknown, Confirmed, Mismatch, NoProvider };
+        depot_link_state                        m_DepotLinkState                    = depot_link_state::Unknown;
+        std::string                              m_DepotLinkDetail;                  // human-readable detail, populated only for Mismatch
 
         compilation::instance&                  m_CompilationInstance;
         std::unique_ptr<process_info_job>       m_pProcessInfoJob                   = {};

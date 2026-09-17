@@ -434,6 +434,7 @@ int E29_Example()
     e29::commands::compile_status_query_cmd   CmdCompileStatus(E29Undo, &CmdContext);
     e29::commands::run_sanity_check_query_cmd CmdRunSanityCheck(E29Undo, &CmdContext);
     e29::commands::source_control_status_query_cmd  CmdSourceControlStatus(E29Undo, &CmdContext);
+    e29::commands::source_control_depot_status_query_cmd CmdSourceControlDepotStatus(E29Undo, &CmdContext);
     e29::commands::source_control_refresh_query_cmd CmdSourceControlRefresh(E29Undo, &CmdContext);
     e29::commands::source_control_list_locks_query_cmd CmdSourceControlListLocks(E29Undo, &CmdContext);
     e29::commands::source_control_lock_query_cmd    CmdSourceControlLock(E29Undo, &CmdContext);

@@ -241,6 +241,28 @@ public:
 
     [[nodiscard]] const SessionCapabilities& Capabilities() const noexcept override { return capabilities_; }
 
+    // See iworkspace_session::GetWorkspaceInfo's own comment. Best-effort: a failed `rev-parse`
+    // (shouldn't happen post-Connect(), but subprocess calls can always fail) falls back to
+    // repoRoot_ as given rather than leaving `.root` empty - never worse than the pre-Phase-B
+    // behavior, just not canonicalized. A missing/failed remote lookup leaves `.repository.value`
+    // empty (a real, valid state - a fresh local repo with no remote yet), not an error.
+    [[nodiscard]] WorkspaceInfo GetWorkspaceInfo() override
+    {
+        WorkspaceInfo Info;
+        Info.provider = ProviderId{ "git" };
+
+        const auto rootRes = RunGit({"rev-parse", "--show-toplevel"});
+        Info.root = (!rootRes.launchFailed && rootRes.exitCode == 0)
+            ? std::filesystem::path(detail::Trim(rootRes.stdOut))
+            : repoRoot_;
+
+        const auto remoteRes = RunGit({"remote", "get-url", "origin"});
+        if (!remoteRes.launchFailed && remoteRes.exitCode == 0)
+            Info.repository = RepositoryId{ detail::Trim(remoteRes.stdOut) };
+
+        return Info;
+    }
+
     // -------------------------------------------------------------
     // GetStatus
     // -------------------------------------------------------------
