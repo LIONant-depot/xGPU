@@ -272,13 +272,37 @@ namespace e10
         std::wstring                    m_UserDescriptorPath;
         std::wstring                    m_SysDescriptorPath;
         std::wstring                    m_ResourcePath;
+
+        // PROJECT membership list - "which libraries make up this project" (Project's own role,
+        // mirroring how a Level owns a m_Scenes membership list). Only the root project's own copy
+        // is ever meant to be saved (see m_bRootProject's own comment) - a nested library entry
+        // read back FROM this list has its own m_Libraries left empty, it does not recursively
+        // nest a second membership list of its own.
         std::vector<library>            m_Libraries;
+
+        // DEPENDENCY graph edges - "which other libraries does THIS library depend on" (Library's
+        // own role, mirroring xecs::scene::instance::m_ParentScenes exactly - see the "Multi-library
+        // project model" plan section for the full reasoning). Independent of project membership
+        // above - a library's own dependencies travel with IT, not with whichever project currently
+        // references it. Unlike m_ParentScenes (guid-only - every scene already lives in the SAME
+        // project's own scene folder, nothing to locate), a dependency here can be in a completely
+        // different depot, so each entry needs to carry enough to LOCATE it, not just identify it -
+        // reuses `library` itself as a lightweight reference (only m_GUID/m_Path meaningfully
+        // populated; a dependency stub's own m_Libraries/m_ParentLibraries are never read, only used
+        // once EnsureLibraryLoaded re-reads that path's own Library.config.txt fresh).
+        std::vector<library>            m_ParentLibraries;
+
+        // True only for the ONE library OpenProject establishes as the project's own root (set
+        // there, never anywhere else) - gates m_Libraries' own save flag below. Was declared but
+        // never actually set by any code before this change, which is why m_Libraries has never
+        // been persisted by anything to date.
         bool                            m_bRootProject      = false;
 
         XPROPERTY_DEF
         ( "Library", library
         , obj_member <"GUID", +[](library& L)->std::uint64_t& { return L.m_GUID.m_Instance.m_Value; } >
         , obj_member <"Path", &library::m_Path>
+        , obj_member <"ParentLibraries", &library::m_ParentLibraries>
         , obj_member <"Libraries", &library::m_Libraries
             , member_dynamic_flags<+[]( const library& O )
             {
@@ -1021,6 +1045,23 @@ namespace e10
         using map_type_to_infodb        = xcontainer::unordered_lockless_map<xresource::type_guid, std::unique_ptr<library_db::info_db>>;
         using map_assetpath_to_asset    = xcontainer::unordered_lockless_map<std::wstring, asset>;
 
+        // Multi-library loading (Phase A, "Multi-library project model" plan section) - same
+        // state-machine-plus-recursion shape xecs::scene::details::EnsureLoaded already proves out
+        // for Scene/m_ParentScenes, ported to Library/m_ParentLibraries: WaitingForParents ->
+        // Loading -> Active for a normal open, and revisiting a library still WaitingForParents/
+        // Loading during its own open IS a live dependency cycle, not a separate check. Residency is
+        // reference-counted the same way scenes are - m_ExplicitRequests (only bumped by a
+        // top-level, user/project-membership-driven open) and m_DependentLibraryCount (bumped by a
+        // DEPENDENT library pulling this one in) both have to hit zero before this library is a
+        // candidate for unload; nothing currently unloads a library mid-session (OpenProject/
+        // CloseProject remain whole-project operations), so today these only matter for detecting
+        // cycles and knowing why a library is resident - actual per-library unload is a real future
+        // step, not implemented by this pass.
+        enum class residency_state : std::uint8_t { Unloaded, WaitingForParents, Loading, Active, Failed };
+        residency_state                         m_ResidencyState                    = residency_state::Unloaded;
+        int                                      m_ExplicitRequests                  = 0;
+        int                                      m_DependentLibraryCount             = 0;
+
         compilation::instance&                  m_CompilationInstance;
         std::unique_ptr<process_info_job>       m_pProcessInfoJob                   = {};
         library                                 m_Library                           = {};
@@ -1627,8 +1668,11 @@ namespace e10
                 });
             });
 
-            /// Need to add the infos into the global array
-            /// m_pLibraryMgr->m_RscToLibraryMap
+            // "Which library owns this resource" (library_mgr::m_RscToLibraryMap) is populated from
+            // EnsureLibraryLoaded, right after this whole scan finishes - NOT here. library_mgr's own
+            // definition sits textually AFTER process_info_job in this file (it owns/constructs
+            // process_info_job instances), so it's still an incomplete type at this point and
+            // m_pLibraryMgr can only ever be used as an opaque pointer from inside this function.
             return {};
         }
 
@@ -2745,6 +2789,14 @@ namespace e10
 
             assert(bFindLib);
 
+            // Keep m_RscToLibraryMap accurate for a resource created THIS session too - not just at
+            // load time (EnsureLibraryLoaded's own population loop) - so the removal-safety check
+            // (RemoveLibraryDependency) sees it without needing a reload first.
+            m_RscToLibraryMap.Insert(ResourceGUID, [&](library::guid& Owner)
+            {
+                Owner = LibraryGUID;
+            });
+
             return ResourceGUID;
         }
 
@@ -3231,6 +3283,231 @@ namespace e10
 
         //------------------------------------------------------------------------------------------------
 
+        // Loads (or, if already known, just reference-counts) ONE library at LibraryPath, recursively
+        // resolving its own m_ParentLibraries dependencies FIRST - same state-machine-plus-recursion
+        // shape as xecs::scene::details::EnsureLoaded ("Multi-library project model" plan section):
+        // Unloaded -> WaitingForParents -> Loading -> Active/Failed, with a library still
+        // WaitingForParents/Loading being revisited treated as a live dependency cycle, exactly
+        // mirroring the scene loader's own two-state check. bIsRootProject is true for exactly the
+        // one library OpenProject calls this for directly - a dependency (bIsRootProject=false)
+        // never reads its own m_Libraries (project membership is the ROOT's own concern only; a
+        // library used as someone's dependency doesn't inject its own membership list).
+        //
+        // Deliberately never nests a m_mLibraryDB container call inside another one's own callback -
+        // every recursive call into this function happens at "top level" between container calls,
+        // not from inside an Insert/FindAsWrite lambda. This is the exact class of bug already found
+        // and fixed once in this codebase (MonitorAssetFileChangesPerPath's real cross-thread lock
+        // inversion, library_db's own top-comment) - not repeating it here, even though
+        // xcontainer::unordered_lockless_map's actual re-entrancy guarantees were not exhaustively
+        // re-verified for this specific nested-nested case.
+        xerr EnsureLibraryLoaded(std::wstring LibraryPath, bool bExplicitRequest, bool bIsRootProject, library::guid& OutGuid) noexcept
+        {
+            std::printf("[MultiLib] ENTER EnsureLibraryLoaded path='%ls' root=%d\n", LibraryPath.c_str(), bIsRootProject ? 1 : 0); std::fflush(stdout);
+            library Library;
+            {
+                xtextfile::stream Stream;
+                if (auto Err = Stream.Open(true, std::format(L"{}\\Project.config\\Library.config.txt", LibraryPath), {xtextfile::file_type::TEXT}); Err)
+                    return Err;
+
+                xproperty::settings::context Context;
+                if (auto Err = xproperty::sprop::serializer::Stream(Stream, Library, Context); Err)
+                    return Err;
+
+                // Fix to the proper path - paths are computed from LibraryPath (this library's own
+                // location), never trusted/read from disk except m_Path itself.
+                Library.m_Path               = LibraryPath;
+                Library.m_UserDescriptorPath = std::format(L"{}\\Descriptors", Library.m_Path);
+                Library.m_SysDescriptorPath  = std::format(L"{}\\Cache\\Descriptors", Library.m_Path);
+                Library.m_ResourcePath       = std::format(L"{}\\Cache\\Resources\\Platforms\\WINDOWS", Library.m_Path);
+                Library.m_bRootProject       = bIsRootProject; // always derived from OUR call context, never trusted from disk
+
+                if (false == std::filesystem::exists(Library.m_ResourcePath))       create_directory_path(Library.m_ResourcePath);
+                if (false == std::filesystem::exists(Library.m_SysDescriptorPath))  create_directory_path(Library.m_SysDescriptorPath);
+                if (false == std::filesystem::exists(Library.m_UserDescriptorPath)) create_directory_path(Library.m_UserDescriptorPath);
+            }
+
+            OutGuid = Library.m_GUID;
+
+            // Already known (either fully Active from an earlier call, or still being resolved
+            // higher up the current recursion stack)?
+            bool bAlreadyKnown = false;
+            xerr Result;
+            m_mLibraryDB.FindAsWrite(Library.m_GUID, [&](std::unique_ptr<library_db>& Existing)
+            {
+                bAlreadyKnown = true;
+                if (Existing->m_ResidencyState == library_db::residency_state::WaitingForParents ||
+                    Existing->m_ResidencyState == library_db::residency_state::Loading)
+                {
+                    Result = xerr::create<xerr::default_states::FAILURE, "Library dependency cycle detected">();
+                    return;
+                }
+                if (bExplicitRequest) Existing->m_ExplicitRequests++;
+                else                  Existing->m_DependentLibraryCount++;
+            });
+            if (bAlreadyKnown) return Result;
+
+            // Not known yet - need the dependency AND (root only) membership lists to recurse into
+            // below, but Library itself is about to be moved into the map below (library is move-only
+            // - no copy constructor - so a real vector<library> copy isn't an option either way).
+            // BOTH lists must survive inside the stored library_db::m_Library afterward - not just
+            // m_ParentLibraries (future cycle-checking/introspection needs it), but m_Libraries too,
+            // since SaveLibraryConfig (AddLibraryDependency, etc.) re-serializes the STORED copy: an
+            // earlier version of this code moved m_Libraries out here "because project membership
+            // doesn't need post-load retention," which was true right up until SaveLibraryConfig
+            // started writing that same stored copy back to disk - at which point a destructive move
+            // here silently zeroed the real project's own Libraries[] block on the very first
+            // AddLibraryDependency call (caught live, see this comment's own paper trail). So both
+            // lists are field-copied (GUID+Path only) into local recursion targets, leaving the
+            // originals on Library intact to travel into the map below.
+            auto CopyGuidPathStubs = [](std::vector<library>& Src)
+            {
+                std::vector<library> Out;
+                Out.reserve(Src.size());
+                for (auto& Item : Src)
+                {
+                    library Stub;
+                    Stub.m_GUID = Item.m_GUID;
+                    Stub.m_Path = Item.m_Path;
+                    Out.push_back(std::move(Stub));
+                }
+                return Out;
+            };
+            std::vector<library> Dependencies = CopyGuidPathStubs(Library.m_ParentLibraries);
+            std::vector<library> Members       = bIsRootProject ? CopyGuidPathStubs(Library.m_Libraries) : std::vector<library>{};
+
+            m_mLibraryDB.Insert(Library.m_GUID, [&](std::unique_ptr<library_db>& NewDB)
+            {
+                NewDB = std::make_unique<library_db>(m_Compilation);
+                NewDB->m_ResidencyState = library_db::residency_state::WaitingForParents;
+                if (bExplicitRequest) NewDB->m_ExplicitRequests++; else NewDB->m_DependentLibraryCount++;
+                NewDB->m_Library = std::move(Library);
+            });
+
+            // Recurse into dependencies FIRST (top-level calls, not nested in the Insert above) -
+            // load order and the cycle backstop above both fall out of this, no separate topo-sort.
+            xerr FirstError;
+            for (auto& Dep : Dependencies)
+            {
+                library::guid DepGuid;
+                if (auto Err = EnsureLibraryLoaded(Dep.m_Path, /*bExplicitRequest*/ false, /*bIsRootProject*/ false, DepGuid); Err && !FirstError)
+                    FirstError = Err;
+            }
+
+            m_mLibraryDB.FindAsWrite(OutGuid, [&](std::unique_ptr<library_db>& DB)
+            {
+                DB->m_ResidencyState = FirstError ? library_db::residency_state::Failed : library_db::residency_state::Loading;
+            });
+            if (FirstError) return FirstError;
+
+            // Dependencies resolved - now bootstrap THIS library's own asset scan + file watcher
+            // (the heavy, previously-single-library-only work OpenProject used to do inline).
+            std::printf("[MultiLib] before process_info_job for guid=%llX\n", (unsigned long long)OutGuid.m_Instance.m_Value); std::fflush(stdout);
+            m_mLibraryDB.FindAsWrite(OutGuid, [&](std::unique_ptr<library_db>& DB)
+            {
+                DB->m_pProcessInfoJob = std::make_unique<process_info_job>();
+                DB->m_pProcessInfoJob->setup(*this, *DB, {});
+
+                xscheduler::g_System.SubmitJob(*DB->m_pProcessInfoJob);
+                while (DB->m_pProcessInfoJob->m_State != process_info_job::state::DONE)
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+                // Register every resource this library just scanned into the global "which library
+                // owns this resource" lookup (m_RscToLibraryMap) - needed by RemoveLibraryDependency's
+                // own removal-safety check (see the "Multi-library project model" plan section) to
+                // resolve a bare xresource::full_guid found inside some OTHER resource's own
+                // m_Dependencies.m_Resources back to a library. Done HERE, not inside
+                // process_info_job's own scan, because library_mgr (and so m_RscToLibraryMap) is
+                // still an incomplete type at the point process_info_job is defined earlier in this
+                // file - EnsureLibraryLoaded is a library_mgr member, so it's complete here. Insert is
+                // insert-only (a resource's owning library never changes across a re-scan).
+                for (auto& TypeEntry : DB->m_InfoByTypeDataBase)
+                {
+                    for (auto& NodeEntry : TypeEntry.second->m_InfoDataBase)
+                    {
+                        m_RscToLibraryMap.Insert(NodeEntry.second.m_Info.m_Guid, [&](library::guid& Owner)
+                        {
+                            Owner = DB->m_Library.m_GUID;
+                        });
+                    }
+                }
+
+                DB->m_FileMonitorChanges = std::make_unique<file_monitor_changes>(m_AssetPluginsDB, *DB);
+                DB->m_ResidencyState     = library_db::residency_state::Active;
+            });
+            std::printf("[MultiLib] after process_info_job for guid=%llX\n", (unsigned long long)OutGuid.m_Instance.m_Value); std::fflush(stdout);
+
+            // Root/trash folder bootstrap - per-LIBRARY now (every library gets its own, keyed by
+            // its own GUID), not just once for the whole project like the old size()==1 proxy check
+            // used to assume back when only one library could ever exist.
+            {
+                auto RootName = LibraryPath;
+                RootName = RootName.substr(RootName.rfind(L'\\') + 1);
+                RootName = RootName.substr(0, RootName.rfind(L'.'));
+
+                bool bHasRootFolder = false;
+                const xresource::full_guid RootGUID = { OutGuid.m_Instance, folder::type_guid_v };
+                m_mLibraryDB.FindAsReadOnly(OutGuid, [&](const std::unique_ptr<library_db>& DB)
+                {
+                    DB->m_InfoByTypeDataBase.FindAsReadOnly(RootGUID.m_Type, [&](const std::unique_ptr<library_db::info_db>& Info)
+                    {
+                        bHasRootFolder = Info->m_InfoDataBase.FindAsWrite(RootGUID.m_Instance, [&](library_db::info_node& Node)
+                        {
+                            Node.m_Info.m_Name = xstrtool::To(RootName);
+                            bHasRootFolder     = true;
+                        });
+                    });
+                });
+                std::printf("[MultiLib] before root NewAsset, bHasRootFolder=%d\n", bHasRootFolder ? 1 : 0); std::fflush(stdout);
+                if (bHasRootFolder == false) NewAsset(OutGuid, RootGUID, { 0,0 }, xstrtool::To(RootName));
+                std::printf("[MultiLib] after root NewAsset\n"); std::fflush(stdout);
+
+                bool bHasTrashcan = false;
+                m_mLibraryDB.FindAsReadOnly(OutGuid, [&](const std::unique_ptr<library_db>& DB)
+                {
+                    DB->m_InfoByTypeDataBase.FindAsReadOnly(e10::folder::trash_guid_v.m_Type, [&](const std::unique_ptr<library_db::info_db>& Info)
+                    {
+                        bHasTrashcan = Info->m_InfoDataBase.FindAsReadOnly(e10::folder::trash_guid_v.m_Instance, [&](const library_db::info_node&){});
+                    });
+                });
+                std::printf("[MultiLib] before trash NewAsset, bHasTrashcan=%d\n", bHasTrashcan ? 1 : 0); std::fflush(stdout);
+                if (bHasTrashcan == false) NewAsset(OutGuid, e10::folder::trash_guid_v, RootGUID, "Trash");
+                std::printf("[MultiLib] after trash NewAsset\n"); std::fflush(stdout);
+            }
+            std::printf("[MultiLib] EXIT root/trash bootstrap for guid=%llX\n", (unsigned long long)OutGuid.m_Instance.m_Value); std::fflush(stdout);
+
+            // Root project only: this is also where PROJECT MEMBERSHIP (as opposed to a library's
+            // own dependency edges) actually gets resolved - recursing into every library this
+            // project declares itself made of, each pulling in ITS OWN dependencies the same way.
+            for (auto& Member : Members)
+            {
+                library::guid MemberGuid;
+                if (auto Err = EnsureLibraryLoaded(Member.m_Path, /*bExplicitRequest*/ true, /*bIsRootProject*/ false, MemberGuid); Err && !FirstError)
+                    FirstError = Err;
+            }
+
+            return FirstError;
+        }
+
+        //------------------------------------------------------------------------------------------------
+
+        // Write-back counterpart to EnsureLibraryLoaded's own read - same Serialize(isReading,...)
+        // pattern xresource_pipeline_dependencies.h's own dependencies::Serialize uses for both
+        // directions. Lib is expected to be the library_mgr's OWN stored copy (library_db::m_Library),
+        // so its m_bRootProject flag is already correct and m_Libraries only actually gets written for
+        // the one root project entry, exactly like m_Libraries' own member_dynamic_flags intends.
+        xerr SaveLibraryConfig(library& Lib) noexcept
+        {
+            xtextfile::stream Stream;
+            if (auto Err = Stream.Open(false, std::format(L"{}\\Project.config\\Library.config.txt", Lib.m_Path), {xtextfile::file_type::TEXT}); Err)
+                return Err;
+
+            xproperty::settings::context Context;
+            if (auto Err = xproperty::sprop::serializer::Stream(Stream, Lib, Context); Err)
+                return Err;
+
+            return {};
+        }
+
         xerr OpenProject( std::wstring_view ProjectPath )
         {
             assert(m_mLibraryDB.empty());
@@ -3265,117 +3542,24 @@ namespace e10
                 std::cerr << "Warning: " << Err.getMessage() << "\n";
 
             //
-            // Prepare compilation queues 
+            // Prepare compilation queues
             //
             m_Compilation.AllocateQueues(m_AssetPluginsDB.RecomputePluginGroups());
 
             //
-            // Load the config file for the project
-            // TODO: Need to add the code load also libraries...
-            library Library;
-            {
-                xtextfile::stream Stream;
-                if (auto Err = Stream.Open(true, std::format(L"{}\\Project.config\\Library.config.txt", ProjectPath), {xtextfile::file_type::TEXT}); Err)
-                    return Err;
+            // Load the root library (this project itself) and, recursively, every library it
+            // declares as a member plus every dependency those pull in - see EnsureLibraryLoaded.
+            //
+            library::guid RootGuid;
+            if (auto Err = EnsureLibraryLoaded(std::wstring(ProjectPath), /*bExplicitRequest*/ true, /*bIsRootProject*/ true, RootGuid); Err)
+                return Err;
 
-                xproperty::settings::context Context;
-                if ( auto Err = xproperty::sprop::serializer::Stream( Stream, Library, Context ); Err )
-                    return Err;
-
-                //
-                // Fix to the proper path
-                //
-                Library.m_Path               = ProjectPath;
-                Library.m_UserDescriptorPath = std::format(L"{}\\Descriptors", Library.m_Path);
-                Library.m_SysDescriptorPath  = std::format(L"{}\\Cache\\Descriptors", Library.m_Path);
-                Library.m_ResourcePath       = std::format(L"{}\\Cache\\Resources\\Platforms\\WINDOWS", Library.m_Path);
-
-                // Make sure that those key paths are always created...
-                if (false == std::filesystem::exists(Library.m_ResourcePath))       create_directory_path(Library.m_ResourcePath);
-                if (false == std::filesystem::exists(Library.m_SysDescriptorPath))  create_directory_path(Library.m_SysDescriptorPath);
-                if (false == std::filesystem::exists(Library.m_UserDescriptorPath)) create_directory_path(Library.m_UserDescriptorPath);
-            }
+            m_ProjectGUID = RootGuid;
 
             //
-            // Set the project as the root project
-            //
-            m_ProjectGUID = Library.m_GUID;
-
-            //
-            // Load all the infos
-            //
-            m_mLibraryDB.Insert(Library.m_GUID, [&](std::unique_ptr<library_db>& ProjectDB)
-            {
-                ProjectDB = std::make_unique<library_db>(m_Compilation);
-
-                ProjectDB->m_Library         = std::move(Library);
-                ProjectDB->m_pProcessInfoJob = std::make_unique<process_info_job>();
-
-                ProjectDB->m_pProcessInfoJob->setup(*this, *ProjectDB, {});
-
-                xscheduler::g_System.SubmitJob(*ProjectDB->m_pProcessInfoJob);
-
-                //
-                // Wait for the job to finish
-                //
-                while (ProjectDB->m_pProcessInfoJob->m_State != process_info_job::state::DONE)
-                {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                }
-
-                //
-                // Make sure to monitor the asset folder...
-                //
-                ProjectDB->m_FileMonitorChanges = std::make_unique<file_monitor_changes>( m_AssetPluginsDB, *ProjectDB);
-            });
-
-            //
-            // Check to see if this is an entirely new project
-            // If so we create the root + trash folder... 
-            //
-            if (m_mLibraryDB.size() == 1 )
-            {
-                //
-                // Create the root if we have to
-                //
-
-                // Make sure to set the name of the root folder
-                auto RootName = m_ProjectPath;
-                RootName = RootName.substr(RootName.rfind(L'\\') + 1);
-                RootName = RootName.substr(0, RootName.rfind(L'.'));
-
-                bool bHasRootFolder = false;
-                const xresource::full_guid RootGUID = { m_ProjectGUID.m_Instance, folder::type_guid_v };
-                m_mLibraryDB.FindAsReadOnly(Library.m_GUID, [&](const std::unique_ptr<library_db>& ProjectDB)
-                {
-                    ProjectDB->m_InfoByTypeDataBase.FindAsReadOnly(RootGUID.m_Type, [&](const std::unique_ptr<library_db::info_db>& Info)
-                    {
-                        bHasRootFolder = Info->m_InfoDataBase.FindAsWrite(RootGUID.m_Instance, [&](library_db::info_node& Node )
-                        {
-                            // Make sure to set the upto date name of the root folder
-                            Node.m_Info.m_Name = xstrtool::To(RootName);
-                            bHasRootFolder     = true;
-                        });
-                    });
-                });
-                if (bHasRootFolder == false) NewAsset(m_ProjectGUID, RootGUID, { 0,0 }, xstrtool::To(RootName));
-
-                //
-                // Create the trash if we have to
-                //
-                bool bHasTrashcan = false;
-                m_mLibraryDB.FindAsReadOnly(Library.m_GUID, [&](const std::unique_ptr<library_db>& ProjectDB)
-                {
-                    ProjectDB->m_InfoByTypeDataBase.FindAsReadOnly(e10::folder::trash_guid_v.m_Type, [&]( const std::unique_ptr<library_db::info_db>& Info)
-                    {
-                        bHasTrashcan = Info->m_InfoDataBase.FindAsReadOnly(e10::folder::trash_guid_v.m_Instance, [&](const library_db::info_node&){});
-                    });
-                });
-                if (bHasTrashcan == false) NewAsset(m_ProjectGUID, e10::folder::trash_guid_v, RootGUID, "Trash");
-            }
-
-            //
-            // Insert all the plugins found in the libraries
+            // Insert all the plugins found in the libraries (now covers every library that was
+            // loaded above, not just the one root - this loop already iterated the whole map, no
+            // change needed here beyond the map itself now potentially holding more than one entry).
             //
             for(auto& L : m_mLibraryDB )
             {
@@ -3450,9 +3634,25 @@ namespace e10
         {
             m_OnCloseProjectEvent.NotifyAll(*this);
 
-            //
-            // TODO: Need to stop all the threads before closing the project
-            //
+            // Explicitly tear down each library's own background work BEFORE the map itself is
+            // cleared, in a controlled, known order - rather than leaving it to whatever order
+            // unique_ptr destruction happens to run in inside the map's internal storage. This
+            // matters more now than it used to: with N libraries (Phase A, "Multi-library project
+            // model") there are N independent file watchers/scan jobs to stop, not one.
+            // file_monitor_changes' own destructor already stops its threads cleanly (m_bRunning +
+            // CancelSynchronousIo + join, see its own destructor) - resetting it here just makes
+            // that happen NOW, in this order, instead of implicitly during clear().
+            // STILL NOT FIXED (same TODO, narrowed rather than closed): the single, PROJECT-WIDE
+            // m_Compilation queue may still have in-flight or queued work referencing a library_db
+            // that's about to be destroyed below - there is no Stop()/WaitIdle() on compilation::
+            // instance to drain it first. Flagging this rather than silently leaving the old TODO
+            // comment gone as if it were resolved.
+            for (auto& L : m_mLibraryDB)
+            {
+                L.second->m_FileMonitorChanges.reset();
+                L.second->m_pProcessInfoJob.reset();
+            }
+
             m_mLibraryDB.clear();
         }
 

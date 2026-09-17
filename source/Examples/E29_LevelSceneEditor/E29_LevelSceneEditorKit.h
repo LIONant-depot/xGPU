@@ -1433,6 +1433,25 @@ namespace e29
             return NewAsset;
         };
 
+        // Library-level "Dependencies" sub-node (virtual_tree_tab.h/files_tab.h's own root-row
+        // drag-target + per-entry remove, see the "Multi-library project model" plan section) -
+        // routes through AddLibraryDependency/RemoveLibraryDependency (undo-tracked, cycle-checked)
+        // rather than mutating library_mgr directly, same reasoning as every hook above. ParentPath
+        // is only actually consulted by the command when Parent isn't already loaded this session -
+        // harmless to always pass it (the common case here, since the UI can only drag a library row
+        // that is by definition already loaded and rendering in one of these same trees).
+        Browser.m_OnAddLibraryDependency = [&Undo](e10::library::guid Owner, e10::library::guid Parent, const std::wstring& ParentPath)
+        {
+            e29::commands::Run(Undo, std::format("AddLibraryDependency -Library {} -Parent {} -ParentPath {}"
+                , e29::commands::FormatLibraryGuid(Owner), e29::commands::FormatLibraryGuid(Parent), e29::commands::Base64Encode(xstrtool::To(ParentPath))));
+        };
+
+        Browser.m_OnRemoveLibraryDependency = [&Undo](e10::library::guid Owner, e10::library::guid Parent)
+        {
+            e29::commands::Run(Undo, std::format("RemoveLibraryDependency -Library {} -Parent {}"
+                , e29::commands::FormatLibraryGuid(Owner), e29::commands::FormatLibraryGuid(Parent)));
+        };
+
         // Raw Assets-folder file hooks (Phase 5 of the window-split plan) - route files_tab's own
         // Rename/Move/Cut-Paste/Delete/Copy UI actions through the SAME MoveAssetFile/CopyAssetFile
         // xundo commands Phase 4 already proved via CLI (E29_Commands_AssetFiles.h), rather than a

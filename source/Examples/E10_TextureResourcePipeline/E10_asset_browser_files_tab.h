@@ -1124,6 +1124,19 @@ namespace e10
                     if (IsCursorOutsideMainWindow())
                         RunOsFileDragOut(AssetsRoot, Payload);
                 }
+                // The Assets root itself drags as a LIBRARY reference instead (for another library's
+                // own "Dependencies" sub-node, see the bOpen block below) - same LIBRARY_GUID payload
+                // virtual_tree_tab's own root row now produces, so either tree can be the drag source.
+                else if (bIsRoot && ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left, 12.0f) && ImGui::BeginDragDropSource())
+                {
+                    drag_and_drop_library_payload_t Payload{};
+                    Payload.m_LibraryGuid = LibraryGuid;
+                    wcsncpy_s(Payload.m_Path, std::size(Payload.m_Path), AssetsRoot.parent_path().wstring().c_str(), _TRUNCATE);
+
+                    ImGui::SetDragDropPayload("LIBRARY_GUID", &Payload, sizeof(Payload));
+                    ImGui::TextUnformatted(Label.c_str());
+                    ImGui::EndDragDropSource();
+                }
 
                 // Drop target (5C) - drop any in-app file/folder drag onto a LEFT-tree row to move/copy
                 // it there, regardless of which folder is currently open on the right.
@@ -1191,6 +1204,79 @@ namespace e10
                 // always bakes into every caller's path) - collapsing the browsing root past that extra
                 // "Assets" segment is a pure UI skip, not a change to where files actually get moved
                 // (DoRestore adds the segment back when computing the real trash path).
+                // Special, fixed sub-node for THIS library's own dependency graph edges - injected
+                // even before Trash, mirroring virtual_tree_tab's own placement (and Scene
+                // Dependencies' own "always the first child" placement in the Level Tree) exactly -
+                // same UI/interaction shape as both, reused rather than reinvented per direct user
+                // correction ("fallow the same UI than the scene... we do not need to invent new
+                // language, new icons, etc"). See virtual_tree_tab.h's own copy of this block for the
+                // full reasoning on the hooks/payload/display-name choices - kept identical here.
+                if (bIsRoot && !bTrashMode)
+                {
+                    ImGui::PushID("LibraryDependencies");
+                    const bool bDepOpen = ImGui::TreeNodeEx("\xEE\x9C\x9B Dependencies", ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth);
+
+                    if (ImGui::BeginDragDropTarget())
+                    {
+                        if (const ImGuiPayload* Pl = ImGui::AcceptDragDropPayload("LIBRARY_GUID"))
+                        {
+                            IM_ASSERT(Pl->DataSize == sizeof(drag_and_drop_library_payload_t));
+                            auto& Dropped = *reinterpret_cast<const drag_and_drop_library_payload_t*>(Pl->Data);
+                            if (Dropped.m_LibraryGuid != LibraryGuid)
+                            {
+                                bool bAlready = false;
+                                m_AssetMgr.m_mLibraryDB.FindAsReadOnly(LibraryGuid, [&](const std::unique_ptr<e10::library_db>& DB)
+                                {
+                                    bAlready = std::find_if(DB->m_Library.m_ParentLibraries.begin(), DB->m_Library.m_ParentLibraries.end(), [&](const e10::library& Dep) { return Dep.m_GUID == Dropped.m_LibraryGuid; }) != DB->m_Library.m_ParentLibraries.end();
+                                });
+                                if (!bAlready && m_Browser.m_OnAddLibraryDependency)
+                                    m_Browser.m_OnAddLibraryDependency(LibraryGuid, Dropped.m_LibraryGuid, Dropped.m_Path);
+                            }
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+
+                    if (bDepOpen)
+                    {
+                        std::vector<e10::library> Deps;
+                        m_AssetMgr.m_mLibraryDB.FindAsReadOnly(LibraryGuid, [&](const std::unique_ptr<e10::library_db>& DB)
+                        {
+                            for (auto& Dep : DB->m_Library.m_ParentLibraries)
+                            {
+                                e10::library Stub;
+                                Stub.m_GUID = Dep.m_GUID;
+                                Stub.m_Path = Dep.m_Path;
+                                Deps.push_back(std::move(Stub));
+                            }
+                        });
+
+                        for (std::size_t iDep = 0; iDep < Deps.size(); ++iDep)
+                        {
+                            std::wstring DisplayPath = Deps[iDep].m_Path;
+                            if (auto Pos = DisplayPath.find_last_of(L'\\'); Pos != std::wstring::npos)
+                                DisplayPath = DisplayPath.substr(Pos + 1);
+
+                            ImGui::PushID(static_cast<int>(iDep));
+                            ImGui::TreeNodeEx(xstrtool::To(DisplayPath).c_str(), ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_Bullet | ImGuiTreeNodeFlags_SpanFullWidth);
+
+                            if (ImGui::BeginPopupContextItem())
+                            {
+                                if (ImGui::MenuItem("Remove Dependency") && m_Browser.m_OnRemoveLibraryDependency)
+                                {
+                                    m_Browser.m_OnRemoveLibraryDependency(LibraryGuid, Deps[iDep].m_GUID);
+                                    ImGui::EndPopup();
+                                    ImGui::PopID();
+                                    break;
+                                }
+                                ImGui::EndPopup();
+                            }
+                            ImGui::PopID();
+                        }
+                        ImGui::TreePop();
+                    }
+                    ImGui::PopID();
+                }
+
                 if (bIsRoot && !bTrashMode)
                     RenderFolder(LibraryGuid, AssetsRoot.parent_path() / L".trash" / L"assets" / L"Assets", {}, true);
 

@@ -267,6 +267,17 @@ namespace e10
         bool                        m_bSelection;
     };
 
+    // Payload for dragging a LIBRARY's own root row onto another library's "Dependencies" sub-node
+    // ("LIBRARY_GUID" - see the "Multi-library project model" plan section). A plain fixed-size wide
+    // buffer rather than std::wstring - ImGui::SetDragDropPayload holds a raw byte-copy of whatever is
+    // handed to it, so a real std::wstring's own heap pointer would be unsafe to carry this way; a
+    // library's own path is always well under this size in practice.
+    struct drag_and_drop_library_payload_t
+    {
+        library::guid               m_LibraryGuid;
+        wchar_t                     m_Path[260];
+    };
+
     // Generic extension point for "drag something from outside the asset browser onto one of its
     // folders to create a brand-new asset there" (e.g. dragging a scene entity onto a folder to turn
     // it into a Prefab, Unity-style). The browser's folder drop targets don't need to know what's
@@ -1160,6 +1171,21 @@ namespace e10
         // unlocked, not lockable at all, etc.) is expected to no-op safely rather than erroring loudly.
         std::function<void(library::guid, const std::wstring& /*RelativePath*/)> m_OnLockAssetFile;
         std::function<void(library::guid, const std::wstring& /*RelativePath*/)> m_OnUnlockAssetFile;
+
+        // Optional hooks - the library-level "Dependencies" sub-node's own mutations (a library's
+        // ParentLibraries graph edges, mirroring scene dependencies - see the "Multi-library project
+        // model" plan section). Default-empty means the Dependencies node still renders (read-only -
+        // every existing consumer's own project has exactly one library, so it's always empty for
+        // them) but its drag-drop-to-add target and per-entry remove button are simply inert, same
+        // "hook unset = no mutation offered" convention as every hook above. Only E29
+        // (RegisterAssetBrowserCallbacks) wires these today, routing through AddLibraryDependency/
+        // RemoveLibraryDependency (undo-tracked, cycle-checked) rather than mutating library_mgr
+        // directly - there is no direct-call fallback for these two, unlike Rename/Move/Delete, since
+        // cycle-checking only exists in the command layer today.
+        std::function<void(library::guid /*Owner*/, library::guid /*Parent*/, const std::wstring& /*ParentPath*/)>
+            m_OnAddLibraryDependency;
+        std::function<void(library::guid /*Owner*/, library::guid /*Parent*/)>
+            m_OnRemoveLibraryDependency;
 
         // Optional hook so files_tab can find the real Win32 HWND currently hosting this browser, for
         // real OS-level (Explorer) drag-out (E10_AssetOleDrag.h) - it needs a screen-space window rect

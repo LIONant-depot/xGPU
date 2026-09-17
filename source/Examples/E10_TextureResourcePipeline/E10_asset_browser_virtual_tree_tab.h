@@ -1118,8 +1118,20 @@ namespace e10
                         PathHistoryUpdate( m_SelectedLibrary, m_ParentGUID );
                     }
 
-                    // Drag source
-                    if (!Folder.m_isRoot && !Folder.m_isTrash && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
+                    // Drag source - a ROOT row drags as a LIBRARY reference (for another library's
+                    // own "Dependencies" sub-node below), never as a DESCRIPTOR_GUID asset - a
+                    // library's root folder is never itself moved/reparented.
+                    if (Folder.m_isRoot && !Folder.m_isTrash && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
+                    {
+                        drag_and_drop_library_payload_t Payload{};
+                        Payload.m_LibraryGuid = L.first;
+                        wcsncpy_s(Payload.m_Path, std::size(Payload.m_Path), L.second->m_Library.m_Path.c_str(), _TRUNCATE);
+
+                        ImGui::SetDragDropPayload("LIBRARY_GUID", &Payload, sizeof(Payload), false);
+                        ImGui::Text(Str.substr(0, Str.find('#')).c_str());
+                        ImGui::EndDragDropSource();
+                    }
+                    else if (!Folder.m_isRoot && !Folder.m_isTrash && ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID))
                     {
                         drag_and_drop_folder_payload_t Payload = { {ParentGUID}, FullGuid };
 
@@ -1299,6 +1311,77 @@ namespace e10
 
                     if (bOpen)
                     {
+                        // Special, fixed sub-node for THIS library's own dependency graph edges -
+                        // NOT a real folder (synthesized directly from L.second->m_Library.
+                        // m_ParentLibraries, never touching Folder.m_Children), always the first
+                        // child under the library's own root row. Deliberately the SAME UI/
+                        // interaction shape as the Level Tree's own Scene Dependencies node
+                        // (E29_Panel_LevelTree.h) - reused, not reinvented, per direct user
+                        // correction ("fallow the same UI than the scene... we do not need to
+                        // invent new language, new icons, etc"). Drop target: drag another
+                        // library's own root row (LIBRARY_GUID payload) here to add it as a
+                        // dependency; per-entry right-click to remove. Both mutations are opt-in via
+                        // m_Browser.m_OnAddLibraryDependency/m_OnRemoveLibraryDependency - unset
+                        // (every consumer except E29) means the node is read-only, same convention
+                        // as every other optional hook in this file.
+                        if (Folder.m_isRoot)
+                        {
+                            ImGui::PushID("LibraryDependencies");
+                            const std::string DepLabel = std::format("\xEE\x9C\x9B Dependencies");
+                            const bool bDepOpen = ImGui::TreeNodeEx(DepLabel.c_str(), ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth);
+
+                            if (ImGui::BeginDragDropTarget())
+                            {
+                                if (const ImGuiPayload* Payload = ImGui::AcceptDragDropPayload("LIBRARY_GUID"))
+                                {
+                                    IM_ASSERT(Payload->DataSize == sizeof(drag_and_drop_library_payload_t));
+                                    auto& Dropped = *reinterpret_cast<const drag_and_drop_library_payload_t*>(Payload->Data);
+                                    if (Dropped.m_LibraryGuid != L.first)
+                                    {
+                                        auto& Existing = L.second->m_Library.m_ParentLibraries;
+                                        const bool bAlready = std::find_if(Existing.begin(), Existing.end(), [&](const e10::library& Dep) { return Dep.m_GUID == Dropped.m_LibraryGuid; }) != Existing.end();
+                                        if (!bAlready && m_Browser.m_OnAddLibraryDependency)
+                                            m_Browser.m_OnAddLibraryDependency(L.first, Dropped.m_LibraryGuid, Dropped.m_Path);
+                                    }
+                                }
+                                ImGui::EndDragDropTarget();
+                            }
+
+                            if (bDepOpen)
+                            {
+                                for (std::size_t iDep = 0; iDep < L.second->m_Library.m_ParentLibraries.size(); ++iDep)
+                                {
+                                    auto& Dep = L.second->m_Library.m_ParentLibraries[iDep];
+
+                                    // Display-only name: the last path component (same bootstrap
+                                    // convention EnsureLibraryLoaded itself uses for a fresh root
+                                    // folder's own name) - a cheap, always-available label; doesn't
+                                    // reflect a later rename of that OTHER library's own root folder.
+                                    std::wstring DisplayPath = Dep.m_Path;
+                                    if (auto Pos = DisplayPath.find_last_of(L'\\'); Pos != std::wstring::npos)
+                                        DisplayPath = DisplayPath.substr(Pos + 1);
+
+                                    ImGui::PushID(static_cast<int>(iDep));
+                                    ImGui::TreeNodeEx(xstrtool::To(DisplayPath).c_str(), ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen | ImGuiTreeNodeFlags_Bullet | ImGuiTreeNodeFlags_SpanFullWidth);
+
+                                    if (ImGui::BeginPopupContextItem())
+                                    {
+                                        if (ImGui::MenuItem("Remove Dependency") && m_Browser.m_OnRemoveLibraryDependency)
+                                        {
+                                            m_Browser.m_OnRemoveLibraryDependency(L.first, Dep.m_GUID);
+                                            ImGui::EndPopup();
+                                            ImGui::PopID();
+                                            break; // m_ParentLibraries was just mutated mid-iteration
+                                        }
+                                        ImGui::EndPopup();
+                                    }
+                                    ImGui::PopID();
+                                }
+                                ImGui::TreePop();
+                            }
+                            ImGui::PopID();
+                        }
+
                         for (auto& Child : Folder.m_Children)
                         {
                             // We only care about folders here
