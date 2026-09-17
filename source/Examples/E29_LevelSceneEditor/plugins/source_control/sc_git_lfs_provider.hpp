@@ -240,6 +240,18 @@ public:
 
         capabilities_.sourceControlAvailable = true;
 
+        // Cache the repoRoot_ -> toplevel offset once - see repoRelativePrefix_'s own comment.
+        // Best-effort: a failed rev-parse here just leaves the prefix empty (repoRoot_ treated as the
+        // toplevel), same "never worse than before this fix" fallback GetWorkspaceInfo's own
+        // rev-parse call already uses.
+        if (const auto topRes = RunGit({"rev-parse", "--show-toplevel"}); !topRes.launchFailed && topRes.exitCode == 0)
+        {
+            const std::filesystem::path Toplevel = detail::Trim(topRes.stdOut);
+            std::error_code Ec;
+            if (const auto Rel = std::filesystem::relative(repoRoot_, Toplevel, Ec); !Ec && Rel != std::filesystem::path("."))
+                repoRelativePrefix_ = Rel;
+        }
+
         const auto lfsCheck = RunGitLfs({"version"});
         if (!lfsCheck.launchFailed && lfsCheck.exitCode == 0)
         {
@@ -281,6 +293,21 @@ public:
         return Info;
     }
 
+    // Converts a lock's REPO-relative path (git-lfs's own convention - locks are a repo-wide server
+    // concept, correctly typed sc::RepoPath in the interface, never sc::WorkspacePath) into a path
+    // relative to what THIS library considers its own root - same repoRelativePrefix_ offset
+    // GetStatus's own parsing now applies. Public so E29_SourceControlStatus.h's own cache-key
+    // construction (previously using Lock.path.relative directly, silently assuming it was already
+    // workspace-relative) can do the same translation before keying the lock cache by it.
+    [[nodiscard]] WorkspacePath ToWorkspacePath(const RepoPath& Repo) const noexcept
+    {
+        if (repoRelativePrefix_.empty()) return WorkspacePath{ Repo.relative };
+        std::error_code Ec;
+        auto Rel = std::filesystem::relative(Repo.relative, repoRelativePrefix_, Ec);
+        if (Ec) return WorkspacePath{ Repo.relative };
+        return WorkspacePath{ Rel };
+    }
+
     // -------------------------------------------------------------
     // GetStatus
     // -------------------------------------------------------------
@@ -298,7 +325,21 @@ public:
         }
 
         std::vector<std::string> args = {"status", "--porcelain=v1", "-z", "--untracked-files=all", "--"};
-        for (const auto& p : request.paths) args.push_back(ToGitPath(p));
+        if (request.paths.empty())
+        {
+            // An EMPTY pathspec list after "--" places NO restriction on git status at all - it
+            // reports the WHOLE repository as seen from cwd, not just repoRoot_'s own subtree. That is
+            // silently correct only when repoRoot_ IS the repo's own toplevel; for a library nested
+            // inside an enclosing repo (no .git of its own), it would report every pending change
+            // anywhere in that enclosing repo as if it belonged to THIS library. "." pathspec is
+            // resolved relative to cwd (repoRoot_) by git itself, which is exactly the scope a
+          // "whole workspace" request actually means from this library's own point of view.
+            args.push_back(".");
+        }
+        else
+        {
+            for (const auto& p : request.paths) args.push_back(ToGitPath(p));
+        }
 
         const auto res = RunGit(args);
         if (res.launchFailed || res.exitCode != 0)
@@ -324,8 +365,22 @@ public:
             const char y = record[1];
             const std::string path = record.substr(3);
 
+            // Every porcelain path git reports is relative to the TOPLEVEL, not to repoRoot_ - strip
+            // the cached offset (see repoRelativePrefix_'s own comment) so callers get a path that's
+            // actually relative to what THIS library considers its own root. A record whose path
+            // doesn't fall under that prefix at all (shouldn't happen now that the pathspec above is
+            // scoped to repoRoot_'s own subtree, but kept as a defensive skip rather than trusting
+            // that invariant blindly) is dropped, not silently mis-attributed to this library.
+            std::filesystem::path LibraryRelative = path;
+            if (!repoRelativePrefix_.empty())
+            {
+                std::error_code Ec;
+                LibraryRelative = std::filesystem::relative(std::filesystem::path(path), repoRelativePrefix_, Ec);
+                if (Ec || LibraryRelative.empty() || *LibraryRelative.begin() == "..") { ++i; continue; }
+            }
+
             FileStatus fs;
-            fs.path = WorkspacePath{ std::filesystem::path(path) };
+            fs.path = WorkspacePath{ LibraryRelative };
             fs.staged = (x != ' ' && x != '?');
             fs.modified = (y == 'M');
             fs.untracked = (x == '?' && y == '?');
@@ -1229,6 +1284,14 @@ private:
     }
 
     std::filesystem::path repoRoot_;
+    // Offset between repoRoot_ (what THIS library considers its own root) and the actual git
+    // toplevel - empty when they're the same. Populated once in Connect(), not per-call: every git
+    // porcelain path is ALWAYS reported relative to the toplevel, never to repoRoot_, so a library
+    // that has no .git of its own (nested inside an enclosing repo - see the "Multi-library project
+    // model" plan section) would otherwise have every status/lock path silently mis-parsed with a
+    // spurious leading segment, AND (worse) an unscoped status/lock call would report the WHOLE
+    // enclosing repo's pending changes as if they belonged to this one library.
+    std::filesystem::path repoRelativePrefix_;
     SessionCapabilities capabilities_;
     std::unordered_map<std::string, LockInfo> acquiredLocks_; // locks THIS session owns
 };

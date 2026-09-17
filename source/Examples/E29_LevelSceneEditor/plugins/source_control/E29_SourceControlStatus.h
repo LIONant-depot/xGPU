@@ -216,7 +216,18 @@ namespace e29::source_control
             auto LocksResult = pWorkspace->ListLocks(sc::ListLocksRequest{}); // nullopt path = every lock
             std::unordered_map<std::wstring, sc::LockInfo> LockByPath;
             for (auto& Lock : LocksResult.locks)
-                LockByPath[e10::source_control::NormalizeKey(Lock.path.relative)] = Lock;
+            {
+                // Lock.path is repo-root-relative (sc::RepoPath, a repo-wide server concept) - a
+                // library nested under an enclosing repo's toplevel needs this translated to its own
+                // root before it means anything as a cache key here, same class of bug GetStatus's
+                // own parsing just got fixed for. A lock outside this library's own subtree entirely
+                // (e.g. someone else's lock elsewhere in a SHARED enclosing repo) translates to a
+                // path starting with ".." and is correctly excluded, not mis-attributed to this
+                // library.
+                const auto WorkspacePath = pWorkspace->ToWorkspacePath(Lock.path);
+                if (!WorkspacePath.relative.empty() && *WorkspacePath.relative.begin() == "..") continue;
+                LockByPath[e10::source_control::NormalizeKey(WorkspacePath.relative)] = Lock;
+            }
             e10::source_control::PublishLibraryLocks(RootPath, std::move(LockByPath));
         }
 

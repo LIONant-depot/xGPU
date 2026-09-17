@@ -70,6 +70,109 @@ namespace e29
         return xstrtool::To(e29::commands::FormatLibraryGuid(LibraryGuid)) + L"|" + RelativePath;
     }
 
+    // Auto-changelist categories - direct user design: "per library should be a change list that
+    // matches/works with similar organization" onto Depot -> Resource Library -> {Scenes & Levels,
+    // Resources, Assets, Project Files}. "Entities inside scenes" (as originally described) isn't its
+    // own tier here - a Scene is one committable file as far as git is concerned, there's no way to
+    // stage or commit just one entity's change within it; a Scene row showing WHICH entities changed
+    // inside it is a real, separate future feature (needs actual entity-level diffing, which doesn't
+    // exist yet), not a change to commit granularity.
+    enum class sc_category : std::uint8_t { ScenesAndLevels, Resources, Assets, ProjectFiles };
+    inline constexpr std::size_t sc_category_count_v = 4;
+
+    inline const char* SourceControlCategoryLabel(sc_category Category) noexcept
+    {
+        switch (Category)
+        {
+            case sc_category::ScenesAndLevels: return "Scenes & Levels";
+            case sc_category::Resources:       return "Resources";
+            case sc_category::Assets:          return "Assets";
+            default:                            return "Project Files";
+        }
+    }
+
+    // Classifies a library-root-relative, NormalizeKey'd (lowercase, backslash-normalized) pending
+    // path - path-based, not resource-guid-based, deliberately: git status (or a deleted file) only
+    // ever gives us a path, which may not even resolve to a currently-loaded resource. Mirrors the
+    // real on-disk roots library::m_UserDescriptorPath/m_SysDescriptorPath/m_ResourcePath establish
+    // (E10_AssetMgr.h) and process_info_job::LoadInfo's own DependencyPath formula for the Logs root -
+    // every one of them shares the same "<TypeName>\..." shape right after its own root segment.
+    // Level/Scene resources (xecs_level.h/xecs_scene.h) are the only two type names singled out into
+    // their own tier; every other resource type (Material, Texture, Font, GeomStatic, ...) shares the
+    // generic "Resources" tier. Anything under neither Assets\ nor a recognized descriptor/resource
+    // root (e.g. .gitattributes, .pi\settings.json, Project.config\Library.config.txt itself) falls
+    // into "Project Files" - real pending files this system already showed with nowhere better to go.
+    inline sc_category ClassifyPendingPath(const std::wstring& RelativePath) noexcept
+    {
+        auto StartsWith = [&](std::wstring_view Prefix) noexcept
+        {
+            return RelativePath.size() >= Prefix.size() && std::wstring_view(RelativePath).substr(0, Prefix.size()) == Prefix;
+        };
+
+        if (StartsWith(L"assets\\")) return sc_category::Assets;
+
+        std::wstring_view TypeSegment;
+        if (StartsWith(L"descriptors\\"))
+            TypeSegment = std::wstring_view(RelativePath).substr(12);
+        else if (StartsWith(L"cache\\descriptors\\"))
+            TypeSegment = std::wstring_view(RelativePath).substr(18);
+        else if (StartsWith(L"cache\\resources\\logs\\"))
+            TypeSegment = std::wstring_view(RelativePath).substr(21);
+        else if (StartsWith(L"cache\\resources\\platforms\\"))
+        {
+            auto Rest = std::wstring_view(RelativePath).substr(26);
+            if (auto Slash = Rest.find(L'\\'); Slash != std::wstring_view::npos)
+                TypeSegment = Rest.substr(Slash + 1);
+        }
+
+        if (!TypeSegment.empty())
+        {
+            const auto Slash = TypeSegment.find(L'\\');
+            const auto Type  = Slash == std::wstring_view::npos ? TypeSegment : TypeSegment.substr(0, Slash);
+            if (Type == L"level" || Type == L"scene") return sc_category::ScenesAndLevels;
+            return sc_category::Resources;
+        }
+
+        return sc_category::ProjectFiles;
+    }
+
+    // Groups by the CACHED depot identity (library::m_DepotProviderId/m_DepotRepositoryId, Phase B) -
+    // two libraries sharing one depot correctly land in the same group, rather than each getting its
+    // own redundant top-level entry. A library never yet validated (empty m_DepotProviderId) falls
+    // back to its own path as a singleton group key - still renders sensibly rather than being
+    // silently dropped or lumped in with libraries it may share nothing with.
+    inline std::pair<std::string, std::string> SourceControlDepotKeyAndName(e10::library::guid LibraryGuid) noexcept
+    {
+        std::string ProviderId, RepositoryId;
+        std::wstring Path;
+        e10::g_LibMgr.m_mLibraryDB.FindAsReadOnly(LibraryGuid, [&](const std::unique_ptr<e10::library_db>& DB)
+        {
+            ProviderId   = DB->m_Library.m_DepotProviderId;
+            RepositoryId = DB->m_Library.m_DepotRepositoryId;
+            Path         = DB->m_Library.m_Path;
+        });
+
+        if (!ProviderId.empty())
+            return { ProviderId + "|" + RepositoryId, RepositoryId };
+
+        const auto PathStr = xstrtool::To(Path);
+        return { "path|" + PathStr, PathStr + " (depot not yet validated)" };
+    }
+
+    // Same "read the root folder's own stored Name" source of truth virtual_tree_tab/files_tab's own
+    // GetLibraryDisplayName already use (E10_asset_browser_files_tab.h:380) - a free function here
+    // rather than a class member, since this panel has no assert_browser instance of its own to hang
+    // it off of.
+    inline std::string SourceControlLibraryDisplayName(e10::library::guid LibraryGuid) noexcept
+    {
+        std::string Name = "<unnamed>";
+        e10::g_LibMgr.getInfo(LibraryGuid, xresource::full_guid{ LibraryGuid.m_Instance, e10::folder::type_guid_v }, [&](const xresource_pipeline::info& Info)
+        {
+            if (!Info.m_Name.empty()) Name = Info.m_Name;
+        });
+        return Name;
+    }
+
     // A changelist is purely LOCAL bookkeeping - which pending files the user currently intends to
     // commit together, and under what message - never written to git in any form until Commit is
     // actually pressed. It can never drift out of sync with the real repo because it doesn't
@@ -84,19 +187,26 @@ namespace e29
 
     struct source_control_panel_state
     {
-        std::vector<sc_changelist> m_Changelists{ sc_changelist{ "Default Changelist", "", {} } };
-        int                         m_ActiveChangelist = 0;
+        // No more "Default Changelist" entry (direct user decision: the Depot -> Library -> Category
+        // auto-tree below now covers that role entirely) - starts empty; a real entry only exists
+        // once the user actually creates one for the rare case the auto-categories don't fit.
+        std::vector<sc_changelist> m_Changelists{};
+        int                         m_ActiveChangelist = -1;
 
-        // Multi-select, scoped to whichever list (Pending Changes or a changelist's own file list)
-        // was clicked last - same unordered_set/order/anchor idiom already proven in
+        // Multi-select, scoped to whichever list (the auto-tree, or a changelist's own file list) was
+        // clicked last - same unordered_set/order/anchor idiom already proven in
         // E10_asset_browser_files_tab.h, a fresh instance here rather than reused from there (Phase 4C
-        // correction: this panel owns its own interaction state end to end).
+        // correction: this panel owns its own interaction state end to end). Also doubles as the
+        // "Commit Selected" input, at whatever granularity - a whole category (via its own "Select
+        // All"), an arbitrary sub-selection, or a single item - direct user requirement: "should still
+        // be flexible."
         std::unordered_set<std::wstring> m_MultiSelected;
         std::vector<std::wstring>         m_MultiSelectOrder;
         std::wstring                      m_MultiSelectAnchor;
 
         std::string m_StatusLine;
         char        m_NewChangelistName[128] = {};
+        char        m_SelectedCommitMessage[4096] = {};
 
         // Revision-gated row cache (direct user report: rebuilding this list was "taking a long
         // time" - it was being rebuilt from scratch, across every open library, EVERY FRAME the
@@ -170,10 +280,9 @@ namespace e29
         SourceControlSelectSingle(Key);
     }
 
-    // Which changelist (index into m_Changelists) currently owns Key, or -1 - a file not explicitly
-    // moved shows under "Default Changelist" (index 0) by construction (every key starts unassigned,
-    // and unassigned == shown under Default without actually being inserted into it - see
-    // BuildSourceControlRows's own caller).
+    // Which custom changelist (index into m_Changelists) currently owns Key, or -1 meaning "not in
+    // any custom changelist" - i.e. still shown in the Depot -> Library -> Category auto-tree. No
+    // more "index 0 is Default" special case (there is no Default entry anymore).
     inline int SourceControlChangelistOf(const std::wstring& Key) noexcept
     {
         auto& S = g_SourceControlPanel;
@@ -183,15 +292,15 @@ namespace e29
         return -1;
     }
 
+    // ChangelistIndex < 0 removes Key from every custom changelist (back to the auto-tree) without
+    // re-inserting anywhere - the "Remove from Changelist" case.
     inline void SourceControlAssignToChangelist(const std::wstring& Key, int ChangelistIndex) noexcept
     {
         auto& S = g_SourceControlPanel;
         for (auto& CL : S.m_Changelists)
             CL.m_Keys.erase(std::remove(CL.m_Keys.begin(), CL.m_Keys.end(), Key), CL.m_Keys.end());
-        if (ChangelistIndex > 0 && ChangelistIndex < static_cast<int>(S.m_Changelists.size()))
+        if (ChangelistIndex >= 0 && ChangelistIndex < static_cast<int>(S.m_Changelists.size()))
             S.m_Changelists[ChangelistIndex].m_Keys.push_back(Key);
-        // ChangelistIndex == 0 (Default) needs no insertion - "not in any OTHER changelist" already
-        // means "shows under Default", matching SourceControlChangelistOf's own -1-means-Default rule.
     }
 
     // Aggregates GetAllPendingChanges across EVERY currently open library - "whole project" scope.
@@ -215,6 +324,73 @@ namespace e29
             }
         }
         return Rows;
+    }
+
+    struct sc_category_bucket
+    {
+        sc_category                       m_Category;
+        std::vector<const sc_panel_row*>  m_Rows;
+    };
+
+    struct sc_library_group
+    {
+        e10::library::guid                m_Library;
+        std::string                        m_DisplayName;
+        std::array<sc_category_bucket, sc_category_count_v> m_Categories{};
+    };
+
+    struct sc_depot_group
+    {
+        std::string                        m_Key;
+        std::string                        m_DisplayName;
+        std::vector<sc_library_group>      m_Libraries;
+    };
+
+    // Groups every row NOT already assigned to a custom changelist (same "in Default" predicate the
+    // manual-changelist system below already uses - SourceControlChangelistOf's own -1/0-means-
+    // unassigned rule) into Depot -> Resource Library -> Category. This IS the replacement for the
+    // old flat "Default Changelist" display - direct user requirement: the common case needs zero
+    // manual sorting, a file only leaves this auto-tree once explicitly moved into a custom
+    // changelist via the existing "Add to Changelist" context menu. Cheap to rebuild every call - a
+    // handful of pending files in practice, no separate revision-gate needed beyond
+    // BuildSourceControlRows' own caller-side caching.
+    inline std::vector<sc_depot_group> BuildDepotGroups(const std::vector<sc_panel_row>& Rows) noexcept
+    {
+        std::vector<sc_depot_group> Depots;
+        for (auto& Row : Rows)
+        {
+            if (SourceControlChangelistOf(Row.m_Key) >= 0) continue; // already in a custom changelist
+
+            auto [DepotKey, DepotName] = SourceControlDepotKeyAndName(Row.m_Library);
+
+            auto DepotIt = std::find_if(Depots.begin(), Depots.end(), [&](const sc_depot_group& D) { return D.m_Key == DepotKey; });
+            if (DepotIt == Depots.end())
+            {
+                Depots.push_back(sc_depot_group{ DepotKey, DepotName, {} });
+                DepotIt = std::prev(Depots.end());
+            }
+
+            auto LibIt = std::find_if(DepotIt->m_Libraries.begin(), DepotIt->m_Libraries.end(), [&](const sc_library_group& L) { return L.m_Library == Row.m_Library; });
+            if (LibIt == DepotIt->m_Libraries.end())
+            {
+                sc_library_group NewLib;
+                NewLib.m_Library     = Row.m_Library;
+                NewLib.m_DisplayName = SourceControlLibraryDisplayName(Row.m_Library);
+                for (std::size_t i = 0; i < NewLib.m_Categories.size(); ++i)
+                    NewLib.m_Categories[i].m_Category = static_cast<sc_category>(i);
+                DepotIt->m_Libraries.push_back(std::move(NewLib));
+                LibIt = std::prev(DepotIt->m_Libraries.end());
+            }
+
+            const auto Category = ClassifyPendingPath(Row.m_RelativePath);
+            LibIt->m_Categories[static_cast<std::size_t>(Category)].m_Rows.push_back(&Row);
+        }
+
+        std::sort(Depots.begin(), Depots.end(), [](const sc_depot_group& A, const sc_depot_group& B) { return A.m_DisplayName < B.m_DisplayName; });
+        for (auto& D : Depots)
+            std::sort(D.m_Libraries.begin(), D.m_Libraries.end(), [](const sc_library_group& A, const sc_library_group& B) { return A.m_DisplayName < B.m_DisplayName; });
+
+        return Depots;
     }
 
     // Shared by the Pending Changes list AND a changelist's own file list (Phase 4C - ONE
@@ -258,7 +434,7 @@ namespace e29
             if (ImGui::MenuItem("Undo Changes...", nullptr, false, bAnyModified))
                 ImGui::OpenPopup("Undo Changes##SCConfirm");
 
-            if (ImGui::BeginMenu("Add to Changelist"))
+            if (ImGui::BeginMenu("Add to Changelist", !S.m_Changelists.empty()))
             {
                 for (std::size_t i = 0; i < S.m_Changelists.size(); ++i)
                 {
@@ -267,6 +443,12 @@ namespace e29
                 }
                 ImGui::EndMenu();
             }
+
+            // Only meaningful when the clicked selection is currently sitting in a custom changelist
+            // at all - moves it back to the Depot -> Library -> Category auto-tree.
+            const bool bAnyInCustomList = std::any_of(Selected.begin(), Selected.end(), [](const sc_panel_row* R) { return SourceControlChangelistOf(R->m_Key) >= 0; });
+            if (ImGui::MenuItem("Remove from Changelist", nullptr, false, bAnyInCustomList))
+                for (auto* R : Selected) SourceControlAssignToChangelist(R->m_Key, -1);
 
             // Confirm modal for "Undo Changes" - real, destructive to local edits, same "ask first"
             // shape as files_tab's own RenderPendingConfirmationModal/RenderPendingOpenConfirmModal.
@@ -376,16 +558,26 @@ namespace e29
         ImGui::PopID();
     }
 
-    // Shared table shell for both the Pending Changes list and a changelist's own file list (Phase 4
-    // follow-up, direct user request: "it should look very similar to the asset view... the
-    // sorting, the look, etc"). RowsToShow is a FILTERED subset of AllRows (e.g. "not yet assigned to
-    // any changelist", or "assigned to THIS changelist") - AllRows stays the full list so
-    // multi-select/context-menu keep operating across the whole selection, not just what's visible
-    // in this particular table.
+    // Shared table shell for the Pending Changes list, a changelist's own file list, AND (new) each
+    // category bucket in the Depot -> Library -> Category auto-tree (Phase 4 follow-up, direct user
+    // request: "it should look very similar to the asset view... the sorting, the look, etc").
+    // RowsToShow is a FILTERED subset of AllRows - AllRows stays the full list so multi-select/
+    // context-menu keep operating across the whole selection, not just what's visible in this
+    // particular table. MaxHeight (0 = fill available height, the original 2 call sites' own
+    // behavior, unchanged) caps a nested category table to a bounded size instead of one category
+    // claiming the whole panel's remaining vertical space while sibling categories/libraries/depots
+    // stacked below it get squeezed to nothing.
     inline void RenderSourceControlTable(xundo::system& Undo, const std::vector<sc_panel_row>& AllRows
-        , std::vector<const sc_panel_row*> RowsToShow, const char* TableId) noexcept
+        , std::vector<const sc_panel_row*> RowsToShow, const char* TableId, float MaxHeight = 0.0f) noexcept
     {
-        if (!ImGui::BeginTable(TableId, 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersV | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable, ImGui::GetContentRegionAvail()))
+        float Height = ImGui::GetContentRegionAvail().y;
+        if (MaxHeight > 0.0f)
+        {
+            const float HeaderH  = ImGui::GetFrameHeightWithSpacing();
+            const float NaturalH = HeaderH + static_cast<float>(RowsToShow.size()) * ImGui::GetTextLineHeightWithSpacing() + 4.0f;
+            Height = std::min(std::min(NaturalH, MaxHeight), Height);
+        }
+        if (!ImGui::BeginTable(TableId, 2, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersV | ImGuiTableFlags_ScrollY | ImGuiTableFlags_Sortable, ImVec2(ImGui::GetContentRegionAvail().x, Height)))
             return;
 
         ImGui::TableSetupScrollFreeze(0, 1);
@@ -439,6 +631,81 @@ namespace e29
         ImGui::EndTable();
     }
 
+    // The Depot -> Resource Library -> Category auto-tree - replaces the old flat "Pending Changes"
+    // list (direct user design). A category node's own right-click offers "Select All", which just
+    // populates the shared multi-select - committing a whole category, a sub-selection, or a single
+    // item is then the SAME "Commit Selected" action (see RenderSourceControlPanel), not three
+    // separate code paths, matching "should still be flexible" without three different UIs to learn.
+    // Empty categories/libraries/depots are skipped entirely - showing an empty "Resources (0)" node
+    // for every library in every depot would be exactly the "adds more work" clutter this whole
+    // redesign is meant to avoid.
+    inline void RenderSourceControlDepotTree(xundo::system& Undo, const std::vector<sc_panel_row>& AllRows) noexcept
+    {
+        auto& S = g_SourceControlPanel;
+        const auto Depots = BuildDepotGroups(AllRows);
+
+        if (Depots.empty())
+        {
+            ImGui::TextDisabled("(clean - nothing pending)");
+            return;
+        }
+
+        for (auto& Depot : Depots)
+        {
+            ImGui::PushID(Depot.m_Key.c_str());
+
+            std::size_t DepotTotal = 0;
+            for (auto& Lib : Depot.m_Libraries) for (auto& Cat : Lib.m_Categories) DepotTotal += Cat.m_Rows.size();
+
+            const bool bDepotOpen = ImGui::TreeNodeEx(std::format("\xEE\xA3\xB1 {} ({})", Depot.m_DisplayName, DepotTotal).c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanFullWidth);
+            if (bDepotOpen)
+            {
+                for (auto& Lib : Depot.m_Libraries)
+                {
+                    ImGui::PushID(static_cast<int>(Lib.m_Library.m_Instance.m_Value));
+
+                    std::size_t LibTotal = 0;
+                    for (auto& Cat : Lib.m_Categories) LibTotal += Cat.m_Rows.size();
+
+                    const bool bLibOpen = ImGui::TreeNodeEx(std::format("{} ({})", Lib.m_DisplayName, LibTotal).c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanFullWidth);
+                    if (bLibOpen)
+                    {
+                        for (auto& Category : Lib.m_Categories)
+                        {
+                            if (Category.m_Rows.empty()) continue;
+                            ImGui::PushID(static_cast<int>(Category.m_Category));
+
+                            const bool bCatOpen = ImGui::TreeNodeEx(std::format("{} ({})", SourceControlCategoryLabel(Category.m_Category), Category.m_Rows.size()).c_str(), ImGuiTreeNodeFlags_SpanFullWidth);
+                            if (ImGui::BeginPopupContextItem())
+                            {
+                                if (ImGui::MenuItem("Select All"))
+                                {
+                                    S.m_MultiSelected.clear();
+                                    S.m_MultiSelectOrder.clear();
+                                    for (auto* Row : Category.m_Rows) { S.m_MultiSelected.insert(Row->m_Key); S.m_MultiSelectOrder.push_back(Row->m_Key); }
+                                    S.m_MultiSelectAnchor.clear();
+                                }
+                                ImGui::EndPopup();
+                            }
+                            if (bCatOpen)
+                            {
+                                ImGui::Indent();
+                                RenderSourceControlTable(Undo, AllRows, Category.m_Rows, "SCCategoryTable", 180.0f);
+                                ImGui::Unindent();
+                                ImGui::TreePop();
+                            }
+                            ImGui::PopID();
+                        }
+                        ImGui::TreePop();
+                    }
+                    ImGui::PopID();
+                }
+                ImGui::TreePop();
+            }
+            ImGui::PopID();
+        }
+    }
+
     // RunQuery, not Run() - Run() treats ANY non-empty Execute() result as a routing failure and logs
     // it as "command failed" (see E29_CommandContext.h's own Run), which is wrong for a Query command
     // whose OWN successful result text (e.g. "Pulled", "Outcome: Published") is exactly that non-empty
@@ -454,19 +721,24 @@ namespace e29
         return Result;
     }
 
-    // Commit flow for one changelist: Pull -> (abort on conflict) -> Commit (stage+commit+push all of
-    // this changelist's paths, grouped per library, as one real commit per library). Implements the
-    // user's confirmed "pull first, then merge, then submit, then push" order at the UI level -
-    // SourceControlCommit already stages+commits+pushes in one call, so "submit" and "push" are one
-    // step here, matching the command's own existing behavior rather than inventing a separate push.
-    inline void SourceControlCommitChangelist(xundo::system& Undo, sc_changelist& CL) noexcept
+    // Commit flow for an arbitrary set of keys: Pull -> (abort on conflict) -> Commit (stage+commit+
+    // push all paths, GROUPED PER LIBRARY, as one real commit per library - a commit is scoped to one
+    // repo, so this is what actually makes "select a whole category, a sub-selection, or just one
+    // item, then Commit" all work uniformly (direct user requirement: "should still be flexible").
+    // Implements the user's confirmed "pull first, then merge, then submit, then push" order at the UI
+    // level - SourceControlCommit already stages+commits+pushes in one call, so "submit" and "push"
+    // are one step here, matching the command's own existing behavior rather than inventing a
+    // separate push. Keys is pruned IN PLACE of whatever actually committed - shared by
+    // SourceControlCommitChangelist (CL.m_Keys) and the new selection-based commit (a plain
+    // std::vector snapshot of m_MultiSelectOrder) so both get correct "no stale leftover entry"
+    // behavior for free, not two divergent copies of this pruning logic.
+    inline std::string SourceControlCommitKeys(xundo::system& Undo, std::vector<std::wstring>& Keys, const std::string& Comment) noexcept
     {
-        if (CL.m_Keys.empty() || CL.m_Comment.empty()) return;
+        if (Keys.empty() || Comment.empty()) return {};
 
-        // Group this changelist's keys by library - a commit is scoped to one repo.
         std::unordered_map<std::string, std::vector<std::wstring>> PathsByLibraryHex; // FormatLibraryGuid -> relative paths
         std::unordered_map<std::string, e10::library::guid> LibraryByHex;
-        for (auto& Key : CL.m_Keys)
+        for (auto& Key : Keys)
         {
             const auto Sep = Key.find(L'|');
             if (Sep == std::wstring::npos) continue;
@@ -496,7 +768,7 @@ namespace e29
             std::string JoinedPaths;
             for (auto& P : Paths) { JoinedPaths += xstrtool::To(P); JoinedPaths += '\n'; }
             const auto PathsB64 = e29::commands::Base64Encode(JoinedPaths);
-            const auto MsgB64   = e29::commands::Base64Encode(CL.m_Comment);
+            const auto MsgB64   = e29::commands::Base64Encode(Comment);
 
             const std::string CommitResult = SourceControlRunQuery(Undo, std::format("SourceControlCommit -Library {} -Paths {} -Message {}"
                 , LibraryGuidStr, PathsB64, MsgB64));
@@ -505,12 +777,12 @@ namespace e29
             if (!CommitResult.starts_with("SourceControlCommit: "))
             {
                 // Committed (successfully or at least attempted, per Submit's own Outcome reporting) -
-                // these keys are no longer pending-for-this-changelist; drop them so a stale entry
-                // doesn't linger after the next Pending Changes refresh removes the underlying file.
+                // these keys are no longer pending; drop them so a stale entry doesn't linger after
+                // the next Pending Changes refresh removes the underlying file.
                 for (auto& P : Paths)
                 {
                     const auto Key = SourceControlRowKey(LibraryByHex[LibHex], P);
-                    CL.m_Keys.erase(std::remove(CL.m_Keys.begin(), CL.m_Keys.end(), Key), CL.m_Keys.end());
+                    Keys.erase(std::remove(Keys.begin(), Keys.end(), Key), Keys.end());
                 }
             }
 
@@ -519,7 +791,12 @@ namespace e29
             e29::source_control::LaunchSourceControlStatusScan(e29::commands::ResolveLibraryRootPath(LibraryByHex[LibHex]));
         }
 
-        g_SourceControlPanel.m_StatusLine = Summary;
+        return Summary;
+    }
+
+    inline void SourceControlCommitChangelist(xundo::system& Undo, sc_changelist& CL) noexcept
+    {
+        g_SourceControlPanel.m_StatusLine = SourceControlCommitKeys(Undo, CL.m_Keys, CL.m_Comment);
     }
 
     void RenderSourceControlPanel(xundo::system& Undo) noexcept
@@ -595,12 +872,30 @@ namespace e29
                 ImGui::EndTooltip();
             }
         }
+        ImGui::BeginChild("SCDepotTreeScroll", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 3.0f));
+        RenderSourceControlDepotTree(Undo, Rows);
+        ImGui::EndChild();
+
+        // "Commit Selected" - the flexible, granularity-agnostic commit action (direct user
+        // requirement: "submit any of those or just one item... should still be flexible"). Works
+        // identically whether the current multi-selection is a whole category (via its own "Select
+        // All"), an arbitrary cross-category sub-selection, or a single row.
+        ImGui::Separator();
+        const bool bHaveSelection = !S.m_MultiSelectOrder.empty();
+        ImGui::TextDisabled(bHaveSelection ? std::format("{} file(s) selected", S.m_MultiSelectOrder.size()).c_str() : "Select file(s) above to commit them");
+        ImGui::SetNextItemWidth(-1.0f);
+        ImGui::InputTextWithHint("##SCSelectedCommitMsg", "Commit message...", S.m_SelectedCommitMessage, sizeof(S.m_SelectedCommitMessage));
+        const bool bCanCommitSelected = bHaveSelection && S.m_SelectedCommitMessage[0] != '\0';
+        if (!bCanCommitSelected) ImGui::BeginDisabled();
+        if (ImGui::Button("Commit Selected"))
         {
-            std::vector<const sc_panel_row*> PendingRows;
-            for (auto& Row : Rows)
-                if (SourceControlChangelistOf(Row.m_Key) <= 0) PendingRows.push_back(&Row); // not yet in another changelist
-            RenderSourceControlTable(Undo, Rows, std::move(PendingRows), "SCPendingTable");
+            std::vector<std::wstring> KeysToCommit = S.m_MultiSelectOrder;
+            S.m_StatusLine = SourceControlCommitKeys(Undo, KeysToCommit, S.m_SelectedCommitMessage);
+            S.m_MultiSelected.clear();
+            S.m_MultiSelectOrder.clear();
+            S.m_SelectedCommitMessage[0] = '\0';
         }
+        if (!bCanCommitSelected) ImGui::EndDisabled();
         ImGui::EndChild();
 
         ImGui::SameLine();
@@ -654,17 +949,10 @@ namespace e29
             // the bottom of the tab rather than a fixed height.
             ImGui::BeginChild("SCChangelistFiles", ImVec2(0, 0), true);
             {
-                // Default (index 0) never actually populates its own m_Keys (see
-                // SourceControlAssignToChangelist's own comment) - "in Default" means "not in any
-                // OTHER changelist", the same predicate the Pending Changes list above uses.
                 std::vector<const sc_panel_row*> ChangelistRows;
                 for (auto& Row : Rows)
-                {
-                    const bool bInThisOne = (S.m_ActiveChangelist == 0)
-                        ? (SourceControlChangelistOf(Row.m_Key) <= 0)
-                        : (std::find(CL.m_Keys.begin(), CL.m_Keys.end(), Row.m_Key) != CL.m_Keys.end());
-                    if (bInThisOne) ChangelistRows.push_back(&Row);
-                }
+                    if (std::find(CL.m_Keys.begin(), CL.m_Keys.end(), Row.m_Key) != CL.m_Keys.end())
+                        ChangelistRows.push_back(&Row);
                 RenderSourceControlTable(Undo, Rows, std::move(ChangelistRows), "SCChangelistTable");
             }
             ImGui::EndChild();
