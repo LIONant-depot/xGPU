@@ -251,12 +251,27 @@ namespace e29
         std::wstring                      m_MultiSelectAnchor;
 
         std::string m_StatusLine;
-        // Per-depot, not one shared buffer - each depot section in the Changelists panel has its own
-        // "New changelist name..." field; a single shared buffer would show identical (and
-        // confusing) text in every depot's own input at once. Keyed by depot key, default-
-        // constructed (zero-filled) on first access.
+        // Per-depot, not one shared buffer - keeps a partially-typed name intact if the user picks a
+        // different depot and comes back, and (before this) a single shared buffer showed identical,
+        // confusing text in every depot's own field at once. Keyed by depot key, default-constructed
+        // (zero-filled) on first access.
         std::unordered_map<std::string, std::array<char, 128>> m_NewChangelistNameByDepot;
-        char        m_SelectedCommitMessage[4096] = {};
+
+        // Which depot's own changelists the Changelists panel currently shows - direct user design:
+        // "you select a depot and from that depot it should give you all the change lists... the
+        // user can only set one [set] at a time not all the different depots['] change lists." Empty
+        // means "nothing picked yet" (RenderSourceControlPanel auto-selects a sensible default - the
+        // one depot if there's only one, else the first alphabetically - so the common single-depot
+        // case needs no extra click).
+        std::string m_SelectedChangelistDepotKey;
+
+        // -2 (a sentinel distinct from -1 = "nothing active" and >=0 = "a real S.m_Changelists
+        // index") means the "(All)" pseudo-entry is active - direct user design: the changelist list
+        // should offer "the actual depot which mean all" alongside real named changelists, a one-
+        // click way to comment-and-commit EVERY pending file in the depot without first sorting it
+        // into a named changelist. Its own comment buffer is per-depot for the same reason
+        // m_NewChangelistNameByDepot is.
+        std::unordered_map<std::string, std::array<char, 4096>> m_AllDepotCommentByDepot;
 
         // Revision-gated row cache (direct user report: rebuilding this list was "taking a long
         // time" - it was being rebuilt from scratch, across every open library, EVERY FRAME the
@@ -535,6 +550,19 @@ namespace e29
         return Depots;
     }
 
+    // Every row belonging to DepotKey, regardless of custom-changelist membership - backs the
+    // "(All)" pseudo-entry ("the actual depot which mean all" - direct user design): a one-click way
+    // to comment-and-commit EVERY pending file in a depot without first sorting any of it into a
+    // named changelist.
+    inline std::vector<const sc_panel_row*> RowsForDepot(const std::vector<sc_panel_row>& Rows, const std::string& DepotKey) noexcept
+    {
+        std::vector<const sc_panel_row*> Result;
+        for (auto& Row : Rows)
+            if (SourceControlDepotKeyAndName(Row.m_Library).first == DepotKey)
+                Result.push_back(&Row);
+        return Result;
+    }
+
     // Shared by the Pending Changes list AND a changelist's own file list (Phase 4C - ONE
     // implementation, not duplicated per list, per [[feedback_no_redundant_data]]). Acts on the whole
     // active multi-selection when the right-clicked row is part of one, otherwise just that one row -
@@ -675,7 +703,13 @@ namespace e29
     inline void RenderSourceControlRowCells(xundo::system& Undo, const std::vector<sc_panel_row>& AllRows, const sc_panel_row& Row) noexcept
     {
         auto& S = g_SourceControlPanel;
-        ImGui::PushID(reinterpret_cast<const void*>(&Row));
+        // Row.m_Key (a stable, content-derived wstring), NOT &Row's own address - real bug found live
+        // ("you can drag sections but not folder or files"): m_CachedRows gets reassigned (a fresh
+        // vector, new addresses) every time a background scan bumps SourceControlRevision(), which can
+        // land mid-drag; an address-keyed PushID scope makes ImGui's per-frame active-id/drag tracking
+        // silently discontinuous the instant that happens, breaking the drag with no visible error.
+        const auto RowIdStr = xstrtool::To(Row.m_Key);
+        ImGui::PushID(RowIdStr.c_str());
 
         const auto StatusBadge = SourceControlRowStatusBadge(Row);
         const auto LockBadge   = SourceControlRowLockBadge(Row);
@@ -875,6 +909,7 @@ namespace e29
 
     inline void RenderSourceControlDepotTree(xundo::system& Undo, const std::vector<sc_panel_row>& AllRows) noexcept
     {
+        auto& S = g_SourceControlPanel;
         const auto Depots = BuildDepotGroups(AllRows);
 
         if (Depots.empty())
@@ -890,7 +925,16 @@ namespace e29
             std::size_t DepotTotal = 0;
             for (auto& Lib : Depot.m_Libraries) for (auto& Cat : Lib.m_Categories) DepotTotal += Cat.RowCount();
 
-            const bool bDepotOpen = ImGui::TreeNodeEx(std::format("\xEE\xA3\xB1 {} ({})", Depot.m_DisplayName, DepotTotal).c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanFullWidth);
+            // Clicking a depot's own row selects it for the Changelists panel too (direct user
+            // design: "to select the depot the user can click on the depot on the left. Then a
+            // special selection will select it and stay selected") - one gesture, one place, instead
+            // of a separate depot picker duplicated on the right. ImGuiTreeNodeFlags_Selected gives
+            // it the same persistent highlight ImGui already uses for a selected tree row elsewhere.
+            const bool bDepotSelected = (Depot.m_Key == S.m_SelectedChangelistDepotKey);
+            const bool bDepotOpen = ImGui::TreeNodeEx(std::format("\xEE\xA3\xB1 {} ({})", Depot.m_DisplayName, DepotTotal).c_str()
+                , ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanFullWidth | (bDepotSelected ? ImGuiTreeNodeFlags_Selected : 0));
+            if (ImGui::IsItemClicked())
+                S.m_SelectedChangelistDepotKey = Depot.m_Key;
             if (bDepotOpen)
             {
                 for (auto& Lib : Depot.m_Libraries)
@@ -941,7 +985,18 @@ namespace e29
                                 // together under its own real name, not as disconnected rows.
                                 for (auto& Group : Category.m_ResourceGroups)
                                 {
-                                    ImGui::PushID(reinterpret_cast<const void*>(&Group));
+                                    // Group.m_GroupKey (stable, content-derived - "TypeLower|Hex"),
+                                    // NOT &Group's own address - same real bug as the row-level fix
+                                    // above: Depots/m_ResourceGroups is a fresh, freshly-reallocated
+                                    // vector EVERY SINGLE CALL to RenderSourceControlDepotTree (i.e.
+                                    // every frame), so an address-keyed PushID scope is a DIFFERENT,
+                                    // effectively random ID each frame - confirmed live as the root
+                                    // cause of BOTH "folder/file drag doesn't work" (breaks
+                                    // IsItemActive()'s cross-frame continuity) AND "opening a folder
+                                    // goes crazy" (breaks TreeNodeEx's own persisted open/closed
+                                    // state, which is looked up by ID).
+                                    const auto GroupIdStr = xstrtool::To(Group.m_GroupKey);
+                                    ImGui::PushID(GroupIdStr.c_str());
                                     RenderSourceControlFolder(Undo, AllRows, std::format("\xEE\xA3\x95 {}", Group.m_DisplayName), Group.m_Rows);
                                     ImGui::PopID();
                                 }
@@ -1128,48 +1183,65 @@ namespace e29
                 ImGui::EndTooltip();
             }
         }
-        ImGui::BeginChild("SCDepotTreeScroll", ImVec2(0, -ImGui::GetFrameHeightWithSpacing() * 3.0f));
+        // Fills the rest of the left panel now - the standalone "Commit message..." + "Commit
+        // Selected" bar that used to live below this was removed (direct user decision, 2026-09-17):
+        // it duplicated the right panel's own changelist-based commit flow. Committing any
+        // granularity - a whole folder, a sub-selection, or one file - now goes through ONE path:
+        // drag/assign the selection into a changelist (an existing one, or a quick new one created
+        // for exactly this) and comment/commit from there.
+        ImGui::BeginChild("SCDepotTreeScroll", ImVec2(0, 0));
         RenderSourceControlDepotTree(Undo, Rows);
         ImGui::EndChild();
-
-        // "Commit Selected" - the flexible, granularity-agnostic commit action (direct user
-        // requirement: "submit any of those or just one item... should still be flexible"). Works
-        // identically whether the current multi-selection is a whole category (via its own "Select
-        // All"), an arbitrary cross-category sub-selection, or a single row.
-        ImGui::Separator();
-        const bool bHaveSelection = !S.m_MultiSelectOrder.empty();
-        ImGui::TextDisabled(bHaveSelection ? std::format("{} file(s) selected", S.m_MultiSelectOrder.size()).c_str() : "Select file(s) above to commit them");
-        ImGui::SetNextItemWidth(-1.0f);
-        ImGui::InputTextWithHint("##SCSelectedCommitMsg", "Commit message...", S.m_SelectedCommitMessage, sizeof(S.m_SelectedCommitMessage));
-        const bool bCanCommitSelected = bHaveSelection && S.m_SelectedCommitMessage[0] != '\0';
-        if (!bCanCommitSelected) ImGui::BeginDisabled();
-        if (ImGui::Button("Commit Selected"))
-        {
-            std::vector<std::wstring> KeysToCommit = S.m_MultiSelectOrder;
-            S.m_StatusLine = SourceControlCommitKeys(Undo, KeysToCommit, S.m_SelectedCommitMessage);
-            S.m_MultiSelected.clear();
-            S.m_MultiSelectOrder.clear();
-            S.m_SelectedCommitMessage[0] = '\0';
-        }
-        if (!bCanCommitSelected) ImGui::EndDisabled();
-        ImGui::EndChild();
+        ImGui::EndChild(); // closes the OUTER "SCPending" child (BeginChild above) - real bug found
+                            // live: removing the "Commit Selected" block took this call with it,
+                            // leaving "SCPending" never closed - ImGui's own End() at the bottom of
+                            // this function then asserts "Must call EndChild() and not End()!" and
+                            // corrupts the window's layout state for the rest of that frame and beyond.
 
         ImGui::SameLine();
 
         ImGui::BeginChild("SCChangelists", ImVec2(0, -ImGui::GetFrameHeightWithSpacing()), true);
+
+        // The depot name sits ABOVE the "Changelists" section entirely (direct user correction) -
+        // picked by clicking its row in the LEFT tree (RenderSourceControlDepotTree), not a separate
+        // selector here. Auto-picks a sensible default (the only depot if there's just one, else the
+        // first alphabetically) so the common single-depot case shows something useful immediately.
+        const auto AllDepots = CollectDistinctDepots(Rows);
+        if (S.m_SelectedChangelistDepotKey.empty() || std::none_of(AllDepots.begin(), AllDepots.end(), [&](auto& D) { return D.first == S.m_SelectedChangelistDepotKey; }))
+            S.m_SelectedChangelistDepotKey = AllDepots.empty() ? std::string{} : AllDepots.front().first;
+
+        std::string SelectedDepotName;
+        for (auto& [DepotKey, DepotName] : AllDepots)
+            if (DepotKey == S.m_SelectedChangelistDepotKey) SelectedDepotName = DepotName;
+
+        if (SelectedDepotName.empty())
+            ImGui::TextDisabled("Select a depot on the left");
+        else
+            ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "\xEE\xA3\xB1 %s", SelectedDepotName.c_str());
+        ImGui::Separator();
         ImGui::TextUnformatted("Changelists");
         ImGui::Separator();
 
-        // A changelist belongs to one depot (direct user requirement) - grouped here the same way as
-        // the auto-tree, so "+ New" always creates one scoped to a real depot rather than a floating,
-        // depot-less list that could never actually be committed. Each entry is a DROP TARGET for
-        // "SC_DRAG_SELECTION" (direct user requirement: "drag a folder or 'files' to it") - drops the
-        // CURRENT global multi-selection (set by the drag source at pickup time) into that changelist.
-        for (auto& [DepotKey, DepotName] : CollectDistinctDepots(Rows))
+        if (!S.m_SelectedChangelistDepotKey.empty())
         {
+            const auto& DepotKey = S.m_SelectedChangelistDepotKey;
             ImGui::PushID(DepotKey.c_str());
-            ImGui::TextDisabled("%s", DepotName.c_str());
 
+            // "(All)" - the pseudo-entry representing "the actual depot which mean all" (direct
+            // user design), ALWAYS first. Not a real sc_changelist - selecting it sets the -2
+            // sentinel (see m_AllDepotCommentByDepot's own comment); its own file list (below) is
+            // every pending row in this depot, not scoped to any custom-changelist assignment.
+            {
+                const bool bAllSelected = (S.m_ActiveChangelist == -2);
+                ImGui::Selectable(std::format("  (All) ({})", RowsForDepot(Rows, DepotKey).size()).c_str(), bAllSelected);
+                if (ImGui::IsItemClicked()) S.m_ActiveChangelist = -2;
+            }
+
+            // Just a picker here - NOT a drop target (direct user correction: "User should drag and
+            // drop in the file box not in the list box[,] of the change list"). Dropping happens on
+            // the FILE box below, for whichever changelist is currently active - selecting one here
+            // first, then dropping into its own file list, matches "select one, then its files show
+            // below" more directly than dropping straight onto a bare name in this list.
             for (std::size_t i = 0; i < S.m_Changelists.size(); ++i)
             {
                 if (S.m_Changelists[i].m_DepotKey != DepotKey) continue;
@@ -1177,12 +1249,6 @@ namespace e29
                 const bool bSelected = (S.m_ActiveChangelist == static_cast<int>(i));
                 ImGui::Selectable(std::format("  {} ({})", S.m_Changelists[i].m_Name, S.m_Changelists[i].m_Keys.size()).c_str(), bSelected);
                 if (ImGui::IsItemClicked()) S.m_ActiveChangelist = static_cast<int>(i);
-                if (ImGui::BeginDragDropTarget())
-                {
-                    if (ImGui::AcceptDragDropPayload("SC_DRAG_SELECTION"))
-                        for (auto& Key : S.m_MultiSelectOrder) SourceControlAssignToChangelist(Key, static_cast<int>(i));
-                    ImGui::EndDragDropTarget();
-                }
                 ImGui::PopID();
             }
 
@@ -1200,7 +1266,40 @@ namespace e29
             ImGui::Separator();
         }
 
-        if (S.m_ActiveChangelist >= 0 && S.m_ActiveChangelist < static_cast<int>(S.m_Changelists.size()))
+        if (S.m_ActiveChangelist == -2 && !S.m_SelectedChangelistDepotKey.empty())
+        {
+            // "(All)" - same comment/commit/files shape as a real changelist below, sourced from
+            // EVERY pending row in this depot instead of one changelist's own m_Keys. No drag-drop
+            // target here (direct user design implies dropping only makes sense onto a real,
+            // assignable changelist - "All" already includes everything by definition).
+            const auto& DepotKey = S.m_SelectedChangelistDepotKey;
+            auto& CommentBuf = S.m_AllDepotCommentByDepot[DepotKey];
+            ImGui::SetNextItemWidth(-1.0f);
+            ImGui::InputTextMultiline("##SCAllComment", CommentBuf.data(), CommentBuf.size(), ImVec2(-1.0f, 60));
+
+            auto DepotRows = RowsForDepot(Rows, DepotKey);
+            const bool bCanCommit = !DepotRows.empty() && CommentBuf[0] != '\0';
+            if (!bCanCommit) ImGui::BeginDisabled();
+            if (ImGui::Button("Commit && Push"))
+            {
+                std::vector<std::wstring> Keys;
+                Keys.reserve(DepotRows.size());
+                for (auto* Row : DepotRows) Keys.push_back(Row->m_Key);
+                S.m_StatusLine = SourceControlCommitKeys(Undo, Keys, CommentBuf.data());
+                CommentBuf[0] = '\0';
+            }
+            if (!bCanCommit) ImGui::EndDisabled();
+
+            if (!S.m_StatusLine.empty())
+                ImGui::TextWrapped("%s", S.m_StatusLine.c_str());
+
+            ImGui::Separator();
+            ImGui::TextDisabled("Files (all pending in this depot):");
+            ImGui::BeginChild("SCChangelistFiles", ImVec2(0, 0), true);
+            RenderSourceControlTable(Undo, Rows, DepotRows, "SCChangelistTable");
+            ImGui::EndChild();
+        }
+        else if (S.m_ActiveChangelist >= 0 && S.m_ActiveChangelist < static_cast<int>(S.m_Changelists.size()))
         {
             auto& CL = S.m_Changelists[S.m_ActiveChangelist];
 
@@ -1224,8 +1323,20 @@ namespace e29
             ImGui::Separator();
             ImGui::TextDisabled("Files in \"%s\":", CL.m_Name.c_str());
             // Size (0,0): the last element in this child, so it fills every remaining pixel down to
-            // the bottom of the tab rather than a fixed height.
+            // the bottom of the tab rather than a fixed height. Drop target for "SC_DRAG_SELECTION"
+            // (direct user correction: "User should drag and drop in the file box not in the list
+            // box[,] of the change list") - drops the CURRENT global multi-selection (set by the drag
+            // source at pickup time) into THIS active changelist.
             ImGui::BeginChild("SCChangelistFiles", ImVec2(0, 0), true);
+            // Registered as a drop target for the WHOLE child window immediately after BeginChild -
+            // NOT after the table below, since an item-level BeginDragDropTarget() checks the LAST
+            // SUBMITTED ITEM's own rect (the table, in that case), not the file box as a whole.
+            if (ImGui::BeginDragDropTarget())
+            {
+                if (ImGui::AcceptDragDropPayload("SC_DRAG_SELECTION"))
+                    for (auto& Key : S.m_MultiSelectOrder) SourceControlAssignToChangelist(Key, S.m_ActiveChangelist);
+                ImGui::EndDragDropTarget();
+            }
             {
                 std::vector<const sc_panel_row*> ChangelistRows;
                 for (auto& Row : Rows)
