@@ -273,6 +273,13 @@ namespace e29
         // m_NewChangelistNameByDepot is.
         std::unordered_map<std::string, std::array<char, 4096>> m_AllDepotCommentByDepot;
 
+        // Left/right split, user-resizable via a draggable divider - direct user request: "the
+        // window should have a splitter between the right and the left sections, just like the
+        // other windows" (the Assets view named as the concrete example). Negative = "not yet
+        // initialized for this instance", same sentinel convention e10::assert_browser's own
+        // m_SplitSize1 already uses for the identical purpose.
+        float m_SplitSize = -1.0f;
+
         // Revision-gated row cache (direct user report: rebuilding this list was "taking a long
         // time" - it was being rebuilt from scratch, across every open library, EVERY FRAME the
         // panel was visible, the exact class of bug already fixed once for files_tab's own badges -
@@ -1142,6 +1149,21 @@ namespace e29
         for (auto& [DepotKey, DepotName] : AllDepots)
             if (DepotKey == S.m_SelectedChangelistDepotKey) SelectedDepotName = DepotName;
 
+        // Computed here (not after the top bar) so the depot name below can align its X position
+        // with where the right "Changelists" column actually starts. User-resizable via a draggable
+        // divider (direct user request: "the window should have a splitter between the right and
+        // the left sections, just like the other windows" - the Assets view named as the concrete
+        // example) - reuses e10::assert_browser::Splitter (made public for exactly this kind of
+        // reuse) rather than a second, separately-invented draggable-divider implementation.
+        // S.m_SplitSize persists the LEFT width across frames; only initialized once (negative
+        // sentinel) and clamped every frame after.
+        constexpr float SplitterThickness = 4.0f;
+        const float TotalWidth = ImGui::GetContentRegionAvail().x;
+        if (S.m_SplitSize < 0.0f) S.m_SplitSize = TotalWidth * 0.55f;
+        S.m_SplitSize = std::clamp(S.m_SplitSize, 100.0f, std::max(100.0f, TotalWidth - 100.0f - SplitterThickness));
+        float LeftWidth  = S.m_SplitSize;
+        float RightWidth = TotalWidth - LeftWidth - SplitterThickness;
+
         if (ImGui::Button("Pull All"))
         {
             for (auto& Lib : e10::g_LibMgr.m_mLibraryDB)
@@ -1152,14 +1174,24 @@ namespace e29
         }
         ImGui::SameLine();
         ImGui::TextDisabled("%zu pending change(s) across %zu open library/ies", Rows.size(), (std::size_t)e10::g_LibMgr.m_mLibraryDB.size());
-        ImGui::SameLine();
-        if (SelectedDepotName.empty())
-            ImGui::TextDisabled("| no depot selected");
-        else
-            ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "| \xEE\xA3\xB1 %s", SelectedDepotName.c_str());
 
-        const float TotalWidth = ImGui::GetContentRegionAvail().x;
-        const float LeftWidth  = TotalWidth * 0.55f;
+        // Aligned with the Changelists column below it (direct user request) - SameLine's offset
+        // parameter is an absolute X position from the window's own left edge, the same LeftWidth
+        // the "SCChangelists" child below is positioned at via ImGui::SameLine() right after
+        // "SCPending" ends (BeginChild's own implicit cursor placement).
+        ImGui::SameLine(LeftWidth + ImGui::GetStyle().ItemSpacing.x);
+        if (SelectedDepotName.empty())
+            ImGui::TextDisabled("Changelists for: (no depot selected)");
+        else
+            ImGui::TextColored(ImVec4(0.6f, 0.8f, 1.0f, 1.0f), "Changelists for: \xEE\xA3\xB1 %s", SelectedDepotName.c_str());
+
+        // Splitter drawn right here, at the cursor position where the two columns are about to
+        // start (same convention e10::assert_browser::Splitter's own established call sites use) -
+        // it positions its drag-handle using *size1's CURRENT value, updates size1/size2 only while
+        // actively being dragged, then restores the cursor so the BeginChild calls below start
+        // exactly where they would have without it.
+        e10::assert_browser::Splitter(true, SplitterThickness, &LeftWidth, &RightWidth, 100.0f, 100.0f, TotalWidth, ImGui::GetContentRegionAvail().y);
+        S.m_SplitSize = LeftWidth;
 
         ImGui::BeginChild("SCPending", ImVec2(LeftWidth, -ImGui::GetFrameHeightWithSpacing()), true);
         ImGui::TextUnformatted("Pending Changes");
