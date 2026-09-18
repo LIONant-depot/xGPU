@@ -12,14 +12,14 @@
 #include "dependencies/xECSV2/src/xecs.h"
 #include "dependencies/xECSV2/src/xecs_plugin_api.h"
 
-// TestScript's own Script-Module component/system (Project Settings -> Scripting) - proof this
-// whole pipeline actually registers real components, not just compiles arbitrary code. Included by
-// an ABSOLUTE, project-specific path - a deliberate, temporary, hand-wired bridge for THIS single
-// proof, not the general mechanism: with N modules, E29_Game.cpp can't keep being hand-edited per
-// module. That auto-discovery/registration-convention problem is real, separate, later work - not
-// solved here on purpose.
-#include "D:/LIONant/xGPU/example.lionprj/Descriptors/Scripting/BF/BA/CAFEBABF.desc/source_db/TestModule.h"
-                   
+// Self-registration infrastructure (E29_GameRegistration.h's own top comment has the full design) -
+// every Script-Module's own component/system announces itself via E29_REGISTER_COMPONENT/
+// E29_REGISTER_SYSTEM just by being compiled into this DLL. This file's own exported entry points
+// below are now a fixed loop, never edited per module again - the earlier version of this file
+// hand-wired TestScript's own Glow component/system here as a deliberate, temporary proof; that
+// bridge is gone now that the real mechanism exists.
+#include "E29_GameRegistration.h"
+
 namespace e29_game
 {
     // A generation counter, stamped into every spin_component at registration time (see
@@ -35,9 +35,9 @@ namespace e29_game
         XPROPERTY_DEF
         ("Spin", spin_component
         , obj_member<"DegreesPerTick", &spin_component::m_DegreesPerTick>
-        ) 
+        )
     };
-    XPROPERTY_REG(spin_component)
+    E29_REGISTER_COMPONENT(spin_component, "Gameplay", 0)
 
     struct spin_system : xecs::system::instance
     {
@@ -55,6 +55,7 @@ namespace e29_game
             std::fflush(stdout);
         }
     };
+    E29_REGISTER_SYSTEM(spin_system)
 
     struct spin2_system : xecs::system::instance
     {
@@ -72,28 +73,40 @@ namespace e29_game
             std::fflush(stdout);
         }
     };
+    E29_REGISTER_SYSTEM(spin2_system)
 
 }
- 
+
 extern "C" __declspec(dllexport)
 void XecsPlugin_RegisterComponents( xecs::game_mgr::instance& GameMgr, xecs::plugin::token Token ) noexcept
 {
     e29_game::s_Generation = Token.m_Generation;
-    GameMgr.RegisterComponents<e29_game::spin_component>(Token);
-    GameMgr.RegisterComponents<test_script_module::glow_component>(Token);
+    for (auto* p = e29_game_registration::self_registration<e29_game_registration::component_entry>::s_pHead; p; p = p->m_pNext)
+        p->m_Value.m_pRegisterFn(GameMgr, Token);
 }
 
 extern "C" __declspec(dllexport)
 void XecsPlugin_RegisterSystems( xecs::game_mgr::instance& GameMgr ) noexcept
 {
-    GameMgr.RegisterSystems<e29_game::spin_system>();
-    GameMgr.RegisterSystems<e29_game::spin2_system>();
-    GameMgr.RegisterSystems<test_script_module::glow_system>();
+    for (auto* p = e29_game_registration::self_registration<e29_game_registration::system_entry>::s_pHead; p; p = p->m_pNext)
+        p->m_Value.m_pRegisterFn(GameMgr);
 }
- 
+
 extern "C" __declspec(dllexport)
 void XecsPlugin_Unregister( xecs::plugin::token /*Token*/ ) noexcept
 {
     // Nothing privately allocated outside the ECS world to release - see xecs_plugin_api.h's own
     // comment on why this is usually a no-op.
+}
+
+// E29-only export (E29_GameRegistration.h's own top comment has the full reasoning) - hands every
+// registered component's own category/priority to the editor so it can filter/order the Entity
+// Properties panel's component list. Optional: an older-generation DLL or a hypothetical non-E29
+// consumer of xecs_plugin_api.h simply won't have this export, and the editor's own GetProcAddress
+// call already treats that as "no display info available" rather than a load failure.
+extern "C" __declspec(dllexport)
+void E29_GetComponentDisplayInfo( e29_game_registration::pfn_component_display_visitor pVisitor, void* pUserData ) noexcept
+{
+    for (auto* p = e29_game_registration::self_registration<e29_game_registration::component_entry>::s_pHead; p; p = p->m_pNext)
+        pVisitor(pUserData, p->m_Value.m_pName, p->m_Value.m_pCategory, p->m_Value.m_Priority);
 }

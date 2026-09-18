@@ -9,9 +9,30 @@
 // xecs_plugin_api.h's own comment requires (LoadGamePluginComponents, RegisterGamePluginSystems),
 // and detach/unload (UnloadGamePlugin). Meant to be included via the umbrella (E29_GamePlugin.h)
 // only, after E29_GamePluginLog.h and E29_GamePluginBuild.h (game_plugin_state).
+#include "source/Examples/E29_LevelSceneEditor/GameProject/E29_GameRegistration.h"
 
 namespace e29
 {
+    // Called from RegisterGamePluginSystems below (the one fixed choke point every reload already
+    // goes through) rather than duplicated at each of ITS OWN call sites - guarantees this can never
+    // be forgotten at some future new reload trigger. GetProcAddress returning null (an
+    // older-generation DLL built before this export existed) just means an empty map - every
+    // component then falls back to "uncategorized", exactly like it already does today.
+    inline void LoadGameComponentDisplayInfo( game_plugin_state& Plugin ) noexcept
+    {
+        g_ComponentDisplayInfo.clear();
+        if (!Plugin.isLoaded()) return;
+
+        auto* pGetInfo = reinterpret_cast<e29_game_registration::pfn_get_component_display_info>(GetProcAddress(Plugin.m_hModule, e29_game_registration::kGetComponentDisplayInfoName));
+        if (pGetInfo == nullptr) return;
+
+        pGetInfo([](void* pUserData, const char* pName, const char* pCategory, int Priority) noexcept
+        {
+            auto& Map = *reinterpret_cast<std::unordered_map<std::string, component_display_info>*>(pUserData);
+            Map[pName] = { pCategory, Priority };
+        }, &g_ComponentDisplayInfo);
+    }
+
     //---------------------------------------------------------------------------
     // Copies Plugin.m_CompiledDllPath (+ its matching .pdb, if present - direct user requirement:
     // "the job of the editor is to copy the new version of the dll with any symbols it may need
@@ -131,6 +152,8 @@ namespace e29
 
         if (auto* pRegisterSystems = reinterpret_cast<xecs_plugin_pfn_register_systems*>(GetProcAddress(Plugin.m_hModule, XECS_PLUGIN_REGISTER_SYSTEMS_NAME)))
             pRegisterSystems(GameMgr);
+
+        LoadGameComponentDisplayInfo(Plugin);
     }
 
     //---------------------------------------------------------------------------
@@ -141,6 +164,8 @@ namespace e29
     inline void UnloadGamePlugin( game_plugin_state& Plugin ) noexcept
     {
         if (!Plugin.isLoaded()) return;
+
+        g_ComponentDisplayInfo.clear();
 
         if (auto* pUnregister = reinterpret_cast<xecs_plugin_pfn_unregister*>(GetProcAddress(Plugin.m_hModule, XECS_PLUGIN_UNREGISTER_NAME)))
             pUnregister(Plugin.m_Token);

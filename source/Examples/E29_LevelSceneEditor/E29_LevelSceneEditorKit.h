@@ -234,6 +234,12 @@ namespace e29
 
         std::string m_TreeSearchString;
 
+        // Entity Properties panel's own category filter bar (E29_Panel_EntityProperties.h) - empty
+        // means "All" (no filter, every attached component shown). Scoped here, not a local static,
+        // matching m_TreeSearchString's own convention for per-panel UI state that should survive
+        // across frames/selection changes.
+        std::string m_ComponentCategoryFilter;
+
         // Ctrl-click toggle set, separate from the "primary" selection triad above (which still only
         // ever drives the Properties panel - ctrl-clicking never touches it). Only meaningful for
         // "Make Prefab" acting on a group; scoped to ONE scene at a time (a prefab's members must all

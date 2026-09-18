@@ -12,6 +12,7 @@
 // same self-sufficiency reasoning as kit/E29_Panel_LevelTree.h's own top comment for why.
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_ComponentEdit.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_ApplyOverrides.h"
+#include "source/Examples/E29_LevelSceneEditor/GameProject/E29_GameRegistration.h"
 
 namespace e29
 {
@@ -164,6 +165,49 @@ namespace e29
 
                 ImGui::Separator();
 
+                // Category filter bar - direct user design: lives OUTSIDE the inspector (not grouped
+                // headers inside the component list itself), defaults to "All" (no filter), and only
+                // shows categories actually present on THIS entity's own attached components - "if
+                // the entity does not have the category then we do not need to add that particular
+                // category at the top". Categories come from e29::g_ComponentDisplayInfo
+                // (E29_GamePluginLoad.h), populated from whatever Script-Module components the
+                // currently-loaded Game.dll generation self-registered with a category (built-in
+                // engine components like Transform/Name never appear here, since they never go
+                // through E29_REGISTER_COMPONENT - see that macro's own comment).
+                {
+                    std::vector<std::string> PresentCategories;
+                    for (auto pInfo : DataSpan)
+                    {
+                        if (auto It = e29::g_ComponentDisplayInfo.find(pInfo->m_pName); It != e29::g_ComponentDisplayInfo.end() && !It->second.m_Category.empty())
+                            if (std::find(PresentCategories.begin(), PresentCategories.end(), It->second.m_Category) == PresentCategories.end())
+                                PresentCategories.push_back(It->second.m_Category);
+                    }
+
+                    if (!PresentCategories.empty())
+                    {
+                        std::sort(PresentCategories.begin(), PresentCategories.end());
+
+                        auto FilterButton = [&](const std::string& Label, const std::string& Value) noexcept
+                        {
+                            const bool bSelected = (State.m_ComponentCategoryFilter == Value);
+                            if (bSelected) ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+                            if (ImGui::SmallButton(Label.c_str()) && !bSelected)
+                            {
+                                State.m_ComponentCategoryFilter = Value;
+                                State.m_bEntityInspectorDirty   = true;
+                            }
+                            if (bSelected) ImGui::PopStyleColor();
+                            ImGui::SameLine();
+                        };
+
+                        FilterButton("All", "");
+                        for (auto& Category : PresentCategories)
+                            FilterButton(Category, Category);
+                        ImGui::NewLine();
+                        ImGui::Separator();
+                    }
+                }
+
                 if (State.m_bEntityInspectorDirty)
                 {
                     std::printf("[EntityDrag] Entity Properties inspector REBUILDING (m_bEntityInspectorDirty) for SelectedEntityId=%u\n", State.m_SelectedEntityId);
@@ -171,7 +215,31 @@ namespace e29
                     EntityInspector.clear();
                     Bridge.m_ComponentMap.clear();
                     EntityInspector.AppendEntity();
-                    for (auto pInfo : DataSpan)
+
+                    // Filtered (per the category bar above, "" = All) + sorted by priority -
+                    // uncategorized components (every built-in engine component) sort first, by
+                    // construction, so Transform/Name stay pinned at the top exactly as they are
+                    // today without needing to touch their own definitions.
+                    std::vector<const xecs::component::type::info*> SortedComponents(DataSpan.begin(), DataSpan.end());
+                    std::erase_if(SortedComponents, [&](const xecs::component::type::info* pInfo) noexcept
+                    {
+                        if (State.m_ComponentCategoryFilter.empty()) return false;
+                        auto It = e29::g_ComponentDisplayInfo.find(pInfo->m_pName);
+                        return It == e29::g_ComponentDisplayInfo.end() || It->second.m_Category != State.m_ComponentCategoryFilter;
+                    });
+                    std::stable_sort(SortedComponents.begin(), SortedComponents.end(), [](const xecs::component::type::info* A, const xecs::component::type::info* B) noexcept
+                    {
+                        auto ItA = e29::g_ComponentDisplayInfo.find(A->m_pName);
+                        auto ItB = e29::g_ComponentDisplayInfo.find(B->m_pName);
+                        const bool bHasA = ItA != e29::g_ComponentDisplayInfo.end();
+                        const bool bHasB = ItB != e29::g_ComponentDisplayInfo.end();
+                        if (!bHasA && !bHasB) return false;
+                        if (!bHasA) return true;
+                        if (!bHasB) return false;
+                        return ItA->second.m_Priority < ItB->second.m_Priority;
+                    });
+
+                    for (auto pInfo : SortedComponents)
                     {
                         if (e29::IsInternalComponent(pInfo)) continue;
                         if (pInfo->m_pPropertyTable == nullptr) continue;
