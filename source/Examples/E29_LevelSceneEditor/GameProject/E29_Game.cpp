@@ -11,6 +11,14 @@
 // see xecs_plugin_api.h's own top comment for why).
 #include "dependencies/xECSV2/src/xecs.h"
 #include "dependencies/xECSV2/src/xecs_plugin_api.h"
+
+// TestScript's own Script-Module component/system (Project Settings -> Scripting) - proof this
+// whole pipeline actually registers real components, not just compiles arbitrary code. Included by
+// an ABSOLUTE, project-specific path - a deliberate, temporary, hand-wired bridge for THIS single
+// proof, not the general mechanism: with N modules, E29_Game.cpp can't keep being hand-edited per
+// module. That auto-discovery/registration-convention problem is real, separate, later work - not
+// solved here on purpose.
+#include "D:/LIONant/xGPU/example.lionprj/Descriptors/Scripting/BF/BA/CAFEBABF.desc/source_db/TestModule.h"
                    
 namespace e29_game
 {
@@ -72,13 +80,15 @@ void XecsPlugin_RegisterComponents( xecs::game_mgr::instance& GameMgr, xecs::plu
 {
     e29_game::s_Generation = Token.m_Generation;
     GameMgr.RegisterComponents<e29_game::spin_component>(Token);
+    GameMgr.RegisterComponents<test_script_module::glow_component>(Token);
 }
- 
+
 extern "C" __declspec(dllexport)
 void XecsPlugin_RegisterSystems( xecs::game_mgr::instance& GameMgr ) noexcept
 {
     GameMgr.RegisterSystems<e29_game::spin_system>();
     GameMgr.RegisterSystems<e29_game::spin2_system>();
+    GameMgr.RegisterSystems<test_script_module::glow_system>();
 }
  
 extern "C" __declspec(dllexport)

@@ -689,6 +689,14 @@ if(XECS_BUILD_SHARED_LIBRARY)
   # write to the same .PDB file, please use /FS") - confirmed live. /FS makes cl.exe synchronize
   # those writes instead of erroring, which is exactly Microsoft's own documented fix for this.
   target_compile_options(E29_Game PRIVATE /FS)
+
+  # Multi-core compilation (/MP) - direct user requirement, since this target's own iteration speed
+  # is a hard constraint (Script-Module resources are expected to be recompiled far more often than
+  # any other resource type). Safe alongside /FS above by construction: /FS is exactly what makes
+  # concurrent cl.exe invocations sharing one PDB safe, which is the same hazard /MP itself
+  # introduces (multiple cl.exe processes compiling this target's own .cpp files in parallel) - the
+  # groundwork was already there, this was just never turned on.
+  target_compile_options(E29_Game PRIVATE /MP)
 endif()
 
 # Organize the shades under the folder shaders (At least the default folder)
