@@ -25,6 +25,7 @@
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Compilation.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SourceControl.h"
 #include "source/Examples/E29_LevelSceneEditor/kit/E29_IdleWork.h"
+#include "source/Examples/E29_LevelSceneEditor/kit/E29_ComponentCompatibility.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_Theme.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_EditorTabs.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_Diagnostics.h"
