@@ -268,6 +268,27 @@ namespace e29
             return build_result::Failed;
         }
 
+        // REAL BUG FOUND LIVE (2026-09-19, follow-up): the reconfigure above wasn't the whole story -
+        // isolated the remainder in a minimal standalone CMake+target_precompile_headers repro (no
+        // xGPU code involved at all): even after a CORRECT reconfigure that regenerates
+        // cmake_pch.hxx's own CONTENT (confirmed - the include line for a removed header was genuinely
+        // gone from the file on disk), MSBuild's own incremental build still would NOT recompile
+        // cmake_pch.pch/cmake_pch.obj - reproduced 100% reliably, 5/5 consecutive attempts, in
+        // isolation. MSBuild's dependency tracking for the PCH-creation step evidently keys off
+        // cmake_pch.cxx itself (the one-line "#include cmake_pch.hxx" file CMake generates once and
+        // never rewrites) rather than re-scanning cmake_pch.hxx's own transitive content on every
+        // build - so a header being ADDED to or REMOVED FROM the PCH's own force-include list doesn't
+        // register as "stale" to MSBuild at all. Confirmed the fix in the same isolated repro: touching
+        // cmake_pch.cxx's own mtime (content unchanged) is enough to make MSBuild correctly reconsider
+        // and recompile the PCH. Only relevant for E29_Game (this is the one target in this project
+        // with a data-driven, per-project PCH header list); a missing file here just means nothing to
+        // touch yet, not an error.
+        if (const auto PchFile = BuildDir / L"CMakeFiles" / L"E29_Game.dir" / L"cmake_pch.cxx"; std::filesystem::exists(PchFile, Ec))
+        {
+            const auto Now = std::filesystem::file_time_type::clock::now();
+            std::filesystem::last_write_time(PchFile, Now, Ec);
+        }
+
         const auto BuildExit = RunCmakeCommand(std::format(L"cmake --build \"{}\" --target E29_Game --config {} -- /nodeReuse:false", BuildDir.wstring(), Config), ProjectRoot);
         if (BuildExit != 0)
         {
