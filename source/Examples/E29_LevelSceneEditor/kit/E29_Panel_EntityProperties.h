@@ -114,17 +114,32 @@ namespace e29
 
                         if (!Ctx.m_pPI->m_lComponents.empty() || !Ctx.m_pPI->m_HierarchyDiffs.empty())
                         {
-                            if (ImGui::Button("Apply Overrides to Prefab"))
+                            if (ImGui::Button("Apply"))
                             {
                                 e29::commands::Run(Undo, std::format("ApplyOverrides -Scene {} -Id {}", SceneHex, RootHex));
+                            }
+                            // Tooltip (only show when hovering) — same format as Play transport buttons
+                            if (ImGui::IsItemHovered())
+                            {
+                                ImGui::BeginTooltip();
+                                ImGui::Text("Apply");
+                                ImGui::TextDisabled("Push all overrides on this prefab instance into the Prefab asset");
+                                ImGui::EndTooltip();
                             }
                         }
                         if (!Ctx.m_pPI->m_HierarchyDiffs.empty())
                         {
                             ImGui::SameLine();
-                            if (ImGui::Button("Revert Hierarchy Overrides"))
+                            if (ImGui::Button("Revert Hierarchy"))
                             {
                                 e29::commands::Run(Undo, std::format("RevertHierarchyOverrides -Scene {} -Id {}", SceneHex, RootHex));
+                            }
+                            if (ImGui::IsItemHovered())
+                            {
+                                ImGui::BeginTooltip();
+                                ImGui::Text("Revert Hierarchy");
+                                ImGui::TextDisabled("Restore removed children / drop added children; leave property overrides");
+                                ImGui::EndTooltip();
                             }
                         }
                         if (!Ctx.m_pPI->m_lComponents.empty()
@@ -132,9 +147,16 @@ namespace e29
                             || !Ctx.m_pPI->m_HierarchyDiffs.empty())
                         {
                             ImGui::SameLine();
-                            if (ImGui::Button("Revert All Overrides"))
+                            if (ImGui::Button("Revert All"))
                             {
                                 e29::commands::Run(Undo, std::format("RevertAllOverrides -Scene {} -Id {}", SceneHex, RootHex));
+                            }
+                            if (ImGui::IsItemHovered())
+                            {
+                                ImGui::BeginTooltip();
+                                ImGui::Text("Revert All");
+                                ImGui::TextDisabled("Re-sync from Prefab (keeps root Transform); clears all overrides");
+                                ImGui::EndTooltip();
                             }
                         }
                     }
