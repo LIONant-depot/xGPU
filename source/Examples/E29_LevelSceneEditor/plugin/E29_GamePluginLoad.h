@@ -26,7 +26,7 @@ namespace e29
         auto* pGetInfo = reinterpret_cast<e29_game_registration::pfn_get_component_display_info>(GetProcAddress(Plugin.m_hModule, e29_game_registration::kGetComponentDisplayInfoName));
         if (pGetInfo == nullptr) return;
 
-        pGetInfo([](void* pUserData, const char* pName, const char* pCategory, int Priority) noexcept
+        pGetInfo([](void* pUserData, std::uint64_t /*Guid*/, const char* pName, const char* pCategory, int Priority) noexcept
         {
             auto& Map = *reinterpret_cast<std::unordered_map<std::string, component_display_info>*>(pUserData);
             Map[pName] = { pCategory, Priority };
@@ -85,62 +85,138 @@ namespace e29
     }
 
     //---------------------------------------------------------------------------
-    // Copies the (already known-good - see StartGameReload/PollGameReload, which call
-    // BuildGamePluginIfStale BEFORE this) compiled DLL into a new generation-suffixed shadow file
-    // (CopyGamePluginForLoad), loads THAT, and calls its XecsPlugin_RegisterComponents - the FIRST
-    // of the two-call sequence xecs_plugin_api.h's own comment requires (every RegisterComponents
-    // call, host's and the plugin's, must happen before ANY RegisterSystems call). Returns false
-    // (Plugin left untouched, exactly as before the call) on any failure - missing file, missing
-    // export, nothing else to do differently: the caller keeps running without a game loaded, same
-    // as if this was never called.
+    // Component-registry compatibility plan (Build/RELOAD_CRASH_REPORT.md's own follow-up design) -
+    // "ping-pong" pre-flight: the shadow-copy step below was ALWAYS mandatory before any load, so
+    // copying+loading a candidate DLL costs nothing extra done early, before touching the OLD
+    // generation - it's a pure reorder, not added work. A game_plugin_candidate is an
+    // ownership-holding intermediate: either it gets Commit'ed (ownership transfers to
+    // game_plugin_state, exactly like the old single-shot LoadGamePluginComponents did) or Discard'ed
+    // (FreeLibrary + delete the shadow copy, old generation never touched) - never both, never
+    // neither.
     //---------------------------------------------------------------------------
-    inline bool LoadGamePluginComponents( xecs::game_mgr::instance& GameMgr, game_plugin_state& Plugin, std::uint32_t Generation ) noexcept
+    struct game_plugin_candidate
     {
-        assert( Plugin.isLoaded() == false );
+        HMODULE      m_hModule = nullptr;
+        std::wstring m_LoadedPath;
+    };
 
-        const std::wstring LoadedPath = CopyGamePluginForLoad(Plugin.m_CompiledDllPath, Generation);
+    // Step 1: copy the already-known-good compiled DLL into a fresh generation-suffixed shadow file
+    // and LoadLibrary it - no registry mutation at all, safe to call while an OLD generation is still
+    // fully loaded and running. Returns an invalid candidate (m_hModule==nullptr) on any failure -
+    // nothing was allocated, nothing to Discard.
+    inline game_plugin_candidate PrepareGamePluginCandidate( const std::wstring& CompiledDllPath, std::uint32_t Generation ) noexcept
+    {
+        game_plugin_candidate Candidate;
+
+        const std::wstring LoadedPath = CopyGamePluginForLoad(CompiledDllPath, Generation);
         if (LoadedPath.empty())
         {
-            Plugin.m_LastStatus += " | nothing to load";
             LogGamePlugin("Game.dll: nothing to load");
-            return false;
+            return Candidate;
         }
 
         // Plain printf, deliberately NOT e29::Debugger() - Debugger() also arms the modal error-
         // popup (RenderErrorPopup, checked once per frame from the main loop's own top-level
-        // scope). This function's very first caller (E29_LevelScene_Editor.cpp's own startup code)
-        // calls it BEFORE the main loop has rendered even one frame - confirmed empirically (a
-        // deterministic, 100%-reproducible "Missing EndChild()" ImGui assertion on frame 1,
-        // isolated by bisecting against the pre-Phase-8 file and adding per-call-site printf
-        // checkpoints) that arming the popup flag that early breaks ImGui's window-stack
-        // bookkeeping - every OTHER Debugger() call site in this codebase fires from inside an
-        // already-running frame, which this startup call path is not. A missing/failed-to-load
-        // Game.dll is an expected, benign condition anyway (nothing has been built yet on a fresh
-        // checkout) - a plain log line is the right amount of ceremony for it, not a modal.
+        // scope). This function's own first caller (E29_LevelScene_Editor.cpp's own startup code,
+        // via LoadGamePluginComponents below) calls it BEFORE the main loop has rendered even one
+        // frame - confirmed empirically (a deterministic, 100%-reproducible "Missing EndChild()"
+        // ImGui assertion on frame 1) that arming the popup flag that early breaks ImGui's
+        // window-stack bookkeeping. A missing/failed-to-load Game.dll is an expected, benign
+        // condition anyway (nothing has been built yet on a fresh checkout) - a plain log line is
+        // the right amount of ceremony for it, not a modal.
         HMODULE hModule = LoadLibraryW(LoadedPath.c_str());
         if (hModule == nullptr)
         {
-            Plugin.m_LastStatus = std::format("Game.dll: LoadLibrary failed for {}", std::filesystem::path(LoadedPath).filename().string());
-            LogGamePlugin(Plugin.m_LastStatus);
+            LogGamePlugin(std::format("Game.dll: LoadLibrary failed for {}", std::filesystem::path(LoadedPath).filename().string()));
+            return Candidate;
+        }
+
+        Candidate.m_hModule    = hModule;
+        Candidate.m_LoadedPath = LoadedPath;
+        return Candidate;
+    }
+
+    // Discards a Prepare'd-but-never-Commit'ed candidate - the compatibility check (Step 2's own
+    // consumer) found it incompatible, or the caller otherwise changed its mind. FreeLibrary + delete
+    // the shadow copy, leaving nothing behind; the OLD generation (if any) is completely unaffected,
+    // since nothing about it was ever touched. Safe to call on an already-invalid candidate (no-op).
+    inline void DiscardGamePluginCandidate( game_plugin_candidate& Candidate ) noexcept
+    {
+        if (Candidate.m_hModule) FreeLibrary(Candidate.m_hModule);
+        if (!Candidate.m_LoadedPath.empty())
+        {
+            std::error_code Ec;
+            std::filesystem::remove(std::filesystem::path(Candidate.m_LoadedPath), Ec);
+        }
+        Candidate = {};
+    }
+
+    // Step 2: the candidate's own full component manifest, by stable guid - available immediately,
+    // zero registry mutation, since E29_GetComponentDisplayInfo's data comes from a self-registration
+    // list populated at LoadLibrary/static-init time, well before XecsPlugin_RegisterComponents is
+    // ever called. Empty (not a failure) for an older-generation DLL built before this export existed
+    // - every component then just can't be cross-checked, same "best-effort" posture as everywhere
+    // else optional metadata is missing in this project.
+    inline std::vector<xecs::scene::component_dependency> ProbeCandidateComponents( const game_plugin_candidate& Candidate ) noexcept
+    {
+        std::vector<xecs::scene::component_dependency> Result;
+        if (!Candidate.m_hModule) return Result;
+
+        auto* pGetInfo = reinterpret_cast<e29_game_registration::pfn_get_component_display_info>(GetProcAddress(Candidate.m_hModule, e29_game_registration::kGetComponentDisplayInfoName));
+        if (!pGetInfo) return Result;
+
+        pGetInfo([](void* pUserData, std::uint64_t Guid, const char* pName, const char*, int) noexcept
+        {
+            auto& Out = *reinterpret_cast<std::vector<xecs::scene::component_dependency>*>(pUserData);
+            Out.push_back({ xecs::component::type::guid{Guid}, pName });
+        }, &Result);
+
+        return Result;
+    }
+
+    // Step 3: the actual registry-mutating half - calls the candidate's own
+    // XecsPlugin_RegisterComponents (the FIRST of the two-call sequence xecs_plugin_api.h's own
+    // comment requires: every RegisterComponents call, host's and the plugin's, must happen before
+    // ANY RegisterSystems call) and transfers ownership of the loaded module to Plugin. Only ever
+    // meaningful once the OLD generation (if any) has already been fully torn down/unregistered - see
+    // RebuildWorld's own call site for the ordering this depends on. On failure, Discards the
+    // candidate itself (nothing left dangling) and returns false with Plugin untouched.
+    inline bool CommitGamePluginCandidate( xecs::game_mgr::instance& GameMgr, game_plugin_state& Plugin, game_plugin_candidate& Candidate, std::uint32_t Generation ) noexcept
+    {
+        assert( Plugin.isLoaded() == false );
+        if (!Candidate.m_hModule)
+        {
+            Plugin.m_LastStatus += " | nothing to load";
             return false;
         }
 
-        auto* pRegisterComponents = reinterpret_cast<xecs_plugin_pfn_register_components*>(GetProcAddress(hModule, XECS_PLUGIN_REGISTER_COMPONENTS_NAME));
+        auto* pRegisterComponents = reinterpret_cast<xecs_plugin_pfn_register_components*>(GetProcAddress(Candidate.m_hModule, XECS_PLUGIN_REGISTER_COMPONENTS_NAME));
         if (pRegisterComponents == nullptr)
         {
             Plugin.m_LastStatus = std::format("Game.dll: missing export {}", XECS_PLUGIN_REGISTER_COMPONENTS_NAME);
             LogGamePlugin(Plugin.m_LastStatus);
-            FreeLibrary(hModule);
+            DiscardGamePluginCandidate(Candidate);
             return false;
         }
 
-        Plugin.m_hModule       = hModule;
-        Plugin.m_LoadedDllPath = LoadedPath;
+        Plugin.m_hModule       = Candidate.m_hModule;
+        Plugin.m_LoadedDllPath = Candidate.m_LoadedPath;
         Plugin.m_Token         = { .m_Slot = 1, .m_Generation = Generation };
         pRegisterComponents(GameMgr, Plugin.m_Token);
 
-        Plugin.m_LastStatus = std::format("Game.dll: loaded generation {} ({})", Generation, std::filesystem::path(LoadedPath).filename().string());
+        Plugin.m_LastStatus = std::format("Game.dll: loaded generation {} ({})", Generation, std::filesystem::path(Candidate.m_LoadedPath).filename().string());
+        Candidate = {}; // ownership transferred to Plugin - Discard must never also free what Plugin now owns
         return true;
+    }
+
+    // The ONE remaining synchronous, single-shot caller (startup, generation 1) - nothing is running
+    // yet to be incompatible with, so no candidate/compatibility dance is needed there. Thin
+    // Prepare+Commit wrapper, byte-for-byte the same external behavior the old single-function version
+    // had.
+    inline bool LoadGamePluginComponents( xecs::game_mgr::instance& GameMgr, game_plugin_state& Plugin, std::uint32_t Generation ) noexcept
+    {
+        auto Candidate = PrepareGamePluginCandidate(Plugin.m_CompiledDllPath, Generation);
+        return CommitGamePluginCandidate(GameMgr, Plugin, Candidate, Generation);
     }
 
     // The SECOND call of the two-call sequence - only meaningful once every RegisterComponents

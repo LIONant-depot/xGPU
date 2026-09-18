@@ -108,5 +108,5 @@ extern "C" __declspec(dllexport)
 void E29_GetComponentDisplayInfo( e29_game_registration::pfn_component_display_visitor pVisitor, void* pUserData ) noexcept
 {
     for (auto* p = e29_game_registration::self_registration<e29_game_registration::component_entry>::s_pHead; p; p = p->m_pNext)
-        pVisitor(pUserData, p->m_Value.m_pName, p->m_Value.m_pCategory, p->m_Value.m_Priority);
+        pVisitor(pUserData, p->m_Value.m_Guid, p->m_Value.m_pName, p->m_Value.m_pCategory, p->m_Value.m_Priority);
 }

@@ -15,9 +15,11 @@
 // directly rather than relying on the .cpp's own later include of it, same "a file that names a
 // symbol should include what declares it" reasoning every other kit/plugin file here already follows.
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
+#include "source/Examples/E29_LevelSceneEditor/kit/E29_ComponentCompatibility.h"
 #include <sstream>
 #include <iterator>
 #include <unordered_map>
+#include <unordered_set>
 #include <optional>
 
 namespace e29
@@ -224,6 +226,23 @@ namespace e29
     enum class persist_mode : std::uint8_t { RawSnapshotBridge, RestoreFromV1 };
 
     //---------------------------------------------------------------------------
+    // Pending reload-compatibility confirmation (component-registry compatibility plan, Phase 3) -
+    // set by RebuildWorld's own pre-flight gate below when a candidate DLL doesn't cover every
+    // component type the currently-open scenes' own ComponentDeps.txt manifests declare they need.
+    // Rendered by RenderReloadCompatibilityModal (called once per frame from the main loop, same
+    // shape as RenderGamePluginLogPanel) - Cancel just clears this (the old generation was never
+    // touched, kept running exactly as it was); "Strip and Continue" removes the missing components
+    // from every affected entity in the open scenes via the normal, undo-tracked RemoveComponent
+    // command, then re-requests a reload - the retry finds nothing missing this time, since the
+    // components are already gone before the next candidate probe even runs.
+    //---------------------------------------------------------------------------
+    struct pending_reload_compatibility
+    {
+        std::vector<xecs::scene::component_dependency> m_Missing;
+    };
+    inline std::optional<pending_reload_compatibility> g_PendingReloadCompatibility;
+
+    //---------------------------------------------------------------------------
     // The one shared "destroy the world and rebuild it" skeleton - every reload E29 ever does
     // (a genuine Game.dll recompile, or just discarding a play session on Stop) is exactly this same
     // sequence, differing only in two independent axes, both parameterized rather than duplicated:
@@ -258,6 +277,75 @@ namespace e29
     , persist_mode                                PersistMode
     ) noexcept
     {
+        // Ping-pong pre-flight compatibility gate (component-registry compatibility plan, Phase 3) -
+        // only for an actual DLL swap; a non-swap reload can't introduce a NEW missing-component
+        // scenario the open scenes weren't already tolerating. Prepares (copies+LoadLibrary's) the
+        // candidate DLL FIRST, before touching anything else - the shadow-copy step was always
+        // mandatory regardless of when it happens, so doing it this early costs nothing extra. If the
+        // candidate is missing a component type any currently-open scene's own ComponentDeps.txt
+        // declares it needs, the candidate is discarded (FreeLibrary'd) and this function returns
+        // immediately - NOTHING else below has run yet, so the OLD generation (if any) is completely
+        // untouched, still fully loaded and running. See RenderReloadCompatibilityModal (below) for
+        // what happens next (a confirm choice the user makes on a later frame).
+        //
+        // NextGeneration is captured HERE, before UnloadGamePlugin (below) resets Plugin.m_Token -
+        // incidental fix to what was previously always effectively "generation 1" every single reload
+        // (the old single-step LoadGamePluginComponents call computed Plugin.m_Token.m_Generation + 1
+        // AFTER Unload had already zeroed m_Token) - moving the candidate-prep earlier means this now
+        // has to be captured earlier too, and capturing it against the REAL current generation is the
+        // more obviously correct behavior, not a deliberate design change in its own right.
+        const std::uint32_t NextGeneration = Plugin.m_Token.m_Generation + 1;
+        game_plugin_candidate Candidate;
+        if (bSwapDll)
+        {
+            Candidate = PrepareGamePluginCandidate(Plugin.m_CompiledDllPath, NextGeneration);
+            if (Candidate.m_hModule)
+            {
+                const auto CandidateManifest = ProbeCandidateComponents(Candidate);
+                // An older-generation DLL missing the E29_GetComponentDisplayInfo export can't be
+                // checked at all - proceed exactly as before this feature existed, best-effort.
+                if (!CandidateManifest.empty())
+                {
+                    std::unordered_set<std::uint64_t> Available;
+                    for (auto& D : CandidateManifest) Available.insert(D.m_Guid.m_Value);
+
+                    // Scope the check to ONLY components the plugin itself is responsible for - a
+                    // scene's own manifest also lists host built-ins (Name, Transform, ...), which
+                    // E29_GetComponentDisplayInfo's self-registration list never claims at all (they're
+                    // registered directly by RegisterHostComponents in the HOST binary, not by any
+                    // Game.dll generation) - checking THOSE against a candidate's manifest would always
+                    // show them "missing" regardless of whether anything actually changed. The OLD
+                    // generation (still fully loaded here - nothing has been touched yet) is asked the
+                    // SAME question a candidate is: which guids does IT self-register - that's the
+                    // authoritative "this guid is the plugin's responsibility, not the host's" set,
+                    // confirmed live (this exact gap was caught live: an unfiltered check flagged 7-8
+                    // "missing" components after removing just one).
+                    game_plugin_candidate OldGenerationView{ Plugin.m_hModule, {} };
+                    std::unordered_set<std::uint64_t> PluginOwned;
+                    for (auto& D : ProbeCandidateComponents(OldGenerationView)) PluginOwned.insert(D.m_Guid.m_Value);
+
+                    std::vector<xecs::scene::component_dependency> Required;
+                    for (auto& SceneGuid : State.m_OpenScenes)
+                        for (auto& Dep : xecs::scene::LoadSceneComponentDependencies(ProjectPath, SceneGuid))
+                            if (PluginOwned.contains(Dep.m_Guid.m_Value))
+                                Required.push_back(Dep);
+
+                    auto Missing = CheckComponentCompatibility(Required, [&](xecs::component::type::guid Guid) noexcept
+                    {
+                        return Available.contains(Guid.m_Value);
+                    });
+
+                    if (!Missing.empty())
+                    {
+                        LogGamePlugin(std::format("Game.dll: reload blocked - {} component type(s) referenced by open scenes are missing from the new build", Missing.size()));
+                        DiscardGamePluginCandidate(Candidate);
+                        g_PendingReloadCompatibility = pending_reload_compatibility{ std::move(Missing) };
+                        return false;
+                    }
+                }
+            }
+        }
+
         // Captured BEFORE the destroy, only for the Vn bridge - see CaptureOpenScenes/
         // ReattachOpenScenes's own comment for why this is safe with zero translation (entity IDs
         // round-trip identical through the raw snapshot). Empty for every other PersistMode.
@@ -298,7 +386,7 @@ namespace e29
         RegisterHostComponents(*pGameMgr);
 
         const bool bLoaded = bSwapDll
-            ? LoadGamePluginComponents(*pGameMgr, Plugin, Plugin.m_Token.m_Generation + 1)
+            ? CommitGamePluginCandidate(*pGameMgr, Plugin, Candidate, NextGeneration)
             : (ReregisterAlreadyLoadedPlugin(*pGameMgr, Plugin), Plugin.isLoaded());
 
         RegisterHostSystems(*pGameMgr);
@@ -383,6 +471,99 @@ namespace e29
         }
 
         return bLoaded;
+    }
+
+    //---------------------------------------------------------------------------
+    // Walks every currently open scene's own live entities, finds every one that actually HAS one of
+    // MissingGuids (via its archetype's own component bits, resolved through the registry the OLD
+    // generation - still fully loaded and running at the point this is called, from the confirm
+    // modal's own "Strip and Continue" button - is still registered against), and removes it via the
+    // normal, undo-tracked command bus (so the user can Undo this later if it turns out to be wrong).
+    // Best-effort: a guid the OLD registry itself doesn't resolve either (shouldn't happen - it came
+    // straight out of this session's own live world moments ago) is silently skipped.
+    //---------------------------------------------------------------------------
+    // Declared (not defined - see commands/E29_Commands_MakePrefab.h for the inline definition this
+    // refers to) here too since this file's own place in the umbrella include order is earlier than
+    // that one - inline variables have external linkage, so a plain extern declaration anywhere in
+    // the same program is enough to use it, no redefinition risk.
+    extern xundo::system* g_pUndo;
+
+    inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene::component_dependency>& MissingDeps ) noexcept
+    {
+        if (!g_pGameMgr || !g_pUndo || !g_pState) return;
+
+        for (auto& SceneGuid : g_pState->m_OpenScenes)
+        {
+            auto* pScene = g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            if (!pScene) continue;
+
+            for (auto& Pair : pScene->m_LocalToRuntime)
+            {
+                const auto Id     = Pair.first;
+                auto&      Entity = Pair.second;
+
+                auto& EDetails = g_pGameMgr->m_ComponentMgr.getEntityDetails(Entity);
+                if (!EDetails.m_pPool || !EDetails.m_pPool->m_pArchetype) continue;
+                auto& Bits = EDetails.m_pPool->m_pArchetype->getComponentBits();
+
+                for (auto& Dep : MissingDeps)
+                {
+                    auto* pInfo = g_pGameMgr->m_ComponentMgr.findComponentTypeInfo(Dep.m_Guid);
+                    if (!pInfo || !Bits.getBit(pInfo->m_BitID)) continue;
+
+                    commands::Run(*g_pUndo, std::format("RemoveComponent -Scene {} -Id {} -Component {:016X}"
+                        , commands::FormatSceneGuid(SceneGuid)
+                        , commands::FormatEntityId(Id)
+                        , Dep.m_Guid.m_Value
+                        ));
+                }
+            }
+        }
+    }
+
+    //---------------------------------------------------------------------------
+    // Called once per frame from the main loop, same shape as RenderGamePluginLogPanel - zero
+    // parameters, reads/writes only through the established single-instance globals
+    // (g_PendingReloadCompatibility, g_pGameMgr/g_pUndo/g_pState/g_pGamePlugin), matching this
+    // codebase's own convention for cross-cutting UI state that isn't naturally owned by one panel.
+    //---------------------------------------------------------------------------
+    inline void RenderReloadCompatibilityModal() noexcept
+    {
+        if (g_PendingReloadCompatibility.has_value())
+            ImGui::OpenPopup("Game.dll Reload - Missing Components");
+
+        if (ImGui::BeginPopupModal("Game.dll Reload - Missing Components", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            if (g_PendingReloadCompatibility.has_value())
+            {
+                ImGui::Text("The new Game.dll build no longer has %zu component type(s)\nthat currently-open scenes use:", g_PendingReloadCompatibility->m_Missing.size());
+                for (auto& Dep : g_PendingReloadCompatibility->m_Missing)
+                    ImGui::BulletText("%s", Dep.m_Name.c_str());
+                ImGui::Separator();
+                ImGui::TextWrapped(
+                    "Strip and Continue: removes these components from the affected entities\n"
+                    "(undoable) and reloads.\n"
+                    "Cancel: keeps the current generation running - fix your script and try again."
+                );
+                ImGui::Separator();
+
+                if (ImGui::Button("Strip and Continue", ImVec2(160, 0)))
+                {
+                    StripMissingComponentsFromOpenScenes(g_PendingReloadCompatibility->m_Missing);
+                    g_PendingReloadCompatibility.reset();
+                    ImGui::CloseCurrentPopup();
+                    if (g_pGamePlugin) StartGameReload(*g_pGamePlugin);
+                }
+                ImGui::SetItemDefaultFocus();
+                ImGui::SameLine();
+                if (ImGui::Button("Cancel", ImVec2(120, 0)))
+                {
+                    g_PendingReloadCompatibility.reset();
+                    ImGui::CloseCurrentPopup();
+                }
+            }
+            ImGui::EndPopup();
+        }
     }
 
     //---------------------------------------------------------------------------

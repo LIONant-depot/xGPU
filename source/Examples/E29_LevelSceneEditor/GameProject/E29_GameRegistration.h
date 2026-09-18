@@ -32,9 +32,17 @@ namespace e29_game_registration
     struct component_entry
     {
         void (*m_pRegisterFn)(xecs::game_mgr::instance&, xecs::plugin::token) = nullptr;
-        const char* m_pName     = "";
-        const char* m_pCategory = "";
-        int         m_Priority  = 0;
+        const char*   m_pName     = "";
+        const char*   m_pCategory = "";
+        int           m_Priority  = 0;
+        // The type's own compile-time guid (xecs::component::type::info_v<TYPE>.m_Guid.m_Value) -
+        // deterministic, identical across every binary the type is compiled into (see
+        // xecs_component_type_inline.h's own guid_v - name-hash-derived unless a type sets one
+        // explicitly), available immediately at DLL LoadLibrary time via this self-registration list,
+        // well before XecsPlugin_RegisterComponents ever runs. This is what lets a candidate DLL's own
+        // manifest (E29_GetComponentDisplayInfo below) be compared against a scene's ComponentDeps.txt
+        // by stable identity instead of by display name.
+        std::uint64_t m_Guid      = 0;
     };
 
     struct system_entry
@@ -73,7 +81,7 @@ namespace e29_game_registration
     // so the exported function itself stays a trivial, ABI-stable extern "C" signature - no
     // std::vector/std::function crossing the DLL boundary.
     inline constexpr const char* kGetComponentDisplayInfoName = "E29_GetComponentDisplayInfo";
-    using pfn_component_display_visitor  = void(__cdecl*)(void* pUserData, const char* pName, const char* pCategory, int Priority);
+    using pfn_component_display_visitor  = void(__cdecl*)(void* pUserData, std::uint64_t Guid, const char* pName, const char* pCategory, int Priority);
     using pfn_get_component_display_info = void(__cdecl*)(pfn_component_display_visitor pVisitor, void* pUserData);
 }
 
@@ -99,6 +107,7 @@ namespace e29
     { e29_game_registration::component_entry \
         { [](xecs::game_mgr::instance& GameMgr, xecs::plugin::token Token) noexcept { GameMgr.RegisterComponents<TYPE>(Token); } \
         , TYPE::typedef_v.m_pName, CATEGORY, PRIORITY \
+        , xecs::component::type::info_v<TYPE>.m_Guid.m_Value \
         } \
     };
 

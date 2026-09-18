@@ -1365,6 +1365,7 @@ int E29_Example()
         e29::diagnostics::Log("frame %llu game/plugin log render begin", static_cast<unsigned long long>(FrameNumber));
         e29::editor_tabs::SetNextParentEditorToolClass();
         e29::RenderGamePluginLogPanel();
+        e29::RenderReloadCompatibilityModal();
         e29::diagnostics::Log("frame %llu game/plugin log render end", static_cast<unsigned long long>(FrameNumber));
         e29::diagnostics::Log("frame %llu command console render begin", static_cast<unsigned long long>(FrameNumber));
         e29::editor_tabs::SetNextParentEditorToolClass();
