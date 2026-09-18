@@ -11,11 +11,16 @@ namespace e29
 {
     struct script_config
     {
-        xresource::full_guid m_ScriptRef = {}; // the Scripting resource actually part of the build (single for now)
+        // Script-Module resources that are part of this project's build - the project's own build
+        // membership list (see AddProjectModuleReference/RemoveProjectModuleReference,
+        // E29_Commands_Scripting.h). A bare list of guids, same convention library::m_ParentLibraries
+        // already uses - no separate "which library" qualifier, resolved via the global resource guid
+        // space.
+        std::vector<xresource::full_guid> m_ModuleRefs = {};
 
         XPROPERTY_DEF
         ( "ScriptConfig", script_config
-        , obj_member<"ScriptRef", &script_config::m_ScriptRef>
+        , obj_member<"ModuleRefs", &script_config::m_ModuleRefs>
         )
     };
     XPROPERTY_REG(script_config)

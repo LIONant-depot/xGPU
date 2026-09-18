@@ -324,6 +324,9 @@ int E29_Example()
 
             if (auto Err = e29::LoadScriptConfig(ProjectPath, e29::g_ScriptConfig); Err)
                 e29::Debugger(std::format("Failed to load Script.config.txt: {}", Err.getMessage()));
+            // Keeps GameProject\E29_Game_Modules.cmake in sync with whatever was actually persisted,
+            // regardless of how it got there (a fresh checkout may have no fragment yet at all).
+            e29::RegenerateGameModuleSources();
         }
         else
         {
@@ -428,6 +431,12 @@ int E29_Example()
     e29::commands::add_script_source_file_cmd        CmdAddScriptSourceFile(E29Undo, &CmdContext);
     e29::commands::remove_script_source_file_cmd      CmdRemoveScriptSourceFile(E29Undo, &CmdContext);
     e29::commands::list_script_source_files_query_cmd CmdListScriptSourceFiles(E29Undo, &CmdContext);
+    e29::commands::add_project_module_reference_cmd          CmdAddProjectModuleReference(E29Undo, &CmdContext);
+    e29::commands::remove_project_module_reference_cmd       CmdRemoveProjectModuleReference(E29Undo, &CmdContext);
+    e29::commands::list_project_module_references_query_cmd  CmdListProjectModuleReferences(E29Undo, &CmdContext);
+    e29::commands::set_script_source_file_content_cmd         CmdSetScriptSourceFileContent(E29Undo, &CmdContext);
+    e29::commands::rename_script_source_file_cmd               CmdRenameScriptSourceFile(E29Undo, &CmdContext);
+    e29::commands::regenerate_project_module_sources_query_cmd CmdRegenerateProjectModuleSources(E29Undo, &CmdContext);
     e29::commands::rename_asset_file_cmd  CmdRenameAssetFile(E29Undo, &CmdContext);
     e29::commands::move_asset_file_cmd    CmdMoveAssetFile(E29Undo, &CmdContext);
     e29::commands::delete_asset_file_cmd  CmdDeleteAssetFile(E29Undo, &CmdContext);
@@ -478,8 +487,6 @@ int E29_Example()
     // ones need live GameMgr/State access, so they're bundled into entity_inspector_bridge (kit).
     //
     xproperty::inspector          EntityInspector("Inspector");
-    xproperty::inspector          ProjectSettingsInspector("ProjectSettingsInspector");
-    e29::WireResourcePickerCallbacks(ProjectSettingsInspector);
     // xproperty's default row tint (s_ColorCategories, xPropertyImGuiInspector.cpp) is a set of bright
     // matplotlib-style categorical colors, tuned against ImGui's stock dark theme - against
     // E29_Theme.h's darker/flatter Unity palette they read as a clashing, too-bright/too-saturated mess
@@ -512,28 +519,70 @@ int E29_Example()
     e29::RegisterAssetBrowserCallbacks(AsserBrowser, E29Undo, MainWindow);
 
     // "Scripting" section in the merged Plugins/Project Settings tab (e10::plugin_tab,
-    // E10_asset_browser_plugin_tab.h) - selecting it renders Project.config's Script.config.txt
-    // build-membership property (e29::g_ScriptConfig) via the same dedicated ProjectSettingsInspector
-    // instance declared above (kept separate from EntityInspector - reusing one xproperty::inspector
-    // for two independent renders in the same frame asserts, see this instance's own declaration).
+    // E10_asset_browser_plugin_tab.h) - the project's Script-Module build-membership list
+    // (Project.config\Script.config.txt, e29::g_ScriptConfig.m_ModuleRefs), rendered as a normal
+    // xproperty::inspector array field (WireResourcePickerCallbacks already gives every full_guid
+    // element a working click-to-browse picker for free, and the array gets the standard Unity-style
+    // insert/delete/drag controls - see xproperty_array_element_controls). NOT the Dependencies-node
+    // drag-drop pattern an earlier pass here used - that assumed the Resources tab could be docked
+    // and visible AT THE SAME TIME as this one, which is false: "Project Settings" and "Resources"
+    // are tabs in the SAME tab strip, mutually exclusive on screen, so a drag source and this drop
+    // target could never both be visible. The inspector's own click-to-open-popup picker has no such
+    // docking assumption at all - direct user correction.
+    //
+    // No m_OnPropertyChanged hook wired here (unlike EntityInspector's own edits, which route through
+    // InspectorBridge into the undo system) - a snapshot/diff around the render call instead: simple,
+    // catches every mutation kind the array control can make (insert/delete/reorder/reassign)
+    // uniformly, and doesn't require raw edits here to go through xundo the way every other project-
+    // level-settings edit in this codebase already doesn't either (Library.config.txt's own
+    // ParentLibraries has no raw-inspector-edit path at all, only command-driven Add/Remove).
+    //
+    // Reuses plugin_tab's OWN inherited xproperty::inspector (passed in by RightPanel()) rather than
+    // carrying a second, redundant instance - direct user correction: "you have one inspector
+    // working with the plugin... why did you reinvent the wheel?". WireResourcePickerCallbacks is
+    // registered lazily, once, the first time this section is actually selected - E29 has no way to
+    // reach plugin_tab's own instance ahead of time (it's created generically inside assert_browser's
+    // own tab list), so "wire on first use" is the only hook point available, not a startup call.
     AsserBrowser.m_ExtraPluginTabSections.push_back(
     {
         "Scripting",
-        [&ProjectSettingsInspector, &ProjectPath]()
+        [](xproperty::inspector& Inspector)
         {
-            if (ImGui::Button("Save"))
-            {
-                if (auto Err = e29::SaveScriptConfig(ProjectPath, e29::g_ScriptConfig); Err)
-                    e29::Debugger(std::format("Failed to save Script.config.txt: {}", Err.getMessage()));
-            }
-            ImGui::Separator();
+            static bool bWired = false;
+            if (!bWired) { e29::WireResourcePickerCallbacks(Inspector); bWired = true; }
 
-            ProjectSettingsInspector.clear();
-            ProjectSettingsInspector.AppendEntity();
-            ProjectSettingsInspector.AppendEntityComponent(*xproperty::getObjectByType<e29::script_config>(), &e29::g_ScriptConfig);
+            // REAL BUG FOUND LIVE (2026-09-19): rebuilding (clear/AppendEntity/AppendEntityComponent)
+            // on EVERY frame - not just when the data actually changed - makes every widget's ImGui id
+            // unstable, so a tree node's own open/closed state can never persist between frames; the
+            // ModuleRefs array node fought itself and flickered continuously the instant it was
+            // expanded. Same documented failure mode as xproperty_inspector_must_persist_across_frames/
+            // xgpu_imgui_per_frame_rebuild_activeid_bug - rebuild ONLY when s_BuiltWith says the
+            // structure is stale (first render, or the data changed since the frame that built it,
+            // whether from this same UI or an external CLI command), never unconditionally.
+            static std::vector<xresource::full_guid> s_BuiltWith;
+            if (e29::g_ScriptConfig.m_ModuleRefs != s_BuiltWith)
+            {
+                Inspector.clear();
+                Inspector.AppendEntity();
+                Inspector.AppendEntityComponent(*xproperty::getObjectByType<e29::script_config>(), &e29::g_ScriptConfig);
+            }
+
+            // Separate, frame-local snapshot - did THIS ShowEmbedded call itself edit the array (an
+            // insert/delete/reassign via the array's own controls)? Distinct from the staleness check
+            // above, which would otherwise misfire a save on the very first render of an already-
+            // populated list (stale-vs-s_BuiltWith is true then too, but nothing was actually edited).
+            const auto BeforeThisRender = e29::g_ScriptConfig.m_ModuleRefs;
 
             xproperty::settings::context Context;
-            ProjectSettingsInspector.ShowEmbedded(Context);
+            Inspector.ShowEmbedded(Context);
+
+            if (e29::g_ScriptConfig.m_ModuleRefs != BeforeThisRender)
+            {
+                if (auto Err = e29::SaveScriptConfig(e10::g_LibMgr.m_ProjectPath, e29::g_ScriptConfig); Err)
+                    e29::Debugger(std::format("Failed to save Script.config.txt: {}", Err.getMessage()));
+                e29::RegenerateGameModuleSources();
+            }
+            s_BuiltWith = e29::g_ScriptConfig.m_ModuleRefs;
         }
     });
 

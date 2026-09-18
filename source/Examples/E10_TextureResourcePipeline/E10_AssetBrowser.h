@@ -1236,8 +1236,15 @@ namespace e10
         // every other optional hook on this struct. Empty for every consumer except E29.
         struct extra_tree_section
         {
-            std::string           m_Label;
-            std::function<void()> m_OnRenderRightPanel;
+            std::string m_Label;
+            // Passed the CALLING plugin_tab's own inherited xproperty::inspector (up-cast to its
+            // base) - plugin_tab already IS-A xproperty::inspector for exactly this kind of
+            // rendering (its own selected-plugin properties use it too, mutually exclusive per
+            // frame with this hook - see plugin_tab::RightPanel()), so a consumer never needs its
+            // own separate instance. Direct user correction: an earlier pass here had E29 carry a
+            // second, redundant xproperty::inspector for no reason - "you have one inspector
+            // working with the plugin... why did you reinvent the wheel?"
+            std::function<void(xproperty::inspector&)> m_OnRenderRightPanel;
         };
         std::vector<extra_tree_section> m_ExtraPluginTabSections = {};
     };

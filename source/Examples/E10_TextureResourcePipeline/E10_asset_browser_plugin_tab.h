@@ -180,7 +180,7 @@ namespace e10
             if (m_SelectedExtraIndex >= 0 && m_SelectedExtraIndex < static_cast<int>(m_Browser.m_ExtraPluginTabSections.size()))
             {
                 if (ImGui::BeginChild("ExtraSection", ImGui::GetContentRegionAvail()))
-                    m_Browser.m_ExtraPluginTabSections[m_SelectedExtraIndex].m_OnRenderRightPanel();
+                    m_Browser.m_ExtraPluginTabSections[m_SelectedExtraIndex].m_OnRenderRightPanel(*this);
                 ImGui::EndChild();
                 return;
             }

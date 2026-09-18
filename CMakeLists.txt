@@ -578,8 +578,22 @@ if(XECS_BUILD_SHARED_LIBRARY)
   # include-directory list as xECSV2 above (it directly includes xecs.h and uses XPROPERTY_DEF/
   # XPROPERTY_REG) and links against xECSV2 so its RegisterComponents<T>() calls mutate the SAME
   # shared registry the host does, not a disconnected copy.
+  #
+  # Script-Module build membership (Project Settings' "Scripting" section) - E29_Game_Modules.cmake
+  # is a machine-generated fragment (E29_GameModuleSources.h's own RegenerateGameModuleSources(),
+  # regenerated on every AddProjectModuleReference/RemoveProjectModuleReference and once at project
+  # load) defining E29_GAME_MODULE_SOURCES from the project's own referenced modules' source_db
+  # files, plus a source_group(TREE ...) per module so Visual Studio's Solution Explorer shows one
+  # folder per module. include()'d rather than hand-maintained here so future module-list changes
+  # never touch THIS file again. Optional - a fresh checkout with no project open yet, or a project
+  # with zero module references, has no fragment at all.
+  set(E29_GAME_MODULE_SOURCES "")
+  if(EXISTS "${CMAKE_SOURCE_DIR}/source/Examples/E29_LevelSceneEditor/GameProject/E29_Game_Modules.cmake")
+    include("${CMAKE_SOURCE_DIR}/source/Examples/E29_LevelSceneEditor/GameProject/E29_Game_Modules.cmake")
+  endif()
   add_library(E29_Game SHARED
     "source/Examples/E29_LevelSceneEditor/GameProject/E29_Game.cpp"
+    ${E29_GAME_MODULE_SOURCES}
     # Own private copy of xtextfile's platform backend - see the main XGPU_SOURCES list's own
     # comment on xtextfile.cpp for why every consumer needs this (no shared-state concern, unlike
     # xecs.cpp). A trivial game .cpp with no serialization calls of its own still needs this: any

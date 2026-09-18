@@ -13,6 +13,8 @@
 // command_base shape in E29_Commands_AssetBrowser.h, since adding/removing a source file is the
 // same kind of reversible content operation, not a real external round-trip).
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetBrowser.h"
+#include "source/Examples/E29_LevelSceneEditor/kit/E29_ProjectScriptConfig.h"
+#include "source/Examples/E29_LevelSceneEditor/plugin/E29_GameModuleSources.h"
 #include <fstream>
 
 namespace e29::commands
@@ -81,6 +83,7 @@ namespace e29::commands
             std::ofstream Out(FilePath, std::ios::binary);
             if (!Out.is_open()) return "AddScriptSourceFile: failed to create the file";
             Out.close();
+            RegenerateGameModuleSources();
             return {};
         }
 
@@ -110,6 +113,7 @@ namespace e29::commands
             if (SourceDb.empty()) return;
             std::error_code Ec;
             std::filesystem::remove(SourceDb + L"\\" + FileName, Ec);
+            RegenerateGameModuleSources();
         }
 
         xcmdline::parser::handle m_hLibrary, m_hAsset, m_hFileName;
@@ -150,6 +154,7 @@ namespace e29::commands
             std::error_code Ec;
             std::filesystem::remove(SourceDb + L"\\" + FileName, Ec);
             if (Ec) return "RemoveScriptSourceFile: failed to delete the file";
+            RegenerateGameModuleSources();
             return {};
         }
 
@@ -200,6 +205,7 @@ namespace e29::commands
             std::filesystem::create_directories(SourceDb, Ec);
             std::ofstream Out(SourceDb + L"\\" + FileName, std::ios::binary);
             if (Out.is_open()) Out.write(Content.data(), static_cast<std::streamsize>(Content.size()));
+            RegenerateGameModuleSources();
         }
 
         xcmdline::parser::handle m_hLibrary, m_hAsset, m_hFileName;
@@ -243,6 +249,334 @@ namespace e29::commands
         }
 
         xcmdline::parser::handle m_hLibrary, m_hAsset;
+    };
+
+    //================================================================================================
+    // SetScriptSourceFileContent - overwrites an EXISTING source_db file's content wholesale
+    // (undoable - previous content snapshotted, same shape as RemoveScriptSourceFile's own backup).
+    // The file itself must already exist (AddScriptSourceFile first) - this only ever changes bytes,
+    // never the file LIST, so it deliberately does NOT call RegenerateGameModuleSources(): a content-
+    // only edit needs no cmake reconfigure, MSBuild picks up the changed timestamp on its own next
+    // build (same "reconfigure only when the file list changes" rule the whole build integration
+    // already follows). This is the ONLY command-bus path to actually write real code into a module -
+    // without it an AI would have to bypass the undo system entirely to author anything.
+    //================================================================================================
+    struct set_script_source_file_content_cmd : xundo::command_base
+    {
+        set_script_source_file_content_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "SetScriptSourceFileContent", pDataBase) { RegisterArguments(); }
+        const char* getCommandHelp() const noexcept override { return "Overwrites an existing source_db file's content (undoable - restores prior content). Usage: SetScriptSourceFileContent -Library hexguid -Asset assetguid -FileName base64 -Content base64"; }
+        void RegisterArguments() noexcept override
+        {
+            m_hLibrary  = m_Parser.addOption("Library",  "Library instance guid, 16 hex digits", true, 1);
+            m_hAsset    = m_Parser.addOption("Asset",    "Scripting asset guid, 32 hex digits",  true, 1);
+            m_hFileName = m_Parser.addOption("FileName", "File name (e.g. \"Foo.cpp\"), Base64",  true, 1);
+            m_hContent  = m_Parser.addOption("Content",  "New file content, Base64",              true, 1);
+        }
+
+        std::string Redo() noexcept override
+        {
+            auto LibraryArg  = m_Parser.getOptionArgAs<std::string>(m_hLibrary, 0);
+            auto AssetArg    = m_Parser.getOptionArgAs<std::string>(m_hAsset, 0);
+            auto FileNameArg = m_Parser.getOptionArgAs<std::string>(m_hFileName, 0);
+            auto ContentArg  = m_Parser.getOptionArgAs<std::string>(m_hContent, 0);
+            if (std::holds_alternative<xerr>(LibraryArg) || std::holds_alternative<xerr>(AssetArg) || std::holds_alternative<xerr>(FileNameArg) || std::holds_alternative<xerr>(ContentArg))
+                return "SetScriptSourceFileContent: bad arguments";
+
+            const auto LibraryGuid = ParseLibraryGuid(std::get<std::string>(LibraryArg));
+            const auto AssetGuid   = ParseAssetGuid(std::get<std::string>(AssetArg));
+            const auto FileName    = DecodeAssetPath(std::get<std::string>(FileNameArg));
+            const auto Content     = Base64Decode(std::get<std::string>(ContentArg));
+
+            const auto SourceDb = ScriptSourceDbFolder(LibraryGuid, AssetGuid);
+            if (SourceDb.empty()) return "SetScriptSourceFileContent: asset not found";
+
+            const auto FilePath = SourceDb + L"\\" + FileName;
+            std::error_code Ec;
+            if (!std::filesystem::exists(FilePath, Ec)) return "SetScriptSourceFileContent: no such file - AddScriptSourceFile first";
+
+            std::ofstream Out(FilePath, std::ios::binary | std::ios::trunc);
+            if (!Out.is_open()) return "SetScriptSourceFileContent: failed to open the file for writing";
+            Out.write(Content.data(), static_cast<std::streamsize>(Content.size()));
+            return {};
+        }
+
+        void BackupCurrenState(xundo::undo_file& File) noexcept override
+        {
+            auto LibraryArg  = m_Parser.getOptionArgAs<std::string>(m_hLibrary, 0);
+            auto AssetArg    = m_Parser.getOptionArgAs<std::string>(m_hAsset, 0);
+            auto FileNameArg = m_Parser.getOptionArgAs<std::string>(m_hFileName, 0);
+
+            const std::uint64_t Library = std::holds_alternative<xerr>(LibraryArg) ? 0 : std::strtoull(std::get<std::string>(LibraryArg).c_str(), nullptr, 16);
+            File.Write(Library);
+            WriteString(File, std::holds_alternative<xerr>(AssetArg) ? std::string(32, '0') : std::get<std::string>(AssetArg));
+            WriteString(File, std::holds_alternative<xerr>(FileNameArg) ? std::string() : std::get<std::string>(FileNameArg));
+
+            std::string PrevContent;
+            if (!std::holds_alternative<xerr>(LibraryArg) && !std::holds_alternative<xerr>(AssetArg) && !std::holds_alternative<xerr>(FileNameArg))
+            {
+                const auto LibraryGuid = ParseLibraryGuid(std::get<std::string>(LibraryArg));
+                const auto AssetGuid   = ParseAssetGuid(std::get<std::string>(AssetArg));
+                const auto FileName    = DecodeAssetPath(std::get<std::string>(FileNameArg));
+                const auto SourceDb    = ScriptSourceDbFolder(LibraryGuid, AssetGuid);
+                if (!SourceDb.empty())
+                {
+                    std::ifstream In(SourceDb + L"\\" + FileName, std::ios::binary);
+                    if (In.is_open())
+                        PrevContent.assign((std::istreambuf_iterator<char>(In)), std::istreambuf_iterator<char>());
+                }
+            }
+            WriteString(File, PrevContent);
+        }
+
+        void Undo(xundo::undo_file& File) noexcept override
+        {
+            std::uint64_t Library = 0; File.Read(Library);
+            const std::string Asset        = ReadString(File);
+            const std::string FileNameB64  = ReadString(File);
+            const std::string PrevContent  = ReadString(File);
+
+            const auto LibraryGuid = ParseLibraryGuid(std::format("{:016X}", Library));
+            const auto AssetGuid   = ParseAssetGuid(Asset);
+            const auto FileName    = DecodeAssetPath(FileNameB64);
+
+            const auto SourceDb = ScriptSourceDbFolder(LibraryGuid, AssetGuid);
+            if (SourceDb.empty()) return;
+            std::ofstream Out(SourceDb + L"\\" + FileName, std::ios::binary | std::ios::trunc);
+            if (Out.is_open()) Out.write(PrevContent.data(), static_cast<std::streamsize>(PrevContent.size()));
+        }
+
+        xcmdline::parser::handle m_hLibrary, m_hAsset, m_hFileName, m_hContent;
+    };
+
+    //================================================================================================
+    // RenameScriptSourceFile - renames a file within a Scripting resource's own source_db folder
+    // (undoable). Changes the file LIST (not just content), so - unlike SetScriptSourceFileContent -
+    // this DOES call RegenerateGameModuleSources() on both Redo and Undo.
+    //================================================================================================
+    struct rename_script_source_file_cmd : xundo::command_base
+    {
+        rename_script_source_file_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "RenameScriptSourceFile", pDataBase) { RegisterArguments(); }
+        const char* getCommandHelp() const noexcept override { return "Renames a file under a Scripting resource's own source_db folder (undoable). Usage: RenameScriptSourceFile -Library hexguid -Asset assetguid -OldFileName base64 -NewFileName base64"; }
+        void RegisterArguments() noexcept override
+        {
+            m_hLibrary     = m_Parser.addOption("Library",     "Library instance guid, 16 hex digits",    true, 1);
+            m_hAsset       = m_Parser.addOption("Asset",       "Scripting asset guid, 32 hex digits",     true, 1);
+            m_hOldFileName = m_Parser.addOption("OldFileName", "Current file name, Base64",                true, 1);
+            m_hNewFileName = m_Parser.addOption("NewFileName", "New file name, Base64",                    true, 1);
+        }
+
+        std::string Redo() noexcept override
+        {
+            auto LibraryArg = m_Parser.getOptionArgAs<std::string>(m_hLibrary, 0);
+            auto AssetArg   = m_Parser.getOptionArgAs<std::string>(m_hAsset, 0);
+            auto OldArg     = m_Parser.getOptionArgAs<std::string>(m_hOldFileName, 0);
+            auto NewArg     = m_Parser.getOptionArgAs<std::string>(m_hNewFileName, 0);
+            if (std::holds_alternative<xerr>(LibraryArg) || std::holds_alternative<xerr>(AssetArg) || std::holds_alternative<xerr>(OldArg) || std::holds_alternative<xerr>(NewArg))
+                return "RenameScriptSourceFile: bad arguments";
+
+            const auto LibraryGuid = ParseLibraryGuid(std::get<std::string>(LibraryArg));
+            const auto AssetGuid   = ParseAssetGuid(std::get<std::string>(AssetArg));
+            const auto OldName     = DecodeAssetPath(std::get<std::string>(OldArg));
+            const auto NewName     = DecodeAssetPath(std::get<std::string>(NewArg));
+
+            const auto SourceDb = ScriptSourceDbFolder(LibraryGuid, AssetGuid);
+            if (SourceDb.empty()) return "RenameScriptSourceFile: asset not found";
+
+            std::error_code Ec;
+            if (!std::filesystem::exists(SourceDb + L"\\" + OldName, Ec)) return "RenameScriptSourceFile: no such file";
+            if (std::filesystem::exists(SourceDb + L"\\" + NewName, Ec)) return "RenameScriptSourceFile: a file with that name already exists";
+
+            std::filesystem::rename(SourceDb + L"\\" + OldName, SourceDb + L"\\" + NewName, Ec);
+            if (Ec) return "RenameScriptSourceFile: rename failed";
+            RegenerateGameModuleSources();
+            return {};
+        }
+
+        void BackupCurrenState(xundo::undo_file& File) noexcept override
+        {
+            auto LibraryArg = m_Parser.getOptionArgAs<std::string>(m_hLibrary, 0);
+            auto AssetArg   = m_Parser.getOptionArgAs<std::string>(m_hAsset, 0);
+            auto OldArg     = m_Parser.getOptionArgAs<std::string>(m_hOldFileName, 0);
+            auto NewArg     = m_Parser.getOptionArgAs<std::string>(m_hNewFileName, 0);
+
+            const std::uint64_t Library = std::holds_alternative<xerr>(LibraryArg) ? 0 : std::strtoull(std::get<std::string>(LibraryArg).c_str(), nullptr, 16);
+            File.Write(Library);
+            WriteString(File, std::holds_alternative<xerr>(AssetArg) ? std::string(32, '0') : std::get<std::string>(AssetArg));
+            WriteString(File, std::holds_alternative<xerr>(OldArg) ? std::string() : std::get<std::string>(OldArg));
+            WriteString(File, std::holds_alternative<xerr>(NewArg) ? std::string() : std::get<std::string>(NewArg));
+        }
+
+        void Undo(xundo::undo_file& File) noexcept override
+        {
+            std::uint64_t Library = 0; File.Read(Library);
+            const std::string Asset  = ReadString(File);
+            const std::string OldB64 = ReadString(File);
+            const std::string NewB64 = ReadString(File);
+
+            const auto LibraryGuid = ParseLibraryGuid(std::format("{:016X}", Library));
+            const auto AssetGuid   = ParseAssetGuid(Asset);
+            const auto OldName     = DecodeAssetPath(OldB64);
+            const auto NewName     = DecodeAssetPath(NewB64);
+
+            const auto SourceDb = ScriptSourceDbFolder(LibraryGuid, AssetGuid);
+            if (SourceDb.empty()) return;
+            std::error_code Ec;
+            std::filesystem::rename(SourceDb + L"\\" + NewName, SourceDb + L"\\" + OldName, Ec);
+            RegenerateGameModuleSources();
+        }
+
+        xcmdline::parser::handle m_hLibrary, m_hAsset, m_hOldFileName, m_hNewFileName;
+    };
+
+    //================================================================================================
+    // AddProjectModuleReference / RemoveProjectModuleReference - the project's own build-membership
+    // list (Project.config\Script.config.txt's ModuleRefs, see E29_ProjectScriptConfig.h). Persisted
+    // immediately on every Redo/Undo, same convention AddLibraryDependency/RemoveLibraryDependency
+    // already use (E29_Commands_LibraryDependency.h) - no separate "Save" step. No cycle/orphan
+    // checks here (unlike library dependencies) - this is a flat membership list, not a graph edge; a
+    // module-to-module dependency graph (if/when that's built) is a separate, later concern.
+    //================================================================================================
+    struct add_project_module_reference_cmd : xundo::command_base
+    {
+        add_project_module_reference_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "AddProjectModuleReference", pDataBase) { RegisterArguments(); }
+        const char* getCommandHelp() const noexcept override { return "Adds a Script-Module resource to the project's build membership list (undoable, persisted immediately). Usage: AddProjectModuleReference -Module assetguid"; }
+        void RegisterArguments() noexcept override
+        {
+            m_hModule = m_Parser.addOption("Module", "Script-Module asset guid, 32 hex digits", true, 1);
+        }
+
+        std::string Redo() noexcept override
+        {
+            auto ModuleArg = m_Parser.getOptionArgAs<std::string>(m_hModule, 0);
+            if (std::holds_alternative<xerr>(ModuleArg)) return "AddProjectModuleReference: bad arguments";
+
+            const auto ModuleGuid = ParseAssetGuid(std::get<std::string>(ModuleArg));
+            auto& Refs = g_ScriptConfig.m_ModuleRefs;
+            if (std::find(Refs.begin(), Refs.end(), ModuleGuid) != Refs.end()) return {};
+
+            Refs.push_back(ModuleGuid);
+            if (auto Err = SaveScriptConfig(e10::g_LibMgr.m_ProjectPath, g_ScriptConfig); Err)
+                return std::format("AddProjectModuleReference: {}", Err.getMessage());
+            RegenerateGameModuleSources();
+            return {};
+        }
+
+        void BackupCurrenState(xundo::undo_file& File) noexcept override
+        {
+            auto ModuleArg = m_Parser.getOptionArgAs<std::string>(m_hModule, 0);
+            WriteString(File, std::holds_alternative<xerr>(ModuleArg) ? std::string(32, '0') : std::get<std::string>(ModuleArg));
+        }
+
+        void Undo(xundo::undo_file& File) noexcept override
+        {
+            const auto ModuleGuid = ParseAssetGuid(ReadString(File));
+            auto& Refs = g_ScriptConfig.m_ModuleRefs;
+            if (auto It = std::find(Refs.begin(), Refs.end(), ModuleGuid); It != Refs.end())
+                Refs.erase(It);
+            SaveScriptConfig(e10::g_LibMgr.m_ProjectPath, g_ScriptConfig);
+            RegenerateGameModuleSources();
+        }
+
+        xcmdline::parser::handle m_hModule;
+    };
+
+    struct remove_project_module_reference_cmd : xundo::command_base
+    {
+        remove_project_module_reference_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "RemoveProjectModuleReference", pDataBase) { RegisterArguments(); }
+        const char* getCommandHelp() const noexcept override { return "Removes a Script-Module resource from the project's build membership list (undoable, persisted immediately). Usage: RemoveProjectModuleReference -Module assetguid"; }
+        void RegisterArguments() noexcept override
+        {
+            m_hModule = m_Parser.addOption("Module", "Script-Module asset guid, 32 hex digits", true, 1);
+        }
+
+        std::string Redo() noexcept override
+        {
+            auto ModuleArg = m_Parser.getOptionArgAs<std::string>(m_hModule, 0);
+            if (std::holds_alternative<xerr>(ModuleArg)) return "RemoveProjectModuleReference: bad arguments";
+
+            const auto ModuleGuid = ParseAssetGuid(std::get<std::string>(ModuleArg));
+            auto& Refs = g_ScriptConfig.m_ModuleRefs;
+            auto It = std::find(Refs.begin(), Refs.end(), ModuleGuid);
+            if (It == Refs.end()) return "RemoveProjectModuleReference: not a project module reference";
+
+            Refs.erase(It);
+            if (auto Err = SaveScriptConfig(e10::g_LibMgr.m_ProjectPath, g_ScriptConfig); Err)
+                return std::format("RemoveProjectModuleReference: {}", Err.getMessage());
+            RegenerateGameModuleSources();
+            return {};
+        }
+
+        void BackupCurrenState(xundo::undo_file& File) noexcept override
+        {
+            auto ModuleArg = m_Parser.getOptionArgAs<std::string>(m_hModule, 0);
+            std::uint32_t Index = 0;
+            if (!std::holds_alternative<xerr>(ModuleArg))
+            {
+                const auto ModuleGuid = ParseAssetGuid(std::get<std::string>(ModuleArg));
+                auto& Refs = g_ScriptConfig.m_ModuleRefs;
+                if (auto It = std::find(Refs.begin(), Refs.end(), ModuleGuid); It != Refs.end())
+                    Index = static_cast<std::uint32_t>(std::distance(Refs.begin(), It));
+            }
+            WriteString(File, std::holds_alternative<xerr>(ModuleArg) ? std::string(32, '0') : std::get<std::string>(ModuleArg));
+            File.Write(Index);
+        }
+
+        void Undo(xundo::undo_file& File) noexcept override
+        {
+            const auto ModuleGuid = ParseAssetGuid(ReadString(File));
+            std::uint32_t Index = 0; File.Read(Index);
+
+            auto& Refs = g_ScriptConfig.m_ModuleRefs;
+            if (std::find(Refs.begin(), Refs.end(), ModuleGuid) == Refs.end())
+            {
+                const auto Idx = std::min<std::size_t>(Index, Refs.size());
+                Refs.insert(Refs.begin() + static_cast<std::ptrdiff_t>(Idx), ModuleGuid);
+            }
+            SaveScriptConfig(e10::g_LibMgr.m_ProjectPath, g_ScriptConfig);
+            RegenerateGameModuleSources();
+        }
+
+        xcmdline::parser::handle m_hModule;
+    };
+
+    //================================================================================================
+    // ListProjectModuleReferences - the project's current build-membership list, one guid per line.
+    // Discovery command, same "never need to read a raw file by hand" reasoning every other list
+    // command in this system was built for.
+    //================================================================================================
+    struct list_project_module_references_query_cmd : xundo::query_command_base
+    {
+        list_project_module_references_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "ListProjectModuleReferences", pDataBase) { RegisterArguments(); }
+        const char* getCommandHelp() const noexcept override { return "Lists the project's current Script-Module build-membership list. Usage: ListProjectModuleReferences"; }
+        void RegisterArguments() noexcept override {}
+
+        std::string Query() noexcept override
+        {
+            if (g_ScriptConfig.m_ModuleRefs.empty()) return "(empty)";
+            std::string Out;
+            for (auto& G : g_ScriptConfig.m_ModuleRefs)
+                Out += FormatAssetGuid(G) + "\n";
+            return Out;
+        }
+    };
+
+    //================================================================================================
+    // RegenerateProjectModuleSources - force-regenerates GameProject\E29_Game_Modules.cmake from the
+    // CURRENT build-membership list, on demand. Every mutating command in this file already triggers
+    // this as a side effect - this exists for recovery/debugging (e.g. after a raw file edit made
+    // outside the command bus) rather than any normal workflow needing to call it directly.
+    //================================================================================================
+    struct regenerate_project_module_sources_query_cmd : xundo::query_command_base
+    {
+        regenerate_project_module_sources_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "RegenerateProjectModuleSources", pDataBase) { RegisterArguments(); }
+        const char* getCommandHelp() const noexcept override { return "Force-regenerates the CMake module-sources fragment from the current build-membership list. Usage: RegenerateProjectModuleSources"; }
+        void RegisterArguments() noexcept override {}
+
+        std::string Query() noexcept override
+        {
+            RegenerateGameModuleSources();
+            return "RegenerateProjectModuleSources: regenerated";
+        }
     };
 }
 
