@@ -14,7 +14,7 @@ import os
 
 SCENE_GUID = os.environ.get("E29_SMOKE_SCENE", "08C298C9F6668005")
 # Default: same hex as the known scene fixture; override if ListLevels shows otherwise.
-LEVEL_GUID = os.environ.get("E29_SMOKE_LEVEL", SCENE_GUID)
+LEVEL_GUID = os.environ.get("E29_SMOKE_LEVEL", "C8C298C9F65C8003")
 PREFAB_GUID = os.environ.get("E29_SMOKE_PREFAB", "FFFF000200000001")
 # Root permanent_id for a fresh InstantiatePrefab (8 hex digits). Override if colliding.
 INSTANCE_ROOT_ID = os.environ.get("E29_SMOKE_INSTANCE_ROOT", "A1000001")

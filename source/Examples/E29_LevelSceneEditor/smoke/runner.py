@@ -50,7 +50,7 @@ class StepFailure(Exception):
 _ERROR_LINE = re.compile(
     r"(?im)^(?:Could not connect|Malformed command|"
     r"(?:OpenLevel|Close|CloseScene|Save|Undo|Redo|DeleteEntity|CreateEntity|"
-    r"InstantiatePrefab|ListEntities|ListScenes|ListLevels|DescribeEntity|"
+    r"InstantiatePrefab|RevertAllOverrides|RevertHierarchyOverrides|ApplyOverrides|ListEntities|ListScenes|ListLevels|DescribeEntity|"
     r"ListFolders|AddScene|RemoveScene)\s*:\s*(?!.*already open))"
 )
 

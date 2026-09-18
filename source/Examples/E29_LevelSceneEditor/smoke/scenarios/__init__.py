@@ -32,6 +32,7 @@ def _load(modname: str) -> Scenario:
 _MODULES = (
     "removed_child_persist",
     "removed_child_undo",
+    "revert_all",
 )
 
 
@@ -47,6 +48,8 @@ def get_scenario(name: str) -> Scenario:
         "persist": "removed_child_persist",
         "removed_child_undo": "removed_child_undo",
         "undo": "removed_child_undo",
+        "revert_all": "revert_all",
+        "revert": "revert_all",
     }
     mod = aliases.get(key, key)
     for s in all_scenarios():

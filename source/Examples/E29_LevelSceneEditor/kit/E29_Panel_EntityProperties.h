@@ -127,6 +127,16 @@ namespace e29
                                 e29::commands::Run(Undo, std::format("RevertHierarchyOverrides -Scene {} -Id {}", SceneHex, RootHex));
                             }
                         }
+                        if (!Ctx.m_pPI->m_lComponents.empty()
+                            || !Ctx.m_pPI->m_ComponentDiffs.empty()
+                            || !Ctx.m_pPI->m_HierarchyDiffs.empty())
+                        {
+                            ImGui::SameLine();
+                            if (ImGui::Button("Revert All Overrides"))
+                            {
+                                e29::commands::Run(Undo, std::format("RevertAllOverrides -Scene {} -Id {}", SceneHex, RootHex));
+                            }
+                        }
                     }
                 }
 
