@@ -502,31 +502,27 @@ namespace e29::commands
             // itself (a stale iterator used later for a revert-insert would be undefined behavior).
             const auto OriginalIndex = static_cast<std::size_t>(std::distance(Refs.begin(), It));
 
-            // Component-registry compatibility plan, Phase 5: warn before committing this removal if
-            // it MIGHT break a currently-open scene. Deliberately a static, instant check against the
-            // CURRENT live registry - not a live trial rebuild. An earlier version of this did a real
-            // trial compile (reusing Phase 3's Prepare/Probe/Discard trio) and reverted the removal on
-            // a genuine mismatch; live testing surfaced a real, deeper reliability gap in this
-            // project's own CMake/MSBuild incremental-build caching (confirmed independently of this
-            // command: even two back-to-back `cmake --build` invocations, and in one case an explicit
-            // `cmake -S -B` reconfigure immediately before the build, did not always produce an output
-            // DLL whose content matched the just-changed source-file list) - chasing that fully was a
-            // much larger, separate effort than this one check justified. Trading a hard guarantee for
-            // an honest heads-up: this can't promise the removal is safe, only that it flags the
-            // scenario worth checking, without a false sense of certainty from a build step that isn't
-            // reliable enough to hang a hard refusal on yet.
-            std::vector<xecs::scene::component_dependency> PluginOwnedNow;
+            // Component-registry compatibility plan, Phase 5 - RESTORED to its originally-designed
+            // strength (2026-09-19): a real trial rebuild-and-probe, reverting the removal on a
+            // genuine mismatch. An earlier version of this session descoped it to a static warning
+            // after live testing surfaced what looked like a CMake/MSBuild incremental-build
+            // reliability gap - since root-caused and fixed (BuildGamePluginIfStale now touches
+            // cmake_pch.cxx before every build - see that function's own comment for the full isolated
+            // repro/fix), so the trial rebuild this needs is trustworthy again. Verified live: 4
+            // consecutive module add/remove cycles through the real Play/reload path all correctly
+            // reflected the change afterward.
+            std::vector<xecs::scene::component_dependency> PluginOwnedBefore;
             if (g_pGamePlugin && g_pGamePlugin->m_hModule)
             {
                 game_plugin_candidate CurrentView{ g_pGamePlugin->m_hModule, {} };
-                PluginOwnedNow = ProbeCandidateComponents(CurrentView);
+                PluginOwnedBefore = ProbeCandidateComponents(CurrentView);
             }
 
             std::vector<xecs::scene::component_dependency> RequiredFromOpenScenes;
             if (g_pState)
             {
                 std::unordered_set<std::uint64_t> PluginOwnedGuids;
-                for (auto& D : PluginOwnedNow) PluginOwnedGuids.insert(D.m_Guid.m_Value);
+                for (auto& D : PluginOwnedBefore) PluginOwnedGuids.insert(D.m_Guid.m_Value);
 
                 for (auto& SceneGuid : g_pState->m_OpenScenes)
                     for (auto& Dep : xecs::scene::LoadSceneComponentDependencies(e10::g_LibMgr.m_ProjectPath, SceneGuid))
@@ -542,11 +538,55 @@ namespace e29::commands
             }
             RegenerateGameModuleSources();
 
-            if (!RequiredFromOpenScenes.empty())
+            // Only worth a real trial compile if removing this module could plausibly affect anything
+            // currently open - skip it entirely (the common case) rather than pay a compile for a
+            // guaranteed-safe removal.
+            if (!RequiredFromOpenScenes.empty() && g_pGamePlugin)
             {
-                std::string Names;
-                for (auto& Dep : RequiredFromOpenScenes) Names += (Names.empty() ? "" : ", ") + Dep.m_Name;
-                return std::format("RemoveProjectModuleReference: removed - WARNING: {} currently-open component(s) may depend on this module and were not independently verified: {}. Rebuild and check ListComponentTypes/DescribeEntity before relying on this.", RequiredFromOpenScenes.size(), Names);
+                // Wait for any in-flight ASYNC build already started elsewhere (window-focus-regain
+                // fires automatically - see StartGameReload's own comment) to finish first - a real
+                // race found live earlier this session: two concurrent `cmake --build` invocations
+                // against the same output DLL raced, and whichever finished last won regardless of
+                // which fragment it was building from. Safe to .wait() without .get()'ing it, since
+                // PollGameReload (the only other consumer) runs on this same main thread.
+                if (g_pGamePlugin->m_bBuilding) g_pGamePlugin->m_BuildFuture.wait();
+
+                const auto BuildResult = BuildGamePluginIfStale(*g_pGamePlugin, GetLatestModuleSourceWriteTime());
+                if (BuildResult == build_result::Rebuilt)
+                {
+                    const std::uint32_t TrialGeneration = g_pGamePlugin->m_Token.m_Generation + 1000000; // scratch-only, never Commit'ed
+                    auto Candidate = PrepareGamePluginCandidate(g_pGamePlugin->m_CompiledDllPath, TrialGeneration);
+                    if (Candidate.m_hModule)
+                    {
+                        const auto NewManifest = ProbeCandidateComponents(Candidate);
+                        std::unordered_set<std::uint64_t> Available;
+                        for (auto& D : NewManifest) Available.insert(D.m_Guid.m_Value);
+
+                        auto Missing = CheckComponentCompatibility(RequiredFromOpenScenes, [&](xecs::component::type::guid Guid) noexcept
+                        {
+                            return Available.contains(Guid.m_Value);
+                        });
+                        DiscardGamePluginCandidate(Candidate);
+
+                        if (!Missing.empty())
+                        {
+                            // Revert - put the reference back exactly as it was, re-persist, re-
+                            // regenerate the fragment so a LATER real reload rebuilds WITH the module
+                            // again (not the trial DLL this command just discarded).
+                            Refs.insert(Refs.begin() + static_cast<std::ptrdiff_t>(OriginalIndex), ModuleGuid);
+                            SaveScriptConfig(e10::g_LibMgr.m_ProjectPath, g_ScriptConfig);
+                            RegenerateGameModuleSources();
+
+                            std::string Names;
+                            for (auto& Dep : Missing) Names += (Names.empty() ? "" : ", ") + Dep.m_Name;
+                            return std::format("RemoveProjectModuleReference: refused - {} currently-open component(s) would break: {}", Missing.size(), Names);
+                        }
+                    }
+                }
+                // A build failure here (bad code elsewhere, unrelated to this removal) isn't this
+                // command's problem to solve - the removal already committed, same as it would have
+                // without this check at all; the existing reload machinery will surface the failure
+                // through its own normal path next time it runs.
             }
 
             return {};
