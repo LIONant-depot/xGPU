@@ -1192,6 +1192,15 @@ namespace e10
         std::function<void(library::guid, const std::wstring& /*RelativePath*/)> m_OnLockAssetFile;
         std::function<void(library::guid, const std::wstring& /*RelativePath*/)> m_OnUnlockAssetFile;
 
+        // Optional hook - "SC Revert" (discard local changes back to the last committed version) on
+        // either a single file OR a whole folder's worth of pending files, same shape/default-empty
+        // convention as m_OnLockAssetFile/m_OnUnlockAssetFile just above. RelativePath can name a
+        // FILE (only that exact path is reverted if pending) or a FOLDER (every currently-pending
+        // file under it is reverted in one batch) - the registered handler (today only E29) treats
+        // both the same way via a prefix match, so callers never need to say which kind they passed.
+        // Fire-and-forget; a path with nothing pending under it is expected to no-op safely.
+        std::function<void(library::guid, const std::wstring& /*RelativePath, file or folder*/)> m_OnRevertAssetPath;
+
         // Optional hooks - the library-level "Dependencies" sub-node's own mutations (a library's
         // ParentLibraries graph edges, mirroring scene dependencies - see the "Multi-library project
         // model" plan section). Default-empty means the Dependencies node still renders (read-only -

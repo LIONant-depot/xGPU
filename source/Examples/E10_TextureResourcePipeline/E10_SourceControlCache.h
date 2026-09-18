@@ -251,6 +251,21 @@ namespace e10::source_control
 
         return Result;
     }
+
+    // Every path currently pending (modified/untracked/conflicted/locked) under a given folder -
+    // the primitive a whole-resource "SC Revert" needs: sc::RevertRequest only takes an explicit
+    // file list (no directory pathspec), so a folder-scoped revert has to enumerate first. Reuses
+    // GetAllPendingChanges + the same KeyIsUnderPrefix the chunked-scan publisher already relies on,
+    // rather than inventing a second prefix-match rule.
+    inline std::vector<std::wstring> GetPendingPathsUnderFolder(const std::wstring& RootPath, const std::wstring& FolderRelativePath) noexcept
+    {
+        const auto Prefix = NormalizeKey(FolderRelativePath);
+        std::vector<std::wstring> Result;
+        for (auto& Entry : GetAllPendingChanges(RootPath))
+            if (KeyIsUnderPrefix(Entry.m_RelativePath, Prefix))
+                Result.push_back(Entry.m_RelativePath);
+        return Result;
+    }
 }
 
 #endif // E10_SOURCE_CONTROL_CACHE_H

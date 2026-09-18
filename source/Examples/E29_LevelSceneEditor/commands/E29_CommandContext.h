@@ -237,6 +237,36 @@ namespace e29::commands
         }
     }
 
+    // Same shape as Run() above, but for xundo::query_command_base-derived commands - a REAL,
+    // previously-latent bug found live-testing SC Revert: xundo::system keeps Edit commands
+    // (command_base, registered via RegisterCommand into m_Commands) and Query commands
+    // (query_command_base, registered via RegisterQueryCommand into a SEPARATE m_QueryCommands map)
+    // in two entirely separate registries, reached by two separate methods - System.Execute(Cmd) only
+    // ever searches m_Commands. Every SourceControl* command (Lock/Unlock/Revert/Stage/Commit/Pull/
+    // Push) is deliberately query_command_base (see E29_Commands_SourceControl.h's own top comment:
+    // "None of these belong in the local Undo/Redo history"), so calling them through plain Run()
+    // always failed with "Unable find the command" - silently, since nobody had actually clicked
+    // through Lock/Unlock or the Source Control tab's own "Undo Changes" button end-to-end before
+    // this session. Every UI call site invoking a SourceControl* command must use THIS helper, not
+    // Run() - see the E29_LevelScene_Editor.cpp/E29_Panel_LevelTree.h/E29_Panel_SourceControl.h call
+    // sites this same fix touched.
+    inline void RunQuery(xundo::system& System, const std::string& Cmd) noexcept
+    {
+        if (g_pConsoleLog) g_pConsoleLog->push_back({ Cmd, console_log_source::User });
+        if (auto Result = System.Query(Cmd); !Result.empty())
+        {
+            // Query() returning non-empty isn't necessarily an error (e.g. SourceControlStatus's own
+            // report), but every SourceControl*_query_cmd used from a UI hook returns a plain "OK"-
+            // shaped string on success ("Reverted N file(s)", "Locked", "Unlocked") and a
+            // "SourceControlXxx: ..." prefixed string on failure - log both to the same console
+            // history Run() already writes to (so a UI-driven Lock/Revert shows up there identically
+            // to a typed command), but only ALSO route to Debugger() when it reads as a failure.
+            if (g_pConsoleLog) g_pConsoleLog->push_back({ Result, console_log_source::System });
+            if (Result.find(": ") != std::string::npos || Result.starts_with("Unable") || Result.starts_with("Malformed"))
+                Debugger(std::format("E29: command failed: '{}' ({})", Cmd, Result));
+        }
+    }
+
     // Runs several commands as ONE undo/redo step, via xundo::system's own grouped Execute(group_name,
     // vector<string>) overload - direct user correction: "a 5-file delete should be 1 undo/redo step...
     // the operation should be grouped," and this codebase's own xundo already supports exactly that;

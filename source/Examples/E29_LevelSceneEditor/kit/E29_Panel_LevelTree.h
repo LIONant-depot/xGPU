@@ -123,11 +123,25 @@ namespace e29
     // Descriptor.txt -> strip the owning library's root) mirrors
     // E10_asset_browser_virtual_tree_tab.h's own tile-badge derivation exactly, so a Scene/Level's
     // badge here and its badge in the Asset Tree (if ever shown there) would always agree.
-    inline void RenderLevelTreeSourceControlBadge(const xresource::full_guid& ResourceGuid) noexcept
+    // A resource's resolved SC identity - which library owns it, that library's real root path, and
+    // both the single Descriptor.txt (status/lock badge granularity) and the whole containing .desc
+    // folder (revert granularity - info.txt/Descriptor.txt/dependencies.txt all live there) as
+    // library-root-relative keys. Factored out of what was RenderLevelTreeSourceControlBadge's own
+    // inline lookup so the new "SC Revert" menu items below can resolve the SAME target the badge
+    // itself represents, instead of re-deriving it a second time.
+    struct level_tree_sc_target
+    {
+        e10::library::guid m_Library;
+        std::wstring        m_RootPath;
+        std::wstring        m_DescriptorPath; // library-relative, e.g. "Descriptors\...\Descriptor.txt"
+        std::wstring        m_FolderPath;     // library-relative, the ".desc" folder containing it
+    };
+
+    inline std::optional<level_tree_sc_target> ResolveLevelTreeSourceControlTarget(const xresource::full_guid& ResourceGuid) noexcept
     {
         for (auto& Lib : e10::g_LibMgr.m_mLibraryDB)
         {
-            std::wstring DescriptorPath;
+            std::wstring FolderPath, DescriptorPath;
             // NOT noexcept - getNodeInfo's own function_traits deduction (E10_AssetMgr.h) doesn't
             // handle a noexcept lambda's operator() type (the established noexcept-lambda trait trap,
             // see memory xgpu_xcontainer_noexcept_lambda_trait_trap - recurs anywhere a lambda is
@@ -135,52 +149,145 @@ namespace e29
             const bool bFound = e10::g_LibMgr.getNodeInfo(Lib.first, ResourceGuid, [&](const e10::library_db::info_node& Node)
             {
                 const auto SlashPos = Node.m_Path.find_last_of(L'\\');
+                FolderPath     = (SlashPos == std::wstring::npos) ? Node.m_Path : Node.m_Path.substr(0, SlashPos);
                 DescriptorPath = (SlashPos == std::wstring::npos) ? Node.m_Path : (Node.m_Path.substr(0, SlashPos + 1) + L"Descriptor.txt");
                 const auto& LibRoot = Lib.second->m_Library.m_Path;
-                if (DescriptorPath.size() > LibRoot.size() && DescriptorPath.compare(0, LibRoot.size(), LibRoot) == 0)
+                auto StripRoot = [&](std::wstring& P) noexcept
                 {
-                    DescriptorPath = DescriptorPath.substr(LibRoot.size());
-                    while (!DescriptorPath.empty() && (DescriptorPath.front() == L'\\' || DescriptorPath.front() == L'/'))
-                        DescriptorPath.erase(DescriptorPath.begin());
-                }
+                    if (P.size() > LibRoot.size() && P.compare(0, LibRoot.size(), LibRoot) == 0)
+                    {
+                        P = P.substr(LibRoot.size());
+                        while (!P.empty() && (P.front() == L'\\' || P.front() == L'/'))
+                            P.erase(P.begin());
+                    }
+                };
+                StripRoot(FolderPath);
+                StripRoot(DescriptorPath);
             });
             if (!bFound) continue;
 
             const auto RootPath = e29::commands::ResolveLibraryRootPath(Lib.first);
-            if (RootPath.empty()) return;
+            if (RootPath.empty()) return std::nullopt;
 
-            e10::asset_status_badge StatusBadge = e10::asset_status_badge::None;
-            if (auto Status = e10::source_control::GetCachedFileStatus(RootPath, DescriptorPath))
-                StatusBadge = Status->untracked ? e10::asset_status_badge::Untracked : e10::asset_status_badge::Modified;
-            else if (e10::source_control::GetLastRefreshTime(RootPath))
-                StatusBadge = e10::asset_status_badge::Clean;
+            return level_tree_sc_target{ Lib.first, RootPath, DescriptorPath, FolderPath };
+        }
+        return std::nullopt;
+    }
 
-            e10::asset_lock_badge LockBadge = e10::asset_lock_badge::None;
-            if (auto Lock = e10::source_control::GetCachedLockStatus(RootPath, DescriptorPath))
-                LockBadge = (Lock->ownership == sc::LockOwnership::CurrentUser) ? e10::asset_lock_badge::LockedByMe : e10::asset_lock_badge::LockedByOther;
+    inline void RenderLevelTreeSourceControlBadge(const xresource::full_guid& ResourceGuid) noexcept
+    {
+        const auto Target = ResolveLevelTreeSourceControlTarget(ResourceGuid);
+        if (!Target) return;
 
-            if (StatusBadge == e10::asset_status_badge::None && LockBadge == e10::asset_lock_badge::None) return;
+        e10::asset_status_badge StatusBadge = e10::asset_status_badge::None;
+        if (auto Status = e10::source_control::GetCachedFileStatus(Target->m_RootPath, Target->m_DescriptorPath))
+            StatusBadge = Status->untracked ? e10::asset_status_badge::Untracked : e10::asset_status_badge::Modified;
+        else if (e10::source_control::GetLastRefreshTime(Target->m_RootPath))
+            StatusBadge = e10::asset_status_badge::Clean;
 
-            constexpr float BadgeSize = 12.0f; // matches E10_asset_browser_virtual_tree_tab.h/files_tab's own badge size - direct user correction, never asked to change the icon size
-            const ImVec2 CellMin  = ImGui::GetCursorScreenPos();
-            const ImVec2 CellSize = ImGui::GetContentRegionAvail();
-            const ImVec2 Center{ CellMin.x + CellSize.x * 0.5f, CellMin.y + ImGui::GetTextLineHeight() * 0.5f };
-            e10::DrawSourceControlBadge(ImGui::GetWindowDrawList(), Center, BadgeSize, StatusBadge, LockBadge);
+        e10::asset_lock_badge LockBadge = e10::asset_lock_badge::None;
+        if (auto Lock = e10::source_control::GetCachedLockStatus(Target->m_RootPath, Target->m_DescriptorPath))
+            LockBadge = (Lock->ownership == sc::LockOwnership::CurrentUser) ? e10::asset_lock_badge::LockedByMe : e10::asset_lock_badge::LockedByOther;
 
-            // Invisible placeholder so the cell has a real item (row-height/clip participation) and a
-            // hover target for the tooltip - the badge itself is drawn via raw ImDrawList primitives,
-            // which never register as hoverable on their own.
-            ImGui::Dummy(ImVec2(BadgeSize, ImGui::GetTextLineHeight()));
-            if (ImGui::IsItemHovered())
+        if (StatusBadge == e10::asset_status_badge::None && LockBadge == e10::asset_lock_badge::None) return;
+
+        constexpr float BadgeSize = 12.0f; // matches E10_asset_browser_virtual_tree_tab.h/files_tab's own badge size - direct user correction, never asked to change the icon size
+        const ImVec2 CellMin  = ImGui::GetCursorScreenPos();
+        const ImVec2 CellSize = ImGui::GetContentRegionAvail();
+        const ImVec2 Center{ CellMin.x + CellSize.x * 0.5f, CellMin.y + ImGui::GetTextLineHeight() * 0.5f };
+        e10::DrawSourceControlBadge(ImGui::GetWindowDrawList(), Center, BadgeSize, StatusBadge, LockBadge);
+
+        // Invisible placeholder so the cell has a real item (row-height/clip participation) and a
+        // hover target for the tooltip - the badge itself is drawn via raw ImDrawList primitives,
+        // which never register as hoverable on their own.
+        ImGui::Dummy(ImVec2(BadgeSize, ImGui::GetTextLineHeight()));
+        if (ImGui::IsItemHovered())
+        {
+            const char* Title = ""; const char* Desc = "";
+            e10::GetSourceControlTooltipText(StatusBadge, LockBadge, Title, Desc);
+            ImGui::BeginTooltip();
+            ImGui::Text("%s", Title);
+            ImGui::TextDisabled("%s", Desc);
+            ImGui::EndTooltip();
+        }
+    }
+
+    // Deferred SC-Revert confirm request - a real Dear ImGui pitfall found live-testing this feature:
+    // OpenPopup+BeginPopupModal called from INSIDE a row's own BeginPopupContextItem block only
+    // renders successfully the SAME frame the MenuItem was clicked - on the VERY NEXT frame, that
+    // row's own context-menu block is no longer entered (the right-click menu already closed), so
+    // the nested BeginPopupModal call never runs, and Dear ImGui treats an OpenPopup'd id as
+    // abandoned if nothing calls its matching Begin* the following frame - the modal flashed for
+    // exactly one frame and vanished before any screenshot could ever catch it. Fix: the MenuItem
+    // only records a REQUEST here; the actual OpenPopup/BeginPopupModal pair lives in
+    // RenderLevelTreeSCRevertConfirmModal below, called from ONE stable, always-reached point
+    // (RenderLevelTreePanel's own end), matching Dear ImGui's own documented "Delete.." button demo
+    // idiom - a modal must be reachable every frame regardless of what triggered it.
+    struct level_tree_sc_revert_request
+    {
+        xresource::full_guid m_ResourceGuid{};
+        bool                  m_bWholeFolder = false;
+        std::string           m_WarningText;
+        bool                  m_bPending = false;
+    };
+    inline level_tree_sc_revert_request& LevelTreeSCRevertRequest() noexcept { static level_tree_sc_revert_request R; return R; }
+
+    // "SC Revert" menu item, shared by every Level Tree row that offers it (Entity/Prefab-Instance
+    // root, Scene, Level). `bWholeFolder`: false = revert exactly the single Descriptor.txt the
+    // row's own badge represents (Entity/Prefab-Instance - "should be simple", direct user framing);
+    // true = enumerate every currently-pending file under that resource's whole .desc folder and
+    // revert all of them in one command (Scene/Level - reverts entities/folders/dependencies
+    // together, since they all live inside that one Descriptor.txt, or a Level's info.txt/
+    // dependencies.txt alongside it) - warned via WarningText since the blast radius is much bigger
+    // than a single row.
+    inline void RenderLevelTreeSCRevertMenuItem(xundo::system& Undo, const xresource::full_guid& ResourceGuid, bool bWholeFolder, const char* WarningText) noexcept
+    {
+        const auto Target = ResolveLevelTreeSourceControlTarget(ResourceGuid);
+        const bool bModified = Target && e10::source_control::GetCachedFileStatus(Target->m_RootPath, Target->m_DescriptorPath).has_value();
+
+        if (ImGui::MenuItem("SC Revert...", nullptr, false, bModified))
+        {
+            auto& Req = LevelTreeSCRevertRequest();
+            Req.m_ResourceGuid = ResourceGuid;
+            Req.m_bWholeFolder = bWholeFolder;
+            Req.m_WarningText  = WarningText;
+            Req.m_bPending     = true;
+        }
+    }
+
+    // Called ONCE, unconditionally, near the end of RenderLevelTreePanel - see
+    // level_tree_sc_revert_request's own comment for why this can't live inline at each MenuItem.
+    inline void RenderLevelTreeSCRevertConfirmModal(xundo::system& Undo) noexcept
+    {
+        auto& Req = LevelTreeSCRevertRequest();
+        if (Req.m_bPending)
+        {
+            ImGui::OpenPopup("SC Revert##LevelTreeConfirm");
+            Req.m_bPending = false;
+        }
+        if (ImGui::BeginPopupModal("SC Revert##LevelTreeConfirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::TextUnformatted(Req.m_WarningText.c_str());
+            ImGui::Separator();
+            if (ImGui::Button("Discard Changes", ImVec2(160, 0)))
             {
-                const char* Title = ""; const char* Desc = "";
-                e10::GetSourceControlTooltipText(StatusBadge, LockBadge, Title, Desc);
-                ImGui::BeginTooltip();
-                ImGui::Text("%s", Title);
-                ImGui::TextDisabled("%s", Desc);
-                ImGui::EndTooltip();
+                if (const auto Target = ResolveLevelTreeSourceControlTarget(Req.m_ResourceGuid))
+                {
+                    // Shared tail (E29_Commands_SourceControl.h) with the Resources/Assets tabs' own
+                    // whole-folder revert - same enumerate-then-batch-revert primitive, not
+                    // reimplemented here. The single-file case is simple enough to stay inline.
+                    if (Req.m_bWholeFolder)
+                        e29::commands::RunRevertUnderFolder(Undo, Target->m_Library, Target->m_RootPath, Target->m_FolderPath);
+                    else
+                        e29::commands::RunQuery(Undo, std::format("SourceControlRevert -Library {} -Path {}"
+                            , e29::commands::FormatLibraryGuid(Target->m_Library), e29::commands::EncodeAssetPath(Target->m_DescriptorPath)));
+                }
+                ImGui::CloseCurrentPopup();
             }
-            return;
+            ImGui::SetItemDefaultFocus();
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
         }
     }
 
@@ -299,6 +406,17 @@ namespace e29
                     const std::string LevelLabelWithIcon = std::format("{} {}", e29::LevelIcon(), LevelLabel);
                     const bool bLevelOpen = ImGui::TreeNodeEx(LevelLabelWithIcon.c_str(), ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanFullWidth);
 
+                    // Right-click: whole-folder SC Revert - direct user request, item 3 ("The Level
+                    // will revert the level resource - everything in the folder of the resource").
+                    // The Level row had no context menu at all before this.
+                    if (ImGui::BeginPopupContextItem())
+                    {
+                        RenderLevelTreeSCRevertMenuItem(Undo, xresource::full_guid{ State.m_CurrentLevel.m_Instance, State.m_CurrentLevel.m_Type }
+                            , /*bWholeFolder*/ true
+                            , "Discard ALL local changes in this Level resource's folder (info.txt, Descriptor.txt, dependencies.txt)?\nThis cannot be undone.");
+                        ImGui::EndPopup();
+                    }
+
                     // DESCRIPTOR_GUID from Resources/asset browser:
                     //   Level  -> deferred to window-wide Custom target (full-panel highlight + OpenLevel)
                     //   Scene  -> AddScene to this Level (skips duplicates)
@@ -394,6 +512,16 @@ namespace e29
                                     ImGui::PopID();
                                     break; // pLevel->m_Scenes was just mutated mid-iteration
                                 }
+                                ImGui::Separator();
+                                // Whole-folder SC Revert - direct user request, item 2 ("revert all
+                                // the entities etc... this should come with a warning") - a Scene's
+                                // entities/folders/dependencies all live inside its one Descriptor.txt
+                                // (see RenderLevelTreeSourceControlBadge's own top comment), so this is
+                                // still a single-file revert, just with a bigger-blast-radius warning
+                                // than the Entity row's own (item 1).
+                                RenderLevelTreeSCRevertMenuItem(Undo, xresource::full_guid{ SceneGuid.m_Instance, SceneGuid.m_Type }
+                                    , /*bWholeFolder*/ true
+                                    , "Discard ALL local changes to this Scene (every entity, folder, and dependency edit)?\nThis cannot be undone.");
                                 ImGui::EndPopup();
                             }
 
@@ -645,6 +773,14 @@ namespace e29
                                                 }
                                                 ImGui::Separator();
                                                 if (ImGui::MenuItem("Delete Entity")) DoDeleteEntity();
+                                                ImGui::Separator();
+                                                // Single-file revert of exactly the resource this row's
+                                                // own badge represents (the Prefab, if this is a prefab-
+                                                // instance root; otherwise the owning Scene) - direct
+                                                // user request, item 1 ("should be simple").
+                                                RenderLevelTreeSCRevertMenuItem(Undo, pPI ? pPI->m_PrefabInstance : xresource::full_guid{ SceneGuid.m_Instance, SceneGuid.m_Type }
+                                                    , /*bWholeFolder*/ false
+                                                    , "Discard local changes to this entity's owning resource?\nThis cannot be undone.");
                                                 ImGui::EndPopup();
                                             }
 
@@ -1039,6 +1175,11 @@ namespace e29
                 // Scene dependencies now render as a fixed "Dependencies" folder directly under each
                 // Scene's own row inside the tree above, not a separate section here.
             }
+
+            // Stable, always-reached call site for the SC Revert confirm modal - see
+            // level_tree_sc_revert_request's own comment for why this can't live inline at the
+            // MenuItem that requests it.
+            RenderLevelTreeSCRevertConfirmModal(Undo);
         }
         ImGui::End();
         e29::diagnostics::Log("window end: %s", e29::editor_tabs::kLevelTreeWindow);

@@ -2404,7 +2404,34 @@ namespace e10
                         m_RenameItem    = E.m_ResourceGUID;
                         strcpy_s(m_RenameNewName.data(), m_RenameNewName.size(), E.m_ResourceName.c_str());
                         ImGui::CloseCurrentPopup();
-                        
+
+                    }
+
+                    // "SC Revert" - discards ALL local changes under this resource's own ".desc"
+                    // folder (info.txt/Descriptor.txt/dependencies.txt) - direct user request. Default-
+                    // empty m_OnRevertAssetPath means the item simply isn't offered for the other 7
+                    // examples (E10/E19-21/E23-25/E28), same optional-hook convention as Lock/Unlock
+                    // just above it in assert_browser. Multi-select: one hook call per selected item,
+                    // matching this same menu's own "Delete"/"Recompile Selected Items" shape.
+                    //
+                    // Live-tested real Dear ImGui pitfall: clicking a MenuItem closes ITS OWN
+                    // enclosing popup ("Resource Menu") the same way a real right-click menu always
+                    // does, regardless of whether that MenuItem's own code calls CloseCurrentPopup
+                    // explicitly - so a BeginPopupModal nested directly inside "Resource Menu" only
+                    // ever rendered for the single frame of the click itself, then Dear ImGui treated
+                    // the OpenPopup'd id as abandoned (its Begin* wasn't reached the very next frame,
+                    // since "Resource Menu" no longer reports open) and force-closed it before any
+                    // screenshot/user could ever see it. Fixed the same way as
+                    // [[e29_level_tree_source_control_column]]'s own Level Tree fix: the MenuItem only
+                    // records a request; the real OpenPopup/BeginPopupModal pair lives at
+                    // m_bSCRevertPending's own call site below, OUTSIDE "Resource Menu"'s block, at a
+                    // stable point reached every frame regardless of popup state.
+                    if (m_Browser.m_OnRevertAssetPath && ImGui::MenuItem("  SC Revert..."))
+                    {
+                        m_SCRevertPendingLibrary = m_SelectedLibrary;
+                        m_SCRevertPendingGuid    = E.m_ResourceGUID;
+                        m_SCRevertPendingMulti   = m_SelectedItems;
+                        m_bSCRevertPending       = true;
                     }
 
                     if (isParentTrashcan)
@@ -2521,6 +2548,56 @@ namespace e10
 
 
                     ImGui::EndPopup(); // Close the popup scope
+                }
+
+                // Deferred SC Revert confirm modal - deliberately OUTSIDE "Resource Menu"'s own
+                // BeginPopup block (called every frame regardless of that popup's state), see the
+                // "SC Revert..." MenuItem's own comment for why.
+                if (m_bSCRevertPending)
+                {
+                    ImGui::OpenPopup("SC Revert##ResourceMenuConfirm");
+                    m_bSCRevertPending = false;
+                }
+                if (ImGui::BeginPopupModal("SC Revert##ResourceMenuConfirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+                {
+                    ImGui::TextUnformatted(m_SCRevertPendingMulti.empty()
+                        ? "Discard ALL local changes to this resource? This cannot be undone."
+                        : "Discard ALL local changes to every selected resource? This cannot be undone.");
+                    ImGui::Separator();
+                    if (ImGui::Button("Discard Changes", ImVec2(160, 0)))
+                    {
+                        auto RevertOne = [&](xresource::full_guid Guid)
+                        {
+                            m_AssetMgr.m_mLibraryDB.FindAsReadOnly(m_SCRevertPendingLibrary, [&](const std::unique_ptr<e10::library_db>& Lib)
+                            {
+                                Lib->m_InfoByTypeDataBase.FindAsReadOnly(Guid.m_Type, [&](const std::unique_ptr<library_db::info_db>& Entry)
+                                {
+                                    Entry->m_InfoDataBase.FindAsReadOnly(Guid.m_Instance, [&](const e10::library_db::info_node& InfoEntry)
+                                    {
+                                        const auto SlashPos = InfoEntry.m_Path.find_last_of(L'\\');
+                                        std::wstring FolderPath = (SlashPos == std::wstring::npos) ? InfoEntry.m_Path : InfoEntry.m_Path.substr(0, SlashPos);
+                                        const std::wstring& LibRoot = Lib->m_Library.m_Path;
+                                        if (FolderPath.size() > LibRoot.size() && FolderPath.compare(0, LibRoot.size(), LibRoot) == 0)
+                                        {
+                                            FolderPath = FolderPath.substr(LibRoot.size());
+                                            while (!FolderPath.empty() && (FolderPath.front() == L'\\' || FolderPath.front() == L'/'))
+                                                FolderPath.erase(FolderPath.begin());
+                                        }
+                                        m_Browser.m_OnRevertAssetPath(m_SCRevertPendingLibrary, FolderPath);
+                                    });
+                                });
+                            });
+                        };
+
+                        if (m_SCRevertPendingMulti.empty()) RevertOne(m_SCRevertPendingGuid);
+                        else for (auto& SelcE : m_SCRevertPendingMulti) RevertOne(SelcE);
+
+                        ImGui::CloseCurrentPopup();
+                    }
+                    ImGui::SetItemDefaultFocus();
+                    ImGui::SameLine();
+                    if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+                    ImGui::EndPopup();
                 }
 
                 // Renaming is now inline (see WrappedButton2's own call sites above, near
@@ -2688,7 +2765,14 @@ namespace e10
         xresource::full_guid                                m_RenameItem            = {};
         std::array<char, 256>                               m_RenameNewName         = {};
         ImVec2                                              m_ResourceMenuMousePos;
-        
+
+        // Deferred "SC Revert" confirm request - see the MenuItem's own comment (Resource Menu) for
+        // why this can't be a plain OpenPopup+BeginPopupModal pair inline at the click site.
+        bool                                                m_bSCRevertPending      = false;
+        library::guid                                       m_SCRevertPendingLibrary = {};
+        xresource::full_guid                                m_SCRevertPendingGuid    = {};
+        std::vector<xresource::full_guid>                   m_SCRevertPendingMulti   = {};
+
 
         int                                                 m_CouldDownTimer        = {};
         library::guid                                       m_SelectedLibrary       = {};

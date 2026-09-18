@@ -1166,6 +1166,19 @@ namespace e10
                     ImGui::Separator();
                     if (ImGui::MenuItem("Delete", "Del", false, !bIsRoot))
                         DeleteSingleToTrash(LibraryGuid, RelPath);
+                    ImGui::Separator();
+                    // "SC Revert" - direct user request, same left-tree folder scope as Rename/Cut/
+                    // Delete just above (gated !bIsRoot for the same reason those are). Deferred via
+                    // the SAME shared pending-request state the RowContext popup uses below (real
+                    // Dear ImGui pitfall - see m_bSCRevertPending's own declaration comment) rather
+                    // than an inline OpenPopup+BeginPopupModal pair, which never survives past the
+                    // single frame of the click once this enclosing popup closes on it.
+                    if (m_Browser.m_OnRevertAssetPath && ImGui::MenuItem("SC Revert...", nullptr, false, !bIsRoot))
+                    {
+                        m_SCRevertPendingLibrary = LibraryGuid;
+                        m_SCRevertPendingPaths   = { RelPath.wstring() };
+                        m_bSCRevertPending       = true;
+                    }
                     ImGui::EndPopup();
                 }
             }
@@ -1994,6 +2007,34 @@ namespace e10
                                                 m_Browser.m_OnUnlockAssetFile(m_SelectedLibrary, ToLibraryRelPath(m_SelectedFolder / Name));
                                     }
 
+                                    // "SC Revert" - direct user request. Offered for BOTH files and
+                                    // folders (unlike Lock/Unlock just above) - a folder row means
+                                    // "discard every pending file under this folder," the registered
+                                    // handler (today only E29) already treats a file vs a folder path
+                                    // uniformly via a prefix match, see m_OnRevertAssetPath's own
+                                    // comment. Confirmed first, unlike Lock/Unlock/Delete (Delete is a
+                                    // reversible move-to-trash; this discards real edits for good).
+                                    //
+                                    // Live-tested real Dear ImGui pitfall (see
+                                    // [[e29_level_tree_source_control_column]]/
+                                    // [[xgpu_imgui_table_column0_indent_quirk]]-adjacent finding): a
+                                    // MenuItem click closes ITS OWN enclosing popup ("RowContext")
+                                    // same as a real right-click menu always does, so a BeginPopupModal
+                                    // nested directly inside it only ever renders the single frame of
+                                    // the click - the next frame "RowContext" isn't reached, Dear ImGui
+                                    // treats the OpenPopup'd id as abandoned, and force-closes it before
+                                    // anything can be seen. Fixed by only recording a request here; the
+                                    // real OpenPopup/BeginPopupModal pair lives at m_bSCRevertPending's
+                                    // own call site (after the whole row loop, always reached).
+                                    if (m_Browser.m_OnRevertAssetPath && ImGui::MenuItem("SC Revert..."))
+                                    {
+                                        m_SCRevertPendingLibrary = m_SelectedLibrary;
+                                        m_SCRevertPendingPaths.clear();
+                                        for (auto& Name : m_MultiSelectOrder)
+                                            m_SCRevertPendingPaths.push_back(ToLibraryRelPath(m_SelectedFolder / Name));
+                                        m_bSCRevertPending = true;
+                                    }
+
                                     ImGui::Separator();
                                     if (ImGui::MenuItem("Rename", "F2", false, m_MultiSelected.size() == 1))
                                         StartRename(m_SelectedLibrary, m_SelectedFolder / m_SelectedFile);
@@ -2037,6 +2078,30 @@ namespace e10
                         ImGui::TableSetColumnIndex(3);
                         ImGui::Text("%s", std::format("{:%m/%d/%Y %I:%M %p}", e10::ConvertToStdTime(E.m_LastWriteTime)).c_str());
                         ImGui::PopID();
+                    }
+
+                    // Deferred SC Revert confirm modal - deliberately OUTSIDE both the RowContext and
+                    // left-tree folder popups (called every frame regardless of either popup's own
+                    // state), see m_bSCRevertPending's own declaration comment for why.
+                    if (m_bSCRevertPending)
+                    {
+                        ImGui::OpenPopup("SC Revert##FilesConfirm");
+                        m_bSCRevertPending = false;
+                    }
+                    if (ImGui::BeginPopupModal("SC Revert##FilesConfirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+                    {
+                        ImGui::TextUnformatted("Discard local changes under the selected item(s)? This cannot be undone.");
+                        ImGui::Separator();
+                        if (ImGui::Button("Discard Changes", ImVec2(160, 0)))
+                        {
+                            for (auto& Path : m_SCRevertPendingPaths)
+                                m_Browser.m_OnRevertAssetPath(m_SCRevertPendingLibrary, Path);
+                            ImGui::CloseCurrentPopup();
+                        }
+                        ImGui::SetItemDefaultFocus();
+                        ImGui::SameLine();
+                        if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+                        ImGui::EndPopup();
                     }
 
                     // Right-click on empty table background (no row under the cursor) - Paste only,
@@ -2114,6 +2179,20 @@ namespace e10
         std::vector<std::filesystem::path>    m_Clipboard        = {};
         bool                                  m_bClipboardIsCut  = false;
         library::guid                         m_ClipboardLibrary = {};
+
+        // Deferred "SC Revert" confirm request, shared by BOTH the RowContext popup (RightPanel) and
+        // the left-tree folder popup (LeftPanel) - a real Dear ImGui pitfall found live-testing this
+        // feature: clicking a MenuItem closes ITS OWN enclosing popup the same way a real right-click
+        // menu always does, so an inline OpenPopup+BeginPopupModal pair nested directly inside that
+        // popup only ever renders for the single frame of the click - the modal's own Begin* isn't
+        // reached the next frame (that popup no longer reports open), and Dear ImGui force-closes an
+        // abandoned OpenPopup'd id before anything can be seen. The MenuItem only records a request
+        // here; the real OpenPopup/BeginPopupModal pair lives at this state's own render call site
+        // (RightPanel, after the whole row loop - always reached every frame regardless of popup
+        // state, matching Dear ImGui's own "Delete.." button demo idiom).
+        bool                                   m_bSCRevertPending       = false;
+        library::guid                          m_SCRevertPendingLibrary = {};
+        std::vector<std::wstring>              m_SCRevertPendingPaths   = {};
 
         // RightPanel()'s file-listing cache - see that function's own comment for the real click-
         // eating bug this fixes. Dirty = true forces a rebuild on the next RightPanel() call; set on

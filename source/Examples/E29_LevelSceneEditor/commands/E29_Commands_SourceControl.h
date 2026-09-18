@@ -34,6 +34,54 @@ namespace e29::commands
         return RootPath;
     }
 
+    // Issues ONE "SC Revert" for every currently-pending file under a library-relative folder -
+    // shared tail end for every "revert this whole resource" call site (Level Tree's Level/Scene
+    // rows, the Resources tab's per-tile "Resource Menu", the Assets tab's folder rows). A no-op if
+    // nothing under FolderPath is actually pending (e.g. the confirm dialog was somehow reached on an
+    // already-clean resource).
+    inline void RunRevertUnderFolder(xundo::system& Undo, e10::library::guid LibraryGuid, const std::wstring& RootPath, const std::wstring& FolderPath) noexcept
+    {
+        const auto Paths = e10::source_control::GetPendingPathsUnderFolder(RootPath, FolderPath);
+        if (Paths.empty()) return;
+        std::wstring Joined;
+        for (auto& P : Paths) { if (!Joined.empty()) Joined += L'\n'; Joined += P; }
+        RunQuery(Undo, std::format("SourceControlRevert -Library {} -Paths {}", FormatLibraryGuid(LibraryGuid), EncodeAssetPath(Joined)));
+    }
+
+    // Convenience overload for "the resource's own guid, library already known" - resolves the
+    // resource's containing ".desc" folder (info.txt/Descriptor.txt/dependencies.txt all live there)
+    // via the SAME single-library getNodeInfo lookup idiom used throughout this codebase, then
+    // forwards to RunRevertUnderFolder above. Unlike the Level Tree's own resolver (which has to
+    // search every open library because it only ever has a bare full_guid), this overload is for
+    // callers that already know which library owns the resource (e.g. the Asset Browser's own
+    // per-library tabs) - no search needed.
+    inline void RevertResourceWholeFolder(xundo::system& Undo, e10::library::guid LibraryGuid, xresource::full_guid ResourceGuid) noexcept
+    {
+        std::wstring FolderPath;
+        const bool bFound = e10::g_LibMgr.getNodeInfo(LibraryGuid, ResourceGuid, [&](const e10::library_db::info_node& Node)
+        {
+            const auto SlashPos = Node.m_Path.find_last_of(L'\\');
+            FolderPath = (SlashPos == std::wstring::npos) ? Node.m_Path : Node.m_Path.substr(0, SlashPos);
+        });
+        if (!bFound) return;
+
+        const auto RootPath = ResolveLibraryRootPath(LibraryGuid);
+        if (RootPath.empty()) return;
+
+        e10::g_LibMgr.m_mLibraryDB.FindAsReadOnly(LibraryGuid, [&](const std::unique_ptr<e10::library_db>& Lib)
+        {
+            const auto& LibRoot = Lib->m_Library.m_Path;
+            if (FolderPath.size() > LibRoot.size() && FolderPath.compare(0, LibRoot.size(), LibRoot) == 0)
+            {
+                FolderPath = FolderPath.substr(LibRoot.size());
+                while (!FolderPath.empty() && (FolderPath.front() == L'\\' || FolderPath.front() == L'/'))
+                    FolderPath.erase(FolderPath.begin());
+            }
+        });
+
+        RunRevertUnderFolder(Undo, LibraryGuid, RootPath, FolderPath);
+    }
+
     // Decodes a "-Paths" argument: Base64 of the real paths joined by '\n', same free-text-encoding
     // convention -Message already uses. Added in Phase 4A so a changelist with several files can
     // land as ONE real commit (SourceControlCommit) instead of one commit per file - the previous

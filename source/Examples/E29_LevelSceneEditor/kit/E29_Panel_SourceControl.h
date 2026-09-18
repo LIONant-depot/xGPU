@@ -377,6 +377,18 @@ namespace e29
         // working. Bumped forward every frame a scan is really in progress; the spinner stays drawn
         // until this time passes, so even an instant scan flashes it at least once.
         double m_SpinnerVisibleUntil = 0.0;
+
+        // Deferred "Undo Changes" confirm request - a real Dear ImGui pitfall found live-testing the
+        // Level Tree's own new SC Revert feature (see [[e29_level_tree_source_control_column]]):
+        // clicking a MenuItem closes ITS OWN enclosing popup ("SCRowContext") the same way a real
+        // right-click menu always does, so a BeginPopupModal nested directly inside it only ever
+        // rendered for the single frame of the click - the next frame "SCRowContext" isn't reached,
+        // Dear ImGui treats the OpenPopup'd id as abandoned, and force-closes it before the user can
+        // ever see it. This confirm modal was never actually visible before this fix - nobody had
+        // clicked through it end to end since it shipped. Fixed by only recording a request at the
+        // MenuItem; the real OpenPopup/BeginPopupModal pair lives at this flag's own render call site
+        // (RenderSourceControlPanel's own end, always reached every frame).
+        bool m_bUndoChangesConfirmPending = false;
     };
     inline source_control_panel_state g_SourceControlPanel;
 
@@ -1044,17 +1056,17 @@ namespace e29
             if (ImGui::MenuItem("Lock", nullptr, false, bAnyLfsUnlocked))
             {
                 for (auto* R : Selected)
-                    e29::commands::Run(Undo, std::format("SourceControlLock -Library {} -Path {}"
+                    e29::commands::RunQuery(Undo, std::format("SourceControlLock -Library {} -Path {}"
                         , e29::commands::FormatLibraryGuid(R->m_Library), e29::commands::EncodeAssetPath(R->m_RelativePath)));
             }
             if (ImGui::MenuItem("Unlock", nullptr, false, bAnyLockedByMe))
             {
                 for (auto* R : Selected)
-                    e29::commands::Run(Undo, std::format("SourceControlUnlock -Library {} -Path {}"
+                    e29::commands::RunQuery(Undo, std::format("SourceControlUnlock -Library {} -Path {}"
                         , e29::commands::FormatLibraryGuid(R->m_Library), e29::commands::EncodeAssetPath(R->m_RelativePath)));
             }
             if (ImGui::MenuItem("Undo Changes...", nullptr, false, bAnyModified))
-                ImGui::OpenPopup("Undo Changes##SCConfirm");
+                S.m_bUndoChangesConfirmPending = true;
 
             // A changelist belongs to one depot (direct user requirement) - only offer changelists
             // whose depot matches every selected row's own depot. A selection spanning more than one
@@ -1097,26 +1109,41 @@ namespace e29
             if (ImGui::MenuItem("Remove from Changelist", nullptr, false, bAnyInCustomList))
                 for (auto* R : Selected) SourceControlRemoveRowFromChangelist(AllRows, *R);
 
-            // Confirm modal for "Undo Changes" - real, destructive to local edits, same "ask first"
-            // shape as files_tab's own RenderPendingConfirmationModal/RenderPendingOpenConfirmModal.
-            if (ImGui::BeginPopupModal("Undo Changes##SCConfirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
-            {
-                ImGui::Text("Discard local changes to %zu file(s)? This cannot be undone.", Selected.size());
-                ImGui::Separator();
-                if (ImGui::Button("Discard Changes", ImVec2(160, 0)))
-                {
-                    for (auto* R : Selected)
-                        e29::commands::Run(Undo, std::format("SourceControlRevert -Library {} -Path {}"
-                            , e29::commands::FormatLibraryGuid(R->m_Library), e29::commands::EncodeAssetPath(R->m_RelativePath)));
-                    ImGui::CloseCurrentPopup();
-                    ImGui::CloseCurrentPopup(); // also closes the parent context menu popup
-                }
-                ImGui::SetItemDefaultFocus();
-                ImGui::SameLine();
-                if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
-                ImGui::EndPopup();
-            }
+            ImGui::EndPopup();
+        }
+    }
 
+    // Deferred "Undo Changes" confirm modal - see source_control_panel_state::m_bUndoChangesConfirmPending's
+    // own comment for why this can't live inline at the MenuItem. Called ONCE, unconditionally, from
+    // RenderSourceControlPanel's own stable end - recomputes Selected from the SAME persistent
+    // S.m_MultiSelected the MenuItem itself read, so no separate snapshot state is needed.
+    inline void RenderSourceControlUndoChangesConfirmModal(xundo::system& Undo, const std::vector<sc_panel_row>& AllRows) noexcept
+    {
+        auto& S = g_SourceControlPanel;
+        if (S.m_bUndoChangesConfirmPending)
+        {
+            ImGui::OpenPopup("Undo Changes##SCConfirm");
+            S.m_bUndoChangesConfirmPending = false;
+        }
+        if (ImGui::BeginPopupModal("Undo Changes##SCConfirm", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            std::vector<const sc_panel_row*> Selected;
+            for (auto& Row : AllRows)
+                if (S.m_MultiSelected.contains(Row.m_Key))
+                    Selected.push_back(&Row);
+
+            ImGui::Text("Discard local changes to %zu file(s)? This cannot be undone.", Selected.size());
+            ImGui::Separator();
+            if (ImGui::Button("Discard Changes", ImVec2(160, 0)))
+            {
+                for (auto* R : Selected)
+                    e29::commands::RunQuery(Undo, std::format("SourceControlRevert -Library {} -Path {}"
+                        , e29::commands::FormatLibraryGuid(R->m_Library), e29::commands::EncodeAssetPath(R->m_RelativePath)));
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SetItemDefaultFocus();
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
             ImGui::EndPopup();
         }
     }
@@ -2318,6 +2345,11 @@ namespace e29
             ImGui::EndChild();
         }
         ImGui::EndChild();
+
+        // Stable, always-reached call site for the "Undo Changes" confirm modal - see
+        // source_control_panel_state::m_bUndoChangesConfirmPending's own comment for why this can't
+        // live inline at the MenuItem that requests it.
+        RenderSourceControlUndoChangesConfirmModal(Undo, Rows);
 
         ImGui::End();
     }
