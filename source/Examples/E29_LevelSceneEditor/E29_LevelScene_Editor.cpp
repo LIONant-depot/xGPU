@@ -414,6 +414,7 @@ int E29_Example()
     e29::commands::list_scenes_query_cmd  CmdListScenes(E29Undo, &CmdContext);
     e29::commands::list_entities_query_cmd CmdListEntities(E29Undo, &CmdContext);
     e29::commands::list_folders_query_cmd CmdListFolders(E29Undo, &CmdContext);
+    e29::commands::audit_component_usage_query_cmd CmdAuditComponentUsage(E29Undo, &CmdContext);
     e29::commands::undo_query_cmd         CmdUndo(E29Undo, &CmdContext);
     e29::commands::redo_query_cmd         CmdRedo(E29Undo, &CmdContext);
     e29::commands::save_query_cmd         CmdSave(E29Undo, &CmdContext);

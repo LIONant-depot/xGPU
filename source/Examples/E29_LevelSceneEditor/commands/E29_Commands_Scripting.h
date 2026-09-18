@@ -498,11 +498,57 @@ namespace e29::commands
             auto& Refs = g_ScriptConfig.m_ModuleRefs;
             auto It = std::find(Refs.begin(), Refs.end(), ModuleGuid);
             if (It == Refs.end()) return "RemoveProjectModuleReference: not a project module reference";
+            // Captured as an INDEX, not kept as an iterator - Refs.erase(It) below invalidates It
+            // itself (a stale iterator used later for a revert-insert would be undefined behavior).
+            const auto OriginalIndex = static_cast<std::size_t>(std::distance(Refs.begin(), It));
+
+            // Component-registry compatibility plan, Phase 5: warn before committing this removal if
+            // it MIGHT break a currently-open scene. Deliberately a static, instant check against the
+            // CURRENT live registry - not a live trial rebuild. An earlier version of this did a real
+            // trial compile (reusing Phase 3's Prepare/Probe/Discard trio) and reverted the removal on
+            // a genuine mismatch; live testing surfaced a real, deeper reliability gap in this
+            // project's own CMake/MSBuild incremental-build caching (confirmed independently of this
+            // command: even two back-to-back `cmake --build` invocations, and in one case an explicit
+            // `cmake -S -B` reconfigure immediately before the build, did not always produce an output
+            // DLL whose content matched the just-changed source-file list) - chasing that fully was a
+            // much larger, separate effort than this one check justified. Trading a hard guarantee for
+            // an honest heads-up: this can't promise the removal is safe, only that it flags the
+            // scenario worth checking, without a false sense of certainty from a build step that isn't
+            // reliable enough to hang a hard refusal on yet.
+            std::vector<xecs::scene::component_dependency> PluginOwnedNow;
+            if (g_pGamePlugin && g_pGamePlugin->m_hModule)
+            {
+                game_plugin_candidate CurrentView{ g_pGamePlugin->m_hModule, {} };
+                PluginOwnedNow = ProbeCandidateComponents(CurrentView);
+            }
+
+            std::vector<xecs::scene::component_dependency> RequiredFromOpenScenes;
+            if (g_pState)
+            {
+                std::unordered_set<std::uint64_t> PluginOwnedGuids;
+                for (auto& D : PluginOwnedNow) PluginOwnedGuids.insert(D.m_Guid.m_Value);
+
+                for (auto& SceneGuid : g_pState->m_OpenScenes)
+                    for (auto& Dep : xecs::scene::LoadSceneComponentDependencies(e10::g_LibMgr.m_ProjectPath, SceneGuid))
+                        if (PluginOwnedGuids.contains(Dep.m_Guid.m_Value))
+                            RequiredFromOpenScenes.push_back(Dep);
+            }
 
             Refs.erase(It);
             if (auto Err = SaveScriptConfig(e10::g_LibMgr.m_ProjectPath, g_ScriptConfig); Err)
+            {
+                Refs.insert(Refs.begin() + static_cast<std::ptrdiff_t>(OriginalIndex), ModuleGuid); // restore in-memory state to match what's still on disk
                 return std::format("RemoveProjectModuleReference: {}", Err.getMessage());
+            }
             RegenerateGameModuleSources();
+
+            if (!RequiredFromOpenScenes.empty())
+            {
+                std::string Names;
+                for (auto& Dep : RequiredFromOpenScenes) Names += (Names.empty() ? "" : ", ") + Dep.m_Name;
+                return std::format("RemoveProjectModuleReference: removed - WARNING: {} currently-open component(s) may depend on this module and were not independently verified: {}. Rebuild and check ListComponentTypes/DescribeEntity before relying on this.", RequiredFromOpenScenes.size(), Names);
+            }
+
             return {};
         }
 

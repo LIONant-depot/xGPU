@@ -18,6 +18,20 @@
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetFiles.h" // EncodeAssetPath/DecodeAssetPath
 #include "source/Examples/E29_LevelSceneEditor/plugins/source_control/E29_SourceControlStatus.h"
 
+namespace e29
+{
+    // Forward-only (not #include'd here - plugin/E29_GamePluginBuild.h and E29_PlaySession.h both
+    // assume a specific inclusion position within the umbrella's own Log/Build/Load/PlaySession
+    // order and break badly if pulled in directly from this deep in the commands chain, confirmed
+    // live). g_pGamePlugin/StartGameReload are already fully defined earlier in the SAME translation
+    // unit (via the umbrella, included at the top of E29_LevelScene_Editor.cpp) by the time this
+    // file's own Query() body below actually runs/links - these declarations just make that existing
+    // definition visible here too, without re-including anything.
+    struct game_plugin_state;
+    extern game_plugin_state* g_pGamePlugin;
+    void StartGameReload( game_plugin_state& Plugin ) noexcept;
+}
+
 namespace e29::commands
 {
     // Resolves a Library guid to its real on-disk root path - the one piece every command below
@@ -614,7 +628,18 @@ namespace e29::commands
             if (!pWorkspace) return "SourceControlPull: not a git working tree";
 
             const auto Result = pWorkspace->Sync(sc::SyncRequest{});
-            if (Result.succeeded) return std::format("Pulled{}", Result.summary.empty() ? "" : (": " + Result.summary));
+            if (Result.succeeded)
+            {
+                // Component-registry compatibility plan, Phase 7: a pull can change a Script-Module's
+                // own source files exactly like a local edit would, but - unlike a local edit - there
+                // was previously NO automatic reload trigger for it at all (window-focus-regain and
+                // Play were the only two, see StartGameReload's own comment) - a pulled change could
+                // silently desync the live registry from open scenes until the user happened to alt-
+                // tab or press Play. This becomes the third, deliberate trigger - it rides Phase 3's
+                // own ping-pong compatibility gate for free, no new check logic needed here.
+                if (g_pGamePlugin) StartGameReload(*g_pGamePlugin);
+                return std::format("Pulled{}", Result.summary.empty() ? "" : (": " + Result.summary));
+            }
             return std::format("SourceControlPull: [{}] {}", ToString(Result.error->code), Result.error->message);
         }
 

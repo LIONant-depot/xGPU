@@ -112,6 +112,81 @@ namespace e29
     // after a reload - consistent with a data race against the main thread (which can concurrently run
     // AddProjectModuleReference/RemoveProjectModuleReference, mutating that exact vector) corrupting
     // unrelated heap state rather than crashing at the race site itself.
+    // Runs one command line synchronously to completion, piping its stdout/stderr through
+    // LogGamePlugin one line at a time and returning its exit code (or -1 if it couldn't even be
+    // launched). Extracted so BuildGamePluginIfStale can run TWO commands in sequence (an explicit
+    // reconfigure, then the actual build - see its own comment on why) without duplicating this
+    // pipe-capture machinery, and without the fragile nested-quoting a single `cmd /c "A && B"` string
+    // would need for two already-quoted `cmake` invocations.
+    inline int RunCmakeCommand( std::wstring CmdLine, const std::filesystem::path& WorkingDir ) noexcept
+    {
+        SECURITY_ATTRIBUTES PipeSa{ .nLength = sizeof(PipeSa), .bInheritHandle = TRUE };
+        HANDLE ReadPipe = nullptr, WritePipe = nullptr;
+        CreatePipe(&ReadPipe, &WritePipe, &PipeSa, 0);
+        SetHandleInformation(ReadPipe, HANDLE_FLAG_INHERIT, 0); // this process's own read end must NOT be inherited by the child
+
+        STARTUPINFOW Si
+        { .cb         = sizeof(Si)
+        , .dwFlags    = STARTF_USESTDHANDLES
+        , .hStdOutput = WritePipe
+        , .hStdError  = WritePipe
+        };
+        PROCESS_INFORMATION Pi{};
+        // CreateProcessW may write into the command-line buffer - a std::wstring's own data() must
+        // stay mutable/writable for that, hence the copy into a plain array rather than passing
+        // CmdLine.data() (or a string literal) directly.
+        std::vector<wchar_t> CmdLineBuf(CmdLine.begin(), CmdLine.end());
+        CmdLineBuf.push_back(L'\0');
+
+        if (!CreateProcessW(nullptr, CmdLineBuf.data(), nullptr, nullptr, TRUE, 0, nullptr, WorkingDir.c_str(), &Si, &Pi))
+        {
+            CloseHandle(ReadPipe);
+            CloseHandle(WritePipe);
+            LogGamePlugin(std::format("Game.dll: failed to launch cmake (err={})", GetLastError()));
+            return -1;
+        }
+
+        // This process's own handle to the write end must close BEFORE reading, or ReadFile below
+        // blocks forever waiting for a write-end closure that never comes (the child's copy alone
+        // isn't enough - ReadFile only sees EOF once EVERY write handle, including this one, is
+        // closed).
+        CloseHandle(WritePipe);
+
+        // Blocking reads, one line at a time, until the pipe closes (the child exiting closes its
+        // own inherited write handle, which is what makes ReadFile finally return 0) - synchronous,
+        // matching this whole function's own "runs only on an explicit user action" scope note above.
+        {
+            std::string LineBuffer;
+            char        Chunk[512];
+            DWORD       BytesRead = 0;
+            while (ReadFile(ReadPipe, Chunk, sizeof(Chunk), &BytesRead, nullptr) && BytesRead > 0)
+            {
+                for (DWORD i = 0; i < BytesRead; ++i)
+                {
+                    if (Chunk[i] == '\n')
+                    {
+                        if (!LineBuffer.empty() && LineBuffer.back() == '\r') LineBuffer.pop_back();
+                        LogGamePlugin(LineBuffer);
+                        LineBuffer.clear();
+                    }
+                    else
+                    {
+                        LineBuffer.push_back(Chunk[i]);
+                    }
+                }
+            }
+            if (!LineBuffer.empty()) LogGamePlugin(LineBuffer);
+        }
+        CloseHandle(ReadPipe);
+
+        WaitForSingleObject(Pi.hProcess, INFINITE);
+        DWORD ExitCode = 1;
+        GetExitCodeProcess(Pi.hProcess, &ExitCode);
+        CloseHandle(Pi.hThread);
+        CloseHandle(Pi.hProcess);
+        return static_cast<int>(ExitCode);
+    }
+
     inline build_result BuildGamePluginIfStale( game_plugin_state& Plugin, std::filesystem::file_time_type ModuleSourceTime ) noexcept
     {
         std::error_code Ec;
@@ -164,95 +239,39 @@ namespace e29
         // NEXT auto-build's own attempt to write the same E29_Game.pdb, later in the same or a
         // future session. E29_Game.cpp is one small file - there's no meaningful incremental-build
         // speed to lose by asking THIS invocation not to spawn/reuse a persistent worker at all.
-        const std::wstring CmdLine = std::format(L"cmake --build \"{}\" --target E29_Game --config {} -- /nodeReuse:false", BuildDir.wstring(), Config);
-
-        // Belt-and-suspenders on top of the /nodeReuse:false switch above - confirmed live that the
+        // Belt-and-suspenders on top of the /nodeReuse:false switch below - confirmed live that the
         // command-line switch alone does NOT reliably stop every nested MSBuild worker node it spawns
         // for a multi-project (solution-level) build from defaulting back to node reuse (a worker
         // process was still observed running with an explicit /nodeReuse:true on its own command
         // line despite the outer invocation's /nodeReuse:false). MSBUILDDISABLENODEREUSE is the
         // environment-variable form of the same setting and is Microsoft's own documented, more
         // reliable way to force it onto every node a build spawns, nested workers included - exactly
-        // the mechanism CI systems use for this. Set on this (the caller's) process rather than built
-        // into a custom lpEnvironment block for CreateProcessW below - simpler, and lpEnvironment
-        // nullptr already means "inherit the caller's current environment," so this is picked up
-        // automatically. Idempotent (safe to set every call).
+        // the mechanism CI systems use for this. Idempotent (safe to set every call).
         SetEnvironmentVariableW(L"MSBUILDDISABLENODEREUSE", L"1");
 
-        // Redirected to a pipe and logged line-by-line below rather than left to inherit this
-        // process's own (nonexistent - GUI subsystem, no console) stdout - the compiler's own
-        // error output is exactly what a student needs to see when their game code fails to build,
-        // and until this, it was going nowhere anyone could read it.
-        SECURITY_ATTRIBUTES PipeSa{ .nLength = sizeof(PipeSa), .bInheritHandle = TRUE };
-        HANDLE ReadPipe = nullptr, WritePipe = nullptr;
-        CreatePipe(&ReadPipe, &WritePipe, &PipeSa, 0);
-        SetHandleInformation(ReadPipe, HANDLE_FLAG_INHERIT, 0); // this process's own read end must NOT be inherited by the child
-
-        STARTUPINFOW Si
-        { .cb         = sizeof(Si)
-        , .dwFlags    = STARTF_USESTDHANDLES
-        , .hStdOutput = WritePipe
-        , .hStdError  = WritePipe
-        };
-        PROCESS_INFORMATION Pi{};
-        // CreateProcessW may write into the command-line buffer - a std::wstring's own data() must
-        // stay mutable/writable for that, hence the copy into a plain array rather than passing
-        // CmdLine.data() (or a string literal) directly.
-        std::vector<wchar_t> CmdLineBuf(CmdLine.begin(), CmdLine.end());
-        CmdLineBuf.push_back(L'\0');
-
-        if (!CreateProcessW(nullptr, CmdLineBuf.data(), nullptr, nullptr, TRUE, 0, nullptr, ProjectRoot.c_str(), &Si, &Pi))
+        // REAL BUG FOUND LIVE (2026-09-19): `cmake --build`'s own automatic reconfigure (via its
+        // ZERO_CHECK project) does NOT reliably pick up a changed E29_Game_Modules.cmake - confirmed
+        // by running the exact same `cmake --build --target E29_Game` command twice in a row after
+        // editing the fragment (removing a Script-Module's own source file) and observing the output
+        // DLL's mtime/size never change, reporting "success" both times; an EXPLICIT `cmake -S -B`
+        // reconfigure immediately before the SAME build command DOES pick it up correctly (confirmed
+        // live: output DLL mtime and size both changed exactly as expected). This affects every reload
+        // path that goes through this function, not just one - fixed here, once, as two separate
+        // RunCmakeCommand calls (a single `cmd /c "A && B"` string would need fragile nested quoting
+        // for two already-quoted `cmake` invocations). The reconfigure step is cheap when nothing
+        // structural actually changed (CMake's own no-op fast path), so this doesn't meaningfully cost
+        // the common "just recompiled the same file list" case.
+        if (const auto ConfigureExit = RunCmakeCommand(std::format(L"cmake -S \"{}\" -B \"{}\"", ProjectRoot.wstring(), BuildDir.wstring()), ProjectRoot); ConfigureExit != 0)
         {
-            CloseHandle(ReadPipe);
-            CloseHandle(WritePipe);
-            Plugin.m_LastStatus = std::format("Game.dll: failed to launch cmake (err={}) - trying to load whatever DLL exists", GetLastError());
+            Plugin.m_LastStatus = std::format("Game.dll: cmake reconfigure FAILED (exit={}) - see stdout for the error log", ConfigureExit);
             LogGamePlugin(Plugin.m_LastStatus);
             return build_result::Failed;
         }
 
-        // This process's own handle to the write end must close BEFORE reading, or ReadFile below
-        // blocks forever waiting for a write-end closure that never comes (the child's copy alone
-        // isn't enough - ReadFile only sees EOF once EVERY write handle, including this one, is
-        // closed).
-        CloseHandle(WritePipe);
-
-        // Blocking reads, one line at a time, until the pipe closes (the child exiting closes its
-        // own inherited write handle, which is what makes ReadFile finally return 0) - synchronous,
-        // matching this whole function's own "runs only on an explicit user action" scope note
-        // above.
+        const auto BuildExit = RunCmakeCommand(std::format(L"cmake --build \"{}\" --target E29_Game --config {} -- /nodeReuse:false", BuildDir.wstring(), Config), ProjectRoot);
+        if (BuildExit != 0)
         {
-            std::string LineBuffer;
-            char        Chunk[512];
-            DWORD       BytesRead = 0;
-            while (ReadFile(ReadPipe, Chunk, sizeof(Chunk), &BytesRead, nullptr) && BytesRead > 0)
-            {
-                for (DWORD i = 0; i < BytesRead; ++i)
-                {
-                    if (Chunk[i] == '\n')
-                    {
-                        if (!LineBuffer.empty() && LineBuffer.back() == '\r') LineBuffer.pop_back();
-                        LogGamePlugin(LineBuffer);
-                        LineBuffer.clear();
-                    }
-                    else
-                    {
-                        LineBuffer.push_back(Chunk[i]);
-                    }
-                }
-            }
-            if (!LineBuffer.empty()) LogGamePlugin(LineBuffer);
-        }
-        CloseHandle(ReadPipe);
-
-        WaitForSingleObject(Pi.hProcess, INFINITE);
-        DWORD ExitCode = 1;
-        GetExitCodeProcess(Pi.hProcess, &ExitCode);
-        CloseHandle(Pi.hThread);
-        CloseHandle(Pi.hProcess);
-
-        if (ExitCode != 0)
-        {
-            Plugin.m_LastStatus = std::format("Game.dll: BUILD FAILED (exit={}) - see stdout for the compiler's own error log", ExitCode);
+            Plugin.m_LastStatus = std::format("Game.dll: BUILD FAILED (exit={}) - see stdout for the compiler's own error log", BuildExit);
             LogGamePlugin(Plugin.m_LastStatus);
             return build_result::Failed; // the currently loaded generation is left completely untouched
         }

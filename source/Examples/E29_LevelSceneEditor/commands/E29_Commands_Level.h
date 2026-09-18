@@ -17,6 +17,16 @@
 // commands::Run pattern as ApplyOverrides / CreateEntity.
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
 
+namespace e29
+{
+    // Forward-only, same reasoning as the identical declaration in E29_Commands_SourceControl.h -
+    // kit/E29_ComponentCompatibility.h is already fully defined earlier in this same translation unit
+    // via the umbrella, this just makes it visible here too without re-including anything (that header
+    // assumes a specific inclusion position and breaks badly pulled in directly this deep in the
+    // commands chain - confirmed live).
+    bool IsComponentInLiveRegistry( xecs::component::type::guid Guid ) noexcept;
+}
+
 namespace e29::commands
 {
     //================================================================================================
@@ -91,11 +101,84 @@ namespace e29::commands
             if (State.m_CurrentLevel.m_Instance.m_Value != Value)
                 return std::format("OpenLevel: failed to open {:016X} (unknown Level guid or load error)", Value);
 
-            return std::format("Opened Level {:016X}, {} scene(s) now open", Value, State.m_OpenScenes.size());
+            // Component-registry compatibility plan, Phase 4: informational, not blocking - EnsureLoaded
+            // already soft-fails a per-entity missing-component-type case on its own (skips that one
+            // entity, logs a warning, the rest of the scene loads fine - xecs_scene_inline.h's own
+            // established behavior, unchanged here). This just surfaces the SAME class of problem more
+            // visibly, at the command's own return value, right after the scenes just opened, instead
+            // of only a console log line buried in the editor's own scrollback.
+            std::vector<xecs::scene::component_dependency> Missing;
+            for (auto& SceneGuid : State.m_OpenScenes)
+                for (auto& Dep : xecs::scene::LoadSceneComponentDependencies(e10::g_LibMgr.m_ProjectPath, SceneGuid))
+                    if (!IsComponentInLiveRegistry(Dep.m_Guid) && std::find_if(Missing.begin(), Missing.end(), [&](auto& M) noexcept { return M.m_Guid == Dep.m_Guid; }) == Missing.end())
+                        Missing.push_back(Dep);
+
+            std::string Result = std::format("Opened Level {:016X}, {} scene(s) now open", Value, State.m_OpenScenes.size());
+            if (!Missing.empty())
+            {
+                std::string Names;
+                for (auto& Dep : Missing) Names += (Names.empty() ? "" : ", ") + Dep.m_Name;
+                Result += std::format(" - WARNING: {} component type(s) used by these scenes are not currently registered: {}", Missing.size(), Names);
+            }
+            return Result;
         }
 
         xcmdline::parser::handle m_hLevel;
         xcmdline::parser::handle m_hSave;
+    };
+
+    //================================================================================================
+    // Component-registry compatibility plan, Phase 6 (lean form - see this session's own plan/memory
+    // for why the full Idle-Work background-task version was scoped down under time pressure): an
+    // on-demand, project-wide sweep of EVERY scene's own ComponentDeps.txt (open or not) against the
+    // live registry - the one thing the synchronous gates (hot-reload/Open/module-removal, all scoped
+    // to OPEN scenes only) can't see: "this change didn't break what's open, but it may break some
+    // OTHER scene, not loaded right now" - direct user framing from this session's own design
+    // conversation. Read-only, safe to call any time, no game world required.
+    struct audit_component_usage_query_cmd : xundo::query_command_base
+    {
+        audit_component_usage_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "AuditComponentUsage", pDataBase) {}
+        const char* getCommandHelp() const noexcept override
+        {
+            return "Scans every scene in the project (open or not) for component types no longer registered. Usage: AuditComponentUsage";
+        }
+        void RegisterArguments() noexcept override {}
+
+        std::string Query() noexcept override
+        {
+            const auto ScenesRoot = std::filesystem::path(e10::g_LibMgr.m_ProjectPath) / L"Descriptors" / L"Scene";
+            std::error_code Ec;
+            if (!std::filesystem::exists(ScenesRoot, Ec)) return "AuditComponentUsage: no scenes found";
+
+            std::string Result;
+            int ScenesScanned = 0, ScenesWithIssues = 0;
+            for (auto It = std::filesystem::recursive_directory_iterator(ScenesRoot, std::filesystem::directory_options::skip_permission_denied, Ec); It != std::filesystem::recursive_directory_iterator(); It.increment(Ec))
+            {
+                if (Ec) break;
+                if (!It->is_regular_file(Ec) || It->path().filename() != L"ComponentDeps.txt") continue;
+
+                // Folder name IS the scene's own instance guid, hex - same convention every other
+                // resource type's Descriptors/<Type>/<b0>/<b1>/<guid>.desc path already uses.
+                const auto GuidHex = xstrtool::To(It->path().parent_path().stem().wstring());
+                const auto SceneGuid = ParseSceneGuid(GuidHex);
+                ++ScenesScanned;
+
+                std::vector<xecs::scene::component_dependency> Missing;
+                for (auto& Dep : xecs::scene::LoadSceneComponentDependencies(e10::g_LibMgr.m_ProjectPath, SceneGuid))
+                    if (!IsComponentInLiveRegistry(Dep.m_Guid))
+                        Missing.push_back(Dep);
+
+                if (!Missing.empty())
+                {
+                    ++ScenesWithIssues;
+                    std::string Names;
+                    for (auto& Dep : Missing) Names += (Names.empty() ? "" : ", ") + Dep.m_Name;
+                    Result += std::format("Scene {}: missing {}\n", GuidHex, Names);
+                }
+            }
+
+            return std::format("AuditComponentUsage: {} scene(s) scanned, {} with issues\n{}", ScenesScanned, ScenesWithIssues, Result);
+        }
     };
 
     //================================================================================================
