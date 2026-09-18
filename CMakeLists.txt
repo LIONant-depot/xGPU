@@ -588,6 +588,7 @@ if(XECS_BUILD_SHARED_LIBRARY)
   # never touch THIS file again. Optional - a fresh checkout with no project open yet, or a project
   # with zero module references, has no fragment at all.
   set(E29_GAME_MODULE_SOURCES "")
+  set(E29_GAME_MODULE_PCH_HEADERS "")
   if(EXISTS "${CMAKE_SOURCE_DIR}/source/Examples/E29_LevelSceneEditor/GameProject/E29_Game_Modules.cmake")
     include("${CMAKE_SOURCE_DIR}/source/Examples/E29_LevelSceneEditor/GameProject/E29_Game_Modules.cmake")
   endif()
@@ -634,8 +635,19 @@ if(XECS_BUILD_SHARED_LIBRARY)
   # essentially never change during normal game-code iteration anyway. CMake's own
   # SKIP_PRECOMPILE_HEADERS source property is exactly the tool for "this target has a PCH, this one
   # source doesn't use it."
+  #
+  # E29_GAME_MODULE_PCH_HEADERS (E29_GameModuleSources.h's own RegenerateGameModuleSources(), same
+  # fragment as E29_GAME_MODULE_SOURCES above) appends every referenced Script-Module's own .h/.hpp
+  # files onto this SAME PCH - direct user correction of an earlier per-header generated-.cpp-stub
+  # approach: CMake already gives this target one real, always-compiled translation unit for exactly
+  # this purpose (the synthetic source target_precompile_headers() itself generates to build the
+  # .pch), so a header-only module's self-registration globals get compiled there for free, with no
+  # new generated .cpp anywhere. Entries already come pre-wrapped in their own
+  # "$<$<COMPILE_LANGUAGE:CXX>:...>" guard (E29_GameModuleSources.h's own comment explains why), so
+  # this call site needs no per-entry wrapping of its own.
   target_precompile_headers(E29_Game PRIVATE
     "$<$<COMPILE_LANGUAGE:CXX>:${CMAKE_SOURCE_DIR}/dependencies/xECSV2/src/xecs.h>"
+    ${E29_GAME_MODULE_PCH_HEADERS}
   )
   set_source_files_properties(
     "dependencies/xtextfile/source/xtextfile.cpp"

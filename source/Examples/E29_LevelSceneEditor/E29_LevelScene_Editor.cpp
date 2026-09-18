@@ -1,4 +1,10 @@
 #include "source/Examples/E29_LevelSceneEditor/E29_LevelSceneEditorKit.h"
+// Moved ahead of E29_GamePlugin.h (was line 22, below) - E29_GamePluginBuild.h's own
+// BuildGamePluginIfStale now needs e29::g_ScriptConfig (GetLatestModuleSourceWriteTime,
+// E29_GameModuleSources.h) for its own staleness check, so g_ScriptConfig must already be declared
+// by the time the umbrella below compiles. E10_AssetMgr.h (e10::g_LibMgr) is already visible via
+// E29_LevelSceneEditorKit.h just above, so this is the only reordering actually needed.
+#include "source/Examples/E29_LevelSceneEditor/kit/E29_ProjectScriptConfig.h"
 #include "dependencies/xECSV2/src/xecs_plugin_api.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_GamePlugin.h"
 #include "dependencies/xundo/source/xundo_history.h"
@@ -19,7 +25,6 @@
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Compilation.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SourceControl.h"
 #include "source/Examples/E29_LevelSceneEditor/kit/E29_IdleWork.h"
-#include "source/Examples/E29_LevelSceneEditor/kit/E29_ProjectScriptConfig.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_Theme.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_EditorTabs.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_Diagnostics.h"
@@ -232,7 +237,11 @@ int E29_Example()
         GetModuleFileName(NULL, szModulePath, MAX_PATH);
         std::filesystem::path GameDllPath = std::filesystem::path(szModulePath).parent_path() / L"E29_Game.dll";
         GamePlugin.m_CompiledDllPath = GameDllPath.wstring();
-        e29::BuildGamePluginIfStale(GamePlugin);
+        // Synchronous, main-thread-only call site (see this block's own top comment) - safe to call
+        // GetLatestModuleSourceWriteTime() directly here, unlike StartGameReload's own background-
+        // thread call site (see BuildGamePluginIfStale's own comment on why that one takes it as a
+        // precomputed parameter instead).
+        e29::BuildGamePluginIfStale(GamePlugin, e29::GetLatestModuleSourceWriteTime());
         e29::LoadGamePluginComponents(*pGameMgr, GamePlugin, /*Generation*/ 1);
     }
 #else

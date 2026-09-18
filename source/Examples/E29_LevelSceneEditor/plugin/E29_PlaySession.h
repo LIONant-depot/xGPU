@@ -173,9 +173,14 @@ namespace e29
         if (Plugin.m_bBuilding) return;
 
         Plugin.m_bBuilding  = true;
-        Plugin.m_BuildFuture = std::async(std::launch::async, [&Plugin]() noexcept
+        // Computed HERE, on the main thread, and captured by value - NOT re-computed inside the
+        // background task. See BuildGamePluginIfStale's own comment on ModuleSourceTime for why: it
+        // reads e29::g_ScriptConfig/e10::g_LibMgr, neither safe to touch from the background thread
+        // this function's lambda runs on.
+        const auto ModuleSourceTime = GetLatestModuleSourceWriteTime();
+        Plugin.m_BuildFuture = std::async(std::launch::async, [&Plugin, ModuleSourceTime]() noexcept
         {
-            return BuildGamePluginIfStale(Plugin);
+            return BuildGamePluginIfStale(Plugin, ModuleSourceTime);
         });
     }
 

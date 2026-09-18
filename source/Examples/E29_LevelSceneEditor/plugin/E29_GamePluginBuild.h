@@ -9,6 +9,7 @@
 // /PDBALTPATH + PDB_OUTPUT_DIRECTORY + /nodeReuse:false story this function's own cmake invocation
 // relies on. Meant to be included via the umbrella (E29_GamePlugin.h) only, after
 // E29_GamePluginLog.h (LogGamePlugin).
+#include "source/Examples/E29_LevelSceneEditor/plugin/E29_GameModuleSources.h"
 
 namespace e29
 {
@@ -98,7 +99,20 @@ namespace e29
     // LogGamePlugin (thread-safe - see GetGamePluginLogMutex) and local filesystem/process state -
     // never GameMgr, State, or anything ImGui-related, so it's safe to run concurrently with the
     // editor's own main loop.
-    inline build_result BuildGamePluginIfStale( game_plugin_state& Plugin ) noexcept
+    //
+    // ModuleSourceTime: the newest mtime across every currently-referenced Script-Module's own
+    // source_db files (and the generated fragment listing them) - see GetLatestModuleSourceWriteTime's
+    // own comment for the real bug this closes (a module content-only edit was never seen as stale at
+    // all). Deliberately a plain VALUE passed in, computed by the caller (StartGameReload) on the MAIN
+    // thread, rather than this function calling GetLatestModuleSourceWriteTime() itself - that
+    // function reads e29::g_ScriptConfig/e10::g_LibMgr, both ordinary globals with no lock of their
+    // own, and this function's own doc comment above is explicit that it must never touch shared
+    // mutable state precisely because its only caller runs it on a background thread. Confirmed live:
+    // calling it directly from here reproduced a real, reproducible crash inside xECSV2.dll shortly
+    // after a reload - consistent with a data race against the main thread (which can concurrently run
+    // AddProjectModuleReference/RemoveProjectModuleReference, mutating that exact vector) corrupting
+    // unrelated heap state rather than crashing at the race site itself.
+    inline build_result BuildGamePluginIfStale( game_plugin_state& Plugin, std::filesystem::file_time_type ModuleSourceTime ) noexcept
     {
         std::error_code Ec;
         const std::filesystem::path Dll        = Plugin.m_CompiledDllPath;
@@ -112,13 +126,16 @@ namespace e29
         bool bStale = bDllMissing;
         if (!bStale)
         {
-            const auto SourceTime = std::filesystem::last_write_time(SourcePath, Ec);
+            auto SourceTime = std::filesystem::last_write_time(SourcePath, Ec);
             if (Ec)
             {
                 Plugin.m_LastStatus = std::format("Game.dll: can't stat source {} - skipping rebuild attempt", SourcePath.string());
                 LogGamePlugin(Plugin.m_LastStatus);
                 return build_result::UpToDate;
             }
+            if (ModuleSourceTime > SourceTime)
+                SourceTime = ModuleSourceTime;
+
             const auto DllTime = std::filesystem::last_write_time(Dll, Ec);
             bStale = Ec || SourceTime > DllTime;
         }
