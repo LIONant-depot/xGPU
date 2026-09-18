@@ -1227,6 +1227,19 @@ namespace e10
         // than risk hijacking the gesture against the wrong window's rect.
         std::function<std::size_t(void)>
             m_OnGetMainWindowHandle;
+
+        // Optional, default-empty list of extra top-level sections shown above the "Plugins" tree
+        // node in plugin_tab's left panel (E10_asset_browser_plugin_tab.h) - e.g. E29's "Scripting"
+        // section, which selects into Project.config's build-membership properties instead of a
+        // plugin. Each entry's callback draws ONLY its right-panel content (no Begin/End, no
+        // Properties/Git split) - same "hook owns its own content, host owns layout" convention as
+        // every other optional hook on this struct. Empty for every consumer except E29.
+        struct extra_tree_section
+        {
+            std::string           m_Label;
+            std::function<void()> m_OnRenderRightPanel;
+        };
+        std::vector<extra_tree_section> m_ExtraPluginTabSections = {};
     };
 
 } // namespace e10

@@ -14,10 +14,12 @@
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SceneOrganization.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetBrowser.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetFiles.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Scripting.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_MakePrefab.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Compilation.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SourceControl.h"
 #include "source/Examples/E29_LevelSceneEditor/kit/E29_IdleWork.h"
+#include "source/Examples/E29_LevelSceneEditor/kit/E29_ProjectScriptConfig.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_Theme.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_EditorTabs.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_Diagnostics.h"
@@ -319,6 +321,9 @@ int E29_Example()
             // error, registration order simply stands as-is.
             if (auto Err = pGameMgr->m_SystemMgr.Load(); Err)
                 e29::Debugger(std::format("Failed to load System Registry order: {}", Err.getMessage()));
+
+            if (auto Err = e29::LoadScriptConfig(ProjectPath, e29::g_ScriptConfig); Err)
+                e29::Debugger(std::format("Failed to load Script.config.txt: {}", Err.getMessage()));
         }
         else
         {
@@ -420,6 +425,9 @@ int E29_Example()
     e29::commands::restore_asset_cmd      CmdRestoreAsset(E29Undo, &CmdContext);
     e29::commands::create_asset_cmd       CmdCreateAsset(E29Undo, &CmdContext);
     e29::commands::save_assets_query_cmd  CmdSaveAssets(E29Undo, &CmdContext);
+    e29::commands::add_script_source_file_cmd        CmdAddScriptSourceFile(E29Undo, &CmdContext);
+    e29::commands::remove_script_source_file_cmd      CmdRemoveScriptSourceFile(E29Undo, &CmdContext);
+    e29::commands::list_script_source_files_query_cmd CmdListScriptSourceFiles(E29Undo, &CmdContext);
     e29::commands::rename_asset_file_cmd  CmdRenameAssetFile(E29Undo, &CmdContext);
     e29::commands::move_asset_file_cmd    CmdMoveAssetFile(E29Undo, &CmdContext);
     e29::commands::delete_asset_file_cmd  CmdDeleteAssetFile(E29Undo, &CmdContext);
@@ -470,6 +478,8 @@ int E29_Example()
     // ones need live GameMgr/State access, so they're bundled into entity_inspector_bridge (kit).
     //
     xproperty::inspector          EntityInspector("Inspector");
+    xproperty::inspector          ProjectSettingsInspector("ProjectSettingsInspector");
+    e29::WireResourcePickerCallbacks(ProjectSettingsInspector);
     // xproperty's default row tint (s_ColorCategories, xPropertyImGuiInspector.cpp) is a set of bright
     // matplotlib-style categorical colors, tuned against ImGui's stock dark theme - against
     // E29_Theme.h's darker/flatter Unity palette they read as a clashing, too-bright/too-saturated mess
@@ -500,6 +510,32 @@ int E29_Example()
     e29::WireResourcePickerCallbacks(EntityInspector);
     InspectorBridge.RegisterCallbacks(EntityInspector, *pGameMgr, State, E29Undo);
     e29::RegisterAssetBrowserCallbacks(AsserBrowser, E29Undo, MainWindow);
+
+    // "Scripting" section in the merged Plugins/Project Settings tab (e10::plugin_tab,
+    // E10_asset_browser_plugin_tab.h) - selecting it renders Project.config's Script.config.txt
+    // build-membership property (e29::g_ScriptConfig) via the same dedicated ProjectSettingsInspector
+    // instance declared above (kept separate from EntityInspector - reusing one xproperty::inspector
+    // for two independent renders in the same frame asserts, see this instance's own declaration).
+    AsserBrowser.m_ExtraPluginTabSections.push_back(
+    {
+        "Scripting",
+        [&ProjectSettingsInspector, &ProjectPath]()
+        {
+            if (ImGui::Button("Save"))
+            {
+                if (auto Err = e29::SaveScriptConfig(ProjectPath, e29::g_ScriptConfig); Err)
+                    e29::Debugger(std::format("Failed to save Script.config.txt: {}", Err.getMessage()));
+            }
+            ImGui::Separator();
+
+            ProjectSettingsInspector.clear();
+            ProjectSettingsInspector.AppendEntity();
+            ProjectSettingsInspector.AppendEntityComponent(*xproperty::getObjectByType<e29::script_config>(), &e29::g_ScriptConfig);
+
+            xproperty::settings::context Context;
+            ProjectSettingsInspector.ShowEmbedded(Context);
+        }
+    });
 
     // Source Control status/lock badges (Phase 3) - wired directly here rather than inside
     // RegisterAssetBrowserCallbacks (kit/E29_LevelSceneEditorKit.h): that function is defined in a

@@ -113,39 +113,59 @@ namespace e10
                 return std::ranges::search(Haystack, Needle, {}, ToLower, ToLower).begin() != Haystack.end();
             };
 
-            auto& Plugins = m_AssetMgr.m_AssetPluginsDB.m_lPlugins;
-            for (int i = 0; i < static_cast<int>(Plugins.size()); ++i)
+            // Extra sections (e.g. E29's "Scripting") render as plain top-level selectables above the
+            // "Plugins" folder - selecting one clears the plugin selection and vice versa, mirroring
+            // this project's other single-selection tree conventions.
+            auto& Extras = m_Browser.m_ExtraPluginTabSections;
+            for (int i = 0; i < static_cast<int>(Extras.size()); ++i)
             {
-                auto& Plugin = Plugins[i];
-                if (!ContainsCaseInsensitive(Plugin.m_TypeName, m_Browser.m_SearchString)) continue;
-
                 ImGui::PushID(i);
-
-                if (auto Icon = m_AssetMgr.m_AssetPluginsDB.getIconRef(Plugin.m_TypeGUID); Icon.isValid())
+                if (ImGui::Selectable(Extras[i].m_Label.c_str(), m_SelectedExtraIndex == i) && m_SelectedExtraIndex != i)
                 {
-                    ImGui::Image((ImTextureRef)(void*)Icon.m_pTexture, ImVec2(22, 22)
-                                , ImVec2(Icon.m_U0, Icon.m_V0), ImVec2(Icon.m_U1, Icon.m_V1));
-                    ImGui::SameLine();
+                    m_SelectedExtraIndex = i;
+                    m_SelectedIndex      = -1;
                 }
-
-                if (ImGui::Selectable(Plugin.m_TypeName.c_str(), m_SelectedIndex == i) && m_SelectedIndex != i)
-                {
-                    m_SelectedIndex = i;
-                    RebuildInspector();
-                }
-
-                // First entry of what will grow into a bigger context menu - explorer link only for now.
-                if (ImGui::BeginPopupContextItem("PluginContextMenu"))
-                {
-                    if (ImGui::MenuItem("  Open in Explorer"))
-                    {
-                        auto Str = std::format(L"explorer \"{}\"", Plugin.m_PluginPath);
-                        system(xstrtool::To(Str).data());
-                    }
-                    ImGui::EndPopup();
-                }
-
                 ImGui::PopID();
+            }
+
+            if (ImGui::TreeNodeEx("Plugins", ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_SpanAvailWidth))
+            {
+                auto& Plugins = m_AssetMgr.m_AssetPluginsDB.m_lPlugins;
+                for (int i = 0; i < static_cast<int>(Plugins.size()); ++i)
+                {
+                    auto& Plugin = Plugins[i];
+                    if (!ContainsCaseInsensitive(Plugin.m_TypeName, m_Browser.m_SearchString)) continue;
+
+                    ImGui::PushID(i);
+
+                    if (auto Icon = m_AssetMgr.m_AssetPluginsDB.getIconRef(Plugin.m_TypeGUID); Icon.isValid())
+                    {
+                        ImGui::Image((ImTextureRef)(void*)Icon.m_pTexture, ImVec2(22, 22)
+                                    , ImVec2(Icon.m_U0, Icon.m_V0), ImVec2(Icon.m_U1, Icon.m_V1));
+                        ImGui::SameLine();
+                    }
+
+                    if (ImGui::Selectable(Plugin.m_TypeName.c_str(), m_SelectedIndex == i) && m_SelectedIndex != i)
+                    {
+                        m_SelectedIndex      = i;
+                        m_SelectedExtraIndex = -1;
+                        RebuildInspector();
+                    }
+
+                    // First entry of what will grow into a bigger context menu - explorer link only for now.
+                    if (ImGui::BeginPopupContextItem("PluginContextMenu"))
+                    {
+                        if (ImGui::MenuItem("  Open in Explorer"))
+                        {
+                            auto Str = std::format(L"explorer \"{}\"", Plugin.m_PluginPath);
+                            system(xstrtool::To(Str).data());
+                        }
+                        ImGui::EndPopup();
+                    }
+
+                    ImGui::PopID();
+                }
+                ImGui::TreePop();
             }
         }
 
@@ -153,6 +173,18 @@ namespace e10
 
         void RightPanel() noexcept override
         {
+            // Extra section selected (e.g. "Scripting") - the hook owns its own content and gets the
+            // whole right panel, unsplit; the Git panel is a plugin-specific concept ("the right most
+            // panel is reserve for additional information which the plugins will use but the Script
+            // section may not" - direct user framing), so it's simply not rendered here at all.
+            if (m_SelectedExtraIndex >= 0 && m_SelectedExtraIndex < static_cast<int>(m_Browser.m_ExtraPluginTabSections.size()))
+            {
+                if (ImGui::BeginChild("ExtraSection", ImGui::GetContentRegionAvail()))
+                    m_Browser.m_ExtraPluginTabSections[m_SelectedExtraIndex].m_OnRenderRightPanel();
+                ImGui::EndChild();
+                return;
+            }
+
             const bool bHasSelection = m_SelectedIndex >= 0 && m_SelectedIndex < static_cast<int>(m_AssetMgr.m_AssetPluginsDB.m_lPlugins.size());
 
             // Properties on the left, Git on the right - swapped from the original layout per direct
@@ -276,15 +308,18 @@ namespace e10
 
         e10::library_mgr&                              m_AssetMgr;
         int                                             m_SelectedIndex       = -1;
+        int                                             m_SelectedExtraIndex  = -1;
         float                                           m_PropertiesSplitSize = -1.0f;
         std::unordered_map<std::wstring, std::string>  m_GitRemoteCache      = {};
     };
 
     namespace
     {
-        // "Plugins" (was "Resource Plugins") - direct user request, same icon kept (already confirmed
-        // rendering correctly, no reason to change it).
-        inline browser_registration<plugin_tab, "\xEE\x9F\x85 Plugins", 2.0f, true, true > g_PluginTab{};
+        // "Project Settings" (was "Plugins") - direct user request to merge the Plugins tab with
+        // E29's separate Project Settings window into one tab: the left list became a tree, with an
+        // optional "Scripting" section (m_ExtraPluginTabSections) above the existing "Plugins" folder.
+        // Same icon kept (already confirmed rendering correctly, no reason to change it).
+        inline browser_registration<plugin_tab, "\xEE\x9F\x85 Project Settings", 2.0f, true, true > g_PluginTab{};
     }
 }
 
