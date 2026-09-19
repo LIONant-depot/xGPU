@@ -18,7 +18,7 @@
 
 namespace xeditor
 {
-    inline constexpr float kEditorTabExtraPadY = 5.0f;
+    inline constexpr float kEditorTabExtraPadY = 3.0f;
     inline constexpr float kEditorTabIconPx    = 18.0f;
     inline constexpr const char* kEditorTabIconSpacer = "     ";
 
@@ -35,8 +35,10 @@ namespace xeditor
         ImGui::PopStyleVar(1);
     }
 
-    // After ImGui::Begin on a main-dock editor root: grow the hidden title-bar
-    // offset to match the tall TabBar, without touching MenuBarHeight (toolbar).
+    // After ImGui::Begin on a main-dock editor root: set the hidden title-bar
+    // offset to the *actual* TabBar height so MenuBar sits flush under the tabs.
+    // Do not guess from kEditorTabExtraPadY — overshoot makes the toolbar chrome
+    // look oversized / stretches centered items.
     inline void ApplyMainDockTabTitleBarOffset() noexcept
     {
         ImGuiWindow* w = ImGui::GetCurrentWindow();
@@ -44,14 +46,24 @@ namespace xeditor
             return;
         if (w->DockNode->IsHiddenTabBar() || w->DockNode->IsNoTabBar())
             return;
+        ImGuiTabBar* TabBar = w->DockNode->TabBar;
+        if (!TabBar)
+            return;
 
-        const float Delta = kEditorTabExtraPadY * 2.0f; // matches 2 * extra FramePadding.y
+        const float TabH = TabBar->BarRect.GetHeight();
+        if (TabH <= 1.0f)
+            return;
+        const float Delta = TabH - w->TitleBarHeight;
+        if (Delta <= 0.5f)
+            return; // already matched (or tabs shorter)
+
         w->TitleBarHeight += Delta;
         w->DecoOuterSizeY1 += Delta;
         w->OuterRectClipped.Min.y += Delta;
         w->InnerRect.Min.y += Delta;
         w->InnerClipRect.Min.y += Delta;
         w->WorkRect.Min.y += Delta;
+        w->ParentWorkRect.Min.y += Delta;
         w->ContentRegionRect.Min.y += Delta;
         w->DC.CursorStartPos.y += Delta;
         w->DC.CursorPos.y += Delta;

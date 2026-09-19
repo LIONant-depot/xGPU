@@ -91,7 +91,13 @@ namespace xeditor
             const float FeedbackW = ImGui::CalcTextSize("Feedback:\xee\xa5\xb2").x + ImGui::GetStyle().FramePadding.x * 2.0f;
             const float Gap       = 4.0f;
             const float GroupW    = CompileW + Gap + FeedbackW;
-            ImGui::SameLine((ImGui::GetWindowWidth() - GroupW) * 0.5f);
+            // SetCursorPosX avoids SameLine wrap when left controls already pass center
+            // (wrap made Compile/Feedback look like a second, taller toolbar row).
+            {
+                const float CenterX = (ImGui::GetWindowWidth() - GroupW) * 0.5f;
+                const float Y = ImGui::GetCursorPosY();
+                ImGui::SetCursorPos(ImVec2(ImMax(CenterX, ImGui::GetCursorPosX() + 8.0f), Y));
+            }
 
             if (bBusy || bValidationFail) ImGui::BeginDisabled();
             if (ImGui::Button("\xEF\x96\xB0 Compile ") && Model.m_OnCompile)
