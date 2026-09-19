@@ -25,8 +25,12 @@ namespace e29
 
     inline void RenderOpenTextureEditors() noexcept
     {
-        for (auto& S : g_OpenTextureEditors) if (S) S->Render();
+        // Erase CLOSED sessions at the START of the next frame, not right after Render().
+        // ImGui close sets m_bOpen=false while Begin() still returns true for that frame, so
+        // AddCustomRenderCallback is queued; imgui::Render() runs those callbacks later in the
+        // SAME frame. Destroying here-after-Render was a use-after-free (Draw3D -> getFormat).
         std::erase_if(g_OpenTextureEditors, [](auto& S) noexcept { return !S || !S->m_bOpen; });
+        for (auto& S : g_OpenTextureEditors) if (S) S->Render();
     }
 }
 
