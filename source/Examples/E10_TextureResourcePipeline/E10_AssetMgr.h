@@ -3847,6 +3847,45 @@ namespace e10
             //
             auto pPlugin = LibMgr.m_AssetPluginsDB.find(NewEntry.m_Entry.m_FullGuid.m_Type);
 
+            // REAL BUG FOUND LIVE (2026-09-19): find() returns nullptr when the resource's type GUID
+            // has no registered pipeline plugin (missing/failed plugin load, Script-Module-only type,
+            // or a queue entry surviving past a plugin unload). The code below used to dereference
+            // pPlugin unconditionally (pPlugin->m_DebugCompiler / m_ReleaseCompiler) - an access
+            // violation inside CompilingThreadWorker, i.e. on a resource-compilation worker thread,
+            // which matches the intermittent APPCRASH on editor start when OpenProject floods the
+            // compile queue. Fail the entry cleanly instead: mark ERRORS, log, and return. The
+            // m_WorkersWorking RAII guard still decrements on this path.
+            if (pPlugin == nullptr)
+            {
+                printf("[CompileQueue] CompilingThreadWorker: NO PIPELINE PLUGIN for type=%016llX instance=%016llX - failing entry\n"
+                    , static_cast<unsigned long long>(NewEntry.m_Entry.m_FullGuid.m_Type.m_Value)
+                    , static_cast<unsigned long long>(NewEntry.m_Entry.m_FullGuid.m_Instance.m_Value));
+                {
+                    std::scoped_lock lock(Compilation.m_Compiling.m_Mutex);
+                    std::erase_if(Compilation.m_Compiling.m_List, [&](auto& E) { return E.m_Entry.m_FullGuid == NewEntry.m_Entry.m_FullGuid; });
+                }
+                {
+                    xcontainer::lock::scope lock(*NewEntry.m_Log);
+                    NewEntry.m_Log->get().m_Result = compilation::historical_entry::result::FAILURE;
+                    NewEntry.m_Log->get().m_Log = "ERROR: no pipeline plugin registered for this resource type\n";
+                }
+                {
+                    std::scoped_lock lock(Compilation.m_Failed.m_Mutex);
+                    Compilation.m_Failed.m_Map[NewEntry.m_Entry.m_FullGuid] = NewEntry;
+                }
+                {
+                    std::scoped_lock lock(Compilation.m_Historical.m_Mutex);
+                    Compilation.m_Historical.m_List.emplace_back(NewEntry);
+                }
+                LibMgr.getNodeInfo(NewEntry.m_Entry.m_gLibrary, NewEntry.m_Entry.m_FullGuid, [&](library_db::info_node& Node)
+                {
+                    if (static_cast<std::uint8_t>(Node.m_State) & 1) Node.m_State = library_db::info_node::state::BEEN_EDITED_ERRORS;
+                    else                                             Node.m_State = library_db::info_node::state::ERRORS;
+                });
+                LibMgr.m_OnCompilationState.NotifyAll(LibMgr, NewEntry.m_Entry.m_gLibrary, NewEntry.m_Entry.m_FullGuid, NewEntry.m_Log);
+                return;
+            }
+
             // Make sure the path for the compiler is clean for the command line
             std::wstring CommandLine            = {};
             bool         OutputToConsole        = {};
@@ -3914,14 +3953,24 @@ namespace e10
             {
                 LibMgr.m_OnCompilationState.NotifyAll(LibMgr, NewEntry.m_Entry.m_gLibrary, NewEntry.m_Entry.m_FullGuid, NewEntry.m_Log );
 
-                // Run the actual compiler
+                // Run the actual compiler (skip if we never resolved a compiler path - empty
+                // CommandLine would otherwise spawn a broken process / crash in path parsing).
                 try
                 {
-                    compilation::RunCommandLine
-                    ( CommandLine
-                    , *NewEntry.m_Log
-                    , Compilation.m_Settings.m_bOutputToConsole
-                    );
+                    if (CommandLine.empty())
+                    {
+                        xcontainer::lock::scope lock(*NewEntry.m_Log);
+                        NewEntry.m_Log->get().m_Result = compilation::historical_entry::result::FAILURE;
+                        NewEntry.m_Log->get().m_Log = "ERROR: no compiler path configured for this plugin\n";
+                    }
+                    else
+                    {
+                        compilation::RunCommandLine
+                        ( CommandLine
+                        , *NewEntry.m_Log
+                        , Compilation.m_Settings.m_bOutputToConsole
+                        );
+                    }
                 }
                 catch (const std::exception& e)
                 {
