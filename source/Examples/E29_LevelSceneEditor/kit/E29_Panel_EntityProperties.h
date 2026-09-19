@@ -69,35 +69,20 @@ namespace e29
                     DataSpan   = pArchetype->getDataComponentInfos();
                 };
 
-                if (ImGui::BeginCombo("###AddComponent", "Add Component"))
+                // Popup selector (grouped + searchable) — replaces the flat BeginCombo list.
+                // OpenPopup/BeginPopup share this panel's ID stack (see Error popup comments in kit).
                 {
-                    for (auto& Pair : xecs::component::mgr::s_Registry.m_ComponentInfoMap)
-                    {
-                        auto* pInfo = Pair.second;
-                        if (pInfo->m_TypeID != xecs::component::type::id::DATA) continue;
-                        if (e29::IsInternalComponent(pInfo)) continue;
-                        // findIndexComponentFromInfo, not getComponentBits().getBit() - see
-                        // [[xecs_getbit_vs_findindexcomponentfrominfo]] (a runtime-assigned component
-                        // bit checked this way can read as absent/invalid even when the component is
-                        // genuinely present).
-                        if (pDetails->m_pPool->findIndexComponentFromInfo(*pInfo) >= 0) continue; // already present
+                    constexpr const char* kAddComponentPopupId = "AddComponentPopup";
+                    if (ImGui::Button("Add Component"))
+                        ImGui::OpenPopup(kAddComponentPopupId);
 
-                        if (ImGui::Selectable(pInfo->m_pName))
-                        {
-                            // Routed through the command/undo system ([[e29_command_undo_system_plan]]
-                            // memory, phase 3 - commands/E29_Commands_ComponentEdit.h) instead of
-                            // calling GameMgr.AddOrRemoveComponents directly - add_component_cmd::Redo
-                            // does the exact same migration+remap this used to do inline, and its own
-                            // Undo removes the component again.
-                            e29::commands::Run(Undo, std::format("AddComponent -Scene {} -Id {} -Component {:016X}"
-                                , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
-                                , e29::commands::FormatEntityId(State.m_SelectedEntityId)
-                                , pInfo->m_Guid.m_Value
-                                ));
+                    ImGui::SetNextWindowSize(ImVec2(320.0f, 360.0f), ImGuiCond_Appearing);
+                    if (ImGui::BeginPopup(kAddComponentPopupId))
+                    {
+                        if (e29::RenderComponentSelectorPopupContents(State, Undo, pDetails->m_pPool))
                             RefreshEntityView();
-                        }
+                        ImGui::EndPopup();
                     }
-                    ImGui::EndCombo();
                 }
 
                 // Prefabs are created by dragging an entity from the Level Editor tree onto a folder

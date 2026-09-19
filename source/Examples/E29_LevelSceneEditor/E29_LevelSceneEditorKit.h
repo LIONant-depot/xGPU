@@ -240,6 +240,14 @@ namespace e29
         // across frames/selection changes.
         std::string m_ComponentCategoryFilter;
 
+        // Add Component popup (E29_Panel_ComponentSelector.h) - search string for filtering
+        // the component list. Same convention as m_TreeSearchString/m_ComponentCategoryFilter.
+        std::string m_ComponentSelectorSearchString;
+
+        // Add Component popup - per-category open/closed state (persists across frames).
+        // Key = category name (empty string for "Uncategorized"), value = true if expanded.
+        std::unordered_map<std::string, bool> m_ComponentSelectorCategoryOpen;
+
         // Ctrl-click toggle set, separate from the "primary" selection triad above (which still only
         // ever drives the Properties panel - ctrl-clicking never touches it). Only meaningful for
         // "Make Prefab" acting on a group; scoped to ONE scene at a time (a prefab's members must all
@@ -1526,6 +1534,7 @@ namespace e29
 } // namespace e29
 
 #include "kit/E29_Panel_LevelTree.h"
+#include "kit/E29_Panel_ComponentSelector.h"
 #include "kit/E29_Panel_EntityProperties.h"
 #include "kit/E29_Panel_SystemRegistry.h"
 #include "kit/E29_Panel_CommandConsole.h"

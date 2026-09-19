@@ -1169,7 +1169,6 @@ int E29_Example()
         e29::RenderSystemRegistryPanel(*pGameMgr, State);
         e29::diagnostics::Log("frame %llu system registry render end", static_cast<unsigned long long>(FrameNumber));
 
-
         auto RenderEditorToolbar = [&](const char* Name, ximgui::toolbar::axis Axis)
         {
             const bool bHorizontal = Axis == ximgui::toolbar::axis::Horizontal;
