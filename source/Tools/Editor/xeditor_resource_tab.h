@@ -25,8 +25,13 @@ namespace xeditor
     // Leading spaces so the label clears the icon we paint on the tab.
     inline constexpr const char* kEditorTabIconSpacer = "     ";
 
-    // Wrap ONLY xgpu::tools::imgui::BeginRendering (main DockSpace). Do not leave
-    // this pushed across editor content or nested DockSpaces.
+    // Tall FramePadding for main-dock editor root tabs. Use in TWO places, both
+    // popped immediately after the call returns:
+    //   1) around BeginRendering / EnableDocking — sizes the dock TabBar height
+    //   2) around ImGui::Begin for Level/Texture — sizes the hidden title-bar
+    //      offset so MenuBar/toolbar clears the taller tabs (BeginDocked keeps a
+    //      title bar height for offset even though the tab bar is what shows).
+    // Never leave this pushed across toolbar buttons or nested DockSpaces.
     inline void PushMainDockTabStyle() noexcept
     {
         const ImGuiStyle& S = ImGui::GetStyle();

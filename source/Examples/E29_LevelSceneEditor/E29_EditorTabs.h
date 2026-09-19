@@ -103,9 +103,11 @@ namespace e29::editor_tabs
         ImGui::SetNextWindowClass(&ParentWindowClass);
         ImGui::SetNextWindowSize(ImVec2(1280.0f, 800.0f), ImGuiCond_FirstUseEver);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        // Title is "Name###E29.LevelEditor" — stable ID. Tab height comes from
-        // PushMainDockTabStyle around BeginRendering, not from Begin.
+        // Title is "Name###E29.LevelEditor". Tall style around Begin so the hidden
+        // title-bar offset matches the tall main-dock TabBar (then pop before toolbar).
+        xeditor::PushMainDockTabStyle();
         const bool bParentVisible = ImGui::Begin(Title, nullptr, ImGuiWindowFlags_MenuBar);
+        xeditor::PopMainDockTabStyle();
         {
             const xresource::type_guid IconType = TypeGuid.empty()
                 ? xresource::type_guid(xresource::guid_generator::Instance64FromString("Level"))
