@@ -2,8 +2,15 @@
 #define XEDITOR_RESOURCE_TAB_H
 #pragma once
 
-// Main editor root tabs: show resource-type icon + asset name (not "Level Editor" /
-// "Texture Editor"), with slightly taller tabs than the default theme.
+// Main editor root tabs: resource-type icon + asset name (not "Level Editor" /
+// "Texture Editor"), slightly taller than nested tool tabs.
+//
+// Dock tab HEIGHT is decided in DockNodeCalcTabBarLayout from global FramePadding
+// when the MAIN DockSpace runs (inside xgpu::tools::imgui::BeginRendering) — NOT
+// at ImGui::Begin. Pushing FramePadding around Begin only bloated every button
+// inside the window and never grew the top tabs. Use Push/PopMainDockTabStyle
+// around BeginRendering only; nested DockSpaces (Inspector, Preview, ...) then
+// run with normal FramePadding.
 #include "dependencies/imgui/imgui.h"
 #include "dependencies/imgui/imgui_internal.h"
 #include "source/Examples/E10_TextureResourcePipeline/E10_AssetMgr.h"
@@ -13,25 +20,25 @@
 
 namespace xeditor
 {
-    // Extra vertical padding for editor-root dock tabs (theme FramePadding.y is 1).
     inline constexpr float kEditorTabExtraPadY = 5.0f;
     inline constexpr float kEditorTabIconPx    = 18.0f;
-    // Leading spaces reserved in the tab label so text clears the icon we paint over the tab.
+    // Leading spaces so the label clears the icon we paint on the tab.
     inline constexpr const char* kEditorTabIconSpacer = "     ";
 
-    inline void PushEditorRootTabStyle() noexcept
+    // Wrap ONLY xgpu::tools::imgui::BeginRendering (main DockSpace). Do not leave
+    // this pushed across editor content or nested DockSpaces.
+    inline void PushMainDockTabStyle() noexcept
     {
         const ImGuiStyle& S = ImGui::GetStyle();
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
             ImVec2(S.FramePadding.x + 4.0f, S.FramePadding.y + kEditorTabExtraPadY));
     }
 
-    inline void PopEditorRootTabStyle() noexcept
+    inline void PopMainDockTabStyle() noexcept
     {
         ImGui::PopStyleVar(1);
     }
 
-    // Resolve m_Info.m_Name for a resource; falls back to Fallback if missing.
     inline std::string ResolveResourceDisplayName(e10::library::guid LibraryGuid, xresource::full_guid Guid, const char* Fallback) noexcept
     {
         std::string Name;
@@ -44,7 +51,6 @@ namespace xeditor
         return Name;
     }
 
-    // Library-agnostic resolve (same path as e29::RemapGUIDToString).
     inline std::string ResolveResourceDisplayName(xresource::full_guid Guid, const char* Fallback) noexcept
     {
         std::string Name;
@@ -61,13 +67,14 @@ namespace xeditor
         return Name;
     }
 
-    // Build "     AssetName###StableId" for ImGui::Begin. StableId must stay fixed so focus/dock persist.
+    // "DisplayName###StableId" — ### keeps ImGui ID fixed when the display name changes.
     inline void FormatEditorRootTabTitle(char* Buf, size_t BufSize, const char* DisplayName, const char* StableIdAfterHashHashHash) noexcept
     {
         std::snprintf(Buf, BufSize, "%s%s###%s", kEditorTabIconSpacer, DisplayName ? DisplayName : "<unnamed>", StableIdAfterHashHashHash);
     }
 
-    // Paint the plugin type icon onto this window's dock tab (call right after Begin returns true).
+    // Call every frame after Begin (even when Begin returns false / tab not selected).
+    // Do NOT require DockIsActive — that is only true for the selected tab.
     inline void DrawEditorRootTabIcon(xgpu::device* pDevice, xresource::type_guid TypeGuid, int IconIndex = 0) noexcept
     {
         if (!pDevice) return;
@@ -76,14 +83,14 @@ namespace xeditor
         if (!Icon.isValid()) return;
 
         ImGuiWindow* Window = ImGui::GetCurrentWindow();
-        if (!Window || !Window->DockNode || !Window->DockIsActive) return;
+        if (!Window || !Window->DockNode) return;
         ImGuiTabBar* TabBar = Window->DockNode->TabBar;
         if (!TabBar) return;
 
         ImGuiTabItem* Tab = ImGui::TabBarFindTabByID(TabBar, Window->TabId);
         if (!Tab) return;
 
-        const float PadX = ImGui::GetStyle().FramePadding.x;
+        const float PadX = TabBar->FramePadding.x;
         const float TabH = TabBar->BarRect.GetHeight();
         float IconSz = kEditorTabIconPx;
         if (IconSz + 2.0f > TabH)

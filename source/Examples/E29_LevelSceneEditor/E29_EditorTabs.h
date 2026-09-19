@@ -103,15 +103,15 @@ namespace e29::editor_tabs
         ImGui::SetNextWindowClass(&ParentWindowClass);
         ImGui::SetNextWindowSize(ImVec2(1280.0f, 800.0f), ImGuiCond_FirstUseEver);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        xeditor::PushEditorRootTabStyle();
+        // Title is "Name###E29.LevelEditor" — stable ID. Tab height comes from
+        // PushMainDockTabStyle around BeginRendering, not from Begin.
         const bool bParentVisible = ImGui::Begin(Title, nullptr, ImGuiWindowFlags_MenuBar);
-        if (bParentVisible)
-            {
-                const xresource::type_guid IconType = TypeGuid.empty()
-                    ? xresource::type_guid(xresource::guid_generator::Instance64FromString("Level"))
-                    : TypeGuid;
-                xeditor::DrawEditorRootTabIcon(pDevice, IconType);
-            }
+        {
+            const xresource::type_guid IconType = TypeGuid.empty()
+                ? xresource::type_guid(xresource::guid_generator::Instance64FromString("Level"))
+                : TypeGuid;
+            xeditor::DrawEditorRootTabIcon(pDevice, IconType); // every frame, selected or not
+        }
         diagnostics::Log("window begin: %s visible=%d", Title, bParentVisible ? 1 : 0);
         const ImGuiID ParentDockspaceId = ImGui::GetID(kLevelEditorDockspaceId);
         const ImGuiWindowClass ParentDockClass = ParentEditorDockClass();
@@ -126,7 +126,6 @@ namespace e29::editor_tabs
         ApplyDockClassToTree(ImGui::DockBuilderGetNode(ParentDockspaceId), ParentDockClass);
         ImGui::End();
         diagnostics::Log("window end: %s", Title);
-        xeditor::PopEditorRootTabStyle();
         ImGui::PopStyleVar();
         return bParentVisible;
     }
