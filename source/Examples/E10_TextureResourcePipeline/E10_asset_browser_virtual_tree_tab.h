@@ -1997,6 +1997,7 @@ namespace e10
                     else
                     {
                         m_Browser.setSelection(m_SelectedLibrary, E.m_ResourceGUID, {});
+                        if (m_Browser.m_OnOpenAsset) m_Browser.m_OnOpenAsset(m_SelectedLibrary, E.m_ResourceGUID);
                     }
                 }
                 else if (PressType == 3)

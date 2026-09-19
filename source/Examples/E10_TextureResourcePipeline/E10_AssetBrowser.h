@@ -1182,6 +1182,14 @@ namespace e10
         // (view -> source control), not a query - it never reaches back into files_tab's own code.
         std::function<void(library::guid, const std::wstring& /*RelativeFolderPath*/)> m_OnFolderNavigated;
 
+        // Optional hook - fired on a real double-click of a (non-folder) resource in the Virtual
+        // Tree tab, in addition to the existing setSelection() call, never instead of it. Default-
+        // empty means today's exact behavior (selection only) for every consumer but the one that
+        // registers this. Lets a host (E29 today) open a dedicated editor for the double-clicked
+        // resource, per its own TypeGUID, without this shared browser file needing to know
+        // anything about what an "editor" is.
+        std::function<void(library::guid, xresource::full_guid)> m_OnOpenAsset;
+
         // Optional hooks - manual Lock/Unlock from the Asset Tree's own right-click menu (direct user
         // request: "we should always give the user the manual option to do it... just in case the user
         // is doing something special"). Default-empty means the menu items simply aren't offered. Fire-
