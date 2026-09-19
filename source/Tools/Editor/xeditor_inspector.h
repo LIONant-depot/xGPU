@@ -1,4 +1,4 @@
-#ifndef XEDITOR_INSPECTOR_H
+﻿#ifndef XEDITOR_INSPECTOR_H
 #define XEDITOR_INSPECTOR_H
 #pragma once
 
@@ -10,6 +10,18 @@
 
 namespace xeditor
 {
+    // Same inspector chrome the Level Editor Entity Properties panel uses (E29_LevelScene_Editor.cpp).
+    // Row tint off + tight Unity-like spacing — not E10's ColorVScalar readability multipliers.
+    inline void ApplyLevelEditorInspectorTheme(xproperty::inspector& Inspector) noexcept
+    {
+        Inspector.m_Settings.m_bRenderBackgroundDepth = false;
+        Inspector.m_Settings.m_bRenderLeftBackground  = false;
+        Inspector.m_Settings.m_bRenderRightBackground = false;
+        Inspector.m_Settings.m_FramePadding            = ImVec2(4.0f, 3.0f);
+        Inspector.m_Settings.m_ItemSpacing             = ImVec2(1.0f, 1.0f);
+        Inspector.m_Settings.m_TableFramePadding       = ImVec2(4.0f, 1.0f);
+    }
+
     struct inspector_panel
     {
         xproperty::inspector            m_Inspector;
@@ -17,10 +29,7 @@ namespace xeditor
 
         explicit inspector_panel(const char* Name) noexcept : m_Inspector(Name)
         {
-            // Same readability scalars E10 applies to its property dialogs.
-            m_Inspector.m_Settings.m_ColorVScalar1 = 0.270f * 1.4f;
-            m_Inspector.m_Settings.m_ColorVScalar2 = 0.305f * 1.4f;
-            m_Inspector.m_Settings.m_ColorSScalar  = 0.26f  * 1.4f;
+            ApplyLevelEditorInspectorTheme(m_Inspector);
         }
 
         void Clear() noexcept
