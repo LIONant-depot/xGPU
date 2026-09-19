@@ -6,7 +6,6 @@
 #include "source/Examples/E29_LevelSceneEditor/E29_Diagnostics.h"
 #include "imgui_internal.h"
 #include "source/Tools/Editor/xeditor_resource_tab.h"
-#include "dependencies/xECSV2/src/xecs_level.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -92,7 +91,7 @@ namespace e29::editor_tabs
         T_RENDER_PARENT_TOOLBAR&& RenderParentToolbar,
         const char* DisplayName = "Level",
         xgpu::device* pDevice = nullptr,
-        xresource::type_guid TypeGuid = xecs::level::type_guid_v) noexcept
+        xresource::type_guid TypeGuid = {}) noexcept
     {
         char Title[256];
         xeditor::FormatEditorRootTabTitle(Title, sizeof(Title),
@@ -107,7 +106,12 @@ namespace e29::editor_tabs
         xeditor::PushEditorRootTabStyle();
         const bool bParentVisible = ImGui::Begin(Title, nullptr, ImGuiWindowFlags_MenuBar);
         if (bParentVisible)
-            xeditor::DrawEditorRootTabIcon(pDevice, TypeGuid);
+            {
+                const xresource::type_guid IconType = TypeGuid.empty()
+                    ? xresource::type_guid(xresource::guid_generator::Instance64FromString("Level"))
+                    : TypeGuid;
+                xeditor::DrawEditorRootTabIcon(pDevice, IconType);
+            }
         diagnostics::Log("window begin: %s visible=%d", Title, bParentVisible ? 1 : 0);
         const ImGuiID ParentDockspaceId = ImGui::GetID(kLevelEditorDockspaceId);
         const ImGuiWindowClass ParentDockClass = ParentEditorDockClass();
