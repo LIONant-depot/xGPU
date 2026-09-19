@@ -3,9 +3,10 @@
 #pragma once
 
 // Per-editor top bar for the shared editor framework — Undo/Redo, Save, Compile + Feedback.
-// Layout and feedback colors follow E10_TextureResourcePipeline.cpp's BeginMainMenuBar strip
-// (icons, disable-while-compiling, Feedback popup). Drawn at the TOP of each editor window,
-// not as the host app's global main menu bar (multiple editors can be open at once).
+// Drawn via ImGui::BeginMenuBar() so it picks up ImGuiCol_MenuBarBg — the same App Toolbar
+// color E29's Level Editor menu bar uses (official editor theme). Host windows must pass
+// ImGuiWindowFlags_MenuBar to ImGui::Begin.
+// Feedback colors/layout follow E10's Compile + Feedback strip.
 #include "dependencies/xundo/source/xundo_system.h"
 #include "source/Examples/E10_TextureResourcePipeline/E10_AssetMgr.h"
 #include "dependencies/xstrtool/source/xstrtool.h"
@@ -25,22 +26,19 @@ namespace xeditor
         std::shared_ptr<e10::compilation::historical_entry::log>        m_Log;
         std::vector<std::string>*                                       m_pValidationErrors  = nullptr;
 
-        // Called when the user presses Save / Compile. Compile should persist the descriptor
-        // so the library mgr's change detection queues a real compile (same as E10).
         void (*m_OnSave)(void* pUser)    = nullptr;
         void (*m_OnCompile)(void* pUser) = nullptr;
         void* m_pUser                    = nullptr;
     };
 
+    // Requires the host window to have been begun with ImGuiWindowFlags_MenuBar.
     inline void RenderEditorToolbar(toolbar_model& Model) noexcept
     {
-        // Compact strip at the top of the editor window.
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 2));
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(6, 3));
+        if (!ImGui::BeginMenuBar())
+            return;
 
-        //
-        // Undo / Redo — same icon glyphs E10 uses on its menu bar
-        //
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 2));
+
         if (Model.m_pUndo)
         {
             const bool bCanUndo = Model.m_pUndo->GetUndoIndex() > 0;
@@ -65,9 +63,6 @@ namespace xeditor
             ImGui::SameLine(0, 8);
         }
 
-        //
-        // Save
-        //
         {
             if (!Model.m_bDirty) ImGui::BeginDisabled();
             if (ImGui::Button(" Save ") && Model.m_OnSave)
@@ -76,9 +71,6 @@ namespace xeditor
             if (ImGui::IsItemHovered()) ImGui::SetTooltip("Save the descriptor");
         }
 
-        //
-        // Compile + Feedback (E10 pattern)
-        //
         if (Model.m_bCanCompile)
         {
             ImGui::SameLine(0, 8);
@@ -170,8 +162,8 @@ namespace xeditor
             }
         }
 
-        ImGui::PopStyleVar(2);
-        ImGui::Separator();
+        ImGui::PopStyleVar();
+        ImGui::EndMenuBar();
     }
 }
 
