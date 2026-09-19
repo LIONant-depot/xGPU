@@ -162,6 +162,13 @@ int E29_Example()
     e29::diagnostics::Log("startup: initializing resource manager");
     xresource::g_Mgr.Initiallize(20000);
 
+    // Same wiring E10 does: texture (and other) loaders Destroy via UserData.m_Device.
+    // Without this, RegisterResource/ReleaseRef (Texture editor preview reload after Compile)
+    // crashes in device::Destroy on a default-constructed empty device handle.
+    resource_mgr_user_data ResourceMgrUserData{};
+    ResourceMgrUserData.m_Device = Device;
+    xresource::g_Mgr.setUserData(&ResourceMgrUserData, false);
+
     //
     // Setup Imgui interface
     //
@@ -322,6 +329,7 @@ int E29_Example()
             io.IniFilename = IniSave.c_str();
 
             ProjectPath = e10::g_LibMgr.m_ProjectPath;
+            xresource::g_Mgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", e10::g_LibMgr.m_ProjectPath));
             pGameMgr->m_SceneMgr.m_ProjectPath  = ProjectPath;
             pGameMgr->m_LevelMgr.m_ProjectPath  = ProjectPath;
             pGameMgr->m_PrefabMgr.m_ProjectPath = ProjectPath;
