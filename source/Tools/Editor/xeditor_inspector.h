@@ -1,4 +1,4 @@
-﻿#ifndef XEDITOR_INSPECTOR_H
+#ifndef XEDITOR_INSPECTOR_H
 #define XEDITOR_INSPECTOR_H
 #pragma once
 
@@ -10,8 +10,8 @@
 
 namespace xeditor
 {
-    // Same inspector chrome the Level Editor Entity Properties panel uses (E29_LevelScene_Editor.cpp).
-    // Row tint off + tight Unity-like spacing — not E10's ColorVScalar readability multipliers.
+    // Same inspector chrome the Level Editor Entity Properties panel uses.
+    // Row tint off + tight Unity-like spacing - not E10's ColorVScalar readability multipliers.
     inline void ApplyLevelEditorInspectorTheme(xproperty::inspector& Inspector) noexcept
     {
         Inspector.m_Settings.m_bRenderBackgroundDepth = false;
@@ -20,6 +20,20 @@ namespace xeditor
         Inspector.m_Settings.m_FramePadding            = ImVec2(4.0f, 3.0f);
         Inspector.m_Settings.m_ItemSpacing             = ImVec2(1.0f, 1.0f);
         Inspector.m_Settings.m_TableFramePadding       = ImVec2(4.0f, 1.0f);
+    }
+
+    // Mirror Entity Properties: framed headers use ImGuiCol_Header, but E29_Theme sets that to
+    // selection blue. Push the slightly-lighter grey (Inspector Titlebar #3E3E3E) while showing.
+    inline void PushLevelEditorInspectorHeaderColors() noexcept
+    {
+        ImGui::PushStyleColor(ImGuiCol_Header,        ImVec4(0x3E / 255.0f, 0x3E / 255.0f, 0x3E / 255.0f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImVec4(0x4A / 255.0f, 0x4A / 255.0f, 0x4A / 255.0f, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_HeaderActive,  ImVec4(0x4A / 255.0f, 0x4A / 255.0f, 0x4A / 255.0f, 1.0f));
+    }
+
+    inline void PopLevelEditorInspectorHeaderColors() noexcept
+    {
+        ImGui::PopStyleColor(3);
     }
 
     struct inspector_panel
@@ -58,7 +72,9 @@ namespace xeditor
 
         void Show() noexcept
         {
+            PushLevelEditorInspectorHeaderColors();
             m_Inspector.ShowEmbedded(m_Context);
+            PopLevelEditorInspectorHeaderColors();
         }
     };
 }

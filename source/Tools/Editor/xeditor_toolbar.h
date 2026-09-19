@@ -32,6 +32,7 @@ namespace xeditor
     };
 
     // Requires the host window to have been begun with ImGuiWindowFlags_MenuBar.
+    // Undo/Redo/Save stay left; Compile + Feedback are centered by default (E29 Play/Stop pattern).
     inline void RenderEditorToolbar(toolbar_model& Model) noexcept
     {
         if (!ImGui::BeginMenuBar())
@@ -73,10 +74,6 @@ namespace xeditor
 
         if (Model.m_bCanCompile)
         {
-            ImGui::SameLine(0, 8);
-            ImGui::SeparatorEx(ImGuiSeparatorFlags_Vertical);
-            ImGui::SameLine(0, 8);
-
             e10::compilation::historical_entry::result Results = e10::compilation::historical_entry::result::SUCCESS;
             if (Model.m_Log)
             {
@@ -87,6 +84,14 @@ namespace xeditor
             const bool bValidationFail = Model.m_pValidationErrors && !Model.m_pValidationErrors->empty();
             const bool bBusy = Results == e10::compilation::historical_entry::result::COMPILING
                             || Results == e10::compilation::historical_entry::result::COMPILING_WARNINGS;
+
+            // Default for all editors: center Compile + Feedback like E29 Play/Stop
+            // (SameLine((windowWidth - groupW) * 0.5f)).
+            const float CompileW  = ImGui::CalcTextSize("\xEF\x96\xB0 Compile ").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+            const float FeedbackW = ImGui::CalcTextSize("Feedback:\xee\xa5\xb2").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+            const float Gap       = 4.0f;
+            const float GroupW    = CompileW + Gap + FeedbackW;
+            ImGui::SameLine((ImGui::GetWindowWidth() - GroupW) * 0.5f);
 
             if (bBusy || bValidationFail) ImGui::BeginDisabled();
             if (ImGui::Button("\xEF\x96\xB0 Compile ") && Model.m_OnCompile)
