@@ -1,11 +1,11 @@
-ï»¿#ifndef XEDITOR_TOOLBAR_H
+#ifndef XEDITOR_TOOLBAR_H
 #define XEDITOR_TOOLBAR_H
 #pragma once
 
-// Per-editor top bar for the shared editor framework â€” Undo/Redo, Save, Compile + Feedback.
-// Drawn via ImGui::BeginMenuBar() so it picks up ImGuiCol_MenuBarBg â€” the same App Toolbar
+// Per-editor top bar for the shared editor framework — Undo/Redo, Save, Compile + Feedback.
+// Drawn via ImGui::BeginMenuBar() so it picks up ImGuiCol_MenuBarBg — the same App Toolbar
 // color E29's Level Editor menu bar uses (official editor theme). Host windows must pass
-// ImGuiWindowFlags_MenuBar to ImGui::Begin.
+// ImGuiWindowFlags_MenuBar to ImGui::Begin. Hosts must also PushStyleVar(WindowPadding, 0) around Begin/End like E29's Level Editor, or a hairline gap appears under the menu bar.
 // Feedback colors/layout follow E10's Compile + Feedback strip.
 #include "dependencies/xundo/source/xundo_system.h"
 #include "source/Examples/E10_TextureResourcePipeline/E10_AssetMgr.h"
