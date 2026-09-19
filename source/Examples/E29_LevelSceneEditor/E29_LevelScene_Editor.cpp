@@ -846,13 +846,7 @@ int E29_Example()
 
         // The main dockspace hosts complete editor contexts. The Level Editor context in turn owns
         // its private nested dockspace for tools such as Level, Inspector, and Commands.
-        // Main DockSpace (Level/Texture top tabs) lays out inside BeginRendering using
-        // current FramePadding — push taller padding ONLY around that call so nested
-        // DockSpaces and toolbar buttons keep the normal theme size.
-        xeditor::PushMainDockTabStyle();
-        const bool bSkipFrame = xgpu::tools::imgui::BeginRendering(true);
-        xeditor::PopMainDockTabStyle();
-        if (bSkipFrame)
+        if (xgpu::tools::imgui::BeginRendering(true))
         {
             e29::diagnostics::Log("frame %llu BeginRendering skipped", static_cast<unsigned long long>(FrameNumber));
             continue;
