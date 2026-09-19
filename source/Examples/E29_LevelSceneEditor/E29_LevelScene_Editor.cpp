@@ -24,6 +24,7 @@
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_MakePrefab.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Compilation.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SourceControl.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_TextureEditor.h"
 #include "source/Examples/E29_LevelSceneEditor/kit/E29_IdleWork.h"
 #include "source/Examples/E29_LevelSceneEditor/kit/E29_ComponentCompatibility.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_Theme.h"
@@ -386,6 +387,8 @@ int E29_Example()
     if (auto Err = E29Undo.Init({}, false); !Err.empty())
         e29::Debugger(std::format("E29: xundo Init failed: {}", Err));
     e29::g_pUndo = &E29Undo;
+    e29::commands::open_texture_editor_cmd CmdOpenTextureEditor(E29Undo, &CmdContext);
+    e29::commands::texture_editor_command_cmd CmdTextureEditorCommand(E29Undo, &CmdContext);
     e29::commands::select_cmd             CmdSelect(E29Undo, &CmdContext);
     e29::commands::toggle_multi_select_cmd CmdToggleMultiSelect(E29Undo, &CmdContext);
     e29::commands::clear_selection_cmd    CmdClearSelection(E29Undo, &CmdContext);
@@ -1376,6 +1379,14 @@ int E29_Example()
         e29::RenderSourceControlPanel(E29Undo);
 
         }
+
+        // Editor Framework: this window is a root-level PEER of "Level Editor" (like Level Editor
+        // itself, not one of its internal child panels), so it must render every frame
+        // unconditionally - gating it behind bParentEditorVisible (as every internal panel above
+        // correctly is) meant it silently stopped calling ImGui::Begin() the instant the user
+        // clicked its own tab (since that made Level Editor itself the hidden one), which is
+        // exactly why clicking the tab looked like it did nothing.
+        e29::RenderOpenTextureEditors();
 
         xgpu::tools::imgui::Render();
         MainWindow.PageFlip();

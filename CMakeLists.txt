@@ -489,6 +489,10 @@ set(XGPU_SOURCES
   "source/tools/editors/xgpu_editor_viewport.h"
   "source/tools/editors/xgpu_editor_anim_pose.h"
   "source/tools/editors/xgpu_editor_resource_picker.h"
+  "source/Tools/Editor/xeditor_types.h"
+  "source/Tools/Editor/xeditor_registry.h"
+  "source/Tools/Editor/xeditor_dock_isolation.h"
+  "source/Tools/Editor/xeditor_console.h"
   "source/tools/xgpu_view.h"
   "source/tools/xgpu_view_inline.h"
   "source/tools/xgpu_xcore_bitmap_helpers.h"
@@ -1144,6 +1148,11 @@ set_target_properties(NodeOSCLI PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED
 # Command Console named pipe (phase 5 of [[e29_command_undo_system_plan]] memory - see the top
 # comment in E29CLI.cpp).
 add_executable(E29CLI "source/Examples/E29_LevelSceneEditor/E29CLI.cpp")
+
+# xeditorcli - the same standalone-CLI pattern, generalized for the shared editor framework's own
+# console pipe (source/Tools/Editor/xeditor_console.h) - replaces a per-editor CLI going forward.
+add_executable(xeditorcli "source/Tools/Editor/xeditorcli.cpp")
+set_target_properties(xeditorcli PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
 set_target_properties(E29CLI PROPERTIES CXX_STANDARD 20 CXX_STANDARD_REQUIRED ON)
 
 # Add dependency subdirectory
