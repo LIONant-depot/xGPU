@@ -166,6 +166,7 @@ int E29_Example()
     // Setup Imgui interface
     //
     e29::diagnostics::Log("startup: xgpu/imgui CreateInstance begin");
+    e29::g_pTextureEditorDevice = &Device;
     xgpu::tools::imgui::CreateInstance(MainWindow);
     e29::diagnostics::Log("startup: xgpu/imgui CreateInstance complete");
     e29::diagnostics::Log("startup: applying E29 theme begin");
@@ -696,12 +697,12 @@ int E29_Example()
     // aren't wired up yet - real follow-up work, not done under today's time budget). Every other
     // resource type's double-click behavior is unchanged (today's inert setSelection-only default).
     AsserBrowser.m_OnOpenAsset = [](e10::library::guid LibraryGuid, xresource::full_guid AssetGuid)
-    {
-        if (AssetGuid.m_Type != xrsc::texture_type_guid_v) return;
-        for (auto& S : e29::g_OpenTextureEditors)
-            if (S && S->m_Document.getGuid() == AssetGuid) { S->m_bOpen = true; return; }
-        e29::g_OpenTextureEditors.push_back(std::make_unique<xtexture_editor::session>(AssetGuid, LibraryGuid));
-    };
+        {
+            if (AssetGuid.m_Type != xrsc::texture_type_guid_v) return;
+            for (auto& S : e29::g_OpenTextureEditors)
+                if (S && S->m_Document.getGuid() == AssetGuid) { S->Focus(); return; }
+            e29::g_OpenTextureEditors.push_back(std::make_unique<xtexture_editor::session>(AssetGuid, LibraryGuid, e29::g_pTextureEditorDevice));
+        };
 
     // Manual Lock/Unlock from the Asset Tree's own right-click menu (direct user request, 2026-09-17:
     // "we should always give the user the manual option to do it... just in case the user is doing

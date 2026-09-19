@@ -20,6 +20,9 @@ namespace e29
     // guid), never a single shared slot the way E10's own model works.
     inline std::vector<std::unique_ptr<xtexture_editor::session>> g_OpenTextureEditors;
 
+    // Bound once from E29 main after Device create — sessions need it for E10-taught preview upload.
+    inline xgpu::device* g_pTextureEditorDevice = nullptr;
+
     inline void RenderOpenTextureEditors() noexcept
     {
         for (auto& S : g_OpenTextureEditors) if (S) S->Render();
@@ -52,9 +55,9 @@ namespace e29::commands
             // session-per-identity policy) - a real reason this list-of-sessions model exists,
             // not just plumbing.
             for (auto& S : e29::g_OpenTextureEditors)
-                if (S && S->m_Document.getGuid() == AssetGuid) { S->m_bOpen = true; return "OpenTextureEditor: already open, focused"; }
+                if (S && S->m_Document.getGuid() == AssetGuid) { S->Focus(); return "OpenTextureEditor: already open, focused"; }
 
-            e29::g_OpenTextureEditors.push_back(std::make_unique<xtexture_editor::session>(AssetGuid, LibraryGuid));
+            e29::g_OpenTextureEditors.push_back(std::make_unique<xtexture_editor::session>(AssetGuid, LibraryGuid, e29::g_pTextureEditorDevice));
             return e29::g_OpenTextureEditors.back()->m_Document.m_pDescriptor ? "" : "OpenTextureEditor: failed to load descriptor";
         }
         xcmdline::parser::handle m_hLibrary, m_hAsset;
