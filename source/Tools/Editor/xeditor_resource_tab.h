@@ -5,12 +5,10 @@
 // Main editor root tabs: resource-type icon + asset name (not "Level Editor" /
 // "Texture Editor"), slightly taller than nested tool tabs.
 //
-// Dock tab HEIGHT is decided in DockNodeCalcTabBarLayout from global FramePadding
-// when the MAIN DockSpace runs (inside xgpu::tools::imgui::BeginRendering) — NOT
-// at ImGui::Begin. Pushing FramePadding around Begin only bloated every button
-// inside the window and never grew the top tabs. Use Push/PopMainDockTabStyle
-// around BeginRendering only; nested DockSpaces (Inspector, Preview, ...) then
-// run with normal FramePadding.
+// Dock tab HEIGHT is set in DockNodeCalcTabBarLayout from FramePadding when the
+// MAIN DockSpace runs (BeginRendering). BeginDocked still keeps a hidden title
+// bar for offset — bump ONLY TitleBarHeight after Begin (see
+// ApplyMainDockTabTitleBarOffset) so MenuBar/toolbar stay normal height.
 #include "dependencies/imgui/imgui.h"
 #include "dependencies/imgui/imgui_internal.h"
 #include "source/Examples/E10_TextureResourcePipeline/E10_AssetMgr.h"
@@ -22,16 +20,9 @@ namespace xeditor
 {
     inline constexpr float kEditorTabExtraPadY = 5.0f;
     inline constexpr float kEditorTabIconPx    = 18.0f;
-    // Leading spaces so the label clears the icon we paint on the tab.
     inline constexpr const char* kEditorTabIconSpacer = "     ";
 
-    // Tall FramePadding for main-dock editor root tabs. Use in TWO places, both
-    // popped immediately after the call returns:
-    //   1) around BeginRendering / EnableDocking — sizes the dock TabBar height
-    //   2) around ImGui::Begin for Level/Texture — sizes the hidden title-bar
-    //      offset so MenuBar/toolbar clears the taller tabs (BeginDocked keeps a
-    //      title bar height for offset even though the tab bar is what shows).
-    // Never leave this pushed across toolbar buttons or nested DockSpaces.
+    // Wrap ONLY BeginRendering / EnableDocking (main DockSpace tab bar height).
     inline void PushMainDockTabStyle() noexcept
     {
         const ImGuiStyle& S = ImGui::GetStyle();
@@ -42,6 +33,31 @@ namespace xeditor
     inline void PopMainDockTabStyle() noexcept
     {
         ImGui::PopStyleVar(1);
+    }
+
+    // After ImGui::Begin on a main-dock editor root: grow the hidden title-bar
+    // offset to match the tall TabBar, without touching MenuBarHeight (toolbar).
+    inline void ApplyMainDockTabTitleBarOffset() noexcept
+    {
+        ImGuiWindow* w = ImGui::GetCurrentWindow();
+        if (!w || !w->DockIsActive || !w->DockNode)
+            return;
+        if (w->DockNode->IsHiddenTabBar() || w->DockNode->IsNoTabBar())
+            return;
+
+        const float Delta = kEditorTabExtraPadY * 2.0f; // matches 2 * extra FramePadding.y
+        w->TitleBarHeight += Delta;
+        w->DecoOuterSizeY1 += Delta;
+        w->OuterRectClipped.Min.y += Delta;
+        w->InnerRect.Min.y += Delta;
+        w->InnerClipRect.Min.y += Delta;
+        w->WorkRect.Min.y += Delta;
+        w->ContentRegionRect.Min.y += Delta;
+        w->DC.CursorStartPos.y += Delta;
+        w->DC.CursorPos.y += Delta;
+        w->DC.CursorPosPrevLine.y += Delta;
+        w->DC.CursorMaxPos.y += Delta;
+        w->DC.IdealMaxPos.y += Delta;
     }
 
     inline std::string ResolveResourceDisplayName(e10::library::guid LibraryGuid, xresource::full_guid Guid, const char* Fallback) noexcept
@@ -79,7 +95,6 @@ namespace xeditor
     }
 
     // Call every frame after Begin (even when Begin returns false / tab not selected).
-    // Do NOT require DockIsActive — that is only true for the selected tab.
     inline void DrawEditorRootTabIcon(xgpu::device* pDevice, xresource::type_guid TypeGuid, int IconIndex = 0) noexcept
     {
         if (!pDevice) return;
