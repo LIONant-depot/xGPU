@@ -1028,7 +1028,13 @@ int E29_Example()
             ImGui::EndMenuBar();
         };
 
-        const bool bParentEditorVisible = e29::editor_tabs::RenderParentEditorDockspace(RenderParentEditorToolbar);
+        std::string LevelTabName;
+        if (!State.m_CurrentLevel.empty())
+            e29::RemapGUIDToString(LevelTabName, xresource::full_guid{ State.m_CurrentLevel.m_Instance, State.m_CurrentLevel.m_Type });
+        else
+            LevelTabName = "Level";
+        const bool bParentEditorVisible = e29::editor_tabs::RenderParentEditorDockspace(
+            RenderParentEditorToolbar, LevelTabName.c_str(), &Device, xecs::level::type_guid_v);
         e29::diagnostics::Log
         ( "frame %llu Parent Editor Window visible=%d"
         , static_cast<unsigned long long>(FrameNumber), bParentEditorVisible ? 1 : 0

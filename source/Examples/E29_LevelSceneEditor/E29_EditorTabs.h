@@ -5,6 +5,8 @@
 #include "source/xGPU.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_Diagnostics.h"
 #include "imgui_internal.h"
+#include "source/Tools/Editor/xeditor_resource_tab.h"
+#include "dependencies/xECSV2/src/xecs_level.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -15,7 +17,9 @@
 // unable to dock into the application root.
 namespace e29::editor_tabs
 {
-    inline constexpr char kLevelEditorWindow[] = "Level Editor###E29.LevelEditor";
+    // Display name is filled each frame; ### id must stay fixed for focus/dock.
+    inline constexpr char kLevelEditorWindowId[] = "E29.LevelEditor";
+    inline constexpr char kLevelEditorWindow[] = "Level Editor###E29.LevelEditor"; // legacy alias (logs)
     inline constexpr char kLevelEditorDockspaceId[] = "E29.LevelEditor.Dockspace.V1";
 
     inline constexpr char kResourceBrowserWindow[] = "Resource Browser###E29.LevelEditor.ResourceBrowser";
@@ -84,15 +88,27 @@ namespace e29::editor_tabs
     // The dockspace remains alive while Parent Editor Window is hidden by another root tab. Dear
     // ImGui otherwise detaches every direct child after one hidden frame.
     template<typename T_RENDER_PARENT_TOOLBAR>
-    inline bool RenderParentEditorDockspace(T_RENDER_PARENT_TOOLBAR&& RenderParentToolbar) noexcept
+    inline bool RenderParentEditorDockspace(
+        T_RENDER_PARENT_TOOLBAR&& RenderParentToolbar,
+        const char* DisplayName = "Level",
+        xgpu::device* pDevice = nullptr,
+        xresource::type_guid TypeGuid = xecs::level::type_guid_v) noexcept
     {
+        char Title[256];
+        xeditor::FormatEditorRootTabTitle(Title, sizeof(Title),
+            (DisplayName && *DisplayName) ? DisplayName : "Level",
+            kLevelEditorWindowId);
+
         ImGuiWindowClass ParentWindowClass;
         ParentWindowClass.DockingAlwaysTabBar = true;
         ImGui::SetNextWindowClass(&ParentWindowClass);
         ImGui::SetNextWindowSize(ImVec2(1280.0f, 800.0f), ImGuiCond_FirstUseEver);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
-        const bool bParentVisible = ImGui::Begin(kLevelEditorWindow, nullptr, ImGuiWindowFlags_MenuBar);
-        diagnostics::Log("window begin: %s visible=%d", kLevelEditorWindow, bParentVisible ? 1 : 0);
+        xeditor::PushEditorRootTabStyle();
+        const bool bParentVisible = ImGui::Begin(Title, nullptr, ImGuiWindowFlags_MenuBar);
+        if (bParentVisible)
+            xeditor::DrawEditorRootTabIcon(pDevice, TypeGuid);
+        diagnostics::Log("window begin: %s visible=%d", Title, bParentVisible ? 1 : 0);
         const ImGuiID ParentDockspaceId = ImGui::GetID(kLevelEditorDockspaceId);
         const ImGuiWindowClass ParentDockClass = ParentEditorDockClass();
         if (bParentVisible)
@@ -105,7 +121,8 @@ namespace e29::editor_tabs
             ImGui::DockSpace(ParentDockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_KeepAliveOnly, &ParentDockClass);
         ApplyDockClassToTree(ImGui::DockBuilderGetNode(ParentDockspaceId), ParentDockClass);
         ImGui::End();
-        diagnostics::Log("window end: %s", kLevelEditorWindow);
+        diagnostics::Log("window end: %s", Title);
+        xeditor::PopEditorRootTabStyle();
         ImGui::PopStyleVar();
         return bParentVisible;
     }
