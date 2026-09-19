@@ -35,10 +35,11 @@ namespace xeditor
         ImGui::PopStyleVar(1);
     }
 
-    // After ImGui::Begin on a main-dock editor root: set the hidden title-bar
-    // offset to the *actual* TabBar height so MenuBar sits flush under the tabs.
-    // Do not guess from kEditorTabExtraPadY — overshoot makes the toolbar chrome
-    // look oversized / stretches centered items.
+    // After ImGui::Begin on a main-dock editor root:
+    //  - TitleBarHeight matches the TabBar (uses FramePadding locked at DockSpace,
+    //    when we pushed tall style — BarRect alone can be stale/wrong).
+    //  - MenuBarHeight gets a few extra px so toolbar buttons are not clipped
+    //    (theme FramePadding.y is 1, so default MenuBar is flush with Button height).
     inline void ApplyMainDockTabTitleBarOffset() noexcept
     {
         ImGuiWindow* w = ImGui::GetCurrentWindow();
@@ -50,26 +51,29 @@ namespace xeditor
         if (!TabBar)
             return;
 
-        const float TabH = TabBar->BarRect.GetHeight();
-        if (TabH <= 1.0f)
-            return;
-        const float Delta = TabH - w->TitleBarHeight;
-        if (Delta <= 0.5f)
-            return; // already matched (or tabs shorter)
+        ImGuiContext& g = *ImGui::GetCurrentContext();
+        const float OldDecoY1 = w->DecoOuterSizeY1;
 
-        w->TitleBarHeight += Delta;
-        w->DecoOuterSizeY1 += Delta;
-        w->OuterRectClipped.Min.y += Delta;
-        w->InnerRect.Min.y += Delta;
-        w->InnerClipRect.Min.y += Delta;
+        // Tab bar was built under PushMainDockTabStyle — FramePadding is locked on the TabBar.
+        w->TitleBarHeight = g.FontSize + TabBar->FramePadding.y * 2.0f;
+        // +4px total (+2 top/bottom) so Save/Compile are not shaved by the menu-bar clip.
+        w->MenuBarHeight = g.FontSize + g.Style.FramePadding.y * 2.0f + 4.0f;
+        w->DecoOuterSizeY1 = w->TitleBarHeight + w->MenuBarHeight;
+
+        w->OuterRectClipped.Min.y = w->Pos.y + w->TitleBarHeight;
+        w->InnerRect.Min.y = w->Pos.y + w->DecoOuterSizeY1;
+        w->InnerClipRect.Min.y = ImFloor(0.5f + w->InnerRect.Min.y);
+
+        const float Delta = w->DecoOuterSizeY1 - OldDecoY1;
         w->WorkRect.Min.y += Delta;
         w->ParentWorkRect.Min.y += Delta;
         w->ContentRegionRect.Min.y += Delta;
-        w->DC.CursorStartPos.y += Delta;
-        w->DC.CursorPos.y += Delta;
-        w->DC.CursorPosPrevLine.y += Delta;
-        w->DC.CursorMaxPos.y += Delta;
-        w->DC.IdealMaxPos.y += Delta;
+
+        w->DC.CursorStartPos.y = (float)((double)w->Pos.y + w->WindowPadding.y - (double)w->Scroll.y + w->DecoOuterSizeY1);
+        w->DC.CursorPos = w->DC.CursorStartPos;
+        w->DC.CursorPosPrevLine = w->DC.CursorPos;
+        w->DC.CursorMaxPos = w->DC.CursorStartPos;
+        w->DC.IdealMaxPos = w->DC.CursorStartPos;
     }
 
     inline std::string ResolveResourceDisplayName(e10::library::guid LibraryGuid, xresource::full_guid Guid, const char* Fallback) noexcept

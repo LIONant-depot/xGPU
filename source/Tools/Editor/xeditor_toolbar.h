@@ -38,6 +38,11 @@ namespace xeditor
         if (!ImGui::BeginMenuBar())
             return;
 
+        // Theme FramePadding.y is 1 (Unity density). MenuBar gets +4px from
+        // ApplyMainDockTabTitleBarOffset; bump button FramePadding.y to match so
+        // Save/Compile fill the bar instead of looking clipped or tiny.
+        const ImGuiStyle& Style = ImGui::GetStyle();
+        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(Style.FramePadding.x, Style.FramePadding.y + 2.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(4, 2));
 
         if (Model.m_pUndo)
@@ -173,7 +178,7 @@ namespace xeditor
             }
         }
 
-        ImGui::PopStyleVar();
+        ImGui::PopStyleVar(2); // ItemSpacing + FramePadding
         ImGui::EndMenuBar();
     }
 }
