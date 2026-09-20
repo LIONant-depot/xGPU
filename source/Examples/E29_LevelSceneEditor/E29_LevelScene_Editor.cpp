@@ -1894,27 +1894,23 @@ int E29_Example()
 
             // m_bPlayRequested on a shared build, or the immediate Save+Playing path otherwise).
 
-            auto StartPlaying = [&]()
-
-            {
-
+                            auto StartPlaying = [&]()
+                {
+                    // Process-wide single Play (DESIGN 4.6). Fail loud if another owner holds it.
+                    if (e29::g_pEditorHost && !e29::g_pEditorHost->try_begin_play(&State))
+                    {
+                        e29::diagnostics::Log("Play refused: another Play session is already active");
+                        return;
+                    }
 #if defined(XECS_BUILD_SHARED)
-
-                State.m_bPlayRequested = true;
-
-                e29::StartGameReload(GamePlugin);
-
+                    State.m_bPlayRequested = true;
+                    e29::StartGameReload(GamePlugin);
 #else
-
-                e29::SaveEverything(*pGameMgr, State);
-
-                State.m_PlayHistoryBoundary = E29Undo.GetUndoIndex();
-
-                State.m_PlayState = e29::editor_state::play_state::Playing;
-
+                    e29::SaveEverything(*pGameMgr, State);
+                    State.m_PlayHistoryBoundary = E29Undo.GetUndoIndex();
+                    State.m_PlayState = e29::editor_state::play_state::Playing;
 #endif
-
-            };
+                };
 
 
 
@@ -1946,7 +1942,7 @@ int E29_Example()
 
                 if (bStopped) StartPlaying();
 
-                else          e29::RequestStop(State, E29Undo, std::nullopt);
+                else          e29::RequestStop(State, E29Undo, std::nullopt); if (e29::g_pEditorHost) e29::g_pEditorHost->end_play(&State);
 
             }
 
@@ -2223,11 +2219,12 @@ int E29_Example()
                 switch (TabIndex)
                 {
                 case 0: // Resources
+                    AsserBrowser.SetDevice(Device);
+                    AsserBrowser.RenderEmbeddedTab(e10::g_LibMgr, xresource::g_Mgr, "Resources");
+                    break;
                 case 1: // Assets
-                    ImGui::TextUnformatted(TabIndex == 0 ? "Resources" : "Assets");
-                    ImGui::TextDisabled("Opens the shared asset browser (toolbar Assets also works).");
-                    if (ImGui::Button("Open Asset Browser"))
-                        AsserBrowser.Show(true);
+                    AsserBrowser.SetDevice(Device);
+                    AsserBrowser.RenderEmbeddedTab(e10::g_LibMgr, xresource::g_Mgr, "Assets");
                     break;
                 case 2:
                     e29::RenderSourceControlPanel(E29Undo, /*bEmbedded*/ true);
@@ -2242,8 +2239,8 @@ int E29_Example()
                     e29::DrawCommandConsolePanel(E29History, ConsoleLog, /*bEmbedded*/ true);
                     break;
                 case 6:
-                    ImGui::TextUnformatted("Compilation");
-                    ImGui::TextDisabled("Compilation UI moves here next.");
+                    AsserBrowser.SetDevice(Device);
+                    AsserBrowser.RenderEmbeddedTab(e10::g_LibMgr, xresource::g_Mgr, "Compilation");
                     break;
                 case 7:
                     ImGui::TextUnformatted("Project Settings");
@@ -2316,16 +2313,12 @@ int E29_Example()
 
         {
 
-        e29::diagnostics::Log("frame %llu asset browser render begin", static_cast<unsigned long long>(FrameNumber));
-
+        // Asset browser windows live in the Host Drawer (Resources/Assets/Compilation tabs).
+        // Keep popup picker + selection drain here; EnsureInitialized so getNewAsset works.
         AsserBrowser.SetDevice(Device);
-
-        AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
-
-        e29::diagnostics::Log("frame %llu asset browser render end", static_cast<unsigned long long>(FrameNumber));
+        AsserBrowser.EnsureInitialized(e10::g_LibMgr, xresource::g_Mgr);
 
         e29::g_AssetBrowserPopup.SetDevice(Device);
-
         e29::g_AssetBrowserPopup.RenderAsPopup(e10::g_LibMgr, xresource::g_Mgr);
 
 
@@ -2528,7 +2521,7 @@ int E29_Example()
 
                 ToolbarButton("Redo", "R", false, State.isPlaying(), [&]() { LevelUndo.Redo(); });
 
-                ToolbarButton("Assets", "A", false, false, [&]() { AsserBrowser.Show(true); });
+                ToolbarButton("Assets", "A", false, false, [&]() { HostDrawer.m_bOpen = true; HostDrawer.m_ActiveTab = 1; });
 
                 ToolbarSeparator();
 
@@ -2560,26 +2553,22 @@ int E29_Example()
 
 
 
-                auto StartPlaying = [&]()
-
+                                auto StartPlaying = [&]()
                 {
-
+                    // Process-wide single Play (DESIGN 4.6). Fail loud if another owner holds it.
+                    if (e29::g_pEditorHost && !e29::g_pEditorHost->try_begin_play(&State))
+                    {
+                        e29::diagnostics::Log("Play refused: another Play session is already active");
+                        return;
+                    }
 #if defined(XECS_BUILD_SHARED)
-
                     State.m_bPlayRequested = true;
-
                     e29::StartGameReload(GamePlugin);
-
 #else
-
                     e29::SaveEverything(*pGameMgr, State);
-
                     State.m_PlayHistoryBoundary = E29Undo.GetUndoIndex();
-
                     State.m_PlayState = e29::editor_state::play_state::Playing;
-
 #endif
-
                 };
 
 
@@ -2616,7 +2605,7 @@ int E29_Example()
 
                     if (bStopped) StartPlaying();
 
-                    else          e29::RequestStop(State, E29Undo, std::nullopt);
+                    else          e29::RequestStop(State, E29Undo, std::nullopt); if (e29::g_pEditorHost) e29::g_pEditorHost->end_play(&State);
 
                 }
 

@@ -1,6 +1,7 @@
 #ifndef _E10_ASSETBROWSER_H
 #define _E10_ASSETBROWSER_H
 #pragma once
+#include <cstring>
 #include "source/Tools/xgpu_imgui_breach.h"
 #include "source/Tools/xgpu_xcore_bitmap_helpers.h"
 #include "E10_AssetMgr.h"
@@ -477,6 +478,85 @@ namespace e10
         }
 
         //=============================================================================
+
+        // Init tabs/device half of Render() without opening windows — used by the Host Drawer.
+        void EnsureInitialized(e10::library_mgr& AssetMgr, xresource::mgr& ResourceMgr) noexcept
+        {
+            if (m_pAssetMgr == nullptr)
+            {
+                m_pAssetMgr    = &AssetMgr;
+                m_pResourceMgr = &ResourceMgr;
+                for (auto p = browser_registration_base::g_pHead; p; p = p->m_pNext)
+                    m_Tabs.push_back(p->CreateInstance(*this));
+            }
+            if (m_pDevice) EnsureIconAtlasTexture(AssetMgr.m_AssetPluginsDB, *m_pDevice);
+        }
+
+        // Draw one DOCKABLE tab's body into the *current* ImGui window (Host Drawer tab).
+        // TabKey matches a substring of the tab label (e.g. "Resources", "Assets", "Compilation").
+        void RenderEmbeddedTab(e10::library_mgr& AssetMgr, xresource::mgr& ResourceMgr, const char* TabKey) noexcept
+        {
+            EnsureInitialized(AssetMgr, ResourceMgr);
+            if (TabKey == nullptr || TabKey[0] == 0) return;
+
+            asset_browser_tab_base* pTab = nullptr;
+            for (auto& p : m_Tabs)
+            {
+                if (p && p->m_pName && std::strstr(p->m_pName, TabKey))
+                {
+                    pTab = p.get();
+                    break;
+                }
+            }
+            if (pTab == nullptr)
+            {
+                ImGui::TextDisabled("No browser tab matching \"%s\".", TabKey);
+                return;
+            }
+
+            if (pTab->m_bHasLeftPanel)
+            {
+                const float total_width  = ImGui::GetContentRegionAvail().x;
+                const float total_height = ImGui::GetContentRegionAvail().y;
+                constexpr float ButtonWidth = 4.0f;
+                if (total_width > 1.0f)
+                {
+                    if (pTab->m_DockableSplitSize < 0.0f)
+                        pTab->m_DockableSplitSize = total_width * 0.32f;
+                    pTab->m_DockableSplitSize = std::clamp(pTab->m_DockableSplitSize, 100.0f, std::max(100.0f, total_width - 100.0f - ButtonWidth));
+
+                    float size1 = pTab->m_DockableSplitSize;
+                    float size2 = total_width - size1 - ButtonWidth;
+                    Splitter(true, ButtonWidth, &size1, &size2, 100.0f, 100.0f, total_width, total_height);
+                    pTab->m_DockableSplitSize = size1;
+
+                    auto SearchBarTop = ImGui::GetCursorScreenPos();
+                    ImGui::BeginGroup();
+                    RenderSearchBar(ImVec2(size1, total_height));
+
+                    ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.11f, 0.11f, 0.11f, 0.75f));
+                    if (ImGui::BeginChild("Left", ImVec2(size1, total_height - (ImGui::GetCursorScreenPos().y - SearchBarTop.y))))
+                        pTab->LeftPanel();
+                    ImGui::EndChild();
+                    ImGui::EndGroup();
+
+                    ImGui::SameLine();
+
+                    if (ImGui::BeginChild("Right", ImVec2(size2, total_height)))
+                        pTab->RightPanel();
+                    ImGui::EndChild();
+                    ImGui::PopStyleColor();
+                }
+            }
+            else
+            {
+                ImGui::PushStyleColor(ImGuiCol_ChildBg, ImVec4(0.11f, 0.11f, 0.11f, 0.75f));
+                if (ImGui::BeginChild("Right", ImGui::GetContentRegionAvail()))
+                    pTab->RightPanel();
+                ImGui::EndChild();
+                ImGui::PopStyleColor();
+            }
+        }
 
         void Render( e10::library_mgr& AssetMgr, xresource::mgr& ResourceMgr )
         {
