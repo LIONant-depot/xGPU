@@ -9,6 +9,7 @@
 #include "Plugins/xtexture.plugin/source/Editor/xtexture_editor.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
 #include "dependencies/xeditor/include/xeditor/host.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandConsolePipe.h"
 #include <vector>
 #include <memory>
 #include <algorithm>
@@ -18,27 +19,24 @@ namespace e29
     inline std::vector<std::unique_ptr<xtexture_editor::session>> g_OpenTextureEditors;
     inline xgpu::device* g_pTextureEditorDevice = nullptr;
 
-    inline void RenderOpenTextureEditors() noexcept
-    {
-        std::erase_if(g_OpenTextureEditors, [](auto& S) noexcept { return !S || !S->m_bOpen; });
-        for (auto& S : g_OpenTextureEditors) if (S) S->Render();
-    }
-
     // Bridge open plugin sessions into Host.m_Sessions (borrowed doc/undo). Level uses
     // owned sessions; only is_borrowed() entries are managed here.
     inline void SyncOpenTextureEditorsToHost(xeditor::host& Host) noexcept
     {
+        // Only bridge m_bOpen sessions. Closed editors stay in g_OpenTextureEditors until
+        // RenderOpenTextureEditors erase_if (next frame) — if we kept borrowing them, erase
+        // would leave host.m_Sessions dangling into freed session/undo (close crash / heap junk).
         std::erase_if(Host.m_Sessions, [&](std::unique_ptr<xeditor::session>& U) noexcept
         {
             if (!U || !U->is_borrowed()) return false;
             for (auto& S : g_OpenTextureEditors)
-                if (S && U->m_pBorrowedUndo == &S->m_Undo) return false;
-            return true; // orphaned texture bridge
+                if (S && S->m_bOpen && U->m_pBorrowedUndo == &S->m_Undo) return false;
+            return true; // orphaned or closed texture bridge
         });
 
         for (auto& S : g_OpenTextureEditors)
         {
-            if (!S) continue;
+            if (!S || !S->m_bOpen) continue;
             xeditor::session* Hit = nullptr;
             for (auto& U : Host.m_Sessions)
             {
@@ -58,6 +56,16 @@ namespace e29
             }
         }
     }
+
+    inline void RenderOpenTextureEditors() noexcept
+    {
+        // Drop host bridges for closed sessions before destroying them.
+        if (g_pEditorHost)
+            SyncOpenTextureEditorsToHost(*g_pEditorHost);
+        std::erase_if(g_OpenTextureEditors, [](auto& S) noexcept { return !S || !S->m_bOpen; });
+        for (auto& S : g_OpenTextureEditors) if (S) S->Render();
+    }
+
 }
 
 namespace e29::commands
