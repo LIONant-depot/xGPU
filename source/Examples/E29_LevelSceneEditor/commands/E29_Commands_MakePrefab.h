@@ -492,10 +492,17 @@ namespace e29
 {
     inline xundo::system* g_pUndo = nullptr;
 
+    #ifndef E29_G_P_LEVEL_UNDO_DEFINED
+#define E29_G_P_LEVEL_UNDO_DEFINED
+    inline xundo::system* g_pLevelUndo = nullptr;
+#endif
+
     inline xresource::full_guid MakePrefabDropViaCommands(e10::library_mgr& AssetMgr, e10::library::guid LibraryGUID, xresource::full_guid ParentGUID, const entity_drag_payload_t& Payload) noexcept
     {
         (void)AssetMgr;
-        if (g_pUndo == nullptr || g_pGameMgr == nullptr) return {};
+        // Prefab creation mutates the Level document — prefer Level session undo (g_pLevelUndo).
+        xundo::system* pDocUndo = g_pLevelUndo ? g_pLevelUndo : g_pUndo;
+        if (pDocUndo == nullptr || g_pGameMgr == nullptr) return {};
 
         auto* pScene = g_pGameMgr->m_SceneMgr.Find(Payload.m_SceneGuid);
         if (pScene == nullptr) return {};
@@ -519,7 +526,7 @@ namespace e29
                     , e29::commands::FormatLibraryGuid(LibraryGUID)
                     , e29::commands::FormatAssetGuid(NewAsset)
                     , e29::commands::FormatAssetGuid(ParentGUID));
-                if (!e29::commands::RunGroup(*g_pUndo, "MakePrefabVariant", { Cmd })) return {};
+                if (!e29::commands::RunGroup(*pDocUndo, "MakePrefabVariant", { Cmd })) return {};
                 return NewAsset;
             }
         }
@@ -537,7 +544,7 @@ namespace e29
             , e29::commands::FormatLibraryGuid(LibraryGUID)
             , e29::commands::FormatAssetGuid(NewAsset)
             , e29::commands::FormatAssetGuid(ParentGUID));
-        if (!e29::commands::RunGroup(*g_pUndo, "MakePrefab", { Cmd })) return {};
+        if (!e29::commands::RunGroup(*pDocUndo, "MakePrefab", { Cmd })) return {};
         return NewAsset;
     }
 }

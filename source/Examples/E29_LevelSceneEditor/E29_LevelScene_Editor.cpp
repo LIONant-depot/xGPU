@@ -824,13 +824,13 @@ int E29_Example()
 
     e29::commands::set_property_cmd       CmdSetProperty(LevelUndo, &CmdContext);
 
-    e29::commands::revert_override_cmd    CmdRevertOverride(E29Undo, &CmdContext);
+    e29::commands::revert_override_cmd    CmdRevertOverride(LevelUndo, &CmdContext);
 
-    e29::commands::apply_overrides_cmd    CmdApplyOverrides(E29Undo, &CmdContext);
+    e29::commands::apply_overrides_cmd    CmdApplyOverrides(LevelUndo, &CmdContext);
 
-    e29::commands::revert_hierarchy_overrides_cmd CmdRevertHierarchyOverrides(E29Undo, &CmdContext);
+    e29::commands::revert_hierarchy_overrides_cmd CmdRevertHierarchyOverrides(LevelUndo, &CmdContext);
 
-    e29::commands::revert_all_overrides_cmd       CmdRevertAllOverrides(E29Undo, &CmdContext);
+    e29::commands::revert_all_overrides_cmd       CmdRevertAllOverrides(LevelUndo, &CmdContext);
 
     e29::commands::add_component_cmd      CmdAddComponent(LevelUndo, &CmdContext);
 
@@ -846,19 +846,19 @@ int E29_Example()
 
     e29::commands::open_level_cmd         CmdOpenLevel(E29Undo, &CmdContext);
 
-    e29::commands::close_scene_cmd        CmdCloseScene(E29Undo, &CmdContext);
+    e29::commands::close_scene_cmd        CmdCloseScene(LevelUndo, &CmdContext);
 
-    e29::commands::add_scene_cmd          CmdAddScene(E29Undo, &CmdContext);
+    e29::commands::add_scene_cmd          CmdAddScene(LevelUndo, &CmdContext);
 
-    e29::commands::remove_scene_cmd       CmdRemoveScene(E29Undo, &CmdContext);
+    e29::commands::remove_scene_cmd       CmdRemoveScene(LevelUndo, &CmdContext);
 
-    e29::commands::add_scene_dependency_cmd    CmdAddSceneDependency(E29Undo, &CmdContext);
+    e29::commands::add_scene_dependency_cmd    CmdAddSceneDependency(LevelUndo, &CmdContext);
 
-    e29::commands::remove_scene_dependency_cmd CmdRemoveSceneDependency(E29Undo, &CmdContext);
+    e29::commands::remove_scene_dependency_cmd CmdRemoveSceneDependency(LevelUndo, &CmdContext);
 
-    e29::commands::add_library_dependency_cmd    CmdAddLibraryDependency(E29Undo, &CmdContext);
+    e29::commands::add_library_dependency_cmd    CmdAddLibraryDependency(LevelUndo, &CmdContext);
 
-    e29::commands::remove_library_dependency_cmd CmdRemoveLibraryDependency(E29Undo, &CmdContext);
+    e29::commands::remove_library_dependency_cmd CmdRemoveLibraryDependency(LevelUndo, &CmdContext);
 
     e29::commands::create_library_query_cmd      CmdCreateLibrary(E29Undo, &CmdContext);
 
@@ -866,13 +866,13 @@ int E29_Example()
 
     e29::commands::list_levels_query_cmd  CmdListLevels(E29Undo, &CmdContext);
 
-    e29::commands::list_scenes_query_cmd  CmdListScenes(E29Undo, &CmdContext);
+    e29::commands::list_scenes_query_cmd  CmdListScenes(LevelUndo, &CmdContext);
 
-    e29::commands::list_entities_query_cmd CmdListEntities(E29Undo, &CmdContext);
+    e29::commands::list_entities_query_cmd CmdListEntities(LevelUndo, &CmdContext);
 
-    e29::commands::list_folders_query_cmd CmdListFolders(E29Undo, &CmdContext);
+    e29::commands::list_folders_query_cmd CmdListFolders(LevelUndo, &CmdContext);
 
-    e29::commands::audit_component_usage_query_cmd CmdAuditComponentUsage(E29Undo, &CmdContext);
+    e29::commands::audit_component_usage_query_cmd CmdAuditComponentUsage(LevelUndo, &CmdContext);
 
     e29::commands::undo_query_cmd         CmdUndo(E29Undo, &CmdContext);
 
@@ -886,13 +886,13 @@ int E29_Example()
 
     e29::commands::close_query_cmd        CmdClose(E29Undo, &CmdContext);
 
-    e29::commands::serialize_roundtrip_query_cmd CmdSerializeRoundtrip(E29Undo, &CmdContext);
+    e29::commands::serialize_roundtrip_query_cmd CmdSerializeRoundtrip(LevelUndo, &CmdContext);
 
-    e29::commands::describe_entity_query_cmd CmdDescribeEntity(E29Undo, &CmdContext);
+    e29::commands::describe_entity_query_cmd CmdDescribeEntity(LevelUndo, &CmdContext);
 
-    e29::commands::list_component_types_query_cmd CmdListComponentTypes(E29Undo, &CmdContext);
+    e29::commands::list_component_types_query_cmd CmdListComponentTypes(LevelUndo, &CmdContext);
 
-    e29::commands::set_entity_reference_cmd CmdSetEntityReference(E29Undo, &CmdContext);
+    e29::commands::set_entity_reference_cmd CmdSetEntityReference(LevelUndo, &CmdContext);
 
     e29::commands::play_query_cmd         CmdPlay(E29Undo, &CmdContext);
 
@@ -902,13 +902,13 @@ int E29_Example()
 
     e29::commands::get_play_state_query_cmd CmdGetPlayState(E29Undo, &CmdContext);
 
-    e29::commands::instantiate_prefab_cmd CmdInstantiatePrefab(E29Undo, &CmdContext);
+    e29::commands::instantiate_prefab_cmd CmdInstantiatePrefab(LevelUndo, &CmdContext);
 
-    e29::commands::move_to_folder_cmd     CmdMoveToFolder(E29Undo, &CmdContext);
+    e29::commands::move_to_folder_cmd     CmdMoveToFolder(LevelUndo, &CmdContext);
 
-    e29::commands::create_folder_cmd      CmdCreateFolder(E29Undo, &CmdContext);
+    e29::commands::create_folder_cmd      CmdCreateFolder(LevelUndo, &CmdContext);
 
-    e29::commands::delete_folder_cmd      CmdDeleteFolder(E29Undo, &CmdContext);
+    e29::commands::delete_folder_cmd      CmdDeleteFolder(LevelUndo, &CmdContext);
 
     e29::commands::list_assets_query_cmd  CmdListAssets(E29Undo, &CmdContext);
 
@@ -954,9 +954,9 @@ int E29_Example()
 
     e29::commands::copy_asset_file_cmd    CmdCopyAssetFile(E29Undo, &CmdContext);
 
-    e29::commands::make_prefab_cmd        CmdMakePrefab(E29Undo, &CmdContext);
+    e29::commands::make_prefab_cmd        CmdMakePrefab(LevelUndo, &CmdContext);
 
-    e29::commands::make_prefab_variant_cmd CmdMakePrefabVariant(E29Undo, &CmdContext);
+    e29::commands::make_prefab_variant_cmd CmdMakePrefabVariant(LevelUndo, &CmdContext);
 
     e29::commands::recompile_all_query_cmd    CmdRecompileAll(E29Undo, &CmdContext);
 

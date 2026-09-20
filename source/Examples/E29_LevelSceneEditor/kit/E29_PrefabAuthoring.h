@@ -412,7 +412,10 @@ namespace e29
     inline xecs::game_mgr::instance* g_pGameMgr = nullptr;
     inline editor_state*             g_pState   = nullptr;
     // Level session undo (document cmds). Workspace bare Undo stays on g_pUndo.
+    #ifndef E29_G_P_LEVEL_UNDO_DEFINED
+#define E29_G_P_LEVEL_UNDO_DEFINED
     inline xundo::system*             g_pLevelUndo = nullptr;
+#endif
     inline xundo::system& LevelDocUndo(xundo::system& WorkspaceFallback) noexcept
     {
         return g_pLevelUndo ? *g_pLevelUndo : WorkspaceFallback;

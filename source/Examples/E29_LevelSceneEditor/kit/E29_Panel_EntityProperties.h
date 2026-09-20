@@ -102,7 +102,7 @@ namespace e29
                         {
                             if (ImGui::Button("Apply"))
                             {
-                                e29::commands::Run(Undo, std::format("ApplyOverrides -Scene {} -Id {}", SceneHex, RootHex));
+                                e29::commands::Run(e29::LevelDocUndo(Undo), std::format("ApplyOverrides -Scene {} -Id {}", SceneHex, RootHex));
                             }
                             // Tooltip (only show when hovering) — same format as Play transport buttons
                             if (ImGui::IsItemHovered())
@@ -118,7 +118,7 @@ namespace e29
                             ImGui::SameLine();
                             if (ImGui::Button("Revert Hierarchy"))
                             {
-                                e29::commands::Run(Undo, std::format("RevertHierarchyOverrides -Scene {} -Id {}", SceneHex, RootHex));
+                                e29::commands::Run(e29::LevelDocUndo(Undo), std::format("RevertHierarchyOverrides -Scene {} -Id {}", SceneHex, RootHex));
                             }
                             if (ImGui::IsItemHovered())
                             {
@@ -135,7 +135,7 @@ namespace e29
                             ImGui::SameLine();
                             if (ImGui::Button("Revert All"))
                             {
-                                e29::commands::Run(Undo, std::format("RevertAllOverrides -Scene {} -Id {}", SceneHex, RootHex));
+                                e29::commands::Run(e29::LevelDocUndo(Undo), std::format("RevertAllOverrides -Scene {} -Id {}", SceneHex, RootHex));
                             }
                             if (ImGui::IsItemHovered())
                             {
