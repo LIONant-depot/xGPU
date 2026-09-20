@@ -2867,38 +2867,22 @@ int E29_Example()
 
 
     AsserBrowser.m_OnOpenAsset = [](e10::library::guid LibraryGuid, xresource::full_guid AssetGuid)
-
-
-
         {
-
-
-
+            if (AssetGuid.m_Type == xecs::level::type_guid_v)
+            {
+                if (e29::g_pGameMgr == nullptr || e29::g_pState == nullptr || e29::g_pLevelUndo == nullptr)
+                    return;
+                if (e29::RequestOpenLevel(*e29::g_pGameMgr, *e29::g_pState, *e29::g_pLevelUndo, AssetGuid, /*bStartGameReload*/ true))
+                    e29::g_pState->m_bPendingStartGameReloadAfterOpen = true;
+                return;
+            }
             if (AssetGuid.m_Type != xrsc::texture_type_guid_v) return;
-
-
-
             for (auto& S : e29::g_OpenTextureEditors)
-
-
-
                 if (S && S->m_Document.getGuid() == AssetGuid) { S->Focus(); return; }
-
-
-
             e29::g_OpenTextureEditors.push_back(std::make_unique<xtexture_editor::session>(AssetGuid, LibraryGuid, e29::g_pTextureEditorDevice));
-
-
-
         };
 
-
-
-
-
-
-
-    // Manual Lock/Unlock from the Asset Tree's own right-click menu (direct user request, 2026-09-17:
+// Manual Lock/Unlock from the Asset Tree's own right-click menu (direct user request, 2026-09-17:
 
 
 
@@ -4630,16 +4614,9 @@ int E29_Example()
 
 
 
-        if (bParentEditorVisible)
-
-
-
+        // Asset open drain always (drawer works with Level peer closed).
         {
-
-
-
         // Asset browser windows live in the Host Drawer (Resources/Assets/Compilation tabs).
-
         // Keep popup picker + selection drain here; EnsureInitialized so getNewAsset works.
 
         AsserBrowser.SetDevice(Device);

@@ -552,6 +552,7 @@ namespace e29
             return;
         }
         State.m_CurrentLevel = Guid;
+        State.m_bLevelEditorOpen = true;
 
         // Every scene that's part of a Level is loaded automatically the moment the Level itself
         // opens - direct user request ("Scenes should always be loaded if they are part of the
