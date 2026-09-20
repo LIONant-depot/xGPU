@@ -440,7 +440,7 @@ namespace e29
         }
         if (pSess == nullptr) return true;
         // EnsureLevelEditAccess lives in E29_LevelDocument.h — forward call via include order in .cpp.
-        // Soft gate here: try_acquire directly for level + scenes.
+        // First edit claims Level + open scenes (no ask). Save/clean releases via Sync.
         if (!g_pState->m_CurrentLevel.empty())
         {
             const xresource::full_guid LevelGuid{ g_pState->m_CurrentLevel.m_Instance, xecs::level::type_guid_v };

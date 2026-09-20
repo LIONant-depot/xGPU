@@ -12,6 +12,15 @@
 
 namespace e29
 {
+#ifndef E29_G_P_EDITOR_HOST_DEFINED
+#define E29_G_P_EDITOR_HOST_DEFINED
+    inline xeditor::host* g_pEditorHost = nullptr;
+#endif
+
+
+    // Forward (defined below with Ensure/IsLevelWritable).
+    inline void ReleaseLevelEditAccess(xeditor::host& Host, xeditor::session& Sess, editor_state& State) noexcept;
+
     struct LevelDocument final : xeditor::IDocument
     {
         editor_state*             m_pState   = nullptr;
@@ -53,6 +62,16 @@ namespace e29
                 return "LevelDocument: nothing open";
             SaveEverything(*m_pGameMgr, *m_pState);
             if (m_pUndo) MarkDocumentClean(*m_pState, *m_pUndo);
+            // Save restores just-loaded: drop write locks so peers can edit again.
+            if (g_pEditorHost != nullptr)
+            {
+                for (auto& S : g_pEditorHost->m_Sessions)
+                {
+                    if (!S || S->m_Document.get() != this) continue;
+                    ReleaseLevelEditAccess(*g_pEditorHost, *S, *m_pState);
+                    break;
+                }
+            }
             return {};
         }
 
@@ -64,8 +83,11 @@ namespace e29
     };
 
 
-    // Edit vs view (DESIGN 4.2): claim write locks for the open Level + every open scene.
-    // First mutator wins; returns false if another session already holds any of them.
+    // Edit vs view (DESIGN 4.2):
+    // - Clean / just-loaded: no locks; every session can view and may start editing.
+    // - First mutation claims Level + open scenes (no permission dialog); others go read-only.
+    // - Successful save (clean undo): release locks - back to just-loaded.
+    // - Sync checks every frame: release when clean; acquire only via mutation gate.
 
     // True if this Level session may mutate (no other writer holds Level/scene locks).
     inline bool IsLevelWritable(xeditor::host* pHost, xeditor::session* pSess, const editor_state& State) noexcept
@@ -186,15 +208,13 @@ namespace e29
                 g_pLevelUndo = &pLive->m_Undo;
             }
         
-            // First mutator claims edit locks (DESIGN 4.2). Open-but-clean stays view-capable.
-            if (bWant && pLive && HasUnsavedDocumentChanges(State, pLive->m_Undo))
+            // Every frame (DESIGN 4.2): clean => unlocked (same as just-loaded). Dirty locks
+            // are claimed only by TryGateLevelMutation on first edit - never by Sync.
+            if (bWant && pLive && !HasUnsavedDocumentChanges(State, pLive->m_Undo))
             {
-                if (!EnsureLevelEditAccess(Host, *pLive, State))
-                {
-                    // Another session already owns a write lock — keep view, do not escalate here.
-                }
+                ReleaseLevelEditAccess(Host, *pLive, State);
             }
-}
+        }
 
         xundo::system& Undo() noexcept { return pLive->m_Undo; }
     };
