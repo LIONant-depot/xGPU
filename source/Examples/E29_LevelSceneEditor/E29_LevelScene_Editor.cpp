@@ -25,6 +25,7 @@
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandConsolePipe.h"
 
 #include "dependencies/xeditor/include/xeditor/host.h"
+#include "dependencies/xeditor/include/xeditor/drawer.h"
 
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Chat.h"
 
@@ -795,6 +796,7 @@ int E29_Example()
     xundo::system                      E29Undo;
 
     xeditor::host                     EditorHost;
+    xeditor::drawer                   HostDrawer;
 
     EditorHost.m_pExternalWorkspace = &E29Undo;
 
@@ -2212,7 +2214,9 @@ int E29_Example()
 
         }
 
-
+        // Host Drawer: Space toggles overlay on this OS window (main viewport).
+        xeditor::DrawerHandleToggle(HostDrawer);
+        xeditor::DrawerRender(HostDrawer, ImGui::GetMainViewport());
 
         // GameMgr.Run() ticks every enabled Update system in its current order (via
 
