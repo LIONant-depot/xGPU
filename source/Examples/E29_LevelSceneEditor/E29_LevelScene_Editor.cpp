@@ -2078,9 +2078,21 @@ int E29_Example()
 
             LevelTabName = "Level";
 
+        xresource::full_guid LevelDockGuid{};
+
+        if (!State.m_CurrentLevel.empty())
+
+        {
+
+            LevelDockGuid.m_Instance = State.m_CurrentLevel.m_Instance;
+
+            LevelDockGuid.m_Type     = xecs::level::type_guid_v;
+
+        }
+
         const bool bParentEditorVisible = e29::editor_tabs::RenderParentEditorDockspace(
 
-            RenderParentEditorToolbar, LevelTabName.c_str(), &Device, xecs::level::type_guid_v);
+            RenderParentEditorToolbar, LevelTabName.c_str(), &Device, xecs::level::type_guid_v, LevelDockGuid);
 
         e29::diagnostics::Log
 
@@ -2841,6 +2853,29 @@ int E29_Example()
         if (e29::g_pEditorHost)
         {
             e29::g_pEditorHost->clear_attached();
+
+            // Level: transition attach onto workspace undo so LevelName\Cmd works like bare Cmd
+
+            if (!State.m_CurrentLevel.empty())
+
+            {
+
+                std::string LevelName;
+
+                e29::RemapGUIDToString(LevelName, xresource::full_guid{ State.m_CurrentLevel.m_Instance, State.m_CurrentLevel.m_Type });
+
+                if (LevelName.empty()) LevelName = "Level";
+
+                e29::g_pEditorHost->attach(
+
+                    LevelName,
+
+                    xresource::full_guid{ State.m_CurrentLevel.m_Instance, xecs::level::type_guid_v },
+
+                    e29::g_pEditorHost->m_pExternalWorkspace);
+
+            }
+
             for (auto& S : e29::g_OpenTextureEditors)
             {
                 if (!S) continue;
