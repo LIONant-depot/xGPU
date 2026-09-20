@@ -4421,6 +4421,51 @@ int E29_Example()
         }
 
 
+        // GameMgr.Run() ticks every enabled Update system in its current order (via
+
+
+
+        // m_SystemMgr.Run()) and, on the Stopped->Running transition, snapshots the System
+
+
+
+        // Registry's current order/enabled state for GameMgr.Stop() to restore later. Only called
+
+
+
+        // while actually Playing - Paused deliberately calls neither Run() nor Stop() every frame
+
+
+
+        // (the world just sits there, unticked, exactly as it was); Stop() itself is no longer an
+
+
+
+        // idempotent per-frame call at all, it's the one-shot StopPlaySession triggered by the Stop
+
+
+
+        // button above (see its own comment for why a full world-rebuild can't run unconditionally
+
+
+
+        // every frame the way this simpler Run()/Stop() toggle used to). E29 has no viewport yet, so
+
+
+
+        // "Play" here only means "the ECS's own systems tick" - proving the System Registry feature,
+
+
+
+        // not adding a game view.
+
+
+
+        }
+
+
+
+
 
         // Host Drawer (xeditor::host): one call — Space + all OS-window manifestations. Editors do not wire this.
 
@@ -4496,49 +4541,6 @@ int E29_Example()
 
             };
 
-
-
-        // GameMgr.Run() ticks every enabled Update system in its current order (via
-
-
-
-        // m_SystemMgr.Run()) and, on the Stopped->Running transition, snapshots the System
-
-
-
-        // Registry's current order/enabled state for GameMgr.Stop() to restore later. Only called
-
-
-
-        // while actually Playing - Paused deliberately calls neither Run() nor Stop() every frame
-
-
-
-        // (the world just sits there, unticked, exactly as it was); Stop() itself is no longer an
-
-
-
-        // idempotent per-frame call at all, it's the one-shot StopPlaySession triggered by the Stop
-
-
-
-        // button above (see its own comment for why a full world-rebuild can't run unconditionally
-
-
-
-        // every frame the way this simpler Run()/Stop() toggle used to). E29 has no viewport yet, so
-
-
-
-        // "Play" here only means "the ECS's own systems tick" - proving the System Registry feature,
-
-
-
-        // not adding a game view.
-
-
-
-        }
 
 
 
@@ -4751,7 +4753,13 @@ int E29_Example()
 
 
 
-        // Read-only when another session holds Level/scene write locks (DESIGN 4.2).
+        
+        } // asset open drain
+
+        // Level peer panels (Tree/Inspector/Systems/Editor) only while Level root is open.
+        if (bParentEditorVisible)
+        {
+// Read-only when another session holds Level/scene write locks (DESIGN 4.2).
 
         
         if (State.m_bPlayBusyPopup)
