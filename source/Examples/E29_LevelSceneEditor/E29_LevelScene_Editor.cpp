@@ -25,7 +25,6 @@
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandConsolePipe.h"
 
 #include "dependencies/xeditor/include/xeditor/host.h"
-#include "dependencies/xeditor/include/xeditor/drawer.h"
 
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Chat.h"
 
@@ -796,7 +795,6 @@ int E29_Example()
     xundo::system                      E29Undo;
 
     xeditor::host                     EditorHost;
-    xeditor::drawer                   HostDrawer;
 
     EditorHost.m_pExternalWorkspace = &E29Undo;
 
@@ -2210,19 +2208,16 @@ int E29_Example()
 
         }
 
-        // Host Drawer: Space toggles overlay on this OS window (main viewport).
-        // Service panels render embedded into drawer tabs (not Level Parent dock).
-        xeditor::DrawerHandleToggle(HostDrawer);
-        xeditor::DrawerRender(HostDrawer, ImGui::GetMainViewport(),
-            [&](int TabIndex, const char* /*TabName*/)
+        // Host Drawer (xeditor::host): one call — Space + all OS-window manifestations. Editors do not wire this.
+        EditorHost.m_OnDrawerTab = [&](int TabIndex, const char* /*TabName*/)
             {
                 switch (TabIndex)
                 {
-                case 0: // Resources
+                case 0:
                     AsserBrowser.SetDevice(Device);
                     AsserBrowser.RenderEmbeddedTab(e10::g_LibMgr, xresource::g_Mgr, "Resources");
                     break;
-                case 1: // Assets
+                case 1:
                     AsserBrowser.SetDevice(Device);
                     AsserBrowser.RenderEmbeddedTab(e10::g_LibMgr, xresource::g_Mgr, "Assets");
                     break;
@@ -2249,7 +2244,8 @@ int E29_Example()
                 default:
                     break;
                 }
-            });
+            };
+        EditorHost.draw_host_drawers();
 
         // GameMgr.Run() ticks every enabled Update system in its current order (via
 
@@ -2521,7 +2517,7 @@ int E29_Example()
 
                 ToolbarButton("Redo", "R", false, State.isPlaying(), [&]() { LevelUndo.Redo(); });
 
-                ToolbarButton("Assets", "A", false, false, [&]() { HostDrawer.m_bOpen = true; HostDrawer.m_ActiveTab = 1; });
+                ToolbarButton("Assets", "A", false, false, [&]() { EditorHost.open_drawer_tab(ImGui::GetMainViewport(), 1); });
 
                 ToolbarSeparator();
 

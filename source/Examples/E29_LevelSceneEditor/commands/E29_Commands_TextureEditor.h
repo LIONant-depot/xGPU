@@ -23,6 +23,7 @@ namespace e29
     // owned sessions; only is_borrowed() entries are managed here.
     inline void SyncOpenTextureEditorsToHost(xeditor::host& Host) noexcept
     {
+
         // Only bridge m_bOpen sessions. Closed editors stay in g_OpenTextureEditors until
         // RenderOpenTextureEditors erase_if (next frame) — if we kept borrowing them, erase
         // would leave host.m_Sessions dangling into freed session/undo (close crash / heap junk).
