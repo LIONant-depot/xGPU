@@ -1588,6 +1588,20 @@ int E29_Example()
 
     std::uint64_t FrameNumber = 0;
 
+        // Host service hooks (10.C.1.4): Idle Work + SC idle + Game.dll focus-reload.
+    EditorHost.m_OnPumpServices = [&]() noexcept
+    {
+        if (pGameMgr)
+            e29::PumpIdleWork(IdleWork, *pGameMgr, State);
+        e29::source_control::PumpSourceControlIdleWork(IdleWork);
+    };
+    EditorHost.m_OnFocusRegain = [&]() noexcept
+    {
+#if defined(XECS_BUILD_SHARED)
+        e29::StartGameReload(GamePlugin);
+#endif
+    };
+
     while (Instance.ProcessInputEvents())
 
     {
@@ -1612,7 +1626,7 @@ int E29_Example()
 
         if (xgpu::tools::imgui::ConsumeWindowFocusGained())
 
-            e29::StartGameReload(GamePlugin);
+            e29::g_pEditorHost->on_focus_regain();
 
 #else
 
@@ -1750,11 +1764,7 @@ int E29_Example()
 
         }
 
-        if (pGameMgr)
-
-            e29::PumpIdleWork(IdleWork, *pGameMgr, State);
-
-        e29::source_control::PumpSourceControlIdleWork(IdleWork);
+        e29::g_pEditorHost->pump_services();
 
 
 

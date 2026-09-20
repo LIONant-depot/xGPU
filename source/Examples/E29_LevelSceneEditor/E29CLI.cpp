@@ -1,14 +1,13 @@
-// E29CLI - a tiny, standalone client for E29_LevelSceneEditor's Command Console named pipe. Direct
-// port of E27_NodeOS's own NodeOSCLI.cpp - deliberately has zero dependency on the rest of xGPU (no
-// Vulkan/ImGui/xproperty/xECS/etc.) - just Win32 + iostream - so it builds fast and stays a plain,
-// independent CLI tool: connect, send one routed command string
-// ("E29/Edit/Select -Scene ... -Id ...", "help", "<cmd> -h"), print whatever the running app's own
-// xundo::history::Route()/help dispatch returns, exit. This is what lets an external tool (a script,
-// an AI) drive a live E29 session without any UI automation at all - the same text protocol phase 6's
-// Command Console panel will eventually offer a human too.
+// E29CLI - thin client for the live editor's Command Console named pipe.
+// Same transport as before; the editor prefers xeditor::host::dispatch for
+// modern commands (help/list/bare workspace names/Name\Cmd). Legacy
+// "E29/Edit/..." and "E29/Query/..." still work via History.Route so AI/scripts
+// never lose access. Prefer short names going forward, e.g.:
+//   E29CLI "list"
+//   E29CLI "LevelName\AddComponent -Scene ... -Id ..."
+//   E29CLI "OpenTextureEditor -Library ... -Asset ..."
+//   E29CLI "E29/Edit/Select -Scene ... -Id ..."   (legacy, still supported)
 //
-// Usage: E29CLI "E29/Edit/Select -Scene 08C298C9F6668005 -Id 1266979020"
-//        E29CLI E29/Edit/Select -Scene 08C298C9F6668005 -Id 1266979020   (unquoted words rejoined with spaces)
 #include <windows.h>
 #include <iostream>
 #include <string>

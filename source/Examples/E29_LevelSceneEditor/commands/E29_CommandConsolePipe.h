@@ -92,9 +92,25 @@ namespace e29
 
         std::string Out;
 
-        if (pHost && (Cmd.find('\\') != std::string_view::npos || Cmd == "list"))
+        if (pHost)
 
-            return pHost->dispatch(Cmd);
+        {
+
+            // Prefer xeditor::host for modern short names / Name\Cmd / help / list.
+
+            // Legacy "E29/Edit/..." and "E29/Query/..." keep History.Route so AI/scripts
+
+            // that still use the old full paths never lose access (E29CLI shim).
+
+            const bool bLegacyE29Path =
+
+                (Cmd.size() >= 4 && (Cmd.substr(0, 4) == "E29/" || Cmd.substr(0, 4) == "e29/"));
+
+            if (!bLegacyE29Path)
+
+                return pHost->dispatch(Cmd);
+
+        }
 
         if (Cmd == "help" || Cmd == "Help" || Cmd == "?")
 
