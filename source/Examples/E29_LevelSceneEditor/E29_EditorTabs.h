@@ -110,6 +110,7 @@ namespace e29::editor_tabs
         ImGuiWindowClass ParentWindowClass;
         ParentWindowClass.DockingAlwaysTabBar = true;
         ImGui::SetNextWindowClass(&ParentWindowClass);
+        xeditor::SetNextPeerEditorDockedInMainHost(ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(1280.0f, 800.0f), ImGuiCond_FirstUseEver);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
         // Title is "Name###E29.LevelEditor" ??? stable id; normal theme tab/menu sizes.
