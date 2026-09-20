@@ -1,6 +1,8 @@
 #ifndef E29_PREFAB_AUTHORING_H
 #define E29_PREFAB_AUTHORING_H
 #pragma once
+#include "dependencies/xeditor/include/xeditor/host.h"
+#include "dependencies/xeditor/include/xeditor/session.h"
 
 #include "dependencies/xundo/source/xundo_system.h"
 
@@ -420,6 +422,39 @@ namespace e29
     {
         return g_pLevelUndo ? *g_pLevelUndo : WorkspaceFallback;
     }
+
+#ifndef E29_G_P_EDITOR_HOST_DEFINED
+#define E29_G_P_EDITOR_HOST_DEFINED
+    inline xeditor::host* g_pEditorHost = nullptr;
+#endif
+
+    // Claim Level/scene write locks before Level undo mutations (DESIGN 4.2).
+    inline bool TryGateLevelMutation(xundo::system& System) noexcept
+    {
+        if (g_pLevelUndo == nullptr || &System != g_pLevelUndo) return true;
+        if (g_pEditorHost == nullptr || g_pState == nullptr) return true;
+        xeditor::session* pSess = nullptr;
+        for (auto& S : g_pEditorHost->m_Sessions)
+        {
+            if (S && &S->undo() == &System) { pSess = S.get(); break; }
+        }
+        if (pSess == nullptr) return true;
+        // EnsureLevelEditAccess lives in E29_LevelDocument.h — forward call via include order in .cpp.
+        // Soft gate here: try_acquire directly for level + scenes.
+        if (!g_pState->m_CurrentLevel.empty())
+        {
+            const xresource::full_guid LevelGuid{ g_pState->m_CurrentLevel.m_Instance, xecs::level::type_guid_v };
+            if (!g_pEditorHost->try_acquire_write(LevelGuid, pSess)) return false;
+        }
+        for (const auto& SceneInst : g_pState->m_OpenScenes)
+        {
+            const xresource::full_guid SceneGuid{ SceneInst.m_Instance, xecs::scene::type_guid_v };
+            if (!g_pEditorHost->try_acquire_write(SceneGuid, pSess)) return false;
+        }
+        return true;
+    }
+
+
 
 
     // Set by the editor once the command/undo system exists (same lifetime as g_pGameMgr/g_pState).

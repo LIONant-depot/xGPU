@@ -26,6 +26,8 @@
 // include guard at that point, working by accident rather than by design).
 #include "dependencies/xundo/source/xundo_system.h"
 
+namespace e29 { bool TryGateLevelMutation(xundo::system& System) noexcept; }
+
 namespace e29::commands
 {
     // Who authored a Command Console log entry - moved here (from commands/E29_CommandConsolePipe.h,
@@ -229,6 +231,13 @@ namespace e29::commands
     // up there yet."
     inline void Run(xundo::system& System, const std::string& Cmd) noexcept
     {
+        if (!e29::TryGateLevelMutation(System))
+        {
+            const char* Msg = "Edit refused: resource is being edited in another session";
+            Debugger(Msg);
+            if (g_pConsoleLog) g_pConsoleLog->push_back({ Msg, console_log_source::System });
+            return;
+        }
         if (g_pConsoleLog) g_pConsoleLog->push_back({ Cmd, console_log_source::User });
         if (auto Err = System.Execute(Cmd); !Err.empty())
         {
@@ -278,6 +287,7 @@ namespace e29::commands
     // its caller, and calling System.Execute() a second time to get that here would run the command twice.
     [[nodiscard]] inline bool RunGroup(xundo::system& System, std::string_view GroupName, const std::vector<std::string>& Cmds) noexcept
     {
+        if (!e29::TryGateLevelMutation(System)) return false;
         if (Cmds.empty()) return true;
 
         if (Cmds.size() == 1)

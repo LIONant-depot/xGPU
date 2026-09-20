@@ -763,7 +763,7 @@ int E29_Example()
 
     AsserBrowser.SetWindowName(e29::editor_tabs::kResourceBrowserWindow);
 
-    AsserBrowser.SetDockableWindowClass(e29::editor_tabs::ParentEditorDockClass());
+        // Host Drawer owns Resources/Assets/Compilation/Project Settings — not Parent dock class.
 
     AsserBrowser.Show(true);
 
@@ -2243,8 +2243,8 @@ int E29_Example()
                     AsserBrowser.RenderEmbeddedTab(e10::g_LibMgr, xresource::g_Mgr, "Compilation");
                     break;
                 case 7:
-                    ImGui::TextUnformatted("Project Settings");
-                    ImGui::TextDisabled("Project Settings UI moves here next.");
+                    AsserBrowser.SetDevice(Device);
+                    AsserBrowser.RenderEmbeddedTab(e10::g_LibMgr, xresource::g_Mgr, "Project Settings");
                     break;
                 default:
                     break;

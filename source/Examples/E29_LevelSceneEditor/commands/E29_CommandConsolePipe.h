@@ -68,7 +68,10 @@ namespace e29
 
 {
 
+#ifndef E29_G_P_EDITOR_HOST_DEFINED
+#define E29_G_P_EDITOR_HOST_DEFINED
     inline xeditor::host* g_pEditorHost = nullptr;
+#endif
 
 
 

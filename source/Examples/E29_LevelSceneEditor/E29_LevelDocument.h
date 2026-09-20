@@ -63,6 +63,40 @@ namespace e29
         }
     };
 
+
+    // Edit vs view (DESIGN 4.2): claim write locks for the open Level + every open scene.
+    // First mutator wins; returns false if another session already holds any of them.
+    inline bool EnsureLevelEditAccess(xeditor::host& Host, xeditor::session& Sess, editor_state& State) noexcept
+    {
+        if (!State.m_CurrentLevel.empty())
+        {
+            const xresource::full_guid LevelGuid{ State.m_CurrentLevel.m_Instance, xecs::level::type_guid_v };
+            if (!Host.try_acquire_write(LevelGuid, &Sess))
+                return false;
+        }
+        for (const auto& SceneInst : State.m_OpenScenes)
+        {
+            const xresource::full_guid SceneGuid{ SceneInst.m_Instance, xecs::scene::type_guid_v };
+            if (!Host.try_acquire_write(SceneGuid, &Sess))
+                return false;
+        }
+        return true;
+    }
+
+    inline void ReleaseLevelEditAccess(xeditor::host& Host, xeditor::session& Sess, editor_state& State) noexcept
+    {
+        if (!State.m_CurrentLevel.empty())
+        {
+            const xresource::full_guid LevelGuid{ State.m_CurrentLevel.m_Instance, xecs::level::type_guid_v };
+            Host.release_write(LevelGuid, &Sess);
+        }
+        for (const auto& SceneInst : State.m_OpenScenes)
+        {
+            const xresource::full_guid SceneGuid{ SceneInst.m_Instance, xecs::scene::type_guid_v };
+            Host.release_write(SceneGuid, &Sess);
+        }
+    }
+
     inline void RegisterLevelEditorDescriptor() noexcept
     {
         xeditor::editor_descriptor Desc;
@@ -115,6 +149,7 @@ namespace e29
             }
             else if (!bWant && bInHost)
             {
+                if (pLive) ReleaseLevelEditAccess(Host, *pLive, State);
                 for (auto It = Host.m_Sessions.begin(); It != Host.m_Sessions.end(); ++It)
                 {
                     if (It->get() != pLive) continue;
@@ -132,7 +167,16 @@ namespace e29
                     pDoc->Bind(State, pGameMgr, &pLive->m_Undo);
                 g_pLevelUndo = &pLive->m_Undo;
             }
-        }
+        
+            // First mutator claims edit locks (DESIGN 4.2). Open-but-clean stays view-capable.
+            if (bWant && pLive && HasUnsavedDocumentChanges(State, pLive->m_Undo))
+            {
+                if (!EnsureLevelEditAccess(Host, *pLive, State))
+                {
+                    // Another session already owns a write lock — keep view, do not escalate here.
+                }
+            }
+}
 
         xundo::system& Undo() noexcept { return pLive->m_Undo; }
     };
