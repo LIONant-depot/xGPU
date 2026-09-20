@@ -4215,11 +4215,34 @@ int E29_Example()
 
 
 
-        const bool bParentEditorVisible = e29::editor_tabs::RenderLevelEditorDockspace(
+        if (State.m_bAwaitingSaveBeforeClose)
+            State.m_bLevelEditorOpen = true;
 
+        const bool bSkipLevelPeer =
+            !State.m_bLevelEditorOpen
+            && State.m_CurrentLevel.empty()
+            && State.m_OpenScenes.empty()
+            && !State.m_bAwaitingSaveBeforeClose;
 
-
-            RenderParentEditorToolbar, LevelTabName.c_str(), &Device, xecs::level::type_guid_v, LevelDockGuid);
+        bool bParentEditorVisible = false;
+        if (!bSkipLevelPeer)
+        {
+            bool bLevelTabOpen = State.m_bLevelEditorOpen;
+            bParentEditorVisible = e29::editor_tabs::RenderLevelEditorDockspace(
+                RenderParentEditorToolbar, LevelTabName.c_str(), &Device, xecs::level::type_guid_v, LevelDockGuid, &bLevelTabOpen);
+            if (!bLevelTabOpen)
+            {
+                e29::RequestCloseLevel(*pGameMgr, State, LevelUndo);
+                State.m_bLevelEditorOpen =
+                    State.m_bAwaitingSaveBeforeClose
+                    || !State.m_CurrentLevel.empty()
+                    || !State.m_OpenScenes.empty();
+            }
+            else
+            {
+                State.m_bLevelEditorOpen = true;
+            }
+        }
 
 
 

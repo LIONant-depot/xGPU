@@ -35,6 +35,7 @@ namespace e29
         for (const auto SceneGuid : Scenes)
             CloseScene(GameMgr, State, SceneGuid);
 
+        State.m_bLevelEditorOpen = false;
         State.m_CurrentLevel = {};
         State.m_SelectedEntityId    = xecs::scene::invalid_permanent_id_v;
         State.m_SelectedEntity      = {};
@@ -173,6 +174,7 @@ namespace e29
                 State.m_PendingOpenLevelAfterClose = {};
                 State.m_bPendingOpenWantsGameReload = false;
                 State.m_bPendingStartGameReloadAfterOpen = false;
+                State.m_bLevelEditorOpen = true;
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();

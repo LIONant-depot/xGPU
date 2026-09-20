@@ -99,7 +99,8 @@ namespace e29::editor_tabs
         const char* DisplayName = "Level",
         xgpu::device* pDevice = nullptr,
         xresource::type_guid TypeGuid = {},
-        xresource::full_guid DockGuid = {}) noexcept
+        xresource::full_guid DockGuid = {},
+        bool* pOpen = nullptr) noexcept
     {
         g_LevelEditorDockGuid = DockGuid;
         char Title[256];
@@ -112,7 +113,7 @@ namespace e29::editor_tabs
         ImGui::SetNextWindowSize(ImVec2(1280.0f, 800.0f), ImGuiCond_FirstUseEver);
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
         // Title is "Name###E29.LevelEditor" ??? stable id; normal theme tab/menu sizes.
-        const bool bParentVisible = ImGui::Begin(Title, nullptr, ImGuiWindowFlags_MenuBar);
+        const bool bParentVisible = ImGui::Begin(Title, pOpen, ImGuiWindowFlags_MenuBar);
         {
             const xresource::type_guid IconType = TypeGuid.empty()
                 ? xresource::type_guid(xresource::guid_generator::Instance64FromString("Level"))
@@ -144,11 +145,12 @@ namespace e29::editor_tabs
         const char* DisplayName = "Level",
         xgpu::device* pDevice = nullptr,
         xresource::type_guid TypeGuid = {},
-        xresource::full_guid DockGuid = {}) noexcept
+        xresource::full_guid DockGuid = {},
+        bool* pOpen = nullptr) noexcept
     {
         return RenderParentEditorDockspace(
             std::forward<T_RENDER_PARENT_TOOLBAR>(RenderParentToolbar),
-            DisplayName, pDevice, TypeGuid, DockGuid);
+            DisplayName, pDevice, TypeGuid, DockGuid, pOpen);
     }
 
 }
