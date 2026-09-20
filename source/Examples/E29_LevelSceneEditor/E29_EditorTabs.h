@@ -6,13 +6,13 @@
 #include "source/Examples/E29_LevelSceneEditor/E29_Diagnostics.h"
 #include "imgui_internal.h"
 #include "source/Tools/Editor/xeditor_resource_tab.h"
-#include "source/Tools/Editor/xeditor_dock_isolation.h"
+#include "source/Tools/Editor/xeditor_dock_isolation.h"
 #include "dependencies/xeditor/include/xeditor/full_editor_shell.h"
 
 #include <algorithm>
 #include <cstdint>
 
-// Parent Editor Window is the sole application-level, main-dockable window. Its dockspace hosts
+// Level Editor is a peer full-editor root (like Texture). Host services live in the Host Drawer. Its dockspace hosts
 // every editor tool directly: Level Editor, Inspector, Browser, Commands, and so on. Those tools
 // use a shared docking class, so they can group and split normally with one another while remaining
 // unable to dock into the application root.
@@ -21,7 +21,7 @@ namespace e29::editor_tabs
     // Display name is filled each frame; ### id must stay fixed for focus/dock.
     inline constexpr char kLevelEditorWindowId[] = "E29.LevelEditor";
     inline constexpr char kLevelEditorWindow[] = "Level Editor###E29.LevelEditor"; // legacy alias (logs)
-    inline constexpr char kLevelEditorDockspaceId[] = "E29.LevelEditor.Dockspace.V1";
+    inline constexpr char kLevelEditorDockspaceId[] = "E29.LevelEditor.Dockspace.V2";
 
     inline constexpr char kResourceBrowserWindow[] = "Resource Browser###E29.LevelEditor.ResourceBrowser";
     inline constexpr char kEditorWindow[] = "Editor###E29.LevelEditor.Editor";
@@ -55,6 +55,9 @@ namespace e29::editor_tabs
         ImGui::SetNextWindowClass(&WindowClass);
     }
 
+    // Prefer this name — Level is a peer editor, not the app parent shell.
+    inline void SetNextLevelEditorToolClass() noexcept { SetNextParentEditorToolClass(); }
+
     inline void ApplyDockClassToTree(ImGuiDockNode* pNode, const ImGuiWindowClass& WindowClass) noexcept
     {
         if (pNode == nullptr)
@@ -64,6 +67,8 @@ namespace e29::editor_tabs
         ApplyDockClassToTree(pNode->ChildNodes[1], WindowClass);
     }
 
+        // Level peer-editor default layout only (DESIGN 4.5). Host services live in the
+    // Host Drawer — do not dock Resources/SC/Idle/Log/Commands here.
     inline void BuildParentEditorDefaultLayout(ImGuiID DockspaceId, ImVec2 Size) noexcept
     {
         if (ImGui::DockBuilderGetNode(DockspaceId) != nullptr)
@@ -75,24 +80,17 @@ namespace e29::editor_tabs
         ImGuiID Remaining = DockspaceId;
         ImGuiID Left = 0;
         ImGuiID Right = 0;
-        ImGuiID Bottom = 0;
-        ImGui::DockBuilderSplitNode(Remaining, ImGuiDir_Left,  0.22f, &Left,   &Remaining);
-        ImGui::DockBuilderSplitNode(Remaining, ImGuiDir_Right, 0.28f, &Right,  &Remaining);
-        ImGui::DockBuilderSplitNode(Remaining, ImGuiDir_Down,  0.30f, &Bottom, &Remaining);
+        ImGui::DockBuilderSplitNode(Remaining, ImGuiDir_Left,  0.22f, &Left,  &Remaining);
+        ImGui::DockBuilderSplitNode(Remaining, ImGuiDir_Right, 0.28f, &Right, &Remaining);
 
-        ImGui::DockBuilderDockWindow(kEditorWindow,              Remaining);
-        ImGui::DockBuilderDockWindow(kResourceBrowserWindow,     Left);
-        ImGui::DockBuilderDockWindow(kLevelTreeWindow,           Left);
-        ImGui::DockBuilderDockWindow(kInspectorWindow,           Right);
-        ImGui::DockBuilderDockWindow(kSystemRegistryWindow,      Right);
-        ImGui::DockBuilderDockWindow(kCommandConsoleWindow,      Bottom);
-        ImGui::DockBuilderDockWindow(kIdleWorkWindow,            Bottom);
-        ImGui::DockBuilderDockWindow(kGamePluginLogWindow,       Bottom);
-        ImGui::DockBuilderDockWindow(kSourceControlWindow,       Bottom);
+        ImGui::DockBuilderDockWindow(kEditorWindow,         Remaining);
+        ImGui::DockBuilderDockWindow(kLevelTreeWindow,      Left);
+        ImGui::DockBuilderDockWindow(kInspectorWindow,      Right);
+        ImGui::DockBuilderDockWindow(kSystemRegistryWindow, Right);
         ImGui::DockBuilderFinish(DockspaceId);
     }
 
-    // The dockspace remains alive while Parent Editor Window is hidden by another root tab. Dear
+    // The dockspace remains alive while the Level peer root is hidden by another root tab. Dear
     // ImGui otherwise detaches every direct child after one hidden frame.
     template<typename T_RENDER_PARENT_TOOLBAR>
     inline bool RenderParentEditorDockspace(
