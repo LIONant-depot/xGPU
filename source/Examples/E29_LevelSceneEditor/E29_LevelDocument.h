@@ -66,6 +66,24 @@ namespace e29
 
     // Edit vs view (DESIGN 4.2): claim write locks for the open Level + every open scene.
     // First mutator wins; returns false if another session already holds any of them.
+
+    // True if this Level session may mutate (no other writer holds Level/scene locks).
+    inline bool IsLevelWritable(xeditor::host* pHost, xeditor::session* pSess, const editor_state& State) noexcept
+    {
+        if (pHost == nullptr || pSess == nullptr) return true;
+        if (!State.m_CurrentLevel.empty())
+        {
+            const xresource::full_guid LevelGuid{ State.m_CurrentLevel.m_Instance, xecs::level::type_guid_v };
+            if (!pHost->can_write(LevelGuid, pSess)) return false;
+        }
+        for (const auto& SceneInst : State.m_OpenScenes)
+        {
+            const xresource::full_guid SceneGuid{ SceneInst.m_Instance, xecs::scene::type_guid_v };
+            if (!pHost->can_write(SceneGuid, pSess)) return false;
+        }
+        return true;
+    }
+
     inline bool EnsureLevelEditAccess(xeditor::host& Host, xeditor::session& Sess, editor_state& State) noexcept
     {
         if (!State.m_CurrentLevel.empty())
