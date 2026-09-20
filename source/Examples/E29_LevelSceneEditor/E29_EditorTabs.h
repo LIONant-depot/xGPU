@@ -6,7 +6,8 @@
 #include "source/Examples/E29_LevelSceneEditor/E29_Diagnostics.h"
 #include "imgui_internal.h"
 #include "source/Tools/Editor/xeditor_resource_tab.h"
-#include "source/Tools/Editor/xeditor_dock_isolation.h"
+#include "source/Tools/Editor/xeditor_dock_isolation.h"
+#include "dependencies/xeditor/include/xeditor/full_editor_shell.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -32,7 +33,7 @@ namespace e29::editor_tabs
     inline constexpr char kCommandConsoleWindow[] = "\xEE\xA3\xBD Commands###E29.LevelEditor.CommandConsole";
     inline constexpr char kSourceControlWindow[] = "Source Control###E29.LevelEditor.SourceControl";
     // Isolation guid for this Level editor instance (set each frame from RenderParentEditorDockspace).
-    // Uses xeditor::DockClassForResource — same path as Texture — instead of a hardcoded ClassId.
+    // Uses xeditor::DockClassForResource ï¿½ same path as Texture ï¿½ instead of a hardcoded ClassId.
     inline xresource::full_guid g_LevelEditorDockGuid{};
 
     inline ImGuiWindowClass ParentEditorDockClass() noexcept
@@ -132,10 +133,7 @@ namespace e29::editor_tabs
         }
         else
             ImGui::DockSpace(ParentDockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_KeepAliveOnly, &ParentDockClass);
-        if (!DockGuid.empty())
-            xeditor::IsolateEditorDockspace(ParentDockspaceId, DockGuid);
-        else
-            ApplyDockClassToTree(ImGui::DockBuilderGetNode(ParentDockspaceId), ParentDockClass);
+        xeditor::FinishFullEditorDockspace(ParentDockspaceId, DockGuid);
         ImGui::End();
         diagnostics::Log("window end: %s", Title);
         ImGui::PopStyleVar();

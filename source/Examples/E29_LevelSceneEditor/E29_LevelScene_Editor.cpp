@@ -2864,19 +2864,15 @@ int E29_Example()
 
         if (e29::g_pEditorHost)
         {
-            e29::g_pEditorHost->clear_attached();
+                        e29::g_pEditorHost->clear_attached();
 
             LevelHostSession.Sync(*e29::g_pEditorHost, State, pGameMgr.get());
 
-            for (auto& S : e29::g_OpenTextureEditors)
-            {
-                if (!S) continue;
-                e29::g_pEditorHost->attach(S->m_Document.getDisplayName(), S->m_Document.getGuid(), &S->m_Undo);
-            }
+            e29::SyncOpenTextureEditorsToHost(*e29::g_pEditorHost);
+
+            e29::RenderOpenTextureEditors();
+
         }
-        e29::RenderOpenTextureEditors();
-
-
 
         xgpu::tools::imgui::Render();
 
