@@ -2245,7 +2245,6 @@ int E29_Example()
                     break;
                 }
             };
-        EditorHost.draw_host_drawers();
 
         // GameMgr.Run() ticks every enabled Update system in its current order (via
 
@@ -2877,6 +2876,10 @@ int E29_Example()
             e29::SyncOpenTextureEditorsToHost(*e29::g_pEditorHost);
 
             e29::RenderOpenTextureEditors();
+
+        // Host Drawer last so it stacks above Level/Texture peer windows (same OS window).
+        EditorHost.draw_host_drawers();
+
 
         }
 
