@@ -77,7 +77,7 @@ namespace e29::commands
             auto& State = get<e29_command_context>().m_State;
             if (State.isPlaying()) return "Save: blocked while Play/Paused";
             e29::SaveEverything(*e29::g_pGameMgr, State);
-            e29::MarkDocumentClean(State, m_System);
+            e29::MarkDocumentClean(State, e29::g_pLevelUndo ? *e29::g_pLevelUndo : m_System);
             return "Saved";
         }
     };
@@ -114,19 +114,19 @@ namespace e29::commands
                 SaveOverride = (S == "true" || S == "1");
             }
 
-            const bool bDirty = e29::HasUnsavedDocumentChanges(State, m_System);
+            const bool bDirty = e29::HasUnsavedDocumentChanges(State, e29::g_pLevelUndo ? *e29::g_pLevelUndo : m_System);
             if (bDirty && !SaveOverride.has_value())
                 return "Close: Level has unsaved changes; pass -Save 1 (save) or -Save 0 (discard)";
 
             if (bDirty && SaveOverride.value())
             {
                 e29::SaveEverything(*e29::g_pGameMgr, State);
-                e29::MarkDocumentClean(State, m_System);
-                e29::CloseLevel(*e29::g_pGameMgr, State, m_System);
+                e29::MarkDocumentClean(State, e29::g_pLevelUndo ? *e29::g_pLevelUndo : m_System);
+                e29::CloseLevel(*e29::g_pGameMgr, State, e29::g_pLevelUndo ? *e29::g_pLevelUndo : m_System);
                 return "Saved and closed";
             }
 
-            e29::CloseLevel(*e29::g_pGameMgr, State, m_System);
+            e29::CloseLevel(*e29::g_pGameMgr, State, e29::g_pLevelUndo ? *e29::g_pLevelUndo : m_System);
             return bDirty ? "Closed without saving" : "Closed";
         }
         xcmdline::parser::handle m_hSave;

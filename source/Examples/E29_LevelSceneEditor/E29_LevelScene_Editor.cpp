@@ -54,6 +54,8 @@
 
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_TextureEditor.h"
 
+#include "source/Examples/E29_LevelSceneEditor/E29_LevelDocument.h"
+
 #include "source/Examples/E29_LevelSceneEditor/kit/E29_IdleWork.h"
 
 #include "source/Examples/E29_LevelSceneEditor/kit/E29_ComponentCompatibility.h"
@@ -804,17 +806,23 @@ int E29_Example()
 
     e29::g_pUndo = &E29Undo;
 
+    e29::RegisterLevelEditorDescriptor();
+
+    e29::level_host_session LevelHostSession;
+
+    xundo::system& LevelUndo = LevelHostSession.EnsureCreated(State, pGameMgr.get()).m_Undo;
+
     e29::commands::open_texture_editor_cmd CmdOpenTextureEditor(E29Undo, &CmdContext);
 
     e29::commands::texture_editor_command_cmd CmdTextureEditorCommand(E29Undo, &CmdContext);
 
-    e29::commands::select_cmd             CmdSelect(E29Undo, &CmdContext);
+    e29::commands::select_cmd             CmdSelect(LevelUndo, &CmdContext);
 
-    e29::commands::toggle_multi_select_cmd CmdToggleMultiSelect(E29Undo, &CmdContext);
+    e29::commands::toggle_multi_select_cmd CmdToggleMultiSelect(LevelUndo, &CmdContext);
 
-    e29::commands::clear_selection_cmd    CmdClearSelection(E29Undo, &CmdContext);
+    e29::commands::clear_selection_cmd    CmdClearSelection(LevelUndo, &CmdContext);
 
-    e29::commands::set_property_cmd       CmdSetProperty(E29Undo, &CmdContext);
+    e29::commands::set_property_cmd       CmdSetProperty(LevelUndo, &CmdContext);
 
     e29::commands::revert_override_cmd    CmdRevertOverride(E29Undo, &CmdContext);
 
@@ -824,13 +832,13 @@ int E29_Example()
 
     e29::commands::revert_all_overrides_cmd       CmdRevertAllOverrides(E29Undo, &CmdContext);
 
-    e29::commands::add_component_cmd      CmdAddComponent(E29Undo, &CmdContext);
+    e29::commands::add_component_cmd      CmdAddComponent(LevelUndo, &CmdContext);
 
-    e29::commands::remove_component_cmd   CmdRemoveComponent(E29Undo, &CmdContext);
+    e29::commands::remove_component_cmd   CmdRemoveComponent(LevelUndo, &CmdContext);
 
-    e29::commands::create_entity_cmd      CmdCreateEntity(E29Undo, &CmdContext);
+    e29::commands::create_entity_cmd      CmdCreateEntity(LevelUndo, &CmdContext);
 
-    e29::commands::delete_entity_cmd      CmdDeleteEntity(E29Undo, &CmdContext);
+    e29::commands::delete_entity_cmd      CmdDeleteEntity(LevelUndo, &CmdContext);
 
     e29::commands::say_query_cmd          CmdSay(E29Undo, &CmdContext);
 
@@ -869,6 +877,10 @@ int E29_Example()
     e29::commands::undo_query_cmd         CmdUndo(E29Undo, &CmdContext);
 
     e29::commands::redo_query_cmd         CmdRedo(E29Undo, &CmdContext);
+
+    e29::commands::undo_query_cmd         CmdLevelUndo(LevelUndo, &CmdContext);
+
+    e29::commands::redo_query_cmd         CmdLevelRedo(LevelUndo, &CmdContext);
 
     e29::commands::save_query_cmd         CmdSave(E29Undo, &CmdContext);
 
@@ -1772,7 +1784,7 @@ int E29_Example()
 
                     && (!State.m_CurrentLevel.empty() || !State.m_OpenScenes.empty())
 
-                    && e29::HasUnsavedDocumentChanges(State, E29Undo);
+                    && e29::HasUnsavedDocumentChanges(State, LevelUndo);
 
                 ImGui::BeginDisabled(!bCanSave);
 
@@ -1782,7 +1794,7 @@ int E29_Example()
 
                     e29::SaveEverything(*pGameMgr, State);
 
-                    e29::MarkDocumentClean(State, E29Undo);
+                    e29::MarkDocumentClean(State, LevelUndo);
 
                 }
 
@@ -1798,7 +1810,7 @@ int E29_Example()
 
                 if (ImGui::MenuItem("Close"))
 
-                    e29::RequestCloseLevel(*pGameMgr, State, E29Undo);
+                    e29::RequestCloseLevel(*pGameMgr, State, LevelUndo);
 
                 ImGui::EndDisabled();
 
@@ -2116,7 +2128,7 @@ int E29_Example()
 
         e29::RenderRemoveDependencyConfirmModal(E29Undo);
 
-        e29::RenderSaveBeforeCloseModal(*pGameMgr, State, E29Undo);
+        e29::RenderSaveBeforeCloseModal(*pGameMgr, State, LevelUndo);
 
         // Modal may have opened a Level after Save/Don't Save - same reload kick as an
 
@@ -2150,13 +2162,13 @@ int E29_Example()
 
             && (!State.m_CurrentLevel.empty() || !State.m_OpenScenes.empty())
 
-            && e29::HasUnsavedDocumentChanges(State, E29Undo))
+            && e29::HasUnsavedDocumentChanges(State, LevelUndo))
 
         {
 
             e29::SaveEverything(*pGameMgr, State);
 
-            e29::MarkDocumentClean(State, E29Undo);
+            e29::MarkDocumentClean(State, LevelUndo);
 
         }
 
@@ -2184,9 +2196,9 @@ int E29_Example()
 
         {
 
-            if (ImGui::IsKeyPressed(ImGuiKey_Z) && !ImGui::GetIO().KeyShift) E29Undo.Undo();
+            if (ImGui::IsKeyPressed(ImGuiKey_Z) && !ImGui::GetIO().KeyShift) LevelUndo.Undo();
 
-            else if (ImGui::IsKeyPressed(ImGuiKey_Y) || (ImGui::IsKeyPressed(ImGuiKey_Z) && ImGui::GetIO().KeyShift)) E29Undo.Redo();
+            else if (ImGui::IsKeyPressed(ImGuiKey_Y) || (ImGui::IsKeyPressed(ImGuiKey_Z) && ImGui::GetIO().KeyShift)) LevelUndo.Redo();
 
         }
 
@@ -2282,13 +2294,13 @@ int E29_Example()
 
 #if defined(XECS_BUILD_SHARED)
 
-                if (e29::RequestOpenLevel(*pGameMgr, State, E29Undo, NewAsset, /*bStartGameReload*/ true))
+                if (e29::RequestOpenLevel(*pGameMgr, State, LevelUndo, NewAsset, /*bStartGameReload*/ true))
 
                     e29::StartGameReload(GamePlugin);
 
 #else
 
-                e29::RequestOpenLevel(*pGameMgr, State, E29Undo, NewAsset, /*bStartGameReload*/ false);
+                e29::RequestOpenLevel(*pGameMgr, State, LevelUndo, NewAsset, /*bStartGameReload*/ false);
 
 #endif
 
@@ -2308,13 +2320,13 @@ int E29_Example()
 
 #if defined(XECS_BUILD_SHARED)
 
-                if (e29::RequestOpenLevel(*pGameMgr, State, E29Undo, SelAsset, /*bStartGameReload*/ true))
+                if (e29::RequestOpenLevel(*pGameMgr, State, LevelUndo, SelAsset, /*bStartGameReload*/ true))
 
                     e29::StartGameReload(GamePlugin);
 
 #else
 
-                e29::RequestOpenLevel(*pGameMgr, State, E29Undo, SelAsset, /*bStartGameReload*/ false);
+                e29::RequestOpenLevel(*pGameMgr, State, LevelUndo, SelAsset, /*bStartGameReload*/ false);
 
 #endif
 
@@ -2338,7 +2350,7 @@ int E29_Example()
 
         // RequestOpenLevel so a dirty open Level prompts Save/Don't Save/Cancel first.
 
-        if (e29::FlushPendingOpenLevelFromTree(*pGameMgr, State, E29Undo))
+        if (e29::FlushPendingOpenLevelFromTree(*pGameMgr, State, LevelUndo))
 
             e29::StartGameReload(GamePlugin);
 
@@ -2450,7 +2462,7 @@ int E29_Example()
 
                     && (!State.m_CurrentLevel.empty() || !State.m_OpenScenes.empty())
 
-                    && e29::HasUnsavedDocumentChanges(State, E29Undo);
+                    && e29::HasUnsavedDocumentChanges(State, LevelUndo);
 
                 ToolbarButton("Save", "S", false, !bCanSave, [&]()
 
@@ -2458,13 +2470,13 @@ int E29_Example()
 
                     e29::SaveEverything(*pGameMgr, State);
 
-                    e29::MarkDocumentClean(State, E29Undo);
+                    e29::MarkDocumentClean(State, LevelUndo);
 
                 });
 
-                ToolbarButton("Undo", "U", false, State.isPlaying(), [&]() { E29Undo.Undo(); });
+                ToolbarButton("Undo", "U", false, State.isPlaying(), [&]() { LevelUndo.Undo(); });
 
-                ToolbarButton("Redo", "R", false, State.isPlaying(), [&]() { E29Undo.Redo(); });
+                ToolbarButton("Redo", "R", false, State.isPlaying(), [&]() { LevelUndo.Redo(); });
 
                 ToolbarButton("Assets", "A", false, false, [&]() { AsserBrowser.Show(true); });
 
@@ -2854,27 +2866,7 @@ int E29_Example()
         {
             e29::g_pEditorHost->clear_attached();
 
-            // Level: transition attach onto workspace undo so LevelName\Cmd works like bare Cmd
-
-            if (!State.m_CurrentLevel.empty())
-
-            {
-
-                std::string LevelName;
-
-                e29::RemapGUIDToString(LevelName, xresource::full_guid{ State.m_CurrentLevel.m_Instance, State.m_CurrentLevel.m_Type });
-
-                if (LevelName.empty()) LevelName = "Level";
-
-                e29::g_pEditorHost->attach(
-
-                    LevelName,
-
-                    xresource::full_guid{ State.m_CurrentLevel.m_Instance, xecs::level::type_guid_v },
-
-                    e29::g_pEditorHost->m_pExternalWorkspace);
-
-            }
+            LevelHostSession.Sync(*e29::g_pEditorHost, State, pGameMgr.get());
 
             for (auto& S : e29::g_OpenTextureEditors)
             {

@@ -906,7 +906,7 @@ namespace e29
         if (ImGui::MenuItem("New Entity"))
         {
             const auto Id = NextFreeEntityId(Scene);
-            e29::commands::Run(Undo, std::format("CreateEntity -Scene {} -Id {} -Folder {:08X}"
+            e29::commands::Run(e29::LevelDocUndo(Undo), std::format("CreateEntity -Scene {} -Id {} -Folder {:08X}"
                 , e29::commands::FormatSceneGuid(SceneGuid)
                 , e29::commands::FormatEntityId(Id)
                 , static_cast<std::uint32_t>(TargetFolder)
@@ -1090,7 +1090,7 @@ namespace e29
                 const std::string After(AfterBuffer.data(), AfterLen > 0 ? static_cast<std::size_t>(AfterLen) : 0);
                 const std::uint32_t TypeGuid = Cmd.m_NewValue.m_pType ? Cmd.m_NewValue.m_pType->m_GUID : 0;
 
-                e29::commands::Run(Undo, std::format("SetProperty -Scene {} -Id {} -Component {:016X} -Path {} -TypeGuid {:08X} -Before {} -After {}"
+                e29::commands::Run(e29::LevelDocUndo(Undo), std::format("SetProperty -Scene {} -Id {} -Component {:016X} -Path {} -TypeGuid {:08X} -Before {} -After {}"
                     , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
                     , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                     , It->second->m_Guid.m_Value

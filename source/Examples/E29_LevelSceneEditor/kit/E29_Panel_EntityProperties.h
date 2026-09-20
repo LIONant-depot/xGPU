@@ -288,7 +288,7 @@ namespace e29
                     // memory, phase 3 - commands/E29_Commands_ComponentEdit.h) - remove_component_cmd
                     // snapshots the component's current property values before removing it, so Undo
                     // can restore it exactly, not just re-add it with default values.
-                    e29::commands::Run(Undo, std::format("RemoveComponent -Scene {} -Id {} -Component {:016X}"
+                    e29::commands::Run(e29::LevelDocUndo(Undo), std::format("RemoveComponent -Scene {} -Id {} -Component {:016X}"
                         , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
                         , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                         , Bridge.m_pPendingRemoveComponent->m_Guid.m_Value

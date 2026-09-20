@@ -137,7 +137,7 @@ namespace e29
                 ImGui::PushID(Comp.m_pInfo->m_pName);
                 if (ImGui::Selectable(Comp.m_pInfo->m_pName))
                 {
-                    e29::commands::Run(Undo, std::format("AddComponent -Scene {} -Id {} -Component {:016X}"
+                    e29::commands::Run(e29::LevelDocUndo(Undo), std::format("AddComponent -Scene {} -Id {} -Component {:016X}"
                         , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
                         , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                         , Comp.m_pInfo->m_Guid.m_Value

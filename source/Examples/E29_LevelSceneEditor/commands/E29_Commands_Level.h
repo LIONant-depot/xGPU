@@ -81,7 +81,7 @@ namespace e29::commands
             }
 
             const bool bHaveDoc = !State.m_CurrentLevel.empty() || !State.m_OpenScenes.empty();
-            const bool bDirty   = e29::HasUnsavedDocumentChanges(State, m_System);
+            const bool bDirty   = e29::HasUnsavedDocumentChanges(State, e29::g_pLevelUndo ? *e29::g_pLevelUndo : m_System);
             if (bHaveDoc && bDirty && !SaveOverride.has_value())
                 return "OpenLevel: current Level has unsaved changes; pass -Save 1 (save) or -Save 0 (discard)";
 
@@ -90,13 +90,13 @@ namespace e29::commands
                 if (bDirty && SaveOverride.value())
                 {
                     e29::SaveEverything(*e29::g_pGameMgr, State);
-                    e29::MarkDocumentClean(State, m_System);
+                    e29::MarkDocumentClean(State, e29::g_pLevelUndo ? *e29::g_pLevelUndo : m_System);
                 }
-                e29::CloseLevel(*e29::g_pGameMgr, State, m_System);
+                e29::CloseLevel(*e29::g_pGameMgr, State, e29::g_pLevelUndo ? *e29::g_pLevelUndo : m_System);
             }
 
             e29::OpenLevel(*e29::g_pGameMgr, State, LevelGuid);
-            e29::MarkDocumentClean(State, m_System);
+            e29::MarkDocumentClean(State, e29::g_pLevelUndo ? *e29::g_pLevelUndo : m_System);
 
             if (State.m_CurrentLevel.m_Instance.m_Value != Value)
                 return std::format("OpenLevel: failed to open {:016X} (unknown Level guid or load error)", Value);

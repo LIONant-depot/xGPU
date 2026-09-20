@@ -2,6 +2,8 @@
 #define E29_PREFAB_AUTHORING_H
 #pragma once
 
+#include "dependencies/xundo/source/xundo_system.h"
+
 // Extracted from E29_LevelSceneEditorKit.h (mechanical move, phase 2 of the kit split - see the
 // umbrella file's own top comment). Prefab creation/instancing/deletion (RegisterInstantiatedSubtree
 // through CreatePrefabVariantFromInstance), plus the drag-payload + drop registration that turns a
@@ -409,6 +411,13 @@ namespace e29
     // only ever runs one instance of itself, so this isn't introducing a new kind of assumption.
     inline xecs::game_mgr::instance* g_pGameMgr = nullptr;
     inline editor_state*             g_pState   = nullptr;
+    // Level session undo (document cmds). Workspace bare Undo stays on g_pUndo.
+    inline xundo::system*             g_pLevelUndo = nullptr;
+    inline xundo::system& LevelDocUndo(xundo::system& WorkspaceFallback) noexcept
+    {
+        return g_pLevelUndo ? *g_pLevelUndo : WorkspaceFallback;
+    }
+
 
     // Set by the editor once the command/undo system exists (same lifetime as g_pGameMgr/g_pState).
     // entity_to_prefab_drop::OnDrop cannot include the MakePrefab command headers (include order /

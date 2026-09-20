@@ -487,10 +487,13 @@ namespace e29
     // that one - inline variables have external linkage, so a plain extern declaration anywhere in
     // the same program is enough to use it, no redefinition risk.
     extern xundo::system* g_pUndo;
+    extern xundo::system* g_pLevelUndo;
 
     inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene::component_dependency>& MissingDeps ) noexcept
     {
-        if (!g_pGameMgr || !g_pUndo || !g_pState) return;
+        if (!g_pGameMgr || !g_pState) return;
+        xundo::system* pDocUndo = g_pLevelUndo ? g_pLevelUndo : g_pUndo;
+        if (!pDocUndo) return;
 
         for (auto& SceneGuid : g_pState->m_OpenScenes)
         {
@@ -511,7 +514,7 @@ namespace e29
                     auto* pInfo = g_pGameMgr->m_ComponentMgr.findComponentTypeInfo(Dep.m_Guid);
                     if (!pInfo || !Bits.getBit(pInfo->m_BitID)) continue;
 
-                    commands::Run(*g_pUndo, std::format("RemoveComponent -Scene {} -Id {} -Component {:016X}"
+                    commands::Run(*pDocUndo, std::format("RemoveComponent -Scene {} -Id {} -Component {:016X}"
                         , commands::FormatSceneGuid(SceneGuid)
                         , commands::FormatEntityId(Id)
                         , Dep.m_Guid.m_Value
