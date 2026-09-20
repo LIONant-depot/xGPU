@@ -2896,6 +2896,15 @@ int E29_Example()
 
     e29::diagnostics::Log("shutdown: frame loop ended");
 
+    // Plugin systems live in GameMgr but their DestroyFunction code is in the DLL.
+    // Tear down GameMgr (and host/texture bridges) BEFORE FreeLibrary, or ~mgr
+    // jumps into unmapped memory on exit (callstack: ~mgr <- E29_Example).
+    e29::g_OpenTextureEditors.clear();
+    e29::g_pEditorHost = nullptr;
+    e29::g_pLevelUndo = nullptr;
+    e29::g_pUndo = nullptr;
+    e29::g_pGameMgr = nullptr;
+    pGameMgr.reset();
     e29::UnloadGamePlugin(GamePlugin);
 
     e29::diagnostics::Log("shutdown: game plugin unloaded");
