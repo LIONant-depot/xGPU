@@ -2874,9 +2874,7 @@ int E29_Example()
 
         if (e29::g_pEditorHost)
         {
-                        e29::g_pEditorHost->clear_attached();
-
-            LevelHostSession.Sync(*e29::g_pEditorHost, State, pGameMgr.get());
+                        LevelHostSession.Sync(*e29::g_pEditorHost, State, pGameMgr.get());
 
             e29::SyncOpenTextureEditorsToHost(*e29::g_pEditorHost);
 

@@ -14,7 +14,7 @@
 
 namespace
 {
-    constexpr const char* kPipeName = "\\\\.\\pipe\\E29_LevelSceneEditor_Console";
+    constexpr const char* kPipeName = "\\\\.\\pipe\\xEditor_Console";
 }
 
 int main(int argc, char** argv)

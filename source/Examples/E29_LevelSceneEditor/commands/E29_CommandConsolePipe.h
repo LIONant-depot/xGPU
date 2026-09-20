@@ -172,7 +172,7 @@ namespace e29
 
     //------------------------------------------------------------------------------------------------
 
-    // Named-pipe server for E29CLI.cpp - connect to \\.\pipe\E29_LevelSceneEditor_Console, write one
+    // Named-pipe server for E29CLI.cpp - connect to \\.\pipe\xEditor_Console, write one
 
     // command line, read back the response, disconnect. Runs on its own detached background thread
 
@@ -214,7 +214,7 @@ namespace e29
 
             HANDLE hPipe = CreateNamedPipeA(
 
-                "\\\\.\\pipe\\E29_LevelSceneEditor_Console",
+                "\\\\.\\pipe\\xEditor_Console",
 
                 PIPE_ACCESS_DUPLEX,
 
