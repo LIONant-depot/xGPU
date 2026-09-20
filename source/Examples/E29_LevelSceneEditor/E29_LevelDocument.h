@@ -85,7 +85,7 @@ namespace e29
 
     // Edit vs view (DESIGN 4.2):
     // - Clean / just-loaded: no locks; every session can view and may start editing.
-    // - First mutation claims Level + open scenes (no permission dialog); others go read-only.
+    // - First mutation claims Level + selected scene(s) (no dialog); other open scenes stay free.
     // - Successful save (clean undo): release locks - back to just-loaded.
     // - Sync checks every frame: release when clean; acquire only via mutation gate.
 
@@ -106,6 +106,7 @@ namespace e29
         return true;
     }
 
+    // Claim Level + scenes the user is actually editing (selection), not every open scene.
     inline bool EnsureLevelEditAccess(xeditor::host& Host, xeditor::session& Sess, editor_state& State) noexcept
     {
         if (!State.m_CurrentLevel.empty())
@@ -114,12 +115,14 @@ namespace e29
             if (!Host.try_acquire_write(LevelGuid, &Sess))
                 return false;
         }
-        for (const auto& SceneInst : State.m_OpenScenes)
+        auto TryScene = [&](const xecs::scene::guid& SceneInst) noexcept -> bool
         {
+            if (SceneInst.empty()) return true;
             const xresource::full_guid SceneGuid{ SceneInst.m_Instance, xecs::scene::type_guid_v };
-            if (!Host.try_acquire_write(SceneGuid, &Sess))
-                return false;
-        }
+            return Host.try_acquire_write(SceneGuid, &Sess);
+        };
+        if (!TryScene(State.m_SelectedEntityScene)) return false;
+        if (!TryScene(State.m_MultiSelectScene)) return false;
         return true;
     }
 

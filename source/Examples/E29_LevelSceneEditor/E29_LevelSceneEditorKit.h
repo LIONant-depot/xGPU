@@ -291,6 +291,7 @@ namespace e29
         // no recompile-check needed) and consumed by PollGameReload once the recompile-check it
         // kicks off resolves - Play must never actually start ticking against a DLL that might still
         // be mid-rebuild. See PollGameReload's own comment for the full sequencing.
+        bool m_bPlayBusyPopup = false; // DESIGN 4.6 fail-loud when Play singleton busy
         bool m_bPlayRequested = false;
 
         // Set by the "Stop" button; consumed at the same clean top-of-frame point PollGameReload

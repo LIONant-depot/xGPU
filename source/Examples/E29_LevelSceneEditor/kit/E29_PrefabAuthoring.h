@@ -440,17 +440,20 @@ namespace e29
         }
         if (pSess == nullptr) return true;
         // EnsureLevelEditAccess lives in E29_LevelDocument.h — forward call via include order in .cpp.
-        // First edit claims Level + open scenes (no ask). Save/clean releases via Sync.
+        // First edit claims Level + selected scene(s) only (no ask). Save/clean releases via Sync.
         if (!g_pState->m_CurrentLevel.empty())
         {
             const xresource::full_guid LevelGuid{ g_pState->m_CurrentLevel.m_Instance, xecs::level::type_guid_v };
             if (!g_pEditorHost->try_acquire_write(LevelGuid, pSess)) return false;
         }
-        for (const auto& SceneInst : g_pState->m_OpenScenes)
+        auto TryScene = [&](const xecs::scene::guid& SceneInst) noexcept -> bool
         {
+            if (SceneInst.empty()) return true;
             const xresource::full_guid SceneGuid{ SceneInst.m_Instance, xecs::scene::type_guid_v };
-            if (!g_pEditorHost->try_acquire_write(SceneGuid, pSess)) return false;
-        }
+            return g_pEditorHost->try_acquire_write(SceneGuid, pSess);
+        };
+        if (!TryScene(g_pState->m_SelectedEntityScene)) return false;
+        if (!TryScene(g_pState->m_MultiSelectScene)) return false;
         return true;
     }
 

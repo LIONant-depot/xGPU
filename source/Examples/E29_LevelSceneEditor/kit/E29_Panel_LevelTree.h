@@ -308,7 +308,7 @@ namespace e29
         RenderLevelTreeSourceControlBadge(ResourceGuid);
     }
 
-    void RenderLevelTreePanel(xecs::game_mgr::instance& GameMgr, editor_state& State, xundo::system& Undo) noexcept
+    void RenderLevelTreePanel(xecs::game_mgr::instance& GameMgr, editor_state& State, xundo::system& Undo, bool bReadOnly = false) noexcept
     {
         ImGui::SetNextWindowPos(ImVec2(915, 18), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(360, 680), ImGuiCond_FirstUseEver);
@@ -316,6 +316,7 @@ namespace e29
         e29::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kLevelTreeWindow, bWindowVisible ? 1 : 0);
         if (bWindowVisible)
         {
+            if (bReadOnly) ImGui::BeginDisabled();
             if (State.m_CurrentLevel.empty())
             {
                 ImGui::TextDisabled("Create or open a Level from the asset browser (or drop a Level here).");
@@ -1180,6 +1181,7 @@ namespace e29
             // level_tree_sc_revert_request's own comment for why this can't live inline at the
             // MenuItem that requests it.
             RenderLevelTreeSCRevertConfirmModal(Undo);
+            if (bReadOnly) ImGui::EndDisabled();
         }
         ImGui::End();
         e29::diagnostics::Log("window end: %s", e29::editor_tabs::kLevelTreeWindow);

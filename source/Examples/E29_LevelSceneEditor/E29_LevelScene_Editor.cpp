@@ -3793,13 +3793,10 @@ int E29_Example()
                     // Process-wide single Play (DESIGN 4.6). Fail loud if another owner holds it.
 
                     if (e29::g_pEditorHost && !e29::g_pEditorHost->try_begin_play(&State))
-
                     {
-
                         e29::diagnostics::Log("Play refused: another Play session is already active");
-
+                        State.m_bPlayBusyPopup = true;
                         return;
-
                     }
 
 #if defined(XECS_BUILD_SHARED)
@@ -4756,6 +4753,21 @@ int E29_Example()
 
         // Read-only when another session holds Level/scene write locks (DESIGN 4.2).
 
+        
+        if (State.m_bPlayBusyPopup)
+        {
+            ImGui::OpenPopup("##PlayBusy");
+            State.m_bPlayBusyPopup = false;
+        }
+        if (ImGui::BeginPopupModal("##PlayBusy", nullptr, ImGuiWindowFlags_AlwaysAutoResize))
+        {
+            ImGui::Text("Play is already active in another Level editor.");
+            ImGui::Text("Stop that Play first, then try again.");
+            if (ImGui::Button("OK", ImVec2(120, 0)))
+                ImGui::CloseCurrentPopup();
+            ImGui::EndPopup();
+        }
+
         const bool bLevelWritable = e29::IsLevelWritable(e29::g_pEditorHost, LevelHostSession.pLive, State);
 
         if (!bLevelWritable)
@@ -4790,7 +4802,7 @@ int E29_Example()
 
 
 
-        e29::RenderLevelTreePanel(*pGameMgr, State, E29Undo);
+        e29::RenderLevelTreePanel(*pGameMgr, State, E29Undo, !bLevelWritable);
 
 
 
@@ -4822,7 +4834,7 @@ int E29_Example()
 
 
 
-        e29::RenderEntityPropertiesPanel(*pGameMgr, State, EntityInspector, InspectorBridge, E29Undo);
+        e29::RenderEntityPropertiesPanel(*pGameMgr, State, EntityInspector, InspectorBridge, E29Undo, !bLevelWritable);
 
 
 

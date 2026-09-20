@@ -23,11 +23,12 @@ namespace e29
     // one alongside EntityInspector and call Bridge.RegisterCallbacks(...) once at setup before
     // calling this every frame.
     //---------------------------------------------------------------------------
-    void RenderEntityPropertiesPanel(xecs::game_mgr::instance& GameMgr, editor_state& State, xproperty::inspector& EntityInspector, entity_inspector_bridge& Bridge, xundo::system& Undo) noexcept
+    void RenderEntityPropertiesPanel(xecs::game_mgr::instance& GameMgr, editor_state& State, xproperty::inspector& EntityInspector, entity_inspector_bridge& Bridge, xundo::system& Undo, bool bReadOnly = false) noexcept
     {
         ImGui::SetNextWindowPos(ImVec2(18, 18), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(480, 500), ImGuiCond_FirstUseEver);
         const bool bWindowVisible = ImGui::Begin(e29::editor_tabs::kInspectorWindow);
+        if (bWindowVisible && bReadOnly) ImGui::BeginDisabled();
         e29::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kInspectorWindow, bWindowVisible ? 1 : 0);
         if (bWindowVisible)
         {
@@ -298,6 +299,7 @@ namespace e29
                 }
             }
         }
+                if (bWindowVisible && bReadOnly) ImGui::EndDisabled();
         ImGui::End();
         e29::diagnostics::Log("window end: %s", e29::editor_tabs::kInspectorWindow);
     }
