@@ -2215,8 +2215,44 @@ int E29_Example()
         }
 
         // Host Drawer: Space toggles overlay on this OS window (main viewport).
+        // Service panels render embedded into drawer tabs (not Level Parent dock).
         xeditor::DrawerHandleToggle(HostDrawer);
-        xeditor::DrawerRender(HostDrawer, ImGui::GetMainViewport());
+        xeditor::DrawerRender(HostDrawer, ImGui::GetMainViewport(),
+            [&](int TabIndex, const char* /*TabName*/)
+            {
+                switch (TabIndex)
+                {
+                case 0: // Resources
+                case 1: // Assets
+                    ImGui::TextUnformatted(TabIndex == 0 ? "Resources" : "Assets");
+                    ImGui::TextDisabled("Opens the shared asset browser (toolbar Assets also works).");
+                    if (ImGui::Button("Open Asset Browser"))
+                        AsserBrowser.Show(true);
+                    break;
+                case 2:
+                    e29::RenderSourceControlPanel(E29Undo, /*bEmbedded*/ true);
+                    break;
+                case 3:
+                    e29::RenderIdleWorkPanel(IdleWork, pGameMgr.get(), State, /*bEmbedded*/ true);
+                    break;
+                case 4:
+                    e29::RenderGamePluginLogPanel(/*bEmbedded*/ true);
+                    break;
+                case 5:
+                    e29::DrawCommandConsolePanel(E29History, ConsoleLog, /*bEmbedded*/ true);
+                    break;
+                case 6:
+                    ImGui::TextUnformatted("Compilation");
+                    ImGui::TextDisabled("Compilation UI moves here next.");
+                    break;
+                case 7:
+                    ImGui::TextUnformatted("Project Settings");
+                    ImGui::TextDisabled("Project Settings UI moves here next.");
+                    break;
+                default:
+                    break;
+                }
+            });
 
         // GameMgr.Run() ticks every enabled Update system in its current order (via
 
@@ -2828,35 +2864,8 @@ int E29_Example()
 
 
 
-        e29::diagnostics::Log("frame %llu idle work render begin", static_cast<unsigned long long>(FrameNumber));
-
-        e29::editor_tabs::SetNextParentEditorToolClass();
-
-        e29::RenderIdleWorkPanel(IdleWork, pGameMgr.get(), State);
-
-        e29::diagnostics::Log("frame %llu idle work render end", static_cast<unsigned long long>(FrameNumber));
-
-        e29::diagnostics::Log("frame %llu game/plugin log render begin", static_cast<unsigned long long>(FrameNumber));
-
-        e29::editor_tabs::SetNextParentEditorToolClass();
-
-        e29::RenderGamePluginLogPanel();
-
+        // Host services (Idle / Log / Commands / SC) live in the Host Drawer (Space).
         e29::RenderReloadCompatibilityModal();
-
-        e29::diagnostics::Log("frame %llu game/plugin log render end", static_cast<unsigned long long>(FrameNumber));
-
-        e29::diagnostics::Log("frame %llu command console render begin", static_cast<unsigned long long>(FrameNumber));
-
-        e29::editor_tabs::SetNextParentEditorToolClass();
-
-        e29::DrawCommandConsolePanel(E29History, ConsoleLog);
-
-        e29::diagnostics::Log("frame %llu command console render end", static_cast<unsigned long long>(FrameNumber));
-
-        e29::editor_tabs::SetNextParentEditorToolClass();
-
-        e29::RenderSourceControlPanel(E29Undo);
 
 
 

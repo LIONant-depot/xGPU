@@ -133,7 +133,7 @@ namespace e29
         return 0;
     }
 
-    static void DrawCommandConsolePanel(xundo::history& History, std::vector<console_log_entry>& LogEntries)
+    static void DrawCommandConsolePanel(xundo::history& History, std::vector<console_log_entry>& LogEntries, bool bEmbedded = false)
     {
         static char                     CmdBuffer[2048] = ""; // bumped from 256 - a base64-encoded SetProperty value alone can run well past that, and the box now wraps/grows instead of horizontal-scrolling anyway
         // LogEntries is owned by the caller (E29_LevelScene_Editor.cpp), not a local static here - the
@@ -178,8 +178,12 @@ namespace e29
         // tab-icon convention already applied elsewhere (Resources/Assets/Compilation/Plugins/Log).
         // E27_NodeOS has its own SEPARATE "Command Console" panel (NodeOS_UI_CommandConsole.h) -
         // deliberately untouched, a different example entirely.
-        const bool bWindowVisible = ImGui::Begin(e29::editor_tabs::kCommandConsoleWindow);
-        e29::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kCommandConsoleWindow, bWindowVisible ? 1 : 0);
+        bool bWindowVisible = true;
+        if (!bEmbedded)
+        {
+            bWindowVisible = ImGui::Begin(e29::editor_tabs::kCommandConsoleWindow);
+            e29::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kCommandConsoleWindow, bWindowVisible ? 1 : 0);
+        }
         if (bWindowVisible)
         {
             // Applying a picked suggestion/history entry (or refocusing) must happen HERE, immediately
@@ -560,8 +564,11 @@ namespace e29
                 bRefocus = true; // applied at the top of the panel on the NEXT frame - see bApplyPendingFill's own comment above
             }
         }
-        ImGui::End();
-        e29::diagnostics::Log("window end: %s", e29::editor_tabs::kCommandConsoleWindow);
+        if (!bEmbedded)
+        {
+            ImGui::End();
+            e29::diagnostics::Log("window end: %s", e29::editor_tabs::kCommandConsoleWindow);
+        }
     }
 }
 

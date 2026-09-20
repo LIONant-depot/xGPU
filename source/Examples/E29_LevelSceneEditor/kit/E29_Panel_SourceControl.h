@@ -1975,13 +1975,16 @@ namespace e29
         ImGui::EndChild();
     }
 
-    void RenderSourceControlPanel(xundo::system& Undo) noexcept
+    void RenderSourceControlPanel(xundo::system& Undo, bool bEmbedded = false) noexcept
     {
         auto& S = g_SourceControlPanel;
 
-        ImGui::SetNextWindowSize(ImVec2(760, 320), ImGuiCond_FirstUseEver);
-        const bool bVisible = ImGui::Begin(e29::editor_tabs::kSourceControlWindow);
-        if (!bVisible) { ImGui::End(); return; }
+        if (!bEmbedded)
+        {
+            ImGui::SetNextWindowSize(ImVec2(760, 320), ImGuiCond_FirstUseEver);
+            const bool bVisible = ImGui::Begin(e29::editor_tabs::kSourceControlWindow);
+            if (!bVisible) { ImGui::End(); return; }
+        }
 
         // Rebuild only when a background scan actually published something new - see
         // source_control_panel_state::m_CachedRows' own comment. BuildSourceControlRows() copies both
@@ -2351,7 +2354,8 @@ namespace e29
         // live inline at the MenuItem that requests it.
         RenderSourceControlUndoChangesConfirmModal(Undo, Rows);
 
-        ImGui::End();
+        if (!bEmbedded)
+            ImGui::End();
     }
 }
 

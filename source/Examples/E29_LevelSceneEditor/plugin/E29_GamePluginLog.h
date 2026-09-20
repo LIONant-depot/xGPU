@@ -42,7 +42,7 @@ namespace e29
         GetGamePluginLog().emplace_back(Msg);
     }
 
-    inline void RenderGamePluginLogPanel() noexcept
+    inline void RenderGamePluginLogPanel(bool bEmbedded = false) noexcept
     {
         // Matches E27_NodeOS's own DrawRuntimeLogPanel exactly (no autoscroll - an earlier version
         // of this function added a GetScrollY()/GetScrollMaxY()/SetScrollHereY() check here; pulled
@@ -56,8 +56,12 @@ namespace e29
         ImGui::SetNextWindowSize(ImVec2(480, 220), ImGuiCond_FirstUseEver);
         // "Log" (was "Game.dll Log") + an icon - direct user request, matching the same tab-icon
         // convention already applied to Resources/Assets/Compilation/Resource Plugins.
-        const bool bWindowVisible = ImGui::Begin(e29::editor_tabs::kGamePluginLogWindow);
-        e29::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kGamePluginLogWindow, bWindowVisible ? 1 : 0);
+        bool bWindowVisible = true;
+        if (!bEmbedded)
+        {
+            bWindowVisible = ImGui::Begin(e29::editor_tabs::kGamePluginLogWindow);
+            e29::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kGamePluginLogWindow, bWindowVisible ? 1 : 0);
+        }
         if (bWindowVisible)
         {
             std::lock_guard Lock(GetGamePluginLogMutex());
@@ -74,8 +78,11 @@ namespace e29
             }
             ImGui::EndChild();
         }
-        ImGui::End();
-        e29::diagnostics::Log("window end: %s", e29::editor_tabs::kGamePluginLogWindow);
+        if (!bEmbedded)
+        {
+            ImGui::End();
+            e29::diagnostics::Log("window end: %s", e29::editor_tabs::kGamePluginLogWindow);
+        }
     }
 } // namespace e29
 
