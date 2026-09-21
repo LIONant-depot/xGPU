@@ -133,7 +133,7 @@ namespace e29
 
                     if (auto Err = e29::SaveScriptConfig(e10::g_LibMgr.m_ProjectPath, e29::g_ScriptConfig); Err)
 
-                        e29::Debugger(std::format("Failed to save Script.config.txt: {}", Err.getMessage()));
+                        xeditor::NotifyError(std::format("Failed to save Script.config.txt: {}", Err.getMessage()));
 
                     e29::RegenerateGameModuleSources();
 
@@ -356,7 +356,7 @@ namespace e29
 
         // "we should always give the user the manual option to do it... just in case the user is doing
 
-        // something special"). RunQuery(), not Run() - SourceControlLock/Unlock are query_command_base
+        // something special"). xeditor::RunQuery(), not Run() - SourceControlLock/Unlock are query_command_base
 
         // (see E29_CommandContext.h's own RunQuery comment for the real, previously-latent bug this
 
@@ -370,7 +370,7 @@ namespace e29
 
         {
 
-            e29::commands::RunQuery(E29Undo, std::format("SourceControlLock -Library {} -Path {}"
+            xeditor::RunQuery(E29Undo, std::format("SourceControlLock -Library {} -Path {}"
 
                 , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::EncodeAssetPath(RelativePath)));
 
@@ -380,7 +380,7 @@ namespace e29
 
         {
 
-            e29::commands::RunQuery(E29Undo, std::format("SourceControlUnlock -Library {} -Path {}"
+            xeditor::RunQuery(E29Undo, std::format("SourceControlUnlock -Library {} -Path {}"
 
                 , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::EncodeAssetPath(RelativePath)));
 

@@ -23,6 +23,7 @@
 // includes (descriptor_base/info/factory/version - all #pragma once) are the ones that win; the
 // asset-browser's own xresource_pipeline.h umbrella pull of the same four headers becomes a no-op.
 #include "dependencies/xECSV2/src/xecs.h"
+#include "dependencies/xeditor/include/xeditor/commands.h"
 
 #define XRESOURCE_PIPELINE_NO_COMPILER
 #include "dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
@@ -56,7 +57,6 @@
 //
 //-----------------------------------------------------------------------------------
 
-#include "source/Examples/E29_LevelSceneEditor/core/E29_Notify.h"
 #include "source/Examples/E29_LevelSceneEditor/scene/E29_NameComponent.h"
 #include "source/Examples/E29_LevelSceneEditor/scene/E29_InspectorPickers.h"
 #include "source/Examples/E29_LevelSceneEditor/core/E29_EditorState.h"
@@ -66,7 +66,7 @@
 #include "scene/E29_PrefabOverrides.h"
 #include "scene/E29_PrefabAuthoring.h"
 
-// e29::commands::Run/FormatSceneGuid (E29_CommandContext.h, lightweight - no dependency on
+// xeditor::Run/FormatSceneGuid (E29_CommandContext.h, lightweight - no dependency on
 // DeleteEntitySubtree itself, but needs e29::g_pGameMgr/g_pState, which E29_PrefabAuthoring.h just
 // declared above) needed by ShowCreateMenuItems' own "New Entity" branch, right below - closed/
 // reopened around this include for the same ODR-nesting reason E29_Commands_PropertyEdit.h's own

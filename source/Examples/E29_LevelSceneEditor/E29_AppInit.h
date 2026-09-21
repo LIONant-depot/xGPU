@@ -17,7 +17,7 @@ namespace e29
 
         e29::diagnostics::Log("startup: creating xgpu instance");
 
-        if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_pLogErrorFunc = e29::Debugger, .m_pLogWarning = e29::Debugger }); Err)
+        if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_pLogErrorFunc = xeditor::NotifyError, .m_pLogWarning = xeditor::NotifyError }); Err)
 
         {
 
@@ -318,7 +318,7 @@ namespace e29
 
                 {
 
-                    e29::Debugger(Err.getMessage());
+                    xeditor::NotifyError(Err.getMessage());
 
                     e29::diagnostics::Log("startup: opening project failed");
 
@@ -368,13 +368,13 @@ namespace e29
 
                 if (auto Err = pGameMgr->m_SystemMgr.Load(); Err)
 
-                    e29::Debugger(std::format("Failed to load System Registry order: {}", Err.getMessage()));
+                    xeditor::NotifyError(std::format("Failed to load System Registry order: {}", Err.getMessage()));
 
 
 
                 if (auto Err = e29::LoadScriptConfig(ProjectPath, e29::g_ScriptConfig); Err)
 
-                    e29::Debugger(std::format("Failed to load Script.config.txt: {}", Err.getMessage()));
+                    xeditor::NotifyError(std::format("Failed to load Script.config.txt: {}", Err.getMessage()));
 
                 // Keeps GameProject\E29_Game_Modules.cmake in sync with whatever was actually persisted,
 
@@ -435,10 +435,11 @@ namespace e29
         AsserBrowser.Show(true);
 
         EditorHost.m_pExternalWorkspace = &E29Undo;
+        EditorHost.m_OnBeforeEdit        = e29::TryGateLevelMutation;
 
         if (auto Err = E29Undo.Init({}, false); !Err.empty())
 
-            e29::Debugger(std::format("E29: xundo Init failed: {}", Err));
+            xeditor::NotifyError(std::format("E29: xundo Init failed: {}", Err));
 
         e29::RegisterLevelEditorDescriptor();
 
@@ -452,7 +453,7 @@ namespace e29
 
 
 
-        // Lets e29::commands::Run() (E29_CommandContext.h, called by every UI-driven command - tree
+        // Lets xeditor::Run() (E29_CommandContext.h, called by every UI-driven command - tree
 
         // clicks, property edits, add/remove component, create/delete entity) log into this SAME console
 
@@ -460,7 +461,6 @@ namespace e29
 
         // commands there as well... nothing showing up there yet."
 
-        e29::commands::g_pConsoleLog = &ConsoleLog;
 
         // xproperty's default row tint (s_ColorCategories, xPropertyImGuiInspector.cpp) is a set of bright
 

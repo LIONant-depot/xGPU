@@ -36,8 +36,8 @@
 
 namespace e29::commands
 {
-    inline std::string  EncodeLibraryPath(const std::wstring& Path) noexcept { return Base64Encode(xstrtool::To(Path)); }
-    inline std::wstring DecodeLibraryPath(const std::string& Encoded) noexcept { return xstrtool::To(Base64Decode(Encoded)); }
+    inline std::string  EncodeLibraryPath(const std::wstring& Path) noexcept { return xeditor::Base64Encode(xstrtool::To(Path)); }
+    inline std::wstring DecodeLibraryPath(const std::string& Encoded) noexcept { return xstrtool::To(xeditor::Base64Decode(Encoded)); }
 
     // Graph-walking primitives (CollectTransitiveLibraryParents/IsLibraryLegalReferenceTarget) now
     // live on library_mgr itself (E10_AssetMgr.h) - shared with the generic Asset Browser UI's own
@@ -329,7 +329,7 @@ namespace e29::commands
             File.Write(Library);
             File.Write(Parent);
             File.Write(Index);
-            WriteString(File, xstrtool::To(ParentPath));
+            xeditor::WriteString(File, xstrtool::To(ParentPath));
         }
 
         void Undo(xundo::undo_file& File) noexcept override
@@ -337,7 +337,7 @@ namespace e29::commands
             std::uint64_t Library = 0; File.Read(Library);
             std::uint64_t Parent = 0; File.Read(Parent);
             std::uint32_t Index = 0; File.Read(Index);
-            const std::wstring ParentPath = xstrtool::To(ReadString(File));
+            const std::wstring ParentPath = xstrtool::To(xeditor::ReadString(File));
 
             const auto LibraryGuid = e10::library::guid{ .m_Instance = { Library } };
             const auto ParentGuid  = e10::library::guid{ .m_Instance = { Parent } };

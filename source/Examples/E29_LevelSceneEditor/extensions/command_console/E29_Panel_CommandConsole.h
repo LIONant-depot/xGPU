@@ -11,7 +11,7 @@
 // NEEDS a bespoke ImGui widget to be reachable - the same text protocol an AI or a script (xeditorcli)
 // already uses works here too, with the same self-documenting "-h" help every command exposes.
 //
-// Reuses console_log_entry/console_log_source/ProcessConsoleCommand from
+// Reuses xeditor::log_entry/xeditor::log_source/ProcessConsoleCommand from
 // extensions/command_console/E29_CommandConsolePipe.h rather than redefining them - the SAME log a pipe-driven command
 // already appends to (phase 5) is what this panel renders, so a Say/GetLog/SetProperty/etc. sent over
 // the pipe shows up here exactly like one typed into this box, never a silent side-channel.
@@ -82,12 +82,12 @@ namespace e29
     // The one place that decides what marker a line gets, so DrawCommandConsolePanel's rendering and
     // a future flattened-CLI-text query (if one's ever added) agree - m_Text itself is always the RAW
     // command/result text with no marker baked in, exactly so there's only one place this happens.
-    static const char* ConsoleLogLinePrefix(console_log_source Source) noexcept
+    static const char* ConsoleLogLinePrefix(xeditor::log_source Source) noexcept
     {
         switch (Source)
         {
-            case console_log_source::User: return "> ";
-            case console_log_source::Pipe: return "$ ";
+            case xeditor::log_source::User: return "> ";
+            case xeditor::log_source::Pipe: return "$ ";
             default:                       return "";
         }
     }
@@ -133,7 +133,7 @@ namespace e29
         return 0;
     }
 
-    static void DrawCommandConsolePanel(xundo::history& History, std::vector<console_log_entry>& LogEntries, bool bEmbedded = false)
+    static void DrawCommandConsolePanel(xundo::history& History, std::vector<xeditor::log_entry>& LogEntries, bool bEmbedded = false)
     {
         static char                     CmdBuffer[2048] = ""; // bumped from 256 - a base64-encoded SetProperty value alone can run well past that, and the box now wraps/grows instead of horizontal-scrolling anyway
         // LogEntries is owned by the caller (E29_LevelScene_Editor.cpp), not a local static here - the
@@ -557,9 +557,9 @@ namespace e29
                 if (CmdHistory.empty() || CmdHistory.back() != Cmd)
                     CmdHistory.emplace_back(Cmd);
 
-                LogEntries.push_back({ std::string(Cmd), console_log_source::User });
+                LogEntries.push_back({ std::string(Cmd), xeditor::log_source::User });
                 if (std::string Result = ProcessConsoleCommand(Cmd, History, Routable, xeditor::host::current()); !Result.empty())
-                    LogEntries.push_back({ std::move(Result), console_log_source::System });
+                    LogEntries.push_back({ std::move(Result), xeditor::log_source::System });
                 CmdBuffer[0] = 0;
                 bRefocus = true; // applied at the top of the panel on the NEXT frame - see bApplyPendingFill's own comment above
             }

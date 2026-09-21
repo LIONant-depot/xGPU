@@ -75,7 +75,7 @@ namespace e29
 
 
 
-        // the startup Debugger()-timing bug this session already found and fixed): the actual
+        // the startup xeditor::NotifyError()-timing bug this session already found and fixed): the actual
 
 
 
@@ -91,7 +91,7 @@ namespace e29
 
 
 
-        // a clean "no active ImGui frame" execution context, same as every other safe Debugger()/
+        // a clean "no active ImGui frame" execution context, same as every other safe xeditor::NotifyError()/
 
 
 
@@ -143,7 +143,7 @@ namespace e29
 
 
 
-        // equivalent pump does. Comparing ConsoleLog's size before/after (rather than threading a new
+        // equivalent pump does. Comparing EditorHost.m_ConsoleLog's size before/after (rather than threading a new
 
 
 
@@ -159,15 +159,15 @@ namespace e29
 
 
 
-        const auto ConsoleLogCountBefore = ConsoleLog.size();
+        const auto ConsoleLogCountBefore = EditorHost.m_ConsoleLog.size();
 
 
 
-        e29::PumpCommandConsolePipe(ConsolePipeBridge, E29History, ConsoleLog);
+        e29::PumpCommandConsolePipe(ConsolePipeBridge, E29History, EditorHost.m_ConsoleLog);
 
 
 
-        if (ConsoleLog.size() != ConsoleLogCountBefore)
+        if (EditorHost.m_ConsoleLog.size() != ConsoleLogCountBefore)
 
 
 
@@ -445,7 +445,7 @@ namespace e29
 
 
 
-        e29::RenderErrorPopup();
+        EditorHost.m_Notifier.render();
 
 
 

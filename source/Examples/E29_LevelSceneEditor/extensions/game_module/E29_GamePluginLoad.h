@@ -115,7 +115,7 @@ namespace e29
             return Candidate;
         }
 
-        // Plain printf, deliberately NOT e29::Debugger() - Debugger() also arms the modal error-
+        // Plain printf, deliberately NOT xeditor::NotifyError() - xeditor::NotifyError() also arms the modal error-
         // popup (RenderErrorPopup, checked once per frame from the main loop's own top-level
         // scope). This function's own first caller (E29_LevelScene_Editor.cpp's own startup code,
         // via LoadGamePluginComponents below) calls it BEFORE the main loop has rendered even one

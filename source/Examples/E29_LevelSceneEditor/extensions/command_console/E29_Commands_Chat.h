@@ -47,7 +47,7 @@ namespace e29::commands
                 return "Say: bad arguments";
 
             const auto From = std::get<std::string>(FromArg);
-            const auto Text = Base64Decode(std::get<std::string>(TextArg));
+            const auto Text = xeditor::Base64Decode(std::get<std::string>(TextArg));
 
             get<e29_command_context>().m_ChatLog.push_back({ From, Text });
             return std::format("[{}] {}", From, Text);

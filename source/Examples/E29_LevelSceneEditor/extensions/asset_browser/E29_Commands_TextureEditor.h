@@ -118,7 +118,7 @@ namespace e29::commands
                 return "TextureEditorCommand: bad arguments";
 
             const auto AssetGuid = ParseAssetGuid(std::get<std::string>(AssetArg));
-            const auto InnerCmd  = Base64Decode(std::get<std::string>(CmdArg));
+            const auto InnerCmd  = xeditor::Base64Decode(std::get<std::string>(CmdArg));
 
             for (auto& S : e29::g_OpenTextureEditors)
             {

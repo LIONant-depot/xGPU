@@ -95,15 +95,15 @@ namespace e29::commands
 
             const std::uint64_t Library = std::holds_alternative<xerr>(LibraryArg) ? 0 : std::strtoull(std::get<std::string>(LibraryArg).c_str(), nullptr, 16);
             File.Write(Library);
-            WriteString(File, std::holds_alternative<xerr>(AssetArg) ? std::string(32, '0') : std::get<std::string>(AssetArg));
-            WriteString(File, std::holds_alternative<xerr>(FileNameArg) ? std::string() : std::get<std::string>(FileNameArg));
+            xeditor::WriteString(File, std::holds_alternative<xerr>(AssetArg) ? std::string(32, '0') : std::get<std::string>(AssetArg));
+            xeditor::WriteString(File, std::holds_alternative<xerr>(FileNameArg) ? std::string() : std::get<std::string>(FileNameArg));
         }
 
         void Undo(xundo::undo_file& File) noexcept override
         {
             std::uint64_t Library = 0; File.Read(Library);
-            const std::string Asset       = ReadString(File);
-            const std::string FileNameB64 = ReadString(File);
+            const std::string Asset       = xeditor::ReadString(File);
+            const std::string FileNameB64 = xeditor::ReadString(File);
 
             const auto LibraryGuid = ParseLibraryGuid(std::format("{:016X}", Library));
             const auto AssetGuid   = ParseAssetGuid(Asset);
@@ -166,8 +166,8 @@ namespace e29::commands
 
             const std::uint64_t Library = std::holds_alternative<xerr>(LibraryArg) ? 0 : std::strtoull(std::get<std::string>(LibraryArg).c_str(), nullptr, 16);
             File.Write(Library);
-            WriteString(File, std::holds_alternative<xerr>(AssetArg) ? std::string(32, '0') : std::get<std::string>(AssetArg));
-            WriteString(File, std::holds_alternative<xerr>(FileNameArg) ? std::string() : std::get<std::string>(FileNameArg));
+            xeditor::WriteString(File, std::holds_alternative<xerr>(AssetArg) ? std::string(32, '0') : std::get<std::string>(AssetArg));
+            xeditor::WriteString(File, std::holds_alternative<xerr>(FileNameArg) ? std::string() : std::get<std::string>(FileNameArg));
 
             // The file's own exact content, so Undo can restore it byte-for-byte, not just re-create
             // an empty placeholder the way AddScriptSourceFile's own Undo is allowed to.
@@ -185,15 +185,15 @@ namespace e29::commands
                         Content.assign((std::istreambuf_iterator<char>(In)), std::istreambuf_iterator<char>());
                 }
             }
-            WriteString(File, Content);
+            xeditor::WriteString(File, Content);
         }
 
         void Undo(xundo::undo_file& File) noexcept override
         {
             std::uint64_t Library = 0; File.Read(Library);
-            const std::string Asset       = ReadString(File);
-            const std::string FileNameB64 = ReadString(File);
-            const std::string Content     = ReadString(File);
+            const std::string Asset       = xeditor::ReadString(File);
+            const std::string FileNameB64 = xeditor::ReadString(File);
+            const std::string Content     = xeditor::ReadString(File);
 
             const auto LibraryGuid = ParseLibraryGuid(std::format("{:016X}", Library));
             const auto AssetGuid   = ParseAssetGuid(Asset);
@@ -285,7 +285,7 @@ namespace e29::commands
             const auto LibraryGuid = ParseLibraryGuid(std::get<std::string>(LibraryArg));
             const auto AssetGuid   = ParseAssetGuid(std::get<std::string>(AssetArg));
             const auto FileName    = DecodeAssetPath(std::get<std::string>(FileNameArg));
-            const auto Content     = Base64Decode(std::get<std::string>(ContentArg));
+            const auto Content     = xeditor::Base64Decode(std::get<std::string>(ContentArg));
 
             const auto SourceDb = ScriptSourceDbFolder(LibraryGuid, AssetGuid);
             if (SourceDb.empty()) return "SetScriptSourceFileContent: asset not found";
@@ -308,8 +308,8 @@ namespace e29::commands
 
             const std::uint64_t Library = std::holds_alternative<xerr>(LibraryArg) ? 0 : std::strtoull(std::get<std::string>(LibraryArg).c_str(), nullptr, 16);
             File.Write(Library);
-            WriteString(File, std::holds_alternative<xerr>(AssetArg) ? std::string(32, '0') : std::get<std::string>(AssetArg));
-            WriteString(File, std::holds_alternative<xerr>(FileNameArg) ? std::string() : std::get<std::string>(FileNameArg));
+            xeditor::WriteString(File, std::holds_alternative<xerr>(AssetArg) ? std::string(32, '0') : std::get<std::string>(AssetArg));
+            xeditor::WriteString(File, std::holds_alternative<xerr>(FileNameArg) ? std::string() : std::get<std::string>(FileNameArg));
 
             std::string PrevContent;
             if (!std::holds_alternative<xerr>(LibraryArg) && !std::holds_alternative<xerr>(AssetArg) && !std::holds_alternative<xerr>(FileNameArg))
@@ -325,15 +325,15 @@ namespace e29::commands
                         PrevContent.assign((std::istreambuf_iterator<char>(In)), std::istreambuf_iterator<char>());
                 }
             }
-            WriteString(File, PrevContent);
+            xeditor::WriteString(File, PrevContent);
         }
 
         void Undo(xundo::undo_file& File) noexcept override
         {
             std::uint64_t Library = 0; File.Read(Library);
-            const std::string Asset        = ReadString(File);
-            const std::string FileNameB64  = ReadString(File);
-            const std::string PrevContent  = ReadString(File);
+            const std::string Asset        = xeditor::ReadString(File);
+            const std::string FileNameB64  = xeditor::ReadString(File);
+            const std::string PrevContent  = xeditor::ReadString(File);
 
             const auto LibraryGuid = ParseLibraryGuid(std::format("{:016X}", Library));
             const auto AssetGuid   = ParseAssetGuid(Asset);
@@ -401,17 +401,17 @@ namespace e29::commands
 
             const std::uint64_t Library = std::holds_alternative<xerr>(LibraryArg) ? 0 : std::strtoull(std::get<std::string>(LibraryArg).c_str(), nullptr, 16);
             File.Write(Library);
-            WriteString(File, std::holds_alternative<xerr>(AssetArg) ? std::string(32, '0') : std::get<std::string>(AssetArg));
-            WriteString(File, std::holds_alternative<xerr>(OldArg) ? std::string() : std::get<std::string>(OldArg));
-            WriteString(File, std::holds_alternative<xerr>(NewArg) ? std::string() : std::get<std::string>(NewArg));
+            xeditor::WriteString(File, std::holds_alternative<xerr>(AssetArg) ? std::string(32, '0') : std::get<std::string>(AssetArg));
+            xeditor::WriteString(File, std::holds_alternative<xerr>(OldArg) ? std::string() : std::get<std::string>(OldArg));
+            xeditor::WriteString(File, std::holds_alternative<xerr>(NewArg) ? std::string() : std::get<std::string>(NewArg));
         }
 
         void Undo(xundo::undo_file& File) noexcept override
         {
             std::uint64_t Library = 0; File.Read(Library);
-            const std::string Asset  = ReadString(File);
-            const std::string OldB64 = ReadString(File);
-            const std::string NewB64 = ReadString(File);
+            const std::string Asset  = xeditor::ReadString(File);
+            const std::string OldB64 = xeditor::ReadString(File);
+            const std::string NewB64 = xeditor::ReadString(File);
 
             const auto LibraryGuid = ParseLibraryGuid(std::format("{:016X}", Library));
             const auto AssetGuid   = ParseAssetGuid(Asset);
@@ -464,12 +464,12 @@ namespace e29::commands
         void BackupCurrenState(xundo::undo_file& File) noexcept override
         {
             auto ModuleArg = m_Parser.getOptionArgAs<std::string>(m_hModule, 0);
-            WriteString(File, std::holds_alternative<xerr>(ModuleArg) ? std::string(32, '0') : std::get<std::string>(ModuleArg));
+            xeditor::WriteString(File, std::holds_alternative<xerr>(ModuleArg) ? std::string(32, '0') : std::get<std::string>(ModuleArg));
         }
 
         void Undo(xundo::undo_file& File) noexcept override
         {
-            const auto ModuleGuid = ParseAssetGuid(ReadString(File));
+            const auto ModuleGuid = ParseAssetGuid(xeditor::ReadString(File));
             auto& Refs = g_ScriptConfig.m_ModuleRefs;
             if (auto It = std::find(Refs.begin(), Refs.end(), ModuleGuid); It != Refs.end())
                 Refs.erase(It);
@@ -603,13 +603,13 @@ namespace e29::commands
                 if (auto It = std::find(Refs.begin(), Refs.end(), ModuleGuid); It != Refs.end())
                     Index = static_cast<std::uint32_t>(std::distance(Refs.begin(), It));
             }
-            WriteString(File, std::holds_alternative<xerr>(ModuleArg) ? std::string(32, '0') : std::get<std::string>(ModuleArg));
+            xeditor::WriteString(File, std::holds_alternative<xerr>(ModuleArg) ? std::string(32, '0') : std::get<std::string>(ModuleArg));
             File.Write(Index);
         }
 
         void Undo(xundo::undo_file& File) noexcept override
         {
-            const auto ModuleGuid = ParseAssetGuid(ReadString(File));
+            const auto ModuleGuid = ParseAssetGuid(xeditor::ReadString(File));
             std::uint32_t Index = 0; File.Read(Index);
 
             auto& Refs = g_ScriptConfig.m_ModuleRefs;

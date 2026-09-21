@@ -11,7 +11,7 @@
 // and only caller is RebuildWorld, right below it. Meant to be included via the umbrella
 // (E29_GamePlugin.h) only, after E29_GamePluginLog.h/E29_GamePluginBuild.h/E29_GamePluginLoad.h.
 
-// e29::commands::Run (StopPlaySession's own "keep property tweaks" pass, right below) - included
+// xeditor::Run (StopPlaySession's own "keep property tweaks" pass, right below) - included
 // directly rather than relying on the .cpp's own later include of it, same "a file that names a
 // symbol should include what declares it" reasoning every other kit/plugin file here already follows.
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
@@ -474,7 +474,7 @@ namespace e29
         pGameMgr->m_PrefabMgr.m_ProjectPath = ProjectPath;
         pGameMgr->m_SystemMgr.m_ProjectPath = ProjectPath;
         if (auto Err = pGameMgr->m_SystemMgr.Load(); Err)
-            Debugger(std::format("Failed to load System Registry order: {}", Err.getMessage()));
+            xeditor::NotifyError(std::format("Failed to load System Registry order: {}", Err.getMessage()));
 
 
         g_pGameMgr = pGameMgr.get();
@@ -587,7 +587,7 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
                     auto* pInfo = g_pGameMgr->m_ComponentMgr.findComponentTypeInfo(Dep.m_Guid);
                     if (!pInfo || !Bits.getBit(pInfo->m_BitID)) continue;
 
-                    commands::Run(*pDocUndo, std::format("RemoveComponent -Scene {} -Id {} -Component {:016X}"
+                    xeditor::Run(*pDocUndo, std::format("RemoveComponent -Scene {} -Id {} -Component {:016X}"
                         , commands::FormatSceneGuid(SceneGuid)
                         , commands::FormatEntityId(Id)
                         , Dep.m_Guid.m_Value
@@ -898,7 +898,7 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
         Undo.TruncateRedoBranch();
         if (const auto Surviving = FilterSurvivingTargets(*pGameMgr, KeepCommands); !Surviving.empty())
         {
-            [[maybe_unused]] const bool bAllApplied = e29::commands::RunGroup(Undo, "Keep Play Mode Changes", Surviving);
+            [[maybe_unused]] const bool bAllApplied = xeditor::RunGroup(Undo, "Keep Play Mode Changes", Surviving);
         }
 
         State.m_PlayState = editor_state::play_state::Stopped;

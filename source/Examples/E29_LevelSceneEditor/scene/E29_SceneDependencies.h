@@ -258,7 +258,7 @@ namespace e29
 
         if (auto Err = GameMgr.m_SceneMgr.RequestLoad(Guid); Err)
         {
-            Debugger(std::format("Failed to load Scene: {}", Err.getMessage()));
+            xeditor::NotifyError(std::format("Failed to load Scene: {}", Err.getMessage()));
             return;
         }
         State.m_OpenScenes.push_back(Guid);

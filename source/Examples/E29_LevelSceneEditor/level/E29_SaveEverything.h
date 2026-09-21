@@ -12,14 +12,14 @@ namespace e29
         if (!State.m_CurrentLevel.empty() && GameMgr.m_LevelMgr.Find(State.m_CurrentLevel))
         {
             if (auto Err = GameMgr.m_LevelMgr.Save(State.m_CurrentLevel); Err)
-                Debugger(std::format("Failed to save Level: {}", Err.getMessage()));
+                xeditor::NotifyError(std::format("Failed to save Level: {}", Err.getMessage()));
         }
 
         for (auto& SceneGuid : State.m_OpenScenes)
         {
-            // Plain console log, NOT Debugger() - this is routine save progress (every normal save
+            // Plain console log, NOT xeditor::NotifyError() - this is routine save progress (every normal save
             // has SOME pending changes, that's the whole point of saving), not a failure. Routing it
-            // through Debugger() before this exact distinction existed meant an ordinary Save popped
+            // through xeditor::NotifyError() before this exact distinction existed meant an ordinary Save popped
             // an "Error" modal every time.
             if (auto* pScene = GameMgr.m_SceneMgr.Find(SceneGuid))
             {
@@ -27,7 +27,7 @@ namespace e29
                 std::fflush(stdout);
             }
             if (auto Err = GameMgr.m_SceneMgr.SaveScene(SceneGuid); Err)
-                Debugger(std::format("Failed to save Scene: {}", Err.getMessage()));
+                xeditor::NotifyError(std::format("Failed to save Scene: {}", Err.getMessage()));
         }
 
         xproperty::settings::context Context;

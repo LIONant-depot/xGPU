@@ -639,7 +639,7 @@ namespace e29
 
             case 5:
 
-                e29::DrawCommandConsolePanel(E29History, ConsoleLog, /*bEmbedded*/ true);
+                e29::DrawCommandConsolePanel(E29History, EditorHost.m_ConsoleLog, /*bEmbedded*/ true);
 
                 break;
 

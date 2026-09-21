@@ -367,11 +367,6 @@ namespace e29
 
 
 
-        std::vector<e29::console_log_entry> ConsoleLog;
-
-
-
-
         e29::command_console_pipe_bridge    ConsolePipeBridge;
 
 

@@ -59,7 +59,7 @@ namespace e29::commands
         if (Paths.empty()) return;
         std::wstring Joined;
         for (auto& P : Paths) { if (!Joined.empty()) Joined += L'\n'; Joined += P; }
-        RunQuery(Undo, std::format("SourceControlRevert -Library {} -Paths {}", FormatLibraryGuid(LibraryGuid), EncodeAssetPath(Joined)));
+        xeditor::RunQuery(Undo, std::format("SourceControlRevert -Library {} -Paths {}", FormatLibraryGuid(LibraryGuid), EncodeAssetPath(Joined)));
     }
 
     // Convenience overload for "the resource's own guid, library already known" - resolves the
@@ -102,7 +102,7 @@ namespace e29::commands
     // -Path (singular) argument stays for simple single-file scripting/CLI use.
     inline std::vector<std::wstring> DecodeAssetPathList(const std::string& EncodedJoined) noexcept
     {
-        const auto Joined = Base64Decode(EncodedJoined);
+        const auto Joined = xeditor::Base64Decode(EncodedJoined);
         std::vector<std::wstring> Paths;
         std::size_t Start = 0;
         while (Start <= Joined.size())
@@ -576,7 +576,7 @@ namespace e29::commands
             auto* pWorkspace = e29::source_control::GetOrCreateWorkspace(RootPath);
             if (!pWorkspace) return "SourceControlCommit: not a git working tree";
 
-            const auto Message = Base64Decode(std::get<std::string>(MessageArg));
+            const auto Message = xeditor::Base64Decode(std::get<std::string>(MessageArg));
 
             sc::SubmitRequest Request;
             Request.paths = ResolveRequestPaths(m_Parser, m_hPath, m_hPaths);

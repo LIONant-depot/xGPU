@@ -162,7 +162,7 @@ namespace e29
             if (bChanged && !State.isPlaying())
             {
                 if (auto Err = GameMgr.m_SystemMgr.Save(); Err)
-                    Debugger(std::format("Failed to save System Registry order: {}", Err.getMessage()));
+                    xeditor::NotifyError(std::format("Failed to save System Registry order: {}", Err.getMessage()));
             }
         }
         ImGui::End();

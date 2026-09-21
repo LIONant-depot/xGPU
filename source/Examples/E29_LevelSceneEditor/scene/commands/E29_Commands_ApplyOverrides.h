@@ -41,8 +41,8 @@ namespace e29::commands
             File.Write(static_cast<std::uint32_t>(C.m_PropertyOverrides.size()));
             for (auto& O : C.m_PropertyOverrides)
             {
-                WriteString(File, O.m_PropertyName);
-                WriteString(File, O.m_PropertyValueAsString);
+                xeditor::WriteString(File, O.m_PropertyName);
+                xeditor::WriteString(File, O.m_PropertyValueAsString);
             }
         }
         File.Write(static_cast<std::uint32_t>(PI.m_HierarchyDiffs.size()));
@@ -68,8 +68,8 @@ namespace e29::commands
             for (std::uint32_t j = 0; j < OverrideCount; ++j)
             {
                 xecs::editor::prefab_property_override Prop{};
-                Prop.m_PropertyName          = ReadString(File);
-                Prop.m_PropertyValueAsString = ReadString(File);
+                Prop.m_PropertyName          = xeditor::ReadString(File);
+                Prop.m_PropertyValueAsString = xeditor::ReadString(File);
                 Comp.m_PropertyOverrides.push_back(std::move(Prop));
             }
             PI.m_lComponents.push_back(std::move(Comp));
@@ -149,9 +149,9 @@ namespace e29::commands
         {
             File.Write(R.m_ComponentTypeGuid);
             WriteMemberPath(File, R.m_MemberPath);
-            WriteString(File, R.m_PropertyName);
+            xeditor::WriteString(File, R.m_PropertyName);
             File.Write(R.m_TypeGuid);
-            WriteString(File, R.m_Before);
+            xeditor::WriteString(File, R.m_Before);
         }
     }
 
@@ -166,9 +166,9 @@ namespace e29::commands
             {
                 std::uint64_t Comp = 0; File.Read(Comp);
                 (void)ReadMemberPath(File);
-                (void)ReadString(File);
+                (void)xeditor::ReadString(File);
                 std::uint32_t TypeGuid = 0; File.Read(TypeGuid);
-                (void)ReadString(File);
+                (void)xeditor::ReadString(File);
             }
             return;
         }
@@ -180,9 +180,9 @@ namespace e29::commands
             {
                 std::uint64_t Comp = 0; File.Read(Comp);
                 (void)ReadMemberPath(File);
-                (void)ReadString(File);
+                (void)xeditor::ReadString(File);
                 std::uint32_t TypeGuid = 0; File.Read(TypeGuid);
-                (void)ReadString(File);
+                (void)xeditor::ReadString(File);
             }
             return;
         }
@@ -191,9 +191,9 @@ namespace e29::commands
         {
             std::uint64_t CompGuid = 0; File.Read(CompGuid);
             auto MemberPath = ReadMemberPath(File);
-            auto PropertyName = ReadString(File);
+            auto PropertyName = xeditor::ReadString(File);
             std::uint32_t TypeGuid = 0; File.Read(TypeGuid);
-            auto Before = ReadString(File);
+            auto Before = xeditor::ReadString(File);
 
             auto* pOwnerInfo = xecs::component::mgr::findComponentTypeInfo(xecs::component::type::guid{ CompGuid });
             if (pOwnerInfo == nullptr || pOwnerInfo->m_pPropertyTable == nullptr) continue;
@@ -325,7 +325,7 @@ namespace e29::commands
             PI.m_lComponents    = std::move(TempPI.m_lComponents);
             PI.m_HierarchyDiffs = std::move(TempPI.m_HierarchyDiffs);
             if (auto Err = e29::g_pGameMgr->m_PrefabMgr.Save(PI.m_PrefabInstance); Err)
-                e29::Debugger(std::format("ApplyOverrides Undo: Prefab Save failed: {}", Err.getMessage()));
+                xeditor::NotifyError(std::format("ApplyOverrides Undo: Prefab Save failed: {}", Err.getMessage()));
 
             e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, static_cast<xecs::scene::permanent_id>(Id));
             if (e29::g_pState) e29::g_pState->m_bEntityInspectorDirty = true;

@@ -103,7 +103,7 @@ namespace e29
                         {
                             if (ImGui::Button("Apply"))
                             {
-                                e29::commands::Run(e29::LevelDocUndo(), std::format("ApplyOverrides -Scene {} -Id {}", SceneHex, RootHex));
+                                xeditor::Run(e29::LevelDocUndo(), std::format("ApplyOverrides -Scene {} -Id {}", SceneHex, RootHex));
                             }
                             // Tooltip (only show when hovering) — same format as Play transport buttons
                             if (ImGui::IsItemHovered())
@@ -119,7 +119,7 @@ namespace e29
                             ImGui::SameLine();
                             if (ImGui::Button("Revert Hierarchy"))
                             {
-                                e29::commands::Run(e29::LevelDocUndo(), std::format("RevertHierarchyOverrides -Scene {} -Id {}", SceneHex, RootHex));
+                                xeditor::Run(e29::LevelDocUndo(), std::format("RevertHierarchyOverrides -Scene {} -Id {}", SceneHex, RootHex));
                             }
                             if (ImGui::IsItemHovered())
                             {
@@ -136,7 +136,7 @@ namespace e29
                             ImGui::SameLine();
                             if (ImGui::Button("Revert All"))
                             {
-                                e29::commands::Run(e29::LevelDocUndo(), std::format("RevertAllOverrides -Scene {} -Id {}", SceneHex, RootHex));
+                                xeditor::Run(e29::LevelDocUndo(), std::format("RevertAllOverrides -Scene {} -Id {}", SceneHex, RootHex));
                             }
                             if (ImGui::IsItemHovered())
                             {
@@ -289,7 +289,7 @@ namespace e29
                     // memory, phase 3 - scene/commands/E29_Commands_ComponentEdit.h) - remove_component_cmd
                     // snapshots the component's current property values before removing it, so Undo
                     // can restore it exactly, not just re-add it with default values.
-                    e29::commands::Run(e29::LevelDocUndo(), std::format("RemoveComponent -Scene {} -Id {} -Component {:016X}"
+                    xeditor::Run(e29::LevelDocUndo(), std::format("RemoveComponent -Scene {} -Id {} -Component {:016X}"
                         , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
                         , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                         , Bridge.m_pPendingRemoveComponent->m_Guid.m_Value

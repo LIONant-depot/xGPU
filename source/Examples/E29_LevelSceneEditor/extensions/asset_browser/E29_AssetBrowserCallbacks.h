@@ -25,25 +25,25 @@ namespace e29
 
         Browser.m_OnRenameAsset = [&Undo](e10::library::guid LibraryGuid, xresource::full_guid Asset, std::string_view NewName)
         {
-            e29::commands::Run(Undo, std::format("RenameAsset -Library {} -Asset {} -Name {}"
-                , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::FormatAssetGuid(Asset), e29::commands::Base64Encode(std::string(NewName))));
+            xeditor::Run(Undo, std::format("RenameAsset -Library {} -Asset {} -Name {}"
+                , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::FormatAssetGuid(Asset), xeditor::Base64Encode(std::string(NewName))));
         };
 
         Browser.m_OnMoveAsset = [&Undo](e10::library::guid LibraryGuid, xresource::full_guid Asset, xresource::full_guid OldParent, xresource::full_guid NewParent)
         {
-            e29::commands::Run(Undo, std::format("MoveAsset -Library {} -Asset {} -OldParent {} -NewParent {}"
+            xeditor::Run(Undo, std::format("MoveAsset -Library {} -Asset {} -OldParent {} -NewParent {}"
                 , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::FormatAssetGuid(Asset), e29::commands::FormatAssetGuid(OldParent), e29::commands::FormatAssetGuid(NewParent)));
         };
 
         Browser.m_OnDeleteAsset = [&Undo](e10::library::guid LibraryGuid, xresource::full_guid Asset)
         {
-            e29::commands::Run(Undo, std::format("DeleteAsset -Library {} -Asset {}"
+            xeditor::Run(Undo, std::format("DeleteAsset -Library {} -Asset {}"
                 , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::FormatAssetGuid(Asset)));
         };
 
         Browser.m_OnRestoreAsset = [&Undo](e10::library::guid LibraryGuid, xresource::full_guid Asset, xresource::full_guid NewParent)
         {
-            e29::commands::Run(Undo, std::format("RestoreAsset -Library {} -Asset {} -Parent {}"
+            xeditor::Run(Undo, std::format("RestoreAsset -Library {} -Asset {} -Parent {}"
                 , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::FormatAssetGuid(Asset), e29::commands::FormatAssetGuid(NewParent)));
         };
 
@@ -58,9 +58,9 @@ namespace e29
             NewInstance.GenerateGUID();
             const xresource::full_guid NewAsset{ .m_Instance = NewInstance, .m_Type = Type };
 
-            e29::commands::Run(Undo, std::format("CreateAsset -Library {} -Type {:016X} -Asset {} -Parent {} -Name {}"
+            xeditor::Run(Undo, std::format("CreateAsset -Library {} -Type {:016X} -Asset {} -Parent {} -Name {}"
                 , e29::commands::FormatLibraryGuid(LibraryGuid), Type.m_Value, e29::commands::FormatAssetGuid(NewAsset)
-                , e29::commands::FormatAssetGuid(Parent), e29::commands::Base64Encode(std::string(Name))));
+                , e29::commands::FormatAssetGuid(Parent), xeditor::Base64Encode(std::string(Name))));
             return NewAsset;
         };
 
@@ -73,13 +73,13 @@ namespace e29
         // that is by definition already loaded and rendering in one of these same trees).
         Browser.m_OnAddLibraryDependency = [&Undo](e10::library::guid Owner, e10::library::guid Parent, const std::wstring& ParentPath)
         {
-            e29::commands::Run(e29::LevelDocUndo(), std::format("AddLibraryDependency -Library {} -Parent {} -ParentPath {}"
-                , e29::commands::FormatLibraryGuid(Owner), e29::commands::FormatLibraryGuid(Parent), e29::commands::Base64Encode(xstrtool::To(ParentPath))));
+            xeditor::Run(e29::LevelDocUndo(), std::format("AddLibraryDependency -Library {} -Parent {} -ParentPath {}"
+                , e29::commands::FormatLibraryGuid(Owner), e29::commands::FormatLibraryGuid(Parent), xeditor::Base64Encode(xstrtool::To(ParentPath))));
         };
 
         Browser.m_OnRemoveLibraryDependency = [&Undo](e10::library::guid Owner, e10::library::guid Parent)
         {
-            e29::commands::Run(e29::LevelDocUndo(), std::format("RemoveLibraryDependency -Library {} -Parent {}"
+            xeditor::Run(e29::LevelDocUndo(), std::format("RemoveLibraryDependency -Library {} -Parent {}"
                 , e29::commands::FormatLibraryGuid(Owner), e29::commands::FormatLibraryGuid(Parent)));
         };
 
@@ -107,7 +107,7 @@ namespace e29
             for (auto& [OldRelPath, NewRelPath] : Items)
                 Cmds.push_back(std::format("MoveAssetFile -Library {} -OldPath {} -NewPath {} -Force 1"
                     , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::EncodeAssetPath(OldRelPath), e29::commands::EncodeAssetPath(NewRelPath)));
-            return e29::commands::RunGroup(Undo, "MoveAssetFile (multiple)", Cmds);
+            return xeditor::RunGroup(Undo, "MoveAssetFile (multiple)", Cmds);
         };
 
         // -TrashPath must be pre-minted by the CALLER (ComputeTrashPath is a pure query, not something
@@ -123,18 +123,18 @@ namespace e29
                 Cmds.push_back(std::format("DeleteAssetFileToTrash -Library {} -Path {} -TrashPath {} -Force 1"
                     , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::EncodeAssetPath(RelPath), e29::commands::EncodeAssetPath(TrashPath)));
             }
-            return e29::commands::RunGroup(Undo, "DeleteAssetFileToTrash (multiple)", Cmds);
+            return xeditor::RunGroup(Undo, "DeleteAssetFileToTrash (multiple)", Cmds);
         };
 
         Browser.m_OnRestoreAssetFileFromTrash = [&Undo](e10::library::guid LibraryGuid, const std::wstring& TrashRelPath, const std::wstring& OriginalRelPath)
         {
-            e29::commands::Run(Undo, std::format("RestoreAssetFileFromTrash -Library {} -TrashPath {} -OriginalPath {}"
+            xeditor::Run(Undo, std::format("RestoreAssetFileFromTrash -Library {} -TrashPath {} -OriginalPath {}"
                 , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::EncodeAssetPath(TrashRelPath), e29::commands::EncodeAssetPath(OriginalRelPath)));
         };
 
         Browser.m_OnCopyAssetFile = [&Undo](e10::library::guid LibraryGuid, const std::wstring& SourceRelPath, const std::wstring& NewRelPath)
         {
-            e29::commands::Run(Undo, std::format("CopyAssetFile -Library {} -SourcePath {} -NewPath {}"
+            xeditor::Run(Undo, std::format("CopyAssetFile -Library {} -SourcePath {} -NewPath {}"
                 , e29::commands::FormatLibraryGuid(LibraryGuid), e29::commands::EncodeAssetPath(SourceRelPath), e29::commands::EncodeAssetPath(NewRelPath)));
         };
     }

@@ -14,7 +14,7 @@
 // Mostly QUERY commands (xundo::query_command_base): OpenLevel/CloseScene/List* are workspace or
 // read-only discovery, same category as Play/Stop - not undo-routed. AddScene/RemoveScene below ARE
 // undoable edits of Level.m_Scenes membership (no LevelMgr.Save; Add does not OpenScene) - same
-// commands::Run pattern as ApplyOverrides / CreateEntity.
+// xeditor::Run pattern as ApplyOverrides / CreateEntity.
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
 
 namespace e29
@@ -36,7 +36,7 @@ namespace e29::commands
     // (direct user request from earlier in this project: "Scenes should always be loaded if they are
     // part of the level"). Reports success/failure by checking State.m_CurrentLevel afterward rather
     // than trusting e29::OpenLevel's own return type (void - it only reports failure via a blocking
-    // Debugger() modal popup, the same existing failure-UX every other command's own error path
+    // xeditor::NotifyError() modal popup, the same existing failure-UX every other command's own error path
     // already inherits, not something new introduced here).
     //================================================================================================
     struct open_level_cmd : xundo::query_command_base

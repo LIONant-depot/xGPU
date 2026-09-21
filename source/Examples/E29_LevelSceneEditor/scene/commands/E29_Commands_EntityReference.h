@@ -107,7 +107,7 @@ namespace e29::commands
             const auto SceneGuid  = ParseSceneGuid(std::get<std::string>(SceneArg));
             const auto Id         = ParseEntityId(std::get<std::string>(IdArg));
             const auto CompGuid   = std::strtoull(std::get<std::string>(CompArg).c_str(), nullptr, 16);
-            const auto Path       = Base64Decode(std::get<std::string>(PathArg));
+            const auto Path       = xeditor::Base64Decode(std::get<std::string>(PathArg));
             const auto AfterScene = ParseSceneGuid(std::get<std::string>(AfterSceneArg));
             const auto AfterId    = ParseEntityId(std::get<std::string>(AfterIdArg));
 
@@ -142,7 +142,7 @@ namespace e29::commands
             const std::uint64_t Scene     = std::holds_alternative<xerr>(SceneArg) ? 0 : std::strtoull(std::get<std::string>(SceneArg).c_str(), nullptr, 16);
             const std::uint32_t Id        = std::holds_alternative<xerr>(IdArg) ? 0 : ParseEntityId(std::get<std::string>(IdArg));
             const std::uint64_t Component = std::holds_alternative<xerr>(CompArg) ? 0 : std::strtoull(std::get<std::string>(CompArg).c_str(), nullptr, 16);
-            const std::string   Path      = std::holds_alternative<xerr>(PathArg) ? std::string{} : Base64Decode(std::get<std::string>(PathArg));
+            const std::string   Path      = std::holds_alternative<xerr>(PathArg) ? std::string{} : xeditor::Base64Decode(std::get<std::string>(PathArg));
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
 
@@ -180,7 +180,7 @@ namespace e29::commands
             File.Write(Scene);
             File.Write(Id);
             File.Write(Component);
-            WriteString(File, Path);
+            xeditor::WriteString(File, Path);
             File.Write(BeforeScene);
             File.Write(BeforeId);
             File.Write(bHadOverride);
@@ -191,7 +191,7 @@ namespace e29::commands
             std::uint64_t Scene = 0;       File.Read(Scene);
             std::uint32_t Id = 0;          File.Read(Id);
             std::uint64_t Component = 0;   File.Read(Component);
-            const std::string Path = ReadString(File);
+            const std::string Path = xeditor::ReadString(File);
             std::uint64_t BeforeScene = 0; File.Read(BeforeScene);
             std::uint32_t BeforeId = 0;    File.Read(BeforeId);
             bool bHadOverride = false;     File.Read(bHadOverride);

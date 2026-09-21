@@ -69,7 +69,7 @@ namespace e29::commands
         GameMgr.m_PrefabMgr.CreatePrefabFromEntity(Root, PrefabGuid);
         if (auto Err = GameMgr.m_PrefabMgr.Save(PrefabGuid); Err)
         {
-            e29::Debugger(std::format("Failed to save new Prefab: {}", Err.getMessage()));
+            xeditor::NotifyError(std::format("Failed to save new Prefab: {}", Err.getMessage()));
             return {};
         }
 
@@ -143,17 +143,17 @@ namespace e29::commands
     // MoveToTrash alone is in-memory until a library Save - and its return value used to be ignored
     // here, so a silent miss (bad guid/library) left the Prefab visible in Resources forever after
     // Ctrl+Z. Persist the trashed info.txt immediately so the hide sticks across any reload, and
-    // surface failures through Debugger.
+    // surface failures through xeditor::NotifyError.
     inline void TrashCreatedPrefabAsset(e10::library::guid LibraryGuid, xresource::full_guid AssetGuid) noexcept
     {
         if (AssetGuid.empty())
         {
-            e29::Debugger("MakePrefab Undo: refusing to trash an empty asset guid");
+            xeditor::NotifyError("MakePrefab Undo: refusing to trash an empty asset guid");
             return;
         }
         if (auto Err = e10::g_LibMgr.MoveToTrash(LibraryGuid, AssetGuid); !Err.empty())
         {
-            e29::Debugger(std::format("MakePrefab Undo: MoveToTrash failed: {}", Err));
+            xeditor::NotifyError(std::format("MakePrefab Undo: MoveToTrash failed: {}", Err));
             return;
         }
 
@@ -163,13 +163,13 @@ namespace e29::commands
             if (Node.m_Path.empty()) return;
             if (auto SerErr = Node.m_Info.Serialize(false, Node.m_Path.c_str(), Context); SerErr)
             {
-                e29::Debugger(std::format("MakePrefab Undo: failed to persist trashed info.txt: {}", SerErr.getMessage()));
+                xeditor::NotifyError(std::format("MakePrefab Undo: failed to persist trashed info.txt: {}", SerErr.getMessage()));
                 return;
             }
             Node.m_InfoChangeCount = 0;
         });
         if (!bFound)
-            e29::Debugger("MakePrefab Undo: MoveToTrash succeeded but getNodeInfo missed the asset");
+            xeditor::NotifyError("MakePrefab Undo: MoveToTrash succeeded but getNodeInfo missed the asset");
     }
 
     //================================================================================================
@@ -236,7 +236,7 @@ namespace e29::commands
             File.Write(Scene);
             File.Write(Id);
             File.Write(Library);
-            WriteString(File, std::holds_alternative<xerr>(AssetArg) ? std::string(32, '0') : std::get<std::string>(AssetArg));
+            xeditor::WriteString(File, std::holds_alternative<xerr>(AssetArg) ? std::string(32, '0') : std::get<std::string>(AssetArg));
 
             // BEFORE Redo runs anything - captures the ORIGINAL, pre-conversion group exactly, same
             // machinery delete_entity_cmd's own Undo relies on (E29_Commands_EntityLifecycle.h).
@@ -248,7 +248,7 @@ namespace e29::commands
             std::uint64_t Scene = 0;   File.Read(Scene);
             std::uint32_t Id = 0;      File.Read(Id);
             std::uint64_t Library = 0; File.Read(Library);
-            const std::string Asset = ReadString(File);
+            const std::string Asset = xeditor::ReadString(File);
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
             const auto RootId    = static_cast<xecs::scene::permanent_id>(Id);
@@ -352,7 +352,7 @@ namespace e29::commands
             File.Write(Scene);
             File.Write(Id);
             File.Write(Library);
-            WriteString(File, std::holds_alternative<xerr>(AssetArg) ? std::string(32, '0') : std::get<std::string>(AssetArg));
+            xeditor::WriteString(File, std::holds_alternative<xerr>(AssetArg) ? std::string(32, '0') : std::get<std::string>(AssetArg));
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
             xecs::editor::prefab_instance* pOldPI = nullptr;
@@ -382,8 +382,8 @@ namespace e29::commands
                 File.Write(static_cast<std::uint32_t>(C.m_PropertyOverrides.size()));
                 for (auto& O : C.m_PropertyOverrides)
                 {
-                    WriteString(File, O.m_PropertyName);
-                    WriteString(File, O.m_PropertyValueAsString);
+                    xeditor::WriteString(File, O.m_PropertyName);
+                    xeditor::WriteString(File, O.m_PropertyValueAsString);
                 }
             }
 
@@ -408,7 +408,7 @@ namespace e29::commands
             std::uint64_t Scene = 0;   File.Read(Scene);
             std::uint32_t Id = 0;      File.Read(Id);
             std::uint64_t Library = 0; File.Read(Library);
-            const std::string Asset = ReadString(File);
+            const std::string Asset = xeditor::ReadString(File);
 
             bool bHadPI = false; File.Read(bHadPI);
 
@@ -434,8 +434,8 @@ namespace e29::commands
                     C.m_PropertyOverrides.resize(OverrideCount);
                     for (auto& O : C.m_PropertyOverrides)
                     {
-                        O.m_PropertyName          = ReadString(File);
-                        O.m_PropertyValueAsString = ReadString(File);
+                        O.m_PropertyName          = xeditor::ReadString(File);
+                        O.m_PropertyValueAsString = xeditor::ReadString(File);
                     }
                 }
 
@@ -485,7 +485,7 @@ namespace e29::commands
 }
 
 // Drop-path entry used by entity_to_prefab_drop via g_MakePrefabDropHandler. Lives here (not in
-// PrefabAuthoring.h) so it can call commands::Run / Format* without an include cycle. Preserves the
+// PrefabAuthoring.h) so it can call xeditor::Run / Format* without an include cycle. Preserves the
 // existing Variant-vs-MakePrefab decision and still runs DetermineGroupRoot for multi-select BEFORE
 // MakePrefab (that synthesis step remains a known separate undo gap - see this file's top comment).
 namespace e29
@@ -520,7 +520,7 @@ namespace e29
                     , e29::commands::FormatLibraryGuid(LibraryGUID)
                     , e29::commands::FormatAssetGuid(NewAsset)
                     , e29::commands::FormatAssetGuid(ParentGUID));
-                if (!e29::commands::RunGroup(*pDocUndo, "MakePrefabVariant", { Cmd })) return {};
+                if (!xeditor::RunGroup(*pDocUndo, "MakePrefabVariant", { Cmd })) return {};
                 return NewAsset;
             }
         }
@@ -538,7 +538,7 @@ namespace e29
             , e29::commands::FormatLibraryGuid(LibraryGUID)
             , e29::commands::FormatAssetGuid(NewAsset)
             , e29::commands::FormatAssetGuid(ParentGUID));
-        if (!e29::commands::RunGroup(*pDocUndo, "MakePrefab", { Cmd })) return {};
+        if (!xeditor::RunGroup(*pDocUndo, "MakePrefab", { Cmd })) return {};
         return NewAsset;
     }
 }

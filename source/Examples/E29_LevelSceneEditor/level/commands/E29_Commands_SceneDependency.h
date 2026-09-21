@@ -199,7 +199,7 @@ namespace e29::commands
             {
                 File.Write(static_cast<std::uint32_t>(Hit.m_HolderId));
                 File.Write(Hit.m_ComponentGuid);
-                WriteString(File, Hit.m_Path);
+                xeditor::WriteString(File, Hit.m_Path);
                 File.Write(Hit.m_BeforeScene.m_Instance.m_Value);
                 File.Write(static_cast<std::uint32_t>(Hit.m_BeforeId));
             }
@@ -220,7 +220,7 @@ namespace e29::commands
                 hit_rec H{};
                 File.Read(H.HolderId);
                 File.Read(H.Comp);
-                H.Path = ReadString(File);
+                H.Path = xeditor::ReadString(File);
                 File.Read(H.BeforeScene);
                 File.Read(H.BeforeId);
                 Hits.push_back(std::move(H));
@@ -261,7 +261,7 @@ namespace e29::commands
     };
 }
 
-// UI: when Remove Dependency would fail due to live refs, ask Yes|No|Cancel instead of only Debugger().
+// UI: when Remove Dependency would fail due to live refs, ask Yes|No|Cancel instead of only xeditor::NotifyError().
 // Yes -> RemoveSceneDependency -ClearRefs 1. No / Cancel -> leave the graph alone.
 namespace e29
 {
@@ -279,7 +279,7 @@ namespace e29
     {
         if (!g_pGameMgr)
         {
-            commands::Run(Undo, std::format("RemoveSceneDependency -Scene {} -Parent {}"
+            xeditor::Run(Undo, std::format("RemoveSceneDependency -Scene {} -Parent {}"
                 , commands::FormatSceneGuid(Owner), commands::FormatSceneGuid(Parent)));
             return;
         }
@@ -296,7 +296,7 @@ namespace e29
         // Nothing to clear -> no dialog. Plain remove (also covers "WhyCannot was wrong / ExternalRef-only").
         if (Hits.empty())
         {
-            commands::Run(Undo, std::format("RemoveSceneDependency -Scene {} -Parent {}"
+            xeditor::Run(Undo, std::format("RemoveSceneDependency -Scene {} -Parent {}"
                 , commands::FormatSceneGuid(Owner), commands::FormatSceneGuid(Parent)));
             return;
         }
@@ -327,7 +327,7 @@ namespace e29
             const float W = 120.0f;
             if (ImGui::Button("Yes", ImVec2(W, 0.0f)))
             {
-                commands::Run(Undo, std::format("RemoveSceneDependency -Scene {} -Parent {} -ClearRefs 1"
+                xeditor::Run(Undo, std::format("RemoveSceneDependency -Scene {} -Parent {} -ClearRefs 1"
                     , commands::FormatSceneGuid(g_PendingRemoveDependencyConfirm.m_Owner)
                     , commands::FormatSceneGuid(g_PendingRemoveDependencyConfirm.m_Parent)));
                 ImGui::CloseCurrentPopup();

@@ -216,9 +216,9 @@ namespace e29::commands
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
             const auto Id         = ParseEntityId(std::get<std::string>(IdArg));
             const auto CompGuid   = std::strtoull(std::get<std::string>(CompArg).c_str(), nullptr, 16);
-            const auto Path       = Base64Decode(std::get<std::string>(PathArg));
+            const auto Path       = xeditor::Base64Decode(std::get<std::string>(PathArg));
             const auto TypeGuid   = static_cast<std::uint32_t>(std::strtoul(std::get<std::string>(TypeArg).c_str(), nullptr, 16));
-            const auto After      = Base64Decode(std::get<std::string>(AfterArg));
+            const auto After      = xeditor::Base64Decode(std::get<std::string>(AfterArg));
 
             const auto Target = ResolvePropertyTarget(SceneGuid, Id, CompGuid);
             if (!Target.m_pInfo) return "SetProperty: target not found";
@@ -241,8 +241,8 @@ namespace e29::commands
             const std::uint32_t Id        = std::holds_alternative<xerr>(IdArg) ? 0 : ParseEntityId(std::get<std::string>(IdArg));
             const std::uint64_t Component = std::holds_alternative<xerr>(CompArg) ? 0 : std::strtoull(std::get<std::string>(CompArg).c_str(), nullptr, 16);
             const std::uint32_t TypeGuid  = std::holds_alternative<xerr>(TypeArg) ? 0 : static_cast<std::uint32_t>(std::strtoul(std::get<std::string>(TypeArg).c_str(), nullptr, 16));
-            const std::string   Path      = std::holds_alternative<xerr>(PathArg) ? std::string{} : Base64Decode(std::get<std::string>(PathArg));
-            const std::string   Before    = std::holds_alternative<xerr>(BeforeArg) ? std::string{} : Base64Decode(std::get<std::string>(BeforeArg));
+            const std::string   Path      = std::holds_alternative<xerr>(PathArg) ? std::string{} : xeditor::Base64Decode(std::get<std::string>(PathArg));
+            const std::string   Before    = std::holds_alternative<xerr>(BeforeArg) ? std::string{} : xeditor::Base64Decode(std::get<std::string>(BeforeArg));
 
             // Resolve the target and record whether an override already exists for THIS Path BEFORE
             // Redo() runs (xundo::system::Execute always calls BackupCurrenState before Redo - see
@@ -259,8 +259,8 @@ namespace e29::commands
             File.Write(Id);
             File.Write(Component);
             File.Write(TypeGuid);
-            WriteString(File, Path);
-            WriteString(File, Before);
+            xeditor::WriteString(File, Path);
+            xeditor::WriteString(File, Before);
             File.Write(bHadOverride);
         }
 
@@ -270,8 +270,8 @@ namespace e29::commands
             std::uint32_t Id = 0;        File.Read(Id);
             std::uint64_t Component = 0; File.Read(Component);
             std::uint32_t TypeGuid = 0;  File.Read(TypeGuid);
-            const std::string Path   = ReadString(File);
-            const std::string Before = ReadString(File);
+            const std::string Path   = xeditor::ReadString(File);
+            const std::string Before = xeditor::ReadString(File);
             bool bHadOverride = false;   File.Read(bHadOverride);
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
@@ -333,9 +333,9 @@ namespace e29::commands
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
             const auto Id         = ParseEntityId(std::get<std::string>(IdArg));
             const auto CompGuid   = std::strtoull(std::get<std::string>(CompArg).c_str(), nullptr, 16);
-            const auto Path       = Base64Decode(std::get<std::string>(PathArg));
+            const auto Path       = xeditor::Base64Decode(std::get<std::string>(PathArg));
             const auto TypeGuid   = static_cast<std::uint32_t>(std::strtoul(std::get<std::string>(TypeArg).c_str(), nullptr, 16));
-            const auto After      = Base64Decode(std::get<std::string>(AfterArg));
+            const auto After      = xeditor::Base64Decode(std::get<std::string>(AfterArg));
 
             const auto Target = ResolvePropertyTarget(SceneGuid, Id, CompGuid);
             if (!Target.m_pInfo) return "RevertOverride: target not found";
@@ -358,15 +358,15 @@ namespace e29::commands
             const std::uint32_t Id        = std::holds_alternative<xerr>(IdArg) ? 0 : ParseEntityId(std::get<std::string>(IdArg));
             const std::uint64_t Component = std::holds_alternative<xerr>(CompArg) ? 0 : std::strtoull(std::get<std::string>(CompArg).c_str(), nullptr, 16);
             const std::uint32_t TypeGuid  = std::holds_alternative<xerr>(TypeArg) ? 0 : static_cast<std::uint32_t>(std::strtoul(std::get<std::string>(TypeArg).c_str(), nullptr, 16));
-            const std::string   Path      = std::holds_alternative<xerr>(PathArg) ? std::string{} : Base64Decode(std::get<std::string>(PathArg));
-            const std::string   Before    = std::holds_alternative<xerr>(BeforeArg) ? std::string{} : Base64Decode(std::get<std::string>(BeforeArg));
+            const std::string   Path      = std::holds_alternative<xerr>(PathArg) ? std::string{} : xeditor::Base64Decode(std::get<std::string>(PathArg));
+            const std::string   Before    = std::holds_alternative<xerr>(BeforeArg) ? std::string{} : xeditor::Base64Decode(std::get<std::string>(BeforeArg));
 
             File.Write(Scene);
             File.Write(Id);
             File.Write(Component);
             File.Write(TypeGuid);
-            WriteString(File, Path);
-            WriteString(File, Before);
+            xeditor::WriteString(File, Path);
+            xeditor::WriteString(File, Before);
         }
 
         void Undo(xundo::undo_file& File) noexcept override
@@ -375,8 +375,8 @@ namespace e29::commands
             std::uint32_t Id = 0;        File.Read(Id);
             std::uint64_t Component = 0; File.Read(Component);
             std::uint32_t TypeGuid = 0;  File.Read(TypeGuid);
-            const std::string Path   = ReadString(File);
-            const std::string Before = ReadString(File);
+            const std::string Path   = xeditor::ReadString(File);
+            const std::string Before = xeditor::ReadString(File);
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
             const auto Target = ResolvePropertyTarget(SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Component);

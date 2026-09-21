@@ -124,9 +124,9 @@ namespace e29::commands
         File.Write(static_cast<std::uint32_t>(Rows.size()));
         for (auto& Row : Rows)
         {
-            WriteString(File, Row.m_Path);
+            xeditor::WriteString(File, Row.m_Path);
             File.Write(Row.m_TypeGuid);
-            WriteString(File, Row.m_ValueStr);
+            xeditor::WriteString(File, Row.m_ValueStr);
         }
     }
 
@@ -138,9 +138,9 @@ namespace e29::commands
         std::uint32_t Count = 0; File.Read(Count);
         for (std::uint32_t i = 0; i < Count; ++i)
         {
-            const std::string Path = ReadString(File);
+            const std::string Path = xeditor::ReadString(File);
             std::uint32_t     TypeGuid = 0; File.Read(TypeGuid);
-            const std::string ValueStr = ReadString(File);
+            const std::string ValueStr = xeditor::ReadString(File);
             if (Target.m_pInfo) SetLivePropertyValue(Target, Path, TypeGuid, ValueStr);
         }
     }
@@ -199,8 +199,8 @@ namespace e29::commands
             File.Write(static_cast<std::uint32_t>(pFound->m_PropertyOverrides.size()));
             for (auto& O : pFound->m_PropertyOverrides)
             {
-                WriteString(File, O.m_PropertyName);
-                WriteString(File, O.m_PropertyValueAsString);
+                xeditor::WriteString(File, O.m_PropertyName);
+                xeditor::WriteString(File, O.m_PropertyValueAsString);
             }
         }
         else
@@ -230,8 +230,8 @@ namespace e29::commands
         std::vector<override_row> Overrides(OverrideCount);
         for (auto& O : Overrides)
         {
-            O.m_Name     = ReadString(File);
-            O.m_ValueStr = ReadString(File);
+            O.m_Name     = xeditor::ReadString(File);
+            O.m_ValueStr = xeditor::ReadString(File);
         }
 
         if (!bHadEntry || !e29::g_pGameMgr) return;

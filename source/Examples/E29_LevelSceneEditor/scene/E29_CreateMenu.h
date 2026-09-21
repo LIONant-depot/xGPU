@@ -18,14 +18,14 @@ namespace e29
     // right beside it in this same menu) - CreateFolder/DeleteFolder commands, commands/
     // E29_Commands_SceneOrganization.h. Moved here (was originally much earlier in this file) since
     // this routing needs both e29::g_pGameMgr/g_pState (just declared, E29_PrefabAuthoring.h above) and
-    // e29::commands::Run (just included above) - neither was available at the function's original
+    // xeditor::Run (just included above) - neither was available at the function's original
     // position.
     void ShowCreateMenuItems(xecs::scene::guid SceneGuid, xecs::scene::instance& Scene, xecs::scene::folder_id TargetFolder, xundo::system& Undo) noexcept
     {
         if (ImGui::MenuItem("New Entity"))
         {
             const auto Id = NextFreeEntityId(Scene);
-            e29::commands::Run(e29::LevelDocUndo(), std::format("CreateEntity -Scene {} -Id {} -Folder {:08X}"
+            xeditor::Run(e29::LevelDocUndo(), std::format("CreateEntity -Scene {} -Id {} -Folder {:08X}"
                 , e29::commands::FormatSceneGuid(SceneGuid)
                 , e29::commands::FormatEntityId(Id)
                 , static_cast<std::uint32_t>(TargetFolder)
@@ -34,11 +34,11 @@ namespace e29
         if (ImGui::MenuItem("New Folder"))
         {
             const auto Id = NextFreeFolderId(Scene);
-            e29::commands::Run(e29::LevelDocUndo(), std::format("CreateFolder -Scene {} -Id {:08X} -Parent {:08X} -Name {}"
+            xeditor::Run(e29::LevelDocUndo(), std::format("CreateFolder -Scene {} -Id {:08X} -Parent {:08X} -Name {}"
                 , e29::commands::FormatSceneGuid(SceneGuid)
                 , static_cast<std::uint32_t>(Id)
                 , static_cast<std::uint32_t>(TargetFolder)
-                , e29::commands::Base64Encode("New Folder")
+                , xeditor::Base64Encode("New Folder")
                 ));
         }
     }

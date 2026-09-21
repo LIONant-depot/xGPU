@@ -54,7 +54,7 @@ namespace e29::commands
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
             const auto Id        = static_cast<xecs::scene::folder_id>(std::strtoul(std::get<std::string>(IdArg).c_str(), nullptr, 16));
             const auto ParentVal = static_cast<xecs::scene::folder_id>(std::strtoul(std::get<std::string>(ParentArg).c_str(), nullptr, 16));
-            const auto Name      = Base64Decode(std::get<std::string>(NameArg));
+            const auto Name      = xeditor::Base64Decode(std::get<std::string>(NameArg));
 
             if (!e29::g_pGameMgr) return "CreateFolder: no game world";
             auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
@@ -175,7 +175,7 @@ namespace e29::commands
             }
 
             File.Write(OldParent);
-            WriteString(File, OldName);
+            xeditor::WriteString(File, OldName);
             File.Write(static_cast<std::uint32_t>(EntityIds.size()));
             for (auto E : EntityIds) File.Write(E);
             File.Write(static_cast<std::uint32_t>(ChildFolderIds.size()));
@@ -187,7 +187,7 @@ namespace e29::commands
             std::uint64_t Scene = 0; File.Read(Scene);
             std::uint32_t Id = 0;    File.Read(Id);
             std::uint32_t OldParent = 0; File.Read(OldParent);
-            const std::string OldName = ReadString(File);
+            const std::string OldName = xeditor::ReadString(File);
 
             std::uint32_t EntityCount = 0; File.Read(EntityCount);
             std::vector<xecs::scene::permanent_id> Entities(EntityCount);
@@ -451,7 +451,7 @@ namespace e29::commands
             {
                 File.Write(static_cast<std::uint32_t>(F.m_Id));
                 File.Write(static_cast<std::uint32_t>(F.m_Parent));
-                WriteString(File, F.m_Name);
+                xeditor::WriteString(File, F.m_Name);
             }
         }
 
@@ -470,7 +470,7 @@ namespace e29::commands
             {
                 File.Read(A.m_Id);
                 File.Read(A.m_Parent);
-                A.m_Name = ReadString(File);
+                A.m_Name = xeditor::ReadString(File);
             }
 
             if (!e29::g_pGameMgr) return;

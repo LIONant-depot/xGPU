@@ -1056,13 +1056,13 @@ namespace e29
             if (ImGui::MenuItem("Lock", nullptr, false, bAnyLfsUnlocked))
             {
                 for (auto* R : Selected)
-                    e29::commands::RunQuery(Undo, std::format("SourceControlLock -Library {} -Path {}"
+                    xeditor::RunQuery(Undo, std::format("SourceControlLock -Library {} -Path {}"
                         , e29::commands::FormatLibraryGuid(R->m_Library), e29::commands::EncodeAssetPath(R->m_RelativePath)));
             }
             if (ImGui::MenuItem("Unlock", nullptr, false, bAnyLockedByMe))
             {
                 for (auto* R : Selected)
-                    e29::commands::RunQuery(Undo, std::format("SourceControlUnlock -Library {} -Path {}"
+                    xeditor::RunQuery(Undo, std::format("SourceControlUnlock -Library {} -Path {}"
                         , e29::commands::FormatLibraryGuid(R->m_Library), e29::commands::EncodeAssetPath(R->m_RelativePath)));
             }
             if (ImGui::MenuItem("Undo Changes...", nullptr, false, bAnyModified))
@@ -1137,7 +1137,7 @@ namespace e29
             if (ImGui::Button("Discard Changes", ImVec2(160, 0)))
             {
                 for (auto* R : Selected)
-                    e29::commands::RunQuery(Undo, std::format("SourceControlRevert -Library {} -Path {}"
+                    xeditor::RunQuery(Undo, std::format("SourceControlRevert -Library {} -Path {}"
                         , e29::commands::FormatLibraryGuid(R->m_Library), e29::commands::EncodeAssetPath(R->m_RelativePath)));
                 ImGui::CloseCurrentPopup();
             }
@@ -1628,9 +1628,9 @@ namespace e29
     // failures that way - see E29_Commands_SourceControl.h).
     [[nodiscard]] inline std::string SourceControlRunQuery(xundo::system& Undo, const std::string& Cmd) noexcept
     {
-        if (e29::commands::g_pConsoleLog) e29::commands::g_pConsoleLog->push_back({ Cmd, e29::commands::console_log_source::User });
+        xeditor::LogConsole(Cmd, xeditor::log_source::User);
         std::string Result = Undo.Execute(Cmd);
-        if (!Result.empty() && e29::commands::g_pConsoleLog) e29::commands::g_pConsoleLog->push_back({ Result, e29::commands::console_log_source::System });
+        if (!Result.empty()) xeditor::LogConsole(Result, xeditor::log_source::System);
         return Result;
     }
 
@@ -1680,8 +1680,8 @@ namespace e29
 
             std::string JoinedPaths;
             for (auto& P : Paths) { JoinedPaths += xstrtool::To(P); JoinedPaths += '\n'; }
-            const auto PathsB64 = e29::commands::Base64Encode(JoinedPaths);
-            const auto MsgB64   = e29::commands::Base64Encode(Comment);
+            const auto PathsB64 = xeditor::Base64Encode(JoinedPaths);
+            const auto MsgB64   = xeditor::Base64Encode(Comment);
 
             const std::string CommitResult = SourceControlRunQuery(Undo, std::format("SourceControlCommit -Library {} -Paths {} -Message {}"
                 , LibraryGuidStr, PathsB64, MsgB64));

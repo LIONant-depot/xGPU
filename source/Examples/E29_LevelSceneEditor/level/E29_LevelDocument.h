@@ -163,7 +163,7 @@ namespace e29
                 Owned = std::make_unique<xeditor::session>();
                 Owned->m_Document = std::make_unique<LevelDocument>();
                 if (auto Err = Owned->m_Undo.Init({}, false); !Err.empty())
-                    Debugger(std::format("E29: Level session xundo Init failed: {}", Err));
+                    xeditor::NotifyError(std::format("E29: Level session xundo Init failed: {}", Err));
                 pLive = Owned.get();
             }
             if (auto* pDoc = static_cast<LevelDocument*>(pLive->m_Document.get()))

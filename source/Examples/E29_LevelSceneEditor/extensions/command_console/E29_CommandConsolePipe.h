@@ -26,9 +26,9 @@
 
 // autocomplete + colored TextEditor log) - that's phase 6's job, once there's an actual UI worth
 
-// building around this. console_log_entry/console_log_source (now e29::commands::console_log_entry/
+// building around this. xeditor::log_entry/xeditor::log_source (now xeditor::log_entry/
 
-// console_log_source - moved to commands/E29_CommandContext.h so e29::commands::Run(), a phase 1
+// xeditor::log_source - moved to commands/E29_CommandContext.h so xeditor::Run(), a phase 1
 
 // foundational helper, can log a UI-driven command into the SAME log too) are ported now anyway (not
 
@@ -71,9 +71,7 @@ namespace e29
 
 
 
-    using console_log_source = e29::commands::console_log_source;
 
-    using console_log_entry  = e29::commands::console_log_entry;
 
 
 
@@ -325,11 +323,11 @@ namespace e29
 
     // visible in whatever future UI reads the same vector, exactly like one typed there - never a
 
-    // silent side-channel. Tagged console_log_source::Pipe (not User) for the same reason E27 does -
+    // silent side-channel. Tagged xeditor::log_source::Pipe (not User) for the same reason E27 does -
 
     // an AI-facing distinction worth keeping even before phase 6 gives it a color.
 
-    inline void PumpCommandConsolePipe(command_console_pipe_bridge& Bridge, xundo::history& History, std::vector<console_log_entry>& LogEntries) noexcept
+    inline void PumpCommandConsolePipe(command_console_pipe_bridge& Bridge, xundo::history& History, std::vector<xeditor::log_entry>& LogEntries) noexcept
 
     {
 
@@ -353,11 +351,11 @@ namespace e29
 
 
 
-        LogEntries.push_back({ Cmd, console_log_source::Pipe });
+        LogEntries.push_back({ Cmd, xeditor::log_source::Pipe });
 
         if (!Result.empty())
 
-            LogEntries.push_back({ Result, console_log_source::System });
+            LogEntries.push_back({ Result, xeditor::log_source::System });
 
 
 

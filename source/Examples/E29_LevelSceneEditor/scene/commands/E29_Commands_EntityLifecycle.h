@@ -164,8 +164,8 @@ namespace e29::commands
             File.Write(static_cast<std::uint32_t>(C.m_PropertyOverrides.size()));
             for (auto& O : C.m_PropertyOverrides)
             {
-                WriteString(File, O.m_PropertyName);
-                WriteString(File, O.m_PropertyValueAsString);
+                xeditor::WriteString(File, O.m_PropertyName);
+                xeditor::WriteString(File, O.m_PropertyValueAsString);
             }
         }
 
@@ -200,8 +200,8 @@ namespace e29::commands
             C.m_PropertyOverrides.resize(OverrideCount);
             for (auto& O : C.m_PropertyOverrides)
             {
-                O.m_PropertyName          = ReadString(File);
-                O.m_PropertyValueAsString = ReadString(File);
+                O.m_PropertyName          = xeditor::ReadString(File);
+                O.m_PropertyValueAsString = xeditor::ReadString(File);
             }
         }
 

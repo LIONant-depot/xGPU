@@ -18,40 +18,18 @@
 // rebound after every reload (`g_pGameMgr = pGameMgr.get();`), rather than this context inventing a
 // second, separately-maintained pointer to keep in sync.
 //
-// Meant to be included after editor_state (and e29::g_pGameMgr/e29::Debugger) are already defined -
+// Meant to be included after editor_state (and e29::g_pGameMgr/xeditor::NotifyError) are already defined -
 // via the kit umbrella (E29_LevelSceneEditorKit.h), or a caller that already includes it - same
 // convention every other extracted kit/plugin module in this project already follows, rather than
 // self-including the umbrella here (this header is itself reached FROM WITHIN the umbrella, via
 // level/E29_Panel_LevelTree.h - a self-include would just bounce off E29_LevelSceneEditorKit.h's own
 // include guard at that point, working by accident rather than by design).
 #include "dependencies/xundo/source/xundo_system.h"
-
-namespace e29 { bool TryGateLevelMutation(xundo::system& System) noexcept; }
+#include "dependencies/xeditor/include/xeditor/commands.h"
+#include "dependencies/xeditor/include/xeditor/serialize.h"
 
 namespace e29::commands
 {
-    // Who authored a Command Console log entry - moved here (from extensions/command_console/E29_CommandConsolePipe.h,
-    // phase 5) so Run() below (a phase 1 foundational helper, included far earlier than phase 5's own
-    // pipe file) can log every command through the SAME shared log a pipe-driven or console-typed one
-    // already uses, without a forward-declaration/ordering problem. User=green (typed into the
-    // console OR clicked in the UI - both are "the user did this," see Run()'s own comment for why
-    // this reuses User rather than inventing a third category just for UI clicks), Pipe=teal
-    // (arrived over xeditorcli's named pipe - an AI-facing color on purpose).
-    enum class console_log_source { System, User, Pipe };
-    struct console_log_entry
-    {
-        std::string         m_Text;
-        console_log_source  m_Source;
-    };
-
-    // Set once, right after ConsoleLog itself is constructed in E29_LevelScene_Editor.cpp's main
-    // function (same "global pointer bound once at startup" pattern as e29::g_pGameMgr/g_pState,
-    // E29_PrefabAuthoring.h) - Run() is called from many files (level/E29_Panel_LevelTree.h,
-    // E29_LevelSceneEditorKit.h's m_OnPropertyChanged, scene/E29_Panel_EntityProperties.h, ...), so a
-    // global pointer avoids threading a ConsoleLog& parameter through every one of those call sites
-    // just for this.
-    inline std::vector<console_log_entry>* g_pConsoleLog = nullptr;
-
     // One line of the Say/GetLog conversation (extensions/command_console/E29_Commands_Chat.h) - lets multiple AI/CLI
     // clients talking to the same running E29 session leave messages for each other over the Command
     // Console pipe. In-memory only, current session (matches E29Undo's own bAutoLoadSave=false choice
@@ -219,175 +197,6 @@ namespace e29::commands
         return xproperty::settings::AnyToString(Buffer, Data);
     }
 
-    // Wraps xundo::system::Execute with logging - EVERY command, not just failures, so the log is a
-    // genuine audit trail of everything that happened (the same log an external CLI-driven agent
-    // would see - phase 6 finally gave this comment's own original intent somewhere to log TO,
-    // completing what was documented but not yet wired up since phase 1) - direct port of
-    // E27_NodeOS's own Run() (Editor/NodeOS_CommandBuilders.h). Pushes the SAME echo-then-result
-    // shape ProcessConsoleCommand/DrawCommandConsolePanel already use for a typed/piped command
-    // (extensions/command_console/E29_CommandConsolePipe.h, extensions/command_console/E29_Panel_CommandConsole.h), tagged User - a UI click
-    // and a typed command are both "the user did this" from the log's own point of view. Direct user
-    // report this fixes: "now you have to route the users commands there as well... nothing showing
-    // up there yet."
-    inline void Run(xundo::system& System, const std::string& Cmd) noexcept
-    {
-        if (!e29::TryGateLevelMutation(System))
-        {
-            const char* Msg = "Edit refused: resource is being edited in another session";
-            Debugger(Msg);
-            if (g_pConsoleLog) g_pConsoleLog->push_back({ Msg, console_log_source::System });
-            return;
-        }
-        if (g_pConsoleLog) g_pConsoleLog->push_back({ Cmd, console_log_source::User });
-        if (auto Err = System.Execute(Cmd); !Err.empty())
-        {
-            Debugger(std::format("E29: command failed: '{}' ({})", Cmd, Err));
-            if (g_pConsoleLog) g_pConsoleLog->push_back({ Err, console_log_source::System });
-        }
-    }
-
-    // Same shape as Run() above, but for xundo::query_command_base-derived commands - a REAL,
-    // previously-latent bug found live-testing SC Revert: xundo::system keeps Edit commands
-    // (command_base, registered via RegisterCommand into m_Commands) and Query commands
-    // (query_command_base, registered via RegisterQueryCommand into a SEPARATE m_QueryCommands map)
-    // in two entirely separate registries, reached by two separate methods - System.Execute(Cmd) only
-    // ever searches m_Commands. Every SourceControl* command (Lock/Unlock/Revert/Stage/Commit/Pull/
-    // Push) is deliberately query_command_base (see E29_Commands_SourceControl.h's own top comment:
-    // "None of these belong in the local Undo/Redo history"), so calling them through plain Run()
-    // always failed with "Unable find the command" - silently, since nobody had actually clicked
-    // through Lock/Unlock or the Source Control tab's own "Undo Changes" button end-to-end before
-    // this session. Every UI call site invoking a SourceControl* command must use THIS helper, not
-    // Run() - see the E29_LevelScene_Editor.cpp/E29_Panel_LevelTree.h/E29_Panel_SourceControl.h call
-    // sites this same fix touched.
-    inline void RunQuery(xundo::system& System, const std::string& Cmd) noexcept
-    {
-        if (g_pConsoleLog) g_pConsoleLog->push_back({ Cmd, console_log_source::User });
-        if (auto Result = System.Query(Cmd); !Result.empty())
-        {
-            // Query() returning non-empty isn't necessarily an error (e.g. SourceControlStatus's own
-            // report), but every SourceControl*_query_cmd used from a UI hook returns a plain "OK"-
-            // shaped string on success ("Reverted N file(s)", "Locked", "Unlocked") and a
-            // "SourceControlXxx: ..." prefixed string on failure - log both to the same console
-            // history Run() already writes to (so a UI-driven Lock/Revert shows up there identically
-            // to a typed command), but only ALSO route to Debugger() when it reads as a failure.
-            if (g_pConsoleLog) g_pConsoleLog->push_back({ Result, console_log_source::System });
-            if (Result.find(": ") != std::string::npos || Result.starts_with("Unable") || Result.starts_with("Malformed"))
-                Debugger(std::format("E29: command failed: '{}' ({})", Cmd, Result));
-        }
-    }
-
-    // Runs several commands as ONE undo/redo step, via xundo::system's own grouped Execute(group_name,
-    // vector<string>) overload - direct user correction: "a 5-file delete should be 1 undo/redo step...
-    // the operation should be grouped," and this codebase's own xundo already supports exactly that;
-    // the gap was that nothing routed a multi-item UI gesture through it. Returns true on success so a
-    // caller like files_tab's own PasteClipboardInto can tell a real failure (e.g. a same-folder paste
-    // rejected outright) apart from success, rather than assuming success unconditionally (a real bug
-    // found live: the cut clipboard was being spent even when the paste had just failed). Handles a
-    // size-1 batch inline rather than delegating to Run() - Run() doesn't report success/failure back to
-    // its caller, and calling System.Execute() a second time to get that here would run the command twice.
-    [[nodiscard]] inline bool RunGroup(xundo::system& System, std::string_view GroupName, const std::vector<std::string>& Cmds) noexcept
-    {
-        if (!e29::TryGateLevelMutation(System)) return false;
-        if (Cmds.empty()) return true;
-
-        if (Cmds.size() == 1)
-        {
-            const auto& Cmd = Cmds.front();
-            if (g_pConsoleLog) g_pConsoleLog->push_back({ Cmd, console_log_source::User });
-            if (auto Err = System.Execute(Cmd); !Err.empty())
-            {
-                Debugger(std::format("E29: command failed: '{}' ({})", Cmd, Err));
-                if (g_pConsoleLog) g_pConsoleLog->push_back({ Err, console_log_source::System });
-                return false;
-            }
-            return true;
-        }
-
-        for (auto& Cmd : Cmds) if (g_pConsoleLog) g_pConsoleLog->push_back({ Cmd, console_log_source::User });
-        if (auto Err = System.Execute(GroupName, Cmds); !Err.empty())
-        {
-            Debugger(std::format("E29: grouped command failed: '{}' ({})", GroupName, Err));
-            if (g_pConsoleLog) g_pConsoleLog->push_back({ Err, console_log_source::System });
-            return false;
-        }
-        return true;
-    }
-
-    // WriteString/ReadString - a length-prefixed string inside a fixed-record undo_file, direct port
-    // of E27_NodeOS's own (Editor/NodeOS_CommandBuilders.h). Base64Encode/Decode - direct port too,
-    // used ONLY for a property's own serialized value/path text (arbitrary content that could contain
-    // characters awkward for a space-delimited command line) - plain ids need no encoding at all.
-    // Copied rather than shared across examples on purpose - E10/E27/E29 don't depend on each other,
-    // matching this codebase's own per-example kit convention; this is small, self-contained utility
-    // code, not state that could ever drift out of sync between two copies.
-    inline void WriteString(xundo::undo_file& File, const std::string& S) noexcept
-    {
-        const std::uint32_t Len = static_cast<std::uint32_t>(S.size());
-        File.Write(Len);
-        if (Len) File.Write(S.data(), Len);
-    }
-    inline std::string ReadString(xundo::undo_file& File) noexcept
-    {
-        std::uint32_t Len = 0; File.Read(Len);
-        std::string S; S.resize(Len);
-        if (Len) File.Read(S.data(), Len);
-        return S;
-    }
-
-    inline std::string Base64Encode(const std::string& In) noexcept
-    {
-        static constexpr char Alphabet[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-        std::string Out;
-        Out.reserve(((In.size() + 2) / 3) * 4);
-        std::size_t i = 0;
-        for (; i + 2 < In.size(); i += 3)
-        {
-            const std::uint32_t N = (std::uint32_t(std::uint8_t(In[i])) << 16) | (std::uint32_t(std::uint8_t(In[i + 1])) << 8) | std::uint8_t(In[i + 2]);
-            Out += Alphabet[(N >> 18) & 0x3F]; Out += Alphabet[(N >> 12) & 0x3F];
-            Out += Alphabet[(N >> 6) & 0x3F];  Out += Alphabet[N & 0x3F];
-        }
-        const std::size_t Rem = In.size() - i;
-        if (Rem == 1)
-        {
-            const std::uint32_t N = std::uint32_t(std::uint8_t(In[i])) << 16;
-            Out += Alphabet[(N >> 18) & 0x3F]; Out += Alphabet[(N >> 12) & 0x3F]; Out += "==";
-        }
-        else if (Rem == 2)
-        {
-            const std::uint32_t N = (std::uint32_t(std::uint8_t(In[i])) << 16) | (std::uint32_t(std::uint8_t(In[i + 1])) << 8);
-            Out += Alphabet[(N >> 18) & 0x3F]; Out += Alphabet[(N >> 12) & 0x3F]; Out += Alphabet[(N >> 6) & 0x3F]; Out += '=';
-        }
-        return Out;
-    }
-
-    inline std::string Base64Decode(const std::string& In) noexcept
-    {
-        auto DecodeChar = [](char C) -> int
-        {
-            if (C >= 'A' && C <= 'Z') return C - 'A';
-            if (C >= 'a' && C <= 'z') return C - 'a' + 26;
-            if (C >= '0' && C <= '9') return C - '0' + 52;
-            if (C == '+') return 62;
-            if (C == '/') return 63;
-            return -1; // padding ('=') or terminator
-        };
-        std::string Out;
-        Out.reserve((In.size() / 4) * 3);
-        int Bits = 0, NumBits = 0;
-        for (char C : In)
-        {
-            const int V = DecodeChar(C);
-            if (V < 0) break;
-            Bits = (Bits << 6) | V;
-            NumBits += 6;
-            if (NumBits >= 8)
-            {
-                NumBits -= 8;
-                Out += static_cast<char>((Bits >> NumBits) & 0xFF);
-            }
-        }
-        return Out;
-    }
 }
 
 #endif // E29_COMMAND_CONTEXT_H

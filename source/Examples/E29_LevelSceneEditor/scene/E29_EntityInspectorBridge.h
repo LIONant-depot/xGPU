@@ -113,14 +113,14 @@ namespace e29
                 const std::string After(AfterBuffer.data(), AfterLen > 0 ? static_cast<std::size_t>(AfterLen) : 0);
                 const std::uint32_t TypeGuid = Cmd.m_NewValue.m_pType ? Cmd.m_NewValue.m_pType->m_GUID : 0;
 
-                e29::commands::Run(e29::LevelDocUndo(), std::format("SetProperty -Scene {} -Id {} -Component {:016X} -Path {} -TypeGuid {:08X} -Before {} -After {}"
+                xeditor::Run(e29::LevelDocUndo(), std::format("SetProperty -Scene {} -Id {} -Component {:016X} -Path {} -TypeGuid {:08X} -Before {} -After {}"
                     , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
                     , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                     , It->second->m_Guid.m_Value
-                    , e29::commands::Base64Encode(Cmd.m_Name)
+                    , xeditor::Base64Encode(Cmd.m_Name)
                     , TypeGuid
-                    , e29::commands::Base64Encode(Before)
-                    , e29::commands::Base64Encode(After)
+                    , xeditor::Base64Encode(Before)
+                    , xeditor::Base64Encode(After)
                     ));
             };
             Inspector.m_OnChangeEvent.Register(m_OnPropertyChanged);
@@ -158,7 +158,7 @@ namespace e29
 
                 if (auto Err = GameMgr.m_PrefabMgr.EnsureLoaded(Ctx.m_pPI->m_PrefabInstance); Err)
                 {
-                    e29::Debugger(std::format("Failed to load source prefab for revert: {}", Err.getMessage()));
+                    xeditor::NotifyError(std::format("Failed to load source prefab for revert: {}", Err.getMessage()));
                     return;
                 }
 
@@ -199,14 +199,14 @@ namespace e29
                 const std::uint32_t TypeGuid = BaseValue.m_pType ? BaseValue.m_pType->m_GUID
                     : (CurrentValue.m_pType ? CurrentValue.m_pType->m_GUID : 0);
 
-                e29::commands::Run(e29::LevelDocUndo(), std::format("RevertOverride -Scene {} -Id {} -Component {:016X} -Path {} -TypeGuid {:08X} -Before {} -After {}"
+                xeditor::Run(e29::LevelDocUndo(), std::format("RevertOverride -Scene {} -Id {} -Component {:016X} -Path {} -TypeGuid {:08X} -Before {} -After {}"
                     , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
                     , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                     , It->second->m_Guid.m_Value
-                    , e29::commands::Base64Encode(std::string(Path))
+                    , xeditor::Base64Encode(std::string(Path))
                     , TypeGuid
-                    , e29::commands::Base64Encode(Before)
-                    , e29::commands::Base64Encode(After)
+                    , xeditor::Base64Encode(Before)
+                    , xeditor::Base64Encode(After)
                     ));
             };
             Inspector.m_OnOverrideReset.Register(m_OnOverrideReset);
@@ -309,7 +309,7 @@ namespace e29
                                         const bool bAlreadyDependency = std::find(pOwningScene->m_ParentScenes.begin(), pOwningScene->m_ParentScenes.end(), Dropped.m_SceneGuid) != pOwningScene->m_ParentScenes.end();
                                         if (!bAlreadyDependency && e29::WouldCreateDependencyCycle(GameMgr, State.m_SelectedEntityScene, Dropped.m_SceneGuid))
                                         {
-                                            e29::Debugger("Can't assign that reference: its scene already depends on this one (would create a circular scene dependency)");
+                                            xeditor::NotifyError("Can't assign that reference: its scene already depends on this one (would create a circular scene dependency)");
                                             bRefused = true;
                                         }
                                         else if (!bAlreadyDependency)
@@ -318,7 +318,7 @@ namespace e29
                                             // drag the target scene into this scene's Dependencies folder
                                             // first. Auto-adding ParentScenes from entity refs is what made
                                             // the graph unstable / hard to reason about.
-                                            e29::Debugger("Can't assign that reference: add the target scene under Dependencies first");
+                                            xeditor::NotifyError("Can't assign that reference: add the target scene under Dependencies first");
                                             bRefused = true;
                                         }
                                     }
@@ -334,11 +334,11 @@ namespace e29
                                     auto CompIt = m_ComponentMap.find(pInstance);
                                     if (CompIt != m_ComponentMap.end())
                                     {
-                                        e29::commands::Run(e29::LevelDocUndo(), std::format("SetEntityReference -Scene {} -Id {} -Component {:016X} -Path {} -AfterScene {} -AfterId {}"
+                                        xeditor::Run(e29::LevelDocUndo(), std::format("SetEntityReference -Scene {} -Id {} -Component {:016X} -Path {} -AfterScene {} -AfterId {}"
                                             , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
                                             , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                                             , CompIt->second->m_Guid.m_Value
-                                            , e29::commands::Base64Encode(std::string(Path))
+                                            , xeditor::Base64Encode(std::string(Path))
                                             , e29::commands::FormatSceneGuid(Dropped.m_SceneGuid)
                                             , e29::commands::FormatEntityId(Dropped.m_Id)));
                                     }
@@ -366,11 +366,11 @@ namespace e29
                         auto CompIt = m_ComponentMap.find(pInstance);
                         if (CompIt != m_ComponentMap.end())
                         {
-                            e29::commands::Run(e29::LevelDocUndo(), std::format("SetEntityReference -Scene {} -Id {} -Component {:016X} -Path {} -AfterScene {} -AfterId {}"
+                            xeditor::Run(e29::LevelDocUndo(), std::format("SetEntityReference -Scene {} -Id {} -Component {:016X} -Path {} -AfterScene {} -AfterId {}"
                                 , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
                                 , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                                 , CompIt->second->m_Guid.m_Value
-                                , e29::commands::Base64Encode(std::string(Path))
+                                , xeditor::Base64Encode(std::string(Path))
                                 , e29::commands::FormatSceneGuid(xecs::scene::guid{})
                                 , e29::commands::FormatEntityId(xecs::scene::invalid_permanent_id_v)));
                         }
