@@ -8,7 +8,7 @@
 // text box for "Namespace/Edit-or-Query/Command -args..." strings routed through
 // xundo::history::Route(), the SAME dispatch phase 5's named-pipe server
 // (commands/E29_CommandConsolePipe.h) already uses. Exists specifically so a query command never
-// NEEDS a bespoke ImGui widget to be reachable - the same text protocol an AI or a script (E29CLI.cpp)
+// NEEDS a bespoke ImGui widget to be reachable - the same text protocol an AI or a script (xeditorcli)
 // already uses works here too, with the same self-documenting "-h" help every command exposes.
 //
 // Reuses console_log_entry/console_log_source/ProcessConsoleCommand from
@@ -32,7 +32,7 @@
 namespace e29
 {
     // Who authored a Command Console log entry - the log's own "> Cmd" echo line is colored by this
-    // (User=green if typed into the UI, Pipe=teal if it arrived over E29CLI's named pipe - an
+    // (User=green if typed into the UI, Pipe=teal if it arrived over xeditorcli's named pipe - an
     // AI-facing color on purpose). DrawCommandConsolePanel and PumpCommandConsolePipe (phase 5) both
     // push an echo entry then, if non-empty, a result entry - never one blended entry.
     static bool ConsoleLogTokenize(const char* in_begin, const char* in_end, const char*& out_begin, const char*& out_end, TextEditor::PaletteIndex& paletteIndex)

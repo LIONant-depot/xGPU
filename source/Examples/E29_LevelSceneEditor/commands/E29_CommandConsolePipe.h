@@ -14,7 +14,7 @@
 
 // ProcessConsoleCommand (source/Examples/E27_NodeOS/Editor/NodeOS_UI_CommandConsole.h) - lets an
 
-// external process (a script, an AI, the E29CLI.cpp client below) drive E29 through the SAME
+// external process (a script, an AI, xeditorcli) drive E29 through the SAME
 
 // xundo::history::Route() dispatch every phase 1-4 command is already registered with
 
@@ -99,7 +99,7 @@ namespace e29
 
             // Legacy "E29/Edit/..." and "E29/Query/..." keep History.Route so AI/scripts
 
-            // that still use the old full paths never lose access (E29CLI shim).
+            // that still use the old full paths never lose access (legacy routes).
 
             const bool bLegacyE29Path =
 
@@ -171,7 +171,7 @@ namespace e29
 
     //------------------------------------------------------------------------------------------------
 
-    // Named-pipe server for E29CLI.cpp - connect to \\.\pipe\xEditor_Console, write one
+    // Named-pipe server for xeditorcli - connect to \\.\pipe\xEditor_Console, write one
 
     // command line, read back the response, disconnect. Runs on its own detached background thread
 
@@ -219,7 +219,7 @@ namespace e29
 
                 PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
 
-                1,      // one client at a time - E29CLI is a one-shot connect/send/read/exit tool
+                1,      // one client at a time - xeditorcli is a one-shot connect/send/read/exit tool
 
                 65536, 65536,
 

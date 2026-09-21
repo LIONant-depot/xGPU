@@ -36,7 +36,7 @@ namespace e29::commands
     // already uses, without a forward-declaration/ordering problem. User=green (typed into the
     // console OR clicked in the UI - both are "the user did this," see Run()'s own comment for why
     // this reuses User rather than inventing a third category just for UI clicks), Pipe=teal
-    // (arrived over E29CLI's named pipe - an AI-facing color on purpose).
+    // (arrived over xeditorcli's named pipe - an AI-facing color on purpose).
     enum class console_log_source { System, User, Pipe };
     struct console_log_entry
     {

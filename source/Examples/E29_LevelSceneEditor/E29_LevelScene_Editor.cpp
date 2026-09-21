@@ -2005,7 +2005,7 @@ int E29_Example()
 
 
 
-    // external process (E29CLI.cpp, a script, an AI) drive E29 through E29History.Route() with no UI
+    // external process (xeditorcli, a script, an AI) drive E29 through E29History.Route() with no UI
 
 
 
@@ -3317,7 +3317,7 @@ int E29_Example()
 
 
 
-        // A no-op unless a pipe client (E29CLI.cpp) has a request waiting - see
+        // A no-op unless a pipe client (xeditorcli) has a request waiting - see
 
 
 

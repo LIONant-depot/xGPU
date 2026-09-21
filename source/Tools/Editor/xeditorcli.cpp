@@ -1,6 +1,6 @@
 // xeditorcli - generic CLI client for xeditor::ConsolePipeThreadMain, replacing the
-// per-editor-CLI pattern (E29CLI.cpp/NodeOSCLI.cpp) for editors built on the new shared framework.
-// Direct port of E29CLI.cpp's own connect/send/read/exit mechanics - zero dependency on the rest of
+// per-editor-CLI pattern (NodeOSCLI.cpp) for editors built on the shared framework. One-shot
+// connect/send/read/exit, zero dependency on the rest of
 // xGPU, just Win32 + iostream.
 //
 // Usage: xeditorcli "<command>" [--pipe \\.\pipe\Name]   (default pipe: \\.\pipe\xEditor_Console)
