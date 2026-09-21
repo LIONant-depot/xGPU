@@ -436,6 +436,9 @@ namespace e29
         EditorHost.m_OnBeforeEdit        = e29::TryGateLevelMutation;
         EditorHost.provide(State);
         EditorHost.provide(pGameMgr);
+        GamePlugin.m_Events.m_OnCollectRequiredComponents.Register<&app::CollectRequiredComponents>(*this);
+        GamePlugin.m_Events.m_OnBeforeReload.Register<&app::BeforeReload>(*this);
+        GamePlugin.m_Events.m_OnAfterReload.Register<&app::AfterReload>(*this);
 
         if (auto Err = E29Undo.Init({}, false); !Err.empty())
 

@@ -20,13 +20,14 @@
 // source/Examples/E29_LevelSceneEditor/kit/'s own phase 1/2 comments; direct user go-ahead to do
 // the whole thing phase by phase). Split along the review's own proposed seam: build/load
 // mechanics (does the DLL need rebuilding, how it gets copied/loaded/unloaded) vs. play-session
-// orchestration (V1/Vn snapshot, RebuildWorld, Start/Poll/Stop) - "clarifies the DLL story" per the
+// orchestration (V1/Vn snapshot, ReloadGameModule + the app's CreateWorld/RestoreWorld, Start/Poll/Stop) - "clarifies the DLL story" per the
 // review's own framing. Included here, in the same order they used to appear inline in this file,
 // so this remains the one header E29_LevelScene_Editor.cpp includes - no external-facing change.
 // Mechanical move only - no behavior change; see each file's own top comment.
 #include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_GamePluginLog.h"
 #include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_GamePluginBuild.h"
 #include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_GamePluginLoad.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_GameModuleReload.h"
 #include "source/Examples/E29_LevelSceneEditor/level/E29_PlaySession.h"
 
 #endif

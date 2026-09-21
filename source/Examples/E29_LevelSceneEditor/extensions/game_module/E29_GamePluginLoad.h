@@ -179,7 +179,7 @@ namespace e29
     // comment requires: every RegisterComponents call, host's and the plugin's, must happen before
     // ANY RegisterSystems call) and transfers ownership of the loaded module to Plugin. Only ever
     // meaningful once the OLD generation (if any) has already been fully torn down/unregistered - see
-    // RebuildWorld's own call site for the ordering this depends on. On failure, Discards the
+    // ReloadGameModule's own call site for the ordering this depends on. On failure, Discards the
     // candidate itself (nothing left dangling) and returns false with Plugin untouched.
     inline bool CommitGamePluginCandidate( xecs::game_mgr::instance& GameMgr, game_plugin_state& Plugin, game_plugin_candidate& Candidate, std::uint32_t Generation ) noexcept
     {

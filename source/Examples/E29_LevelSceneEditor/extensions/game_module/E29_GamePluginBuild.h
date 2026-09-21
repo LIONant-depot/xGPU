@@ -10,6 +10,7 @@
 // relies on. Meant to be included via the umbrella (E29_GamePlugin.h) only, after
 // E29_GamePluginLog.h (LogGamePlugin).
 #include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_GameModuleSources.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_GameModuleEvents.h"
 
 namespace e29
 {
@@ -38,6 +39,7 @@ namespace e29
     // m_CompiledDllPath, which is NEVER the currently-loaded file.
     struct game_plugin_state
     {
+        game_module_events m_Events;      // the editors that take part in a reload subscribe here
         HMODULE                m_hModule          = nullptr;
         xecs::plugin::token     m_Token            = {};
         std::wstring            m_CompiledDllPath;

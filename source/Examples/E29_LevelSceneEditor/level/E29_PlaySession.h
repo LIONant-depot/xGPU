@@ -5,10 +5,10 @@
 // Extracted from E29_GamePlugin.h (mechanical move, phase 3 of the kit split - see the umbrella
 // file's own top comment). Play-session orchestration: the V1/Vn snapshot bridge
 // (GetReloadBridgeSnapshotPath/SaveSnapshot/LoadSnapshot), the CaptureOpenScenes/ReattachOpenScenes
-// tree-preservation trick, the shared RebuildWorld skeleton every reload goes through, and the three
+// tree-preservation trick, the host-wide ReloadGameModule every Game.dll reload goes through, and the three
 // entry points a caller actually drives from (StartGameReload/PollGameReload/StopPlaySession) -
 // ReregisterAlreadyLoadedPlugin is bundled in here rather than E29_GamePluginLoad.h since its one
-// and only caller is RebuildWorld, right below it. Meant to be included via the umbrella
+// and only callers are BeforeReload/AfterReload/StopPlay (E29_AppWorld.h). Meant to be included via the umbrella
 // (E29_GamePlugin.h) only, after E29_GamePluginLog.h/E29_GamePluginBuild.h/E29_GamePluginLoad.h.
 
 // xeditor::Run (StopPlaySession's own "keep property tweaks" pass, right below) - included
@@ -263,7 +263,7 @@ namespace e29
         return "Step";
     }
 
-    // How RebuildWorld persists the world across the destroy/recreate it always does - the ONE thing
+    // How a world is persisted across the destroy/recreate it always does - the ONE thing
     // that genuinely differs between "a normal reload" and "Stop", beyond just which DLL-swap
     // strategy applies. Direct user model: Play writes ONE snapshot ("V1", the REAL Scene/Level/
     // Prefab disk save - see GetReloadBridgeSnapshotPath's own comment for why this must be disk, not
@@ -302,252 +302,7 @@ namespace e29
     // that used to get V1 "for free" as DiskSaveAndReload's side effect and now writes it explicitly.
     enum class persist_mode : std::uint8_t { RawSnapshotBridge, RestoreFromV1 };
 
-    //---------------------------------------------------------------------------
-    // Pending reload-compatibility confirmation (component-registry compatibility plan, Phase 3) -
-    // set by RebuildWorld's own pre-flight gate below when a candidate DLL doesn't cover every
-    // component type the currently-open scenes' own ComponentDeps.txt manifests declare they need.
-    // Rendered by RenderReloadCompatibilityModal (called once per frame from the main loop, same
-    // shape as RenderGamePluginLogPanel) - Cancel just clears this (the old generation was never
-    // touched, kept running exactly as it was); "Strip and Continue" removes the missing components
-    // from every affected entity in the open scenes via the normal, undo-tracked RemoveComponent
-    // command, then re-requests a reload - the retry finds nothing missing this time, since the
-    // components are already gone before the next candidate probe even runs.
-    //---------------------------------------------------------------------------
-    struct pending_reload_compatibility
-    {
-        std::vector<xecs::scene::component_dependency> m_Missing;
-    };
-    inline std::optional<pending_reload_compatibility> g_PendingReloadCompatibility;
 
-    //---------------------------------------------------------------------------
-    // The one shared "destroy the world and rebuild it" skeleton - every reload E29 ever does
-    // (a genuine Game.dll recompile, or just discarding a play session on Stop) is exactly this same
-    // sequence, differing only in two independent axes, both parameterized rather than duplicated:
-    //
-    //   bSwapDll     - true: the code actually changed (a Rebuilt generation) - unload the old
-    //                  module (if any), copy+load the new one, bump the plugin token's generation.
-    //                  false: the module already loaded is still perfectly good (Stop, or a
-    //                  recompile check that found nothing to do) - just re-run its OWN
-    //                  RegisterComponents against the freshly reset registry (see
-    //                  ReregisterAlreadyLoadedPlugin), same token/generation, no DLL I/O at all.
-    //
-    //   PersistMode  - see persist_mode's own comment above.
-    //
-    // pGameMgr, InspectorBridge and EntityInspector are all rebound in place (pGameMgr reset and
-    // reconstructed; InspectorBridge.RegisterCallbacks re-run against the new instance - its own
-    // callbacks are stored as std::function MEMBERS specifically so they can be rebound like this,
-    // see its own declaration comment) - the caller's own references/pointers to these three stay
-    // valid across the call; only their CONTENTS change. the world's owner (a unique_ptr) keeps pointing at the new one.
-    //---------------------------------------------------------------------------
-    template< typename T_REGISTER_HOST_COMPONENTS_FN, typename T_REGISTER_HOST_SYSTEMS_FN >
-    bool RebuildWorld
-    ( std::unique_ptr<xecs::game_mgr::instance>&  pGameMgr
-    , editor_state&                               State
-    , game_plugin_state&                          Plugin
-    , xproperty::inspector&                       EntityInspector
-    , entity_inspector_bridge&                    InspectorBridge
-    , xundo::system&                              Undo
-    , const std::wstring&                         ProjectPath
-    , T_REGISTER_HOST_COMPONENTS_FN&&              RegisterHostComponents
-    , T_REGISTER_HOST_SYSTEMS_FN&&                 RegisterHostSystems
-    , bool                                        bSwapDll
-    , persist_mode                                PersistMode
-    ) noexcept
-    {
-        // Ping-pong pre-flight compatibility gate (component-registry compatibility plan, Phase 3) -
-        // only for an actual DLL swap; a non-swap reload can't introduce a NEW missing-component
-        // scenario the open scenes weren't already tolerating. Prepares (copies+LoadLibrary's) the
-        // candidate DLL FIRST, before touching anything else - the shadow-copy step was always
-        // mandatory regardless of when it happens, so doing it this early costs nothing extra. If the
-        // candidate is missing a component type any currently-open scene's own ComponentDeps.txt
-        // declares it needs, the candidate is discarded (FreeLibrary'd) and this function returns
-        // immediately - NOTHING else below has run yet, so the OLD generation (if any) is completely
-        // untouched, still fully loaded and running. See RenderReloadCompatibilityModal (below) for
-        // what happens next (a confirm choice the user makes on a later frame).
-        //
-        // NextGeneration is captured HERE, before UnloadGamePlugin (below) resets Plugin.m_Token -
-        // incidental fix to what was previously always effectively "generation 1" every single reload
-        // (the old single-step LoadGamePluginComponents call computed Plugin.m_Token.m_Generation + 1
-        // AFTER Unload had already zeroed m_Token) - moving the candidate-prep earlier means this now
-        // has to be captured earlier too, and capturing it against the REAL current generation is the
-        // more obviously correct behavior, not a deliberate design change in its own right.
-        const std::uint32_t NextGeneration = Plugin.m_Token.m_Generation + 1;
-        game_plugin_candidate Candidate;
-        if (bSwapDll)
-        {
-            Candidate = PrepareGamePluginCandidate(Plugin.m_CompiledDllPath, NextGeneration);
-            if (Candidate.m_hModule)
-            {
-                const auto CandidateManifest = ProbeCandidateComponents(Candidate);
-                // An older-generation DLL missing the E29_GetComponentDisplayInfo export can't be
-                // checked at all - proceed exactly as before this feature existed, best-effort.
-                if (!CandidateManifest.empty())
-                {
-                    std::unordered_set<std::uint64_t> Available;
-                    for (auto& D : CandidateManifest) Available.insert(D.m_Guid.m_Value);
-
-                    // Scope the check to ONLY components the plugin itself is responsible for - a
-                    // scene's own manifest also lists host built-ins (Name, Transform, ...), which
-                    // E29_GetComponentDisplayInfo's self-registration list never claims at all (they're
-                    // registered directly by RegisterHostComponents in the HOST binary, not by any
-                    // Game.dll generation) - checking THOSE against a candidate's manifest would always
-                    // show them "missing" regardless of whether anything actually changed. The OLD
-                    // generation (still fully loaded here - nothing has been touched yet) is asked the
-                    // SAME question a candidate is: which guids does IT self-register - that's the
-                    // authoritative "this guid is the plugin's responsibility, not the host's" set,
-                    // confirmed live (this exact gap was caught live: an unfiltered check flagged 7-8
-                    // "missing" components after removing just one).
-                    game_plugin_candidate OldGenerationView{ Plugin.m_hModule, {} };
-                    std::unordered_set<std::uint64_t> PluginOwned;
-                    for (auto& D : ProbeCandidateComponents(OldGenerationView)) PluginOwned.insert(D.m_Guid.m_Value);
-
-                    std::vector<xecs::scene::component_dependency> Required;
-                    for (auto& SceneGuid : State.m_OpenScenes)
-                        for (auto& Dep : xecs::scene::LoadSceneComponentDependencies(ProjectPath, SceneGuid))
-                            if (PluginOwned.contains(Dep.m_Guid.m_Value))
-                                Required.push_back(Dep);
-
-                    auto Missing = CheckComponentCompatibility(Required, [&](xecs::component::type::guid Guid) noexcept
-                    {
-                        return Available.contains(Guid.m_Value);
-                    });
-
-                    if (!Missing.empty())
-                    {
-                        LogGamePlugin(std::format("Game.dll: reload blocked - {} component type(s) referenced by open scenes are missing from the new build", Missing.size()));
-                        DiscardGamePluginCandidate(Candidate);
-                        g_PendingReloadCompatibility = pending_reload_compatibility{ std::move(Missing) };
-                        return false;
-                    }
-                }
-            }
-        }
-
-        // Captured BEFORE the destroy, only for the Vn bridge - see CaptureOpenScenes/
-        // ReattachOpenScenes's own comment for why this is safe with zero translation (entity IDs
-        // round-trip identical through the raw snapshot). Empty for every other PersistMode.
-        auto CapturedScenes = (PersistMode == persist_mode::RawSnapshotBridge)
-            ? CaptureOpenScenes(*pGameMgr, State)
-            : std::vector<std::unique_ptr<xecs::scene::instance>>{};
-
-        switch (PersistMode)
-        {
-        case persist_mode::RawSnapshotBridge: SaveSnapshot(*pGameMgr, GetReloadBridgeSnapshotPath()); break;
-        case persist_mode::RestoreFromV1:     /* nothing worth saving */                              break;
-        }
-
-        const bool bHadPlugin = Plugin.isLoaded();
-
-        // Destroy the entire runtime world FIRST - by the time UnloadGamePlugin's own
-        // UnregisterPlugin(Token) call (or, for a non-DLL-swap reload, the plain
-        // xecs::component::mgr::resetRegistrations() below) resets the shared component registry,
-        // nothing still depends on any current BitID assignment (see xecs_component_mgr.h's own
-        // comment on UnregisterPlugin for exactly why that ordering is what makes a full reset
-        // correct here).
-        pGameMgr.reset();
-
-        if (bSwapDll)
-        {
-            if (bHadPlugin) UnloadGamePlugin(Plugin);
-            else             xecs::component::mgr::resetRegistrations();
-        }
-        else
-        {
-            // No DLL swap - the module (if any) stays loaded exactly as it is; only the registry
-            // needs resetting so the fresh instance below has a blank slate to register into.
-            xecs::component::mgr::resetRegistrations();
-        }
-
-        pGameMgr = std::make_unique<xecs::game_mgr::instance>();
-
-        RegisterHostComponents(*pGameMgr);
-
-        const bool bLoaded = bSwapDll
-            ? CommitGamePluginCandidate(*pGameMgr, Plugin, Candidate, NextGeneration)
-            : (ReregisterAlreadyLoadedPlugin(*pGameMgr, Plugin), Plugin.isLoaded());
-
-        RegisterHostSystems(*pGameMgr);
-        RegisterGamePluginSystems(*pGameMgr, Plugin);
-
-        pGameMgr->m_SceneMgr.m_ProjectPath  = ProjectPath;
-        pGameMgr->m_LevelMgr.m_ProjectPath  = ProjectPath;
-        pGameMgr->m_PrefabMgr.m_ProjectPath = ProjectPath;
-        pGameMgr->m_SystemMgr.m_ProjectPath = ProjectPath;
-        if (auto Err = pGameMgr->m_SystemMgr.Load(); Err)
-            xeditor::NotifyError(std::format("Failed to load System Registry order: {}", Err.getMessage()));
-
-
-        InspectorBridge.RegisterCallbacks(EntityInspector, *pGameMgr, State, Undo);
-
-        // State.m_SelectedEntity is the only RUNTIME handle here (m_GlobalInfoIndex/m_Validation -
-        // meaningless once pGameMgr.reset() destroyed the world it indexed into). Everything else
-        // E29 tracks selection with (m_SelectedEntityId, m_SelectedEntityScene,
-        // m_MultiSelectedEntityIds/Order, m_MultiSelectScene) is already a STABLE identity
-        // (permanent_id / scene guid) - cleared here, then RE-RESOLVED below once the scene has been
-        // repopulated, via the scene's own m_LocalToRuntime (the exact same permanent_id -> live-
-        // handle lookup every other entity-migrating code path in this Kit already relies on).
-        State.m_SelectedEntity        = {};
-        State.m_bEntityInspectorDirty = true;
-
-        if (PersistMode == persist_mode::RawSnapshotBridge)
-        {
-            LoadSnapshot(*pGameMgr, GetReloadBridgeSnapshotPath());
-            // Reattach the Scenes captured before the destroy - see CaptureOpenScenes/
-            // ReattachOpenScenes's own comment for why zero translation is needed (entity IDs
-            // round-trip identical through the raw snapshot). Repopulates State.m_OpenScenes'
-            // worth of Scene objects (folders, entities, everything) so the Level tree survives a
-            // mid-play reload intact, not just once Stop runs.
-            ReattachOpenScenes(*pGameMgr, std::move(CapturedScenes));
-
-            // The Level tree itself is gated on GameMgr.m_LevelMgr.Find(State.m_CurrentLevel) - a
-            // SEPARATE manager from m_SceneMgr, ALSO destroyed by pGameMgr.reset() above, and the
-            // reattached Scenes above don't touch it at all. Unlike a Scene, a Level holds no runtime
-            // entity state whatsoever (just its own name + a list of member Scene guids - see
-            // xecs_level.h's own instance struct) - a cheap descriptor-only disk read (Load, NOT
-            // Activate - Activate would re-run EnsureLoaded on every member Scene, re-loading
-            // entities from disk and clobbering the live, just-reattached Scene objects above) is
-            // all it needs, and is exactly what was missing: without this, GameMgr.m_LevelMgr.Find()
-            // returned nullptr and RenderLevelTreePanel rendered nothing at all - visually identical
-            // to a genuinely empty tree, even though the Scenes/entities themselves were fine.
-            if (!State.m_CurrentLevel.empty())
-                pGameMgr->m_LevelMgr.Load(State.m_CurrentLevel);
-        }
-        else if (!State.m_CurrentLevel.empty())
-        {
-            // Only persist_mode::RestoreFromV1 (Stop) ever lands here now - the only other mode,
-            // RawSnapshotBridge, is caught by the `if` above. V1 IS a real disk save (see
-            // persist_mode's own comment), so "reload from disk" already means "reload V1" for Stop;
-            // nothing extra to build. This is what correctly restores the Level tree exactly as it
-            // was before Play - entities that died or got created (into the default folder) during
-            // the play session are discarded, matching Unity's own Play/Stop semantics.
-            OpenLevel(*pGameMgr, State, xresource::full_guid{ State.m_CurrentLevel.m_Instance, State.m_CurrentLevel.m_Type });
-        }
-
-        LogWorldEntityCount(*pGameMgr, PersistMode == persist_mode::RawSnapshotBridge ? "Vn restore" : "V1/disk restore");
-
-        // Re-resolve the selection against the freshly reloaded scene. The common case - nothing
-        // about this specific entity changed, only the runtime world it lives in was rebuilt -
-        // picks selection (and the Entity Properties panel) back up right where it was; if the
-        // entity is genuinely gone (e.g. deleted on disk since the last save, or no Scene was
-        // reopened at all - the raw-snapshot case above), this falls back to no selection rather
-        // than holding a permanent_id that no longer resolves to anything.
-        if (State.m_SelectedEntityId != xecs::scene::invalid_permanent_id_v)
-        {
-            if (auto* pScene = pGameMgr->m_SceneMgr.Find(State.m_SelectedEntityScene))
-            {
-                if (auto It = pScene->m_LocalToRuntime.find(State.m_SelectedEntityId); It != pScene->m_LocalToRuntime.end())
-                    State.m_SelectedEntity = It->second;
-                else
-                    State.m_SelectedEntityId = xecs::scene::invalid_permanent_id_v;
-            }
-            else
-            {
-                State.m_SelectedEntityId = xecs::scene::invalid_permanent_id_v;
-            }
-        }
-
-        return bLoaded;
-    }
 
     //---------------------------------------------------------------------------
     // Walks every currently open scene's own live entities, finds every one that actually HAS one of
@@ -848,63 +603,6 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
         }
     }
 
-    //---------------------------------------------------------------------------
-    // The "Stop" button's own handler - always discards whatever a play session did (including any
-    // mid-play raw-snapshot reloads along the way - see RebuildWorld's own comment) in favor of a
-    // proper, fully correct reload from the last real disk save (the one Play itself made on the way
-    // in - see the Play button's own handler in E29_LevelScene_Editor.cpp). No DLL swap here: Stop
-    // doesn't imply a code change, so the currently loaded generation is re-registered in place
-    // (bSwapDll=false) rather than paying for an unload/reload cycle it doesn't need.
-    //
-    // KeepCommands is whatever RequestStop/the confirmation modal already decided (empty = nothing to
-    // keep, the common case) - JumpTo() properly Undoes every play-session entry off the still-live
-    // pre-Stop world (cheap - about to be replaced anyway) BEFORE it's replaced, then the usual V1/
-    // OpenLevel restore runs unchanged, then TruncateRedoBranch() guarantees the stale play-session
-    // tail is gone from history even when KeepCommands is empty (without it, those entries would sit
-    // Redo()-able, reopening the exact "Ctrl+Z/Redo after Stop gets weird" hazard this whole pass
-    // exists to close) - and only then are the kept commands replayed, as brand-new SetProperty calls
-    // against the just-restored scene (prefab-override bookkeeping included, same as any manual edit).
-    //
-    // Reapplied as ONE grouped command (RunGroup, E29_CommandContext.h - the exact same "N sub-
-    // commands, one history entry" primitive multi-item asset Delete/Paste already uses), not one
-    // Run() per property - direct user correction: the user's own "yes, keep these" answer is itself
-    // one decision, so undoing it should be one Ctrl+Z, not N separate steps to peel back one property
-    // at a time. Stop itself (the Playing->Stopped transition) still isn't undo-routed - same
-    // "transport state, not scene content" reasoning stop_query_cmd's own comment already gives - only
-    // the merged property VALUES are.
-    //---------------------------------------------------------------------------
-    template< typename T_REGISTER_HOST_COMPONENTS_FN, typename T_REGISTER_HOST_SYSTEMS_FN >
-    void StopPlaySession
-    ( std::unique_ptr<xecs::game_mgr::instance>&  pGameMgr
-    , editor_state&                               State
-    , game_plugin_state&                          Plugin
-    , xproperty::inspector&                       EntityInspector
-    , entity_inspector_bridge&                    InspectorBridge
-    , const std::wstring&                         ProjectPath
-    , T_REGISTER_HOST_COMPONENTS_FN&&              RegisterHostComponents
-    , T_REGISTER_HOST_SYSTEMS_FN&&                 RegisterHostSystems
-    , const std::vector<std::string>&              KeepCommands
-    ) noexcept
-    {
-        auto& Undo = LevelDocUndo();
-        Undo.JumpTo(State.m_PlayHistoryBoundary);
-
-        pGameMgr->Stop();
-        RebuildWorld
-        ( pGameMgr, State, Plugin, EntityInspector, InspectorBridge, Undo, ProjectPath
-        , RegisterHostComponents, RegisterHostSystems
-        , /*bSwapDll*/ false, persist_mode::RestoreFromV1
-        );
-
-        Undo.TruncateRedoBranch();
-        if (const auto Surviving = FilterSurvivingTargets(*pGameMgr, KeepCommands); !Surviving.empty())
-        {
-            [[maybe_unused]] const bool bAllApplied = xeditor::RunGroup(Undo, "Keep Play Mode Changes", Surviving);
-        }
-
-        State.m_PlayState = editor_state::play_state::Stopped;
-        xeditor::host::current()->end_play(&State);
-    }
 
     //---------------------------------------------------------------------------
     // Step 2 of 2 - call once per frame, at a clean frame boundary (BEFORE BeginRendering, never
@@ -923,29 +621,19 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
     // point, and Play just keeps ticking the SAME live world (no reason to tear anything down over a
     // check that found nothing to do).
     //
-    // On Rebuilt: runs the full destroy/recreate/DLL-swap sequence via RebuildWorld, always via the
+    // On Rebuilt: runs the full destroy/recreate/DLL-swap sequence via ReloadGameModule, always via the
     // raw in-memory snapshot bridge (persist_mode::RawSnapshotBridge) regardless of Play state - see
     // persist_mode's own comment for why this reload never touches disk on its own anymore. If a Play
     // was ALSO requested (the user pressed Play while a rebuild happened to be needed), enters play
     // directly afterward - but MUST write V1 explicitly here (see below), since the reload itself no
     // longer does that as a side effect the way the old DiskSaveAndReload mode used to.
     //---------------------------------------------------------------------------
-    template< typename T_REGISTER_HOST_COMPONENTS_FN, typename T_REGISTER_HOST_SYSTEMS_FN >
-    bool PollGameReload
-    ( std::unique_ptr<xecs::game_mgr::instance>&  pGameMgr
-    , editor_state&                               State
-    , game_plugin_state&                          Plugin
-    , xproperty::inspector&                       EntityInspector
-    , entity_inspector_bridge&                    InspectorBridge
-    , const std::wstring&                         ProjectPath
-    , T_REGISTER_HOST_COMPONENTS_FN&&              RegisterHostComponents  // (xecs::game_mgr::instance&) noexcept - e.g. registers e29::name/transform/etc
-    , T_REGISTER_HOST_SYSTEMS_FN&&                 RegisterHostSystems     // (xecs::game_mgr::instance&) noexcept - e.g. registers e29::tick_logger_a/b
-    ) noexcept
+    template< typename T_REGISTER_HOST_COMPONENTS_FN >
+    bool PollGameReload( editor_state& State, game_plugin_state& Plugin, T_REGISTER_HOST_COMPONENTS_FN&& RegisterHostComponents ) noexcept
     {
         if (!Plugin.m_bBuilding) return false;
         if (Plugin.m_BuildFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
 
-        auto& Undo = LevelDocUndo();
         const build_result Result = Plugin.m_BuildFuture.get();
         Plugin.m_bBuilding = false;
 
@@ -960,22 +648,18 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
             if (State.m_bPlayRequested)
             {
                 State.m_bPlayRequested = false;
-                EnterPlaying(*pGameMgr, State);
+                EnterPlaying(*FindWorld(), State);
             }
             return false;
         }
 
         // Result == build_result::Rebuilt
-        const bool bLoaded = RebuildWorld
-        ( pGameMgr, State, Plugin, EntityInspector, InspectorBridge, Undo, ProjectPath
-        , RegisterHostComponents, RegisterHostSystems
-        , /*bSwapDll*/ true, persist_mode::RawSnapshotBridge
-        );
+        const bool bLoaded = ReloadGameModule(Plugin, RegisterHostComponents);
 
         if (State.m_bPlayRequested)
         {
             State.m_bPlayRequested = false;
-                EnterPlaying(*pGameMgr, State);
+                EnterPlaying(*FindWorld(), State);
         }
 
         return bLoaded;

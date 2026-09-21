@@ -128,6 +128,10 @@ class Editor:
         if not self.alive():
             self.start()
 
+    def log_text(self) -> str:
+        """Everything the editor process has printed so far (its stdout is redirected to this run's log file)."""
+        return (self.log_dir / f"editor_{self.launches}.log").read_text(errors="replace")
+
     def describe_exit(self) -> str:
         code = self.exit_code()
         return "running" if code is None else f"{code & 0xFFFFFFFF:#010x}"

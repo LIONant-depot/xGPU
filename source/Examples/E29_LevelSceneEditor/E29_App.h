@@ -535,6 +535,16 @@ namespace e29
         void DrawDrawerTab(int TabIndex);
         void WireAssetBrowser();
 
+        // this editor's world (see E29_AppWorld.h)
+        void CreateWorld();
+        void RestoreWorld(persist_mode PersistMode);
+        void StopPlay(const std::vector<std::string>& KeepCommands);
+        void CollectRequiredComponents(std::vector<xecs::scene::component_dependency>& Out);
+        void BeforeReload();
+        void AfterReload();
+
+        std::vector<std::unique_ptr<xecs::scene::instance>> m_ReloadCapture;   // scenes held across a Game.dll reload
+
         int  Init();       // 0 on success, otherwise the process exit code
         void Frame();      // one iteration of the main loop
         void Run();        // Frame() until the window closes

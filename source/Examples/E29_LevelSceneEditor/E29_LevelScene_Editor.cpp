@@ -1,6 +1,7 @@
 #include "source/Examples/E29_LevelSceneEditor/E29_App.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_AppInit.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_AppFrame.h"
+#include "source/Examples/E29_LevelSceneEditor/E29_AppWorld.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_AppToolbars.h"
 #include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_AppAssetBrowser.h"
 

@@ -111,19 +111,7 @@ namespace e29
 
 
 
-        e29::PollGameReload
-
-
-
-        ( pGameMgr, State, GamePlugin, EntityInspector, InspectorBridge, ProjectPath
-
-
-
-        , RegisterHostComponents, RegisterHostSystems
-
-
-
-        );
+        e29::PollGameReload(State, GamePlugin, RegisterHostComponents);
 
 
 
@@ -211,23 +199,7 @@ namespace e29
 
 
 
-            e29::StopPlaySession
-
-
-
-            ( pGameMgr, State, GamePlugin, EntityInspector, InspectorBridge, ProjectPath
-
-
-
-            , RegisterHostComponents, RegisterHostSystems
-
-
-
-            , State.m_PendingKeepTweaksCommands
-
-
-
-            );
+            StopPlay(State.m_PendingKeepTweaksCommands);
 
 
 
