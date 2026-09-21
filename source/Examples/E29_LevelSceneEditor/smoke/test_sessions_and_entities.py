@@ -52,3 +52,8 @@ def test_property_edit_undo_redo(level):
     assert level.ed.property_value(level.name, level.scene, entity, path) == "0.000000"
     level.cmd("Redo")
     assert level.ed.property_value(level.name, level.scene, entity, path) == "5.000000"
+
+
+def test_sanity_scan_runs_as_an_idle_task(editor, level):
+    assert "scanning" in editor.cmd("RunSanityCheck")
+    editor.wait_for("GetIdleTasks", r"(Done|Cancelled)\s+Scene Sanity Scan", timeout=30)

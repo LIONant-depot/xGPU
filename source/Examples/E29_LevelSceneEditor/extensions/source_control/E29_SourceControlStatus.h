@@ -3,7 +3,7 @@
 #pragma once
 
 // Source Control ACTIVE side - the idle-triggered refresh that actually talks to a real git/LFS
-// provider. Mirrors extensions/idle_work/E29_IdleWork.h's own LaunchSceneSanityScan shape exactly: a synchronous scan
+// provider. Mirrors extensions/idle_work/E29_SceneSanityScan.h's LaunchSceneSanityScan shape exactly: a synchronous scan
 // function that takes plain data only (never a live mgr&), dispatched through xscheduler::g_System
 // rather than a raw thread, guarded against overlapping scans of the SAME library root. See
 // source_control_abstraction_spec_v1_3.md, Part IV, "Status refresh -> Idle Work".
@@ -19,7 +19,8 @@
 // One GitLfsWorkspaceSession per open library, lazily created and Connect()'d on first use, kept
 // alive for the life of the process - git/git-lfs subprocess calls are cheap enough per-call that
 // there's no real teardown need before the app exits.
-#include "source/Examples/E29_LevelSceneEditor/extensions/idle_work/E29_IdleWork.h"
+#include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
+#include "dependencies/xscheduler/source/xscheduler.h"
 #include "dependencies/xsource_control/source/sc_git_lfs_provider.hpp"
 #include "dependencies/xresource_pipeline_v2/source/editor/E10_SourceControlCache.h"
 #include <atomic>
@@ -237,7 +238,7 @@ namespace e29::source_control
     // Guarded per (root, chunk) rather than just per root - the "views" and "all" chunks for the SAME
     // root are meant to run concurrently (that's the whole point of splitting them), so the old
     // per-root-only guard would have made the second chunk's launch a no-op while the first was still
-    // running. Same shape as E29_IdleWork.h's own ScenesBeingScanned otherwise - a real GetStatus call
+    // running. Same shape as E29_SceneSanityScan.h's ScenesBeingScanned otherwise - a real GetStatus call
     // is not instant, so a second idle period firing before a chunk's own scan finished must be
     // skipped, not queued on top of it.
     inline std::mutex& ScanningMutex() noexcept { static std::mutex M; return M; }
@@ -269,13 +270,13 @@ namespace e29::source_control
         const auto T0 = std::chrono::steady_clock::now();
         std::printf("[SC] scan START chunk=%ls\n", Key.c_str()); std::fflush(stdout);
 
-        const auto TaskId = e29::BeginIdleTask("Source Control Status", xstrtool::To(RootPath) + " [" + xstrtool::To(ChunkTag) + "]");
+        const auto TaskId = xeditor::BeginIdleTask("Source Control Status", xstrtool::To(RootPath) + " [" + xstrtool::To(ChunkTag) + "]");
 
         xscheduler::g_System.SubmitLambda( xscheduler::str_v<"IdleWork_SourceControlStatus">
         , [RootPath, Key, TaskId, T0, Pathspecs = std::move(Pathspecs), CoveredPrefixes = std::move(CoveredPrefixes), bIncludeLocks]() mutable noexcept
         {
             const auto Count = ScanLibraryStatusChunk(RootPath, std::move(Pathspecs), std::move(CoveredPrefixes), bIncludeLocks);
-            e29::EndIdleTask(TaskId, e29::idle_task_status::Done, std::format("{} changed file(s)", Count));
+            xeditor::EndIdleTask(TaskId, xeditor::idle_task_status::Done, std::format("{} changed file(s)", Count));
 
             const auto Ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - T0).count();
             std::printf("[SC] scan END   chunk=%ls (%.1f ms)\n", Key.c_str(), Ms); std::fflush(stdout);
@@ -323,20 +324,6 @@ namespace e29::source_control
             , xscheduler::priority::LOW);
     }
 
-    // Own idle-period gating, independent of PumpIdleWork's own m_bTriggeredThisIdlePeriod flag -
-    // this file can't include extensions/idle_work/E29_IdleWork.h's own consumer back into it (E29_IdleWork.h is a
-    // shared, no-plugin-dependency file by design), so PumpIdleWork's own trigger state can't be
-    // reused directly. Instead this remembers the m_LastActivityTime value it last fired for and
-    // compares against the CURRENT one: NotifyActivity only ever changes m_LastActivityTime on real
-    // activity, so "the value changed since we last fired" is exactly "a new idle period began" -
-    // read-only, no mutation of the shared idle_work_state, so call ordering relative to
-    // PumpIdleWork itself doesn't matter.
-    inline std::chrono::steady_clock::time_point& LastHandledActivityBaseline() noexcept
-    {
-        static std::chrono::steady_clock::time_point T{}; // epoch - "never fired yet"
-        return T;
-    }
-
     // Scans any library that has NEVER been scanned yet, immediately - independent of the 30-second
     // idle gate below. Direct user report (2026-09-17): "the system seems to wait to begin working...
     // only when I click the asset view and choose a folder is when it starts working. That should
@@ -356,20 +343,11 @@ namespace e29::source_control
         }
     }
 
-    // Called once per frame, alongside PumpIdleWork (E29_LevelScene_Editor.cpp's own per-frame
-    // pumps) - one status scan per currently open library, once per idle-period transition. Every
-    // entry in e10::g_LibMgr.m_mLibraryDB is, by definition, open - no separate "which libraries are
-    // open" tracking needed here, unlike PumpIdleWork's own State.m_OpenScenes (scenes are
-    // opened/closed independently of their library).
-    inline void PumpSourceControlIdleWork(const e29::idle_work_state& IdleState) noexcept
+    // The idle task (xeditor::idle_work::m_OnRun): once per idle period, one status scan per open library. Every entry in
+    // e10::g_LibMgr.m_mLibraryDB is, by definition, open. "Run Now" is about the scene scan, so a manual run skips it.
+    inline void ScanAllLibrariesWhenIdle(bool bManual) noexcept
     {
-        ScanNewlyOpenedLibraries();
-
-        const double SecondsIdle = std::chrono::duration<double>(std::chrono::steady_clock::now() - IdleState.m_LastActivityTime).count();
-        if (SecondsIdle < e29::idle_threshold_seconds_v) return;
-        if (LastHandledActivityBaseline() == IdleState.m_LastActivityTime) return; // already handled this idle period
-
-        LastHandledActivityBaseline() = IdleState.m_LastActivityTime;
+        if (bManual) return;
         for (auto& Lib : e10::g_LibMgr.m_mLibraryDB)
             LaunchSourceControlStatusScan(Lib.second->m_Library.m_Path);
     }

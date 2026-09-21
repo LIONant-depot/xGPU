@@ -627,7 +627,7 @@ namespace e29
 
             case 3:
 
-                e29::RenderIdleWorkPanel(IdleWork, pGameMgr.get(), State, /*bEmbedded*/ true);
+                xeditor::RenderIdleWorkPanel(EditorHost.m_IdleWork, pGameMgr && !State.m_OpenScenes.empty());
 
                 break;
 

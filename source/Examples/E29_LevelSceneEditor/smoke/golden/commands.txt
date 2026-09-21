@@ -11,6 +11,7 @@ CreateLibrary
 DeleteAsset
 DeleteAssetFileToTrash
 DescribeAsset
+GetIdleTasks
 GetLog
 GetPlayState
 ListAssets

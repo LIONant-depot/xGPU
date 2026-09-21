@@ -135,7 +135,7 @@ namespace e29
 
 
 
-        // parameter into PumpCommandConsolePipe itself) is how Idle Work (extensions/idle_work/E29_IdleWork.h) learns a
+        // parameter into PumpCommandConsolePipe itself) is how Idle Work (xeditor/idle_work.h) learns a
 
 
 
@@ -159,7 +159,7 @@ namespace e29
 
 
 
-            e29::NotifyActivity(IdleWork);
+            EditorHost.m_IdleWork.NotifyActivity();
 
 
 
@@ -275,7 +275,7 @@ namespace e29
 
 
 
-        if (e29::DetectUserInputActivity())
+        if (xeditor::DetectUserInputActivity())
 
 
 
@@ -283,11 +283,11 @@ namespace e29
 
 
 
-            e29::NotifyActivity(IdleWork);
+            EditorHost.m_IdleWork.NotifyActivity();
 
 
 
-            e29::RequestIdleWorkCancel();
+            xeditor::RequestIdleWorkCancel();
 
 
 

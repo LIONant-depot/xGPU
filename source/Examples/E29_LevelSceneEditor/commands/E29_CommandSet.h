@@ -91,6 +91,7 @@ namespace e29
         e29::commands::compile_auto_query_cmd            CmdCompileAuto;
         e29::commands::compile_status_query_cmd          CmdCompileStatus;
         e29::commands::run_sanity_check_query_cmd        CmdRunSanityCheck;
+        e29::commands::get_idle_tasks_query_cmd          CmdGetIdleTasks;
         e29::commands::source_control_status_query_cmd   CmdSourceControlStatus;
         e29::commands::source_control_depot_status_query_cmd CmdSourceControlDepotStatus;
         e29::commands::source_control_refresh_query_cmd  CmdSourceControlRefresh;
@@ -185,6 +186,7 @@ namespace e29
         , CmdCompileAuto(Workspace, pContext)
         , CmdCompileStatus(Workspace, pContext)
         , CmdRunSanityCheck(Workspace, pContext)
+        , CmdGetIdleTasks(Workspace, pContext)
         , CmdSourceControlStatus(Workspace, pContext)
         , CmdSourceControlDepotStatus(Workspace, pContext)
         , CmdSourceControlRefresh(Workspace, pContext)

@@ -256,7 +256,7 @@ namespace e29::commands
     //================================================================================================
     // SourceControlRefresh - manually kicks an immediate status scan, bypassing the idle gate. Same
     // "for testing/verification, and for an AI/script that wants one on demand" reasoning
-    // RunSanityCheck was built for (E29_IdleWork.h).
+    // RunSanityCheck was built for (E29_SceneSanityScan.h).
     //================================================================================================
     struct source_control_refresh_query_cmd : scene_query_command
     {

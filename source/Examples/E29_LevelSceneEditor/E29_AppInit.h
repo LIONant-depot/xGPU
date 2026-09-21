@@ -436,6 +436,8 @@ namespace e29
         EditorHost.m_OnBeforeEdit        = e29::TryGateLevelMutation;
         EditorHost.provide(CmdContext);
         EditorHost.provide(ChatLog);
+        EditorHost.m_IdleWork.m_OnRun.Register<&e29::scene_sanity_scanner::Run>(SceneScanner);
+        EditorHost.m_IdleWork.m_OnRun.Register<&e29::source_control::ScanAllLibrariesWhenIdle>();
         GamePlugin.m_Events.m_OnCollectRequiredComponents.Register<&app::CollectRequiredComponents>(*this);
         GamePlugin.m_Events.m_OnBeforeReload.Register<&app::BeforeReload>(*this);
         GamePlugin.m_Events.m_OnAfterReload.Register<&app::AfterReload>(*this);
@@ -578,9 +580,7 @@ namespace e29
             // Host service hooks (10.C.1.4): Idle Work + SC idle + Game.dll focus-reload.
         EditorHost.m_OnPumpServices = [&]() noexcept
         {
-            if (pGameMgr)
-                e29::PumpIdleWork(IdleWork, *pGameMgr, State);
-            e29::source_control::PumpSourceControlIdleWork(IdleWork);
+            e29::source_control::ScanNewlyOpenedLibraries();
         };
         EditorHost.m_OnFocusRegain = [&]() noexcept
         {

@@ -59,7 +59,7 @@
 
 #include "source/Examples/E29_LevelSceneEditor/level/E29_LevelDocument.h"
 
-#include "source/Examples/E29_LevelSceneEditor/extensions/idle_work/E29_IdleWork.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/idle_work/E29_SceneSanityScan.h"
 
 #include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_ComponentCompatibility.h"
 
@@ -332,10 +332,11 @@ namespace e29
 
         e29::editor_context     CmdContext{ State, pGameMgr, LevelHostSession.Undo() };
 
+        e29::scene_sanity_scanner SceneScanner{ CmdContext };
 
 
 
-        e29::idle_work_state                  IdleWork;
+
 
 
 

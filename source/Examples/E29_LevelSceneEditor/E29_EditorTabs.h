@@ -26,7 +26,6 @@ namespace e29::editor_tabs
     inline constexpr char kLevelTreeWindow[] = "Level Tree###E29.LevelEditor.LevelTree";
      inline constexpr char kInspectorWindow[] = "Inspector###E29.LevelEditor.Inspector";
     inline constexpr char kSystemRegistryWindow[] = "System Registry###E29.LevelEditor.SystemRegistry";
-    inline constexpr char kIdleWorkWindow[] = "Idle Work###E29.LevelEditor.IdleWork";
     inline constexpr char kGamePluginLogWindow[] = "\xEE\x9F\x83 Log###E29.LevelEditor.GamePluginLog";
     inline constexpr char kCommandConsoleWindow[] = "\xEE\xA3\xBD Commands###E29.LevelEditor.CommandConsole";
     inline constexpr char kSourceControlWindow[] = "Source Control###E29.LevelEditor.SourceControl";

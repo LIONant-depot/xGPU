@@ -833,7 +833,7 @@ namespace e29
     }
 
     // Aggregates GetAllPendingChanges across EVERY currently open library - "whole project" scope.
-    // Same e10::g_LibMgr.m_mLibraryDB iteration idiom PumpSourceControlIdleWork already uses.
+    // Same e10::g_LibMgr.m_mLibraryDB iteration idiom ScanAllLibrariesWhenIdle already uses.
     inline std::vector<sc_panel_row> BuildSourceControlRows() noexcept
     {
         std::vector<sc_panel_row> Rows;
