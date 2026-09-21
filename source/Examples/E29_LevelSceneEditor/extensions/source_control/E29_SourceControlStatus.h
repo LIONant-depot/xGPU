@@ -20,7 +20,7 @@
 // alive for the life of the process - git/git-lfs subprocess calls are cheap enough per-call that
 // there's no real teardown need before the app exits.
 #include "source/Examples/E29_LevelSceneEditor/kit/E29_IdleWork.h"
-#include "source/Examples/E29_LevelSceneEditor/plugins/source_control/sc_git_lfs_provider.hpp"
+#include "dependencies/xsource_control/source/sc_git_lfs_provider.hpp"
 #include "source/Examples/E10_TextureResourcePipeline/E10_SourceControlCache.h"
 #include <atomic>
 #include <cwctype>

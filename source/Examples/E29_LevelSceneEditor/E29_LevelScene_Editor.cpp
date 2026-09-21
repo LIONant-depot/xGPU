@@ -103,7 +103,7 @@
 
 
 
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SourceControl.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/source_control/E29_Commands_SourceControl.h"
 
 
 
@@ -2493,7 +2493,7 @@ int E29_Example()
 
 
 
-    // plugins/source_control/E29_SourceControlStatus.h are - a lambda body referencing their
+    // extensions/source_control/E29_SourceControlStatus.h are - a lambda body referencing their
 
 
 

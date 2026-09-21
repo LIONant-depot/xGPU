@@ -1225,7 +1225,7 @@ namespace e10
         // every existing consumer (E10, E19-E21, E23-E25, E28) renders exactly as before. Takes the
         // REAL relative path (not the virtual descriptor guid) because status/locking are properties
         // of the real file on disk, resolved by whoever wires this up - today only E29
-        // (RegisterAssetBrowserCallbacks), backed by plugins/source_control/E29_SourceControlStatus.h.
+        // (RegisterAssetBrowserCallbacks), backed by extensions/source_control/E29_SourceControlStatus.h.
         // Two separate hooks, not one combined value - a file can be both modified AND locked by you
         // at once, and the lock signal must never be hidden by whichever status also happens to be
         // true (direct user design decision). See asset_status_badge/asset_lock_badge above.

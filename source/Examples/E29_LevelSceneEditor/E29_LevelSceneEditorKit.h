@@ -1541,6 +1541,6 @@ namespace e29
 #include "kit/E29_Panel_EntityProperties.h"
 #include "kit/E29_Panel_SystemRegistry.h"
 #include "kit/E29_Panel_CommandConsole.h"
-#include "kit/E29_Panel_SourceControl.h"
+#include "extensions/source_control/E29_Panel_SourceControl.h"
 
 #endif // E29_LEVEL_SCENE_EDITOR_KIT_H

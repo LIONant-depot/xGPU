@@ -14,7 +14,7 @@
 // Same self-sufficiency convention as every other kit/E29_Panel_*.h (see E29_Panel_LevelTree.h's own
 // top comment) - includes what it names rather than relying on a distant caller's include order.
 #include "source/Examples/E29_LevelSceneEditor/E29_EditorTabs.h"
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SourceControl.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/source_control/E29_Commands_SourceControl.h"
 #include "source/Examples/E10_TextureResourcePipeline/E10_SourceControlCache.h"
 #include <cmath>
 #include <unordered_set>

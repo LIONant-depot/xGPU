@@ -16,14 +16,9 @@
 // asset window has its mission and is completely different to the source control window", and the
 // real need was one centralized place every view queries on its own. This file is that place.
 //
-// sc::FileStatus/sc::LockInfo are defined in sc_iworkspace_session.hpp, which is physically parked
-// under E29_LevelSceneEditor/plugins/source_control/ pending a future move into a shared
-// extensions/plugins area (the whole sc:: layer was scoped there deliberately, see
-// source_control_abstraction_spec_v1_3.md's own "Status & scope" section) - the include below is a
-// purely physical path into that folder, not a logical dependency: the types themselves have zero
-// E29/ImGui symbols, and this whole codebase already builds as one xGPU_unit_test target, so there's
-// no separate per-example build boundary this crosses today.
-#include "source/Examples/E29_LevelSceneEditor/plugins/source_control/sc_iworkspace_session.hpp"
+// sc::FileStatus/sc::LockInfo come from the xsource_control depot (sc_iworkspace_session.hpp): headless types with
+// no editor or UI dependency, shared by every editor that shows source-control state.
+#include "dependencies/xsource_control/source/sc_iworkspace_session.hpp"
 #include <atomic>
 #include <chrono>
 #include <cwctype>

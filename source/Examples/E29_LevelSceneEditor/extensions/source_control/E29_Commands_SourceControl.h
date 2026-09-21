@@ -2,7 +2,7 @@
 #define E29_COMMANDS_SOURCE_CONTROL_H
 #pragma once
 
-// Source Control command/undo layer - Phase 2 of the plugins/source_control/ plan (see
+// Source Control command/undo layer - Phase 2 of the source-control plan (see
 // source_control_abstraction_spec_v1_3.md, Part IV, "Mutating operations -> E29's command bus").
 // Every command here is xundo::query_command_base, never xundo::command_base: Commit/Pull/Push are
 // real round trips to a server that already has its own history (git's own commit graph/revert/
@@ -16,7 +16,7 @@
 // with the CLI's own token splitting.
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetFiles.h" // EncodeAssetPath/DecodeAssetPath
-#include "source/Examples/E29_LevelSceneEditor/plugins/source_control/E29_SourceControlStatus.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/source_control/E29_SourceControlStatus.h"
 
 namespace e29
 {
