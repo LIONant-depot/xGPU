@@ -1,73 +1,64 @@
-# E29 CLI smoke harness
+# E29 smoke tests
 
-Thin Python (stdlib-only) driver for `E29CLI.exe`, which is a **named-pipe client** for a
-live E29 Level Scene Editor session:
-
-```text
-\\.\pipe\E29_LevelSceneEditor_Console
-```
-
-`E29CLI` does **not** launch the editor. Start `xGPU_unit_test` with the E29 example open
-(project auto-loads `example.lionprj` from the repo root), then run this harness.
-
-## Defaults
-
-| Item | Path |
-|------|------|
-| CLI | `<repo>\Build\xGPUExamples.vs2022\Debug\E29CLI.exe` |
-| Project | `<repo>\example.lionprj` |
-| Commands | `E29/Edit/...` and `E29/Query/...` (xundo `history::Route`) |
-
-## How to run
+Regression tests for the editor's **command surface** - the same commands the AI/CLI uses. They launch the
+real editor (`xGPU_unit_test.exe`), drive it through its Command Console pipe, and assert on replies.
 
 ```bat
+pip install pytest
 cd source\Examples\E29_LevelSceneEditor\smoke
-python run_smoke.py --list
-python run_smoke.py --dry-run
-python run_smoke.py removed_child
-python run_smoke.py removed_child_undo --var CHILD_ID=00000042 --var PI_ID=A1000001
-python run_smoke.py --cli D:\LIONant\xGPU\Build\xGPUExamples.vs2022\Debug\E29CLI.exe
+python -m pytest -q                     # all tests (~20 s), launches the Release build itself
+python -m pytest test_play.py -q        # one file
+python -m pytest -q --exe <path>        # a different build
+python -m pytest -q --update-golden     # accept a deliberate change to the command list
 ```
 
-Aliases: `removed_child` → `removed_child_persist`.
+Build first (`cmake --build Build\xGPUExamples.vs2022 --config Release --target xGPU_unit_test`), and close any
+running editor - the pipe (`\\.\pipe\xEditor_Console`) admits one server.
 
-### Fixture vars
+## How it works
 
-| Var | Default | Meaning |
-|-----|---------|---------|
-| `LEVEL` | `08C298C9F6668005` | `OpenLevel -Level` (override if ListLevels differs) |
-| `SCENE` | `08C298C9F6668005` | Scene guid for List/Delete/Instantiate |
-| `PREFAB` | `FFFF000200000001` | Prefab instance guid for InstantiatePrefab |
-| `ROOT_ID` | `A1000001` | Pre-minted root id for InstantiatePrefab |
-| `CHILD_ID` | *(required for real run)* | Child permanent_id under the PI to delete |
-| `PI_ID` | `ROOT_ID` | Prefab-instance root for DescribeEntity |
+| File | Role |
+|---|---|
+| `harness.py` | `Editor`: launches/kills the process, pipe client (stdlib `ctypes`, no CLI executable needed), typed helpers (`sessions()`, `entities()`, `describe()`, `wait_play_state()`, ...) |
+| `conftest.py` | fixtures. `editor` = one process for the run, restarted if a test kills it. `level` = the example project's first level opened **clean**, closed without saving afterwards. `_editor_alive` = a crash fails exactly the test that caused it, with the command and exit code |
+| `test_*.py` | the tests. Plain functions and `assert` |
+| `golden/commands.txt` | the expected workspace command names; a removed/added command fails until you `--update-golden` |
 
-Also overridable via env: `E29_SMOKE_LEVEL`, `E29_SMOKE_SCENE`, `E29_SMOKE_PREFAB`,
-`E29_SMOKE_CHILD`, `E29_SMOKE_PI`, `E29_SMOKE_INSTANCE_ROOT`.
+Command grammar: `<Command> ...` (workspace) or `<Session name>\<Command> ...` (`Main Level\CreateEntity ...`).
+**Edit** commands reply with an empty string on success; **query** commands reply with text; refusals are text.
+Property paths and values are **base64 of their text** (`b64("5.000000")`), not raw bytes.
 
-## How to add a scenario
+## Rules that keep the suite safe
 
-1. Create `scenarios/my_case.py` exporting `NAME`, `DESCRIPTION`, `STEPS`, optional `setup(runner)`.
-2. Register the module name in `scenarios/__init__.py` (`_MODULES`).
-3. Each step is a dict:
+The suite runs against the developer's real `example.lionprj`.
+
+- Tests never save. The harness raises `PermissionError` for commands that write project data (`Save`, `Create*`,
+  `Rename*`, source control, ...) unless the call passes `allow_disk=True`.
+- `Play` saves the open level first, so the harness refuses `Play`/`Step` while a session has unsaved edits. Create
+  test entities **after** the `Play` if you need both. Use the `level` fixture (clean) for any Play test.
+- Everything a test creates lives only in memory (`level.new_entity()` mints ids `7E57xxxx`) and is discarded by
+  `Close -Save 0` in the fixture teardown.
+- A test must not depend on fixed entity ids from the project; discover them (`level.find_with_component("Transform")`).
+
+## Writing a test
 
 ```python
-{
-  "name": "optional label",
-  "cmd": "E29/Query/Save",          # required (supports {VAR} formatting)
-  "expect_ok": True,                # default True — fail on nonzero exit / error-looking text
-  "expect": "Saved",                # optional substring
-  "expect_re": r"Opened Level|...", # optional regex
-  "expect_absent": "{CHILD_ID}",    # optional forbidden substring
-  "assert": callable,               # optional fn(result, runner)
-}
+def test_create_entity_undo_redo(level):
+    before = level.entities()
+    entity = level.new_entity()                     # Main Level\CreateEntity ... (must reply "")
+    assert entity in level.entities() and level.dirty()
+    assert level.cmd("Undo") == "Undone"
+    assert level.entities() == before
 ```
 
-## Notes
+## Known gaps (good next tests)
 
-- Edit commands return **empty** stdout on success; Query commands return a message.
-- Pipe is single-client; the runner invokes a fresh `E29CLI.exe` per step.
-- Do not kill other agents' `E29CLI` / editor processes if the pipe is busy — wait or
-  run `--dry-run` / `--list` only.
-- `--project` is recorded for future on-disk asserts; the live editor already opened
-  `example.lionprj` at startup from the exe path containing `xGPU`.
+- **Prefab overrides**: `RevertAllOverrides`, `RevertHierarchyOverrides`, `ApplyOverrides`, delete-child-under-instance and
+  undo. The previous harness had stubs for these that never ran (they needed a hand-set `CHILD_ID`); they need a prefab
+  instance discovered from the project (`ListEntities` / `DescribeEntity`).
+- **Components**: `AddComponent`/`RemoveComponent` undo, incompatible-component refusal.
+- **Scenes and folders**: `AddScene`/`RemoveScene`, `CreateFolder`/`DeleteFolder`/`MoveToFolder`, scene dependencies.
+- **Selection**: `Select`, `ToggleMultiSelect` (there is no query for the selection yet - add one).
+- **Robustness**: `SetProperty` with an unparseable `-Before`/`-After` **crashes the editor** (fast-fail inside the
+  property parser). Once it returns an error instead, add a test that it is refused with a message.
+- **Save gating**: `Save` refused during Play (needs `allow_disk=True` and care).
