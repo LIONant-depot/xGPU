@@ -111,7 +111,7 @@ namespace e29
 
 
 
-        e29::PollGameReload(State, GamePlugin, RegisterHostComponents);
+        e29::PollGameReload(CmdContext, GamePlugin, RegisterHostComponents);
 
 
 
@@ -371,7 +371,7 @@ namespace e29
                 [this]() { RenderParentEditorToolbar(); }, LevelTabName.c_str(), &Device, xecs::level::type_guid_v, LevelDockGuid, &bLevelTabOpen);
             if (!bLevelTabOpen)
             {
-                e29::RequestCloseLevel(*pGameMgr, State, LevelDocUndo());
+                e29::RequestCloseLevel(*pGameMgr, State, CmdContext.m_Undo);
                 State.m_bLevelEditorOpen =
                     State.m_bAwaitingSaveBeforeClose
                     || !State.m_CurrentLevel.empty()
@@ -421,7 +421,7 @@ namespace e29
 
 
 
-        e29::RenderKeepTweaksModal(State);
+        e29::RenderKeepTweaksModal(CmdContext);
 
 
 
@@ -429,7 +429,7 @@ namespace e29
 
 
 
-        e29::RenderSaveBeforeCloseModal(*pGameMgr, State, LevelDocUndo());
+        e29::RenderSaveBeforeCloseModal(*pGameMgr, State, CmdContext.m_Undo);
 
 
 
@@ -497,7 +497,7 @@ namespace e29
 
 
 
-            && e29::HasUnsavedDocumentChanges(State, LevelDocUndo()))
+            && e29::HasUnsavedDocumentChanges(State, CmdContext.m_Undo))
 
 
 
@@ -509,7 +509,7 @@ namespace e29
 
 
 
-            e29::MarkDocumentClean(State, LevelDocUndo());
+            e29::MarkDocumentClean(State, CmdContext.m_Undo);
 
 
 
@@ -565,11 +565,11 @@ namespace e29
 
 
 
-            if (ImGui::IsKeyPressed(ImGuiKey_Z) && !ImGui::GetIO().KeyShift) LevelDocUndo().Undo();
+            if (ImGui::IsKeyPressed(ImGuiKey_Z) && !ImGui::GetIO().KeyShift) CmdContext.m_Undo.Undo();
 
 
 
-            else if (ImGui::IsKeyPressed(ImGuiKey_Y) || (ImGui::IsKeyPressed(ImGuiKey_Z) && ImGui::GetIO().KeyShift)) LevelDocUndo().Redo();
+            else if (ImGui::IsKeyPressed(ImGuiKey_Y) || (ImGui::IsKeyPressed(ImGuiKey_Z) && ImGui::GetIO().KeyShift)) CmdContext.m_Undo.Redo();
 
 
 
@@ -747,7 +747,7 @@ namespace e29
 
 
 
-                if (e29::RequestOpenLevel(*pGameMgr, State, LevelDocUndo(), NewAsset, /*bStartGameReload*/ true))
+                if (e29::RequestOpenLevel(*pGameMgr, State, CmdContext.m_Undo, NewAsset, /*bStartGameReload*/ true))
 
 
 
@@ -759,7 +759,7 @@ namespace e29
 
 
 
-                e29::RequestOpenLevel(*pGameMgr, State, LevelDocUndo(), NewAsset, /*bStartGameReload*/ false);
+                e29::RequestOpenLevel(*pGameMgr, State, CmdContext.m_Undo, NewAsset, /*bStartGameReload*/ false);
 
 
 
@@ -799,7 +799,7 @@ namespace e29
 
 
 
-                if (e29::RequestOpenLevel(*pGameMgr, State, LevelDocUndo(), SelAsset, /*bStartGameReload*/ true))
+                if (e29::RequestOpenLevel(*pGameMgr, State, CmdContext.m_Undo, SelAsset, /*bStartGameReload*/ true))
 
 
 
@@ -811,7 +811,7 @@ namespace e29
 
 
 
-                e29::RequestOpenLevel(*pGameMgr, State, LevelDocUndo(), SelAsset, /*bStartGameReload*/ false);
+                e29::RequestOpenLevel(*pGameMgr, State, CmdContext.m_Undo, SelAsset, /*bStartGameReload*/ false);
 
 
 
@@ -892,7 +892,7 @@ namespace e29
 
 
 
-        e29::RenderLevelTreePanel(*pGameMgr, State, E29Undo, !bLevelWritable);
+        e29::RenderLevelTreePanel(CmdContext, E29Undo, !bLevelWritable);
 
 
 
@@ -908,7 +908,7 @@ namespace e29
 
 
 
-        if (e29::FlushPendingOpenLevelFromTree(*pGameMgr, State, LevelDocUndo()))
+        if (e29::FlushPendingOpenLevelFromTree(*pGameMgr, State, CmdContext.m_Undo))
 
 
 
@@ -924,7 +924,7 @@ namespace e29
 
 
 
-        e29::RenderEntityPropertiesPanel(*pGameMgr, State, EntityInspector, InspectorBridge, E29Undo, !bLevelWritable);
+        e29::RenderEntityPropertiesPanel(CmdContext, EntityInspector, InspectorBridge, !bLevelWritable);
 
 
 
@@ -1057,7 +1057,7 @@ namespace e29
 
         // Host services (Idle / Log / Commands / SC) live in the Host Drawer (Space).
 
-        e29::RenderReloadCompatibilityModal();
+        e29::RenderReloadCompatibilityModal(CmdContext);
 
 
 
@@ -1097,7 +1097,7 @@ namespace e29
 
 
 
-        LevelHostSession.Sync(EditorHost, State, pGameMgr.get());
+        LevelHostSession.Sync(EditorHost, State);
         e29::SyncOpenTextureEditorsToHost(EditorHost);
         e29::RenderOpenTextureEditors();
         // Host Drawer last so it stacks above Level/Texture peer windows (same OS window).

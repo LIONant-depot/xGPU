@@ -37,7 +37,7 @@ namespace e29::commands
         {
             // Same gate as the Ctrl+Z shortcut (E29_LevelScene_Editor.cpp) - a CLI/Console-driven
             // agent shouldn't be able to do what the UI itself refuses to do while Playing/Paused.
-            auto& State = get<e29_command_context>().m_State;
+            auto& State = get<editor_context>().m_State;
             if (State.isPlaying()) return "Undo: blocked while Play/Paused";
             const auto Before = m_System.GetUndoIndex();
             m_System.Undo();
@@ -52,7 +52,7 @@ namespace e29::commands
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
         {
-            auto& State = get<e29_command_context>().m_State;
+            auto& State = get<editor_context>().m_State;
             if (State.isPlaying()) return "Redo: blocked while Play/Paused";
             const auto Before = m_System.GetUndoIndex();
             m_System.Redo();
@@ -73,10 +73,10 @@ namespace e29::commands
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
         {
-            auto& State = get<e29_command_context>().m_State;
+            auto& State = get<editor_context>().m_State;
             if (State.isPlaying()) return "Save: blocked while Play/Paused";
             e29::SaveEverything(World(), State);
-            e29::MarkDocumentClean(State, e29::LevelDocUndo());
+            e29::MarkDocumentClean(State, EditorContext().m_Undo);
             return "Saved";
         }
     };
@@ -100,7 +100,7 @@ namespace e29::commands
         }
         std::string Query() noexcept override
         {
-            auto& State = get<e29_command_context>().m_State;
+            auto& State = get<editor_context>().m_State;
             if (State.isPlaying()) return "Close: blocked while Play/Paused";
             if (State.m_CurrentLevel.empty() && State.m_OpenScenes.empty())
                 return "Close: nothing open";
@@ -112,19 +112,19 @@ namespace e29::commands
                 SaveOverride = (S == "true" || S == "1");
             }
 
-            const bool bDirty = e29::HasUnsavedDocumentChanges(State, e29::LevelDocUndo());
+            const bool bDirty = e29::HasUnsavedDocumentChanges(State, EditorContext().m_Undo);
             if (bDirty && !SaveOverride.has_value())
                 return "Close: Level has unsaved changes; pass -Save 1 (save) or -Save 0 (discard)";
 
             if (bDirty && SaveOverride.value())
             {
                 e29::SaveEverything(World(), State);
-                e29::MarkDocumentClean(State, e29::LevelDocUndo());
-                e29::CloseLevel(World(), State, e29::LevelDocUndo());
+                e29::MarkDocumentClean(State, EditorContext().m_Undo);
+                e29::CloseLevel(World(), State, EditorContext().m_Undo);
                 return "Saved and closed";
             }
 
-            e29::CloseLevel(World(), State, e29::LevelDocUndo());
+            e29::CloseLevel(World(), State, EditorContext().m_Undo);
             return bDirty ? "Closed without saving" : "Closed";
         }
         xcmdline::parser::handle m_hSave;
@@ -145,7 +145,7 @@ namespace e29::commands
         }
         std::string Query() noexcept override
         {
-            auto& State = get<e29_command_context>().m_State;
+            auto& State = get<editor_context>().m_State;
             if (State.m_CurrentLevel.empty() && State.m_OpenScenes.empty())
                 return "SerializeRoundtrip: nothing open (open a Level first)";
 

@@ -2,15 +2,10 @@
 #define E29_COMMAND_CONTEXT_H
 #pragma once
 
-// e29_command_context - the "database" every E29 xundo command mutates, retrieved via
-// command_base::get<e29_command_context>(). Direct port of E27_NodeOS's own
+// The "database" every E29 xundo command mutates (the editor_context, core/E29_EditorState.h), retrieved via
+// command_base::get<editor_context>(). Direct port of E27_NodeOS's own
 // node_os_command_context/BackupSelection/RestoreSelection (Editor/NodeOS_CommandContext.h) - see
 // documentation/E29_LevelSceneEditor/command_undo_system_plan.md for the full phased plan this is step 1 of.
-//
-// One per editor: it holds that editor's state and a reference to the OWNER of its world. The world is destroyed and
-// recreated on every Game.dll reload, so the context must never hold a pointer to the world itself - it holds the
-// unique_ptr that owns it and reads through it each time (World()). Commands reach all of this through scene_command
-// (World(), State(), EditorContext()); helper functions take the context explicitly.
 //
 // Meant to be included after editor_state (and xeditor::NotifyError) are already defined -
 // via the kit umbrella (E29_LevelSceneEditorKit.h), or a caller that already includes it - same
@@ -24,36 +19,14 @@
 
 namespace e29::commands
 {
-    // One line of the Say/GetLog conversation (extensions/command_console/E29_Commands_Chat.h) - lets multiple AI/CLI
-    // clients talking to the same running E29 session leave messages for each other over the Command
-    // Console pipe. In-memory only, current session (matches E29Undo's own bAutoLoadSave=false choice
-    // - a fresh conversation each run), deliberately separate from ConsoleLog
-    // (extensions/command_console/E29_CommandConsolePipe.h, phase 5) - that log is command-dispatch echo/result text,
-    // this one is purely a conversation transcript, so GetLog doesn't have to filter dispatch noise
-    // out of what it returns.
-    struct chat_message
-    {
-        std::string m_From;
-        std::string m_Text;
-    };
-
-    struct e29_command_context
-    {
-        editor_state&                              m_State;
-        std::unique_ptr<xecs::game_mgr::instance>& m_pWorld;    // this editor's world; recreated on a Game.dll reload, so held by its owner
-        std::vector<chat_message>                  m_ChatLog;
-
-        xecs::game_mgr::instance& World() noexcept { return *m_pWorld; }
-    };
-
     // Every scene command reaches its editor's world and state through its command context: World() and State().
     template<typename T_BASE>
     struct scene_command_mixin : T_BASE
     {
         using T_BASE::T_BASE;
-        xecs::game_mgr::instance& World() noexcept { return this->template get<e29_command_context>().World(); }
-        editor_state&             State() noexcept { return this->template get<e29_command_context>().m_State; }
-        e29_command_context&      EditorContext() noexcept { return this->template get<e29_command_context>(); }
+        xecs::game_mgr::instance& World() noexcept { return this->template get<editor_context>().World(); }
+        editor_state&             State() noexcept { return this->template get<editor_context>().m_State; }
+        editor_context&      EditorContext() noexcept { return this->template get<editor_context>(); }
     };
     using scene_command       = scene_command_mixin<xundo::command_base>;
     using scene_query_command = scene_command_mixin<xundo::query_command_base>;
@@ -66,7 +39,7 @@ namespace e29::commands
     // standing rule of never carrying a raw runtime handle across a boundary where the world could
     // have changed underneath it - an Undo/Redo step is exactly such a boundary, potentially long
     // after the entity in question was last touched.
-    inline void BackupSelection(e29_command_context& Ctx, xundo::undo_file& File) noexcept
+    inline void BackupSelection(editor_context& Ctx, xundo::undo_file& File) noexcept
     {
         auto& S = Ctx.m_State;
         File.Write(S.m_SelectedEntityId);
@@ -78,7 +51,7 @@ namespace e29::commands
         File.Write(S.m_MultiSelectScene);
     }
 
-    inline void RestoreSelection(e29_command_context& Ctx, xundo::undo_file& File) noexcept
+    inline void RestoreSelection(editor_context& Ctx, xundo::undo_file& File) noexcept
     {
         auto& S = Ctx.m_State;
 

@@ -489,11 +489,12 @@ namespace e29
     inline xresource::full_guid MakePrefabDropViaCommands(e10::library_mgr& AssetMgr, e10::library::guid LibraryGUID, xresource::full_guid ParentGUID, const entity_drag_payload_t& Payload) noexcept
     {
         (void)AssetMgr;
-        // Prefab creation mutates the Level document, so it goes through the Level session's undo.
-        xundo::system* pDocUndo = &LevelDocUndo();
-        auto* pWorld = FindWorld();
-        auto* pState = FindEditorState();
-        if (pWorld == nullptr) return {};
+        auto* pEd = FindEditorContext();
+        if (pEd == nullptr) return {};
+        // Prefab creation mutates the Level document, so it goes through the editor's document undo.
+        xundo::system* pDocUndo = &pEd->m_Undo;
+        auto*          pWorld   = &pEd->World();
+        auto*          pState   = &pEd->m_State;
 
         auto* pScene = pWorld->m_SceneMgr.Find(Payload.m_SceneGuid);
         if (pScene == nullptr) return {};

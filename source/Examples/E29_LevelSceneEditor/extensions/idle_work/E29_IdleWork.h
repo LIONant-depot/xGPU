@@ -394,7 +394,7 @@ namespace e29::commands
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
         {
-            auto& State = get<e29_command_context>().m_State;
+            auto& State = get<editor_context>().m_State;
             if (State.m_OpenScenes.empty()) return "RunSanityCheck: no open scenes";
 
             e29::IdleWorkCancelRequested().store(false, std::memory_order_relaxed);

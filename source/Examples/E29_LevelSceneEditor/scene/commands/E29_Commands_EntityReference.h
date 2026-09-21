@@ -33,7 +33,7 @@ namespace e29::commands
     // scene/id (the target was deleted sometime between BackupCurrenState and a later Undo/Redo) also
     // resolves to invalid rather than failing - matches DeleteEntity's own "a single corrupted/missing
     // snapshot must not take the whole subtree down" permissiveness.
-    inline xecs::component::entity ResolveEntityReferenceTarget(e29_command_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id) noexcept
+    inline xecs::component::entity ResolveEntityReferenceTarget(editor_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id) noexcept
     {
         if (Id == xecs::scene::invalid_permanent_id_v) return {};
         auto* pScene = Ed.World().m_SceneMgr.Find(SceneGuid);
@@ -48,7 +48,7 @@ namespace e29::commands
     // owning scene isn't open can't be encoded any more than it can be displayed there; returns
     // {invalid_permanent_id_v} in that case, which SetEntityReference's own Redo/Undo already treat
     // as "no reference" symmetrically.
-    inline std::pair<xecs::scene::guid, xecs::scene::permanent_id> FindEntityOwningScene(e29_command_context& Ed, xecs::component::entity Entity) noexcept
+    inline std::pair<xecs::scene::guid, xecs::scene::permanent_id> FindEntityOwningScene(editor_context& Ed, xecs::component::entity Entity) noexcept
     {
         if (!Entity.isValid() || !&Ed.m_State) return { xecs::scene::guid{}, xecs::scene::invalid_permanent_id_v };
         for (auto& SceneGuid : Ed.m_State.m_OpenScenes)

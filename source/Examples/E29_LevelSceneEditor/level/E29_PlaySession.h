@@ -195,11 +195,11 @@ namespace e29
 
     // Stopped/Paused -> Playing. Writes V1 (the real disk save Stop restores from - it must be disk, not the
     // fast binary Vn bridge, because Stop needs the Level tree back) and marks the undo point Stop rewinds to.
-    inline void EnterPlaying( xecs::game_mgr::instance& GameMgr, editor_state& State ) noexcept
+    inline void EnterPlaying( editor_context& Ed ) noexcept
     {
-        SaveEverything(GameMgr, State);
-        State.m_PlayHistoryBoundary = LevelDocUndo().GetUndoIndex();
-        State.m_PlayState           = editor_state::play_state::Playing;
+        SaveEverything(Ed.World(), Ed.m_State);
+        Ed.m_State.m_PlayHistoryBoundary = Ed.m_Undo.GetUndoIndex();
+        Ed.m_State.m_PlayState           = editor_state::play_state::Playing;
     }
 
     // A pending Play that will never start (its build failed): drop it and release the Play lock it took.
@@ -218,8 +218,9 @@ namespace e29
 
     // From Stopped: recompile-check first (shared builds; PollGameReload then calls EnterPlaying) or enter
     // Playing directly. From Paused: resume. Returns a short status for the CLI; the buttons ignore it.
-    inline std::string RequestPlay( editor_state& State, game_plugin_state& Plugin ) noexcept
+    inline std::string RequestPlay( editor_context& Ed, game_plugin_state& Plugin ) noexcept
     {
+        auto& State = Ed.m_State;
         using play_state = editor_state::play_state;
         if (State.m_PlayState == play_state::Playing) return "Play: already playing";
         if (Plugin.m_bBuilding)                       return "Play: a build is already in flight";
@@ -237,7 +238,7 @@ namespace e29
         StartGameReload(Plugin);
         return "Play requested (recompile-check in progress)";
 #else
-        EnterPlaying(*FindWorld(), State);
+        EnterPlaying(Ed);
         return "Playing";
 #endif
     }
@@ -250,13 +251,14 @@ namespace e29
     }
 
     // One frame. From Paused: one tick, stays Paused. From Stopped: starts Play, runs the first tick, lands Paused.
-    inline std::string RequestStep( editor_state& State, game_plugin_state& Plugin ) noexcept
+    inline std::string RequestStep( editor_context& Ed, game_plugin_state& Plugin ) noexcept
     {
+        auto& State = Ed.m_State;
         using play_state = editor_state::play_state;
         if (State.m_PlayState == play_state::Playing) return "Step: pause first";
         if (State.m_PlayState == play_state::Stopped)
         {
-            const std::string Result = RequestPlay(State, Plugin);
+            const std::string Result = RequestPlay(Ed, Plugin);
             if (State.m_PlayState == play_state::Stopped && !State.m_bPlayRequested) return Result; // refused
         }
         State.m_bStepOneFrame = true;
@@ -317,12 +319,11 @@ namespace e29
     // refers to) here too since this file's own place in the umbrella include order is earlier than
     // that one - inline variables have external linkage, so a plain extern declaration anywhere in
     // the same program is enough to use it, no redefinition risk.
-inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene::component_dependency>& MissingDeps ) noexcept
+    inline void StripMissingComponentsFromOpenScenes( editor_context& Ed, const std::vector<xecs::scene::component_dependency>& MissingDeps ) noexcept
     {
-        auto* pWorld = FindWorld();
-        auto* pState = FindEditorState();
-        if (!pWorld || !pState) return;
-        xundo::system* pDocUndo = &LevelDocUndo();
+        auto*          pWorld   = &Ed.World();
+        auto*          pState   = &Ed.m_State;
+        xundo::system* pDocUndo = &Ed.m_Undo;
 
         for (auto& SceneGuid : pState->m_OpenScenes)
         {
@@ -354,12 +355,10 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
     }
 
     //---------------------------------------------------------------------------
-    // Called once per frame from the main loop, same shape as RenderGamePluginLogPanel - zero
-    // parameters, reads/writes only through the established single-instance globals
-    // (g_PendingReloadCompatibility, the world/state services, g_pGamePlugin), matching this
-    // codebase's own convention for cross-cutting UI state that isn't naturally owned by one panel.
+    // Called once per frame from the main loop. Reads/writes the single-instance globals (g_PendingReloadCompatibility,
+    // g_pGamePlugin) and strips the components from the editor's own scenes.
     //---------------------------------------------------------------------------
-    inline void RenderReloadCompatibilityModal() noexcept
+    inline void RenderReloadCompatibilityModal(editor_context& Ed) noexcept
     {
         if (g_PendingReloadCompatibility.has_value())
             ImGui::OpenPopup("Game.dll Reload - Missing Components");
@@ -381,7 +380,7 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
 
                 if (ImGui::Button("Strip and Continue", ImVec2(160, 0)))
                 {
-                    StripMissingComponentsFromOpenScenes(g_PendingReloadCompatibility->m_Missing);
+                    StripMissingComponentsFromOpenScenes(Ed, g_PendingReloadCompatibility->m_Missing);
                     g_PendingReloadCompatibility.reset();
                     ImGui::CloseCurrentPopup();
                     if (g_pGamePlugin) StartGameReload(*g_pGamePlugin);
@@ -540,19 +539,20 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
     // frame - the real Stop stays on hold until that dialog (or a script's own follow-up -Keep call)
     // answers it. Returns a short status string - useful for a CLI/AI caller, ignored by the button.
     //---------------------------------------------------------------------------
-    inline std::string RequestStop(editor_state& State, std::optional<bool> KeepOverride) noexcept
+    inline std::string RequestStop(editor_context& Ed, std::optional<bool> KeepOverride) noexcept
     {
+        auto& State = Ed.m_State;
         if (State.m_PlayState == editor_state::play_state::Stopped) return "Stop: already stopped";
 
         if (KeepOverride.has_value())
         {
-            State.m_PendingKeepTweaksCommands = *KeepOverride ? CollectPlayModeKeepCommands(LevelDocUndo(), State.m_PlayHistoryBoundary) : std::vector<std::string>{};
+            State.m_PendingKeepTweaksCommands = *KeepOverride ? CollectPlayModeKeepCommands(Ed.m_Undo, State.m_PlayHistoryBoundary) : std::vector<std::string>{};
             State.m_bAwaitingKeepTweaksAnswer = false;
             State.m_bStopRequested = true;
             return "Stop requested";
         }
 
-        auto Pending = CollectPlayModeKeepCommands(LevelDocUndo(), State.m_PlayHistoryBoundary);
+        auto Pending = CollectPlayModeKeepCommands(Ed.m_Undo, State.m_PlayHistoryBoundary);
         if (Pending.empty())
         {
             State.m_PendingKeepTweaksCommands.clear();
@@ -576,8 +576,9 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
     // decides Keep-vs-Discard here; the real Stop itself still runs at the usual deferred, safe frame
     // boundary (RequestStop just re-flags m_bStopRequested).
     //---------------------------------------------------------------------------
-    inline void RenderKeepTweaksModal(editor_state& State) noexcept
+    inline void RenderKeepTweaksModal(editor_context& Ed) noexcept
     {
+        auto& State = Ed.m_State;
         if (State.m_bAwaitingKeepTweaksAnswer)
             ImGui::OpenPopup("Keep Play Mode Changes?");
 
@@ -590,13 +591,13 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
 
             if (ImGui::Button("Keep", ImVec2(120.0f, 0.0f)))
             {
-                RequestStop(State, true);
+                RequestStop(Ed, true);
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
             if (ImGui::Button("Discard", ImVec2(120.0f, 0.0f)))
             {
-                RequestStop(State, false);
+                RequestStop(Ed, false);
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
@@ -629,8 +630,9 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
     // longer does that as a side effect the way the old DiskSaveAndReload mode used to.
     //---------------------------------------------------------------------------
     template< typename T_REGISTER_HOST_COMPONENTS_FN >
-    bool PollGameReload( editor_state& State, game_plugin_state& Plugin, T_REGISTER_HOST_COMPONENTS_FN&& RegisterHostComponents ) noexcept
+    bool PollGameReload( editor_context& Ed, game_plugin_state& Plugin, T_REGISTER_HOST_COMPONENTS_FN&& RegisterHostComponents ) noexcept
     {
+        auto& State = Ed.m_State;
         if (!Plugin.m_bBuilding) return false;
         if (Plugin.m_BuildFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
 
@@ -648,7 +650,7 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
             if (State.m_bPlayRequested)
             {
                 State.m_bPlayRequested = false;
-                EnterPlaying(*FindWorld(), State);
+                EnterPlaying(Ed);
             }
             return false;
         }
@@ -659,7 +661,7 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
         if (State.m_bPlayRequested)
         {
             State.m_bPlayRequested = false;
-                EnterPlaying(*FindWorld(), State);
+                EnterPlaying(Ed);
         }
 
         return bLoaded;

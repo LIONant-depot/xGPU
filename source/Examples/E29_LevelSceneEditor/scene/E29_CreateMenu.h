@@ -17,15 +17,15 @@ namespace e29
     // review flagged it as the one glaring inconsistency left next to CreateEntity/DeleteEntity sitting
     // right beside it in this same menu) - CreateFolder/DeleteFolder commands, commands/
     // E29_Commands_SceneOrganization.h. Moved here (was originally much earlier in this file) since
-    // this routing needs both the editor's world and state (FindWorld/FindEditorState, E29_EditorState.h) and
+    // this routing needs the editor's context (E29_EditorState.h) and
     // xeditor::Run (just included above) - neither was available at the function's original
     // position.
-    void ShowCreateMenuItems(xecs::scene::guid SceneGuid, xecs::scene::instance& Scene, xecs::scene::folder_id TargetFolder, xundo::system& Undo) noexcept
+    void ShowCreateMenuItems(editor_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::instance& Scene, xecs::scene::folder_id TargetFolder) noexcept
     {
         if (ImGui::MenuItem("New Entity"))
         {
             const auto Id = NextFreeEntityId(Scene);
-            xeditor::Run(e29::LevelDocUndo(), std::format("CreateEntity -Scene {} -Id {} -Folder {:08X}"
+            xeditor::Run(Ed.m_Undo, std::format("CreateEntity -Scene {} -Id {} -Folder {:08X}"
                 , e29::commands::FormatSceneGuid(SceneGuid)
                 , e29::commands::FormatEntityId(Id)
                 , static_cast<std::uint32_t>(TargetFolder)
@@ -34,7 +34,7 @@ namespace e29
         if (ImGui::MenuItem("New Folder"))
         {
             const auto Id = NextFreeFolderId(Scene);
-            xeditor::Run(e29::LevelDocUndo(), std::format("CreateFolder -Scene {} -Id {:08X} -Parent {:08X} -Name {}"
+            xeditor::Run(Ed.m_Undo, std::format("CreateFolder -Scene {} -Id {:08X} -Parent {:08X} -Name {}"
                 , e29::commands::FormatSceneGuid(SceneGuid)
                 , static_cast<std::uint32_t>(Id)
                 , static_cast<std::uint32_t>(TargetFolder)

@@ -308,8 +308,10 @@ namespace e29
         RenderLevelTreeSourceControlBadge(ResourceGuid);
     }
 
-    void RenderLevelTreePanel(xecs::game_mgr::instance& GameMgr, editor_state& State, xundo::system& Undo, bool bReadOnly = false) noexcept
+    void RenderLevelTreePanel(editor_context& Ed, xundo::system& Undo, bool bReadOnly = false) noexcept
     {
+        auto& GameMgr = Ed.World();
+        auto& State   = Ed.m_State;
         ImGui::SetNextWindowPos(ImVec2(915, 18), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(360, 680), ImGuiCond_FirstUseEver);
         const bool bWindowVisible = ImGui::Begin(e29::editor_tabs::kLevelTreeWindow);
@@ -437,7 +439,7 @@ namespace e29
                             {
                                 const xecs::scene::guid NewSceneGuid{ .m_Instance = Dropped.m_Source.m_Instance };
                                 if (std::find(pLevel->m_Scenes.begin(), pLevel->m_Scenes.end(), NewSceneGuid) == pLevel->m_Scenes.end())
-                                    xeditor::Run(e29::LevelDocUndo(), std::format("AddScene -Level {:016X} -Scene {}"
+                                    xeditor::Run(Ed.m_Undo, std::format("AddScene -Level {:016X} -Scene {}"
                                         , State.m_CurrentLevel.m_Instance.m_Value
                                         , e29::commands::FormatSceneGuid(NewSceneGuid)));
                             }
@@ -501,11 +503,11 @@ namespace e29
                             if (ImGui::BeginPopupContextItem())
                             {
                                 if (auto* pMenuScene = GameMgr.m_SceneMgr.Find(SceneGuid))
-                                    e29::ShowCreateMenuItems(SceneGuid, *pMenuScene, xecs::scene::invalid_folder_id_v, Undo);
+                                    e29::ShowCreateMenuItems(Ed, SceneGuid, *pMenuScene, xecs::scene::invalid_folder_id_v);
                                 ImGui::Separator();
                                 if (ImGui::MenuItem("Remove Scene"))
                                 {
-                                    xeditor::Run(e29::LevelDocUndo(), std::format("RemoveScene -Level {:016X} -Scene {}"
+                                    xeditor::Run(Ed.m_Undo, std::format("RemoveScene -Level {:016X} -Scene {}"
                                         , State.m_CurrentLevel.m_Instance.m_Value
                                         , e29::commands::FormatSceneGuid(SceneGuid)));
                                     ImGui::EndPopup();
@@ -563,7 +565,7 @@ namespace e29
                                         if (auto* pDropScene = GameMgr.m_SceneMgr.Find(SceneGuid))
                                         {
                                             const auto NewId = e29::NextFreeEntityId(*pDropScene);
-                                            xeditor::Run(e29::LevelDocUndo(), std::format("InstantiatePrefab -Scene {} -Id {} -Prefab {:016X} -Folder {:08X}"
+                                            xeditor::Run(Ed.m_Undo, std::format("InstantiatePrefab -Scene {} -Id {} -Prefab {:016X} -Folder {:08X}"
                                                 , e29::commands::FormatSceneGuid(SceneGuid), e29::commands::FormatEntityId(NewId)
                                                 , Dropped.m_Source.m_Instance.m_Value, static_cast<std::uint32_t>(xecs::scene::invalid_folder_id_v)));
                                         }
@@ -573,7 +575,7 @@ namespace e29
                                 {
                                     IM_ASSERT(payload->DataSize == sizeof(e29::entity_drag_payload_t));
                                     auto& Dropped = *reinterpret_cast<const e29::entity_drag_payload_t*>(payload->Data);
-                                    xeditor::Run(e29::LevelDocUndo(), std::format("MoveToFolder -Scene {} -Id {} -Folder {:08X}"
+                                    xeditor::Run(Ed.m_Undo, std::format("MoveToFolder -Scene {} -Id {} -Folder {:08X}"
                                         , e29::commands::FormatSceneGuid(Dropped.m_SceneGuid), e29::commands::FormatEntityId(Dropped.m_Id)
                                         , static_cast<std::uint32_t>(xecs::scene::invalid_folder_id_v)));
                                 }
@@ -703,9 +705,9 @@ namespace e29
                                                     // to just this entity) - same two behaviors as
                                                     // before, just undoable now via Ctrl+Z.
                                                     if (ImGui::GetIO().KeyCtrl)
-                                                        xeditor::Run(e29::LevelDocUndo(), std::format("ToggleMultiSelect -Scene {} -Id {}", e29::commands::FormatSceneGuid(SceneGuid), e29::commands::FormatEntityId(Id)));
+                                                        xeditor::Run(Ed.m_Undo, std::format("ToggleMultiSelect -Scene {} -Id {}", e29::commands::FormatSceneGuid(SceneGuid), e29::commands::FormatEntityId(Id)));
                                                     else
-                                                        xeditor::Run(e29::LevelDocUndo(), std::format("Select -Scene {} -Id {}", e29::commands::FormatSceneGuid(SceneGuid), e29::commands::FormatEntityId(Id)));
+                                                        xeditor::Run(Ed.m_Undo, std::format("Select -Scene {} -Id {}", e29::commands::FormatSceneGuid(SceneGuid), e29::commands::FormatEntityId(Id)));
                                                 }
                                             }
 
@@ -743,7 +745,7 @@ namespace e29
                                                 // deleted descendant of it) now lives in the command's
                                                 // own DeleteSubtreeByPermanentId, shared with Undo so
                                                 // it behaves identically from either direction.
-                                                xeditor::Run(e29::LevelDocUndo(), std::format("DeleteEntity -Scene {} -Id {}", e29::commands::FormatSceneGuid(SceneGuid), e29::commands::FormatEntityId(Id)));
+                                                xeditor::Run(Ed.m_Undo, std::format("DeleteEntity -Scene {} -Id {}", e29::commands::FormatSceneGuid(SceneGuid), e29::commands::FormatEntityId(Id)));
                                                 bDeleted = true;
                                             };
 
@@ -765,7 +767,7 @@ namespace e29
                                                 if (ImGui::MenuItem("New Entity"))
                                                 {
                                                     const auto NewId = e29::NextFreeEntityId(*pScene);
-                                                    xeditor::Run(e29::LevelDocUndo(), std::format("CreateEntity -Scene {} -Id {} -Folder {:08X} -Parent {}"
+                                                    xeditor::Run(Ed.m_Undo, std::format("CreateEntity -Scene {} -Id {} -Folder {:08X} -Parent {}"
                                                         , e29::commands::FormatSceneGuid(SceneGuid)
                                                         , e29::commands::FormatEntityId(NewId)
                                                         , static_cast<std::uint32_t>(xecs::scene::invalid_folder_id_v)
@@ -871,11 +873,11 @@ namespace e29
                                                 bool bFolderDeleted = false;
                                                 if (ImGui::BeginPopupContextItem())
                                                 {
-                                                    e29::ShowCreateMenuItems(SceneGuid, *pScene, FolderId, Undo);
+                                                    e29::ShowCreateMenuItems(Ed, SceneGuid, *pScene, FolderId);
                                                     ImGui::Separator();
                                                     if (ImGui::MenuItem("Delete Folder"))
                                                     {
-                                                        xeditor::Run(e29::LevelDocUndo(), std::format("DeleteFolder -Scene {} -Id {:08X}"
+                                                        xeditor::Run(Ed.m_Undo, std::format("DeleteFolder -Scene {} -Id {:08X}"
                                                             , e29::commands::FormatSceneGuid(SceneGuid)
                                                             , static_cast<std::uint32_t>(FolderId)
                                                             ));
@@ -908,7 +910,7 @@ namespace e29
                                                         if (Dropped.m_Source.m_Type == xecs::prefab::type_guid_v)
                                                         {
                                                             const auto NewId = e29::NextFreeEntityId(*pScene);
-                                                            xeditor::Run(e29::LevelDocUndo(), std::format("InstantiatePrefab -Scene {} -Id {} -Prefab {:016X} -Folder {:08X}"
+                                                            xeditor::Run(Ed.m_Undo, std::format("InstantiatePrefab -Scene {} -Id {} -Prefab {:016X} -Folder {:08X}"
                                                                 , e29::commands::FormatSceneGuid(SceneGuid), e29::commands::FormatEntityId(NewId)
                                                                 , Dropped.m_Source.m_Instance.m_Value, static_cast<std::uint32_t>(FolderId)));
                                                         }
@@ -936,7 +938,7 @@ namespace e29
                                                                 bHasParent = DroppedDetails.m_pPool && DroppedDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::parent>.m_BitID);
                                                             }
                                                             if (!bHasParent)
-                                                                xeditor::Run(e29::LevelDocUndo(), std::format("MoveToFolder -Scene {} -Id {} -Folder {:08X}"
+                                                                xeditor::Run(Ed.m_Undo, std::format("MoveToFolder -Scene {} -Id {} -Folder {:08X}"
                                                                     , e29::commands::FormatSceneGuid(SceneGuid), e29::commands::FormatEntityId(Dropped.m_Id)
                                                                     , static_cast<std::uint32_t>(FolderId)));
                                                         }
@@ -1007,7 +1009,7 @@ namespace e29
                                                         const xecs::scene::guid NewParent{ .m_Instance = Dropped.m_Source.m_Instance };
                                                         if (std::find(pScene->m_ParentScenes.begin(), pScene->m_ParentScenes.end(), NewParent) == pScene->m_ParentScenes.end())
                                                         {
-                                                            xeditor::Run(e29::LevelDocUndo(), std::format("AddSceneDependency -Scene {} -Parent {}"
+                                                            xeditor::Run(Ed.m_Undo, std::format("AddSceneDependency -Scene {} -Parent {}"
                                                                 , e29::commands::FormatSceneGuid(SceneGuid)
                                                                 , e29::commands::FormatSceneGuid(NewParent)));
                                                         }

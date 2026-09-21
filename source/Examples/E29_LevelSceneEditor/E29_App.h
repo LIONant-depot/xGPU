@@ -313,7 +313,7 @@ namespace e29
 
 
 
-        e29::commands::e29_command_context CmdContext{ State, pGameMgr };
+        e29::commands::chat_log            ChatLog;
 
 
 
@@ -329,6 +329,8 @@ namespace e29
 
 
         e29::level_host_session LevelHostSession;
+
+        e29::editor_context     CmdContext{ State, pGameMgr, LevelHostSession.Undo() };
 
 
 

@@ -11,7 +11,7 @@
 // through CreatePrefabVariantFromInstance), plus the drag-payload + drop registration that turns a
 // Level-tree entity into a Prefab asset (entity_to_prefab_drop) - kept together rather than split
 // further since the drop handler directly calls the authoring functions above it and shares their
-// two services (the world and the state), not a separately-reusable concern on its own. Meant to be
+// the editor context, not a separately-reusable concern on its own. Meant to be
 // included via the umbrella only, after E29_PrefabOverrides.h (AttachPrefabInstanceComponent).
 
 namespace e29
@@ -408,43 +408,6 @@ namespace e29
 
 
 
-    // Defined in E29_LevelDocument.h; declared here because this is the earliest header that needs them.
-    inline xundo::system* FindLevelUndo() noexcept; // null until the Level session exists
-    inline xundo::system& LevelDocUndo() noexcept;  // Level session undo, else the workspace undo
-
-    // Claim Level/scene write locks before Level undo mutations (DESIGN 4.2).
-    inline bool TryGateLevelMutation(xundo::system& System) noexcept
-    {
-        auto* pHost = xeditor::host::current();
-        auto* pState = FindEditorState();
-        if (pHost == nullptr || pState == nullptr || &System != FindLevelUndo()) return true;
-        xeditor::session* pSess = nullptr;
-        for (auto& S : pHost->m_Sessions)
-        {
-            if (S && &S->undo() == &System) { pSess = S.get(); break; }
-        }
-        if (pSess == nullptr) return true;
-        // EnsureLevelEditAccess lives in E29_LevelDocument.h — forward call via include order in .cpp.
-        // First edit claims Level + selected scene(s) only (no ask). Save/clean releases via Sync.
-        if (!pState->m_CurrentLevel.empty())
-        {
-            const xresource::full_guid LevelGuid{ pState->m_CurrentLevel.m_Instance, xecs::level::type_guid_v };
-            if (!pHost->try_acquire_write(LevelGuid, pSess)) return false;
-        }
-        auto TryScene = [&](const xecs::scene::guid& SceneInst) noexcept -> bool
-        {
-            if (SceneInst.empty()) return true;
-            const xresource::full_guid SceneGuid{ SceneInst.m_Instance, xecs::scene::type_guid_v };
-            return pHost->try_acquire_write(SceneGuid, pSess);
-        };
-        if (!TryScene(pState->m_SelectedEntityScene)) return false;
-        if (!TryScene(pState->m_MultiSelectScene)) return false;
-        return true;
-    }
-
-
-
-
     // Set by the editor once the command/undo system exists.
     // entity_to_prefab_drop::OnDrop cannot include the MakePrefab command headers (include order /
     // cycle with this file), so the drop path calls through this hook instead of CreatePrefab* directly.
@@ -500,7 +463,7 @@ namespace e29
 
         xresource::full_guid OnDrop(e10::library_mgr& AssetMgr, e10::library::guid LibraryGUID, xresource::full_guid ParentGUID, const void* pData, std::size_t Size) const noexcept override
         {
-            if (Size != sizeof(entity_drag_payload_t) || FindWorld() == nullptr) return {};
+            if (Size != sizeof(entity_drag_payload_t) || FindEditorContext() == nullptr) return {};
             if (g_MakePrefabDropHandler == nullptr) return {};
             auto& Payload = *reinterpret_cast<const entity_drag_payload_t*>(pData);
             // Routed through MakePrefab / MakePrefabVariant commands (see MakePrefabDropViaCommands) so

@@ -136,18 +136,24 @@ namespace e29
         bool                 m_bPendingStartGameReloadAfterOpen = false;
     };
 
-    // The editor's state and world, as host services (provided at startup). For code that has no session of its own:
-    // static drag-drop handlers, the host's edit gate and the Play helpers. Everything with a session uses its context.
-    inline editor_state* FindEditorState() noexcept
+    // One editor's working set: its state, the owner of its world and the undo of its document. Commands reach it through
+    // scene_command (World(), State(), EditorContext()); panels and helpers take it explicitly. The world is destroyed and
+    // recreated on every Game.dll reload, so the context holds the unique_ptr that owns it and reads through it each time
+    // (World()), never a pointer to the world itself.
+    struct editor_context
+    {
+        editor_state&                              m_State;
+        std::unique_ptr<xecs::game_mgr::instance>& m_pWorld;
+        xundo::system&                             m_Undo;      // every edit of this editor's document goes through it
+
+        xecs::game_mgr::instance& World() noexcept { return *m_pWorld; }
+    };
+
+    // The active editor's context, provided to the host at startup. For code that has no session of its own: static
+    // drag-drop handlers and the host's edit gate.
+    inline editor_context* FindEditorContext() noexcept
     {
         auto* pHost = xeditor::host::current();
-        return pHost ? pHost->find<editor_state>() : nullptr;
-    }
-
-    inline xecs::game_mgr::instance* FindWorld() noexcept
-    {
-        auto* pHost  = xeditor::host::current();
-        auto* pOwner = pHost ? pHost->find<std::unique_ptr<xecs::game_mgr::instance>>() : nullptr;
-        return pOwner ? pOwner->get() : nullptr;
+        return pHost ? pHost->find<editor_context>() : nullptr;
     }
 }

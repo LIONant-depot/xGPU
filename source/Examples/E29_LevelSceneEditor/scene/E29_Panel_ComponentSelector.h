@@ -22,10 +22,10 @@ namespace e29
     // Returns true if a component was added this frame.
     //---------------------------------------------------------------------------
     inline bool RenderComponentSelectorPopupContents(
-        editor_state&                    State,
-        xundo::system&                   Undo,
-        xecs::pool::instance* pPool) noexcept
+        editor_context&        Ed,
+        xecs::pool::instance*  pPool) noexcept
     {
+        auto& State = Ed.m_State;
         if (pPool == nullptr)
         {
             ImGui::TextDisabled("Select an entity.");
@@ -137,7 +137,7 @@ namespace e29
                 ImGui::PushID(Comp.m_pInfo->m_pName);
                 if (ImGui::Selectable(Comp.m_pInfo->m_pName))
                 {
-                    xeditor::Run(e29::LevelDocUndo(), std::format("AddComponent -Scene {} -Id {} -Component {:016X}"
+                    xeditor::Run(Ed.m_Undo, std::format("AddComponent -Scene {} -Id {} -Component {:016X}"
                         , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
                         , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                         , Comp.m_pInfo->m_Guid.m_Value

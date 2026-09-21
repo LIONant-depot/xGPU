@@ -23,8 +23,10 @@ namespace e29
     // one alongside EntityInspector and call Bridge.RegisterCallbacks(...) once at setup before
     // calling this every frame.
     //---------------------------------------------------------------------------
-    void RenderEntityPropertiesPanel(xecs::game_mgr::instance& GameMgr, editor_state& State, xproperty::inspector& EntityInspector, entity_inspector_bridge& Bridge, xundo::system& Undo, bool bReadOnly = false) noexcept
+    void RenderEntityPropertiesPanel(editor_context& Ed, xproperty::inspector& EntityInspector, entity_inspector_bridge& Bridge, bool bReadOnly = false) noexcept
     {
+        auto& GameMgr = Ed.World();
+        auto& State   = Ed.m_State;
         ImGui::SetNextWindowPos(ImVec2(18, 18), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(480, 500), ImGuiCond_FirstUseEver);
         const bool bWindowVisible = ImGui::Begin(e29::editor_tabs::kInspectorWindow);
@@ -80,7 +82,7 @@ namespace e29
                     ImGui::SetNextWindowSize(ImVec2(320.0f, 360.0f), ImGuiCond_Appearing);
                     if (ImGui::BeginPopup(kAddComponentPopupId))
                     {
-                        if (e29::RenderComponentSelectorPopupContents(State, Undo, pDetails->m_pPool))
+                        if (e29::RenderComponentSelectorPopupContents(Ed, pDetails->m_pPool))
                             RefreshEntityView();
                         ImGui::EndPopup();
                     }
@@ -103,7 +105,7 @@ namespace e29
                         {
                             if (ImGui::Button("Apply"))
                             {
-                                xeditor::Run(e29::LevelDocUndo(), std::format("ApplyOverrides -Scene {} -Id {}", SceneHex, RootHex));
+                                xeditor::Run(Ed.m_Undo, std::format("ApplyOverrides -Scene {} -Id {}", SceneHex, RootHex));
                             }
                             // Tooltip (only show when hovering) — same format as Play transport buttons
                             if (ImGui::IsItemHovered())
@@ -119,7 +121,7 @@ namespace e29
                             ImGui::SameLine();
                             if (ImGui::Button("Revert Hierarchy"))
                             {
-                                xeditor::Run(e29::LevelDocUndo(), std::format("RevertHierarchyOverrides -Scene {} -Id {}", SceneHex, RootHex));
+                                xeditor::Run(Ed.m_Undo, std::format("RevertHierarchyOverrides -Scene {} -Id {}", SceneHex, RootHex));
                             }
                             if (ImGui::IsItemHovered())
                             {
@@ -136,7 +138,7 @@ namespace e29
                             ImGui::SameLine();
                             if (ImGui::Button("Revert All"))
                             {
-                                xeditor::Run(e29::LevelDocUndo(), std::format("RevertAllOverrides -Scene {} -Id {}", SceneHex, RootHex));
+                                xeditor::Run(Ed.m_Undo, std::format("RevertAllOverrides -Scene {} -Id {}", SceneHex, RootHex));
                             }
                             if (ImGui::IsItemHovered())
                             {
@@ -289,7 +291,7 @@ namespace e29
                     // memory, phase 3 - scene/commands/E29_Commands_ComponentEdit.h) - remove_component_cmd
                     // snapshots the component's current property values before removing it, so Undo
                     // can restore it exactly, not just re-add it with default values.
-                    xeditor::Run(e29::LevelDocUndo(), std::format("RemoveComponent -Scene {} -Id {} -Component {:016X}"
+                    xeditor::Run(Ed.m_Undo, std::format("RemoveComponent -Scene {} -Id {} -Component {:016X}"
                         , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
                         , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                         , Bridge.m_pPendingRemoveComponent->m_Guid.m_Value

@@ -19,7 +19,6 @@ namespace e29
             xeditor::NotifyError(std::format("Failed to load System Registry order: {}", Err.getMessage()));
 
 
-        InspectorBridge.RegisterCallbacks(EntityInspector, *pGameMgr, State, E29Undo);
     }
 
     // Repopulates a freshly created world: from the raw snapshot taken just before a Game.dll reload, or by reopening the
@@ -144,7 +143,7 @@ namespace e29
     //---------------------------------------------------------------------------
     inline void app::StopPlay(const std::vector<std::string>& KeepCommands)
     {
-        auto& Undo = LevelDocUndo();
+        auto& Undo = CmdContext.m_Undo;
         Undo.JumpTo(State.m_PlayHistoryBoundary);
 
         // Only THIS editor's world is rebuilt: the component registry belongs to the whole process and stays as it is.

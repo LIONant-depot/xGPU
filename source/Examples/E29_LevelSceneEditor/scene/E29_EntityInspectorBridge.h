@@ -60,7 +60,7 @@ namespace e29
         // from xproperty this same frame.
         std::function<void(xproperty::inspector&, const int, void*&, void*)> m_OnGetComponentPointer;
 
-        void RegisterCallbacks(xproperty::inspector& Inspector, xecs::game_mgr::instance& GameMgr, editor_state& State, xundo::system& Undo) noexcept
+        void RegisterCallbacks(xproperty::inspector& Inspector, editor_context& Ed) noexcept
         {
             // xdelegate::Register(...) unconditionally push_back's - it has no dedup and no
             // Unregister at all (confirmed reading dependencies/xdelegate/source/xdelegate.h
@@ -97,15 +97,13 @@ namespace e29
             // that Undo() now runs that SAME logic with the BEFORE value, so undoing an edit correctly
             // reverts the override bookkeeping too, not just the live property (direct user caution:
             // "careful with resetting the overrides").
-            m_OnPropertyChanged = [this, &Undo](xproperty::inspector&, const xproperty::ui::undo::cmd& Cmd)
+            m_OnPropertyChanged = [this, &Ed](xproperty::inspector&, const xproperty::ui::undo::cmd& Cmd)
             {
                 if (m_bSuppressOverrideTracking) return;
 
                 auto It = m_ComponentMap.find(Cmd.m_pClassObject);
                 if (It == m_ComponentMap.end()) return;
-                auto* pState = e29::FindEditorState();
-                if (!pState || !e29::FindWorld()) return;
-                auto& State = *pState;
+                auto& State = Ed.m_State;
 
                 std::array<char, 256> BeforeBuffer{}, AfterBuffer{};
                 const auto BeforeLen = e29::commands::FormatPropertyValue(BeforeBuffer, Cmd.m_Original);
@@ -114,7 +112,7 @@ namespace e29
                 const std::string After(AfterBuffer.data(), AfterLen > 0 ? static_cast<std::size_t>(AfterLen) : 0);
                 const std::uint32_t TypeGuid = Cmd.m_NewValue.m_pType ? Cmd.m_NewValue.m_pType->m_GUID : 0;
 
-                xeditor::Run(e29::LevelDocUndo(), std::format("SetProperty -Scene {} -Id {} -Component {:016X} -Path {} -TypeGuid {:08X} -Before {} -After {}"
+                xeditor::Run(Ed.m_Undo, std::format("SetProperty -Scene {} -Id {} -Component {:016X} -Path {} -TypeGuid {:08X} -Before {} -After {}"
                     , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
                     , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                     , It->second->m_Guid.m_Value
@@ -126,8 +124,10 @@ namespace e29
             };
             Inspector.m_OnChangeEvent.Register(m_OnPropertyChanged);
 
-            m_OnOverrideCheck = [this, &GameMgr, &State](xproperty::inspector&, const xproperty::type::object&, void* pInstance, std::string_view Path, const xproperty::any&, bool& bOut)
+            m_OnOverrideCheck = [this, &Ed](xproperty::inspector&, const xproperty::type::object&, void* pInstance, std::string_view Path, const xproperty::any&, bool& bOut)
             {
+                auto& GameMgr = Ed.World();
+                auto& State   = Ed.m_State;
                 bOut = false;
 
                 auto It = m_ComponentMap.find(pInstance);
@@ -149,8 +149,10 @@ namespace e29
             // Routed through RevertOverride (scene/commands/E29_Commands_PropertyEdit.h) instead of the
             // old inline BeginEdit/setProperty/erase_if path - same live+bookkeeping result, but
             // Ctrl+Z restores the overridden value and re-records the override entry.
-            m_OnOverrideReset = [this, &GameMgr, &State, &Undo](xproperty::inspector& /*Inspector*/, const xproperty::type::object& Obj, void* pInstance, std::string_view Path)
+            m_OnOverrideReset = [this, &Ed](xproperty::inspector& /*Inspector*/, const xproperty::type::object& Obj, void* pInstance, std::string_view Path)
             {
+                auto& GameMgr = Ed.World();
+                auto& State   = Ed.m_State;
                 auto It = m_ComponentMap.find(pInstance);
                 if (It == m_ComponentMap.end()) return;
 
@@ -200,7 +202,7 @@ namespace e29
                 const std::uint32_t TypeGuid = BaseValue.m_pType ? BaseValue.m_pType->m_GUID
                     : (CurrentValue.m_pType ? CurrentValue.m_pType->m_GUID : 0);
 
-                xeditor::Run(e29::LevelDocUndo(), std::format("RevertOverride -Scene {} -Id {} -Component {:016X} -Path {} -TypeGuid {:08X} -Before {} -After {}"
+                xeditor::Run(Ed.m_Undo, std::format("RevertOverride -Scene {} -Id {} -Component {:016X} -Path {} -TypeGuid {:08X} -Before {} -After {}"
                     , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
                     , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                     , It->second->m_Guid.m_Value
@@ -264,8 +266,10 @@ namespace e29
             // crashing when the target is valid but its owning scene isn't currently open
             // (ResolveEntityReference can't search a scene nobody loaded) - the underlying
             // value/reference is untouched either way, this is purely a display limitation.
-            m_OnEntityReferenceRender = [this, &GameMgr, &State, &Undo](xproperty::inspector& Inspector, const xproperty::type::object& Obj, void* pInstance, std::string_view Path, const xproperty::any& Value, bool& bHandled)
+            m_OnEntityReferenceRender = [this, &Ed](xproperty::inspector& Inspector, const xproperty::type::object& Obj, void* pInstance, std::string_view Path, const xproperty::any& Value, bool& bHandled)
             {
+                auto& GameMgr = Ed.World();
+                auto& State   = Ed.m_State;
                 if (Value.m_pType == nullptr || Value.m_pType->m_GUID != xproperty::settings::var_type<xecs::component::entity>::guid_v) return;
                 bHandled = true;
 
@@ -335,7 +339,7 @@ namespace e29
                                     auto CompIt = m_ComponentMap.find(pInstance);
                                     if (CompIt != m_ComponentMap.end())
                                     {
-                                        xeditor::Run(e29::LevelDocUndo(), std::format("SetEntityReference -Scene {} -Id {} -Component {:016X} -Path {} -AfterScene {} -AfterId {}"
+                                        xeditor::Run(Ed.m_Undo, std::format("SetEntityReference -Scene {} -Id {} -Component {:016X} -Path {} -AfterScene {} -AfterId {}"
                                             , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
                                             , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                                             , CompIt->second->m_Guid.m_Value
@@ -367,7 +371,7 @@ namespace e29
                         auto CompIt = m_ComponentMap.find(pInstance);
                         if (CompIt != m_ComponentMap.end())
                         {
-                            xeditor::Run(e29::LevelDocUndo(), std::format("SetEntityReference -Scene {} -Id {} -Component {:016X} -Path {} -AfterScene {} -AfterId {}"
+                            xeditor::Run(Ed.m_Undo, std::format("SetEntityReference -Scene {} -Id {} -Component {:016X} -Path {} -AfterScene {} -AfterId {}"
                                 , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
                                 , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                                 , CompIt->second->m_Guid.m_Value
@@ -385,8 +389,10 @@ namespace e29
             // PropertiesPanel's dirty-rebuild block) - re-derive the CURRENT pool address for that
             // exact component type on the CURRENTLY selected entity, the same lookup that block
             // itself uses, just re-run fresh instead of cached.
-            m_OnGetComponentPointer = [this, &GameMgr, &State](xproperty::inspector&, const int, void*& pObject, void* pUserData) noexcept
+            m_OnGetComponentPointer = [this, &Ed](xproperty::inspector&, const int, void*& pObject, void* pUserData) noexcept
             {
+                auto& GameMgr = Ed.World();
+                auto& State   = Ed.m_State;
                 pObject = nullptr;
                 if (State.m_SelectedEntity.isValid() == false) return;
 

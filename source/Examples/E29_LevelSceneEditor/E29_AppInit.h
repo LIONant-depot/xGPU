@@ -434,8 +434,8 @@ namespace e29
 
         EditorHost.m_pExternalWorkspace = &E29Undo;
         EditorHost.m_OnBeforeEdit        = e29::TryGateLevelMutation;
-        EditorHost.provide(State);
-        EditorHost.provide(pGameMgr);
+        EditorHost.provide(CmdContext);
+        EditorHost.provide(ChatLog);
         GamePlugin.m_Events.m_OnCollectRequiredComponents.Register<&app::CollectRequiredComponents>(*this);
         GamePlugin.m_Events.m_OnBeforeReload.Register<&app::BeforeReload>(*this);
         GamePlugin.m_Events.m_OnAfterReload.Register<&app::AfterReload>(*this);
@@ -447,8 +447,8 @@ namespace e29
         e29::RegisterLevelEditorDescriptor();
 
         EditorHost.provide(LevelHostSession);
-        LevelHostSession.EnsureCreated(State, pGameMgr.get());
-        Commands.emplace(E29Undo, LevelDocUndo(), &CmdContext);
+        LevelHostSession.Bind(CmdContext);
+        Commands.emplace(E29Undo, CmdContext.m_Undo, &CmdContext);
 
         E29History.AddSystem("E29", 1, E29Undo);
 
@@ -519,7 +519,7 @@ namespace e29
 
         e29::WireResourcePickerCallbacks(EntityInspector);
 
-        InspectorBridge.RegisterCallbacks(EntityInspector, *pGameMgr, State, E29Undo);
+        InspectorBridge.RegisterCallbacks(EntityInspector, CmdContext);
 
         WireAssetBrowser();
 
@@ -625,7 +625,7 @@ namespace e29
         EditorHost.withdraw<e29::level_host_session>();
         EditorHost.release_current();
 
-        EditorHost.withdraw<std::unique_ptr<xecs::game_mgr::instance>>();
+        EditorHost.withdraw<e29::editor_context>();
 
         pGameMgr.reset();
 

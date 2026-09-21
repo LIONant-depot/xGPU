@@ -12,7 +12,7 @@ namespace e29
     // browser leaves these hooks unset and is byte-for-byte unaffected. Plain free function (not a
     // whole bridge struct) since these hooks need no persistent per-frame render state, unlike the
     // property inspector's own m_ComponentMap.
-    inline void RegisterAssetBrowserCallbacks(e10::assert_browser& Browser, xundo::system& Undo, xgpu::window& MainWindow) noexcept
+    inline void RegisterAssetBrowserCallbacks(e10::assert_browser& Browser, xundo::system& Undo, xundo::system& DocUndo, xgpu::window& MainWindow) noexcept
     {
         // OS-level (Explorer) drag-out (E10_AssetOleDrag.h) needs to know the real Win32 rect of the
         // main window to tell "has this drag left our own app" apart from an ordinary in-app drag -
@@ -71,15 +71,15 @@ namespace e29
         // is only actually consulted by the command when Parent isn't already loaded this session -
         // harmless to always pass it (the common case here, since the UI can only drag a library row
         // that is by definition already loaded and rendering in one of these same trees).
-        Browser.m_OnAddLibraryDependency = [&Undo](e10::library::guid Owner, e10::library::guid Parent, const std::wstring& ParentPath)
+        Browser.m_OnAddLibraryDependency = [&DocUndo](e10::library::guid Owner, e10::library::guid Parent, const std::wstring& ParentPath)
         {
-            xeditor::Run(e29::LevelDocUndo(), std::format("AddLibraryDependency -Library {} -Parent {} -ParentPath {}"
+            xeditor::Run(DocUndo, std::format("AddLibraryDependency -Library {} -Parent {} -ParentPath {}"
                 , e29::commands::FormatLibraryGuid(Owner), e29::commands::FormatLibraryGuid(Parent), xeditor::Base64Encode(xstrtool::To(ParentPath))));
         };
 
-        Browser.m_OnRemoveLibraryDependency = [&Undo](e10::library::guid Owner, e10::library::guid Parent)
+        Browser.m_OnRemoveLibraryDependency = [&DocUndo](e10::library::guid Owner, e10::library::guid Parent)
         {
-            xeditor::Run(e29::LevelDocUndo(), std::format("RemoveLibraryDependency -Library {} -Parent {}"
+            xeditor::Run(DocUndo, std::format("RemoveLibraryDependency -Library {} -Parent {}"
                 , e29::commands::FormatLibraryGuid(Owner), e29::commands::FormatLibraryGuid(Parent)));
         };
 

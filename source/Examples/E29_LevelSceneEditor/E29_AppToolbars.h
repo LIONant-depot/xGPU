@@ -52,7 +52,7 @@ namespace e29
 
 
 
-                && e29::HasUnsavedDocumentChanges(State, LevelDocUndo());
+                && e29::HasUnsavedDocumentChanges(State, CmdContext.m_Undo);
 
 
 
@@ -72,7 +72,7 @@ namespace e29
 
 
 
-                e29::MarkDocumentClean(State, LevelDocUndo());
+                e29::MarkDocumentClean(State, CmdContext.m_Undo);
 
 
 
@@ -104,7 +104,7 @@ namespace e29
 
 
 
-                e29::RequestCloseLevel(*pGameMgr, State, LevelDocUndo());
+                e29::RequestCloseLevel(*pGameMgr, State, CmdContext.m_Undo);
 
 
 
@@ -148,7 +148,7 @@ namespace e29
 
 
 
-        e29::RenderPlayTransport(State, GamePlugin, { ImVec2(30.0f, 0.0f), true, true });
+        e29::RenderPlayTransport(CmdContext, GamePlugin, { ImVec2(30.0f, 0.0f), true, true });
 
 
 
@@ -335,7 +335,7 @@ namespace e29
 
 
 
-                && e29::HasUnsavedDocumentChanges(State, LevelDocUndo());
+                && e29::HasUnsavedDocumentChanges(State, CmdContext.m_Undo);
 
 
 
@@ -351,7 +351,7 @@ namespace e29
 
 
 
-                e29::MarkDocumentClean(State, LevelDocUndo());
+                e29::MarkDocumentClean(State, CmdContext.m_Undo);
 
 
 
@@ -359,11 +359,11 @@ namespace e29
 
 
 
-            ToolbarButton("Undo", "U", false, State.isPlaying(), [&]() { LevelDocUndo().Undo(); });
+            ToolbarButton("Undo", "U", false, State.isPlaying(), [&]() { CmdContext.m_Undo.Undo(); });
 
 
 
-            ToolbarButton("Redo", "R", false, State.isPlaying(), [&]() { LevelDocUndo().Redo(); });
+            ToolbarButton("Redo", "R", false, State.isPlaying(), [&]() { CmdContext.m_Undo.Redo(); });
 
 
 
@@ -379,7 +379,7 @@ namespace e29
 
 
 
-            e29::RenderPlayTransport(State, GamePlugin, { ImVec2(52.0f, ButtonHeight), bHorizontal, false });
+            e29::RenderPlayTransport(CmdContext, GamePlugin, { ImVec2(52.0f, ButtonHeight), bHorizontal, false });
             bFirstButton = false;
 
 

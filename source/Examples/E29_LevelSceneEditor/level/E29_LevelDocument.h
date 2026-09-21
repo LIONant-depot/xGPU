@@ -19,28 +19,21 @@ namespace e29
 
     struct LevelDocument final : xeditor::IDocument
     {
-        editor_state*             m_pState   = nullptr;
-        xecs::game_mgr::instance* m_pGameMgr = nullptr;
-        xundo::system*            m_pUndo    = nullptr; // Level session undo (dirty watermark)
+        editor_context* m_pEd = nullptr;    // the editor this document belongs to; its undo holds the dirty watermark
 
-        void Bind(editor_state& State, xecs::game_mgr::instance* pGameMgr, xundo::system* pUndo) noexcept
-        {
-            m_pState   = &State;
-            m_pGameMgr = pGameMgr;
-            m_pUndo    = pUndo;
-        }
+        void Bind(editor_context& Ed) noexcept { m_pEd = &Ed; }
 
         xresource::full_guid CurrentGuid() const noexcept
         {
-            if (!m_pState || m_pState->m_CurrentLevel.empty()) return {};
-            return xresource::full_guid{ m_pState->m_CurrentLevel.m_Instance, xecs::level::type_guid_v };
+            if (!m_pEd || m_pEd->m_State.m_CurrentLevel.empty()) return {};
+            return xresource::full_guid{ m_pEd->m_State.m_CurrentLevel.m_Instance, xecs::level::type_guid_v };
         }
 
         xresource::full_guid getGuid() const noexcept override { return CurrentGuid(); }
 
         std::string getDisplayName() const noexcept override
         {
-            if (!m_pState || m_pState->m_CurrentLevel.empty()) return {};
+            if (!m_pEd || m_pEd->m_State.m_CurrentLevel.empty()) return {};
             std::string Name;
             RemapGUIDToString(Name, CurrentGuid());
             return Name.empty() ? std::string("Level") : Name;
@@ -48,23 +41,24 @@ namespace e29
 
         bool Load() noexcept override
         {
-            return m_pState && !m_pState->m_CurrentLevel.empty();
+            return m_pEd && !m_pEd->m_State.m_CurrentLevel.empty();
         }
 
         std::string Save() noexcept override
         {
-            if (!m_pState || !m_pGameMgr) return "LevelDocument: not bound";
-            if (m_pState->m_CurrentLevel.empty() && m_pState->m_OpenScenes.empty())
+            if (!m_pEd) return "LevelDocument: not bound";
+            auto& State = m_pEd->m_State;
+            if (State.m_CurrentLevel.empty() && State.m_OpenScenes.empty())
                 return "LevelDocument: nothing open";
-            SaveEverything(*m_pGameMgr, *m_pState);
-            if (m_pUndo) MarkDocumentClean(*m_pState, *m_pUndo);
+            SaveEverything(m_pEd->World(), State);
+            MarkDocumentClean(State, m_pEd->m_Undo);
             // Save restores just-loaded: drop write locks so peers can edit again.
             if (auto* pHost = xeditor::host::current())
             {
                 for (auto& S : pHost->m_Sessions)
                 {
                     if (!S || S->m_Document.get() != this) continue;
-                    ReleaseLevelEditAccess(*pHost, *S, *m_pState);
+                    ReleaseLevelEditAccess(*pHost, *S, State);
                     break;
                 }
             }
@@ -73,8 +67,7 @@ namespace e29
 
         bool isDirty() const noexcept override
         {
-            if (!m_pState || !m_pUndo) return false;
-            return HasUnsavedDocumentChanges(*m_pState, *m_pUndo);
+            return m_pEd && HasUnsavedDocumentChanges(m_pEd->m_State, m_pEd->m_Undo);
         }
     };
 
@@ -149,31 +142,29 @@ namespace e29
         xeditor::registry::Get().Register(std::move(Desc));
     }
 
-    // Long-lived Level session: owned here when closed; in Host.m_Sessions while a Level is open.
+    // Long-lived Level session: owned here when closed; in Host.m_Sessions while a Level is open. The session object
+    // never moves (only its owning pointer does), so its undo is a stable address for the editor context to refer to.
     struct level_host_session
     {
         std::unique_ptr<xeditor::session> Owned;
         xeditor::session*                 pLive = nullptr; // Owned.get() or entry inside Host
         bool                              bInHost = false;
 
-        xeditor::session& EnsureCreated(editor_state& State, xecs::game_mgr::instance* pGameMgr) noexcept
+        level_host_session() noexcept
         {
-            if (!Owned && !pLive)
-            {
-                Owned = std::make_unique<xeditor::session>();
-                Owned->m_Document = std::make_unique<LevelDocument>();
-                if (auto Err = Owned->m_Undo.Init({}, false); !Err.empty())
-                    xeditor::NotifyError(std::format("E29: Level session xundo Init failed: {}", Err));
-                pLive = Owned.get();
-            }
-            if (auto* pDoc = static_cast<LevelDocument*>(pLive->m_Document.get()))
-                pDoc->Bind(State, pGameMgr, &pLive->m_Undo);
-            return *pLive;
+            Owned = std::make_unique<xeditor::session>();
+            Owned->m_Document = std::make_unique<LevelDocument>();
+            if (auto Err = Owned->m_Undo.Init({}, false); !Err.empty())
+                xeditor::NotifyError(std::format("E29: Level session xundo Init failed: {}", Err));
+            pLive = Owned.get();
         }
 
-        void Sync(xeditor::host& Host, editor_state& State, xecs::game_mgr::instance* pGameMgr) noexcept
+        xundo::system& Undo() noexcept { return pLive->m_Undo; }
+
+        void Bind(editor_context& Ed) noexcept { static_cast<LevelDocument*>(pLive->m_Document.get())->Bind(Ed); }
+
+        void Sync(xeditor::host& Host, editor_state& State) noexcept
         {
-            EnsureCreated(State, pGameMgr);
             const bool bWant = !State.m_CurrentLevel.empty();
 
             if (bWant && !bInHost)
@@ -181,8 +172,6 @@ namespace e29
                 Host.m_Sessions.push_back(std::move(Owned));
                 pLive   = Host.m_Sessions.back().get();
                 bInHost = true;
-                if (auto* pDoc = static_cast<LevelDocument*>(pLive->m_Document.get()))
-                    pDoc->Bind(State, pGameMgr, &pLive->m_Undo);
             }
             else if (!bWant && bInHost)
             {
@@ -197,11 +186,6 @@ namespace e29
                     break;
                 }
             }
-            else if (pLive)
-            {
-                if (auto* pDoc = static_cast<LevelDocument*>(pLive->m_Document.get()))
-                    pDoc->Bind(State, pGameMgr, &pLive->m_Undo);
-            }
         
             // Every frame (DESIGN 4.2): clean => unlocked (same as just-loaded). Dirty locks
             // are claimed only by TryGateLevelMutation on first edit - never by Sync.
@@ -210,21 +194,18 @@ namespace e29
                 ReleaseLevelEditAccess(Host, *pLive, State);
             }
         }
-
-        xundo::system& Undo() noexcept { return pLive->m_Undo; }
     };
 
-    inline xundo::system* FindLevelUndo() noexcept
+    // Claims the Level and the selected scenes for the session before its first edit (DESIGN 4.2); the host runs it
+    // before every edit command.
+    inline bool TryGateLevelMutation(xundo::system& System) noexcept
     {
-        auto* pHost  = xeditor::host::current();
-        auto* pLevel = pHost ? pHost->find<level_host_session>() : nullptr;
-        return pLevel && pLevel->pLive ? &pLevel->pLive->m_Undo : nullptr;
-    }
-
-    inline xundo::system& LevelDocUndo() noexcept
-    {
-        auto* pUndo = FindLevelUndo();
-        return pUndo ? *pUndo : xeditor::host::current()->workspace();
+        auto* pHost = xeditor::host::current();
+        auto* pEd   = FindEditorContext();
+        if (pHost == nullptr || pEd == nullptr || &System != &pEd->m_Undo) return true;
+        for (auto& S : pHost->m_Sessions)
+            if (S && &S->undo() == &System) return EnsureLevelEditAccess(*pHost, *S, pEd->m_State);
+        return true;
     }
 }
 

@@ -7,7 +7,7 @@ namespace e29
     // open-asset routing (Level / Texture), and the extra Project Settings sections.
     inline void app::WireAssetBrowser()
     {
-        e29::RegisterAssetBrowserCallbacks(AsserBrowser, E29Undo, MainWindow);
+        e29::RegisterAssetBrowserCallbacks(AsserBrowser, E29Undo, CmdContext.m_Undo, MainWindow);
 
 
 
@@ -341,9 +341,7 @@ namespace e29
             {
                 if (AssetGuid.m_Type == xecs::level::type_guid_v)
                 {
-                    if (e29::FindLevelUndo() == nullptr)
-                        return;
-                    if (e29::RequestOpenLevel(*pGameMgr, State, *e29::FindLevelUndo(), AssetGuid, /*bStartGameReload*/ true))
+                    if (e29::RequestOpenLevel(*pGameMgr, State, CmdContext.m_Undo, AssetGuid, /*bStartGameReload*/ true))
                         State.m_bPendingStartGameReloadAfterOpen = true;
                     return;
                 }

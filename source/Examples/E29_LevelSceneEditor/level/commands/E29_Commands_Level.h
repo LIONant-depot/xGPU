@@ -59,7 +59,7 @@ namespace e29::commands
                 return "OpenLevel: bad arguments";
 
 
-            auto& State = get<e29_command_context>().m_State;
+            auto& State = get<editor_context>().m_State;
             if (State.isPlaying()) return "OpenLevel: blocked while Play/Paused";
 
             const std::uint64_t Value = std::strtoull(std::get<std::string>(LevelArg).c_str(), nullptr, 16);
@@ -80,7 +80,7 @@ namespace e29::commands
             }
 
             const bool bHaveDoc = !State.m_CurrentLevel.empty() || !State.m_OpenScenes.empty();
-            const bool bDirty   = e29::HasUnsavedDocumentChanges(State, e29::LevelDocUndo());
+            const bool bDirty   = e29::HasUnsavedDocumentChanges(State, EditorContext().m_Undo);
             if (bHaveDoc && bDirty && !SaveOverride.has_value())
                 return "OpenLevel: current Level has unsaved changes; pass -Save 1 (save) or -Save 0 (discard)";
 
@@ -89,13 +89,13 @@ namespace e29::commands
                 if (bDirty && SaveOverride.value())
                 {
                     e29::SaveEverything(World(), State);
-                    e29::MarkDocumentClean(State, e29::LevelDocUndo());
+                    e29::MarkDocumentClean(State, EditorContext().m_Undo);
                 }
-                e29::CloseLevel(World(), State, e29::LevelDocUndo());
+                e29::CloseLevel(World(), State, EditorContext().m_Undo);
             }
 
             e29::OpenLevel(World(), State, LevelGuid);
-            e29::MarkDocumentClean(State, e29::LevelDocUndo());
+            e29::MarkDocumentClean(State, EditorContext().m_Undo);
 
             if (State.m_CurrentLevel.m_Instance.m_Value != Value)
                 return std::format("OpenLevel: failed to open {:016X} (unknown Level guid or load error)", Value);
@@ -203,7 +203,7 @@ namespace e29::commands
             if (std::holds_alternative<xerr>(SceneArg)) return "CloseScene: bad arguments";
 
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
-            auto& State = get<e29_command_context>().m_State;
+            auto& State = get<editor_context>().m_State;
             const bool bWasOpen = std::find(State.m_OpenScenes.begin(), State.m_OpenScenes.end(), SceneGuid) != State.m_OpenScenes.end();
 
             e29::CloseScene(World(), State, SceneGuid);
@@ -270,7 +270,7 @@ namespace e29::commands
 
         std::string Query() noexcept override
         {
-            auto& State = get<e29_command_context>().m_State;
+            auto& State = get<editor_context>().m_State;
 
             auto LevelArg = m_Parser.getOptionArgAs<std::string>(m_hLevel, 0);
             const auto LevelGuid = std::holds_alternative<xerr>(LevelArg)
@@ -485,7 +485,7 @@ struct add_scene_cmd : scene_command
 
         // If the user opened the scene after we added it (row expand), drop residency too.
         // CloseScene is a no-op when the guid is not in State.m_OpenScenes.
-        auto& State = get<e29_command_context>().m_State;
+        auto& State = get<editor_context>().m_State;
         e29::CloseScene(World(), State, SceneGuid);
     }
 
@@ -529,7 +529,7 @@ struct remove_scene_cmd : scene_command
 
         pLevel->m_Scenes.erase(It);
 
-        auto& State = get<e29_command_context>().m_State;
+        auto& State = get<editor_context>().m_State;
         e29::CloseScene(World(), State, SceneGuid);
         return {};
     }
@@ -556,7 +556,7 @@ struct remove_scene_cmd : scene_command
                 Index = static_cast<std::uint32_t>(std::distance(pLevel->m_Scenes.begin(), It));
         }
 
-        auto& State = get<e29_command_context>().m_State;
+        auto& State = get<editor_context>().m_State;
         bWasOpen = (std::find(State.m_OpenScenes.begin(), State.m_OpenScenes.end(), SceneGuid) != State.m_OpenScenes.end()) ? 1u : 0u;
 
         File.Write(Level);
@@ -586,7 +586,7 @@ struct remove_scene_cmd : scene_command
 
         if (bWasOpen)
         {
-            auto& State = get<e29_command_context>().m_State;
+            auto& State = get<editor_context>().m_State;
             e29::OpenScene(World(), State, xresource::full_guid{ SceneGuid.m_Instance, xecs::scene::type_guid_v });
         }
     }

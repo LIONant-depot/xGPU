@@ -82,7 +82,7 @@ namespace e29::commands
     // Mirrors level/E29_Panel_LevelTree.h's own DoDeleteEntity exactly, including the selection/
     // multi-select survival cleanup - this command can run from Undo/Redo just as easily as from the
     // context menu that used to be the only caller.
-    inline void DeleteSubtreeByPermanentId(e29_command_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id) noexcept
+    inline void DeleteSubtreeByPermanentId(editor_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id) noexcept
     {
         auto* pScene = Ed.World().m_SceneMgr.Find(SceneGuid);
         if (!pScene) return;
@@ -129,7 +129,7 @@ namespace e29::commands
     // SaveEntity walk alone cannot undo them. Same IO shape as make_prefab_variant_cmd's own
     // BackupCurrenState/Undo for m_lComponents + m_HierarchyDiffs (E29_Commands_MakePrefab.h).
     // Always writes a bool so Restore can drain the record even when Snapshot early-outs.
-    inline void SnapshotContainingPrefabOverrides(e29_command_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
+    inline void SnapshotContainingPrefabOverrides(editor_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
     {
         xecs::editor::prefab_instance* pPI = nullptr;
         xecs::scene::permanent_id      PIRootId = xecs::scene::invalid_permanent_id_v;
@@ -174,7 +174,7 @@ namespace e29::commands
         }
     }
 
-    inline void RestoreContainingPrefabOverrides(e29_command_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid) noexcept
+    inline void RestoreContainingPrefabOverrides(editor_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid) noexcept
     {
         bool bHad = false; File.Read(bHad);
         if (!bHad) return;
@@ -240,7 +240,7 @@ namespace e29::commands
     // writing whatever SceneGuid/RootId encoding its own command string args need - this only writes
     // the position + subtree data, since a caller like make_prefab_cmd already knows how it wants to
     // encode Scene (it might not be a plain xecs::scene::guid round trip at all).
-    inline void SnapshotSubtreeForRestore(e29_command_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
+    inline void SnapshotSubtreeForRestore(editor_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
     {
         auto* pScene = Ed.World().m_SceneMgr.Find(SceneGuid);
         if (!pScene || !pScene->m_LocalToRuntime.contains(RootId))
@@ -365,7 +365,7 @@ namespace e29::commands
     // Counterpart to SnapshotSubtreeForRestore - reads back everything it wrote and restores the whole
     // subtree, including hierarchy, cross-entity references, and prefab-instance overrides, back to
     // its exact original position. Factored out of delete_entity_cmd's own Undo (moved verbatim).
-    inline void RestoreSubtreeFromSnapshot(e29_command_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
+    inline void RestoreSubtreeFromSnapshot(editor_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
     {
         std::uint32_t FolderVal = 0;     File.Read(FolderVal);
         std::uint32_t FolderIndex = 0;   File.Read(FolderIndex);

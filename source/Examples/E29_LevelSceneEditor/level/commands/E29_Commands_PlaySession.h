@@ -44,9 +44,8 @@ namespace e29::commands
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
         {
-            auto& State = get<e29_command_context>().m_State;
             if (!e29::g_pGamePlugin) return "Play: no game plugin state";
-            return e29::RequestPlay(State, *e29::g_pGamePlugin);
+            return e29::RequestPlay(EditorContext(), *e29::g_pGamePlugin);
         }
     };
 
@@ -60,8 +59,7 @@ namespace e29::commands
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
         {
-            auto& State = get<e29_command_context>().m_State;
-            return e29::RequestPause(State);
+            return e29::RequestPause(State());
         }
     };
 
@@ -77,7 +75,7 @@ namespace e29::commands
         std::string Query() noexcept override
         {
             if (!e29::g_pGamePlugin) return "Step: no game plugin state";
-            return e29::RequestStep(get<e29_command_context>().m_State, *e29::g_pGamePlugin);
+            return e29::RequestStep(EditorContext(), *e29::g_pGamePlugin);
         }
     };
 
@@ -106,8 +104,6 @@ namespace e29::commands
         }
         std::string Query() noexcept override
         {
-            auto& State = get<e29_command_context>().m_State;
-
             std::optional<bool> KeepOverride;
             if (auto KeepArg = m_Parser.getOptionArgAs<std::string>(m_hKeep, 0); !std::holds_alternative<xerr>(KeepArg))
             {
@@ -115,7 +111,7 @@ namespace e29::commands
                 KeepOverride = (S == "true" || S == "1");
             }
 
-            return e29::RequestStop(State, KeepOverride);
+            return e29::RequestStop(EditorContext(), KeepOverride);
         }
         xcmdline::parser::handle m_hKeep;
     };
@@ -131,7 +127,7 @@ namespace e29::commands
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
         {
-            auto& State = get<e29_command_context>().m_State;
+            auto& State = get<editor_context>().m_State;
             const bool bBuilding = e29::g_pGamePlugin && e29::g_pGamePlugin->m_bBuilding;
             return std::format("PlayState={} Building={} PlayRequested={} StopRequested={}"
                 , PlayStateName(State.m_PlayState), bBuilding, State.m_bPlayRequested, State.m_bStopRequested);

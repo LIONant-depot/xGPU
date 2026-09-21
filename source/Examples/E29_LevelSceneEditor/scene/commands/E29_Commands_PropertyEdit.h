@@ -35,7 +35,7 @@ namespace e29::commands
         void*                              m_pInstance = nullptr;
     };
 
-    inline resolved_property_target ResolvePropertyTarget(e29_command_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id, std::uint64_t ComponentGuidValue) noexcept
+    inline resolved_property_target ResolvePropertyTarget(editor_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id, std::uint64_t ComponentGuidValue) noexcept
     {
         resolved_property_target Out;
 
@@ -80,7 +80,7 @@ namespace e29::commands
     // override at all" (must be fully removed on Undo, not just set back to Before - see
     // RemovePropertyOverride's own comment, and the direct user report this fixes: "when I override a
     // property then I undo it... it needs to go back to a non-overwritten property").
-    inline bool HasPropertyOverride(e29_command_context& Ed, xecs::component::entity Entity, const xecs::component::type::info& Info, const std::string& Path) noexcept
+    inline bool HasPropertyOverride(editor_context& Ed, xecs::component::entity Entity, const xecs::component::type::info& Info, const std::string& Path) noexcept
     {
         auto Ctx = e29::FindContainingPrefabInstance(Ed.World(), Entity);
         if (Ctx.m_pPI == nullptr) return false;
@@ -101,7 +101,7 @@ namespace e29::commands
     // + write-or-update the matching prefab_property_override). Used by Redo() (After value) and by
     // Undo() ONLY when an override already existed before this edit (Before value) - see
     // set_property_cmd::Undo for the other case.
-    inline void RecordPropertyOverride(e29_command_context& Ed, const resolved_property_target& Target, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id, const std::string& Path, const std::string& ValueStr) noexcept
+    inline void RecordPropertyOverride(editor_context& Ed, const resolved_property_target& Target, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id, const std::string& Path, const std::string& ValueStr) noexcept
     {
         if (!Target.m_pInfo) return;
 
@@ -139,7 +139,7 @@ namespace e29::commands
     // otherwise a component would be left behind in xecs::editor::prefab_instance::m_lComponents with
     // an empty m_PropertyOverrides, which every other override-authoring path in this codebase treats
     // as "this component has overrides" (e.g. the Entity Properties panel's own override-tint check).
-    inline void RemovePropertyOverride(e29_command_context& Ed, const resolved_property_target& Target, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id, const std::string& Path) noexcept
+    inline void RemovePropertyOverride(editor_context& Ed, const resolved_property_target& Target, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id, const std::string& Path) noexcept
     {
         if (!Target.m_pInfo) return;
 

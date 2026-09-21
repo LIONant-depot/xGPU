@@ -19,8 +19,9 @@ namespace e29
         bool   m_bTooltips;
     };
 
-    inline void RenderPlayTransport( editor_state& State, game_plugin_state& Plugin, const transport_layout& Layout ) noexcept
+    inline void RenderPlayTransport( editor_context& Ed, game_plugin_state& Plugin, const transport_layout& Layout ) noexcept
     {
+        auto& State = Ed.m_State;
         using play_state = editor_state::play_state;
         constexpr const char* PlayIcon  = "\xEE\x9D\xA8";
         constexpr const char* PauseIcon = "\xEE\x9D\xA9";
@@ -58,8 +59,8 @@ namespace e29
 
         Slot(bStopped ? PlayIcon : StopIcon, Plugin.m_bBuilding, false, [&]
         {
-            if (bStopped) RequestPlay(State, Plugin);
-            else          RequestStop(State, std::nullopt);
+            if (bStopped) RequestPlay(Ed, Plugin);
+            else          RequestStop(Ed, std::nullopt);
         });
         Tip(bStopped ? "Play" : "Stop", bStopped ? "Start playback" : "Stop playback");
 
@@ -71,7 +72,7 @@ namespace e29
         }
         else
         {
-            Slot(StepIcon, Plugin.m_bBuilding, false, [&] { RequestStep(State, Plugin); });
+            Slot(StepIcon, Plugin.m_bBuilding, false, [&] { RequestStep(Ed, Plugin); });
             Tip("Step", "Run one frame");
         }
 

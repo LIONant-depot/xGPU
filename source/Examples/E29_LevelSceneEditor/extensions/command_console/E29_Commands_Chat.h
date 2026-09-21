@@ -19,8 +19,20 @@
 
 namespace e29::commands
 {
+    // The Say/GetLog transcript. The app provides one as a host service.
+    struct chat_message
+    {
+        std::string m_From;
+        std::string m_Text;
+    };
+
+    struct chat_log
+    {
+        std::vector<chat_message> m_Messages;
+    };
+
     //================================================================================================
-    // Say - appends one message to the in-memory chat log (e29_command_context::m_ChatLog). Returns
+    // Say - appends one message to the in-memory chat log (chat_log). Returns
     // an echo of exactly what got recorded ("[From] Text") rather than an empty success - unlike a
     // mutating Edit command's own silent-success convention, an AI sending a message benefits from
     // seeing its own message land intact (the Base64 round trip is otherwise invisible from the
@@ -49,7 +61,7 @@ namespace e29::commands
             const auto From = std::get<std::string>(FromArg);
             const auto Text = xeditor::Base64Decode(std::get<std::string>(TextArg));
 
-            get<e29_command_context>().m_ChatLog.push_back({ From, Text });
+            xeditor::host::current()->get<chat_log>().m_Messages.push_back({ From, Text });
             return std::format("[{}] {}", From, Text);
         }
 
@@ -80,7 +92,7 @@ namespace e29::commands
             auto CountArg = m_Parser.getOptionArgAs<std::string>(m_hCount, 0);
             const std::size_t Count = std::holds_alternative<xerr>(CountArg) ? 10 : static_cast<std::size_t>(std::stoul(std::get<std::string>(CountArg)));
 
-            auto& ChatLog = get<e29_command_context>().m_ChatLog;
+            auto& ChatLog = xeditor::host::current()->get<chat_log>().m_Messages;
             const std::size_t Start = ChatLog.size() > Count ? ChatLog.size() - Count : 0;
 
             std::string Out;
