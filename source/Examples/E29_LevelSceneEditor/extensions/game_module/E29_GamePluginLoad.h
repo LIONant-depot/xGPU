@@ -20,7 +20,7 @@ namespace e29
     // component then falls back to "uncategorized", exactly like it already does today.
     inline void LoadGameComponentDisplayInfo( game_plugin_state& Plugin ) noexcept
     {
-        g_ComponentDisplayInfo.clear();
+        xscene::g_ComponentDisplayInfo.clear();
         if (!Plugin.isLoaded()) return;
 
         auto* pGetInfo = reinterpret_cast<e29_game_registration::pfn_get_component_display_info>(GetProcAddress(Plugin.m_hModule, e29_game_registration::kGetComponentDisplayInfoName));
@@ -28,9 +28,9 @@ namespace e29
 
         pGetInfo([](void* pUserData, std::uint64_t /*Guid*/, const char* pName, const char* pCategory, int Priority) noexcept
         {
-            auto& Map = *reinterpret_cast<std::unordered_map<std::string, component_display_info>*>(pUserData);
+            auto& Map = *reinterpret_cast<std::unordered_map<std::string, xscene::component_display_info>*>(pUserData);
             Map[pName] = { pCategory, Priority };
-        }, &g_ComponentDisplayInfo);
+        }, &xscene::g_ComponentDisplayInfo);
     }
 
     //---------------------------------------------------------------------------
@@ -241,7 +241,7 @@ namespace e29
     {
         if (!Plugin.isLoaded()) return;
 
-        g_ComponentDisplayInfo.clear();
+        xscene::g_ComponentDisplayInfo.clear();
 
         if (auto* pUnregister = reinterpret_cast<xecs_plugin_pfn_unregister*>(GetProcAddress(Plugin.m_hModule, XECS_PLUGIN_UNREGISTER_NAME)))
             pUnregister(Plugin.m_Token);

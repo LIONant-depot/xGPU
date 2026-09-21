@@ -408,7 +408,7 @@ namespace e29
 
         e29::g_pGamePlugin = &GamePlugin;
 
-        e29::g_MakePrefabDropHandler = &e29::MakePrefabDropViaCommands;
+        xscene::g_MakePrefabDropHandler = &xscene::MakePrefabDropViaCommands;
 
 
 
@@ -435,7 +435,7 @@ namespace e29
         EditorHost.m_pExternalWorkspace = &E29Undo;
         EditorHost.m_OnBeforeEdit        = e29::TryGateLevelMutation;
         EditorHost.provide(CmdContext);
-        EditorHost.provide<e29::scene_context>(CmdContext);
+        EditorHost.provide<xscene::scene_context>(CmdContext);
         EditorHost.provide(ChatLog);
         EditorHost.m_IdleWork.m_OnRun.Register<&e29::scene_sanity_scanner::Run>(SceneScanner);
         EditorHost.m_IdleWork.m_OnRun.Register<&e10::source_control::ScanAllLibrariesWhenIdle>();
@@ -451,7 +451,7 @@ namespace e29
 
         EditorHost.provide(LevelHostSession);
         LevelHostSession.Bind(CmdContext);
-        Commands.emplace(E29Undo, CmdContext.m_Undo, static_cast<e29::scene_context*>(&CmdContext), &CmdContext);
+        Commands.emplace(E29Undo, CmdContext.m_Undo, static_cast<xscene::scene_context*>(&CmdContext), &CmdContext);
 
         E29History.AddSystem("E29", 1, E29Undo);
 
@@ -628,7 +628,7 @@ namespace e29
         EditorHost.release_current();
 
         EditorHost.withdraw<e29::editor_context>();
-        EditorHost.withdraw<e29::scene_context>();
+        EditorHost.withdraw<xscene::scene_context>();
 
         pGameMgr.reset();
 

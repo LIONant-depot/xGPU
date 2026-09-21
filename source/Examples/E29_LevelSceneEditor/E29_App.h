@@ -23,7 +23,7 @@
 
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
 
-#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_Selection.h"
+#include "plugins/xscene.plugin/source/Editor/xscene_commands_selection.h"
 
 #include "source/Examples/E29_LevelSceneEditor/extensions/command_console/E29_CommandConsolePipe.h"
 
@@ -41,7 +41,7 @@
 
 #include "source/Examples/E29_LevelSceneEditor/level/commands/E29_Commands_PlaySession.h"
 
-#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_SceneOrganization.h"
+#include "plugins/xscene.plugin/source/Editor/xscene_commands_scene_organization.h"
 
 #include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_Assets.h"
 
@@ -49,7 +49,7 @@
 
 #include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_Commands_Scripting.h"
 
-#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_MakePrefab.h"
+#include "plugins/xscene.plugin/source/Editor/xscene_commands_make_prefab.h"
 
 #include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_Compilation.h"
 
@@ -375,7 +375,7 @@ namespace e29
 
 
 
-        e29::entity_inspector_bridge  InspectorBridge;
+        xscene::entity_inspector_bridge  InspectorBridge;
 
 
 
@@ -477,7 +477,7 @@ namespace e29
 
 
 
-            GameMgr.RegisterComponents<e29::name, e29::transform, xecs::editor::prefab_instance, xecs::component::entity_reference>();
+            GameMgr.RegisterComponents<xscene::name, e29::transform, xecs::editor::prefab_instance, xecs::component::entity_reference>();
 
 
 

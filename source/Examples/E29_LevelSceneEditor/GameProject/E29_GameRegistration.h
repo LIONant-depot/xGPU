@@ -85,17 +85,6 @@ namespace e29_game_registration
     using pfn_get_component_display_info = void(__cdecl*)(pfn_component_display_visitor pVisitor, void* pUserData);
 }
 
-namespace e29
-{
-    // Editor-side copy of each currently-loaded component's category/priority - repopulated by
-    // LoadGameComponentDisplayInfo (E29_GamePluginLoad.h) every time a new generation loads, read by
-    // the Entity Properties panel for filtering/ordering. Declared here (not in E29_GamePluginLoad.h
-    // itself) since this header has no heavy include-order prerequisites - safe for the panel file to
-    // include directly without pulling in game_plugin_state/LogGamePlugin's own ordering constraints.
-    struct component_display_info { std::string m_Category; int m_Priority = 0; };
-    inline std::unordered_map<std::string, component_display_info> g_ComponentDisplayInfo;
-}
-
 // A module writes ONE of these per component/system struct, right where XPROPERTY_REG (for
 // components) would otherwise go - it now does both. CATEGORY/PRIORITY are required, not defaulted
 // (C preprocessor macros can't cleanly default arguments, and Unreal's own UPROPERTY(Category=...)

@@ -37,15 +37,15 @@ namespace e29::commands
             if (std::holds_alternative<xerr>(SceneArg) || std::holds_alternative<xerr>(ParentArg))
                 return "AddSceneDependency: bad arguments";
 
-            const auto SceneGuid  = ParseSceneGuid(std::get<std::string>(SceneArg));
-            const auto ParentGuid = ParseSceneGuid(std::get<std::string>(ParentArg));
+            const auto SceneGuid  = xscene::commands::ParseSceneGuid(std::get<std::string>(SceneArg));
+            const auto ParentGuid = xscene::commands::ParseSceneGuid(std::get<std::string>(ParentArg));
             auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene) return "AddSceneDependency: owning scene is not loaded";
 
             if (std::find(pScene->m_ParentScenes.begin(), pScene->m_ParentScenes.end(), ParentGuid) != pScene->m_ParentScenes.end())
                 return {};
 
-            if (e29::WouldCreateDependencyCycle(World(), SceneGuid, ParentGuid))
+            if (xscene::WouldCreateDependencyCycle(World(), SceneGuid, ParentGuid))
                 return "AddSceneDependency: would create a circular scene dependency";
 
             pScene->m_ParentScenes.push_back(ParentGuid);
@@ -121,8 +121,8 @@ namespace e29::commands
             if (std::holds_alternative<xerr>(SceneArg) || std::holds_alternative<xerr>(ParentArg))
                 return "RemoveSceneDependency: bad arguments";
 
-            const auto SceneGuid  = ParseSceneGuid(std::get<std::string>(SceneArg));
-            const auto ParentGuid = ParseSceneGuid(std::get<std::string>(ParentArg));
+            const auto SceneGuid  = xscene::commands::ParseSceneGuid(std::get<std::string>(SceneArg));
+            const auto ParentGuid = xscene::commands::ParseSceneGuid(std::get<std::string>(ParentArg));
             const bool bClearRefs = WantsClearRefs(m_Parser, m_hClearRefs);
             auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene) return "RemoveSceneDependency: owning scene is not loaded";
@@ -131,32 +131,32 @@ namespace e29::commands
                 return "RemoveSceneDependency: parent is not a dependency";
 
             std::vector<xecs::scene::guid> Lost;
-            e29::CollectLostParentsOnRemove(World(), *pScene, ParentGuid, Lost);
+            xscene::CollectLostParentsOnRemove(World(), *pScene, ParentGuid, Lost);
 
             if (!bClearRefs)
             {
-                if (auto Why = e29::WhyCannotRemoveSceneDependency(World(), SceneGuid, ParentGuid); !Why.empty())
+                if (auto Why = xscene::WhyCannotRemoveSceneDependency(World(), SceneGuid, ParentGuid); !Why.empty())
                     return Why;
             }
             else
             {
-                std::vector<e29::clearable_cross_scene_ref> Hits;
-                e29::CollectClearableRefsToLostParents(World(), *pScene, Lost, Hits);
+                std::vector<xscene::clearable_cross_scene_ref> Hits;
+                xscene::CollectClearableRefsToLostParents(World(), *pScene, Lost, Hits);
                 for (auto& Hit : Hits)
                 {
-                    const auto Target = ResolvePropertyTarget(EditorContext(), SceneGuid, Hit.m_HolderId, Hit.m_ComponentGuid);
+                    const auto Target = xscene::commands::ResolvePropertyTarget(EditorContext(), SceneGuid, Hit.m_HolderId, Hit.m_ComponentGuid);
                     if (!Target.m_pInfo) continue;
-                    SetLiveEntityReferenceValue(Target, Hit.m_Path, {});
+                    xscene::commands::SetLiveEntityReferenceValue(Target, Hit.m_Path, {});
                     xproperty::any AnyVal; AnyVal.set<xecs::component::entity>({});
                     std::array<char, 256> Buffer{};
-                    const auto Len = FormatPropertyValue(Buffer, AnyVal);
+                    const auto Len = xscene::commands::FormatPropertyValue(Buffer, AnyVal);
                     const std::string ValueStr(Buffer.data(), Len > 0 ? static_cast<std::size_t>(Len) : 0);
-                    RecordPropertyOverride(EditorContext(), Target, SceneGuid, Hit.m_HolderId, Hit.m_Path, ValueStr);
+                    xscene::commands::RecordPropertyOverride(EditorContext(), Target, SceneGuid, Hit.m_HolderId, Hit.m_Path, ValueStr);
                 }
             }
 
             pScene->m_ParentScenes.erase(std::find(pScene->m_ParentScenes.begin(), pScene->m_ParentScenes.end(), ParentGuid));
-            e29::PruneStaleExternalRefsAfterDependencyRemove(*pScene, Lost);
+            xscene::PruneStaleExternalRefsAfterDependencyRemove(*pScene, Lost);
             return {};
         }
 
@@ -168,7 +168,7 @@ namespace e29::commands
             const std::uint64_t Parent = std::holds_alternative<xerr>(ParentArg) ? 0 : std::strtoull(std::get<std::string>(ParentArg).c_str(), nullptr, 16);
             const bool bClearRefs = WantsClearRefs(m_Parser, m_hClearRefs);
             std::uint32_t Index = 0;
-            std::vector<e29::clearable_cross_scene_ref> Hits;
+            std::vector<xscene::clearable_cross_scene_ref> Hits;
             if (Scene && Parent)
             {
                 const auto SceneGuid  = xecs::scene::guid{ .m_Instance = { Scene } };
@@ -181,8 +181,8 @@ namespace e29::commands
                     if (bClearRefs)
                     {
                         std::vector<xecs::scene::guid> Lost;
-                        e29::CollectLostParentsOnRemove(World(), *pScene, ParentGuid, Lost);
-                        e29::CollectClearableRefsToLostParents(World(), *pScene, Lost, Hits);
+                        xscene::CollectLostParentsOnRemove(World(), *pScene, ParentGuid, Lost);
+                        xscene::CollectClearableRefsToLostParents(World(), *pScene, Lost, Hits);
                     }
                 }
             }
@@ -241,15 +241,15 @@ namespace e29::commands
                 for (auto& H : Hits)
                 {
                     const auto BeforeSceneGuid = xecs::scene::guid{ .m_Instance = { H.BeforeScene } };
-                    const auto BeforeEntity = ResolveEntityReferenceTarget(EditorContext(), BeforeSceneGuid, static_cast<xecs::scene::permanent_id>(H.BeforeId));
-                    const auto Target = ResolvePropertyTarget(EditorContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(H.HolderId), H.Comp);
+                    const auto BeforeEntity = xscene::commands::ResolveEntityReferenceTarget(EditorContext(), BeforeSceneGuid, static_cast<xecs::scene::permanent_id>(H.BeforeId));
+                    const auto Target = xscene::commands::ResolvePropertyTarget(EditorContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(H.HolderId), H.Comp);
                     if (!Target.m_pInfo) continue;
-                    SetLiveEntityReferenceValue(Target, H.Path, BeforeEntity);
+                    xscene::commands::SetLiveEntityReferenceValue(Target, H.Path, BeforeEntity);
                     xproperty::any AnyVal; AnyVal.set<xecs::component::entity>(BeforeEntity);
                     std::array<char, 256> Buffer{};
-                    const auto Len = FormatPropertyValue(Buffer, AnyVal);
+                    const auto Len = xscene::commands::FormatPropertyValue(Buffer, AnyVal);
                     const std::string ValueStr(Buffer.data(), Len > 0 ? static_cast<std::size_t>(Len) : 0);
-                    RecordPropertyOverride(EditorContext(), Target, SceneGuid, static_cast<xecs::scene::permanent_id>(H.HolderId), H.Path, ValueStr);
+                    xscene::commands::RecordPropertyOverride(EditorContext(), Target, SceneGuid, static_cast<xecs::scene::permanent_id>(H.HolderId), H.Path, ValueStr);
                 }
             }
         }
@@ -276,19 +276,19 @@ namespace e29
     {
 
         auto* pOwner = GameMgr.m_SceneMgr.Find(Owner);
-        std::vector<clearable_cross_scene_ref> Hits;
+        std::vector<xscene::clearable_cross_scene_ref> Hits;
         if (pOwner)
         {
             std::vector<xecs::scene::guid> Lost;
-            CollectLostParentsOnRemove(GameMgr, *pOwner, Parent, Lost);
-            CollectClearableRefsToLostParents(GameMgr, *pOwner, Lost, Hits);
+            xscene::CollectLostParentsOnRemove(GameMgr, *pOwner, Parent, Lost);
+            xscene::CollectClearableRefsToLostParents(GameMgr, *pOwner, Lost, Hits);
         }
 
         // Nothing to clear -> no dialog. Plain remove (also covers "WhyCannot was wrong / ExternalRef-only").
         if (Hits.empty())
         {
             xeditor::Run(Undo, std::format("RemoveSceneDependency -Scene {} -Parent {}"
-                , commands::FormatSceneGuid(Owner), commands::FormatSceneGuid(Parent)));
+                , xscene::commands::FormatSceneGuid(Owner), xscene::commands::FormatSceneGuid(Parent)));
             return;
         }
 
@@ -319,8 +319,8 @@ namespace e29
             if (ImGui::Button("Yes", ImVec2(W, 0.0f)))
             {
                 xeditor::Run(Undo, std::format("RemoveSceneDependency -Scene {} -Parent {} -ClearRefs 1"
-                    , commands::FormatSceneGuid(g_PendingRemoveDependencyConfirm.m_Owner)
-                    , commands::FormatSceneGuid(g_PendingRemoveDependencyConfirm.m_Parent)));
+                    , xscene::commands::FormatSceneGuid(g_PendingRemoveDependencyConfirm.m_Owner)
+                    , xscene::commands::FormatSceneGuid(g_PendingRemoveDependencyConfirm.m_Parent)));
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();

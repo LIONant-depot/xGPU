@@ -345,8 +345,8 @@ namespace e29
                     if (!pInfo || !Bits.getBit(pInfo->m_BitID)) continue;
 
                     xeditor::Run(*pDocUndo, std::format("RemoveComponent -Scene {} -Id {} -Component {:016X}"
-                        , commands::FormatSceneGuid(SceneGuid)
-                        , commands::FormatEntityId(Id)
+                        , xscene::commands::FormatSceneGuid(SceneGuid)
+                        , xscene::commands::FormatEntityId(Id)
                         , Dep.m_Guid.m_Value
                         ));
                 }
@@ -514,8 +514,8 @@ namespace e29
             const auto ItScene = Args.find("Scene"); if (ItScene == Args.end()) continue;
             const auto ItId    = Args.find("Id");    if (ItId    == Args.end()) continue;
 
-            const auto SceneGuid = e29::commands::ParseSceneGuid(ItScene->second);
-            const auto Id        = e29::commands::ParseEntityId(ItId->second);
+            const auto SceneGuid = xscene::commands::ParseSceneGuid(ItScene->second);
+            const auto Id        = xscene::commands::ParseEntityId(ItId->second);
             auto* pScene = GameMgr.m_SceneMgr.Find(SceneGuid);
             if (pScene && pScene->m_LocalToRuntime.contains(Id))
                 Out.push_back(Cmd);

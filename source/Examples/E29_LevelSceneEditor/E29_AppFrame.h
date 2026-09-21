@@ -771,7 +771,7 @@ namespace e29
 
 
 
-            else if (NewAsset.m_Type == xecs::scene::type_guid_v) e29::OpenScene(*pGameMgr, State, NewAsset);
+            else if (NewAsset.m_Type == xecs::scene::type_guid_v) xscene::OpenScene(*pGameMgr, State, NewAsset);
 
 
 
@@ -823,7 +823,7 @@ namespace e29
 
 
 
-            else if (SelAsset.m_Type == xecs::scene::type_guid_v) e29::OpenScene(*pGameMgr, State, SelAsset);
+            else if (SelAsset.m_Type == xecs::scene::type_guid_v) xscene::OpenScene(*pGameMgr, State, SelAsset);
 
 
 
@@ -924,7 +924,7 @@ namespace e29
 
 
 
-        e29::RenderEntityPropertiesPanel(CmdContext, EntityInspector, InspectorBridge, !bLevelWritable);
+        xscene::RenderEntityPropertiesPanel(CmdContext, e29::editor_tabs::kInspectorWindow, EntityInspector, InspectorBridge, !bLevelWritable);
 
 
 

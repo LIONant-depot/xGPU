@@ -159,7 +159,7 @@ namespace e29::commands
                 // Folder name IS the scene's own instance guid, hex - same convention every other
                 // resource type's Descriptors/<Type>/<b0>/<b1>/<guid>.desc path already uses.
                 const auto GuidHex = xstrtool::To(It->path().parent_path().stem().wstring());
-                const auto SceneGuid = ParseSceneGuid(GuidHex);
+                const auto SceneGuid = xscene::commands::ParseSceneGuid(GuidHex);
                 ++ScenesScanned;
 
                 std::vector<xecs::scene::component_dependency> Missing;
@@ -202,13 +202,13 @@ namespace e29::commands
             auto SceneArg = m_Parser.getOptionArgAs<std::string>(m_hScene, 0);
             if (std::holds_alternative<xerr>(SceneArg)) return "CloseScene: bad arguments";
 
-            const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
+            const auto SceneGuid = xscene::commands::ParseSceneGuid(std::get<std::string>(SceneArg));
             auto& State = get<editor_context>().State();
             const bool bWasOpen = std::find(State.m_OpenScenes.begin(), State.m_OpenScenes.end(), SceneGuid) != State.m_OpenScenes.end();
 
-            e29::CloseScene(World(), State, SceneGuid);
+            xscene::CloseScene(World(), State, SceneGuid);
 
-            return bWasOpen ? std::format("Closed Scene {}", FormatSceneGuid(SceneGuid)) : std::format("CloseScene: {} was not open", FormatSceneGuid(SceneGuid));
+            return bWasOpen ? std::format("Closed Scene {}", xscene::commands::FormatSceneGuid(SceneGuid)) : std::format("CloseScene: {} was not open", xscene::commands::FormatSceneGuid(SceneGuid));
         }
 
         xcmdline::parser::handle m_hScene;
@@ -285,7 +285,7 @@ namespace e29::commands
             for (auto& SceneGuid : pLevel->m_Scenes)
             {
                 auto It = Names.find(SceneGuid.m_Instance.m_Value);
-                Out += std::format("{}  {}\n", FormatSceneGuid(SceneGuid), It != Names.end() ? It->second : "(unnamed)");
+                Out += std::format("{}  {}\n", xscene::commands::FormatSceneGuid(SceneGuid), It != Names.end() ? It->second : "(unnamed)");
             }
             return Out;
         }
@@ -312,17 +312,17 @@ namespace e29::commands
             auto SceneArg = m_Parser.getOptionArgAs<std::string>(m_hScene, 0);
             if (std::holds_alternative<xerr>(SceneArg)) return "ListEntities: bad arguments";
 
-            const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
+            const auto SceneGuid = xscene::commands::ParseSceneGuid(std::get<std::string>(SceneArg));
             auto* pScene = World().m_SceneMgr.Find(SceneGuid);
-            if (!pScene) return std::format("ListEntities: Scene {} is not open", FormatSceneGuid(SceneGuid));
+            if (!pScene) return std::format("ListEntities: Scene {} is not open", xscene::commands::FormatSceneGuid(SceneGuid));
 
             std::string Out;
             for (auto& [Id, Entity] : pScene->m_LocalToRuntime)
             {
                 std::string Label = std::format("Entity #{:08X}", Id);
                 if (auto& Details = World().m_ComponentMgr.getEntityDetails(Entity); Details.m_pPool)
-                    if (Details.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<e29::name>.m_BitID))
-                        Label = Details.m_pPool->getComponent<e29::name>(Details.m_PoolIndex).m_Value;
+                    if (Details.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xscene::name>.m_BitID))
+                        Label = Details.m_pPool->getComponent<xscene::name>(Details.m_PoolIndex).m_Value;
                 Out += std::format("{:08X}  {}\n", Id, Label);
             }
             return Out;
@@ -351,9 +351,9 @@ namespace e29::commands
             auto SceneArg = m_Parser.getOptionArgAs<std::string>(m_hScene, 0);
             if (std::holds_alternative<xerr>(SceneArg)) return "ListFolders: bad arguments";
 
-            const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
+            const auto SceneGuid = xscene::commands::ParseSceneGuid(std::get<std::string>(SceneArg));
             auto* pScene = World().m_SceneMgr.Find(SceneGuid);
-            if (!pScene) return std::format("ListFolders: Scene {} is not open", FormatSceneGuid(SceneGuid));
+            if (!pScene) return std::format("ListFolders: Scene {} is not open", xscene::commands::FormatSceneGuid(SceneGuid));
 
             auto FromArg = m_Parser.getOptionArgAs<std::string>(m_hFrom, 0);
             xecs::scene::folder_id FromId = xecs::scene::invalid_folder_id_v;
@@ -430,7 +430,7 @@ struct add_scene_cmd : editor_command
             return "AddScene: bad arguments";
 
         const auto LevelGuid = xecs::level::guid{ .m_Instance = { std::strtoull(std::get<std::string>(LevelArg).c_str(), nullptr, 16) } };
-        const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
+        const auto SceneGuid = xscene::commands::ParseSceneGuid(std::get<std::string>(SceneArg));
 
         auto* pLevel = World().m_LevelMgr.Find(LevelGuid);
         if (!pLevel) return "AddScene: level not found";
@@ -486,7 +486,7 @@ struct add_scene_cmd : editor_command
         // If the user opened the scene after we added it (row expand), drop residency too.
         // CloseScene is a no-op when the guid is not in State.m_OpenScenes.
         auto& State = get<editor_context>().State();
-        e29::CloseScene(World(), State, SceneGuid);
+        xscene::CloseScene(World(), State, SceneGuid);
     }
 
     xcmdline::parser::handle m_hLevel, m_hScene;
@@ -519,7 +519,7 @@ struct remove_scene_cmd : editor_command
             return "RemoveScene: bad arguments";
 
         const auto LevelGuid = xecs::level::guid{ .m_Instance = { std::strtoull(std::get<std::string>(LevelArg).c_str(), nullptr, 16) } };
-        const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
+        const auto SceneGuid = xscene::commands::ParseSceneGuid(std::get<std::string>(SceneArg));
 
         auto* pLevel = World().m_LevelMgr.Find(LevelGuid);
         if (!pLevel) return "RemoveScene: level not found";
@@ -530,7 +530,7 @@ struct remove_scene_cmd : editor_command
         pLevel->m_Scenes.erase(It);
 
         auto& State = get<editor_context>().State();
-        e29::CloseScene(World(), State, SceneGuid);
+        xscene::CloseScene(World(), State, SceneGuid);
         return {};
     }
 
@@ -587,7 +587,7 @@ struct remove_scene_cmd : editor_command
         if (bWasOpen)
         {
             auto& State = get<editor_context>().State();
-            e29::OpenScene(World(), State, xresource::full_guid{ SceneGuid.m_Instance, xecs::scene::type_guid_v });
+            xscene::OpenScene(World(), State, xresource::full_guid{ SceneGuid.m_Instance, xecs::scene::type_guid_v });
         }
     }
 

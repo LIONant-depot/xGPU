@@ -4,7 +4,7 @@
 // where its document stands (saved or not).
 namespace e29
 {
-    struct editor_state : scene_state
+    struct editor_state : xscene::scene_state
     {
         xecs::level::guid   m_CurrentLevel  = {};
 
@@ -65,10 +65,10 @@ namespace e29
     };
 
     // A Level editor's context: the scene context plus access to its Level state. The scene code only ever sees the base.
-    struct editor_context : scene_context
+    struct editor_context : xscene::scene_context
     {
         editor_context(editor_state& State, std::unique_ptr<xecs::game_mgr::instance>& pWorld, xundo::system& Undo) noexcept
-            : scene_context{ State, pWorld, Undo } {}
+            : xscene::scene_context{ State, pWorld, Undo } {}
 
         editor_state& State() noexcept { return static_cast<editor_state&>(m_State); }
     };

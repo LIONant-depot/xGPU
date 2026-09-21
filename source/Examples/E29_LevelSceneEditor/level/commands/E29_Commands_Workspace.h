@@ -183,10 +183,10 @@ namespace e29::commands
             auto IdArg    = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
             if (std::holds_alternative<xerr>(SceneArg) || std::holds_alternative<xerr>(IdArg)) return "DescribeEntity: bad arguments";
 
-            const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
-            const auto Id        = ParseEntityId(std::get<std::string>(IdArg));
+            const auto SceneGuid = xscene::commands::ParseSceneGuid(std::get<std::string>(SceneArg));
+            const auto Id        = xscene::commands::ParseEntityId(std::get<std::string>(IdArg));
             auto* pScene = World().m_SceneMgr.Find(SceneGuid);
-            if (!pScene) return std::format("DescribeEntity: Scene {} is not open", FormatSceneGuid(SceneGuid));
+            if (!pScene) return std::format("DescribeEntity: Scene {} is not open", xscene::commands::FormatSceneGuid(SceneGuid));
             auto It = pScene->m_LocalToRuntime.find(Id);
             if (It == pScene->m_LocalToRuntime.end()) return "DescribeEntity: entity not found";
             auto Entity = It->second;
@@ -204,7 +204,7 @@ namespace e29::commands
                 // entity's own self-identity component is exactly the kind of type
                 // FormatPropertyValue below has to special-case for everyone else - no need to walk
                 // it here at all since it's never addressable via SetProperty anyway.
-                if (e29::IsInternalComponent(pInfo)) continue;
+                if (xscene::IsInternalComponent(pInfo)) continue;
                 Out += std::format("[{:016X}] {}\n", pInfo->m_Guid.m_Value, pInfo->m_pName);
                 if (!pInfo->m_pPropertyTable) continue;
                 const auto iType = Details.m_pPool->findIndexComponentFromInfo(*pInfo);
@@ -215,7 +215,7 @@ namespace e29::commands
                 xproperty::sprop::collector(pData, *pInfo->m_pPropertyTable, Context, [&](const char* pPropertyName, xproperty::any&& Data, const xproperty::type::members&, bool, const void*) noexcept
                 {
                     std::array<char, 256> Buffer{};
-                    const auto Len = FormatPropertyValue(Buffer, Data);
+                    const auto Len = xscene::commands::FormatPropertyValue(Buffer, Data);
                     const std::string ValueStr(Buffer.data(), Len > 0 ? static_cast<std::size_t>(Len) : 0);
                     const std::uint32_t TypeGuid = Data.m_pType ? Data.m_pType->m_GUID : 0;
                     Out += std::format("    {} = {}  (TypeGuid {:08X})\n", pPropertyName, ValueStr, TypeGuid);
@@ -246,7 +246,7 @@ namespace e29::commands
             {
                 auto* pInfo = Pair.second;
                 if (pInfo->m_TypeID != xecs::component::type::id::DATA) continue;
-                if (e29::IsInternalComponent(pInfo)) continue;
+                if (xscene::IsInternalComponent(pInfo)) continue;
                 Out += std::format("{:016X}  {}\n", pInfo->m_Guid.m_Value, pInfo->m_pName);
             }
             return Out;

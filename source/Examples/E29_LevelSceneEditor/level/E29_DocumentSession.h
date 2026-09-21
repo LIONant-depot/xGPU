@@ -33,7 +33,7 @@ namespace e29
 
         const auto Scenes = State.m_OpenScenes;
         for (const auto SceneGuid : Scenes)
-            CloseScene(GameMgr, State, SceneGuid);
+            xscene::CloseScene(GameMgr, State, SceneGuid);
 
         State.m_bLevelEditorOpen = false;
         State.m_CurrentLevel = {};

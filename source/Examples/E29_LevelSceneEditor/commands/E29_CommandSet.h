@@ -13,18 +13,18 @@ namespace e29
     {
         e29::commands::open_texture_editor_cmd           CmdOpenTextureEditor;
         e29::commands::texture_editor_command_cmd        CmdTextureEditorCommand;
-        e29::commands::select_cmd                        CmdSelect;
-        e29::commands::toggle_multi_select_cmd           CmdToggleMultiSelect;
-        e29::commands::clear_selection_cmd               CmdClearSelection;
-        e29::commands::set_property_cmd                  CmdSetProperty;
-        e29::commands::revert_override_cmd               CmdRevertOverride;
-        e29::commands::apply_overrides_cmd               CmdApplyOverrides;
-        e29::commands::revert_hierarchy_overrides_cmd    CmdRevertHierarchyOverrides;
-        e29::commands::revert_all_overrides_cmd          CmdRevertAllOverrides;
-        e29::commands::add_component_cmd                 CmdAddComponent;
-        e29::commands::remove_component_cmd              CmdRemoveComponent;
-        e29::commands::create_entity_cmd                 CmdCreateEntity;
-        e29::commands::delete_entity_cmd                 CmdDeleteEntity;
+        xscene::commands::select_cmd                        CmdSelect;
+        xscene::commands::toggle_multi_select_cmd           CmdToggleMultiSelect;
+        xscene::commands::clear_selection_cmd               CmdClearSelection;
+        xscene::commands::set_property_cmd                  CmdSetProperty;
+        xscene::commands::revert_override_cmd               CmdRevertOverride;
+        xscene::commands::apply_overrides_cmd               CmdApplyOverrides;
+        xscene::commands::revert_hierarchy_overrides_cmd    CmdRevertHierarchyOverrides;
+        xscene::commands::revert_all_overrides_cmd          CmdRevertAllOverrides;
+        xscene::commands::add_component_cmd                 CmdAddComponent;
+        xscene::commands::remove_component_cmd              CmdRemoveComponent;
+        xscene::commands::create_entity_cmd                 CmdCreateEntity;
+        xscene::commands::delete_entity_cmd                 CmdDeleteEntity;
         e29::commands::say_query_cmd                     CmdSay;
         e29::commands::get_log_query_cmd                 CmdGetLog;
         e29::commands::open_level_cmd                    CmdOpenLevel;
@@ -51,16 +51,16 @@ namespace e29
         e29::commands::serialize_roundtrip_query_cmd     CmdSerializeRoundtrip;
         e29::commands::describe_entity_query_cmd         CmdDescribeEntity;
         e29::commands::list_component_types_query_cmd    CmdListComponentTypes;
-        e29::commands::set_entity_reference_cmd          CmdSetEntityReference;
+        xscene::commands::set_entity_reference_cmd          CmdSetEntityReference;
         e29::commands::play_query_cmd                    CmdPlay;
         e29::commands::pause_query_cmd                   CmdPause;
         e29::commands::step_query_cmd                    CmdStep;
         e29::commands::stop_query_cmd                    CmdStop;
         e29::commands::get_play_state_query_cmd          CmdGetPlayState;
-        e29::commands::instantiate_prefab_cmd            CmdInstantiatePrefab;
-        e29::commands::move_to_folder_cmd                CmdMoveToFolder;
-        e29::commands::create_folder_cmd                 CmdCreateFolder;
-        e29::commands::delete_folder_cmd                 CmdDeleteFolder;
+        xscene::commands::instantiate_prefab_cmd            CmdInstantiatePrefab;
+        xscene::commands::move_to_folder_cmd                CmdMoveToFolder;
+        xscene::commands::create_folder_cmd                 CmdCreateFolder;
+        xscene::commands::delete_folder_cmd                 CmdDeleteFolder;
         e10::commands::list_assets_query_cmd             CmdListAssets;
         e10::commands::describe_asset_query_cmd          CmdDescribeAsset;
         e10::commands::rename_asset_cmd                  CmdRenameAsset;
@@ -83,8 +83,8 @@ namespace e29
         e10::commands::delete_asset_file_cmd             CmdDeleteAssetFile;
         e10::commands::restore_asset_file_cmd            CmdRestoreAssetFile;
         e10::commands::copy_asset_file_cmd               CmdCopyAssetFile;
-        e29::commands::make_prefab_cmd                   CmdMakePrefab;
-        e29::commands::make_prefab_variant_cmd           CmdMakePrefabVariant;
+        xscene::commands::make_prefab_cmd                   CmdMakePrefab;
+        xscene::commands::make_prefab_variant_cmd           CmdMakePrefabVariant;
         e10::commands::recompile_all_query_cmd           CmdRecompileAll;
         e10::commands::recompile_errors_query_cmd        CmdRecompileErrors;
         e10::commands::compile_start_query_cmd           CmdCompileStart;
@@ -105,7 +105,7 @@ namespace e29
         e10::commands::source_control_pull_query_cmd     CmdSourceControlPull;
         e10::commands::source_control_push_query_cmd     CmdSourceControlPush;
 
-        command_set(xundo::system& Workspace, xundo::system& Level, scene_context* pScene, editor_context* pEditor) noexcept
+        command_set(xundo::system& Workspace, xundo::system& Level, xscene::scene_context* pScene, editor_context* pEditor) noexcept
         : CmdOpenTextureEditor(Workspace, pEditor)
         , CmdTextureEditorCommand(Workspace, pEditor)
         , CmdSelect(Level, pScene)
