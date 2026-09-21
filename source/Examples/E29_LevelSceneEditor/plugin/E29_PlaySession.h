@@ -186,6 +186,83 @@ namespace e29
         });
     }
 
+    //---------------------------------------------------------------------------
+    // The transport state machine. The menu-bar transport, the editor toolbar and the CLI commands all go
+    // through these, so they cannot drift apart. The process-wide single-Play lock (xeditor::host) is
+    // taken by RequestPlay and released only where a play session really ends: StopPlaySession, or
+    // CancelPlayRequest when the build a pending Play was waiting for fails.
+    //---------------------------------------------------------------------------
+
+    // Stopped/Paused -> Playing. Writes V1 (the real disk save Stop restores from - it must be disk, not the
+    // fast binary Vn bridge, because Stop needs the Level tree back) and marks the undo point Stop rewinds to.
+    inline void EnterPlaying( xecs::game_mgr::instance& GameMgr, editor_state& State, xundo::system& Undo ) noexcept
+    {
+        SaveEverything(GameMgr, State);
+        State.m_PlayHistoryBoundary = Undo.GetUndoIndex();
+        State.m_PlayState           = editor_state::play_state::Playing;
+    }
+
+    // A pending Play that will never start (its build failed): drop it and release the Play lock it took.
+    inline void CancelPlayRequest( editor_state& State ) noexcept
+    {
+        if (!State.m_bPlayRequested) return;
+        State.m_bPlayRequested = false;
+        State.m_bStepOneFrame  = false;
+        xeditor::host::current()->end_play(&State);
+    }
+
+    inline void RequestResume( editor_state& State ) noexcept
+    {
+        if (State.m_PlayState == editor_state::play_state::Paused) State.m_PlayState = editor_state::play_state::Playing;
+    }
+
+    // From Stopped: recompile-check first (shared builds; PollGameReload then calls EnterPlaying) or enter
+    // Playing directly. From Paused: resume. Returns a short status for the CLI; the buttons ignore it.
+    inline std::string RequestPlay( editor_state& State, game_plugin_state& Plugin ) noexcept
+    {
+        using play_state = editor_state::play_state;
+        if (State.m_PlayState == play_state::Playing) return "Play: already playing";
+        if (Plugin.m_bBuilding)                       return "Play: a build is already in flight";
+        if (State.m_PlayState == play_state::Paused)  { RequestResume(State); return "Resumed"; }
+
+        auto& Host = *xeditor::host::current();
+        if (!Host.try_begin_play(&State))
+        {
+            diagnostics::Log("Play refused: another Play session is already active");
+            State.m_bPlayBusyPopup = true;
+            return "Play: another Play session is already active";
+        }
+#if defined(XECS_BUILD_SHARED)
+        State.m_bPlayRequested = true;
+        StartGameReload(Plugin);
+        return "Play requested (recompile-check in progress)";
+#else
+        EnterPlaying(*g_pGameMgr, State, Host.workspace());
+        return "Playing";
+#endif
+    }
+
+    inline std::string RequestPause( editor_state& State ) noexcept
+    {
+        if (State.m_PlayState != editor_state::play_state::Playing) return "Pause: not playing";
+        State.m_PlayState = editor_state::play_state::Paused;
+        return "Paused";
+    }
+
+    // One frame. From Paused: one tick, stays Paused. From Stopped: starts Play, runs the first tick, lands Paused.
+    inline std::string RequestStep( editor_state& State, game_plugin_state& Plugin ) noexcept
+    {
+        using play_state = editor_state::play_state;
+        if (State.m_PlayState == play_state::Playing) return "Step: pause first";
+        if (State.m_PlayState == play_state::Stopped)
+        {
+            const std::string Result = RequestPlay(State, Plugin);
+            if (State.m_PlayState == play_state::Stopped && !State.m_bPlayRequested) return Result; // refused
+        }
+        State.m_bStepOneFrame = true;
+        return "Step";
+    }
+
     // How RebuildWorld persists the world across the destroy/recreate it always does - the ONE thing
     // that genuinely differs between "a normal reload" and "Stop", beyond just which DLL-swap
     // strategy applies. Direct user model: Play writes ONE snapshot ("V1", the REAL Scene/Level/
@@ -825,6 +902,7 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
         }
 
         State.m_PlayState = editor_state::play_state::Stopped;
+        xeditor::host::current()->end_play(&State);
     }
 
     //---------------------------------------------------------------------------
@@ -872,7 +950,7 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
 
         if (Result == build_result::Failed)
         {
-            State.m_bPlayRequested = false;
+            CancelPlayRequest(State);
             return false;
         }
 
@@ -881,12 +959,7 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
             if (State.m_bPlayRequested)
             {
                 State.m_bPlayRequested = false;
-                // Write V1 - the real disk save Stop will restore from (see persist_mode's own
-                // comment for why this must be disk, not the fast binary Vn bridge - Stop needs the
-                // Level tree back, not just raw component values).
-                SaveEverything(*pGameMgr, State);
-                State.m_PlayHistoryBoundary = Undo.GetUndoIndex();
-                State.m_PlayState = editor_state::play_state::Playing;
+                EnterPlaying(*pGameMgr, State, Undo);
             }
             return false;
         }
@@ -901,12 +974,7 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
         if (State.m_bPlayRequested)
         {
             State.m_bPlayRequested = false;
-            // Write V1 explicitly, same as the UpToDate branch above - the reload just above used
-            // RawSnapshotBridge (never touches disk), so unlike before this removed the
-            // DiskSaveAndReload mode, V1 is no longer a free side effect of the reload itself.
-            SaveEverything(*pGameMgr, State);
-            State.m_PlayHistoryBoundary = Undo.GetUndoIndex();
-            State.m_PlayState = editor_state::play_state::Playing;
+                EnterPlaying(*pGameMgr, State, Undo);
         }
 
         return bLoaded;

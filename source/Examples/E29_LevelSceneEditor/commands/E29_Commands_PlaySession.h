@@ -45,26 +45,8 @@ namespace e29::commands
         std::string Query() noexcept override
         {
             auto& State = get<e29_command_context>().m_State;
-            if (State.m_PlayState == e29::editor_state::play_state::Playing) return "Play: already playing";
-            if (e29::g_pGamePlugin && e29::g_pGamePlugin->m_bBuilding) return "Play: a build is already in flight";
-
-            if (State.m_PlayState == e29::editor_state::play_state::Stopped)
-            {
-#if defined(XECS_BUILD_SHARED)
-                if (!e29::g_pGamePlugin) return "Play: no game plugin state";
-                State.m_bPlayRequested = true;
-                e29::StartGameReload(*e29::g_pGamePlugin);
-                return "Play requested (recompile-check in progress)";
-#else
-                if (!e29::g_pGameMgr) return "Play: no game world";
-                e29::SaveEverything(*e29::g_pGameMgr, State);
-                State.m_PlayHistoryBoundary = m_System.GetUndoIndex();
-                State.m_PlayState = e29::editor_state::play_state::Playing;
-                return "Playing";
-#endif
-            }
-            State.m_PlayState = e29::editor_state::play_state::Playing; // Paused -> Playing, plain resume
-            return "Resumed";
+            if (!e29::g_pGamePlugin) return "Play: no game plugin state";
+            return e29::RequestPlay(State, *e29::g_pGamePlugin);
         }
     };
 
@@ -79,9 +61,23 @@ namespace e29::commands
         std::string Query() noexcept override
         {
             auto& State = get<e29_command_context>().m_State;
-            if (State.m_PlayState != e29::editor_state::play_state::Playing) return "Pause: not playing";
-            State.m_PlayState = e29::editor_state::play_state::Paused;
-            return "Paused";
+            return e29::RequestPause(State);
+        }
+    };
+
+    //================================================================================================
+    // Step - mirrors the toolbar "Step" button: runs exactly one frame. From Stopped it starts Play first
+    // (same path as Play) and lands Paused after the first tick; from Paused it ticks once and stays Paused.
+    //================================================================================================
+    struct step_query_cmd : xundo::query_command_base
+    {
+        step_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "Step", pDataBase) { RegisterArguments(); }
+        const char* getCommandHelp() const noexcept override { return "Runs one frame (from Stopped: starts Play, ticks once, lands Paused; from Paused: ticks once). Usage: Step"; }
+        void RegisterArguments() noexcept override {}
+        std::string Query() noexcept override
+        {
+            if (!e29::g_pGamePlugin) return "Step: no game plugin state";
+            return e29::RequestStep(get<e29_command_context>().m_State, *e29::g_pGamePlugin);
         }
     };
 
