@@ -535,6 +535,11 @@ namespace e29
 
         std::optional<command_set> Commands;
 
+        void RenderParentEditorToolbar();
+        void RenderEditorToolbar(const char* Name, ximgui::toolbar::axis Axis);
+        void DrawDrawerTab(int TabIndex);
+        void WireAssetBrowser();
+
         int  Init();       // 0 on success, otherwise the process exit code
         void Frame();      // one iteration of the main loop
         void Run();        // Frame() until the window closes

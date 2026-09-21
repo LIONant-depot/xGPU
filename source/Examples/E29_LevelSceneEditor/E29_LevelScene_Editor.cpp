@@ -1,6 +1,8 @@
 #include "source/Examples/E29_LevelSceneEditor/E29_App.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_AppInit.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_AppFrame.h"
+#include "source/Examples/E29_LevelSceneEditor/E29_AppToolbars.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_AppAssetBrowser.h"
 
 //-----------------------------------------------------------------------------------
 // E29 - Level + Scene editor. The editor itself is e29::app (E29_App.h).
