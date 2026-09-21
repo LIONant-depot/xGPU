@@ -3301,7 +3301,7 @@ int E29_Example()
 
 
 
-        ( pGameMgr, State, GamePlugin, EntityInspector, InspectorBridge, E29Undo, ProjectPath
+        ( pGameMgr, State, GamePlugin, EntityInspector, InspectorBridge, ProjectPath
 
 
 
@@ -3401,7 +3401,7 @@ int E29_Example()
 
 
 
-            ( pGameMgr, State, GamePlugin, EntityInspector, InspectorBridge, E29Undo, ProjectPath
+            ( pGameMgr, State, GamePlugin, EntityInspector, InspectorBridge, ProjectPath
 
 
 
@@ -3792,7 +3792,7 @@ int E29_Example()
 
 
 
-        e29::RenderKeepTweaksModal(State, E29Undo);
+        e29::RenderKeepTweaksModal(State);
 
 
 

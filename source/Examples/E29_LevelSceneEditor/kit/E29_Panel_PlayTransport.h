@@ -59,7 +59,7 @@ namespace e29
         Slot(bStopped ? PlayIcon : StopIcon, Plugin.m_bBuilding, false, [&]
         {
             if (bStopped) RequestPlay(State, Plugin);
-            else          RequestStop(State, xeditor::host::current()->workspace(), std::nullopt);
+            else          RequestStop(State, std::nullopt);
         });
         Tip(bStopped ? "Play" : "Stop", bStopped ? "Start playback" : "Stop playback");
 

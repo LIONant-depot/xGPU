@@ -195,10 +195,10 @@ namespace e29
 
     // Stopped/Paused -> Playing. Writes V1 (the real disk save Stop restores from - it must be disk, not the
     // fast binary Vn bridge, because Stop needs the Level tree back) and marks the undo point Stop rewinds to.
-    inline void EnterPlaying( xecs::game_mgr::instance& GameMgr, editor_state& State, xundo::system& Undo ) noexcept
+    inline void EnterPlaying( xecs::game_mgr::instance& GameMgr, editor_state& State ) noexcept
     {
         SaveEverything(GameMgr, State);
-        State.m_PlayHistoryBoundary = Undo.GetUndoIndex();
+        State.m_PlayHistoryBoundary = LevelDocUndo().GetUndoIndex();
         State.m_PlayState           = editor_state::play_state::Playing;
     }
 
@@ -237,7 +237,7 @@ namespace e29
         StartGameReload(Plugin);
         return "Play requested (recompile-check in progress)";
 #else
-        EnterPlaying(*g_pGameMgr, State, Host.workspace());
+        EnterPlaying(*g_pGameMgr, State);
         return "Playing";
 #endif
     }
@@ -784,19 +784,19 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
     // frame - the real Stop stays on hold until that dialog (or a script's own follow-up -Keep call)
     // answers it. Returns a short status string - useful for a CLI/AI caller, ignored by the button.
     //---------------------------------------------------------------------------
-    inline std::string RequestStop(editor_state& State, xundo::system& Undo, std::optional<bool> KeepOverride) noexcept
+    inline std::string RequestStop(editor_state& State, std::optional<bool> KeepOverride) noexcept
     {
         if (State.m_PlayState == editor_state::play_state::Stopped) return "Stop: already stopped";
 
         if (KeepOverride.has_value())
         {
-            State.m_PendingKeepTweaksCommands = *KeepOverride ? CollectPlayModeKeepCommands(Undo, State.m_PlayHistoryBoundary) : std::vector<std::string>{};
+            State.m_PendingKeepTweaksCommands = *KeepOverride ? CollectPlayModeKeepCommands(LevelDocUndo(), State.m_PlayHistoryBoundary) : std::vector<std::string>{};
             State.m_bAwaitingKeepTweaksAnswer = false;
             State.m_bStopRequested = true;
             return "Stop requested";
         }
 
-        auto Pending = CollectPlayModeKeepCommands(Undo, State.m_PlayHistoryBoundary);
+        auto Pending = CollectPlayModeKeepCommands(LevelDocUndo(), State.m_PlayHistoryBoundary);
         if (Pending.empty())
         {
             State.m_PendingKeepTweaksCommands.clear();
@@ -820,7 +820,7 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
     // decides Keep-vs-Discard here; the real Stop itself still runs at the usual deferred, safe frame
     // boundary (RequestStop just re-flags m_bStopRequested).
     //---------------------------------------------------------------------------
-    inline void RenderKeepTweaksModal(editor_state& State, xundo::system& Undo) noexcept
+    inline void RenderKeepTweaksModal(editor_state& State) noexcept
     {
         if (State.m_bAwaitingKeepTweaksAnswer)
             ImGui::OpenPopup("Keep Play Mode Changes?");
@@ -834,13 +834,13 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
 
             if (ImGui::Button("Keep", ImVec2(120.0f, 0.0f)))
             {
-                RequestStop(State, Undo, true);
+                RequestStop(State, true);
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
             if (ImGui::Button("Discard", ImVec2(120.0f, 0.0f)))
             {
-                RequestStop(State, Undo, false);
+                RequestStop(State, false);
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
@@ -879,13 +879,13 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
     , game_plugin_state&                          Plugin
     , xproperty::inspector&                       EntityInspector
     , entity_inspector_bridge&                    InspectorBridge
-    , xundo::system&                              Undo
     , const std::wstring&                         ProjectPath
     , T_REGISTER_HOST_COMPONENTS_FN&&              RegisterHostComponents
     , T_REGISTER_HOST_SYSTEMS_FN&&                 RegisterHostSystems
     , const std::vector<std::string>&              KeepCommands
     ) noexcept
     {
+        auto& Undo = LevelDocUndo();
         Undo.JumpTo(State.m_PlayHistoryBoundary);
 
         pGameMgr->Stop();
@@ -936,7 +936,6 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
     , game_plugin_state&                          Plugin
     , xproperty::inspector&                       EntityInspector
     , entity_inspector_bridge&                    InspectorBridge
-    , xundo::system&                              Undo
     , const std::wstring&                         ProjectPath
     , T_REGISTER_HOST_COMPONENTS_FN&&              RegisterHostComponents  // (xecs::game_mgr::instance&) noexcept - e.g. registers e29::name/transform/etc
     , T_REGISTER_HOST_SYSTEMS_FN&&                 RegisterHostSystems     // (xecs::game_mgr::instance&) noexcept - e.g. registers e29::tick_logger_a/b
@@ -945,6 +944,7 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
         if (!Plugin.m_bBuilding) return false;
         if (Plugin.m_BuildFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
 
+        auto& Undo = LevelDocUndo();
         const build_result Result = Plugin.m_BuildFuture.get();
         Plugin.m_bBuilding = false;
 
@@ -959,7 +959,7 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
             if (State.m_bPlayRequested)
             {
                 State.m_bPlayRequested = false;
-                EnterPlaying(*pGameMgr, State, Undo);
+                EnterPlaying(*pGameMgr, State);
             }
             return false;
         }
@@ -974,7 +974,7 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
         if (State.m_bPlayRequested)
         {
             State.m_bPlayRequested = false;
-                EnterPlaying(*pGameMgr, State, Undo);
+                EnterPlaying(*pGameMgr, State);
         }
 
         return bLoaded;

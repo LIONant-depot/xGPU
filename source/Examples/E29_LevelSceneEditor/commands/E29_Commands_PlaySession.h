@@ -115,7 +115,7 @@ namespace e29::commands
                 KeepOverride = (S == "true" || S == "1");
             }
 
-            return e29::RequestStop(State, m_System, KeepOverride);
+            return e29::RequestStop(State, KeepOverride);
         }
         xcmdline::parser::handle m_hKeep;
     };
