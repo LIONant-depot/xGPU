@@ -95,7 +95,7 @@ namespace e29
     //---------------------------------------------------------------------------
     inline std::vector<std::unique_ptr<xecs::scene::instance>> CaptureOpenScenes
     ( xecs::game_mgr::instance& GameMgr
-    , const editor_state&       State
+    , const xlevel::level_state&       State
     ) noexcept
     {
         std::vector<std::unique_ptr<xecs::scene::instance>> Captured;
@@ -156,7 +156,7 @@ namespace e29
     // just does for you). Called automatically from two places only, per direct user direction: once
     // on the frame the app window regains OS focus (xgpu::tools::imgui::ConsumeWindowFocusGained -
     // "the user tabbed back in after editing code"), and once when the Play button is pressed
-    // (Stopped -> Playing only - see editor_state::m_bPlayRequested). Kicks off
+    // (Stopped -> Playing only - see level_state::m_bPlayRequested). Kicks off
     // BuildGamePluginIfStale on a background thread and returns immediately; does NOT touch
     // pGameMgr/the world/the currently loaded generation AT ALL - that's the whole point (see
     // game_plugin_state's own comment). A no-op if a build is already in flight.
@@ -231,7 +231,7 @@ namespace e29
     // refers to) here too since this file's own place in the umbrella include order is earlier than
     // that one - inline variables have external linkage, so a plain extern declaration anywhere in
     // the same program is enough to use it, no redefinition risk.
-    inline void StripMissingComponentsFromOpenScenes( editor_context& Ed, const std::vector<xecs::scene::component_dependency>& MissingDeps ) noexcept
+    inline void StripMissingComponentsFromOpenScenes( xlevel::level_context& Ed, const std::vector<xecs::scene::component_dependency>& MissingDeps ) noexcept
     {
         auto*          pWorld   = &Ed.World();
         auto*          pState   = &Ed.State();
@@ -270,7 +270,7 @@ namespace e29
     // Called once per frame from the main loop. Reads/writes the single-instance globals (g_PendingReloadCompatibility,
     // g_pGamePlugin) and strips the components from the editor's own scenes.
     //---------------------------------------------------------------------------
-    inline void RenderReloadCompatibilityModal(editor_context& Ed) noexcept
+    inline void RenderReloadCompatibilityModal(xlevel::level_context& Ed) noexcept
     {
         if (g_PendingReloadCompatibility.has_value())
             ImGui::OpenPopup("Game.dll Reload - Missing Components");
@@ -334,7 +334,7 @@ namespace e29
     // longer does that as a side effect the way the old DiskSaveAndReload mode used to.
     //---------------------------------------------------------------------------
     template< typename T_REGISTER_HOST_COMPONENTS_FN >
-    bool PollGameReload( editor_context& Ed, game_plugin_state& Plugin, T_REGISTER_HOST_COMPONENTS_FN&& RegisterHostComponents ) noexcept
+    bool PollGameReload( xlevel::level_context& Ed, game_plugin_state& Plugin, T_REGISTER_HOST_COMPONENTS_FN&& RegisterHostComponents ) noexcept
     {
         auto& State = Ed.State();
         if (!Plugin.m_bBuilding) return false;
@@ -345,7 +345,7 @@ namespace e29
 
         if (Result == build_result::Failed)
         {
-            CancelPlayRequest(State);
+            xlevel::CancelPlayRequest(State);
             return false;
         }
 
@@ -354,7 +354,7 @@ namespace e29
             if (State.m_bPlayRequested)
             {
                 State.m_bPlayRequested = false;
-                EnterPlaying(Ed);
+                xlevel::EnterPlaying(Ed);
             }
             return false;
         }
@@ -365,7 +365,7 @@ namespace e29
         if (State.m_bPlayRequested)
         {
             State.m_bPlayRequested = false;
-                EnterPlaying(Ed);
+                xlevel::EnterPlaying(Ed);
         }
 
         return bLoaded;

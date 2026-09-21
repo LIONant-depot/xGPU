@@ -27,36 +27,36 @@ namespace e29
         xscene::commands::delete_entity_cmd                 CmdDeleteEntity;
         e29::commands::say_query_cmd                     CmdSay;
         e29::commands::get_log_query_cmd                 CmdGetLog;
-        e29::commands::open_level_cmd                    CmdOpenLevel;
-        e29::commands::close_scene_cmd                   CmdCloseScene;
-        e29::commands::add_scene_cmd                     CmdAddScene;
-        e29::commands::remove_scene_cmd                  CmdRemoveScene;
-        e29::commands::add_scene_dependency_cmd          CmdAddSceneDependency;
-        e29::commands::remove_scene_dependency_cmd       CmdRemoveSceneDependency;
+        xlevel::commands::open_level_cmd                    CmdOpenLevel;
+        xlevel::commands::close_scene_cmd                   CmdCloseScene;
+        xlevel::commands::add_scene_cmd                     CmdAddScene;
+        xlevel::commands::remove_scene_cmd                  CmdRemoveScene;
+        xlevel::commands::add_scene_dependency_cmd          CmdAddSceneDependency;
+        xlevel::commands::remove_scene_dependency_cmd       CmdRemoveSceneDependency;
         e10::commands::add_library_dependency_cmd        CmdAddLibraryDependency;
         e10::commands::remove_library_dependency_cmd     CmdRemoveLibraryDependency;
         e10::commands::create_library_query_cmd          CmdCreateLibrary;
         e10::commands::list_legal_reference_libraries_query_cmd CmdListLegalReferenceLibraries;
-        e29::commands::list_levels_query_cmd             CmdListLevels;
-        e29::commands::list_scenes_query_cmd             CmdListScenes;
-        e29::commands::list_entities_query_cmd           CmdListEntities;
-        e29::commands::list_folders_query_cmd            CmdListFolders;
-        e29::commands::audit_component_usage_query_cmd   CmdAuditComponentUsage;
-        e29::commands::undo_query_cmd                    CmdUndo;
-        e29::commands::redo_query_cmd                    CmdRedo;
-        e29::commands::undo_query_cmd                    CmdLevelUndo;
-        e29::commands::redo_query_cmd                    CmdLevelRedo;
-        e29::commands::save_query_cmd                    CmdSave;
-        e29::commands::close_query_cmd                   CmdClose;
+        xlevel::commands::list_levels_query_cmd             CmdListLevels;
+        xlevel::commands::list_scenes_query_cmd             CmdListScenes;
+        xlevel::commands::list_entities_query_cmd           CmdListEntities;
+        xlevel::commands::list_folders_query_cmd            CmdListFolders;
+        xlevel::commands::audit_component_usage_query_cmd   CmdAuditComponentUsage;
+        xlevel::commands::undo_query_cmd                    CmdUndo;
+        xlevel::commands::redo_query_cmd                    CmdRedo;
+        xlevel::commands::undo_query_cmd                    CmdLevelUndo;
+        xlevel::commands::redo_query_cmd                    CmdLevelRedo;
+        xlevel::commands::save_query_cmd                    CmdSave;
+        xlevel::commands::close_query_cmd                   CmdClose;
         e29::commands::serialize_roundtrip_query_cmd     CmdSerializeRoundtrip;
-        e29::commands::describe_entity_query_cmd         CmdDescribeEntity;
-        e29::commands::list_component_types_query_cmd    CmdListComponentTypes;
+        xlevel::commands::describe_entity_query_cmd         CmdDescribeEntity;
+        xlevel::commands::list_component_types_query_cmd    CmdListComponentTypes;
         xscene::commands::set_entity_reference_cmd          CmdSetEntityReference;
-        e29::commands::play_query_cmd                    CmdPlay;
-        e29::commands::pause_query_cmd                   CmdPause;
-        e29::commands::step_query_cmd                    CmdStep;
-        e29::commands::stop_query_cmd                    CmdStop;
-        e29::commands::get_play_state_query_cmd          CmdGetPlayState;
+        xlevel::commands::play_query_cmd                    CmdPlay;
+        xlevel::commands::pause_query_cmd                   CmdPause;
+        xlevel::commands::step_query_cmd                    CmdStep;
+        xlevel::commands::stop_query_cmd                    CmdStop;
+        xlevel::commands::get_play_state_query_cmd          CmdGetPlayState;
         xscene::commands::instantiate_prefab_cmd            CmdInstantiatePrefab;
         xscene::commands::move_to_folder_cmd                CmdMoveToFolder;
         xscene::commands::create_folder_cmd                 CmdCreateFolder;
@@ -105,7 +105,7 @@ namespace e29
         e10::commands::source_control_pull_query_cmd     CmdSourceControlPull;
         e10::commands::source_control_push_query_cmd     CmdSourceControlPush;
 
-        command_set(xundo::system& Workspace, xundo::system& Level, xscene::scene_context* pScene, editor_context* pEditor) noexcept
+        command_set(xundo::system& Workspace, xundo::system& Level, xscene::scene_context* pScene, xlevel::level_context* pEditor) noexcept
         : CmdOpenTextureEditor(Workspace, pEditor)
         , CmdTextureEditorCommand(Workspace, pEditor)
         , CmdSelect(Level, pScene)

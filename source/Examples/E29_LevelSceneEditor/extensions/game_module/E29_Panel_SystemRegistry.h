@@ -22,7 +22,7 @@ namespace e29
     // RestoreFromSnapshot() on the way out - this panel just surfaces that distinction with a note so
     // it isn't a silent surprise later.
     //---------------------------------------------------------------------------
-    void RenderSystemRegistryPanel(xecs::game_mgr::instance& GameMgr, editor_state& State) noexcept
+    void RenderSystemRegistryPanel(xecs::game_mgr::instance& GameMgr, xlevel::level_state& State) noexcept
     {
         // Stacked below the Entity Properties panel (18,18 / 480x500) rather than at the Level
         // Editor panel's own (915,18) spot, so the two don't land on top of each other on a

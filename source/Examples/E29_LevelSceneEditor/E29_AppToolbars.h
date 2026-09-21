@@ -52,7 +52,7 @@ namespace e29
 
 
 
-                && e29::HasUnsavedDocumentChanges(State, CmdContext.m_Undo);
+                && xlevel::HasUnsavedDocumentChanges(State, CmdContext.m_Undo);
 
 
 
@@ -68,11 +68,11 @@ namespace e29
 
 
 
-                e29::SaveEverything(*pGameMgr, State);
+                xlevel::SaveEverything(*pGameMgr, State);
 
 
 
-                e29::MarkDocumentClean(State, CmdContext.m_Undo);
+                xlevel::MarkDocumentClean(State, CmdContext.m_Undo);
 
 
 
@@ -104,7 +104,7 @@ namespace e29
 
 
 
-                e29::RequestCloseLevel(*pGameMgr, State, CmdContext.m_Undo);
+                xlevel::RequestCloseLevel(*pGameMgr, State, CmdContext.m_Undo);
 
 
 
@@ -148,7 +148,7 @@ namespace e29
 
 
 
-        e29::RenderPlayTransport(CmdContext, { ImVec2(30.0f, 0.0f), true, true });
+        xlevel::RenderPlayTransport(CmdContext, { ImVec2(30.0f, 0.0f), true, true });
 
 
 
@@ -335,7 +335,7 @@ namespace e29
 
 
 
-                && e29::HasUnsavedDocumentChanges(State, CmdContext.m_Undo);
+                && xlevel::HasUnsavedDocumentChanges(State, CmdContext.m_Undo);
 
 
 
@@ -347,11 +347,11 @@ namespace e29
 
 
 
-                e29::SaveEverything(*pGameMgr, State);
+                xlevel::SaveEverything(*pGameMgr, State);
 
 
 
-                e29::MarkDocumentClean(State, CmdContext.m_Undo);
+                xlevel::MarkDocumentClean(State, CmdContext.m_Undo);
 
 
 
@@ -379,7 +379,7 @@ namespace e29
 
 
 
-            e29::RenderPlayTransport(CmdContext, { ImVec2(52.0f, ButtonHeight), bHorizontal, false });
+            xlevel::RenderPlayTransport(CmdContext, { ImVec2(52.0f, ButtonHeight), bHorizontal, false });
             bFirstButton = false;
 
 

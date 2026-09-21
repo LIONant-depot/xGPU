@@ -7,7 +7,7 @@
 // work like Level. TextureEditorCommand remains as an AI/tooling alias (guid-addressed).
 
 #include "Plugins/xtexture.plugin/source/Editor/xtexture_editor.h"
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
+#include "plugins/xlevel.plugin/source/Editor/xlevel_command_context.h"
 #include "dependencies/xeditor/include/xeditor/host.h"
 #include "source/Examples/E29_LevelSceneEditor/extensions/command_console/E29_CommandConsolePipe.h"
 #include <vector>
@@ -71,9 +71,9 @@ namespace e29
 
 namespace e29::commands
 {
-    struct open_texture_editor_cmd : editor_query_command
+    struct open_texture_editor_cmd : xlevel::commands::level_query_command
     {
-        open_texture_editor_cmd(xundo::system& System, void* pDataBase) noexcept : editor_query_command(System, "OpenTextureEditor", pDataBase) { RegisterArguments(); }
+        open_texture_editor_cmd(xundo::system& System, void* pDataBase) noexcept : xlevel::commands::level_query_command(System, "OpenTextureEditor", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Opens the standalone Texture editor for a resource, in its own dock-isolated window. Usage: OpenTextureEditor -Library hexguid -Asset assetguid"; }
         void RegisterArguments() noexcept override
         {
@@ -101,9 +101,9 @@ namespace e29::commands
 
     // AI/tooling alias: guid-addressed forwarder. Prefer TextureDisplayName\SetSRGB via host
     // once the session is listed; this command stays so automation never loses access.
-    struct texture_editor_command_cmd : editor_query_command
+    struct texture_editor_command_cmd : xlevel::commands::level_query_command
     {
-        texture_editor_command_cmd(xundo::system& System, void* pDataBase) noexcept : editor_query_command(System, "TextureEditorCommand", pDataBase) { RegisterArguments(); }
+        texture_editor_command_cmd(xundo::system& System, void* pDataBase) noexcept : xlevel::commands::level_query_command(System, "TextureEditorCommand", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "AI/tooling alias: forwards a command to an open Texture session by asset guid. Prefer Name\\Cmd from list when possible. Usage: TextureEditorCommand -Asset assetguid -Cmd base64(\"SetSRGB -Value 0\")"; }
         void RegisterArguments() noexcept override
         {

@@ -38,13 +38,6 @@ namespace e29
         }
         return Missing;
     }
-
-    // The "check against the live registry" predicate every trigger except the hot-reload pre-flight
-    // probe (Phase 3) actually needs - a thin adapter so call sites don't repeat this lambda.
-    inline bool IsComponentInLiveRegistry( xecs::component::type::guid Guid ) noexcept
-    {
-        return xecs::component::mgr::findComponentTypeInfo(Guid) != nullptr;
-    }
 }
 
 #endif // E29_COMPONENT_COMPATIBILITY_H

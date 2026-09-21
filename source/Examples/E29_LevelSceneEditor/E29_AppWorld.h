@@ -66,7 +66,7 @@ namespace e29
             // nothing extra to build. This is what correctly restores the Level tree exactly as it
             // was before Play - entities that died or got created (into the default folder) during
             // the play session are discarded, matching Unity's own Play/Stop semantics.
-            OpenLevel(*pGameMgr, State, xresource::full_guid{ State.m_CurrentLevel.m_Instance, State.m_CurrentLevel.m_Type });
+            xlevel::OpenLevel(*pGameMgr, State, xresource::full_guid{ State.m_CurrentLevel.m_Instance, State.m_CurrentLevel.m_Type });
         }
 
         LogWorldEntityCount(*pGameMgr, PersistMode == persist_mode::RawSnapshotBridge ? "Vn restore" : "V1/disk restore");
@@ -153,12 +153,12 @@ namespace e29
         RestoreWorld(persist_mode::RestoreFromV1);
 
         Undo.TruncateRedoBranch();
-        if (const auto Surviving = FilterSurvivingTargets(*pGameMgr, KeepCommands); !Surviving.empty())
+        if (const auto Surviving = xlevel::FilterSurvivingTargets(*pGameMgr, KeepCommands); !Surviving.empty())
         {
             [[maybe_unused]] const bool bAllApplied = xeditor::RunGroup(Undo, "Keep Play Mode Changes", Surviving);
         }
 
-        State.m_PlayState = editor_state::play_state::Stopped;
+        State.m_PlayState = xlevel::level_state::play_state::Stopped;
         xeditor::host::current()->end_play(&State);
     }
 }

@@ -7,8 +7,8 @@
 // whose file is missing). At a million entities this is a long disk walk, so it only starts once the editor has been
 // quiet for a while, on xscheduler at LOW priority, and stops as soon as the user is back.
 //
-// Included after E29_CommandContext.h (query_command_base for RunSanityCheck) and E29_EditorState.h (editor_context).
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
+// Included after E29_CommandContext.h (query_command_base for RunSanityCheck) and E29_EditorState.h (level_context).
+#include "plugins/xlevel.plugin/source/Editor/xlevel_command_context.h"
 #include "dependencies/xeditor/include/xeditor/idle_work.h"
 #include "dependencies/xscheduler/source/xscheduler.h"
 #include <mutex>
@@ -84,7 +84,7 @@ namespace e29
         for (auto& Pair : pScene->m_LocalToRuntime) ActiveEntities.push_back(Pair.first);
 
         std::string Description = std::format("{:016X}", SceneGuid.m_Instance.m_Value);
-        if (auto Names = e29::commands::BuildAssetNameMap(xecs::scene::type_guid_v); true)
+        if (auto Names = xlevel::commands::BuildAssetNameMap(xecs::scene::type_guid_v); true)
             if (auto It = Names.find(SceneGuid.m_Instance.m_Value); It != Names.end())
                 Description = std::format("{} ({:016X})", It->second, SceneGuid.m_Instance.m_Value);
 
@@ -107,7 +107,7 @@ namespace e29
     // This editor's subscription to xeditor::idle_work::m_OnRun.
     struct scene_sanity_scanner
     {
-        editor_context& m_Ed;
+        xlevel::level_context& m_Ed;
 
         void Run(bool bManual) noexcept
         {
@@ -128,9 +128,9 @@ namespace e29
 namespace e29::commands
 {
     // RunSanityCheck - the same scan, on demand: for testing it without waiting out the idle threshold, and for an AI/script.
-    struct run_sanity_check_query_cmd : editor_query_command
+    struct run_sanity_check_query_cmd : xlevel::commands::level_query_command
     {
-        run_sanity_check_query_cmd(xundo::system& System, void* pDataBase) noexcept : editor_query_command(System, "RunSanityCheck", pDataBase) { RegisterArguments(); }
+        run_sanity_check_query_cmd(xundo::system& System, void* pDataBase) noexcept : xlevel::commands::level_query_command(System, "RunSanityCheck", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Manually runs the scene orphan/dangling sanity scan (normally idle-triggered) on every open scene, right now. Usage: RunSanityCheck"; }
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
@@ -146,9 +146,9 @@ namespace e29::commands
     };
 
     // GetIdleTasks - the Idle Work panel's table as text, newest first.
-    struct get_idle_tasks_query_cmd : editor_query_command
+    struct get_idle_tasks_query_cmd : xlevel::commands::level_query_command
     {
-        get_idle_tasks_query_cmd(xundo::system& System, void* pDataBase) noexcept : editor_query_command(System, "GetIdleTasks", pDataBase) { RegisterArguments(); }
+        get_idle_tasks_query_cmd(xundo::system& System, void* pDataBase) noexcept : xlevel::commands::level_query_command(System, "GetIdleTasks", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Lists the idle-work tasks (running and finished), newest first. Usage: GetIdleTasks"; }
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override

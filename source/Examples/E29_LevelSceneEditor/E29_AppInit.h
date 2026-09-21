@@ -433,7 +433,7 @@ namespace e29
         AsserBrowser.Show(true);
 
         EditorHost.m_pExternalWorkspace = &E29Undo;
-        EditorHost.m_OnBeforeEdit        = e29::TryGateLevelMutation;
+        EditorHost.m_OnBeforeEdit        = xlevel::TryGateLevelMutation;
         EditorHost.provide(CmdContext);
         EditorHost.provide<xscene::scene_context>(CmdContext);
         EditorHost.provide(ChatLog);
@@ -452,7 +452,7 @@ namespace e29
 
             xeditor::NotifyError(std::format("E29: xundo Init failed: {}", Err));
 
-        e29::RegisterLevelEditorDescriptor();
+        xlevel::RegisterLevelEditorDescriptor();
 
         EditorHost.provide(LevelHostSession);
         LevelHostSession.Bind(CmdContext);
@@ -629,10 +629,10 @@ namespace e29
 
         e29::g_OpenTextureEditors.clear();
 
-        EditorHost.withdraw<e29::level_host_session>();
+        EditorHost.withdraw<xlevel::level_host_session>();
         EditorHost.release_current();
 
-        EditorHost.withdraw<e29::editor_context>();
+        EditorHost.withdraw<xlevel::level_context>();
         EditorHost.withdraw<xscene::scene_context>();
 
         pGameMgr.reset();

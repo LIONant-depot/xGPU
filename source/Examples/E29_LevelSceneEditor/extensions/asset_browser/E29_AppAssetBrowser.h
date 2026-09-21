@@ -162,7 +162,7 @@ namespace e29
             {
                 if (AssetGuid.m_Type == xecs::level::type_guid_v)
                 {
-                    if (e29::RequestOpenLevel(*pGameMgr, State, CmdContext.m_Undo, AssetGuid, /*bStartGameReload*/ true))
+                    if (xlevel::RequestOpenLevel(*pGameMgr, State, CmdContext.m_Undo, AssetGuid, /*bStartGameReload*/ true))
                         State.m_bPendingStartGameReloadAfterOpen = true;
                     return;
                 }

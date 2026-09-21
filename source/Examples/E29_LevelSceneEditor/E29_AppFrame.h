@@ -371,7 +371,7 @@ namespace e29
                 [this]() { RenderParentEditorToolbar(); }, LevelTabName.c_str(), &Device, xecs::level::type_guid_v, LevelDockGuid, &bLevelTabOpen);
             if (!bLevelTabOpen)
             {
-                e29::RequestCloseLevel(*pGameMgr, State, CmdContext.m_Undo);
+                xlevel::RequestCloseLevel(*pGameMgr, State, CmdContext.m_Undo);
                 State.m_bLevelEditorOpen =
                     State.m_bAwaitingSaveBeforeClose
                     || !State.m_CurrentLevel.empty()
@@ -421,15 +421,15 @@ namespace e29
 
 
 
-        e29::RenderKeepTweaksModal(CmdContext);
+        xlevel::RenderKeepTweaksModal(CmdContext);
 
 
 
-        e29::RenderRemoveDependencyConfirmModal(E29Undo);
+        xlevel::RenderRemoveDependencyConfirmModal(E29Undo);
 
 
 
-        e29::RenderSaveBeforeCloseModal(*pGameMgr, State, CmdContext.m_Undo);
+        xlevel::RenderSaveBeforeCloseModal(*pGameMgr, State, CmdContext.m_Undo);
 
 
 
@@ -497,7 +497,7 @@ namespace e29
 
 
 
-            && e29::HasUnsavedDocumentChanges(State, CmdContext.m_Undo))
+            && xlevel::HasUnsavedDocumentChanges(State, CmdContext.m_Undo))
 
 
 
@@ -505,11 +505,11 @@ namespace e29
 
 
 
-            e29::SaveEverything(*pGameMgr, State);
+            xlevel::SaveEverything(*pGameMgr, State);
 
 
 
-            e29::MarkDocumentClean(State, CmdContext.m_Undo);
+            xlevel::MarkDocumentClean(State, CmdContext.m_Undo);
 
 
 
@@ -634,11 +634,11 @@ namespace e29
 
 
 
-        // which state it was set from - see editor_state::m_bStepOneFrame's own comment.
+        // which state it was set from - see level_state::m_bStepOneFrame's own comment.
 
 
 
-        if (State.m_PlayState == e29::editor_state::play_state::Playing)
+        if (State.m_PlayState == xlevel::level_state::play_state::Playing)
 
 
 
@@ -662,7 +662,7 @@ namespace e29
 
 
 
-                State.m_PlayState = e29::editor_state::play_state::Paused; // Stopped->Step: run exactly the first tick, then land Paused
+                State.m_PlayState = xlevel::level_state::play_state::Paused; // Stopped->Step: run exactly the first tick, then land Paused
 
 
 
@@ -674,7 +674,7 @@ namespace e29
 
 
 
-        else if (State.m_PlayState == e29::editor_state::play_state::Paused && State.m_bStepOneFrame)
+        else if (State.m_PlayState == xlevel::level_state::play_state::Paused && State.m_bStepOneFrame)
 
 
 
@@ -747,7 +747,7 @@ namespace e29
 
 
 
-                if (e29::RequestOpenLevel(*pGameMgr, State, CmdContext.m_Undo, NewAsset, /*bStartGameReload*/ true))
+                if (xlevel::RequestOpenLevel(*pGameMgr, State, CmdContext.m_Undo, NewAsset, /*bStartGameReload*/ true))
 
 
 
@@ -759,7 +759,7 @@ namespace e29
 
 
 
-                e29::RequestOpenLevel(*pGameMgr, State, CmdContext.m_Undo, NewAsset, /*bStartGameReload*/ false);
+                xlevel::RequestOpenLevel(*pGameMgr, State, CmdContext.m_Undo, NewAsset, /*bStartGameReload*/ false);
 
 
 
@@ -799,7 +799,7 @@ namespace e29
 
 
 
-                if (e29::RequestOpenLevel(*pGameMgr, State, CmdContext.m_Undo, SelAsset, /*bStartGameReload*/ true))
+                if (xlevel::RequestOpenLevel(*pGameMgr, State, CmdContext.m_Undo, SelAsset, /*bStartGameReload*/ true))
 
 
 
@@ -811,7 +811,7 @@ namespace e29
 
 
 
-                e29::RequestOpenLevel(*pGameMgr, State, CmdContext.m_Undo, SelAsset, /*bStartGameReload*/ false);
+                xlevel::RequestOpenLevel(*pGameMgr, State, CmdContext.m_Undo, SelAsset, /*bStartGameReload*/ false);
 
 
 
@@ -858,7 +858,7 @@ namespace e29
             ImGui::EndPopup();
         }
 
-        const bool bLevelWritable = e29::IsLevelWritable(&EditorHost, LevelHostSession.pLive, State);
+        const bool bLevelWritable = xlevel::IsLevelWritable(&EditorHost, LevelHostSession.pLive, State);
 
         if (!bLevelWritable)
 
@@ -892,7 +892,7 @@ namespace e29
 
 
 
-        e29::RenderLevelTreePanel(CmdContext, E29Undo, !bLevelWritable);
+        xlevel::RenderLevelTreePanel(CmdContext, e29::editor_tabs::kLevelTreeWindow, E29Undo, !bLevelWritable);
 
 
 
@@ -908,7 +908,7 @@ namespace e29
 
 
 
-        if (e29::FlushPendingOpenLevelFromTree(*pGameMgr, State, CmdContext.m_Undo))
+        if (xlevel::FlushPendingOpenLevelFromTree(*pGameMgr, State, CmdContext.m_Undo))
 
 
 

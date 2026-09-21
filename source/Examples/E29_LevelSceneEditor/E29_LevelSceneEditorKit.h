@@ -34,24 +34,18 @@
 #include "source/Examples/E29_LevelSceneEditor/E29_EditorTabs.h"
 
 //-----------------------------------------------------------------------------------
-// The include order of the editor's translation unit: the scene editor (the xscene plugin), then the Level editor's state
-// and code, the resource commands and browser hooks, and the panels. The headers are not standalone: order matters.
+// The include order of the editor's translation unit: the scene editor and the Level editor (plugins), the resource commands
+// and browser hooks, and the panels of the game module, the command console and source control. The headers are not standalone: order matters.
 //-----------------------------------------------------------------------------------
 
 #include "dependencies/xresource_pipeline_v2/source/editor/E10_InspectorPickers.h"
 #include "plugins/xscene.plugin/source/Editor/xscene_editor.h"
-
-#include "source/Examples/E29_LevelSceneEditor/core/E29_EditorState.h"
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
-#include "source/Examples/E29_LevelSceneEditor/level/E29_LevelOps.h"
-#include "source/Examples/E29_LevelSceneEditor/level/E29_SaveEverything.h"
-#include "source/Examples/E29_LevelSceneEditor/level/E29_DocumentSession.h"
+#include "plugins/xlevel.plugin/source/Editor/xlevel_editor.h"
 
 #include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_Assets.h"
 #include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_AssetFiles.h"
 #include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetBrowserCallbacks.h"
 
-#include "source/Examples/E29_LevelSceneEditor/level/E29_Panel_LevelTree.h"
 #include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_Panel_SystemRegistry.h"
 #include "source/Examples/E29_LevelSceneEditor/extensions/command_console/E29_Panel_CommandConsole.h"
 #include "dependencies/xresource_pipeline_v2/source/editor/E10_Panel_SourceControl.h"

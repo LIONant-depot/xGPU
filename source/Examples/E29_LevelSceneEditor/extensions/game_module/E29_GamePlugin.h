@@ -28,7 +28,7 @@
 #include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_GamePluginBuild.h"
 #include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_GamePluginLoad.h"
 #include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_GameModuleReload.h"
-#include "source/Examples/E29_LevelSceneEditor/level/E29_PlaySession.h"
+#include "plugins/xlevel.plugin/source/Editor/xlevel_play_session.h"
 #include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_GameReloadSession.h"
 
 #endif

@@ -17,11 +17,11 @@
 #include "dependencies/xECSV2/src/xecs_plugin_api.h"
 
 #include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_GamePlugin.h"
-#include "source/Examples/E29_LevelSceneEditor/level/E29_Panel_PlayTransport.h"
+#include "plugins/xlevel.plugin/source/Editor/xlevel_panel_play_transport.h"
 
 #include "dependencies/xundo/source/xundo_history.h"
 
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
+#include "plugins/xlevel.plugin/source/Editor/xlevel_command_context.h"
 
 #include "plugins/xscene.plugin/source/Editor/xscene_commands_selection.h"
 
@@ -31,15 +31,15 @@
 
 #include "source/Examples/E29_LevelSceneEditor/extensions/command_console/E29_Commands_Chat.h"
 
-#include "source/Examples/E29_LevelSceneEditor/level/commands/E29_Commands_Level.h"
+#include "plugins/xlevel.plugin/source/Editor/xlevel_commands_level.h"
 
-#include "source/Examples/E29_LevelSceneEditor/level/commands/E29_Commands_SceneDependency.h"
+#include "plugins/xlevel.plugin/source/Editor/xlevel_commands_scene_dependency.h"
 
 #include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_LibraryDependency.h"
 
-#include "source/Examples/E29_LevelSceneEditor/level/commands/E29_Commands_Workspace.h"
+#include "plugins/xlevel.plugin/source/Editor/xlevel_commands_workspace.h"
 
-#include "source/Examples/E29_LevelSceneEditor/level/commands/E29_Commands_PlaySession.h"
+#include "plugins/xlevel.plugin/source/Editor/xlevel_commands_play_session.h"
 
 #include "plugins/xscene.plugin/source/Editor/xscene_commands_scene_organization.h"
 
@@ -57,7 +57,7 @@
 
 #include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_Commands_TextureEditor.h"
 
-#include "source/Examples/E29_LevelSceneEditor/level/E29_LevelDocument.h"
+#include "plugins/xlevel.plugin/source/Editor/xlevel_document.h"
 
 #include "source/Examples/E29_LevelSceneEditor/extensions/idle_work/E29_SceneSanityScan.h"
 
@@ -178,7 +178,7 @@ namespace e29
 
 
         e29::game_plugin_state GamePlugin;
-        e29::play_gate         PlayGate;
+        xlevel::play_gate         PlayGate;
 
 
 
@@ -261,7 +261,7 @@ namespace e29
 
 
 
-        e29::editor_state    State;
+        xlevel::level_state    State;
 
 
 
@@ -329,9 +329,9 @@ namespace e29
 
 
 
-        e29::level_host_session LevelHostSession;
+        xlevel::level_host_session LevelHostSession;
 
-        e29::editor_context     CmdContext{ State, pGameMgr, LevelHostSession.Undo() };
+        xlevel::level_context     CmdContext{ State, pGameMgr, LevelHostSession.Undo() };
 
         e29::scene_sanity_scanner SceneScanner{ CmdContext };
 
