@@ -16,6 +16,14 @@
 
 namespace xeditor
 {
+    // Hand GPU objects (textures, pipelines, instances, render passes) to the device to be destroyed a couple of frames later, when the GPU is done with them.
+    // An object simply dropped goes to the same queue with its device link already cut, and crashes when the queue is emptied. (A buffer is the exception: dropping it is right, it queues itself.)
+    template<typename... T_OBJECTS>
+    void DestroyGpu(xgpu::device* pDevice, T_OBJECTS&... Objects) noexcept
+    {
+        if (pDevice) ((Objects.m_Private ? pDevice->Destroy(std::move(Objects)) : void()), ...);
+    }
+
     struct resource_editor
     {
         virtual                     ~resource_editor()          = default;

@@ -8,6 +8,8 @@
 
 #include "Plugins/xtexture.plugin/source/Editor/xtexture_editor.h"
 #include "plugins/xgeom_static.plugin/source/Editor/xgeom_static_editor.h"
+#include "plugins/xmaterial_instance.plugin/source/Editor/xmaterial_instance_editor.h"
+#include "plugins/xmaterial.plugin/source/Editor/xmaterial_editor.h"
 #include "plugins/xlevel.plugin/source/Editor/xlevel_command_context.h"
 #include "dependencies/xeditor/include/xeditor/host.h"
 #include "source/Examples/E29_LevelSceneEditor/extensions/command_console/E29_CommandConsolePipe.h"

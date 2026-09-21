@@ -24,7 +24,8 @@
 
 #include "Plugins/xmaterial_instance.plugin/source/xmaterial_intance_descriptor.h"
 #include "Plugins/xmaterial_instance.plugin/source/xmaterial_instance_xgpu_rsc_loader.h"
-#include "Plugins/xmaterial_instance.plugin/source/xmaterial_instance_xgpu_rsc_loader.cpp"
+#include "Plugins/xmaterial_instance.plugin/source/xmaterial_instance_runtime.h"
+// The loader itself is compiled once, with the plugin's editor (xmaterial_instance_editor.h, included by E29).
 
 #include "../E19_MaterialEditor/E19_mesh_manager.h"
 

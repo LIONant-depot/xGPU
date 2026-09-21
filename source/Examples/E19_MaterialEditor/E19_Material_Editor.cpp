@@ -21,8 +21,9 @@
 #include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetBrowser.h"
 
 
-// Just include the loader here...
-#include "Plugins/xmaterial.plugin/source/xmaterial_xgpu_rsc_loader.cpp"
+#include "Plugins/xmaterial.plugin/source/xmaterial_xgpu_rsc_loader.h"
+#include "Plugins/xmaterial.plugin/source/xmaterial_runtime.h"
+// The loader itself is compiled once, with the plugin's editor (xmaterial_editor.h, included by E29).
 
 #include "E19_mesh_manager.h"
 
