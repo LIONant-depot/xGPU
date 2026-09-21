@@ -313,7 +313,7 @@ namespace e29
 
 
 
-        e29::commands::e29_command_context CmdContext{ State };
+        e29::commands::e29_command_context CmdContext{ State, pGameMgr };
 
 
 

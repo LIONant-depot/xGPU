@@ -17,9 +17,9 @@ namespace e29::commands
     // AddSceneDependency - Owner gains Parent as a direct ParentScenes entry (undoable).
     // Usage: AddSceneDependency -Scene hexguid -Parent hexguid
     //================================================================================================
-    struct add_scene_dependency_cmd : xundo::command_base
+    struct add_scene_dependency_cmd : scene_command
     {
-        add_scene_dependency_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "AddSceneDependency", pDataBase) { RegisterArguments(); }
+        add_scene_dependency_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "AddSceneDependency", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Adds an explicit scene dependency (ParentScenes). Refuses cycles. Does not save. Usage: AddSceneDependency -Scene hexguid -Parent hexguid";
@@ -36,17 +36,16 @@ namespace e29::commands
             auto ParentArg = m_Parser.getOptionArgAs<std::string>(m_hParent, 0);
             if (std::holds_alternative<xerr>(SceneArg) || std::holds_alternative<xerr>(ParentArg))
                 return "AddSceneDependency: bad arguments";
-            if (!e29::g_pGameMgr) return "AddSceneDependency: no game world";
 
             const auto SceneGuid  = ParseSceneGuid(std::get<std::string>(SceneArg));
             const auto ParentGuid = ParseSceneGuid(std::get<std::string>(ParentArg));
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene) return "AddSceneDependency: owning scene is not loaded";
 
             if (std::find(pScene->m_ParentScenes.begin(), pScene->m_ParentScenes.end(), ParentGuid) != pScene->m_ParentScenes.end())
                 return {};
 
-            if (e29::WouldCreateDependencyCycle(*e29::g_pGameMgr, SceneGuid, ParentGuid))
+            if (e29::WouldCreateDependencyCycle(World(), SceneGuid, ParentGuid))
                 return "AddSceneDependency: would create a circular scene dependency";
 
             pScene->m_ParentScenes.push_back(ParentGuid);
@@ -60,11 +59,11 @@ namespace e29::commands
             const std::uint64_t Scene  = std::holds_alternative<xerr>(SceneArg)  ? 0 : std::strtoull(std::get<std::string>(SceneArg).c_str(), nullptr, 16);
             const std::uint64_t Parent = std::holds_alternative<xerr>(ParentArg) ? 0 : std::strtoull(std::get<std::string>(ParentArg).c_str(), nullptr, 16);
             std::uint32_t bWasPresent = 0;
-            if (e29::g_pGameMgr && Scene && Parent)
+            if (Scene && Parent)
             {
                 const auto SceneGuid  = xecs::scene::guid{ .m_Instance = { Scene } };
                 const auto ParentGuid = xecs::scene::guid{ .m_Instance = { Parent } };
-                if (auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid))
+                if (auto* pScene = World().m_SceneMgr.Find(SceneGuid))
                     bWasPresent = (std::find(pScene->m_ParentScenes.begin(), pScene->m_ParentScenes.end(), ParentGuid) != pScene->m_ParentScenes.end()) ? 1u : 0u;
             }
             File.Write(Scene);
@@ -77,10 +76,10 @@ namespace e29::commands
             std::uint64_t Scene = 0; File.Read(Scene);
             std::uint64_t Parent = 0; File.Read(Parent);
             std::uint32_t bWasPresent = 0; File.Read(bWasPresent);
-            if (bWasPresent || !e29::g_pGameMgr) return;
+            if (bWasPresent) return;
             const auto SceneGuid  = xecs::scene::guid{ .m_Instance = { Scene } };
             const auto ParentGuid = xecs::scene::guid{ .m_Instance = { Parent } };
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene) return;
             if (auto It = std::find(pScene->m_ParentScenes.begin(), pScene->m_ParentScenes.end(), ParentGuid); It != pScene->m_ParentScenes.end())
                 pScene->m_ParentScenes.erase(It);
@@ -95,9 +94,9 @@ namespace e29::commands
     // is passed (nulls those refs first, then removes - one undo step restores refs + the edge).
     // Usage: RemoveSceneDependency -Scene hexguid -Parent hexguid [-ClearRefs 1]
     //================================================================================================
-    struct remove_scene_dependency_cmd : xundo::command_base
+    struct remove_scene_dependency_cmd : scene_command
     {
-        remove_scene_dependency_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "RemoveSceneDependency", pDataBase) { RegisterArguments(); }
+        remove_scene_dependency_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "RemoveSceneDependency", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Removes an explicit scene dependency. Refuses if entity refs would break unless -ClearRefs 1 (null those refs, then remove). Usage: RemoveSceneDependency -Scene hexguid -Parent hexguid [-ClearRefs 1]";
@@ -121,39 +120,38 @@ namespace e29::commands
             auto ParentArg = m_Parser.getOptionArgAs<std::string>(m_hParent, 0);
             if (std::holds_alternative<xerr>(SceneArg) || std::holds_alternative<xerr>(ParentArg))
                 return "RemoveSceneDependency: bad arguments";
-            if (!e29::g_pGameMgr) return "RemoveSceneDependency: no game world";
 
             const auto SceneGuid  = ParseSceneGuid(std::get<std::string>(SceneArg));
             const auto ParentGuid = ParseSceneGuid(std::get<std::string>(ParentArg));
             const bool bClearRefs = WantsClearRefs(m_Parser, m_hClearRefs);
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene) return "RemoveSceneDependency: owning scene is not loaded";
 
             if (std::find(pScene->m_ParentScenes.begin(), pScene->m_ParentScenes.end(), ParentGuid) == pScene->m_ParentScenes.end())
                 return "RemoveSceneDependency: parent is not a dependency";
 
             std::vector<xecs::scene::guid> Lost;
-            e29::CollectLostParentsOnRemove(*e29::g_pGameMgr, *pScene, ParentGuid, Lost);
+            e29::CollectLostParentsOnRemove(World(), *pScene, ParentGuid, Lost);
 
             if (!bClearRefs)
             {
-                if (auto Why = e29::WhyCannotRemoveSceneDependency(*e29::g_pGameMgr, SceneGuid, ParentGuid); !Why.empty())
+                if (auto Why = e29::WhyCannotRemoveSceneDependency(World(), SceneGuid, ParentGuid); !Why.empty())
                     return Why;
             }
             else
             {
                 std::vector<e29::clearable_cross_scene_ref> Hits;
-                e29::CollectClearableRefsToLostParents(*e29::g_pGameMgr, *pScene, Lost, Hits);
+                e29::CollectClearableRefsToLostParents(World(), *pScene, Lost, Hits);
                 for (auto& Hit : Hits)
                 {
-                    const auto Target = ResolvePropertyTarget(SceneGuid, Hit.m_HolderId, Hit.m_ComponentGuid);
+                    const auto Target = ResolvePropertyTarget(EditorContext(), SceneGuid, Hit.m_HolderId, Hit.m_ComponentGuid);
                     if (!Target.m_pInfo) continue;
                     SetLiveEntityReferenceValue(Target, Hit.m_Path, {});
                     xproperty::any AnyVal; AnyVal.set<xecs::component::entity>({});
                     std::array<char, 256> Buffer{};
                     const auto Len = FormatPropertyValue(Buffer, AnyVal);
                     const std::string ValueStr(Buffer.data(), Len > 0 ? static_cast<std::size_t>(Len) : 0);
-                    RecordPropertyOverride(Target, SceneGuid, Hit.m_HolderId, Hit.m_Path, ValueStr);
+                    RecordPropertyOverride(EditorContext(), Target, SceneGuid, Hit.m_HolderId, Hit.m_Path, ValueStr);
                 }
             }
 
@@ -171,11 +169,11 @@ namespace e29::commands
             const bool bClearRefs = WantsClearRefs(m_Parser, m_hClearRefs);
             std::uint32_t Index = 0;
             std::vector<e29::clearable_cross_scene_ref> Hits;
-            if (e29::g_pGameMgr && Scene && Parent)
+            if (Scene && Parent)
             {
                 const auto SceneGuid  = xecs::scene::guid{ .m_Instance = { Scene } };
                 const auto ParentGuid = xecs::scene::guid{ .m_Instance = { Parent } };
-                if (auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid))
+                if (auto* pScene = World().m_SceneMgr.Find(SceneGuid))
                 {
                     auto It = std::find(pScene->m_ParentScenes.begin(), pScene->m_ParentScenes.end(), ParentGuid);
                     if (It != pScene->m_ParentScenes.end())
@@ -183,8 +181,8 @@ namespace e29::commands
                     if (bClearRefs)
                     {
                         std::vector<xecs::scene::guid> Lost;
-                        e29::CollectLostParentsOnRemove(*e29::g_pGameMgr, *pScene, ParentGuid, Lost);
-                        e29::CollectClearableRefsToLostParents(*e29::g_pGameMgr, *pScene, Lost, Hits);
+                        e29::CollectLostParentsOnRemove(World(), *pScene, ParentGuid, Lost);
+                        e29::CollectClearableRefsToLostParents(World(), *pScene, Lost, Hits);
                     }
                 }
             }
@@ -226,10 +224,9 @@ namespace e29::commands
                 Hits.push_back(std::move(H));
             }
 
-            if (!e29::g_pGameMgr) return;
             const auto SceneGuid  = xecs::scene::guid{ .m_Instance = { Scene } };
             const auto ParentGuid = xecs::scene::guid{ .m_Instance = { Parent } };
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene) return;
 
             // Restore the ParentScenes edge first so ResolveReference / owning-scene walks see it.
@@ -244,15 +241,15 @@ namespace e29::commands
                 for (auto& H : Hits)
                 {
                     const auto BeforeSceneGuid = xecs::scene::guid{ .m_Instance = { H.BeforeScene } };
-                    const auto BeforeEntity = ResolveEntityReferenceTarget(BeforeSceneGuid, static_cast<xecs::scene::permanent_id>(H.BeforeId));
-                    const auto Target = ResolvePropertyTarget(SceneGuid, static_cast<xecs::scene::permanent_id>(H.HolderId), H.Comp);
+                    const auto BeforeEntity = ResolveEntityReferenceTarget(EditorContext(), BeforeSceneGuid, static_cast<xecs::scene::permanent_id>(H.BeforeId));
+                    const auto Target = ResolvePropertyTarget(EditorContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(H.HolderId), H.Comp);
                     if (!Target.m_pInfo) continue;
                     SetLiveEntityReferenceValue(Target, H.Path, BeforeEntity);
                     xproperty::any AnyVal; AnyVal.set<xecs::component::entity>(BeforeEntity);
                     std::array<char, 256> Buffer{};
                     const auto Len = FormatPropertyValue(Buffer, AnyVal);
                     const std::string ValueStr(Buffer.data(), Len > 0 ? static_cast<std::size_t>(Len) : 0);
-                    RecordPropertyOverride(Target, SceneGuid, static_cast<xecs::scene::permanent_id>(H.HolderId), H.Path, ValueStr);
+                    RecordPropertyOverride(EditorContext(), Target, SceneGuid, static_cast<xecs::scene::permanent_id>(H.HolderId), H.Path, ValueStr);
                 }
             }
         }

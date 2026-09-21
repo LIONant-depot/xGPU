@@ -82,20 +82,19 @@ namespace e29::commands
     // Mirrors level/E29_Panel_LevelTree.h's own DoDeleteEntity exactly, including the selection/
     // multi-select survival cleanup - this command can run from Undo/Redo just as easily as from the
     // context menu that used to be the only caller.
-    inline void DeleteSubtreeByPermanentId(xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id) noexcept
+    inline void DeleteSubtreeByPermanentId(e29_command_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id) noexcept
     {
-        if (!e29::g_pGameMgr) return;
-        auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+        auto* pScene = Ed.World().m_SceneMgr.Find(SceneGuid);
         if (!pScene) return;
         auto It = pScene->m_LocalToRuntime.find(Id);
         if (It == pScene->m_LocalToRuntime.end()) return;
 
-        e29::DeleteEntitySubtree(*e29::g_pGameMgr, *pScene, SceneGuid, It->second);
+        e29::DeleteEntitySubtree(Ed.World(), *pScene, SceneGuid, It->second);
         std::printf("[DeleteSubtreeByPermanentId] Id=%u deleted\n", Id); std::fflush(stdout);
 
-        if (e29::g_pState)
+        if (&Ed.m_State)
         {
-            auto& State = *e29::g_pState;
+            auto& State = Ed.m_State;
             if (State.m_SelectedEntityScene == SceneGuid)
             {
                 // Hardening beyond "does the id still resolve to SOMETHING": also clear if it resolves
@@ -130,15 +129,15 @@ namespace e29::commands
     // SaveEntity walk alone cannot undo them. Same IO shape as make_prefab_variant_cmd's own
     // BackupCurrenState/Undo for m_lComponents + m_HierarchyDiffs (E29_Commands_MakePrefab.h).
     // Always writes a bool so Restore can drain the record even when Snapshot early-outs.
-    inline void SnapshotContainingPrefabOverrides(xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
+    inline void SnapshotContainingPrefabOverrides(e29_command_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
     {
         xecs::editor::prefab_instance* pPI = nullptr;
         xecs::scene::permanent_id      PIRootId = xecs::scene::invalid_permanent_id_v;
         if (e29::g_pGameMgr)
         {
-            if (auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid); pScene && pScene->m_LocalToRuntime.contains(RootId))
+            if (auto* pScene = Ed.World().m_SceneMgr.Find(SceneGuid); pScene && pScene->m_LocalToRuntime.contains(RootId))
             {
-                auto Ctx = e29::FindContainingPrefabInstance(*e29::g_pGameMgr, pScene->m_LocalToRuntime.at(RootId));
+                auto Ctx = e29::FindContainingPrefabInstance(Ed.World(), pScene->m_LocalToRuntime.at(RootId));
                 // MemberPath empty ⇒ RootId IS the PI root (or not under a PI). RecordRemovedChildOverride
                 // no-ops in that case, so there is nothing extra to restore.
                 if (Ctx.m_pPI != nullptr && !Ctx.m_MemberPath.empty())
@@ -178,7 +177,7 @@ namespace e29::commands
         }
     }
 
-    inline void RestoreContainingPrefabOverrides(xundo::undo_file& File, xecs::scene::guid SceneGuid) noexcept
+    inline void RestoreContainingPrefabOverrides(e29_command_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid) noexcept
     {
         bool bHad = false; File.Read(bHad);
         if (!bHad) return;
@@ -215,20 +214,19 @@ namespace e29::commands
             File.Read(H.m_bAdded);
         }
 
-        if (!e29::g_pGameMgr) return;
-        auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+        auto* pScene = Ed.World().m_SceneMgr.Find(SceneGuid);
         if (!pScene) return;
         const auto PIRootId = static_cast<xecs::scene::permanent_id>(PIRootIdVal);
         if (!pScene->m_LocalToRuntime.contains(PIRootId)) return;
         auto Entity = pScene->m_LocalToRuntime.at(PIRootId);
-        auto& Details = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(Entity);
+        auto& Details = Ed.World().m_ComponentMgr.getEntityDetails(Entity);
         const auto iType = Details.m_pPool ? Details.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) : -1;
         if (iType < 0) return;
 
         auto& PI = Details.m_pPool->getComponent<xecs::editor::prefab_instance>(Details.m_PoolIndex);
         PI.m_lComponents    = std::move(OldComponents);
         PI.m_HierarchyDiffs = std::move(OldHierarchy);
-        e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, PIRootId);
+        Ed.World().m_SceneMgr.MarkEntityDirty(SceneGuid, PIRootId);
     }
 
     // Snapshots RootId's whole live subtree under shadow ids (SaveEntity, per-entity, per this file's
@@ -245,9 +243,9 @@ namespace e29::commands
     // writing whatever SceneGuid/RootId encoding its own command string args need - this only writes
     // the position + subtree data, since a caller like make_prefab_cmd already knows how it wants to
     // encode Scene (it might not be a plain xecs::scene::guid round trip at all).
-    inline void SnapshotSubtreeForRestore(xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
+    inline void SnapshotSubtreeForRestore(e29_command_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
     {
-        auto* pScene = e29::g_pGameMgr ? e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid) : nullptr;
+        auto* pScene = e29::g_pGameMgr ? Ed.World().m_SceneMgr.Find(SceneGuid) : nullptr;
         if (!pScene || !pScene->m_LocalToRuntime.contains(RootId))
         {
             File.Write(static_cast<std::uint32_t>(xecs::scene::invalid_folder_id_v));
@@ -294,7 +292,7 @@ namespace e29::commands
             xecs::scene::permanent_id RootParentId = xecs::scene::invalid_permanent_id_v;
             std::uint32_t             ChildIndex   = 0;
             auto RootEntity = pScene->m_LocalToRuntime.at(RootId);
-            auto& RootDetails = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(RootEntity);
+            auto& RootDetails = Ed.World().m_ComponentMgr.getEntityDetails(RootEntity);
             if (RootDetails.m_pPool && RootDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::parent>.m_BitID))
             {
                 const auto ParentEntity = RootDetails.m_pPool->getComponent<xecs::component::parent>(RootDetails.m_PoolIndex).m_Value;
@@ -303,7 +301,7 @@ namespace e29::commands
                     if (auto ParentIt = pScene->m_RuntimeToLocal.find(ParentEntity.m_Value); ParentIt != pScene->m_RuntimeToLocal.end())
                     {
                         RootParentId = ParentIt->second;
-                        auto& PDetails = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(ParentEntity);
+                        auto& PDetails = Ed.World().m_ComponentMgr.getEntityDetails(ParentEntity);
                         if (PDetails.m_pPool && PDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID))
                         {
                             auto& List = PDetails.m_pPool->getComponent<xecs::component::children>(PDetails.m_PoolIndex).m_List;
@@ -327,7 +325,7 @@ namespace e29::commands
             const auto RealId = RtIt->second;
 
             const auto ShadowId = e29::NextFreeEntityId(*pScene);
-            e29::g_pGameMgr->m_SceneMgr.SaveEntity(SceneGuid, ShadowId, Entity);
+            Ed.World().m_SceneMgr.SaveEntity(SceneGuid, ShadowId, Entity);
 
             // SaveEntity itself unconditionally re-registers Scene.m_LocalToRuntime[Id]/
             // m_RuntimeToLocal[Entity.m_Value] using WHATEVER Id it was called with (xecs_scene_
@@ -342,7 +340,7 @@ namespace e29::commands
 
             Entries.push_back({ RealId, ShadowId });
 
-            auto& Details = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(Entity);
+            auto& Details = Ed.World().m_ComponentMgr.getEntityDetails(Entity);
             if (Details.m_pPool && Details.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID))
             {
                 // Copy, not reference - matches DeleteEntitySubtree's own pattern (E29_PrefabAuthoring.h):
@@ -364,13 +362,13 @@ namespace e29::commands
 
         // AFTER the subtree entries: containing-PI override bookkeeping (see helpers above). Must
         // stay last so RestoreSubtreeFromSnapshot can read it after draining Entries.
-        SnapshotContainingPrefabOverrides(File, SceneGuid, RootId);
+        SnapshotContainingPrefabOverrides(Ed, File, SceneGuid, RootId);
     }
 
     // Counterpart to SnapshotSubtreeForRestore - reads back everything it wrote and restores the whole
     // subtree, including hierarchy, cross-entity references, and prefab-instance overrides, back to
     // its exact original position. Factored out of delete_entity_cmd's own Undo (moved verbatim).
-    inline void RestoreSubtreeFromSnapshot(xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
+    inline void RestoreSubtreeFromSnapshot(e29_command_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
     {
         std::uint32_t FolderVal = 0;     File.Read(FolderVal);
         std::uint32_t FolderIndex = 0;   File.Read(FolderIndex);
@@ -387,18 +385,18 @@ namespace e29::commands
             File.Read(ShadowId);
             E = { static_cast<xecs::scene::permanent_id>(RealId), static_cast<xecs::scene::permanent_id>(ShadowId) };
         }
-        if (!e29::g_pGameMgr || Entries.empty())
+        if (Entries.empty())
         {
             // Still drain the trailing containing-PI record so the undo_file cursor stays aligned
             // for any later steps sharing this file layout.
-            RestoreContainingPrefabOverrides(File, SceneGuid);
+            RestoreContainingPrefabOverrides(Ed, File, SceneGuid);
             return;
         }
 
-        auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+        auto* pScene = Ed.World().m_SceneMgr.Find(SceneGuid);
         if (!pScene)
         {
-            RestoreContainingPrefabOverrides(File, SceneGuid);
+            RestoreContainingPrefabOverrides(Ed, File, SceneGuid);
             return;
         }
 
@@ -410,7 +408,7 @@ namespace e29::commands
         std::vector<xecs::component::entity> Restored;
         for (auto& E : Entries)
         {
-            if (auto Err = xecs::scene::details::LoadEntity(e29::g_pGameMgr->m_SceneMgr, *pScene, E.m_ShadowId); Err)
+            if (auto Err = xecs::scene::details::LoadEntity(Ed.World().m_SceneMgr, *pScene, E.m_ShadowId); Err)
                 continue; // a single corrupted/missing snapshot must not take the whole subtree down
 
             auto ShadowIt = pScene->m_LocalToRuntime.find(E.m_ShadowId);
@@ -435,7 +433,7 @@ namespace e29::commands
         // m_ExternalToRuntime for a cross-scene target rather than rebuilding it.
         for (auto Entity : Restored)
         {
-            xecs::persist::details::RemapLoadedEntityReferences(*e29::g_pGameMgr, Entity, [&](std::int64_t Encoded) noexcept -> xecs::component::entity
+            xecs::persist::details::RemapLoadedEntityReferences(Ed.World(), Entity, [&](std::int64_t Encoded) noexcept -> xecs::component::entity
             {
                 if (Encoded == 0) return {};
                 if (Encoded > 0)
@@ -453,9 +451,9 @@ namespace e29::commands
         // the real scene-load path this mirrors).
         for (auto Entity : Restored)
         {
-            auto& Details = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(Entity);
+            auto& Details = Ed.World().m_ComponentMgr.getEntityDetails(Entity);
             if (Details.m_pPool && Details.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) >= 0)
-                xecs::persist::details::ApplyPrefabInstancePropertyOverrides(*e29::g_pGameMgr, Entity);
+                xecs::persist::details::ApplyPrefabInstancePropertyOverrides(Ed.World(), Entity);
         }
 
         // Root-only, matching SnapshotSubtreeForRestore's own root-only capture. ReparentEntityIntoFolder
@@ -488,7 +486,7 @@ namespace e29::commands
         {
             if (auto ParentIt = pScene->m_LocalToRuntime.find(static_cast<xecs::scene::permanent_id>(RootParentId)); ParentIt != pScene->m_LocalToRuntime.end())
             {
-                auto& PDetails = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(ParentIt->second);
+                auto& PDetails = Ed.World().m_ComponentMgr.getEntityDetails(ParentIt->second);
                 if (PDetails.m_pPool && PDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID))
                 {
                     if (auto RootIt = pScene->m_LocalToRuntime.find(RootId); RootIt != pScene->m_LocalToRuntime.end())
@@ -499,26 +497,26 @@ namespace e29::commands
                             const auto InsertAt = std::min(static_cast<std::size_t>(ChildIndex), List.size());
                             List.insert(List.begin() + InsertAt, RootIt->second);
                         }
-                        e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, static_cast<xecs::scene::permanent_id>(RootParentId));
+                        Ed.World().m_SceneMgr.MarkEntityDirty(SceneGuid, static_cast<xecs::scene::permanent_id>(RootParentId));
                     }
                 }
             }
         }
 
-        if (e29::g_pState) e29::g_pState->m_bEntityInspectorDirty = true;
+        if (&Ed.m_State) Ed.m_State.m_bEntityInspectorDirty = true;
 
         // Last: undo RecordRemovedChildOverride / ScrubAndShiftPathsAfterRemovedChild on the
         // containing PI (written last by SnapshotSubtreeForRestore).
-        RestoreContainingPrefabOverrides(File, SceneGuid);
+        RestoreContainingPrefabOverrides(Ed, File, SceneGuid);
     }
 
     //================================================================================================
     // CreateEntity - Redo makes a brand-new, bare entity (no components, matching
     // ShowCreateMenuItems' own existing "New Entity" behavior exactly); Undo removes it again.
     //================================================================================================
-    struct create_entity_cmd : xundo::command_base
+    struct create_entity_cmd : scene_command
     {
-        create_entity_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "CreateEntity", pDataBase) { RegisterArguments(); }
+        create_entity_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "CreateEntity", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Creates a brand-new, bare entity (undoable - deletes it again on Undo). Usage: CreateEntity -Scene hexguid -Id hexid -Folder hexfolder (0 = loose) [-Parent hexid]";
@@ -556,18 +554,17 @@ namespace e29::commands
                 ? xecs::scene::invalid_permanent_id_v
                 : ParseEntityId(std::get<std::string>(ParentArg));
 
-            if (!e29::g_pGameMgr) return "CreateEntity: no game world";
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene) return "CreateEntity: scene not found";
             if (pScene->m_LocalToRuntime.contains(Id)) return "CreateEntity: id already in use";
             if (ParentId != xecs::scene::invalid_permanent_id_v && !pScene->m_LocalToRuntime.contains(ParentId))
                 return "CreateEntity: parent not found";
 
-            auto& Archetype = e29::g_pGameMgr->getOrCreateArchetype<>();
+            auto& Archetype = World().getOrCreateArchetype<>();
             auto  Entity    = Archetype.CreateEntity(xecs::tools::empty_lambda{});
             pScene->m_LocalToRuntime[Id]              = Entity;
             pScene->m_RuntimeToLocal[Entity.m_Value]  = Id;
-            e29::g_pGameMgr->m_SceneMgr.MarkEntityNew(SceneGuid, Id);
+            World().m_SceneMgr.MarkEntityNew(SceneGuid, Id);
 
             if (ParentId != xecs::scene::invalid_permanent_id_v)
             {
@@ -577,40 +574,40 @@ namespace e29::commands
                 // already needs), so re-resolve everything through it rather than trusting the local
                 // `Entity` above afterward.
                 std::array<const xecs::component::type::info*, 1> AddParent{ &xecs::component::type::info_v<xecs::component::parent> };
-                const auto NewChildEntity = MigrateEntityComponents(SceneGuid, Id, AddParent, {});
+                const auto NewChildEntity = MigrateEntityComponents(EditorContext(), SceneGuid, Id, AddParent, {});
                 if (!NewChildEntity.isValid()) return "CreateEntity: failed to attach parent";
 
                 // Ensure the PARENT also has a `children` component - a freshly-authored entity usually
                 // doesn't have one yet the first time it gains a child.
                 auto ParentEntity = pScene->m_LocalToRuntime.at(ParentId);
-                auto& PDetails = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(ParentEntity);
+                auto& PDetails = World().m_ComponentMgr.getEntityDetails(ParentEntity);
                 if (!PDetails.m_pPool || !PDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID))
                 {
                     std::array<const xecs::component::type::info*, 1> AddChildren{ &xecs::component::type::info_v<xecs::component::children> };
-                    ParentEntity = MigrateEntityComponents(SceneGuid, ParentId, AddChildren, {});
+                    ParentEntity = MigrateEntityComponents(EditorContext(), SceneGuid, ParentId, AddChildren, {});
                     if (!ParentEntity.isValid()) return "CreateEntity: failed to attach children to parent";
                 }
 
                 // Wire up both sides directly - these two fields are structural ECS bookkeeping, not
                 // user-editable data (see DeleteEntitySubtree's own identical direct-pool-access pattern
                 // for parent/children, E29_PrefabAuthoring.h), so no xproperty round trip needed here.
-                auto& ChildDetails = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(NewChildEntity);
+                auto& ChildDetails = World().m_ComponentMgr.getEntityDetails(NewChildEntity);
                 ChildDetails.m_pPool->getComponent<xecs::component::parent>(ChildDetails.m_PoolIndex).m_Value = ParentEntity;
 
-                auto& ParentDetails = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(ParentEntity);
+                auto& ParentDetails = World().m_ComponentMgr.getEntityDetails(ParentEntity);
                 ParentDetails.m_pPool->getComponent<xecs::component::children>(ParentDetails.m_PoolIndex).m_List.push_back(NewChildEntity);
 
                 // Prefab composition: child under a PI is an instance hierarchy add (m_bAdded).
-                e29::RecordAddedChildOverride(*e29::g_pGameMgr, *pScene, SceneGuid, NewChildEntity);
+                e29::RecordAddedChildOverride(World(), *pScene, SceneGuid, NewChildEntity);
 
-                e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, ParentId);
+                World().m_SceneMgr.MarkEntityDirty(SceneGuid, ParentId);
             }
             else if (FolderVal != xecs::scene::invalid_folder_id_v)
             {
                 e29::ReparentEntityIntoFolder(*pScene, Id, FolderVal);
             }
 
-            if (e29::g_pState) e29::g_pState->m_bEntityInspectorDirty = true;
+            State().m_bEntityInspectorDirty = true;
             return {};
         }
 
@@ -634,14 +631,14 @@ namespace e29::commands
             File.Write(ParentId);
 
             bool bParentAlreadyHadChildren = true; // harmless default - only consulted when ParentId is valid
-            if (ParentId != static_cast<std::uint32_t>(xecs::scene::invalid_permanent_id_v) && e29::g_pGameMgr)
+            if (ParentId != static_cast<std::uint32_t>(xecs::scene::invalid_permanent_id_v))
             {
                 const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
-                if (auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid))
+                if (auto* pScene = World().m_SceneMgr.Find(SceneGuid))
                 {
                     if (auto It = pScene->m_LocalToRuntime.find(static_cast<xecs::scene::permanent_id>(ParentId)); It != pScene->m_LocalToRuntime.end())
                     {
-                        auto& PDetails = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(It->second);
+                        auto& PDetails = World().m_ComponentMgr.getEntityDetails(It->second);
                         bParentAlreadyHadChildren = PDetails.m_pPool && PDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID);
                     }
                 }
@@ -659,12 +656,12 @@ namespace e29::commands
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
             const auto PermId    = static_cast<xecs::scene::permanent_id>(Id);
 
-            DeleteSubtreeByPermanentId(SceneGuid, PermId);
+            DeleteSubtreeByPermanentId(EditorContext(), SceneGuid, PermId);
 
             // Exact inverse of this command's own Redo() MarkEntityNew call - see this file's own top
             // comment quoting m_PendingChanges' documented undo contract.
             if (e29::g_pGameMgr)
-                if (auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid))
+                if (auto* pScene = World().m_SceneMgr.Find(SceneGuid))
                     pScene->m_PendingChanges[PermId].m_New -= 1;
 
             // Gap #2 fix (documentation/E29_LevelSceneEditor/command_undo_known_gaps.md): DeleteSubtreeByPermanentId above already
@@ -672,20 +669,20 @@ namespace e29::commands
             // existing parent-scrub side effect) - if Redo() had to ADD that children component in the
             // first place (the parent didn't have one before) and the list is now empty, strip the
             // component entirely rather than leaving an empty, untidy one behind.
-            if (!bParentAlreadyHadChildren && ParentId != static_cast<std::uint32_t>(xecs::scene::invalid_permanent_id_v) && e29::g_pGameMgr)
+            if (!bParentAlreadyHadChildren && ParentId != static_cast<std::uint32_t>(xecs::scene::invalid_permanent_id_v))
             {
-                if (auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid))
+                if (auto* pScene = World().m_SceneMgr.Find(SceneGuid))
                 {
                     if (auto It = pScene->m_LocalToRuntime.find(static_cast<xecs::scene::permanent_id>(ParentId)); It != pScene->m_LocalToRuntime.end())
                     {
-                        auto& PDetails = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(It->second);
+                        auto& PDetails = World().m_ComponentMgr.getEntityDetails(It->second);
                         if (PDetails.m_pPool && PDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID))
                         {
                             const auto& List = PDetails.m_pPool->getComponent<xecs::component::children>(PDetails.m_PoolIndex).m_List;
                             if (List.empty())
                             {
                                 std::array<const xecs::component::type::info*, 1> RemoveChildren{ &xecs::component::type::info_v<xecs::component::children> };
-                                MigrateEntityComponents(SceneGuid, static_cast<xecs::scene::permanent_id>(ParentId), {}, RemoveChildren);
+                                MigrateEntityComponents(EditorContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(ParentId), {}, RemoveChildren);
                             }
                         }
                     }
@@ -705,9 +702,9 @@ namespace e29::commands
     // snapshot/restore machinery both this command and make_prefab_cmd (E29_Commands_MakePrefab.h)
     // build on.
     //================================================================================================
-    struct delete_entity_cmd : xundo::command_base
+    struct delete_entity_cmd : scene_command
     {
-        delete_entity_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "DeleteEntity", pDataBase) { RegisterArguments(); }
+        delete_entity_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "DeleteEntity", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Deletes an entity and its whole child subtree (undoable - restores hierarchy, references, prefab overrides, and containing-PI HierarchyDiffs on Undo). Usage: DeleteEntity -Scene hexguid -Id hexid";
@@ -728,11 +725,10 @@ namespace e29::commands
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
             const auto Id        = ParseEntityId(std::get<std::string>(IdArg));
 
-            if (!e29::g_pGameMgr) return "DeleteEntity: no game world";
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene || !pScene->m_LocalToRuntime.contains(Id)) return "DeleteEntity: target not found";
 
-            DeleteSubtreeByPermanentId(SceneGuid, Id);
+            DeleteSubtreeByPermanentId(EditorContext(), SceneGuid, Id);
             return {};
         }
 
@@ -749,14 +745,14 @@ namespace e29::commands
             File.Write(Scene);
             File.Write(Id);
 
-            SnapshotSubtreeForRestore(File, xecs::scene::guid{ .m_Instance = { Scene } }, static_cast<xecs::scene::permanent_id>(Id));
+            SnapshotSubtreeForRestore(EditorContext(), File, xecs::scene::guid{ .m_Instance = { Scene } }, static_cast<xecs::scene::permanent_id>(Id));
         }
 
         void Undo(xundo::undo_file& File) noexcept override
         {
             std::uint64_t Scene = 0; File.Read(Scene);
             std::uint32_t Id = 0;    File.Read(Id);
-            RestoreSubtreeFromSnapshot(File, xecs::scene::guid{ .m_Instance = { Scene } }, static_cast<xecs::scene::permanent_id>(Id));
+            RestoreSubtreeFromSnapshot(EditorContext(), File, xecs::scene::guid{ .m_Instance = { Scene } }, static_cast<xecs::scene::permanent_id>(Id));
         }
 
         xcmdline::parser::handle m_hScene, m_hId;

@@ -49,9 +49,9 @@ namespace e29::commands
     // Redo only ever creates an EMPTY file; a real edit to its content is a separate save/write
     // path this command never touches.
     //================================================================================================
-    struct add_script_source_file_cmd : xundo::command_base
+    struct add_script_source_file_cmd : scene_command
     {
-        add_script_source_file_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "AddScriptSourceFile", pDataBase) { RegisterArguments(); }
+        add_script_source_file_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "AddScriptSourceFile", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Creates a new, empty source file under a Scripting resource's own source_db folder (undoable). Usage: AddScriptSourceFile -Library hexguid -Asset assetguid -FileName base64"; }
         void RegisterArguments() noexcept override
         {
@@ -125,9 +125,9 @@ namespace e29::commands
     // AddScriptSourceFile's own Undo, Redo here can be destroying real, non-empty edits, so the
     // backup must carry the file's own bytes, not just its name.
     //================================================================================================
-    struct remove_script_source_file_cmd : xundo::command_base
+    struct remove_script_source_file_cmd : scene_command
     {
-        remove_script_source_file_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "RemoveScriptSourceFile", pDataBase) { RegisterArguments(); }
+        remove_script_source_file_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "RemoveScriptSourceFile", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Deletes a file from a Scripting resource's own source_db folder (undoable - restores its exact content). Usage: RemoveScriptSourceFile -Library hexguid -Asset assetguid -FileName base64"; }
         void RegisterArguments() noexcept override
         {
@@ -215,9 +215,9 @@ namespace e29::commands
     // ListScriptSourceFiles - every file name currently under a Scripting resource's own source_db
     // folder, one per line. Instant, read-only - matches ListAssets' own "discovery command" shape.
     //================================================================================================
-    struct list_script_source_files_query_cmd : xundo::query_command_base
+    struct list_script_source_files_query_cmd : scene_query_command
     {
-        list_script_source_files_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "ListScriptSourceFiles", pDataBase) { RegisterArguments(); }
+        list_script_source_files_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "ListScriptSourceFiles", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Lists every file under a Scripting resource's own source_db folder. Usage: ListScriptSourceFiles -Library hexguid -Asset assetguid"; }
         void RegisterArguments() noexcept override
         {
@@ -261,9 +261,9 @@ namespace e29::commands
     // already follows). This is the ONLY command-bus path to actually write real code into a module -
     // without it an AI would have to bypass the undo system entirely to author anything.
     //================================================================================================
-    struct set_script_source_file_content_cmd : xundo::command_base
+    struct set_script_source_file_content_cmd : scene_command
     {
-        set_script_source_file_content_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "SetScriptSourceFileContent", pDataBase) { RegisterArguments(); }
+        set_script_source_file_content_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "SetScriptSourceFileContent", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Overwrites an existing source_db file's content (undoable - restores prior content). Usage: SetScriptSourceFileContent -Library hexguid -Asset assetguid -FileName base64 -Content base64"; }
         void RegisterArguments() noexcept override
         {
@@ -353,9 +353,9 @@ namespace e29::commands
     // (undoable). Changes the file LIST (not just content), so - unlike SetScriptSourceFileContent -
     // this DOES call RegenerateGameModuleSources() on both Redo and Undo.
     //================================================================================================
-    struct rename_script_source_file_cmd : xundo::command_base
+    struct rename_script_source_file_cmd : scene_command
     {
-        rename_script_source_file_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "RenameScriptSourceFile", pDataBase) { RegisterArguments(); }
+        rename_script_source_file_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "RenameScriptSourceFile", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Renames a file under a Scripting resource's own source_db folder (undoable). Usage: RenameScriptSourceFile -Library hexguid -Asset assetguid -OldFileName base64 -NewFileName base64"; }
         void RegisterArguments() noexcept override
         {
@@ -436,9 +436,9 @@ namespace e29::commands
     // checks here (unlike library dependencies) - this is a flat membership list, not a graph edge; a
     // module-to-module dependency graph (if/when that's built) is a separate, later concern.
     //================================================================================================
-    struct add_project_module_reference_cmd : xundo::command_base
+    struct add_project_module_reference_cmd : scene_command
     {
-        add_project_module_reference_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "AddProjectModuleReference", pDataBase) { RegisterArguments(); }
+        add_project_module_reference_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "AddProjectModuleReference", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Adds a Script-Module resource to the project's build membership list (undoable, persisted immediately). Usage: AddProjectModuleReference -Module assetguid"; }
         void RegisterArguments() noexcept override
         {
@@ -480,9 +480,9 @@ namespace e29::commands
         xcmdline::parser::handle m_hModule;
     };
 
-    struct remove_project_module_reference_cmd : xundo::command_base
+    struct remove_project_module_reference_cmd : scene_command
     {
-        remove_project_module_reference_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "RemoveProjectModuleReference", pDataBase) { RegisterArguments(); }
+        remove_project_module_reference_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "RemoveProjectModuleReference", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Removes a Script-Module resource from the project's build membership list (undoable, persisted immediately). Usage: RemoveProjectModuleReference -Module assetguid"; }
         void RegisterArguments() noexcept override
         {
@@ -524,7 +524,7 @@ namespace e29::commands
                 std::unordered_set<std::uint64_t> PluginOwnedGuids;
                 for (auto& D : PluginOwnedBefore) PluginOwnedGuids.insert(D.m_Guid.m_Value);
 
-                for (auto& SceneGuid : g_pState->m_OpenScenes)
+                for (auto& SceneGuid : State().m_OpenScenes)
                     for (auto& Dep : xecs::scene::LoadSceneComponentDependencies(e10::g_LibMgr.m_ProjectPath, SceneGuid))
                         if (PluginOwnedGuids.contains(Dep.m_Guid.m_Value))
                             RequiredFromOpenScenes.push_back(Dep);
@@ -630,9 +630,9 @@ namespace e29::commands
     // Discovery command, same "never need to read a raw file by hand" reasoning every other list
     // command in this system was built for.
     //================================================================================================
-    struct list_project_module_references_query_cmd : xundo::query_command_base
+    struct list_project_module_references_query_cmd : scene_query_command
     {
-        list_project_module_references_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "ListProjectModuleReferences", pDataBase) { RegisterArguments(); }
+        list_project_module_references_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "ListProjectModuleReferences", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Lists the project's current Script-Module build-membership list. Usage: ListProjectModuleReferences"; }
         void RegisterArguments() noexcept override {}
 
@@ -652,9 +652,9 @@ namespace e29::commands
     // this as a side effect - this exists for recovery/debugging (e.g. after a raw file edit made
     // outside the command bus) rather than any normal workflow needing to call it directly.
     //================================================================================================
-    struct regenerate_project_module_sources_query_cmd : xundo::query_command_base
+    struct regenerate_project_module_sources_query_cmd : scene_query_command
     {
-        regenerate_project_module_sources_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "RegenerateProjectModuleSources", pDataBase) { RegisterArguments(); }
+        regenerate_project_module_sources_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "RegenerateProjectModuleSources", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Force-regenerates the CMake module-sources fragment from the current build-membership list. Usage: RegenerateProjectModuleSources"; }
         void RegisterArguments() noexcept override {}
 

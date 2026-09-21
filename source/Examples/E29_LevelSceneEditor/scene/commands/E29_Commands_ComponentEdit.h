@@ -58,10 +58,9 @@ namespace e29::commands
     // be present - unlike ResolvePropertyTarget (E29_Commands_PropertyEdit.h), which deliberately
     // fails when the named component is absent (correct for property editing, wrong here: Add's
     // whole point is operating on an entity that does NOT yet have the component).
-    inline xecs::component::entity ResolveEntityHandle(xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id) noexcept
+    inline xecs::component::entity ResolveEntityHandle(e29_command_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id) noexcept
     {
-        if (!e29::g_pGameMgr) return {};
-        auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+        auto* pScene = Ed.World().m_SceneMgr.Find(SceneGuid);
         if (!pScene) return {};
         auto It = pScene->m_LocalToRuntime.find(Id);
         return It != pScene->m_LocalToRuntime.end() ? It->second : xecs::component::entity{};
@@ -73,26 +72,25 @@ namespace e29::commands
     // this entity happens to be the one currently selected in the UI - refresh State so the Entity
     // Properties panel picks up the migration in the same frame instead of showing a stale/dangling
     // handle. Returns the new entity handle (invalid if SceneGuid/Id didn't resolve).
-    inline xecs::component::entity MigrateEntityComponents(xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id, std::span<const xecs::component::type::info* const> Add, std::span<const xecs::component::type::info* const> Sub) noexcept
+    inline xecs::component::entity MigrateEntityComponents(e29_command_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id, std::span<const xecs::component::type::info* const> Add, std::span<const xecs::component::type::info* const> Sub) noexcept
     {
-        if (!e29::g_pGameMgr) return {};
-        auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+        auto* pScene = Ed.World().m_SceneMgr.Find(SceneGuid);
         if (!pScene) return {};
         auto It = pScene->m_LocalToRuntime.find(Id);
         if (It == pScene->m_LocalToRuntime.end()) return {};
         const auto OldEntity = It->second;
 
-        const auto NewEntity = e29::g_pGameMgr->AddOrRemoveComponents(OldEntity, Add, Sub);
+        const auto NewEntity = Ed.World().AddOrRemoveComponents(OldEntity, Add, Sub);
 
         pScene->m_RuntimeToLocal.erase(OldEntity.m_Value);
         pScene->m_LocalToRuntime[Id]                = NewEntity;
         pScene->m_RuntimeToLocal[NewEntity.m_Value] = Id;
-        e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, Id);
+        Ed.World().m_SceneMgr.MarkEntityDirty(SceneGuid, Id);
 
-        if (e29::g_pState && e29::g_pState->m_SelectedEntityId == Id && e29::g_pState->m_SelectedEntityScene == SceneGuid)
+        if (&Ed.m_State && Ed.m_State.m_SelectedEntityId == Id && Ed.m_State.m_SelectedEntityScene == SceneGuid)
         {
-            e29::g_pState->m_SelectedEntity        = NewEntity;
-            e29::g_pState->m_bEntityInspectorDirty = true;
+            Ed.m_State.m_SelectedEntity        = NewEntity;
+            Ed.m_State.m_bEntityInspectorDirty = true;
         }
 
         return NewEntity;
@@ -101,10 +99,10 @@ namespace e29::commands
     // Snapshots every property of Entity's Info component into {Path, TypeGuid, ValueStr} triples,
     // written length-prefixed to File - same string-based shape set_property_cmd already uses. Called
     // by remove_component_cmd::BackupCurrenState, BEFORE the component is actually removed.
-    inline void SnapshotComponentProperties(xundo::undo_file& File, xecs::component::entity Entity, const xecs::component::type::info& Info) noexcept
+    inline void SnapshotComponentProperties(e29_command_context& Ed, xundo::undo_file& File, xecs::component::entity Entity, const xecs::component::type::info& Info) noexcept
     {
         if (!e29::g_pGameMgr) { File.Write(std::uint32_t{ 0 }); return; }
-        auto& Details = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(Entity);
+        auto& Details = Ed.World().m_ComponentMgr.getEntityDetails(Entity);
         if (!Details.m_pPool) { File.Write(std::uint32_t{ 0 }); return; }
         const auto iType = Details.m_pPool->findIndexComponentFromInfo(Info);
         if (iType < 0) { File.Write(std::uint32_t{ 0 }); return; }
@@ -155,19 +153,18 @@ namespace e29::commands
     // on the root, not necessarily on Entity, so without this the scrub never gets picked up by Save
     // (confirmed live: SaveScene only re-writes entities m_PendingChanges marks dirty, and a plain
     // erase_if on the root's own live data isn't enough on its own to mark IT dirty).
-    inline void ScrubComponentOverrideEntry(xecs::scene::guid SceneGuid, xecs::component::entity Entity, std::uint64_t ComponentTypeGuidValue) noexcept
+    inline void ScrubComponentOverrideEntry(e29_command_context& Ed, xecs::scene::guid SceneGuid, xecs::component::entity Entity, std::uint64_t ComponentTypeGuidValue) noexcept
     {
-        if (!e29::g_pGameMgr) return;
-        auto Ctx = e29::FindContainingPrefabInstance(*e29::g_pGameMgr, Entity);
+        auto Ctx = e29::FindContainingPrefabInstance(Ed.World(), Entity);
         if (Ctx.m_pPI == nullptr) return;
         auto& MemberPath = Ctx.m_MemberPath;
         std::erase_if(Ctx.m_pPI->m_lComponents, [&](auto& C) noexcept { return C.m_ComponentTypeGuid == ComponentTypeGuidValue && std::ranges::equal(C.m_MemberPath, MemberPath); });
 
         if (Ctx.m_RootEntity.m_Value != Entity.m_Value)
         {
-            if (auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid))
+            if (auto* pScene = Ed.World().m_SceneMgr.Find(SceneGuid))
                 if (auto RootIt = pScene->m_RuntimeToLocal.find(Ctx.m_RootEntity.m_Value); RootIt != pScene->m_RuntimeToLocal.end())
-                    e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, RootIt->second);
+                    Ed.World().m_SceneMgr.MarkEntityDirty(SceneGuid, RootIt->second);
         }
     }
 
@@ -178,12 +175,12 @@ namespace e29::commands
     // reads never desync the undo_file stream - matches RestoreComponentProperties/Count's own
     // always-read-Count convention just above. Called by remove_component_cmd::BackupCurrenState,
     // BEFORE Redo scrubs it.
-    inline void SnapshotComponentOverrideEntry(xundo::undo_file& File, xecs::component::entity Entity, const xecs::component::type::info& Info) noexcept
+    inline void SnapshotComponentOverrideEntry(e29_command_context& Ed, xundo::undo_file& File, xecs::component::entity Entity, const xecs::component::type::info& Info) noexcept
     {
         xecs::editor::prefab_component_override* pFound = nullptr;
         if (e29::g_pGameMgr)
         {
-            auto Ctx = e29::FindContainingPrefabInstance(*e29::g_pGameMgr, Entity);
+            auto Ctx = e29::FindContainingPrefabInstance(Ed.World(), Entity);
             if (Ctx.m_pPI)
             {
                 auto It = std::ranges::find_if(Ctx.m_pPI->m_lComponents, [&](auto& C) noexcept { return C.m_ComponentTypeGuid == Info.m_Guid.m_Value && std::ranges::equal(C.m_MemberPath, Ctx.m_MemberPath); });
@@ -217,7 +214,7 @@ namespace e29::commands
     // ROOT dirty when it differs from Entity - same reasoning as ScrubComponentOverrideEntry's own
     // comment (a plain push_back into the root's own live m_lComponents isn't enough to get it
     // re-saved on its own).
-    inline void RestoreComponentOverrideEntry(xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::component::entity Entity, std::uint64_t ComponentTypeGuidValue) noexcept
+    inline void RestoreComponentOverrideEntry(e29_command_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::component::entity Entity, std::uint64_t ComponentTypeGuidValue) noexcept
     {
         bool bHadEntry = false; File.Read(bHadEntry);
 
@@ -234,8 +231,8 @@ namespace e29::commands
             O.m_ValueStr = xeditor::ReadString(File);
         }
 
-        if (!bHadEntry || !e29::g_pGameMgr) return;
-        auto Ctx = e29::FindContainingPrefabInstance(*e29::g_pGameMgr, Entity);
+        if (!bHadEntry) return;
+        auto Ctx = e29::FindContainingPrefabInstance(Ed.World(), Entity);
         if (Ctx.m_pPI == nullptr) return;
 
         auto& CompOverride = e29::FindOrCreateOverrideEntry(*Ctx.m_pPI, ComponentTypeGuidValue, MemberPath);
@@ -244,9 +241,9 @@ namespace e29::commands
 
         if (Ctx.m_RootEntity.m_Value != Entity.m_Value)
         {
-            if (auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid))
+            if (auto* pScene = Ed.World().m_SceneMgr.Find(SceneGuid))
                 if (auto RootIt = pScene->m_RuntimeToLocal.find(Ctx.m_RootEntity.m_Value); RootIt != pScene->m_RuntimeToLocal.end())
-                    e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, RootIt->second);
+                    Ed.World().m_SceneMgr.MarkEntityDirty(SceneGuid, RootIt->second);
         }
     }
 
@@ -254,9 +251,9 @@ namespace e29::commands
     // AddComponent - Redo adds Component to the entity named by Scene/Id; Undo removes it again (see
     // this file's own top comment for why Undo needs no snapshot here).
     //================================================================================================
-    struct add_component_cmd : xundo::command_base
+    struct add_component_cmd : scene_command
     {
-        add_component_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "AddComponent", pDataBase) { RegisterArguments(); }
+        add_component_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "AddComponent", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Adds a component to an entity (undoable - removes it again on Undo). Usage: AddComponent -Scene hexguid -Id hexid -Component hex64";
@@ -280,12 +277,11 @@ namespace e29::commands
             const auto Id        = ParseEntityId(std::get<std::string>(IdArg));
             const auto CompGuid  = std::strtoull(std::get<std::string>(CompArg).c_str(), nullptr, 16);
 
-            if (!e29::g_pGameMgr) return "AddComponent: no game world";
-            auto* pInfo = e29::g_pGameMgr->m_ComponentMgr.findComponentTypeInfo(xecs::component::type::guid{ CompGuid });
+            auto* pInfo = World().m_ComponentMgr.findComponentTypeInfo(xecs::component::type::guid{ CompGuid });
             if (!pInfo) return "AddComponent: unknown component";
 
             std::array<const xecs::component::type::info*, 1> Add{ pInfo };
-            if (!MigrateEntityComponents(SceneGuid, Id, Add, {}).isValid()) return "AddComponent: target not found";
+            if (!MigrateEntityComponents(EditorContext(), SceneGuid, Id, Add, {}).isValid()) return "AddComponent: target not found";
             return {};
         }
 
@@ -310,13 +306,12 @@ namespace e29::commands
             std::uint32_t Id = 0;        File.Read(Id);
             std::uint64_t Component = 0; File.Read(Component);
 
-            if (!e29::g_pGameMgr) return;
-            auto* pInfo = e29::g_pGameMgr->m_ComponentMgr.findComponentTypeInfo(xecs::component::type::guid{ Component });
+            auto* pInfo = World().m_ComponentMgr.findComponentTypeInfo(xecs::component::type::guid{ Component });
             if (!pInfo) return;
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
             std::array<const xecs::component::type::info*, 1> Sub{ pInfo };
-            MigrateEntityComponents(SceneGuid, static_cast<xecs::scene::permanent_id>(Id), {}, Sub);
+            MigrateEntityComponents(EditorContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(Id), {}, Sub);
         }
 
         xcmdline::parser::handle m_hScene, m_hId, m_hComponent;
@@ -326,9 +321,9 @@ namespace e29::commands
     // RemoveComponent - Redo removes Component from the entity named by Scene/Id (after
     // BackupCurrenState snapshots its current values); Undo re-adds it and replays the snapshot.
     //================================================================================================
-    struct remove_component_cmd : xundo::command_base
+    struct remove_component_cmd : scene_command
     {
-        remove_component_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "RemoveComponent", pDataBase) { RegisterArguments(); }
+        remove_component_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "RemoveComponent", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Removes a component from an entity (undoable - restores it with its prior values on Undo). Usage: RemoveComponent -Scene hexguid -Id hexid -Component hex64";
@@ -352,17 +347,16 @@ namespace e29::commands
             const auto Id        = ParseEntityId(std::get<std::string>(IdArg));
             const auto CompGuid  = std::strtoull(std::get<std::string>(CompArg).c_str(), nullptr, 16);
 
-            if (!e29::g_pGameMgr) return "RemoveComponent: no game world";
-            auto* pInfo = e29::g_pGameMgr->m_ComponentMgr.findComponentTypeInfo(xecs::component::type::guid{ CompGuid });
+            auto* pInfo = World().m_ComponentMgr.findComponentTypeInfo(xecs::component::type::guid{ CompGuid });
             if (!pInfo) return "RemoveComponent: unknown component";
 
             std::array<const xecs::component::type::info*, 1> Sub{ pInfo };
-            const auto NewEntity = MigrateEntityComponents(SceneGuid, Id, {}, Sub);
+            const auto NewEntity = MigrateEntityComponents(EditorContext(), SceneGuid, Id, {}, Sub);
             if (!NewEntity.isValid()) return "RemoveComponent: target not found";
 
             // Scrub the now-meaningless override entry (gap #4, documentation/E29_LevelSceneEditor/command_undo_known_gaps.md) -
             // BackupCurrenState already snapshotted it above, before this ran.
-            ScrubComponentOverrideEntry(SceneGuid, NewEntity, CompGuid);
+            ScrubComponentOverrideEntry(EditorContext(), SceneGuid, NewEntity, CompGuid);
             return {};
         }
 
@@ -383,12 +377,12 @@ namespace e29::commands
             // Snapshot the CURRENT (pre-removal) property values - this runs before Redo() actually
             // removes the component (see set_property_cmd's own comment for the confirmed ordering).
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
-            const auto Entity    = ResolveEntityHandle(SceneGuid, static_cast<xecs::scene::permanent_id>(Id));
-            auto* pInfo = e29::g_pGameMgr ? e29::g_pGameMgr->m_ComponentMgr.findComponentTypeInfo(xecs::component::type::guid{ Component }) : nullptr;
+            const auto Entity    = ResolveEntityHandle(EditorContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(Id));
+            auto* pInfo = World().m_ComponentMgr.findComponentTypeInfo(xecs::component::type::guid{ Component });
             if (pInfo && Entity.isValid())
             {
-                SnapshotComponentProperties(File, Entity, *pInfo);
-                SnapshotComponentOverrideEntry(File, Entity, *pInfo);
+                SnapshotComponentProperties(EditorContext(), File, Entity, *pInfo);
+                SnapshotComponentOverrideEntry(EditorContext(), File, Entity, *pInfo);
             }
             else
             {
@@ -405,8 +399,7 @@ namespace e29::commands
             std::uint32_t Id = 0;        File.Read(Id);
             std::uint64_t Component = 0; File.Read(Component);
 
-            if (!e29::g_pGameMgr) return;
-            auto* pInfo = e29::g_pGameMgr->m_ComponentMgr.findComponentTypeInfo(xecs::component::type::guid{ Component });
+            auto* pInfo = World().m_ComponentMgr.findComponentTypeInfo(xecs::component::type::guid{ Component });
             if (!pInfo)
             {
                 // Still have to drain File's own snapshot bytes (zero-length if nothing was written)
@@ -415,17 +408,17 @@ namespace e29::commands
                 // RestoreComponentOverrideEntry drains its own fixed-shape bytes the same way, acting
                 // on nothing since {} is never a valid entity.
                 std::uint32_t Count = 0; File.Read(Count);
-                RestoreComponentOverrideEntry(File, xecs::scene::guid{}, {}, Component);
+                RestoreComponentOverrideEntry(EditorContext(), File, xecs::scene::guid{}, {}, Component);
                 return;
             }
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
             std::array<const xecs::component::type::info*, 1> Add{ pInfo };
-            const auto NewEntity = MigrateEntityComponents(SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Add, {});
+            const auto NewEntity = MigrateEntityComponents(EditorContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Add, {});
 
-            const auto Target = ResolvePropertyTarget(SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Component);
+            const auto Target = ResolvePropertyTarget(EditorContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Component);
             RestoreComponentProperties(File, Target);
-            RestoreComponentOverrideEntry(File, SceneGuid, NewEntity, Component);
+            RestoreComponentOverrideEntry(EditorContext(), File, SceneGuid, NewEntity, Component);
         }
 
         xcmdline::parser::handle m_hScene, m_hId, m_hComponent;

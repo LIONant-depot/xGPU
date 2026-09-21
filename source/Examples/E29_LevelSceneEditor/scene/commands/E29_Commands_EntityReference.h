@@ -33,10 +33,10 @@ namespace e29::commands
     // scene/id (the target was deleted sometime between BackupCurrenState and a later Undo/Redo) also
     // resolves to invalid rather than failing - matches DeleteEntity's own "a single corrupted/missing
     // snapshot must not take the whole subtree down" permissiveness.
-    inline xecs::component::entity ResolveEntityReferenceTarget(xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id) noexcept
+    inline xecs::component::entity ResolveEntityReferenceTarget(e29_command_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id) noexcept
     {
-        if (Id == xecs::scene::invalid_permanent_id_v || !e29::g_pGameMgr) return {};
-        auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+        if (Id == xecs::scene::invalid_permanent_id_v) return {};
+        auto* pScene = Ed.World().m_SceneMgr.Find(SceneGuid);
         if (!pScene) return {};
         auto It = pScene->m_LocalToRuntime.find(Id);
         return It != pScene->m_LocalToRuntime.end() ? It->second : xecs::component::entity{};
@@ -48,12 +48,12 @@ namespace e29::commands
     // owning scene isn't open can't be encoded any more than it can be displayed there; returns
     // {invalid_permanent_id_v} in that case, which SetEntityReference's own Redo/Undo already treat
     // as "no reference" symmetrically.
-    inline std::pair<xecs::scene::guid, xecs::scene::permanent_id> FindEntityOwningScene(xecs::component::entity Entity) noexcept
+    inline std::pair<xecs::scene::guid, xecs::scene::permanent_id> FindEntityOwningScene(e29_command_context& Ed, xecs::component::entity Entity) noexcept
     {
-        if (!Entity.isValid() || !e29::g_pGameMgr || !e29::g_pState) return { xecs::scene::guid{}, xecs::scene::invalid_permanent_id_v };
-        for (auto& SceneGuid : e29::g_pState->m_OpenScenes)
+        if (!Entity.isValid() || !&Ed.m_State) return { xecs::scene::guid{}, xecs::scene::invalid_permanent_id_v };
+        for (auto& SceneGuid : Ed.m_State.m_OpenScenes)
         {
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = Ed.World().m_SceneMgr.Find(SceneGuid);
             if (!pScene) continue;
             if (auto It = pScene->m_RuntimeToLocal.find(Entity.m_Value); It != pScene->m_RuntimeToLocal.end())
                 return { SceneGuid, It->second };
@@ -75,9 +75,9 @@ namespace e29::commands
         xproperty::sprop::setProperty(SetError, Target.m_pInstance, *Target.m_pInfo->m_pPropertyTable, xproperty::sprop::container::prop{ Path, Any }, Context);
     }
 
-    struct set_entity_reference_cmd : xundo::command_base
+    struct set_entity_reference_cmd : scene_command
     {
-        set_entity_reference_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "SetEntityReference", pDataBase) { RegisterArguments(); }
+        set_entity_reference_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "SetEntityReference", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Assigns or clears an entity-reference property (undoable, restores the previous target AND the prefab-override bookkeeping on Undo). Usage: SetEntityReference -Scene hexguid -Id hexid -Component hex64 -Path base64 -AfterScene hexguid -AfterId hexid (AfterId 00000000 = clear)";
@@ -111,14 +111,14 @@ namespace e29::commands
             const auto AfterScene = ParseSceneGuid(std::get<std::string>(AfterSceneArg));
             const auto AfterId    = ParseEntityId(std::get<std::string>(AfterIdArg));
 
-            const auto Target = ResolvePropertyTarget(SceneGuid, Id, CompGuid);
+            const auto Target = ResolvePropertyTarget(EditorContext(), SceneGuid, Id, CompGuid);
             if (!Target.m_pInfo) return "SetEntityReference: target not found";
 
             // A non-zero AfterId that fails to resolve is a real error (e.g. a stale/typo'd id from a
             // CLI/AI caller) - distinct from AfterId == 0, which always means "clear" and always
             // succeeds. Checked explicitly rather than silently clearing, so a bad CLI call fails
             // loudly instead of quietly assigning nothing.
-            const auto AfterEntity = ResolveEntityReferenceTarget(AfterScene, AfterId);
+            const auto AfterEntity = ResolveEntityReferenceTarget(EditorContext(), AfterScene, AfterId);
             if (AfterId != xecs::scene::invalid_permanent_id_v && !AfterEntity.isValid())
                 return "SetEntityReference: after-target not found";
 
@@ -128,7 +128,7 @@ namespace e29::commands
             std::array<char, 256> Buffer{};
             const auto Len = FormatPropertyValue(Buffer, AnyVal);
             const std::string ValueStr(Buffer.data(), Len > 0 ? static_cast<std::size_t>(Len) : 0);
-            RecordPropertyOverride(Target, SceneGuid, Id, Path, ValueStr);
+            RecordPropertyOverride(EditorContext(), Target, SceneGuid, Id, Path, ValueStr);
             return {};
         }
 
@@ -154,9 +154,9 @@ namespace e29::commands
             std::uint64_t BeforeScene = 0;
             std::uint32_t BeforeId    = 0;
             bool          bHadOverride = false;
-            if (const auto Target = ResolvePropertyTarget(SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Component); Target.m_pInfo)
+            if (const auto Target = ResolvePropertyTarget(EditorContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Component); Target.m_pInfo)
             {
-                bHadOverride = HasPropertyOverride(Target.m_Entity, *Target.m_pInfo, Path);
+                bHadOverride = HasPropertyOverride(EditorContext(), Target.m_Entity, *Target.m_pInfo, Path);
 
                 // No single-property "get" API exists in xproperty/sprop (only setProperty) - read the
                 // current value the same way the pre-existing "Revert Override" action's own base-value
@@ -171,7 +171,7 @@ namespace e29::commands
                 });
                 if (CurrentValue.m_pType && CurrentValue.getTypeGuid() == xproperty::settings::var_type<xecs::component::entity>::guid_v)
                 {
-                    const auto [OwningScene, OwningId] = FindEntityOwningScene(CurrentValue.get<xecs::component::entity>());
+                    const auto [OwningScene, OwningId] = FindEntityOwningScene(EditorContext(), CurrentValue.get<xecs::component::entity>());
                     BeforeScene = OwningScene.m_Instance.m_Value;
                     BeforeId    = OwningId;
                 }
@@ -197,11 +197,11 @@ namespace e29::commands
             bool bHadOverride = false;     File.Read(bHadOverride);
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
-            const auto Target = ResolvePropertyTarget(SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Component);
+            const auto Target = ResolvePropertyTarget(EditorContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Component);
             if (!Target.m_pInfo) return;
 
             const auto BeforeSceneGuid = xecs::scene::guid{ .m_Instance = { BeforeScene } };
-            const auto BeforeEntity    = ResolveEntityReferenceTarget(BeforeSceneGuid, static_cast<xecs::scene::permanent_id>(BeforeId));
+            const auto BeforeEntity    = ResolveEntityReferenceTarget(EditorContext(), BeforeSceneGuid, static_cast<xecs::scene::permanent_id>(BeforeId));
             SetLiveEntityReferenceValue(Target, Path, BeforeEntity);
 
             if (bHadOverride)
@@ -210,14 +210,14 @@ namespace e29::commands
                 std::array<char, 256> Buffer{};
                 const auto Len = FormatPropertyValue(Buffer, AnyVal);
                 const std::string ValueStr(Buffer.data(), Len > 0 ? static_cast<std::size_t>(Len) : 0);
-                RecordPropertyOverride(Target, SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Path, ValueStr);
+                RecordPropertyOverride(EditorContext(), Target, SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Path, ValueStr);
             }
             else
             {
                 // This SetEntityReference was the edit that FIRST overrode this property - Undo must
                 // remove the override entirely, same reasoning/precedent as set_property_cmd's own
                 // Undo (RemovePropertyOverride's own comment).
-                RemovePropertyOverride(Target, SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Path);
+                RemovePropertyOverride(EditorContext(), Target, SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Path);
             }
         }
 

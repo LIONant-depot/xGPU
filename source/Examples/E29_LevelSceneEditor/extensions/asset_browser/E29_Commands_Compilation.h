@@ -17,9 +17,9 @@ namespace e29::commands
     // RecompileAll - force every resource, in every open library, back into the compilation queue.
     // Thin wrap of library_mgr::RecompileAllResources() (E10_AssetMgr.h).
     //================================================================================================
-    struct recompile_all_query_cmd : xundo::query_command_base
+    struct recompile_all_query_cmd : scene_query_command
     {
-        recompile_all_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "RecompileAll", pDataBase) { RegisterArguments(); }
+        recompile_all_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "RecompileAll", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Force-requeues every resource in every open library for recompilation. Usage: RecompileAll"; }
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
@@ -33,9 +33,9 @@ namespace e29::commands
     // RecompileErrors - requeue exactly the resources currently known to have failed their last
     // compile (compilation::instance::m_Failed). Thin wrap of RecompileFailedResources().
     //================================================================================================
-    struct recompile_errors_query_cmd : xundo::query_command_base
+    struct recompile_errors_query_cmd : scene_query_command
     {
-        recompile_errors_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "RecompileErrors", pDataBase) { RegisterArguments(); }
+        recompile_errors_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "RecompileErrors", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Requeues every resource that failed its last compile. Usage: RecompileErrors"; }
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
@@ -50,9 +50,9 @@ namespace e29::commands
     // off. StartCompilation() is itself a safe no-op if a compile is already running (compare_exchange
     // guard) - see its own comment in E10_AssetMgr.h.
     //================================================================================================
-    struct compile_start_query_cmd : xundo::query_command_base
+    struct compile_start_query_cmd : scene_query_command
     {
-        compile_start_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "CompileStart", pDataBase) { RegisterArguments(); }
+        compile_start_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "CompileStart", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Manually kicks the compilation queue (safe no-op if already running). Usage: CompileStart"; }
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
@@ -68,9 +68,9 @@ namespace e29::commands
     // StartCompilation() itself, or the queue just sits there - flipping the flag alone was never
     // enough (see PauseCompilation's own call site in E10_asset_browser_compiler_tab.h).
     //================================================================================================
-    struct compile_pause_query_cmd : xundo::query_command_base
+    struct compile_pause_query_cmd : scene_query_command
     {
-        compile_pause_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "CompilePause", pDataBase) { RegisterArguments(); }
+        compile_pause_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "CompilePause", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Pauses or resumes the compilation queue. Usage: CompilePause -State true|false"; }
         void RegisterArguments() noexcept override
         {
@@ -95,9 +95,9 @@ namespace e29::commands
     // CompileAuto - -State true/false, mirrors the Auto-Compile toggle button. Re-enabling calls
     // StartCompilation() itself, matching that button's own click handler.
     //================================================================================================
-    struct compile_auto_query_cmd : xundo::query_command_base
+    struct compile_auto_query_cmd : scene_query_command
     {
-        compile_auto_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "CompileAuto", pDataBase) { RegisterArguments(); }
+        compile_auto_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "CompileAuto", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Turns automatic compilation on or off. Usage: CompileAuto -State true|false"; }
         void RegisterArguments() noexcept override
         {
@@ -124,9 +124,9 @@ namespace e29::commands
     // AI can poll "is it actually stuck, or just slow" without ever opening the Compilation window.
     // Directly answers the exact question this command file's own history was built to answer live.
     //================================================================================================
-    struct compile_status_query_cmd : xundo::query_command_base
+    struct compile_status_query_cmd : scene_query_command
     {
-        compile_status_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "CompileStatus", pDataBase) { RegisterArguments(); }
+        compile_status_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "CompileStatus", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Reports compilation queue depth, in-flight count, and every pause/auto/running flag. Usage: CompileStatus"; }
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override

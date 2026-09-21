@@ -45,9 +45,24 @@ namespace e29::commands
 
     struct e29_command_context
     {
-        editor_state&             m_State;
-        std::vector<chat_message> m_ChatLog;
+        editor_state&                              m_State;
+        std::unique_ptr<xecs::game_mgr::instance>& m_pWorld;    // this editor's world; recreated on a Game.dll reload, so held by its owner
+        std::vector<chat_message>                  m_ChatLog;
+
+        xecs::game_mgr::instance& World() noexcept { return *m_pWorld; }
     };
+
+    // Every scene command reaches its editor's world and state through its command context: World() and State().
+    template<typename T_BASE>
+    struct scene_command_mixin : T_BASE
+    {
+        using T_BASE::T_BASE;
+        xecs::game_mgr::instance& World() noexcept { return this->template get<e29_command_context>().World(); }
+        editor_state&             State() noexcept { return this->template get<e29_command_context>().m_State; }
+        e29_command_context&      EditorContext() noexcept { return this->template get<e29_command_context>(); }
+    };
+    using scene_command       = scene_command_mixin<xundo::command_base>;
+    using scene_query_command = scene_command_mixin<xundo::query_command_base>;
 
     // Shared by select_cmd/toggle_multi_select_cmd/clear_selection_cmd - all three snapshot/restore
     // the exact same fields. m_SelectedEntity (the live runtime handle) is deliberately NOT part of
@@ -77,9 +92,9 @@ namespace e29::commands
         File.Read(S.m_SelectedEntityScene);
 
         S.m_SelectedEntity = {};
-        if (S.m_SelectedEntityId != xecs::scene::invalid_permanent_id_v && e29::g_pGameMgr)
+        if (S.m_SelectedEntityId != xecs::scene::invalid_permanent_id_v)
         {
-            if (auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(S.m_SelectedEntityScene))
+            if (auto* pScene = Ctx.World().m_SceneMgr.Find(S.m_SelectedEntityScene))
             {
                 if (auto It = pScene->m_LocalToRuntime.find(S.m_SelectedEntityId); It != pScene->m_LocalToRuntime.end())
                     S.m_SelectedEntity = It->second;

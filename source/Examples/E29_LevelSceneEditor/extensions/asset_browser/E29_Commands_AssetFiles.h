@@ -49,9 +49,9 @@ namespace e29::commands
     // E29_Commands_AssetBrowser.h. Undo is the exact inverse MoveAssetFile call, old/new swapped - it
     // re-cascades back through every dependent's Descriptor.txt exactly like Redo did forward.
     //================================================================================================
-    struct rename_asset_file_cmd : xundo::command_base
+    struct rename_asset_file_cmd : scene_command
     {
-        rename_asset_file_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "RenameAssetFile", pDataBase) { RegisterArguments(); }
+        rename_asset_file_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "RenameAssetFile", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Renames a real file in the Assets folder, cascading the change into every dependent resource's Descriptor.txt (undoable). Fails with a count if other resources depend on it, unless -Force 1 is passed. Usage: RenameAssetFile -Library hexguid -OldPath base64 -NewPath base64 [-Force 1]"; }
         void RegisterArguments() noexcept override
         {
@@ -112,9 +112,9 @@ namespace e29::commands
         xcmdline::parser::handle m_hLibrary, m_hOldPath, m_hNewPath, m_hForce;
     };
 
-    struct move_asset_file_cmd : xundo::command_base
+    struct move_asset_file_cmd : scene_command
     {
-        move_asset_file_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "MoveAssetFile", pDataBase) { RegisterArguments(); }
+        move_asset_file_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "MoveAssetFile", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Moves a real file in the Assets folder to a different folder, cascading the change into every dependent resource's Descriptor.txt (undoable). Fails with a count if other resources depend on it, unless -Force 1 is passed. Usage: MoveAssetFile -Library hexguid -OldPath base64 -NewPath base64 [-Force 1]"; }
         void RegisterArguments() noexcept override
         {
@@ -180,9 +180,9 @@ namespace e29::commands
     // is REQUIRED (see this file's own top comment for why it can't be computed inside Redo() itself) -
     // call e10::g_LibMgr.ComputeTrashPath(Library, Path) first to get it.
     //================================================================================================
-    struct delete_asset_file_cmd : xundo::command_base
+    struct delete_asset_file_cmd : scene_command
     {
-        delete_asset_file_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "DeleteAssetFileToTrash", pDataBase) { RegisterArguments(); }
+        delete_asset_file_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "DeleteAssetFileToTrash", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Moves a real Assets file to the trash (undoable - restores it). -TrashPath must be pre-computed via ComputeTrashPath. Fails with a count if other resources depend on it, unless -Force 1 is passed. Usage: DeleteAssetFileToTrash -Library hexguid -Path base64 -TrashPath base64 [-Force 1]"; }
         void RegisterArguments() noexcept override
         {
@@ -248,9 +248,9 @@ namespace e29::commands
     // MoveAssetFile's own existing "target already exists" check already covers this, nothing extra
     // needed here.
     //================================================================================================
-    struct restore_asset_file_cmd : xundo::command_base
+    struct restore_asset_file_cmd : scene_command
     {
-        restore_asset_file_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "RestoreAssetFileFromTrash", pDataBase) { RegisterArguments(); }
+        restore_asset_file_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "RestoreAssetFileFromTrash", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Restores a trashed Assets file back to its original (or a chosen) path (undoable). Usage: RestoreAssetFileFromTrash -Library hexguid -TrashPath base64 -OriginalPath base64"; }
         void RegisterArguments() noexcept override
         {
@@ -311,9 +311,9 @@ namespace e29::commands
     // behind by an undone copy. A fresh copy has zero dependents by construction (nothing could
     // reference a path that didn't exist a moment ago), so there's no cascade to worry about either way.
     //================================================================================================
-    struct copy_asset_file_cmd : xundo::command_base
+    struct copy_asset_file_cmd : scene_command
     {
-        copy_asset_file_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "CopyAssetFile", pDataBase) { RegisterArguments(); }
+        copy_asset_file_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "CopyAssetFile", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Copies a real Assets file to a new path (undoable - Undo trashes the copy, it does not permanently delete it). Usage: CopyAssetFile -Library hexguid -SourcePath base64 -NewPath base64"; }
         void RegisterArguments() noexcept override
         {

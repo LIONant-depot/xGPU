@@ -180,9 +180,9 @@ namespace e29::commands
     // (MoveToTrash/MoveFromTrashTo is the only reversal primitive this asset system has; the created
     // info.txt is not deleted from disk, only trashed).
     //================================================================================================
-    struct make_prefab_cmd : xundo::command_base
+    struct make_prefab_cmd : scene_command
     {
-        make_prefab_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "MakePrefab", pDataBase) { RegisterArguments(); }
+        make_prefab_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "MakePrefab", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Converts an entity (and its whole subtree) into a Prefab instance, creating the Prefab asset (undoable - restores the original group and trashes the created asset on Undo). Usage: MakePrefab -Scene hexguid -Id hexid -Library hexguid -Asset assetguid -Parent assetguid";
@@ -212,12 +212,11 @@ namespace e29::commands
             const auto AssetGuid   = ParseAssetGuid(std::get<std::string>(AssetArg));
             const auto ParentGuid  = ParseAssetGuid(std::get<std::string>(ParentArg));
 
-            if (!e29::g_pGameMgr) return "MakePrefab: no game world";
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene || !pScene->m_LocalToRuntime.contains(Id)) return "MakePrefab: target not found";
 
             const auto Root = pScene->m_LocalToRuntime.at(Id);
-            const auto Result = CreatePrefabFromGroupRootWithAssetGuid(*e29::g_pGameMgr, *pScene, SceneGuid, e29::g_pState, e10::g_LibMgr, LibraryGuid, ParentGuid, Root, AssetGuid);
+            const auto Result = CreatePrefabFromGroupRootWithAssetGuid(World(), *pScene, SceneGuid, &State(), e10::g_LibMgr, LibraryGuid, ParentGuid, Root, AssetGuid);
             if (Result.empty()) return "MakePrefab: failed";
             return {};
         }
@@ -240,7 +239,7 @@ namespace e29::commands
 
             // BEFORE Redo runs anything - captures the ORIGINAL, pre-conversion group exactly, same
             // machinery delete_entity_cmd's own Undo relies on (E29_Commands_EntityLifecycle.h).
-            SnapshotSubtreeForRestore(File, xecs::scene::guid{ .m_Instance = { Scene } }, static_cast<xecs::scene::permanent_id>(Id));
+            SnapshotSubtreeForRestore(EditorContext(), File, xecs::scene::guid{ .m_Instance = { Scene } }, static_cast<xecs::scene::permanent_id>(Id));
         }
 
         void Undo(xundo::undo_file& File) noexcept override
@@ -255,8 +254,8 @@ namespace e29::commands
 
             // Remove whatever instance is currently registered under RootId (the fresh copy Redo
             // created), then restore the original group from the snapshot taken before Redo ever ran.
-            DeleteSubtreeByPermanentId(SceneGuid, RootId);
-            RestoreSubtreeFromSnapshot(File, SceneGuid, RootId);
+            DeleteSubtreeByPermanentId(EditorContext(), SceneGuid, RootId);
+            RestoreSubtreeFromSnapshot(EditorContext(), File, SceneGuid, RootId);
 
             // Same documented asymmetry as CreateAsset's own Undo - trash, don't attempt to make the
             // on-disk info.txt vanish (MoveToTrash/MoveFromTrashTo is the only reversal primitive this
@@ -278,9 +277,9 @@ namespace e29::commands
     // variant looks like). Undo restores the old m_PrefabInstance/m_lComponents/m_ComponentDiffs and
     // trashes the created asset.
     //================================================================================================
-    struct make_prefab_variant_cmd : xundo::command_base
+    struct make_prefab_variant_cmd : scene_command
     {
-        make_prefab_variant_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "MakePrefabVariant", pDataBase) { RegisterArguments(); }
+        make_prefab_variant_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "MakePrefabVariant", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Captures a prefab instance's current overrides into a new Prefab Variant asset, in place (undoable). Usage: MakePrefabVariant -Scene hexguid -Id hexid -Library hexguid -Asset assetguid -Parent assetguid";
@@ -310,12 +309,11 @@ namespace e29::commands
             const auto AssetGuid   = ParseAssetGuid(std::get<std::string>(AssetArg));
             const auto ParentGuid  = ParseAssetGuid(std::get<std::string>(ParentArg));
 
-            if (!e29::g_pGameMgr) return "MakePrefabVariant: no game world";
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene || !pScene->m_LocalToRuntime.contains(Id)) return "MakePrefabVariant: target not found";
             auto Entity = pScene->m_LocalToRuntime.at(Id);
 
-            auto& Details = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(Entity);
+            auto& Details = World().m_ComponentMgr.getEntityDetails(Entity);
             const auto iType = Details.m_pPool ? Details.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) : -1;
             if (iType < 0) return "MakePrefabVariant: entity is not a prefab instance";
 
@@ -326,15 +324,15 @@ namespace e29::commands
             CreateOrRestoreAsset(LibraryGuid, AssetGuid, ParentGuid, Name);
             const xecs::prefab::guid PrefabGuid = AssetGuid;
 
-            e29::g_pGameMgr->m_PrefabMgr.CreatePrefabFromEntity(Entity, PrefabGuid);
-            if (auto Err = e29::g_pGameMgr->m_PrefabMgr.Save(PrefabGuid); Err)
+            World().m_PrefabMgr.CreatePrefabFromEntity(Entity, PrefabGuid);
+            if (auto Err = World().m_PrefabMgr.Save(PrefabGuid); Err)
                 return std::format("MakePrefabVariant: {}", Err.getMessage());
 
             auto& PI = Details.m_pPool->getComponent<xecs::editor::prefab_instance>(Details.m_PoolIndex);
             PI.m_PrefabInstance = PrefabGuid;
             PI.m_lComponents.clear();
             PI.m_ComponentDiffs.clear();
-            e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, Id);
+            World().m_SceneMgr.MarkEntityDirty(SceneGuid, Id);
             return {};
         }
 
@@ -358,10 +356,10 @@ namespace e29::commands
             xecs::editor::prefab_instance* pOldPI = nullptr;
             if (e29::g_pGameMgr)
             {
-                if (auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid); pScene && pScene->m_LocalToRuntime.contains(static_cast<xecs::scene::permanent_id>(Id)))
+                if (auto* pScene = World().m_SceneMgr.Find(SceneGuid); pScene && pScene->m_LocalToRuntime.contains(static_cast<xecs::scene::permanent_id>(Id)))
                 {
                     auto Entity = pScene->m_LocalToRuntime.at(static_cast<xecs::scene::permanent_id>(Id));
-                    auto& Details = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(Entity);
+                    auto& Details = World().m_ComponentMgr.getEntityDetails(Entity);
                     const auto iType = Details.m_pPool ? Details.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) : -1;
                     if (iType >= 0) pOldPI = &Details.m_pPool->getComponent<xecs::editor::prefab_instance>(Details.m_PoolIndex);
                 }
@@ -464,11 +462,11 @@ namespace e29::commands
             // Trash the created asset first (same asymmetric-Undo shape as CreateAsset/MakePrefab).
             TrashCreatedPrefabAsset(LibraryGuid, ParseAssetGuid(Asset));
 
-            if (!bHadPI || !e29::g_pGameMgr) return;
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            if (!bHadPI) return;
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene || !pScene->m_LocalToRuntime.contains(static_cast<xecs::scene::permanent_id>(Id))) return;
             auto Entity = pScene->m_LocalToRuntime.at(static_cast<xecs::scene::permanent_id>(Id));
-            auto& Details = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(Entity);
+            auto& Details = World().m_ComponentMgr.getEntityDetails(Entity);
             const auto iType = Details.m_pPool ? Details.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) : -1;
             if (iType < 0) return;
 
@@ -477,7 +475,7 @@ namespace e29::commands
             PI.m_lComponents    = std::move(OldComponents);
             PI.m_ComponentDiffs = std::move(OldDiffs);
             PI.m_HierarchyDiffs = std::move(OldHierarchy);
-            e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, static_cast<xecs::scene::permanent_id>(Id));
+            World().m_SceneMgr.MarkEntityDirty(SceneGuid, static_cast<xecs::scene::permanent_id>(Id));
         }
 
         xcmdline::parser::handle m_hScene, m_hId, m_hLibrary, m_hAsset, m_hParent;

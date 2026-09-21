@@ -131,9 +131,9 @@ namespace e29::commands
     // semantics - bExplicitRequest=false).
     // Usage: AddLibraryDependency -Library hexguid -Parent hexguid [-ParentPath base64]
     //================================================================================================
-    struct add_library_dependency_cmd : xundo::command_base
+    struct add_library_dependency_cmd : scene_command
     {
-        add_library_dependency_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "AddLibraryDependency", pDataBase) { RegisterArguments(); }
+        add_library_dependency_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "AddLibraryDependency", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Adds an explicit library dependency (ParentLibraries), persists it, and loads the dependency into this session if needed. Refuses cycles. Usage: AddLibraryDependency -Library hexguid -Parent hexguid [-ParentPath base64] (ParentPath required only the first time a not-yet-loaded library is referenced)";
@@ -261,9 +261,9 @@ namespace e29::commands
     // become unreachable - see this file's own top comment on removal-safety.
     // Usage: RemoveLibraryDependency -Library hexguid -Parent hexguid
     //================================================================================================
-    struct remove_library_dependency_cmd : xundo::command_base
+    struct remove_library_dependency_cmd : scene_command
     {
-        remove_library_dependency_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "RemoveLibraryDependency", pDataBase) { RegisterArguments(); }
+        remove_library_dependency_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "RemoveLibraryDependency", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Removes an explicit library dependency. Refuses if any of the owning library's own resources still reference something that would become unreachable. Usage: RemoveLibraryDependency -Library hexguid -Parent hexguid";
@@ -374,9 +374,9 @@ namespace e29::commands
     // anything. Not undo-tracked (query_command_base) - see this file's own top comment for why.
     // Usage: CreateLibrary -Path base64
     //================================================================================================
-    struct create_library_query_cmd : xundo::query_command_base
+    struct create_library_query_cmd : scene_query_command
     {
-        create_library_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "CreateLibrary", pDataBase) { RegisterArguments(); }
+        create_library_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "CreateLibrary", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Creates a brand-new, standalone library on disk and loads it into this session, independent of any other library. Not undoable. Usage: CreateLibrary -Path base64";
@@ -428,9 +428,9 @@ namespace e29::commands
     // discovery command in this system was built for).
     // Usage: ListLegalReferenceLibraries -Library hexguid
     //================================================================================================
-    struct list_legal_reference_libraries_query_cmd : xundo::query_command_base
+    struct list_legal_reference_libraries_query_cmd : scene_query_command
     {
-        list_legal_reference_libraries_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "ListLegalReferenceLibraries", pDataBase) { RegisterArguments(); }
+        list_legal_reference_libraries_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "ListLegalReferenceLibraries", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Lists every library a resource owned by -Library may legally reference a resource from (itself + its own transitive dependency chain). Usage: ListLegalReferenceLibraries -Library hexguid";

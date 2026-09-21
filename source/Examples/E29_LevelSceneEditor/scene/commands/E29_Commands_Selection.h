@@ -28,9 +28,9 @@ namespace e29::commands
     // panel) AND resets the multi-select set to just this one entity, matching every existing plain-
     // click call site (see RenderLevelTreePanel's own click handler, which this replaces).
     //================================================================================================
-    struct select_cmd : xundo::command_base
+    struct select_cmd : scene_command
     {
-        select_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "Select", pDataBase) { RegisterArguments(); }
+        select_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "Select", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Sets the primary selection and resets multi-select to just this entity (a plain click). Usage: Select -Scene hexguid -Id hexid";
@@ -51,8 +51,7 @@ namespace e29::commands
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
             const auto Id         = ParseEntityId(std::get<std::string>(IdArg));
 
-            if (!e29::g_pGameMgr) return "Select: no live GameMgr";
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene) return "Select: scene not open";
             auto It = pScene->m_LocalToRuntime.find(Id);
             if (It == pScene->m_LocalToRuntime.end()) return "Select: entity not found in scene";
@@ -80,9 +79,9 @@ namespace e29::commands
     // site exactly (a plain click elsewhere already clears multi-select via Select above, so this
     // command has no separate "clear" concern of its own to worry about).
     //================================================================================================
-    struct toggle_multi_select_cmd : xundo::command_base
+    struct toggle_multi_select_cmd : scene_command
     {
-        toggle_multi_select_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "ToggleMultiSelect", pDataBase) { RegisterArguments(); }
+        toggle_multi_select_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "ToggleMultiSelect", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Adds/removes one entity from the multi-select set without touching the primary selection (a ctrl-click). Usage: ToggleMultiSelect -Scene hexguid -Id hexid";
@@ -139,9 +138,9 @@ namespace e29::commands
     // as exactly what it did, rather than a reader having to infer "Select with no matching entity"
     // meant deselect.
     //================================================================================================
-    struct clear_selection_cmd : xundo::command_base
+    struct clear_selection_cmd : scene_command
     {
-        clear_selection_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "ClearSelection", pDataBase) { RegisterArguments(); }
+        clear_selection_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "ClearSelection", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Deselects everything (primary selection and multi-select). Usage: ClearSelection"; }
         void RegisterArguments() noexcept override {} // takes no arguments at all
 

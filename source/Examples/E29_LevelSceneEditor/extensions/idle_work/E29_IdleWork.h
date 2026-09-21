@@ -387,9 +387,9 @@ namespace e29::commands
     // without waiting out idle_threshold_seconds_v) and for an AI/script that wants to ask for one on
     // demand rather than wait. Query, not Edit - purely diagnostic, never mutates scene content.
     //================================================================================================
-    struct run_sanity_check_query_cmd : xundo::query_command_base
+    struct run_sanity_check_query_cmd : scene_query_command
     {
-        run_sanity_check_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "RunSanityCheck", pDataBase) { RegisterArguments(); }
+        run_sanity_check_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "RunSanityCheck", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Manually runs the scene orphan/dangling sanity scan (normally idle-triggered) on every open scene, right now. Usage: RunSanityCheck"; }
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
@@ -400,7 +400,7 @@ namespace e29::commands
 
             e29::IdleWorkCancelRequested().store(false, std::memory_order_relaxed);
             for (auto& SceneGuid : State.m_OpenScenes)
-                e29::LaunchSceneSanityScan(*e29::g_pGameMgr, SceneGuid);
+                e29::LaunchSceneSanityScan(World(), SceneGuid);
             return std::format("RunSanityCheck: scanning {} scene(s) in the background - check the log shortly", State.m_OpenScenes.size());
         }
     };

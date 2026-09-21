@@ -217,9 +217,9 @@ namespace e29::commands
     }
 
     //================================================================================================
-    struct apply_overrides_cmd : xundo::command_base
+    struct apply_overrides_cmd : scene_command
     {
-        apply_overrides_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "ApplyOverrides", pDataBase) { RegisterArguments(); }
+        apply_overrides_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "ApplyOverrides", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Applies every override on a prefab instance up into the Prefab asset (undoable - restores Prefab property values and the instance override list). Usage: ApplyOverrides -Scene hexguid -Id hexid";
@@ -239,17 +239,16 @@ namespace e29::commands
 
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
             const auto Id        = ParseEntityId(std::get<std::string>(IdArg));
-            if (!e29::g_pGameMgr) return "ApplyOverrides: no game world";
 
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene || !pScene->m_LocalToRuntime.contains(Id)) return "ApplyOverrides: target not found";
 
             const auto RootEntity = pScene->m_LocalToRuntime.at(Id);
-            if (auto Err = xecs::persist::details::ApplyInstanceOverridesToPrefab(*e29::g_pGameMgr, RootEntity); Err)
+            if (auto Err = xecs::persist::details::ApplyInstanceOverridesToPrefab(World(), RootEntity); Err)
                 return std::format("ApplyOverrides: {}", Err.getMessage());
 
-            e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, Id);
-            if (e29::g_pState) e29::g_pState->m_bEntityInspectorDirty = true;
+            World().m_SceneMgr.MarkEntityDirty(SceneGuid, Id);
+            State().m_bEntityInspectorDirty = true;
             return {};
         }
 
@@ -271,7 +270,7 @@ namespace e29::commands
             }
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene || !pScene->m_LocalToRuntime.contains(static_cast<xecs::scene::permanent_id>(Id)))
             {
                 File.Write(std::uint32_t{ 0 });
@@ -281,7 +280,7 @@ namespace e29::commands
             }
 
             const auto RootEntity = pScene->m_LocalToRuntime.at(static_cast<xecs::scene::permanent_id>(Id));
-            auto& Details = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(RootEntity);
+            auto& Details = World().m_ComponentMgr.getEntityDetails(RootEntity);
             const auto iPI = Details.m_pPool ? Details.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) : -1;
             if (iPI < 0)
             {
@@ -293,21 +292,20 @@ namespace e29::commands
 
             auto& PI = *reinterpret_cast<xecs::editor::prefab_instance*>(&Details.m_pPool->m_pComponent[iPI][Details.m_PoolIndex.m_Value * xecs::component::type::info_v<xecs::editor::prefab_instance>.m_Size]);
             SnapshotAllOverrideBookkeeping(File, PI);
-            SnapshotPrefabBeforeValues(File, *e29::g_pGameMgr, RootEntity, PI);
+            SnapshotPrefabBeforeValues(File, World(), RootEntity, PI);
         }
 
         void Undo(xundo::undo_file& File) noexcept override
         {
             std::uint64_t Scene = 0; File.Read(Scene);
             std::uint32_t Id = 0;    File.Read(Id);
-            if (!e29::g_pGameMgr) return;
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene || !pScene->m_LocalToRuntime.contains(static_cast<xecs::scene::permanent_id>(Id))) return;
 
             const auto RootEntity = pScene->m_LocalToRuntime.at(static_cast<xecs::scene::permanent_id>(Id));
-            auto& Details = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(RootEntity);
+            auto& Details = World().m_ComponentMgr.getEntityDetails(RootEntity);
             const auto iPI = Details.m_pPool ? Details.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) : -1;
             if (iPI < 0) return;
 
@@ -320,15 +318,15 @@ namespace e29::commands
             xecs::editor::prefab_instance TempPI;
             TempPI.m_PrefabInstance = PI.m_PrefabInstance;
             RestoreAllOverrideBookkeeping(File, TempPI);
-            RestorePrefabBeforeValues(File, *e29::g_pGameMgr, PI);
+            RestorePrefabBeforeValues(File, World(), PI);
 
             PI.m_lComponents    = std::move(TempPI.m_lComponents);
             PI.m_HierarchyDiffs = std::move(TempPI.m_HierarchyDiffs);
-            if (auto Err = e29::g_pGameMgr->m_PrefabMgr.Save(PI.m_PrefabInstance); Err)
+            if (auto Err = World().m_PrefabMgr.Save(PI.m_PrefabInstance); Err)
                 xeditor::NotifyError(std::format("ApplyOverrides Undo: Prefab Save failed: {}", Err.getMessage()));
 
-            e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, static_cast<xecs::scene::permanent_id>(Id));
-            if (e29::g_pState) e29::g_pState->m_bEntityInspectorDirty = true;
+            World().m_SceneMgr.MarkEntityDirty(SceneGuid, static_cast<xecs::scene::permanent_id>(Id));
+            State().m_bEntityInspectorDirty = true;
         }
 
         xcmdline::parser::handle m_hScene, m_hId;
@@ -341,10 +339,10 @@ namespace e29::commands
     // Undo restores HierarchyDiffs bookkeeping and reverses those structural edits via the shared
     // subtree snapshot helpers.
     //------------------------------------------------------------------------------------------------
-    struct revert_hierarchy_overrides_cmd : xundo::command_base
+    struct revert_hierarchy_overrides_cmd : scene_command
     {
         revert_hierarchy_overrides_cmd(xundo::system& System, void* pDataBase) noexcept
-            : command_base(System, "RevertHierarchyOverrides", pDataBase) { RegisterArguments(); }
+            : scene_command(System, "RevertHierarchyOverrides", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Reverts hierarchy overrides on a prefab instance (deletes Added children; restores Removed children from the Prefab). Usage: RevertHierarchyOverrides -Scene hexguid -Id hexid";
@@ -458,20 +456,19 @@ namespace e29::commands
                 return "RevertHierarchyOverrides: bad arguments";
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
             const auto Id        = ParseEntityId(std::get<std::string>(IdArg));
-            if (!e29::g_pGameMgr) return "RevertHierarchyOverrides: no game world";
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene || !pScene->m_LocalToRuntime.contains(Id))
                 return "RevertHierarchyOverrides: target not found";
 
             const auto RootEntity = pScene->m_LocalToRuntime.at(Id);
-            auto* pPI = e29::FindPrefabInstance(*e29::g_pGameMgr, RootEntity);
+            auto* pPI = e29::FindPrefabInstance(World(), RootEntity);
             if (!pPI) return "RevertHierarchyOverrides: not a prefab instance";
             if (pPI->m_HierarchyDiffs.empty()) return {};
 
-            if (auto Err = e29::g_pGameMgr->m_PrefabMgr.EnsureLoaded(pPI->m_PrefabInstance); Err)
+            if (auto Err = World().m_PrefabMgr.EnsureLoaded(pPI->m_PrefabInstance); Err)
                 return std::format("RevertHierarchyOverrides: {}", Err.getMessage());
-            auto RootIt = e29::g_pGameMgr->m_PrefabMgr.m_PrefabList.find(pPI->m_PrefabInstance.m_Instance.m_Value);
-            if (RootIt == e29::g_pGameMgr->m_PrefabMgr.m_PrefabList.end())
+            auto RootIt = World().m_PrefabMgr.m_PrefabList.find(pPI->m_PrefabInstance.m_Instance.m_Value);
+            if (RootIt == World().m_PrefabMgr.m_PrefabList.end())
                 return "RevertHierarchyOverrides: prefab root missing";
 
             auto Diffs = pPI->m_HierarchyDiffs;
@@ -485,10 +482,10 @@ namespace e29::commands
             });
             for (auto& Path : Added)
             {
-                const auto Target = xecs::persist::details::ResolveMemberPath(*e29::g_pGameMgr, RootEntity, Path);
+                const auto Target = xecs::persist::details::ResolveMemberPath(World(), RootEntity, Path);
                 if (!Target.isValid()) continue;
                 if (auto It = pScene->m_RuntimeToLocal.find(Target.m_Value); It != pScene->m_RuntimeToLocal.end())
-                    e29::DeleteEntitySubtree(*e29::g_pGameMgr, *pScene, SceneGuid, Target, /*bRecordPrefabOverride*/ true);
+                    e29::DeleteEntitySubtree(World(), *pScene, SceneGuid, Target, /*bRecordPrefabOverride*/ true);
             }
 
             // Removed: restore shallowest-first
@@ -500,22 +497,22 @@ namespace e29::commands
             });
             for (auto& Path : Removed)
             {
-                const auto PrefabSrc = xecs::persist::details::ResolveMemberPath(*e29::g_pGameMgr, RootIt->second, Path);
+                const auto PrefabSrc = xecs::persist::details::ResolveMemberPath(World(), RootIt->second, Path);
                 if (!PrefabSrc.isValid()) continue;
                 const auto InsertIndex = Path.back();
                 std::vector<std::uint32_t> ParentPath(Path.begin(), Path.end() - 1);
                 const auto InstParent = ParentPath.empty()
                     ? RootEntity
-                    : xecs::persist::details::ResolveMemberPath(*e29::g_pGameMgr, RootEntity, ParentPath);
+                    : xecs::persist::details::ResolveMemberPath(World(), RootEntity, ParentPath);
                 if (!InstParent.isValid()) continue;
-                ClonePrefabEntityIntoScene(*e29::g_pGameMgr, *pScene, SceneGuid, PrefabSrc, InstParent, InsertIndex);
+                ClonePrefabEntityIntoScene(World(), *pScene, SceneGuid, PrefabSrc, InstParent, InsertIndex);
             }
 
             // Cancel any leftover hierarchy diffs that matched (delete-added already cleared Added;
             // strip Remaining Removed entries we restored).
             pPI->m_HierarchyDiffs.clear();
-            e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, Id);
-            if (e29::g_pState) e29::g_pState->m_bEntityInspectorDirty = true;
+            World().m_SceneMgr.MarkEntityDirty(SceneGuid, Id);
+            State().m_bEntityInspectorDirty = true;
             return {};
         }
 
@@ -535,7 +532,7 @@ namespace e29::commands
                 return;
             }
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene || !pScene->m_LocalToRuntime.contains(static_cast<xecs::scene::permanent_id>(Id)))
             {
                 File.Write(std::uint32_t{ 0 });
@@ -543,7 +540,7 @@ namespace e29::commands
                 return;
             }
             const auto RootEntity = pScene->m_LocalToRuntime.at(static_cast<xecs::scene::permanent_id>(Id));
-            auto* pPI = e29::FindPrefabInstance(*e29::g_pGameMgr, RootEntity);
+            auto* pPI = e29::FindPrefabInstance(World(), RootEntity);
             if (!pPI)
             {
                 File.Write(std::uint32_t{ 0 });
@@ -557,7 +554,7 @@ namespace e29::commands
             for (auto& D : pPI->m_HierarchyDiffs)
             {
                 if (!D.m_bAdded || D.m_MemberPath.empty()) continue;
-                const auto Target = xecs::persist::details::ResolveMemberPath(*e29::g_pGameMgr, RootEntity, D.m_MemberPath);
+                const auto Target = xecs::persist::details::ResolveMemberPath(World(), RootEntity, D.m_MemberPath);
                 if (!Target.isValid()) continue;
                 if (auto It = pScene->m_RuntimeToLocal.find(Target.m_Value); It != pScene->m_RuntimeToLocal.end())
                     AddedIds.push_back(It->second);
@@ -566,7 +563,7 @@ namespace e29::commands
             for (auto Aid : AddedIds)
             {
                 File.Write(static_cast<std::uint32_t>(Aid));
-                SnapshotSubtreeForRestore(File, SceneGuid, Aid);
+                SnapshotSubtreeForRestore(EditorContext(), File, SceneGuid, Aid);
             }
         }
 
@@ -574,12 +571,11 @@ namespace e29::commands
         {
             std::uint64_t Scene = 0; File.Read(Scene);
             std::uint32_t Id = 0;    File.Read(Id);
-            if (!e29::g_pGameMgr) return;
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene || !pScene->m_LocalToRuntime.contains(static_cast<xecs::scene::permanent_id>(Id))) return;
             const auto RootEntity = pScene->m_LocalToRuntime.at(static_cast<xecs::scene::permanent_id>(Id));
-            auto* pPI = e29::FindPrefabInstance(*e29::g_pGameMgr, RootEntity);
+            auto* pPI = e29::FindPrefabInstance(World(), RootEntity);
             if (!pPI) return;
 
             xecs::editor::prefab_instance TempPI;
@@ -590,7 +586,7 @@ namespace e29::commands
             for (std::uint32_t i = 0; i < AddedCount; ++i)
             {
                 std::uint32_t Aid = 0; File.Read(Aid);
-                RestoreSubtreeFromSnapshot(File, SceneGuid, static_cast<xecs::scene::permanent_id>(Aid));
+                RestoreSubtreeFromSnapshot(EditorContext(), File, SceneGuid, static_cast<xecs::scene::permanent_id>(Aid));
             }
 
             // Drop children that Undo-of-Removed restored: any live child path that was a Removed
@@ -606,15 +602,15 @@ namespace e29::commands
             });
             for (auto& Path : ToDelete)
             {
-                const auto Target = xecs::persist::details::ResolveMemberPath(*e29::g_pGameMgr, RootEntity, Path);
+                const auto Target = xecs::persist::details::ResolveMemberPath(World(), RootEntity, Path);
                 if (!Target.isValid()) continue;
-                e29::DeleteEntitySubtree(*e29::g_pGameMgr, *pScene, SceneGuid, Target, /*bRecordPrefabOverride*/ false);
+                e29::DeleteEntitySubtree(World(), *pScene, SceneGuid, Target, /*bRecordPrefabOverride*/ false);
             }
 
             pPI->m_lComponents    = std::move(TempPI.m_lComponents);
             pPI->m_HierarchyDiffs = std::move(TempPI.m_HierarchyDiffs);
-            e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, static_cast<xecs::scene::permanent_id>(Id));
-            if (e29::g_pState) e29::g_pState->m_bEntityInspectorDirty = true;
+            World().m_SceneMgr.MarkEntityDirty(SceneGuid, static_cast<xecs::scene::permanent_id>(Id));
+            State().m_bEntityInspectorDirty = true;
         }
 
         xcmdline::parser::handle m_hScene, m_hId;
@@ -627,7 +623,7 @@ namespace e29::commands
     // root Transform). Does NOT modify the Prefab asset. Undo restores the pre-revert subtree via
     // SnapshotSubtreeForRestore / RestoreSubtreeFromSnapshot (same as DeleteEntity / MakePrefab).
     //================================================================================================
-    struct revert_all_overrides_cmd : xundo::command_base
+    struct revert_all_overrides_cmd : scene_command
     {
         // Layout must match e29::transform (Position/Rotation/Scale as xmath::fvec3). Looked up by
         // component name so this header does not depend on the cpp-local transform type.
@@ -686,7 +682,7 @@ namespace e29::commands
         }
 
         revert_all_overrides_cmd(xundo::system& System, void* pDataBase) noexcept
-            : command_base(System, "RevertAllOverrides", pDataBase) { RegisterArguments(); }
+            : scene_command(System, "RevertAllOverrides", pDataBase) { RegisterArguments(); }
 
         const char* getCommandHelp() const noexcept override
         {
@@ -711,54 +707,53 @@ namespace e29::commands
 
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
             const auto Id        = ParseEntityId(std::get<std::string>(IdArg));
-            if (!e29::g_pGameMgr) return "RevertAllOverrides: no game world";
 
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene || !pScene->m_LocalToRuntime.contains(Id))
                 return "RevertAllOverrides: target not found";
 
             auto Root = pScene->m_LocalToRuntime.at(Id);
-            auto* pPI = e29::FindPrefabInstance(*e29::g_pGameMgr, Root);
+            auto* pPI = e29::FindPrefabInstance(World(), Root);
             if (!pPI) return "RevertAllOverrides: entity is not a prefab instance root";
 
             const auto PrefabGuid = pPI->m_PrefabInstance;
-            if (auto Err = e29::g_pGameMgr->m_PrefabMgr.EnsureLoaded(PrefabGuid); Err)
+            if (auto Err = World().m_PrefabMgr.EnsureLoaded(PrefabGuid); Err)
                 return std::format("RevertAllOverrides: {}", Err.getMessage());
 
-            auto PrefabIt = e29::g_pGameMgr->m_PrefabMgr.m_PrefabList.find(PrefabGuid.m_Instance.m_Value);
-            if (PrefabIt == e29::g_pGameMgr->m_PrefabMgr.m_PrefabList.end())
+            auto PrefabIt = World().m_PrefabMgr.m_PrefabList.find(PrefabGuid.m_Instance.m_Value);
+            if (PrefabIt == World().m_PrefabMgr.m_PrefabList.end())
                 return "RevertAllOverrides: prefab root not resident";
 
             xecs::component::entity OriginalParent{};
             {
-                auto& RD = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(Root);
+                auto& RD = World().m_ComponentMgr.getEntityDetails(Root);
                 if (RD.m_pPool && RD.m_pPool->m_pArchetype->getComponentBits().getBit(
                         xecs::component::type::info_v<xecs::component::parent>.m_BitID))
                     OriginalParent = RD.m_pPool->getComponent<xecs::component::parent>(RD.m_PoolIndex).m_Value;
             }
-            const auto* pXformInfo = FindTransformInfo(*e29::g_pGameMgr, Root);
+            const auto* pXformInfo = FindTransformInfo(World(), Root);
             root_transform_snapshot SavedXform{};
-            const bool bHasTransform = ReadTransform(*e29::g_pGameMgr, Root, pXformInfo, SavedXform);
+            const bool bHasTransform = ReadTransform(World(), Root, pXformInfo, SavedXform);
             const auto OriginalFolderId = e29::FindFolderContaining(*pScene, Id);
             const auto StaleRootValue   = Root.m_Value;
-            const bool bRootWasSelected = e29::g_pState
-                && e29::g_pState->m_SelectedEntityId == Id
-                && e29::g_pState->m_SelectedEntityScene == SceneGuid;
+            const bool bRootWasSelected = &State()
+                && State().m_SelectedEntityId == Id
+                && State().m_SelectedEntityScene == SceneGuid;
 
             // Rebuild: wipe live instance (no HierarchyDiff bookkeeping — we own the PI root).
-            e29::DeleteEntitySubtree(*e29::g_pGameMgr, *pScene, SceneGuid, Root, /*bRecordPrefabOverride*/ false);
+            e29::DeleteEntitySubtree(World(), *pScene, SceneGuid, Root, /*bRecordPrefabOverride*/ false);
 
-            auto NewRoot = e29::g_pGameMgr->m_PrefabMgr.CreatePrefabInstance(
+            auto NewRoot = World().m_PrefabMgr.CreatePrefabInstance(
                 1, PrefabIt->second, xecs::tools::empty_lambda{}, /*bRemoveRoot=*/false);
 
             if (OriginalParent.isValid())
             {
                 std::array Add{ &xecs::component::type::info_v<xecs::component::parent> };
-                NewRoot = e29::g_pGameMgr->AddOrRemoveComponents(NewRoot, Add, {});
-                auto& NRDetails = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(NewRoot);
+                NewRoot = World().AddOrRemoveComponents(NewRoot, Add, {});
+                auto& NRDetails = World().m_ComponentMgr.getEntityDetails(NewRoot);
                 NRDetails.m_pPool->getComponent<xecs::component::parent>(NRDetails.m_PoolIndex).m_Value = OriginalParent;
 
-                auto& OPDetails = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(OriginalParent);
+                auto& OPDetails = World().m_ComponentMgr.getEntityDetails(OriginalParent);
                 if (OPDetails.m_pPool && OPDetails.m_pPool->m_pArchetype->getComponentBits().getBit(
                         xecs::component::type::info_v<xecs::component::children>.m_BitID))
                 {
@@ -769,14 +764,14 @@ namespace e29::commands
             }
 
             {
-                auto& NewChildDetails = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(NewRoot);
+                auto& NewChildDetails = World().m_ComponentMgr.getEntityDetails(NewRoot);
                 if (NewChildDetails.m_pPool && NewChildDetails.m_pPool->m_pArchetype->getComponentBits().getBit(
                         xecs::component::type::info_v<xecs::component::children>.m_BitID))
                 {
                     auto ChildEntities = NewChildDetails.m_pPool->getComponent<xecs::component::children>(
                         NewChildDetails.m_PoolIndex).m_List;
                     for (auto Child : ChildEntities)
-                        e29::RegisterInstantiatedSubtree(*e29::g_pGameMgr, *pScene, SceneGuid, Child);
+                        e29::RegisterInstantiatedSubtree(World(), *pScene, SceneGuid, Child);
                 }
             }
 
@@ -786,9 +781,9 @@ namespace e29::commands
             if (false == OriginalParent.isValid())
                 e29::ReparentEntityIntoFolder(*pScene, Id, OriginalFolderId);
 
-            e29::AttachPrefabInstanceComponent(*e29::g_pGameMgr, *pScene, Id, NewRoot, PrefabGuid, e29::g_pState);
+            e29::AttachPrefabInstanceComponent(World(), *pScene, Id, NewRoot, PrefabGuid, e29::g_pState);
             // Attach clears m_lComponents / m_ComponentDiffs; HierarchyDiffs may remain on some revisions.
-            if (auto* pNewPI = e29::FindPrefabInstance(*e29::g_pGameMgr, NewRoot))
+            if (auto* pNewPI = e29::FindPrefabInstance(World(), NewRoot))
             {
                 pNewPI->m_lComponents.clear();
                 pNewPI->m_ComponentDiffs.clear();
@@ -796,28 +791,28 @@ namespace e29::commands
             }
 
             if (bHasTransform)
-                WriteTransform(*e29::g_pGameMgr, NewRoot, *pScene, Id, pXformInfo, SavedXform);
+                WriteTransform(World(), NewRoot, *pScene, Id, pXformInfo, SavedXform);
 
             // Re-resolve after possible AddOrRemoveComponents inside WriteTransform.
             if (auto It = pScene->m_LocalToRuntime.find(Id); It != pScene->m_LocalToRuntime.end())
                 NewRoot = It->second;
-            if (auto* pNewPI2 = e29::FindPrefabInstance(*e29::g_pGameMgr, NewRoot))
+            if (auto* pNewPI2 = e29::FindPrefabInstance(World(), NewRoot))
             {
                 pNewPI2->m_lComponents.clear();
                 pNewPI2->m_ComponentDiffs.clear();
                 pNewPI2->m_HierarchyDiffs.clear();
             }
 
-            e29::g_pGameMgr->m_SceneMgr.MarkEntityDirty(SceneGuid, Id);
+            World().m_SceneMgr.MarkEntityDirty(SceneGuid, Id);
             if (e29::g_pState)
             {
                 if (bRootWasSelected)
                 {
-                    e29::g_pState->m_SelectedEntity      = NewRoot;
-                    e29::g_pState->m_SelectedEntityId    = Id;
-                    e29::g_pState->m_SelectedEntityScene = SceneGuid;
+                    State().m_SelectedEntity      = NewRoot;
+                    State().m_SelectedEntityId    = Id;
+                    State().m_SelectedEntityScene = SceneGuid;
                 }
-                e29::g_pState->m_bEntityInspectorDirty = true;
+                State().m_bEntityInspectorDirty = true;
             }
             return {};
         }
@@ -832,7 +827,7 @@ namespace e29::commands
                 : ParseEntityId(std::get<std::string>(IdArg));
             File.Write(Scene);
             File.Write(Id);
-            SnapshotSubtreeForRestore(File,
+            SnapshotSubtreeForRestore(EditorContext(), File,
                 xecs::scene::guid{ .m_Instance = { Scene } },
                 static_cast<xecs::scene::permanent_id>(Id));
         }
@@ -841,20 +836,19 @@ namespace e29::commands
         {
             std::uint64_t Scene = 0; File.Read(Scene);
             std::uint32_t Id = 0;    File.Read(Id);
-            if (!e29::g_pGameMgr) return;
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (pScene && pScene->m_LocalToRuntime.contains(static_cast<xecs::scene::permanent_id>(Id)))
             {
-                e29::DeleteEntitySubtree(*e29::g_pGameMgr, *pScene, SceneGuid,
+                e29::DeleteEntitySubtree(World(), *pScene, SceneGuid,
                     pScene->m_LocalToRuntime.at(static_cast<xecs::scene::permanent_id>(Id)),
                     /*bRecordPrefabOverride*/ false);
             }
 
-            RestoreSubtreeFromSnapshot(File, SceneGuid, static_cast<xecs::scene::permanent_id>(Id));
+            RestoreSubtreeFromSnapshot(EditorContext(), File, SceneGuid, static_cast<xecs::scene::permanent_id>(Id));
 
-            if (e29::g_pState) e29::g_pState->m_bEntityInspectorDirty = true;
+            State().m_bEntityInspectorDirty = true;
         }
 
         xcmdline::parser::handle m_hScene, m_hId;

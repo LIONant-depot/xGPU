@@ -47,9 +47,9 @@ namespace e29::commands
     // an asset type with no registered plugin name (matches DescribeEntity's own "show the guid raw
     // rather than fail" fallback for an unregistered component type).
     //================================================================================================
-    struct list_assets_query_cmd : xundo::query_command_base
+    struct list_assets_query_cmd : scene_query_command
     {
-        list_assets_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "ListAssets", pDataBase) { RegisterArguments(); }
+        list_assets_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "ListAssets", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Lists every direct child of an asset (default: the Library's own root folder). Usage: ListAssets -Library hexguid [-Parent assetguid]"; }
         void RegisterArguments() noexcept override
         {
@@ -115,9 +115,9 @@ namespace e29::commands
     // discovery command MoveAsset/RenameAsset/DeleteAsset need before they can target anything, same
     // "never need to read a raw file by hand" reasoning DescribeEntity was built for.
     //================================================================================================
-    struct describe_asset_query_cmd : xundo::query_command_base
+    struct describe_asset_query_cmd : scene_query_command
     {
-        describe_asset_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "DescribeAsset", pDataBase) { RegisterArguments(); }
+        describe_asset_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "DescribeAsset", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Shows an asset's name, type, parent links, and children. Usage: DescribeAsset -Library hexguid -Asset assetguid"; }
         void RegisterArguments() noexcept override
         {
@@ -161,9 +161,9 @@ namespace e29::commands
     // comment already establishes: xundo::system::Execute always calls BackupCurrenState before
     // Redo). In-memory only until a real SaveAssets - matches RenameDescriptor's own behavior exactly.
     //================================================================================================
-    struct rename_asset_cmd : xundo::command_base
+    struct rename_asset_cmd : scene_command
     {
-        rename_asset_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "RenameAsset", pDataBase) { RegisterArguments(); }
+        rename_asset_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "RenameAsset", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Renames an asset (undoable). Usage: RenameAsset -Library hexguid -Asset assetguid -Name base64"; }
         void RegisterArguments() noexcept override
         {
@@ -228,9 +228,9 @@ namespace e29::commands
     // caller must know it - no auto-derive-the-only-parent shortcut, matching MoveDescriptor's own
     // multi-parent-capable design). Undo is the exact inverse call, source/target simply swapped.
     //================================================================================================
-    struct move_asset_cmd : xundo::command_base
+    struct move_asset_cmd : scene_command
     {
-        move_asset_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "MoveAsset", pDataBase) { RegisterArguments(); }
+        move_asset_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "MoveAsset", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Moves an asset from one parent to another (undoable). Usage: MoveAsset -Library hexguid -Asset assetguid -OldParent assetguid -NewParent assetguid"; }
         void RegisterArguments() noexcept override
         {
@@ -298,9 +298,9 @@ namespace e29::commands
     // parent link(s) are preserved by MoveToTrash itself (confirmed reading its source), this just
     // records which one to hand back to MoveFromTrashTo.
     //================================================================================================
-    struct delete_asset_cmd : xundo::command_base
+    struct delete_asset_cmd : scene_command
     {
-        delete_asset_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "DeleteAsset", pDataBase) { RegisterArguments(); }
+        delete_asset_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "DeleteAsset", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Moves an asset to the trash (undoable - restores it). Usage: DeleteAsset -Library hexguid -Asset assetguid"; }
         void RegisterArguments() noexcept override
         {
@@ -368,9 +368,9 @@ namespace e29::commands
     // structural mirror of DeleteAsset, just with an explicit target parent instead of one captured
     // from history.
     //================================================================================================
-    struct restore_asset_cmd : xundo::command_base
+    struct restore_asset_cmd : scene_command
     {
-        restore_asset_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "RestoreAsset", pDataBase) { RegisterArguments(); }
+        restore_asset_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "RestoreAsset", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Restores a trashed asset to a chosen parent (undoable). Usage: RestoreAsset -Library hexguid -Asset assetguid -Parent assetguid"; }
         void RegisterArguments() noexcept override
         {
@@ -461,9 +461,9 @@ namespace e29::commands
     // except EmptyTrashcan, which stays outside the undo system entirely - see this file's own top
     // comment).
     //================================================================================================
-    struct create_asset_cmd : xundo::command_base
+    struct create_asset_cmd : scene_command
     {
-        create_asset_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "CreateAsset", pDataBase) { RegisterArguments(); }
+        create_asset_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "CreateAsset", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Creates a new asset (undoable - Undo moves it to the trash; the on-disk info.txt this writes is NOT deleted, only MoveToTrash/EmptyTrashcan can do that - see this command's own comment). Usage: CreateAsset -Library hexguid -Type hexguid -Asset assetguid -Parent assetguid -Name base64";
@@ -526,9 +526,9 @@ namespace e29::commands
     // (E29_Commands_Workspace.h) - RenameAsset/MoveAsset/DeleteAsset are all in-memory-only until
     // this runs.
     //================================================================================================
-    struct save_assets_query_cmd : xundo::query_command_base
+    struct save_assets_query_cmd : scene_query_command
     {
-        save_assets_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "SaveAssets", pDataBase) { RegisterArguments(); }
+        save_assets_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "SaveAssets", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Flushes every changed asset descriptor, in every open library, to disk. Usage: SaveAssets"; }
         void RegisterArguments() noexcept override {}
 

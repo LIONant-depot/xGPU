@@ -39,9 +39,9 @@ namespace e29::commands
     // xeditor::NotifyError() modal popup, the same existing failure-UX every other command's own error path
     // already inherits, not something new introduced here).
     //================================================================================================
-    struct open_level_cmd : xundo::query_command_base
+    struct open_level_cmd : scene_query_command
     {
-        open_level_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "OpenLevel", pDataBase) { RegisterArguments(); }
+        open_level_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "OpenLevel", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Loads a Level and activates every Scene it owns. If another Level is open and dirty, pass -Save 1 or -Save 0 first. Usage: OpenLevel -Level hexguid [-Save 0|1]";
@@ -58,7 +58,6 @@ namespace e29::commands
             if (std::holds_alternative<xerr>(LevelArg))
                 return "OpenLevel: bad arguments";
 
-            if (!e29::g_pGameMgr) return "OpenLevel: no game world";
 
             auto& State = get<e29_command_context>().m_State;
             if (State.isPlaying()) return "OpenLevel: blocked while Play/Paused";
@@ -89,13 +88,13 @@ namespace e29::commands
             {
                 if (bDirty && SaveOverride.value())
                 {
-                    e29::SaveEverything(*e29::g_pGameMgr, State);
+                    e29::SaveEverything(World(), State);
                     e29::MarkDocumentClean(State, e29::LevelDocUndo());
                 }
-                e29::CloseLevel(*e29::g_pGameMgr, State, e29::LevelDocUndo());
+                e29::CloseLevel(World(), State, e29::LevelDocUndo());
             }
 
-            e29::OpenLevel(*e29::g_pGameMgr, State, LevelGuid);
+            e29::OpenLevel(World(), State, LevelGuid);
             e29::MarkDocumentClean(State, e29::LevelDocUndo());
 
             if (State.m_CurrentLevel.m_Instance.m_Value != Value)
@@ -135,9 +134,9 @@ namespace e29::commands
     // to OPEN scenes only) can't see: "this change didn't break what's open, but it may break some
     // OTHER scene, not loaded right now" - direct user framing from this session's own design
     // conversation. Read-only, safe to call any time, no game world required.
-    struct audit_component_usage_query_cmd : xundo::query_command_base
+    struct audit_component_usage_query_cmd : scene_query_command
     {
-        audit_component_usage_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "AuditComponentUsage", pDataBase) {}
+        audit_component_usage_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "AuditComponentUsage", pDataBase) {}
         const char* getCommandHelp() const noexcept override
         {
             return "Scans every scene in the project (open or not) for component types no longer registered. Usage: AuditComponentUsage";
@@ -186,9 +185,9 @@ namespace e29::commands
     // scene's residency and removes it from State.m_OpenScenes. Query, not Edit, matching OpenLevel's
     // own reasoning above - a workspace/session action, not a scene-content mutation.
     //================================================================================================
-    struct close_scene_cmd : xundo::query_command_base
+    struct close_scene_cmd : scene_query_command
     {
-        close_scene_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "CloseScene", pDataBase) { RegisterArguments(); }
+        close_scene_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "CloseScene", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Releases a scene's residency and removes it from the open list. Usage: CloseScene -Scene hexguid";
@@ -202,13 +201,12 @@ namespace e29::commands
         {
             auto SceneArg = m_Parser.getOptionArgAs<std::string>(m_hScene, 0);
             if (std::holds_alternative<xerr>(SceneArg)) return "CloseScene: bad arguments";
-            if (!e29::g_pGameMgr) return "CloseScene: no game world";
 
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
             auto& State = get<e29_command_context>().m_State;
             const bool bWasOpen = std::find(State.m_OpenScenes.begin(), State.m_OpenScenes.end(), SceneGuid) != State.m_OpenScenes.end();
 
-            e29::CloseScene(*e29::g_pGameMgr, State, SceneGuid);
+            e29::CloseScene(World(), State, SceneGuid);
 
             return bWasOpen ? std::format("Closed Scene {}", FormatSceneGuid(SceneGuid)) : std::format("CloseScene: {} was not open", FormatSceneGuid(SceneGuid));
         }
@@ -241,9 +239,9 @@ namespace e29::commands
     // discovery command a fresh AI/CLI session needs before it can even call OpenLevel at all - direct
     // user report: "yes I think you are missing Level/Scene commands."
     //================================================================================================
-    struct list_levels_query_cmd : xundo::query_command_base
+    struct list_levels_query_cmd : scene_query_command
     {
-        list_levels_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "ListLevels", pDataBase) { RegisterArguments(); }
+        list_levels_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "ListLevels", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Lists every Level asset (guid + name). Usage: ListLevels"; }
         void RegisterArguments() noexcept override {}
 
@@ -261,9 +259,9 @@ namespace e29::commands
     // line - a Level's own m_Scenes only holds guids, so names are cross-referenced from the same
     // asset-name map ListLevels itself uses.
     //================================================================================================
-    struct list_scenes_query_cmd : xundo::query_command_base
+    struct list_scenes_query_cmd : scene_query_command
     {
-        list_scenes_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "ListScenes", pDataBase) { RegisterArguments(); }
+        list_scenes_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "ListScenes", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Lists the scenes owned by a Level (default: the currently open one). Usage: ListScenes [-Level hexguid]"; }
         void RegisterArguments() noexcept override
         {
@@ -272,7 +270,6 @@ namespace e29::commands
 
         std::string Query() noexcept override
         {
-            if (!e29::g_pGameMgr) return "ListScenes: no game world";
             auto& State = get<e29_command_context>().m_State;
 
             auto LevelArg = m_Parser.getOptionArgAs<std::string>(m_hLevel, 0);
@@ -280,7 +277,7 @@ namespace e29::commands
                 ? State.m_CurrentLevel
                 : xecs::level::guid{ .m_Instance = { std::strtoull(std::get<std::string>(LevelArg).c_str(), nullptr, 16) } };
 
-            auto* pLevel = e29::g_pGameMgr->m_LevelMgr.Find(LevelGuid);
+            auto* pLevel = World().m_LevelMgr.Find(LevelGuid);
             if (!pLevel) return std::format("ListScenes: Level {:016X} is not open (try OpenLevel first)", LevelGuid.m_Instance.m_Value);
 
             const auto Names = BuildAssetNameMap(xecs::scene::type_guid_v);
@@ -301,9 +298,9 @@ namespace e29::commands
     // the tree view), {id, name-or-"Entity #id"} one per line, same fallback E29's own Level Tree panel
     // uses (level/E29_Panel_LevelTree.h).
     //================================================================================================
-    struct list_entities_query_cmd : xundo::query_command_base
+    struct list_entities_query_cmd : scene_query_command
     {
-        list_entities_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "ListEntities", pDataBase) { RegisterArguments(); }
+        list_entities_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "ListEntities", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Lists every entity in a scene (hex id + name). Usage: ListEntities -Scene hexguid"; }
         void RegisterArguments() noexcept override
         {
@@ -314,17 +311,16 @@ namespace e29::commands
         {
             auto SceneArg = m_Parser.getOptionArgAs<std::string>(m_hScene, 0);
             if (std::holds_alternative<xerr>(SceneArg)) return "ListEntities: bad arguments";
-            if (!e29::g_pGameMgr) return "ListEntities: no game world";
 
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene) return std::format("ListEntities: Scene {} is not open", FormatSceneGuid(SceneGuid));
 
             std::string Out;
             for (auto& [Id, Entity] : pScene->m_LocalToRuntime)
             {
                 std::string Label = std::format("Entity #{:08X}", Id);
-                if (auto& Details = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(Entity); Details.m_pPool)
+                if (auto& Details = World().m_ComponentMgr.getEntityDetails(Entity); Details.m_pPool)
                     if (Details.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<e29::name>.m_BitID))
                         Label = Details.m_pPool->getComponent<e29::name>(Details.m_PoolIndex).m_Value;
                 Out += std::format("{:08X}  {}\n", Id, Label);
@@ -340,9 +336,9 @@ namespace e29::commands
     // "root"/omitted for the top level) - each folder's own directly-contained entities listed under
     // it, indented by depth. Direct user request: "ListFolders -Scene ... -From root...".
     //================================================================================================
-    struct list_folders_query_cmd : xundo::query_command_base
+    struct list_folders_query_cmd : scene_query_command
     {
-        list_folders_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "ListFolders", pDataBase) { RegisterArguments(); }
+        list_folders_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "ListFolders", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Lists a scene's folder tree (folders + their entities), recursively. Usage: ListFolders -Scene hexguid [-From folderid-or-root]"; }
         void RegisterArguments() noexcept override
         {
@@ -354,10 +350,9 @@ namespace e29::commands
         {
             auto SceneArg = m_Parser.getOptionArgAs<std::string>(m_hScene, 0);
             if (std::holds_alternative<xerr>(SceneArg)) return "ListFolders: bad arguments";
-            if (!e29::g_pGameMgr) return "ListFolders: no game world";
 
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene) return std::format("ListFolders: Scene {} is not open", FormatSceneGuid(SceneGuid));
 
             auto FromArg = m_Parser.getOptionArgAs<std::string>(m_hFrom, 0);
@@ -414,9 +409,9 @@ namespace e29::commands
 //
 // Usage: AddScene -Level hexguid -Scene hexguid
 //================================================================================================
-struct add_scene_cmd : xundo::command_base
+struct add_scene_cmd : scene_command
 {
-    add_scene_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "AddScene", pDataBase) { RegisterArguments(); }
+    add_scene_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "AddScene", pDataBase) { RegisterArguments(); }
     const char* getCommandHelp() const noexcept override
     {
         return "Adds a Scene to a Level's membership list (undoable). Does not open the scene or save the level. Usage: AddScene -Level hexguid -Scene hexguid";
@@ -437,8 +432,7 @@ struct add_scene_cmd : xundo::command_base
         const auto LevelGuid = xecs::level::guid{ .m_Instance = { std::strtoull(std::get<std::string>(LevelArg).c_str(), nullptr, 16) } };
         const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
 
-        if (!e29::g_pGameMgr) return "AddScene: no game world";
-        auto* pLevel = e29::g_pGameMgr->m_LevelMgr.Find(LevelGuid);
+        auto* pLevel = World().m_LevelMgr.Find(LevelGuid);
         if (!pLevel) return "AddScene: level not found";
 
         // Already a member: empty success, no mutation. Backup wrote bWasPresent=1 so Undo is a no-op.
@@ -460,11 +454,11 @@ struct add_scene_cmd : xundo::command_base
         const std::uint64_t Scene = std::holds_alternative<xerr>(SceneArg) ? 0 : std::strtoull(std::get<std::string>(SceneArg).c_str(), nullptr, 16);
         std::uint32_t       bWasPresent = 0;
 
-        if (!std::holds_alternative<xerr>(LevelArg) && !std::holds_alternative<xerr>(SceneArg) && e29::g_pGameMgr)
+        if (!std::holds_alternative<xerr>(LevelArg) && !std::holds_alternative<xerr>(SceneArg))
         {
             const auto LevelGuid = xecs::level::guid{ .m_Instance = { Level } };
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
-            if (auto* pLevel = e29::g_pGameMgr->m_LevelMgr.Find(LevelGuid))
+            if (auto* pLevel = World().m_LevelMgr.Find(LevelGuid))
                 bWasPresent = (std::find(pLevel->m_Scenes.begin(), pLevel->m_Scenes.end(), SceneGuid) != pLevel->m_Scenes.end()) ? 1u : 0u;
         }
 
@@ -480,11 +474,10 @@ struct add_scene_cmd : xundo::command_base
         std::uint32_t bWasPresent = 0; File.Read(bWasPresent);
 
         if (bWasPresent) return;
-        if (!e29::g_pGameMgr) return;
 
         const auto LevelGuid = xecs::level::guid{ .m_Instance = { Level } };
         const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
-        auto* pLevel = e29::g_pGameMgr->m_LevelMgr.Find(LevelGuid);
+        auto* pLevel = World().m_LevelMgr.Find(LevelGuid);
         if (!pLevel) return;
 
         if (auto It = std::find(pLevel->m_Scenes.begin(), pLevel->m_Scenes.end(), SceneGuid); It != pLevel->m_Scenes.end())
@@ -493,7 +486,7 @@ struct add_scene_cmd : xundo::command_base
         // If the user opened the scene after we added it (row expand), drop residency too.
         // CloseScene is a no-op when the guid is not in State.m_OpenScenes.
         auto& State = get<e29_command_context>().m_State;
-        e29::CloseScene(*e29::g_pGameMgr, State, SceneGuid);
+        e29::CloseScene(World(), State, SceneGuid);
     }
 
     xcmdline::parser::handle m_hLevel, m_hScene;
@@ -505,9 +498,9 @@ struct add_scene_cmd : xundo::command_base
 //
 // Usage: RemoveScene -Level hexguid -Scene hexguid
 //================================================================================================
-struct remove_scene_cmd : xundo::command_base
+struct remove_scene_cmd : scene_command
 {
-    remove_scene_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "RemoveScene", pDataBase) { RegisterArguments(); }
+    remove_scene_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "RemoveScene", pDataBase) { RegisterArguments(); }
     const char* getCommandHelp() const noexcept override
     {
         return "Removes a Scene from a Level's membership list (undoable). Closes the scene if open. Does not save the level. Usage: RemoveScene -Level hexguid -Scene hexguid";
@@ -528,8 +521,7 @@ struct remove_scene_cmd : xundo::command_base
         const auto LevelGuid = xecs::level::guid{ .m_Instance = { std::strtoull(std::get<std::string>(LevelArg).c_str(), nullptr, 16) } };
         const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
 
-        if (!e29::g_pGameMgr) return "RemoveScene: no game world";
-        auto* pLevel = e29::g_pGameMgr->m_LevelMgr.Find(LevelGuid);
+        auto* pLevel = World().m_LevelMgr.Find(LevelGuid);
         if (!pLevel) return "RemoveScene: level not found";
 
         auto It = std::find(pLevel->m_Scenes.begin(), pLevel->m_Scenes.end(), SceneGuid);
@@ -538,7 +530,7 @@ struct remove_scene_cmd : xundo::command_base
         pLevel->m_Scenes.erase(It);
 
         auto& State = get<e29_command_context>().m_State;
-        e29::CloseScene(*e29::g_pGameMgr, State, SceneGuid);
+        e29::CloseScene(World(), State, SceneGuid);
         return {};
     }
 
@@ -559,7 +551,7 @@ struct remove_scene_cmd : xundo::command_base
 
         if (e29::g_pGameMgr)
         {
-            if (auto* pLevel = e29::g_pGameMgr->m_LevelMgr.Find(LevelGuid))
+            if (auto* pLevel = World().m_LevelMgr.Find(LevelGuid))
             {
                 auto It = std::find(pLevel->m_Scenes.begin(), pLevel->m_Scenes.end(), SceneGuid);
                 if (It != pLevel->m_Scenes.end())
@@ -583,11 +575,10 @@ struct remove_scene_cmd : xundo::command_base
         std::uint32_t Index = 0; File.Read(Index);
         std::uint32_t bWasOpen = 0; File.Read(bWasOpen);
 
-        if (!e29::g_pGameMgr) return;
 
         const auto LevelGuid = xecs::level::guid{ .m_Instance = { Level } };
         const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
-        auto* pLevel = e29::g_pGameMgr->m_LevelMgr.Find(LevelGuid);
+        auto* pLevel = World().m_LevelMgr.Find(LevelGuid);
         if (!pLevel) return;
 
         if (std::find(pLevel->m_Scenes.begin(), pLevel->m_Scenes.end(), SceneGuid) == pLevel->m_Scenes.end())
@@ -599,7 +590,7 @@ struct remove_scene_cmd : xundo::command_base
         if (bWasOpen)
         {
             auto& State = get<e29_command_context>().m_State;
-            e29::OpenScene(*e29::g_pGameMgr, State, xresource::full_guid{ SceneGuid.m_Instance, xecs::scene::type_guid_v });
+            e29::OpenScene(World(), State, xresource::full_guid{ SceneGuid.m_Instance, xecs::scene::type_guid_v });
         }
     }
 

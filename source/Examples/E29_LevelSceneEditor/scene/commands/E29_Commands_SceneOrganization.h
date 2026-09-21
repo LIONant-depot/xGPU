@@ -27,9 +27,9 @@ namespace e29::commands
     // create_entity_cmd already established (E29_Commands_EntityLifecycle.h), for the same
     // Redo-determinism reason.
     //================================================================================================
-    struct create_folder_cmd : xundo::command_base
+    struct create_folder_cmd : scene_command
     {
-        create_folder_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "CreateFolder", pDataBase) { RegisterArguments(); }
+        create_folder_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "CreateFolder", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Creates a new, empty folder (undoable - deletes it again on Undo). Usage: CreateFolder -Scene hexguid -Id hexfolder -Parent hexfolder (0 = root) -Name base64";
@@ -56,8 +56,7 @@ namespace e29::commands
             const auto ParentVal = static_cast<xecs::scene::folder_id>(std::strtoul(std::get<std::string>(ParentArg).c_str(), nullptr, 16));
             const auto Name      = xeditor::Base64Decode(std::get<std::string>(NameArg));
 
-            if (!e29::g_pGameMgr) return "CreateFolder: no game world";
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene) return "CreateFolder: scene not found";
             if (std::ranges::find(pScene->m_Folders, Id, &xecs::scene::folder::m_Id) != pScene->m_Folders.end())
                 return "CreateFolder: id already in use";
@@ -92,8 +91,7 @@ namespace e29::commands
             std::uint64_t Scene = 0; File.Read(Scene);
             std::uint32_t Id = 0;    File.Read(Id);
 
-            if (!e29::g_pGameMgr) return;
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(xecs::scene::guid{ .m_Instance = { Scene } });
+            auto* pScene = World().m_SceneMgr.Find(xecs::scene::guid{ .m_Instance = { Scene } });
             if (!pScene) return;
 
             std::erase_if(pScene->m_Folders, [&](auto& F) noexcept { return F.m_Id == static_cast<xecs::scene::folder_id>(Id); });
@@ -109,9 +107,9 @@ namespace e29::commands
     // reverse both halves of that promotion, not just recreate the folder itself, or a folder that had
     // children would come back empty while its former children stayed reparented at the wrong level.
     //================================================================================================
-    struct delete_folder_cmd : xundo::command_base
+    struct delete_folder_cmd : scene_command
     {
-        delete_folder_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "DeleteFolder", pDataBase) { RegisterArguments(); }
+        delete_folder_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "DeleteFolder", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Deletes a folder, promoting its entities and child folders to its own parent (undoable - restores the folder, its entities, and its child folders' parent links). Usage: DeleteFolder -Scene hexguid -Id hexfolder";
@@ -132,8 +130,7 @@ namespace e29::commands
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
             const auto Id        = static_cast<xecs::scene::folder_id>(std::strtoul(std::get<std::string>(IdArg).c_str(), nullptr, 16));
 
-            if (!e29::g_pGameMgr) return "DeleteFolder: no game world";
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene) return "DeleteFolder: scene not found";
             if (std::ranges::find(pScene->m_Folders, Id, &xecs::scene::folder::m_Id) == pScene->m_Folders.end())
                 return "DeleteFolder: folder not found";
@@ -162,7 +159,7 @@ namespace e29::commands
             std::vector<std::uint32_t> EntityIds;
             std::vector<std::uint32_t> ChildFolderIds;
 
-            if (auto* pScene = e29::g_pGameMgr ? e29::g_pGameMgr->m_SceneMgr.Find(xecs::scene::guid{ .m_Instance = { Scene } }) : nullptr)
+            if (auto* pScene = World().m_SceneMgr.Find(xecs::scene::guid{ .m_Instance = { Scene } }))
             {
                 if (auto FolderIt = std::ranges::find(pScene->m_Folders, static_cast<xecs::scene::folder_id>(Id), &xecs::scene::folder::m_Id); FolderIt != pScene->m_Folders.end())
                 {
@@ -197,8 +194,7 @@ namespace e29::commands
             std::vector<std::uint32_t> ChildFolderIds(ChildCount);
             for (auto& C : ChildFolderIds) File.Read(C);
 
-            if (!e29::g_pGameMgr) return;
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(xecs::scene::guid{ .m_Instance = { Scene } });
+            auto* pScene = World().m_SceneMgr.Find(xecs::scene::guid{ .m_Instance = { Scene } });
             if (!pScene) return;
 
             // Pull the promoted entities back OUT of wherever DeleteFolder's own Redo put them
@@ -268,9 +264,9 @@ namespace e29::commands
         return true;
     }
 
-    struct instantiate_prefab_cmd : xundo::command_base
+    struct instantiate_prefab_cmd : scene_command
     {
-        instantiate_prefab_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "InstantiatePrefab", pDataBase) { RegisterArguments(); }
+        instantiate_prefab_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "InstantiatePrefab", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Instantiates a Prefab asset into a scene (undoable - deletes the whole group again on Undo). Usage: InstantiatePrefab -Scene hexguid -Id hexid -Prefab hexguid -Folder hexfolder (0 = loose)";
@@ -302,15 +298,14 @@ namespace e29::commands
             const auto PrefabGuid = xecs::prefab::guid{ .m_Instance = { std::strtoull(std::get<std::string>(PrefabArg).c_str(), nullptr, 16) }, .m_Type = xecs::prefab::type_guid_v };
             const auto FolderVal  = static_cast<xecs::scene::folder_id>(std::strtoul(std::get<std::string>(FolderArg).c_str(), nullptr, 16));
 
-            if (!e29::g_pGameMgr) return "InstantiatePrefab: no game world";
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene) return "InstantiatePrefab: scene not found";
             if (pScene->m_LocalToRuntime.contains(Id)) return "InstantiatePrefab: id already in use";
 
-            if (!InstantiatePrefabIntoSceneWithId(*e29::g_pGameMgr, *pScene, PrefabGuid, Id, FolderVal))
+            if (!InstantiatePrefabIntoSceneWithId(World(), *pScene, PrefabGuid, Id, FolderVal))
                 return "InstantiatePrefab: failed to load/instantiate prefab";
 
-            if (e29::g_pState) e29::g_pState->m_bEntityInspectorDirty = true;
+            State().m_bEntityInspectorDirty = true;
             return {};
         }
 
@@ -335,10 +330,10 @@ namespace e29::commands
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
             const auto PermId    = static_cast<xecs::scene::permanent_id>(Id);
 
-            DeleteSubtreeByPermanentId(SceneGuid, PermId);
+            DeleteSubtreeByPermanentId(EditorContext(), SceneGuid, PermId);
 
             if (e29::g_pGameMgr)
-                if (auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid))
+                if (auto* pScene = World().m_SceneMgr.Find(SceneGuid))
                     pScene->m_PendingChanges[PermId].m_New -= 1;
         }
 
@@ -356,9 +351,9 @@ namespace e29::commands
     // (id/parent/name only - membership is Id's own concern, not re-derived here) so Undo can
     // recreate any that Redo's own prune step removed, in root-to-leaf order, before re-inserting.
     //================================================================================================
-    struct move_to_folder_cmd : xundo::command_base
+    struct move_to_folder_cmd : scene_command
     {
-        move_to_folder_cmd(xundo::system& System, void* pDataBase) noexcept : command_base(System, "MoveToFolder", pDataBase) { RegisterArguments(); }
+        move_to_folder_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "MoveToFolder", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Moves an entity into a folder, or out to loose (undoable - restores the old folder, its position, and any folder emptied+pruned by the move). Usage: MoveToFolder -Scene hexguid -Id hexid -Folder hexfolder (0 = loose)";
@@ -382,13 +377,12 @@ namespace e29::commands
             const auto Id        = ParseEntityId(std::get<std::string>(IdArg));
             const auto FolderVal = static_cast<xecs::scene::folder_id>(std::strtoul(std::get<std::string>(FolderArg).c_str(), nullptr, 16));
 
-            if (!e29::g_pGameMgr) return "MoveToFolder: no game world";
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene || !pScene->m_LocalToRuntime.contains(Id)) return "MoveToFolder: target not found";
 
             // A parented entity is never a folder member (rendered nested under its parent's own row
             // instead) - matches every existing drag-drop call site's own bHasParent check.
-            auto& Details = e29::g_pGameMgr->m_ComponentMgr.getEntityDetails(pScene->m_LocalToRuntime.at(Id));
+            auto& Details = World().m_ComponentMgr.getEntityDetails(pScene->m_LocalToRuntime.at(Id));
             if (Details.m_pPool && Details.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::parent>.m_BitID))
                 return "MoveToFolder: entity has a parent, not a folder member";
 
@@ -411,7 +405,7 @@ namespace e29::commands
             File.Write(FolderVal);
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
-            auto* pScene = e29::g_pGameMgr ? e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid) : nullptr;
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene)
             {
                 File.Write(static_cast<std::uint32_t>(xecs::scene::invalid_folder_id_v));
@@ -473,9 +467,8 @@ namespace e29::commands
                 A.m_Name = xeditor::ReadString(File);
             }
 
-            if (!e29::g_pGameMgr) return;
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
-            auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene) return;
 
             // Recreate any ancestor folder Redo's own prune step removed, BEFORE reparenting back into
@@ -509,7 +502,7 @@ namespace e29::commands
                 }
             }
 
-            if (e29::g_pState) e29::g_pState->m_bEntityInspectorDirty = true;
+            State().m_bEntityInspectorDirty = true;
         }
 
         xcmdline::parser::handle m_hScene, m_hId, m_hFolder;

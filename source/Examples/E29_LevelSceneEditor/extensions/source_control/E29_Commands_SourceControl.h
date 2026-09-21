@@ -160,9 +160,9 @@ namespace e29::commands
     // triggers a scan itself, matches GetPlayState's own "just report current state" shape. Use
     // SourceControlRefresh first if the cache might be stale.
     //================================================================================================
-    struct source_control_status_query_cmd : xundo::query_command_base
+    struct source_control_status_query_cmd : scene_query_command
     {
-        source_control_status_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "SourceControlStatus", pDataBase) { RegisterArguments(); }
+        source_control_status_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "SourceControlStatus", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Lists the last-known changed files for a library, from the idle-refreshed cache (does not trigger a scan). Usage: SourceControlStatus -Library hexguid"; }
         void RegisterArguments() noexcept override
         {
@@ -211,9 +211,9 @@ namespace e29::commands
     // Instant, reads memory only - the check itself runs once per library (GetOrCreateWorkspace's own
     // first-connect path); this command never re-triggers it.
     //================================================================================================
-    struct source_control_depot_status_query_cmd : xundo::query_command_base
+    struct source_control_depot_status_query_cmd : scene_query_command
     {
-        source_control_depot_status_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "SourceControlDepotStatus", pDataBase) { RegisterArguments(); }
+        source_control_depot_status_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "SourceControlDepotStatus", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Reports a library's cached depot identity and the last live validation outcome (Confirmed/Mismatch/NoProvider/Unknown). Usage: SourceControlDepotStatus -Library hexguid"; }
         void RegisterArguments() noexcept override
         {
@@ -258,9 +258,9 @@ namespace e29::commands
     // "for testing/verification, and for an AI/script that wants one on demand" reasoning
     // RunSanityCheck was built for (E29_IdleWork.h).
     //================================================================================================
-    struct source_control_refresh_query_cmd : xundo::query_command_base
+    struct source_control_refresh_query_cmd : scene_query_command
     {
-        source_control_refresh_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "SourceControlRefresh", pDataBase) { RegisterArguments(); }
+        source_control_refresh_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "SourceControlRefresh", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Manually refreshes the source-control status cache for a library, right now. Usage: SourceControlRefresh -Library hexguid"; }
         void RegisterArguments() noexcept override
         {
@@ -291,9 +291,9 @@ namespace e29::commands
     // straight at the scan/cache layer; a mismatch between this and what the UI shows points at the
     // render/path-matching layer instead.
     //================================================================================================
-    struct source_control_list_locks_query_cmd : xundo::query_command_base
+    struct source_control_list_locks_query_cmd : scene_query_command
     {
-        source_control_list_locks_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "SourceControlListLocks", pDataBase) { RegisterArguments(); }
+        source_control_list_locks_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "SourceControlListLocks", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Lists the last-known locks for a library, from the idle-refreshed cache. Usage: SourceControlListLocks -Library hexguid"; }
         void RegisterArguments() noexcept override
         {
@@ -334,9 +334,9 @@ namespace e29::commands
     // matching SaveAssets' own "quick enough to just do it now" shape rather than going through Idle
     // Work, which is reserved for genuinely slow, poll-shaped work.
     //================================================================================================
-    struct source_control_lock_query_cmd : xundo::query_command_base
+    struct source_control_lock_query_cmd : scene_query_command
     {
-        source_control_lock_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "SourceControlLock", pDataBase) { RegisterArguments(); }
+        source_control_lock_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "SourceControlLock", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Locks a file before editing (required for binary/LFS-tracked assets). Usage: SourceControlLock -Library hexguid -Path base64 [-Try 1]"; }
         void RegisterArguments() noexcept override
         {
@@ -402,9 +402,9 @@ namespace e29::commands
     // this command fails with a specific, actionable message for case (2) rather than a generic
     // error - see ClassifyLfsLockFailure's own comment in sc_git_lfs_provider.hpp.
     //================================================================================================
-    struct source_control_unlock_query_cmd : xundo::query_command_base
+    struct source_control_unlock_query_cmd : scene_query_command
     {
-        source_control_unlock_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "SourceControlUnlock", pDataBase) { RegisterArguments(); }
+        source_control_unlock_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "SourceControlUnlock", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Releases a lock. Usage: SourceControlUnlock -Library hexguid -Path base64 [-Force 1]"; }
         void RegisterArguments() noexcept override
         {
@@ -459,9 +459,9 @@ namespace e29::commands
     // undo-routed: this is real and destructive to local edits, the same reasoning as EmptyTrashcan -
     // callers (UI) are expected to confirm with the user before running this, not rely on Ctrl+Z.
     //================================================================================================
-    struct source_control_revert_query_cmd : xundo::query_command_base
+    struct source_control_revert_query_cmd : scene_query_command
     {
-        source_control_revert_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "SourceControlRevert", pDataBase) { RegisterArguments(); }
+        source_control_revert_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "SourceControlRevert", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Discards local edits to one or more tracked files (git checkout --). Does not remove a new/untracked file. Usage: SourceControlRevert -Library hexguid (-Path base64 | -Paths base64-of-newline-joined-paths)"; }
         void RegisterArguments() noexcept override
         {
@@ -505,9 +505,9 @@ namespace e29::commands
     // it commits) but exposed for parity with the underlying Add() primitive and for a UI that wants
     // to show "staged" state before the user decides on a commit message.
     //================================================================================================
-    struct source_control_stage_query_cmd : xundo::query_command_base
+    struct source_control_stage_query_cmd : scene_query_command
     {
-        source_control_stage_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "SourceControlStage", pDataBase) { RegisterArguments(); }
+        source_control_stage_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "SourceControlStage", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Stages one or more files (git add), without committing. Usage: SourceControlStage -Library hexguid (-Path base64 | -Paths base64-of-newline-joined-paths)"; }
         void RegisterArguments() noexcept override
         {
@@ -549,9 +549,9 @@ namespace e29::commands
     // guidance IS the pull-first instruction, surfaced from the one place that actually knows push
     // failed for that reason.
     //================================================================================================
-    struct source_control_commit_query_cmd : xundo::query_command_base
+    struct source_control_commit_query_cmd : scene_query_command
     {
-        source_control_commit_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "SourceControlCommit", pDataBase) { RegisterArguments(); }
+        source_control_commit_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "SourceControlCommit", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Stages, commits (all given paths as ONE commit), and pushes, releasing any lock this session holds on the given paths. Usage: SourceControlCommit -Library hexguid (-Path base64 | -Paths base64-of-newline-joined-paths) -Message base64 [-KeepLocks 1]"; }
         void RegisterArguments() noexcept override
         {
@@ -606,9 +606,9 @@ namespace e29::commands
     // task's own "let the user deal with any merges" requirement; this command never runs `git
     // merge`/`git rebase` on its own behalf.
     //================================================================================================
-    struct source_control_pull_query_cmd : xundo::query_command_base
+    struct source_control_pull_query_cmd : scene_query_command
     {
-        source_control_pull_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "SourceControlPull", pDataBase) { RegisterArguments(); }
+        source_control_pull_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "SourceControlPull", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Pulls from the remote (fast-forward only - conflicts are reported, never auto-resolved). Usage: SourceControlPull -Library hexguid"; }
         void RegisterArguments() noexcept override
         {
@@ -652,9 +652,9 @@ namespace e29::commands
     // "officially push" step once SourceControlPull resolved whatever blocked an earlier
     // SourceControlCommit's own push.
     //================================================================================================
-    struct source_control_push_query_cmd : xundo::query_command_base
+    struct source_control_push_query_cmd : scene_query_command
     {
-        source_control_push_query_cmd(xundo::system& System, void* pDataBase) noexcept : query_command_base(System, "SourceControlPush", pDataBase) { RegisterArguments(); }
+        source_control_push_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "SourceControlPush", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Pushes locally committed changes to the remote. Usage: SourceControlPush -Library hexguid"; }
         void RegisterArguments() noexcept override
         {
