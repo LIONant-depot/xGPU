@@ -519,16 +519,13 @@ namespace e29::commands
             }
 
             std::vector<xecs::scene::component_dependency> RequiredFromOpenScenes;
-            if (g_pState)
-            {
-                std::unordered_set<std::uint64_t> PluginOwnedGuids;
-                for (auto& D : PluginOwnedBefore) PluginOwnedGuids.insert(D.m_Guid.m_Value);
+            std::unordered_set<std::uint64_t> PluginOwnedGuids;
+            for (auto& D : PluginOwnedBefore) PluginOwnedGuids.insert(D.m_Guid.m_Value);
 
-                for (auto& SceneGuid : State().m_OpenScenes)
-                    for (auto& Dep : xecs::scene::LoadSceneComponentDependencies(e10::g_LibMgr.m_ProjectPath, SceneGuid))
-                        if (PluginOwnedGuids.contains(Dep.m_Guid.m_Value))
-                            RequiredFromOpenScenes.push_back(Dep);
-            }
+            for (auto& SceneGuid : State().m_OpenScenes)
+                for (auto& Dep : xecs::scene::LoadSceneComponentDependencies(e10::g_LibMgr.m_ProjectPath, SceneGuid))
+                    if (PluginOwnedGuids.contains(Dep.m_Guid.m_Value))
+                        RequiredFromOpenScenes.push_back(Dep);
 
             Refs.erase(It);
             if (auto Err = SaveScriptConfig(e10::g_LibMgr.m_ProjectPath, g_ScriptConfig); Err)

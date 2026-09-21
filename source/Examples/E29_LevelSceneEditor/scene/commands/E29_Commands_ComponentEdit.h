@@ -101,7 +101,6 @@ namespace e29::commands
     // by remove_component_cmd::BackupCurrenState, BEFORE the component is actually removed.
     inline void SnapshotComponentProperties(e29_command_context& Ed, xundo::undo_file& File, xecs::component::entity Entity, const xecs::component::type::info& Info) noexcept
     {
-        if (!e29::g_pGameMgr) { File.Write(std::uint32_t{ 0 }); return; }
         auto& Details = Ed.World().m_ComponentMgr.getEntityDetails(Entity);
         if (!Details.m_pPool) { File.Write(std::uint32_t{ 0 }); return; }
         const auto iType = Details.m_pPool->findIndexComponentFromInfo(Info);
@@ -178,14 +177,11 @@ namespace e29::commands
     inline void SnapshotComponentOverrideEntry(e29_command_context& Ed, xundo::undo_file& File, xecs::component::entity Entity, const xecs::component::type::info& Info) noexcept
     {
         xecs::editor::prefab_component_override* pFound = nullptr;
-        if (e29::g_pGameMgr)
+        auto Ctx = e29::FindContainingPrefabInstance(Ed.World(), Entity);
+        if (Ctx.m_pPI)
         {
-            auto Ctx = e29::FindContainingPrefabInstance(Ed.World(), Entity);
-            if (Ctx.m_pPI)
-            {
-                auto It = std::ranges::find_if(Ctx.m_pPI->m_lComponents, [&](auto& C) noexcept { return C.m_ComponentTypeGuid == Info.m_Guid.m_Value && std::ranges::equal(C.m_MemberPath, Ctx.m_MemberPath); });
-                if (It != Ctx.m_pPI->m_lComponents.end()) pFound = &*It;
-            }
+            auto It = std::ranges::find_if(Ctx.m_pPI->m_lComponents, [&](auto& C) noexcept { return C.m_ComponentTypeGuid == Info.m_Guid.m_Value && std::ranges::equal(C.m_MemberPath, Ctx.m_MemberPath); });
+            if (It != Ctx.m_pPI->m_lComponents.end()) pFound = &*It;
         }
 
         File.Write(pFound != nullptr);

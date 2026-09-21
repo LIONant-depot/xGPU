@@ -332,7 +332,6 @@ namespace e29::commands
 
             DeleteSubtreeByPermanentId(EditorContext(), SceneGuid, PermId);
 
-            if (e29::g_pGameMgr)
                 if (auto* pScene = World().m_SceneMgr.Find(SceneGuid))
                     pScene->m_PendingChanges[PermId].m_New -= 1;
         }

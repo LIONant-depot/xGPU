@@ -98,8 +98,7 @@ namespace e29
     }
 
     // ShowCreateMenuItems moved further down in this file (right after E29_PrefabAuthoring.h's own
-    // include) - phase 4's own documentation/E29_LevelSceneEditor/command_undo_system_plan.md routing needs e29::g_pGameMgr/
-    // g_pState (E29_PrefabAuthoring.h) and xeditor::Run (E29_CommandContext.h), neither
+    // include) - phase 4's own documentation/E29_LevelSceneEditor/command_undo_system_plan.md routing needs the editor world and state (E29_EditorState.h) and xeditor::Run (E29_CommandContext.h), neither
     // available yet at this point in the file. Its only 2 callers (level/E29_Panel_LevelTree.h) are
     // reached much later in the umbrella than either dependency, so moving it is a pure relocation -
     // see its own comment at the new location.

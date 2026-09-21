@@ -67,7 +67,7 @@
 #include "scene/E29_PrefabAuthoring.h"
 
 // xeditor::Run/FormatSceneGuid (E29_CommandContext.h, lightweight - no dependency on
-// DeleteEntitySubtree itself, but needs e29::g_pGameMgr/g_pState, which E29_PrefabAuthoring.h just
+// DeleteEntitySubtree itself, but needs the editor's world and state (FindWorld/FindEditorState), which E29_EditorState.h just
 // declared above) needed by ShowCreateMenuItems' own "New Entity" branch, right below - closed/
 // reopened around this include for the same ODR-nesting reason E29_Commands_PropertyEdit.h's own
 // include comment explains (this file declares its own `namespace e29::commands { ... }` at file

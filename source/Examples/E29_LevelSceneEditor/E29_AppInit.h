@@ -404,9 +404,7 @@ namespace e29
 
         // Rebound by PollGameReload after a hot reload replaces *pGameMgr with a fresh instance.
 
-        e29::g_pGameMgr    = pGameMgr.get();
 
-        e29::g_pState      = &State;
 
         e29::g_pGamePlugin = &GamePlugin;
 
@@ -436,6 +434,8 @@ namespace e29
 
         EditorHost.m_pExternalWorkspace = &E29Undo;
         EditorHost.m_OnBeforeEdit        = e29::TryGateLevelMutation;
+        EditorHost.provide(State);
+        EditorHost.provide(pGameMgr);
 
         if (auto Err = E29Undo.Init({}, false); !Err.empty())
 
@@ -622,7 +622,7 @@ namespace e29
         EditorHost.withdraw<e29::level_host_session>();
         EditorHost.release_current();
 
-        e29::g_pGameMgr = nullptr;
+        EditorHost.withdraw<std::unique_ptr<xecs::game_mgr::instance>>();
 
         pGameMgr.reset();
 

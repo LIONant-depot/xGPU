@@ -272,22 +272,16 @@ namespace e29
     inline pending_remove_dependency_confirm g_PendingRemoveDependencyConfirm{};
 
     // Level Tree X / context menu - runs remove immediately when clear, otherwise opens the confirm modal.
-    inline void RequestRemoveSceneDependency(xundo::system& Undo, xecs::scene::guid Owner, xecs::scene::guid Parent) noexcept
+    inline void RequestRemoveSceneDependency(xecs::game_mgr::instance& GameMgr, xundo::system& Undo, xecs::scene::guid Owner, xecs::scene::guid Parent) noexcept
     {
-        if (!g_pGameMgr)
-        {
-            xeditor::Run(Undo, std::format("RemoveSceneDependency -Scene {} -Parent {}"
-                , commands::FormatSceneGuid(Owner), commands::FormatSceneGuid(Parent)));
-            return;
-        }
 
-        auto* pOwner = g_pGameMgr->m_SceneMgr.Find(Owner);
+        auto* pOwner = GameMgr.m_SceneMgr.Find(Owner);
         std::vector<clearable_cross_scene_ref> Hits;
         if (pOwner)
         {
             std::vector<xecs::scene::guid> Lost;
-            CollectLostParentsOnRemove(*g_pGameMgr, *pOwner, Parent, Lost);
-            CollectClearableRefsToLostParents(*g_pGameMgr, *pOwner, Lost, Hits);
+            CollectLostParentsOnRemove(GameMgr, *pOwner, Parent, Lost);
+            CollectClearableRefsToLostParents(GameMgr, *pOwner, Lost, Hits);
         }
 
         // Nothing to clear -> no dialog. Plain remove (also covers "WhyCannot was wrong / ExternalRef-only").

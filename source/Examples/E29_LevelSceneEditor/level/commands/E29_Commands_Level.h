@@ -549,14 +549,11 @@ struct remove_scene_cmd : scene_command
         const auto LevelGuid = xecs::level::guid{ .m_Instance = { Level } };
         const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
 
-        if (e29::g_pGameMgr)
+        if (auto* pLevel = World().m_LevelMgr.Find(LevelGuid))
         {
-            if (auto* pLevel = World().m_LevelMgr.Find(LevelGuid))
-            {
-                auto It = std::find(pLevel->m_Scenes.begin(), pLevel->m_Scenes.end(), SceneGuid);
-                if (It != pLevel->m_Scenes.end())
-                    Index = static_cast<std::uint32_t>(std::distance(pLevel->m_Scenes.begin(), It));
-            }
+            auto It = std::find(pLevel->m_Scenes.begin(), pLevel->m_Scenes.end(), SceneGuid);
+            if (It != pLevel->m_Scenes.end())
+                Index = static_cast<std::uint32_t>(std::distance(pLevel->m_Scenes.begin(), It));
         }
 
         auto& State = get<e29_command_context>().m_State;

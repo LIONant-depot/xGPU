@@ -135,4 +135,19 @@ namespace e29
         // One-shot: FinishPendingDocumentAction sets this after OpenLevel; editor frame consumes.
         bool                 m_bPendingStartGameReloadAfterOpen = false;
     };
+
+    // The editor's state and world, as host services (provided at startup). For code that has no session of its own:
+    // static drag-drop handlers, the host's edit gate and the Play helpers. Everything with a session uses its context.
+    inline editor_state* FindEditorState() noexcept
+    {
+        auto* pHost = xeditor::host::current();
+        return pHost ? pHost->find<editor_state>() : nullptr;
+    }
+
+    inline xecs::game_mgr::instance* FindWorld() noexcept
+    {
+        auto* pHost  = xeditor::host::current();
+        auto* pOwner = pHost ? pHost->find<std::unique_ptr<xecs::game_mgr::instance>>() : nullptr;
+        return pOwner ? pOwner->get() : nullptr;
+    }
 }

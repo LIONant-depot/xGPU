@@ -103,8 +103,9 @@ namespace e29
 
                 auto It = m_ComponentMap.find(Cmd.m_pClassObject);
                 if (It == m_ComponentMap.end()) return;
-                if (!e29::g_pState || !e29::g_pGameMgr) return;
-                auto& State = *e29::g_pState;
+                auto* pState = e29::FindEditorState();
+                if (!pState || !e29::FindWorld()) return;
+                auto& State = *pState;
 
                 std::array<char, 256> BeforeBuffer{}, AfterBuffer{};
                 const auto BeforeLen = e29::commands::FormatPropertyValue(BeforeBuffer, Cmd.m_Original);

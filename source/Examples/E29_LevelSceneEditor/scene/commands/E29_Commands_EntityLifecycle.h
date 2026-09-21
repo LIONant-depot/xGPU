@@ -133,19 +133,16 @@ namespace e29::commands
     {
         xecs::editor::prefab_instance* pPI = nullptr;
         xecs::scene::permanent_id      PIRootId = xecs::scene::invalid_permanent_id_v;
-        if (e29::g_pGameMgr)
+        if (auto* pScene = Ed.World().m_SceneMgr.Find(SceneGuid); pScene && pScene->m_LocalToRuntime.contains(RootId))
         {
-            if (auto* pScene = Ed.World().m_SceneMgr.Find(SceneGuid); pScene && pScene->m_LocalToRuntime.contains(RootId))
+            auto Ctx = e29::FindContainingPrefabInstance(Ed.World(), pScene->m_LocalToRuntime.at(RootId));
+            // MemberPath empty ⇒ RootId IS the PI root (or not under a PI). RecordRemovedChildOverride
+            // no-ops in that case, so there is nothing extra to restore.
+            if (Ctx.m_pPI != nullptr && !Ctx.m_MemberPath.empty())
             {
-                auto Ctx = e29::FindContainingPrefabInstance(Ed.World(), pScene->m_LocalToRuntime.at(RootId));
-                // MemberPath empty ⇒ RootId IS the PI root (or not under a PI). RecordRemovedChildOverride
-                // no-ops in that case, so there is nothing extra to restore.
-                if (Ctx.m_pPI != nullptr && !Ctx.m_MemberPath.empty())
-                {
-                    pPI = Ctx.m_pPI;
-                    if (auto It = pScene->m_RuntimeToLocal.find(Ctx.m_RootEntity.m_Value); It != pScene->m_RuntimeToLocal.end())
-                        PIRootId = It->second;
-                }
+                pPI = Ctx.m_pPI;
+                if (auto It = pScene->m_RuntimeToLocal.find(Ctx.m_RootEntity.m_Value); It != pScene->m_RuntimeToLocal.end())
+                    PIRootId = It->second;
             }
         }
 
@@ -245,7 +242,7 @@ namespace e29::commands
     // encode Scene (it might not be a plain xecs::scene::guid round trip at all).
     inline void SnapshotSubtreeForRestore(e29_command_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
     {
-        auto* pScene = e29::g_pGameMgr ? Ed.World().m_SceneMgr.Find(SceneGuid) : nullptr;
+        auto* pScene = Ed.World().m_SceneMgr.Find(SceneGuid);
         if (!pScene || !pScene->m_LocalToRuntime.contains(RootId))
         {
             File.Write(static_cast<std::uint32_t>(xecs::scene::invalid_folder_id_v));
@@ -660,7 +657,6 @@ namespace e29::commands
 
             // Exact inverse of this command's own Redo() MarkEntityNew call - see this file's own top
             // comment quoting m_PendingChanges' documented undo contract.
-            if (e29::g_pGameMgr)
                 if (auto* pScene = World().m_SceneMgr.Find(SceneGuid))
                     pScene->m_PendingChanges[PermId].m_New -= 1;
 

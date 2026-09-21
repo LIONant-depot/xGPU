@@ -11,7 +11,7 @@
 // through CreatePrefabVariantFromInstance), plus the drag-payload + drop registration that turns a
 // Level-tree entity into a Prefab asset (entity_to_prefab_drop) - kept together rather than split
 // further since the drop handler directly calls the authoring functions above it and shares their
-// two globals (g_pGameMgr/g_pState), not a separately-reusable concern on its own. Meant to be
+// two services (the world and the state), not a separately-reusable concern on its own. Meant to be
 // included via the umbrella only, after E29_PrefabOverrides.h (AttachPrefabInstanceComponent).
 
 namespace e29
@@ -406,13 +406,6 @@ namespace e29
         xecs::scene::permanent_id  m_Id;
     };
 
-    // Set once, near the top of the owning example's setup, so entity_to_prefab_drop::OnDrop (a
-    // static, globally-registered object constructed long before GameMgr/State exist) can reach the
-    // live editor state at drop time. Matches this codebase's existing convention for singleton editor
-    // state (e10::g_LibMgr, xresource::g_Mgr, e29::g_AssetBrowserPopup) - an example built on this kit
-    // only ever runs one instance of itself, so this isn't introducing a new kind of assumption.
-    inline xecs::game_mgr::instance* g_pGameMgr = nullptr;
-    inline editor_state*             g_pState   = nullptr;
 
 
     // Defined in E29_LevelDocument.h; declared here because this is the earliest header that needs them.
@@ -423,7 +416,8 @@ namespace e29
     inline bool TryGateLevelMutation(xundo::system& System) noexcept
     {
         auto* pHost = xeditor::host::current();
-        if (pHost == nullptr || g_pState == nullptr || &System != FindLevelUndo()) return true;
+        auto* pState = FindEditorState();
+        if (pHost == nullptr || pState == nullptr || &System != FindLevelUndo()) return true;
         xeditor::session* pSess = nullptr;
         for (auto& S : pHost->m_Sessions)
         {
@@ -432,9 +426,9 @@ namespace e29
         if (pSess == nullptr) return true;
         // EnsureLevelEditAccess lives in E29_LevelDocument.h — forward call via include order in .cpp.
         // First edit claims Level + selected scene(s) only (no ask). Save/clean releases via Sync.
-        if (!g_pState->m_CurrentLevel.empty())
+        if (!pState->m_CurrentLevel.empty())
         {
-            const xresource::full_guid LevelGuid{ g_pState->m_CurrentLevel.m_Instance, xecs::level::type_guid_v };
+            const xresource::full_guid LevelGuid{ pState->m_CurrentLevel.m_Instance, xecs::level::type_guid_v };
             if (!pHost->try_acquire_write(LevelGuid, pSess)) return false;
         }
         auto TryScene = [&](const xecs::scene::guid& SceneInst) noexcept -> bool
@@ -443,15 +437,15 @@ namespace e29
             const xresource::full_guid SceneGuid{ SceneInst.m_Instance, xecs::scene::type_guid_v };
             return pHost->try_acquire_write(SceneGuid, pSess);
         };
-        if (!TryScene(g_pState->m_SelectedEntityScene)) return false;
-        if (!TryScene(g_pState->m_MultiSelectScene)) return false;
+        if (!TryScene(pState->m_SelectedEntityScene)) return false;
+        if (!TryScene(pState->m_MultiSelectScene)) return false;
         return true;
     }
 
 
 
 
-    // Set by the editor once the command/undo system exists (same lifetime as g_pGameMgr/g_pState).
+    // Set by the editor once the command/undo system exists.
     // entity_to_prefab_drop::OnDrop cannot include the MakePrefab command headers (include order /
     // cycle with this file), so the drop path calls through this hook instead of CreatePrefab* directly.
     using make_prefab_drop_fn_t = xresource::full_guid(*)(e10::library_mgr&, e10::library::guid, xresource::full_guid, const entity_drag_payload_t&) noexcept;
@@ -506,7 +500,7 @@ namespace e29
 
         xresource::full_guid OnDrop(e10::library_mgr& AssetMgr, e10::library::guid LibraryGUID, xresource::full_guid ParentGUID, const void* pData, std::size_t Size) const noexcept override
         {
-            if (Size != sizeof(entity_drag_payload_t) || g_pGameMgr == nullptr) return {};
+            if (Size != sizeof(entity_drag_payload_t) || FindWorld() == nullptr) return {};
             if (g_MakePrefabDropHandler == nullptr) return {};
             auto& Payload = *reinterpret_cast<const entity_drag_payload_t*>(pData);
             // Routed through MakePrefab / MakePrefabVariant commands (see MakePrefabDropViaCommands) so

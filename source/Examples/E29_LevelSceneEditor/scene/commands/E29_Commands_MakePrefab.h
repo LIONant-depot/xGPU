@@ -354,15 +354,12 @@ namespace e29::commands
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
             xecs::editor::prefab_instance* pOldPI = nullptr;
-            if (e29::g_pGameMgr)
+            if (auto* pScene = World().m_SceneMgr.Find(SceneGuid); pScene && pScene->m_LocalToRuntime.contains(static_cast<xecs::scene::permanent_id>(Id)))
             {
-                if (auto* pScene = World().m_SceneMgr.Find(SceneGuid); pScene && pScene->m_LocalToRuntime.contains(static_cast<xecs::scene::permanent_id>(Id)))
-                {
-                    auto Entity = pScene->m_LocalToRuntime.at(static_cast<xecs::scene::permanent_id>(Id));
-                    auto& Details = World().m_ComponentMgr.getEntityDetails(Entity);
-                    const auto iType = Details.m_pPool ? Details.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) : -1;
-                    if (iType >= 0) pOldPI = &Details.m_pPool->getComponent<xecs::editor::prefab_instance>(Details.m_PoolIndex);
-                }
+                auto Entity = pScene->m_LocalToRuntime.at(static_cast<xecs::scene::permanent_id>(Id));
+                auto& Details = World().m_ComponentMgr.getEntityDetails(Entity);
+                const auto iType = Details.m_pPool ? Details.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) : -1;
+                if (iType >= 0) pOldPI = &Details.m_pPool->getComponent<xecs::editor::prefab_instance>(Details.m_PoolIndex);
             }
 
             File.Write(pOldPI != nullptr);
@@ -494,9 +491,11 @@ namespace e29
         (void)AssetMgr;
         // Prefab creation mutates the Level document, so it goes through the Level session's undo.
         xundo::system* pDocUndo = &LevelDocUndo();
-        if (g_pGameMgr == nullptr) return {};
+        auto* pWorld = FindWorld();
+        auto* pState = FindEditorState();
+        if (pWorld == nullptr) return {};
 
-        auto* pScene = g_pGameMgr->m_SceneMgr.Find(Payload.m_SceneGuid);
+        auto* pScene = pWorld->m_SceneMgr.Find(Payload.m_SceneGuid);
         if (pScene == nullptr) return {};
 
         auto SourceIt = pScene->m_LocalToRuntime.find(Payload.m_Id);
@@ -506,10 +505,10 @@ namespace e29
         NewInstance.GenerateGUID();
         const xresource::full_guid NewAsset{ .m_Instance = NewInstance, .m_Type = xecs::prefab::type_guid_v };
 
-        const bool bIsMultiSelect = g_pState && g_pState->m_MultiSelectScene == Payload.m_SceneGuid && g_pState->m_MultiSelectedEntityIds.size() > 1 && g_pState->m_MultiSelectedEntityIds.contains(Payload.m_Id);
+        const bool bIsMultiSelect = pState && pState->m_MultiSelectScene == Payload.m_SceneGuid && pState->m_MultiSelectedEntityIds.size() > 1 && pState->m_MultiSelectedEntityIds.contains(Payload.m_Id);
         if (!bIsMultiSelect)
         {
-            auto& SourceDetails = g_pGameMgr->m_ComponentMgr.getEntityDetails(SourceIt->second);
+            auto& SourceDetails = pWorld->m_ComponentMgr.getEntityDetails(SourceIt->second);
             if (SourceDetails.m_pPool && SourceDetails.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) >= 0)
             {
                 const auto Cmd = std::format("MakePrefabVariant -Scene {} -Id {} -Library {} -Asset {} -Parent {}"
@@ -523,7 +522,7 @@ namespace e29
             }
         }
 
-        auto Root = g_pState ? DetermineGroupRoot(*g_pGameMgr, *pScene, Payload.m_SceneGuid, *g_pState, Payload.m_Id)
+        auto Root = pState ? DetermineGroupRoot(*pWorld, *pScene, Payload.m_SceneGuid, *pState, Payload.m_Id)
                              : SourceIt->second;
         if (Root.isValid() == false) return {};
 

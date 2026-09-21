@@ -1040,7 +1040,7 @@ namespace e29
                                                     if (bDepRemoved)
                                                     {
                                                         const auto ParentGuid = pScene->m_ParentScenes[iDep];
-                                                        e29::RequestRemoveSceneDependency(Undo, SceneGuid, ParentGuid);
+                                                        e29::RequestRemoveSceneDependency(GameMgr, Undo, SceneGuid, ParentGuid);
                                                         ImGui::PopID();
                                                         break; // pScene->m_ParentScenes was just mutated mid-iteration
                                                     }

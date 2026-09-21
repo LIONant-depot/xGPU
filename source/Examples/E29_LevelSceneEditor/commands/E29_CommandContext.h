@@ -7,18 +7,12 @@
 // node_os_command_context/BackupSelection/RestoreSelection (Editor/NodeOS_CommandContext.h) - see
 // documentation/E29_LevelSceneEditor/command_undo_system_plan.md for the full phased plan this is step 1 of.
 //
-// Deliberately holds ONLY editor_state& - NOT a xecs::game_mgr::instance& the way E27_NodeOS's own
-// context holds its node/link vectors directly. E29's pGameMgr is a unique_ptr that gets destroyed
-// and reconstructed on every hot-reload (RebuildWorld, E29_GamePlugin.h) - a reference captured once
-// at construction would dangle the moment the first reload happened, exactly the class of bug this
-// whole session's earlier work (tree preservation, the m_ComponentInfoMap stale-pointer fix) was
-// about. editor_state itself is never reconstructed this way (RebuildWorld mutates its fields, never
-// replaces the object), so a reference to it is safe to hold - GameMgr access instead goes through
-// e29::g_pGameMgr, the existing global E29_GamePlugin.h's own RebuildWorld already keeps correctly
-// rebound after every reload (`g_pGameMgr = pGameMgr.get();`), rather than this context inventing a
-// second, separately-maintained pointer to keep in sync.
+// One per editor: it holds that editor's state and a reference to the OWNER of its world. The world is destroyed and
+// recreated on every Game.dll reload, so the context must never hold a pointer to the world itself - it holds the
+// unique_ptr that owns it and reads through it each time (World()). Commands reach all of this through scene_command
+// (World(), State(), EditorContext()); helper functions take the context explicitly.
 //
-// Meant to be included after editor_state (and e29::g_pGameMgr/xeditor::NotifyError) are already defined -
+// Meant to be included after editor_state (and xeditor::NotifyError) are already defined -
 // via the kit umbrella (E29_LevelSceneEditorKit.h), or a caller that already includes it - same
 // convention every other extracted kit/plugin module in this project already follows, rather than
 // self-including the umbrella here (this header is itself reached FROM WITHIN the umbrella, via
@@ -67,8 +61,8 @@ namespace e29::commands
     // Shared by select_cmd/toggle_multi_select_cmd/clear_selection_cmd - all three snapshot/restore
     // the exact same fields. m_SelectedEntity (the live runtime handle) is deliberately NOT part of
     // the snapshot - it's a cache, always re-resolved fresh from {m_SelectedEntityScene,
-    // m_SelectedEntityId} via the scene's own m_LocalToRuntime map on restore (through
-    // e29::g_pGameMgr - see this file's own top comment for why), matching this project's own
+    // m_SelectedEntityId} via the scene's own m_LocalToRuntime map on restore (through the context's
+    // World()), matching this project's own
     // standing rule of never carrying a raw runtime handle across a boundary where the world could
     // have changed underneath it - an Undo/Redo step is exactly such a boundary, potentially long
     // after the entity in question was last touched.

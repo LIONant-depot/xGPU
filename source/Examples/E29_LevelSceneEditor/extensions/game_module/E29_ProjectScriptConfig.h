@@ -25,7 +25,7 @@ namespace e29
     };
     XPROPERTY_REG(script_config)
 
-    inline script_config g_ScriptConfig; // one per process - matches g_pGameMgr's own "one instance" assumption
+    inline script_config g_ScriptConfig; // one per process - one instance per process
 
     inline xerr SaveScriptConfig(const std::wstring& ProjectPath, const script_config& Config) noexcept
     {

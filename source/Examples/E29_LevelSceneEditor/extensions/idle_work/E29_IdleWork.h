@@ -394,7 +394,6 @@ namespace e29::commands
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
         {
-            if (!e29::g_pGameMgr) return "RunSanityCheck: no game world";
             auto& State = get<e29_command_context>().m_State;
             if (State.m_OpenScenes.empty()) return "RunSanityCheck: no open scenes";
 

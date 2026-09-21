@@ -68,7 +68,7 @@ namespace e29
         bool isLoaded(void) const noexcept { return m_hModule != nullptr; }
     };
 
-    // Set once, near g_pGameMgr/g_pState (E29_PrefabAuthoring.h), so a CLI/Console-driven command
+    // Set once at startup (like the editor state and world services), so a CLI/Console-driven command
     // (E29_Commands_PlaySession.h) can trigger the same Play/Pause/Stop transitions the menu-bar
     // buttons do without needing synthetic mouse input - same "one instance per process" assumption
     // those two globals already make.

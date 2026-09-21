@@ -17,7 +17,7 @@ namespace e29
     // review flagged it as the one glaring inconsistency left next to CreateEntity/DeleteEntity sitting
     // right beside it in this same menu) - CreateFolder/DeleteFolder commands, commands/
     // E29_Commands_SceneOrganization.h. Moved here (was originally much earlier in this file) since
-    // this routing needs both e29::g_pGameMgr/g_pState (just declared, E29_PrefabAuthoring.h above) and
+    // this routing needs both the editor's world and state (FindWorld/FindEditorState, E29_EditorState.h) and
     // xeditor::Run (just included above) - neither was available at the function's original
     // position.
     void ShowCreateMenuItems(xecs::scene::guid SceneGuid, xecs::scene::instance& Scene, xecs::scene::folder_id TargetFolder, xundo::system& Undo) noexcept

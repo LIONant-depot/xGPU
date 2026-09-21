@@ -337,14 +337,14 @@ namespace e29
 
         // resource type's double-click behavior is unchanged (today's inert setSelection-only default).
 
-        AsserBrowser.m_OnOpenAsset = [](e10::library::guid LibraryGuid, xresource::full_guid AssetGuid)
+        AsserBrowser.m_OnOpenAsset = [this](e10::library::guid LibraryGuid, xresource::full_guid AssetGuid)
             {
                 if (AssetGuid.m_Type == xecs::level::type_guid_v)
                 {
-                    if (e29::g_pGameMgr == nullptr || e29::g_pState == nullptr || e29::FindLevelUndo() == nullptr)
+                    if (e29::FindLevelUndo() == nullptr)
                         return;
-                    if (e29::RequestOpenLevel(*e29::g_pGameMgr, *e29::g_pState, *e29::FindLevelUndo(), AssetGuid, /*bStartGameReload*/ true))
-                        e29::g_pState->m_bPendingStartGameReloadAfterOpen = true;
+                    if (e29::RequestOpenLevel(*pGameMgr, State, *e29::FindLevelUndo(), AssetGuid, /*bStartGameReload*/ true))
+                        State.m_bPendingStartGameReloadAfterOpen = true;
                     return;
                 }
                 if (AssetGuid.m_Type != xrsc::texture_type_guid_v) return;

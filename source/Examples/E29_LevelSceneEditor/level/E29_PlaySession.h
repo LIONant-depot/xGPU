@@ -237,7 +237,7 @@ namespace e29
         StartGameReload(Plugin);
         return "Play requested (recompile-check in progress)";
 #else
-        EnterPlaying(*g_pGameMgr, State);
+        EnterPlaying(*FindWorld(), State);
         return "Playing";
 #endif
     }
@@ -337,7 +337,7 @@ namespace e29
     // reconstructed; InspectorBridge.RegisterCallbacks re-run against the new instance - its own
     // callbacks are stored as std::function MEMBERS specifically so they can be rebound like this,
     // see its own declaration comment) - the caller's own references/pointers to these three stay
-    // valid across the call; only their CONTENTS change. g_pGameMgr is updated to match.
+    // valid across the call; only their CONTENTS change. the world's owner (a unique_ptr) keeps pointing at the new one.
     //---------------------------------------------------------------------------
     template< typename T_REGISTER_HOST_COMPONENTS_FN, typename T_REGISTER_HOST_SYSTEMS_FN >
     bool RebuildWorld
@@ -477,7 +477,6 @@ namespace e29
             xeditor::NotifyError(std::format("Failed to load System Registry order: {}", Err.getMessage()));
 
 
-        g_pGameMgr = pGameMgr.get();
         InspectorBridge.RegisterCallbacks(EntityInspector, *pGameMgr, State, Undo);
 
         // State.m_SelectedEntity is the only RUNTIME handle here (m_GlobalInfoIndex/m_Validation -
@@ -565,12 +564,14 @@ namespace e29
     // the same program is enough to use it, no redefinition risk.
 inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene::component_dependency>& MissingDeps ) noexcept
     {
-        if (!g_pGameMgr || !g_pState) return;
+        auto* pWorld = FindWorld();
+        auto* pState = FindEditorState();
+        if (!pWorld || !pState) return;
         xundo::system* pDocUndo = &LevelDocUndo();
 
-        for (auto& SceneGuid : g_pState->m_OpenScenes)
+        for (auto& SceneGuid : pState->m_OpenScenes)
         {
-            auto* pScene = g_pGameMgr->m_SceneMgr.Find(SceneGuid);
+            auto* pScene = pWorld->m_SceneMgr.Find(SceneGuid);
             if (!pScene) continue;
 
             for (auto& Pair : pScene->m_LocalToRuntime)
@@ -578,13 +579,13 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
                 const auto Id     = Pair.first;
                 auto&      Entity = Pair.second;
 
-                auto& EDetails = g_pGameMgr->m_ComponentMgr.getEntityDetails(Entity);
+                auto& EDetails = pWorld->m_ComponentMgr.getEntityDetails(Entity);
                 if (!EDetails.m_pPool || !EDetails.m_pPool->m_pArchetype) continue;
                 auto& Bits = EDetails.m_pPool->m_pArchetype->getComponentBits();
 
                 for (auto& Dep : MissingDeps)
                 {
-                    auto* pInfo = g_pGameMgr->m_ComponentMgr.findComponentTypeInfo(Dep.m_Guid);
+                    auto* pInfo = pWorld->m_ComponentMgr.findComponentTypeInfo(Dep.m_Guid);
                     if (!pInfo || !Bits.getBit(pInfo->m_BitID)) continue;
 
                     xeditor::Run(*pDocUndo, std::format("RemoveComponent -Scene {} -Id {} -Component {:016X}"
@@ -600,7 +601,7 @@ inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene:
     //---------------------------------------------------------------------------
     // Called once per frame from the main loop, same shape as RenderGamePluginLogPanel - zero
     // parameters, reads/writes only through the established single-instance globals
-    // (g_PendingReloadCompatibility, g_pGameMgr/g_pState/g_pGamePlugin), matching this
+    // (g_PendingReloadCompatibility, the world/state services, g_pGamePlugin), matching this
     // codebase's own convention for cross-cutting UI state that isn't naturally owned by one panel.
     //---------------------------------------------------------------------------
     inline void RenderReloadCompatibilityModal() noexcept

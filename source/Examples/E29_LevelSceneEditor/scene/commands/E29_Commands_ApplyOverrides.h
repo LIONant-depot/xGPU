@@ -261,13 +261,6 @@ namespace e29::commands
             File.Write(Scene);
             File.Write(Id);
 
-            if (!e29::g_pGameMgr)
-            {
-                File.Write(std::uint32_t{ 0 }); // m_lComponents
-                File.Write(std::uint32_t{ 0 }); // m_HierarchyDiffs
-                File.Write(std::uint32_t{ 0 }); // empty prefab-before list
-                return;
-            }
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
             auto* pScene = World().m_SceneMgr.Find(SceneGuid);
@@ -525,12 +518,6 @@ namespace e29::commands
             File.Write(Scene);
             File.Write(Id);
 
-            if (!e29::g_pGameMgr)
-            {
-                File.Write(std::uint32_t{ 0 });
-                File.Write(std::uint32_t{ 0 });
-                return;
-            }
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
             auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene || !pScene->m_LocalToRuntime.contains(static_cast<xecs::scene::permanent_id>(Id)))
@@ -781,7 +768,7 @@ namespace e29::commands
             if (false == OriginalParent.isValid())
                 e29::ReparentEntityIntoFolder(*pScene, Id, OriginalFolderId);
 
-            e29::AttachPrefabInstanceComponent(World(), *pScene, Id, NewRoot, PrefabGuid, e29::g_pState);
+            e29::AttachPrefabInstanceComponent(World(), *pScene, Id, NewRoot, PrefabGuid, &State());
             // Attach clears m_lComponents / m_ComponentDiffs; HierarchyDiffs may remain on some revisions.
             if (auto* pNewPI = e29::FindPrefabInstance(World(), NewRoot))
             {
@@ -804,16 +791,13 @@ namespace e29::commands
             }
 
             World().m_SceneMgr.MarkEntityDirty(SceneGuid, Id);
-            if (e29::g_pState)
+            if (bRootWasSelected)
             {
-                if (bRootWasSelected)
-                {
-                    State().m_SelectedEntity      = NewRoot;
-                    State().m_SelectedEntityId    = Id;
-                    State().m_SelectedEntityScene = SceneGuid;
-                }
-                State().m_bEntityInspectorDirty = true;
+                State().m_SelectedEntity      = NewRoot;
+                State().m_SelectedEntityId    = Id;
+                State().m_SelectedEntityScene = SceneGuid;
             }
+            State().m_bEntityInspectorDirty = true;
             return {};
         }
 
