@@ -40,9 +40,9 @@
 // umbrella (E29_LevelSceneEditorKit.h, well before this panel's own include), so it isn't repeated
 // here - these two are the only pieces this panel doesn't already have "for free" by include order,
 // same "include what you name, don't rely on a distant caller's order" discipline as the includes
-// above (E29_Panel_SourceControl.h itself pulls both in too, but only LATER in the umbrella's own
+// above (E10_Panel_SourceControl.h itself pulls both in too, but only LATER in the umbrella's own
 // include list - after this panel).
-#include "source/Examples/E29_LevelSceneEditor/extensions/source_control/E29_Commands_SourceControl.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_SourceControl.h"
 #include "dependencies/xresource_pipeline_v2/source/editor/E10_SourceControlCache.h"
 
 namespace e29
@@ -108,7 +108,7 @@ namespace e29
     // Renders the Level Tree's own source-control status/lock badge for a Scene or Level resource -
     // direct user request: "the 'level Tree' left source control column... similar to the one we
     // have done in all other views." Scoped to Scene/Level rows only, same granularity the Source
-    // Control panel itself already uses (E29_Panel_SourceControl.h's own top comment: a Scene is one
+    // Control panel itself already uses (E10_Panel_SourceControl.h's own top comment: a Scene is one
     // committable file as far as git is concerned - an Entity/Folder has no file of its own to track,
     // "a real, separate future feature," not this one). Draws directly into the CURRENT table cell
     // (call this right after TableSetColumnIndex for the dedicated "##SC" column), reusing the exact
@@ -166,7 +166,7 @@ namespace e29
             });
             if (!bFound) continue;
 
-            const auto RootPath = e29::commands::ResolveLibraryRootPath(Lib.first);
+            const auto RootPath = e10::commands::ResolveLibraryRootPath(Lib.first);
             if (RootPath.empty()) return std::nullopt;
 
             return level_tree_sc_target{ Lib.first, RootPath, DescriptorPath, FolderPath };
@@ -273,14 +273,14 @@ namespace e29
             {
                 if (const auto Target = ResolveLevelTreeSourceControlTarget(Req.m_ResourceGuid))
                 {
-                    // Shared tail (E29_Commands_SourceControl.h) with the Resources/Assets tabs' own
+                    // Shared tail (E10_Commands_SourceControl.h) with the Resources/Assets tabs' own
                     // whole-folder revert - same enumerate-then-batch-revert primitive, not
                     // reimplemented here. The single-file case is simple enough to stay inline.
                     if (Req.m_bWholeFolder)
-                        e29::commands::RunRevertUnderFolder(Undo, Target->m_Library, Target->m_RootPath, Target->m_FolderPath);
+                        e10::commands::RunRevertUnderFolder(Undo, Target->m_Library, Target->m_RootPath, Target->m_FolderPath);
                     else
                         xeditor::RunQuery(Undo, std::format("SourceControlRevert -Library {} -Path {}"
-                            , e29::commands::FormatLibraryGuid(Target->m_Library), e29::commands::EncodeAssetPath(Target->m_DescriptorPath)));
+                            , e10::commands::FormatLibraryGuid(Target->m_Library), e10::commands::EncodeAssetPath(Target->m_DescriptorPath)));
                 }
                 ImGui::CloseCurrentPopup();
             }

@@ -152,8 +152,8 @@ namespace e29::commands
             if (std::holds_alternative<xerr>(LibraryArg) || std::holds_alternative<xerr>(ParentArg))
                 return "AddLibraryDependency: bad arguments";
 
-            const auto LibraryGuid = ParseLibraryGuid(std::get<std::string>(LibraryArg));
-            const auto ParentGuid  = ParseLibraryGuid(std::get<std::string>(ParentArg));
+            const auto LibraryGuid = e10::commands::ParseLibraryGuid(std::get<std::string>(LibraryArg));
+            const auto ParentGuid  = e10::commands::ParseLibraryGuid(std::get<std::string>(ParentArg));
             if (LibraryGuid == ParentGuid) return "AddLibraryDependency: a library cannot depend on itself";
 
             bool bLibraryLoaded = false;
@@ -281,8 +281,8 @@ namespace e29::commands
             if (std::holds_alternative<xerr>(LibraryArg) || std::holds_alternative<xerr>(ParentArg))
                 return "RemoveLibraryDependency: bad arguments";
 
-            const auto LibraryGuid = ParseLibraryGuid(std::get<std::string>(LibraryArg));
-            const auto ParentGuid  = ParseLibraryGuid(std::get<std::string>(ParentArg));
+            const auto LibraryGuid = e10::commands::ParseLibraryGuid(std::get<std::string>(LibraryArg));
+            const auto ParentGuid  = e10::commands::ParseLibraryGuid(std::get<std::string>(ParentArg));
 
             if (auto Why = WhyCannotRemoveLibraryDependency(LibraryGuid, ParentGuid); !Why.empty())
                 return Why;
@@ -410,7 +410,7 @@ namespace e29::commands
             if (auto Err = e10::g_LibMgr.EnsureLibraryLoaded(Path, /*bExplicitRequest*/ true, /*bIsRootProject*/ false, OutGuid); Err)
                 return std::format("CreateLibrary: written to disk but failed to load: {}", Err.getMessage());
 
-            return FormatLibraryGuid(OutGuid);
+            return e10::commands::FormatLibraryGuid(OutGuid);
         }
 
         xcmdline::parser::handle m_hPath;
@@ -445,7 +445,7 @@ namespace e29::commands
             auto LibraryArg = m_Parser.getOptionArgAs<std::string>(m_hLibrary, 0);
             if (std::holds_alternative<xerr>(LibraryArg)) return "ListLegalReferenceLibraries: bad arguments";
 
-            const auto LibraryGuid = ParseLibraryGuid(std::get<std::string>(LibraryArg));
+            const auto LibraryGuid = e10::commands::ParseLibraryGuid(std::get<std::string>(LibraryArg));
 
             std::vector<e10::library::guid> Legal;
             e10::g_LibMgr.CollectTransitiveLibraryParents(std::vector<e10::library::guid>{ LibraryGuid }, e10::library::guid{}, Legal);
@@ -455,7 +455,7 @@ namespace e29::commands
             {
                 std::wstring Path;
                 e10::g_LibMgr.m_mLibraryDB.FindAsReadOnly(G, [&](const std::unique_ptr<e10::library_db>& DB) { Path = DB->m_Library.m_Path; });
-                Out += std::format("{}  {}\n", FormatLibraryGuid(G), xstrtool::To(Path));
+                Out += std::format("{}  {}\n", e10::commands::FormatLibraryGuid(G), xstrtool::To(Path));
             }
             return Out;
         }

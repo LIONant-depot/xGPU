@@ -621,7 +621,7 @@ namespace e29
 
             case 2:
 
-                e29::RenderSourceControlPanel(E29Undo, /*bEmbedded*/ true);
+                e10::RenderSourceControlPanel(E29Undo);
 
                 break;
 

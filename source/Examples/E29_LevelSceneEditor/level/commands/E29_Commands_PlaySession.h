@@ -89,7 +89,7 @@ namespace e29::commands
     //
     // -Keep answers "keep property tweaks made during Play?" up front - for AI/script use, there is no
     // confirmation dialog for a script to click (same reasoning as -Force on the Asset File commands,
-    // E29_Commands_AssetFiles.h: "there is no dialog to click"). Omitting it when there IS something
+    // E10_Commands_AssetFiles.h: "there is no dialog to click"). Omitting it when there IS something
     // to ask about defers to the same confirmation modal the UI shows (RequestStop sets the identical
     // m_bAwaitingKeepTweaksAnswer flag either way) - Stop stays on hold until it's answered one way or
     // the other, by a human or a follow-up -Keep call.

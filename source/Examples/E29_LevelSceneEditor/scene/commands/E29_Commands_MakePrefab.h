@@ -6,7 +6,7 @@
 // session (documentation/E29_LevelSceneEditor/command_undo_known_gaps.md) and the Asset Browser command-layer session
 // (documentation/E29_LevelSceneEditor/asset_browser_command_layer.md): "Make Prefab" creates a real Prefab ASSET on disk
 // (AssetMgr.NewAsset) AND converts a live entity/group into an instance of it - a genuine composition
-// of what CreateAsset (E29_Commands_AssetBrowser.h) and the entity-subtree snapshot/restore machinery
+// of what CreateAsset (E10_Commands_Assets.h) and the entity-subtree snapshot/restore machinery
 // (SnapshotSubtreeForRestore/RestoreSubtreeFromSnapshot, E29_Commands_EntityLifecycle.h) each already
 // solve on their own. This file is that composition, not a third reimplementation.
 //
@@ -30,7 +30,7 @@
 // (a single existing entity, root of a real subtree already, or from that synthesis step run
 // separately/manually) exactly as DetermineGroupRoot itself already hands back today. Making THAT
 // step undo-routed too is a distinct, smaller follow-up, not folded in here.
-#include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_Commands_AssetBrowser.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_Assets.h"
 #include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_EntityLifecycle.h"
 
 namespace e29::commands
@@ -59,11 +59,11 @@ namespace e29::commands
         if (auto& D = GameMgr.m_ComponentMgr.getEntityDetails(Root); D.m_pPool && D.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<e29::name>.m_BitID))
             Name = D.m_pPool->getComponent<e29::name>(D.m_PoolIndex).m_Value;
 
-        // CreateOrRestoreAsset (E29_Commands_AssetBrowser.h), not a plain NewAsset call - a re-Redo
+        // CreateOrRestoreAsset (E10_Commands_Assets.h), not a plain NewAsset call - a re-Redo
         // (after an Undo trashed this exact prefab asset guid) must restore-from-trash instead of
         // calling NewAsset again, same reasoning/bug CreateAsset's own Redo already had to solve -
         // confirmed live this hits the identical failure mode when reused verbatim here.
-        CreateOrRestoreAsset(LibraryGUID, ExplicitPrefabAssetGuid, ParentGUID, Name);
+        e10::commands::CreateOrRestoreAsset(LibraryGUID, ExplicitPrefabAssetGuid, ParentGUID, Name);
         const xecs::prefab::guid PrefabGuid = ExplicitPrefabAssetGuid;
 
         GameMgr.m_PrefabMgr.CreatePrefabFromEntity(Root, PrefabGuid);
@@ -208,9 +208,9 @@ namespace e29::commands
 
             const auto SceneGuid   = ParseSceneGuid(std::get<std::string>(SceneArg));
             const auto Id          = ParseEntityId(std::get<std::string>(IdArg));
-            const auto LibraryGuid = ParseLibraryGuid(std::get<std::string>(LibraryArg));
-            const auto AssetGuid   = ParseAssetGuid(std::get<std::string>(AssetArg));
-            const auto ParentGuid  = ParseAssetGuid(std::get<std::string>(ParentArg));
+            const auto LibraryGuid = e10::commands::ParseLibraryGuid(std::get<std::string>(LibraryArg));
+            const auto AssetGuid   = e10::commands::ParseAssetGuid(std::get<std::string>(AssetArg));
+            const auto ParentGuid  = e10::commands::ParseAssetGuid(std::get<std::string>(ParentArg));
 
             auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene || !pScene->m_LocalToRuntime.contains(Id)) return "MakePrefab: target not found";
@@ -262,8 +262,8 @@ namespace e29::commands
             // asset system has). Persist the trash tag to info.txt immediately - see
             // TrashCreatedPrefabAsset's own comment (silent MoveToTrash misses left "Entity" Prefabs
             // visible in Resources after Ctrl+Z).
-            const auto LibraryGuid = ParseLibraryGuid(std::format("{:016X}", Library));
-            TrashCreatedPrefabAsset(LibraryGuid, ParseAssetGuid(Asset));
+            const auto LibraryGuid = e10::commands::ParseLibraryGuid(std::format("{:016X}", Library));
+            TrashCreatedPrefabAsset(LibraryGuid, e10::commands::ParseAssetGuid(Asset));
         }
 
         xcmdline::parser::handle m_hScene, m_hId, m_hLibrary, m_hAsset, m_hParent;
@@ -305,9 +305,9 @@ namespace e29::commands
 
             const auto SceneGuid   = ParseSceneGuid(std::get<std::string>(SceneArg));
             const auto Id          = ParseEntityId(std::get<std::string>(IdArg));
-            const auto LibraryGuid = ParseLibraryGuid(std::get<std::string>(LibraryArg));
-            const auto AssetGuid   = ParseAssetGuid(std::get<std::string>(AssetArg));
-            const auto ParentGuid  = ParseAssetGuid(std::get<std::string>(ParentArg));
+            const auto LibraryGuid = e10::commands::ParseLibraryGuid(std::get<std::string>(LibraryArg));
+            const auto AssetGuid   = e10::commands::ParseAssetGuid(std::get<std::string>(AssetArg));
+            const auto ParentGuid  = e10::commands::ParseAssetGuid(std::get<std::string>(ParentArg));
 
             auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene || !pScene->m_LocalToRuntime.contains(Id)) return "MakePrefabVariant: target not found";
@@ -321,7 +321,7 @@ namespace e29::commands
             if (Details.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<e29::name>.m_BitID))
                 Name = Details.m_pPool->getComponent<e29::name>(Details.m_PoolIndex).m_Value;
 
-            CreateOrRestoreAsset(LibraryGuid, AssetGuid, ParentGuid, Name);
+            e10::commands::CreateOrRestoreAsset(LibraryGuid, AssetGuid, ParentGuid, Name);
             const xecs::prefab::guid PrefabGuid = AssetGuid;
 
             World().m_PrefabMgr.CreatePrefabFromEntity(Entity, PrefabGuid);
@@ -454,10 +454,10 @@ namespace e29::commands
             }
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
-            const auto LibraryGuid = ParseLibraryGuid(std::format("{:016X}", Library));
+            const auto LibraryGuid = e10::commands::ParseLibraryGuid(std::format("{:016X}", Library));
 
             // Trash the created asset first (same asymmetric-Undo shape as CreateAsset/MakePrefab).
-            TrashCreatedPrefabAsset(LibraryGuid, ParseAssetGuid(Asset));
+            TrashCreatedPrefabAsset(LibraryGuid, e10::commands::ParseAssetGuid(Asset));
 
             if (!bHadPI) return;
             auto* pScene = World().m_SceneMgr.Find(SceneGuid);
@@ -515,9 +515,9 @@ namespace e29
                 const auto Cmd = std::format("MakePrefabVariant -Scene {} -Id {} -Library {} -Asset {} -Parent {}"
                     , e29::commands::FormatSceneGuid(Payload.m_SceneGuid)
                     , e29::commands::FormatEntityId(Payload.m_Id)
-                    , e29::commands::FormatLibraryGuid(LibraryGUID)
-                    , e29::commands::FormatAssetGuid(NewAsset)
-                    , e29::commands::FormatAssetGuid(ParentGUID));
+                    , e10::commands::FormatLibraryGuid(LibraryGUID)
+                    , e10::commands::FormatAssetGuid(NewAsset)
+                    , e10::commands::FormatAssetGuid(ParentGUID));
                 if (!xeditor::RunGroup(*pDocUndo, "MakePrefabVariant", { Cmd })) return {};
                 return NewAsset;
             }
@@ -533,9 +533,9 @@ namespace e29
         const auto Cmd = std::format("MakePrefab -Scene {} -Id {} -Library {} -Asset {} -Parent {}"
             , e29::commands::FormatSceneGuid(Payload.m_SceneGuid)
             , e29::commands::FormatEntityId(RootIdIt->second)
-            , e29::commands::FormatLibraryGuid(LibraryGUID)
-            , e29::commands::FormatAssetGuid(NewAsset)
-            , e29::commands::FormatAssetGuid(ParentGUID));
+            , e10::commands::FormatLibraryGuid(LibraryGUID)
+            , e10::commands::FormatAssetGuid(NewAsset)
+            , e10::commands::FormatAssetGuid(ParentGUID));
         if (!xeditor::RunGroup(*pDocUndo, "MakePrefab", { Cmd })) return {};
         return NewAsset;
     }

@@ -87,8 +87,8 @@ namespace e29::commands
             if (std::holds_alternative<xerr>(LibraryArg) || std::holds_alternative<xerr>(AssetArg))
                 return "OpenTextureEditor: bad arguments";
 
-            const auto LibraryGuid = ParseLibraryGuid(std::get<std::string>(LibraryArg));
-            const auto AssetGuid   = ParseAssetGuid(std::get<std::string>(AssetArg));
+            const auto LibraryGuid = e10::commands::ParseLibraryGuid(std::get<std::string>(LibraryArg));
+            const auto AssetGuid   = e10::commands::ParseAssetGuid(std::get<std::string>(AssetArg));
 
             for (auto& S : e29::g_OpenTextureEditors)
                 if (S && S->m_Document.getGuid() == AssetGuid) { S->Focus(); return "OpenTextureEditor: already open, focused"; }
@@ -117,7 +117,7 @@ namespace e29::commands
             if (std::holds_alternative<xerr>(AssetArg) || std::holds_alternative<xerr>(CmdArg))
                 return "TextureEditorCommand: bad arguments";
 
-            const auto AssetGuid = ParseAssetGuid(std::get<std::string>(AssetArg));
+            const auto AssetGuid = e10::commands::ParseAssetGuid(std::get<std::string>(AssetArg));
             const auto InnerCmd  = xeditor::Base64Decode(std::get<std::string>(CmdArg));
 
             for (auto& S : e29::g_OpenTextureEditors)

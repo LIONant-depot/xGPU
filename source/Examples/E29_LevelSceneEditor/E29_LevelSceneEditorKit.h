@@ -91,20 +91,20 @@
 // instead, exactly the ODR-nesting bug this comment is here to prevent regressing.
 #include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_PropertyEdit.h"
 #include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_EntityReference.h"
-#include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_Commands_AssetBrowser.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_Assets.h"
 // Needed here (not just from E29_LevelScene_Editor.cpp's own later include) because
 // RegisterAssetBrowserCallbacks, just below, now also wires the raw-file hooks and needs
 // e29::commands::EncodeAssetPath - include guards make the .cpp's own separate include harmless.
-#include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_Commands_AssetFiles.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_AssetFiles.h"
 
 #include "source/Examples/E29_LevelSceneEditor/scene/E29_EntityInspectorBridge.h"
-#include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_AssetBrowserCallbacks.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetBrowserCallbacks.h"
 
 #include "level/E29_Panel_LevelTree.h"
 #include "scene/E29_Panel_ComponentSelector.h"
 #include "scene/E29_Panel_EntityProperties.h"
 #include "extensions/game_module/E29_Panel_SystemRegistry.h"
 #include "extensions/command_console/E29_Panel_CommandConsole.h"
-#include "extensions/source_control/E29_Panel_SourceControl.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_Panel_SourceControl.h"
 
 #endif // E29_LEVEL_SCENE_EDITOR_KIT_H

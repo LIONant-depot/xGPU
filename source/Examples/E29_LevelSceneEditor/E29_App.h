@@ -43,17 +43,17 @@
 
 #include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_SceneOrganization.h"
 
-#include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_Commands_AssetBrowser.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_Assets.h"
 
-#include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_Commands_AssetFiles.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_AssetFiles.h"
 
 #include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_Commands_Scripting.h"
 
 #include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_MakePrefab.h"
 
-#include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_Commands_Compilation.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_Compilation.h"
 
-#include "source/Examples/E29_LevelSceneEditor/extensions/source_control/E29_Commands_SourceControl.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_SourceControl.h"
 
 #include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_Commands_TextureEditor.h"
 

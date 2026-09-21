@@ -19,7 +19,7 @@
 
 namespace e29
 {
-    // Forward-only, same reasoning as the identical declaration in E29_Commands_SourceControl.h -
+    // Forward-only, same reasoning as the identical declaration in E10_Commands_SourceControl.h -
     // extensions/game_module/E29_ComponentCompatibility.h is already fully defined earlier in this same translation unit
     // via the umbrella, this just makes it visible here too without re-including anything (that header
     // assumes a specific inclusion position and breaks badly pulled in directly this deep in the
