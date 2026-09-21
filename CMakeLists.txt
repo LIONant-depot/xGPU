@@ -242,9 +242,9 @@ set(FRAG_SHADER_SOURCES
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_frag.glsl"
   "plugins/xgeom_skin.plugin/source/runtime/GeomSkinShadowMapCreation_frag.glsl"
   "plugins/xgeom_skin.plugin/source/runtime/GeomSkinBasicShader_frag.glsl"
-  "source/Examples/E21_StaticGeomEditor/E21_GridShader_frag.glsl"
-  "source/Examples/E21_StaticGeomEditor/E21_WireFrame_frag.glsl"
-  "source/Examples/E21_StaticGeomEditor/E21_DebugNormalRender_frag.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_GridShader_frag.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_WireFrame_frag.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_DebugNormalRender_frag.glsl"
   "source/Examples/E23_SkeletonEditor/E23_Pick_frag.glsl"
   "source/Examples/E23_SkeletonEditor/E23_WedgeFill_frag.glsl"
   "source/Examples/E23_SkeletonEditor/E23_ShadowGeneration_frag.glsl"
@@ -275,9 +275,9 @@ set(VERT_SHADER_SOURCES
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_vert.glsl"
   "plugins/xgeom_skin.plugin/source/runtime/GeomSkinShadowMapCreation_vert.glsl"
   "plugins/xgeom_skin.plugin/source/runtime/GeomSkinBasicShader_vert.glsl"
-  "source/Examples/E21_StaticGeomEditor/E21_GridShader_vert.glsl"
-  "source/Examples/E21_StaticGeomEditor/E21_WireFrame_vert.glsl"
-  "source/Examples/E21_StaticGeomEditor/E21_DebugNormalRender_vert.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_GridShader_vert.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_WireFrame_vert.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_DebugNormalRender_vert.glsl"
   "source/Examples/E23_SkeletonEditor/E23_Pick_vert.glsl"
   "source/Examples/E23_SkeletonEditor/E23_WedgeFill_vert.glsl"
   "source/Examples/E23_SkeletonEditor/E23_ShadowGeneration_vert.glsl"
@@ -288,8 +288,8 @@ set(VERT_SHADER_SOURCES
 
 # List geometry shader sources
 set(GEOM_SHADER_SOURCES 
-  "source/Examples/E21_StaticGeomEditor/E21_WireFrame_geom.glsl"
-  "source/Examples/E21_StaticGeomEditor/E21_DebugNormalRender_geom.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_WireFrame_geom.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_DebugNormalRender_geom.glsl"
   )
 
 # Generate headers
@@ -818,14 +818,14 @@ source_group("Examples/E21_StaticGeomEditor/Shaders" FILES
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticShadowMapCreation_frag.glsl"
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_vert.glsl"
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_frag.glsl"
-  "source/Examples/E21_StaticGeomEditor/E21_GridShader_frag.glsl"
-  "source/Examples/E21_StaticGeomEditor/E21_GridShader_vert.glsl"
-  "source/Examples/E21_StaticGeomEditor/E21_WireFrame_frag.glsl"
-  "source/Examples/E21_StaticGeomEditor/E21_WireFrame_vert.glsl"
-  "source/Examples/E21_StaticGeomEditor/E21_WireFrame_geom.glsl"
-  "source/Examples/E21_StaticGeomEditor/E21_DebugNormalRender_vert.glsl"
-  "source/Examples/E21_StaticGeomEditor/E21_DebugNormalRender_geom.glsl"
-  "source/Examples/E21_StaticGeomEditor/E21_DebugNormalRender_frag.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_GridShader_frag.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_GridShader_vert.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_WireFrame_frag.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_WireFrame_vert.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_WireFrame_geom.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_DebugNormalRender_vert.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_DebugNormalRender_geom.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_DebugNormalRender_frag.glsl"
 )
 
 source_group("Examples/E21_StaticGeomEditor/Shaders/Headers" FILES

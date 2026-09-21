@@ -11,8 +11,8 @@ namespace e29
 {
     struct command_set
     {
-        e29::commands::open_texture_editor_cmd           CmdOpenTextureEditor;
-        e29::commands::texture_editor_command_cmd        CmdTextureEditorCommand;
+        e29::commands::open_resource_editor_cmd          CmdOpenResourceEditor;
+        e29::commands::resource_editor_command_cmd       CmdResourceEditorCommand;
         xscene::commands::select_cmd                        CmdSelect;
         xscene::commands::toggle_multi_select_cmd           CmdToggleMultiSelect;
         xscene::commands::clear_selection_cmd               CmdClearSelection;
@@ -37,6 +37,7 @@ namespace e29
         e10::commands::remove_library_dependency_cmd     CmdRemoveLibraryDependency;
         e10::commands::create_library_query_cmd          CmdCreateLibrary;
         e10::commands::list_legal_reference_libraries_query_cmd CmdListLegalReferenceLibraries;
+        e10::commands::list_libraries_query_cmd          CmdListLibraries;
         xlevel::commands::list_levels_query_cmd             CmdListLevels;
         xlevel::commands::list_scenes_query_cmd             CmdListScenes;
         xlevel::commands::list_entities_query_cmd           CmdListEntities;
@@ -106,8 +107,8 @@ namespace e29
         e10::commands::source_control_push_query_cmd     CmdSourceControlPush;
 
         command_set(xundo::system& Workspace, xundo::system& Level, xscene::scene_context* pScene, xlevel::level_context* pEditor) noexcept
-        : CmdOpenTextureEditor(Workspace, pEditor)
-        , CmdTextureEditorCommand(Workspace, pEditor)
+        : CmdOpenResourceEditor(Workspace, pEditor)
+        , CmdResourceEditorCommand(Workspace, pEditor)
         , CmdSelect(Level, pScene)
         , CmdToggleMultiSelect(Level, pScene)
         , CmdClearSelection(Level, pScene)
@@ -132,6 +133,7 @@ namespace e29
         , CmdRemoveLibraryDependency(Level, pEditor)
         , CmdCreateLibrary(Workspace, pEditor)
         , CmdListLegalReferenceLibraries(Workspace, pEditor)
+        , CmdListLibraries(Workspace, pEditor)
         , CmdListLevels(Workspace, pEditor)
         , CmdListScenes(Level, pEditor)
         , CmdListEntities(Level, pEditor)

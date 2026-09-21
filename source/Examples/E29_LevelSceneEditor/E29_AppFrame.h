@@ -1098,9 +1098,8 @@ namespace e29
 
 
         LevelHostSession.Sync(EditorHost, State);
-        e29::SyncOpenTextureEditorsToHost(EditorHost);
-        e29::RenderOpenTextureEditors();
-        // Host Drawer last so it stacks above Level/Texture peer windows (same OS window).
+        ResourceEditors.RenderAll();
+        // Host Drawer last so it stacks above Level and resource editor peer windows (same OS window).
         EditorHost.draw_host_drawers();
 
 

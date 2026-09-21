@@ -89,7 +89,7 @@ namespace e29
 
         xeditor::diagnostics::Log("startup: xgpu/imgui CreateInstance begin");
 
-        e29::g_pTextureEditorDevice = &Device;
+        ResourceEditors.m_pDevice = &Device;
 
         xgpu::tools::imgui::CreateInstance(MainWindow);
 
@@ -441,6 +441,9 @@ namespace e29
         EditorHost.provide(CmdContext);
         EditorHost.provide<xscene::scene_context>(CmdContext);
         EditorHost.provide(ChatLog);
+        EditorHost.provide(ResourceEditors);
+        EditorHost.provide(Device);
+        EditorHost.provide(MainWindow);
 #if defined(XECS_BUILD_SHARED)
         PlayGate.m_IsBuilding = [&]() noexcept { return GamePlugin.m_bBuilding; };
         PlayGate.m_StartBuild = [&]() noexcept { e29::StartGameReload(GamePlugin); };
@@ -631,7 +634,10 @@ namespace e29
 
         // jumps into unmapped memory on exit (callstack: ~mgr <- E29_Example).
 
-        e29::g_OpenTextureEditors.clear();
+        ResourceEditors.m_List.clear();
+        EditorHost.withdraw<xeditor::open_resource_editors>();
+        EditorHost.withdraw<xgpu::device>();
+        EditorHost.withdraw<xgpu::window>();
 
         EditorHost.withdraw<xlevel::level_host_session>();
         EditorHost.release_current();

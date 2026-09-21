@@ -148,15 +148,8 @@ namespace e29
 
 
 
-        // Editor Framework: double-click a Texture resource opens the standalone Texture editor
-
-        // (Plugins/xtexture.plugin/source/Editor/xtexture_editor.h) - direct type check for now rather
-
-        // than the generic xeditor::registry lookup (that registry's CreateDocument/CreateUI factories
-
-        // aren't wired up yet - real follow-up work, not done under today's time budget). Every other
-
-        // resource type's double-click behavior is unchanged (today's inert setSelection-only default).
+        // Double-click: a Level opens in the Level editor, a resource type with a registered editor (Texture, Static Geom, ...)
+        // opens in its own window, and every other type keeps today's inert setSelection-only default.
 
         AsserBrowser.m_OnOpenAsset = [this](e10::library::guid LibraryGuid, xresource::full_guid AssetGuid)
             {
@@ -166,10 +159,7 @@ namespace e29
                         State.m_bPendingStartGameReloadAfterOpen = true;
                     return;
                 }
-                if (AssetGuid.m_Type != xrsc::texture_type_guid_v) return;
-                for (auto& S : e29::g_OpenTextureEditors)
-                    if (S && S->m_Document.getGuid() == AssetGuid) { S->Focus(); return; }
-                e29::g_OpenTextureEditors.push_back(std::make_unique<xtexture_editor::session>(AssetGuid, LibraryGuid, e29::g_pTextureEditorDevice));
+                ResourceEditors.Open(AssetGuid, LibraryGuid);
             };
     }
 }

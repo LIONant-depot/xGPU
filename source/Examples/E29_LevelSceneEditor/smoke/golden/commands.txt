@@ -17,12 +17,13 @@ GetPlayState
 ListAssets
 ListLegalReferenceLibraries
 ListLevels
+ListLibraries
 ListProjectModuleReferences
 ListScriptSourceFiles
 MoveAsset
 MoveAssetFile
 OpenLevel
-OpenTextureEditor
+OpenResourceEditor
 Pause
 Play
 RecompileAll
@@ -34,6 +35,7 @@ RemoveScriptSourceFile
 RenameAsset
 RenameAssetFile
 RenameScriptSourceFile
+ResourceEditorCommand
 RestoreAsset
 RestoreAssetFileFromTrash
 RunSanityCheck
@@ -54,5 +56,4 @@ SourceControlStatus
 SourceControlUnlock
 Step
 Stop
-TextureEditorCommand
 Undo

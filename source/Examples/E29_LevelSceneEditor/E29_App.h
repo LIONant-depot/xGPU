@@ -55,7 +55,7 @@
 
 #include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_SourceControl.h"
 
-#include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_Commands_TextureEditor.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_Commands_ResourceEditors.h"
 
 #include "plugins/xlevel.plugin/source/Editor/xlevel_document.h"
 
@@ -325,6 +325,7 @@ namespace e29
 
 
         xeditor::host                     EditorHost;
+        xeditor::open_resource_editors    ResourceEditors;         // the resource editors open in their own windows (Texture, Static Geom, ...)
 
 
 

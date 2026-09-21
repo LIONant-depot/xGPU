@@ -30,7 +30,8 @@
 #include "plugins/xgeom_static.plugin/source/xgeom_static_details.h"
 #include "plugins/xgeom_static.plugin/source/xgeom_static_descriptor.h"
 #include "plugins/xgeom_static.plugin/source/xgeom_static_xgpu_rsc_loader.h"
-#include "plugins/xgeom_static.plugin/source/xgeom_static_xgpu_rsc_loader.cpp"
+#include "plugins/xgeom_static.plugin/source/xgeom_static_xgpu_runtime.h"
+// The loader itself is compiled once, with the plugin's editor (xgeom_static_editor.h, included by E29).
 
 #include "imgui_internal.h"
 
