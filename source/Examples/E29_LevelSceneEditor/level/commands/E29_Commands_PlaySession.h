@@ -44,8 +44,7 @@ namespace e29::commands
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
         {
-            if (!e29::g_pGamePlugin) return "Play: no game plugin state";
-            return e29::RequestPlay(EditorContext(), *e29::g_pGamePlugin);
+            return e29::RequestPlay(EditorContext());
         }
     };
 
@@ -74,8 +73,7 @@ namespace e29::commands
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
         {
-            if (!e29::g_pGamePlugin) return "Step: no game plugin state";
-            return e29::RequestStep(EditorContext(), *e29::g_pGamePlugin);
+            return e29::RequestStep(EditorContext());
         }
     };
 

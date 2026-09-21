@@ -437,6 +437,11 @@ namespace e29
         EditorHost.provide(CmdContext);
         EditorHost.provide<xscene::scene_context>(CmdContext);
         EditorHost.provide(ChatLog);
+#if defined(XECS_BUILD_SHARED)
+        PlayGate.m_IsBuilding = [&]() noexcept { return GamePlugin.m_bBuilding; };
+        PlayGate.m_StartBuild = [&]() noexcept { e29::StartGameReload(GamePlugin); };
+        EditorHost.provide(PlayGate);
+#endif
         EditorHost.m_IdleWork.m_OnRun.Register<&e29::scene_sanity_scanner::Run>(SceneScanner);
         EditorHost.m_IdleWork.m_OnRun.Register<&e10::source_control::ScanAllLibrariesWhenIdle>();
         GamePlugin.m_Events.m_OnCollectRequiredComponents.Register<&app::CollectRequiredComponents>(*this);

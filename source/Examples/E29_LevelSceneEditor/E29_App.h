@@ -35,7 +35,7 @@
 
 #include "source/Examples/E29_LevelSceneEditor/level/commands/E29_Commands_SceneDependency.h"
 
-#include "source/Examples/E29_LevelSceneEditor/level/commands/E29_Commands_LibraryDependency.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_LibraryDependency.h"
 
 #include "source/Examples/E29_LevelSceneEditor/level/commands/E29_Commands_Workspace.h"
 
@@ -178,6 +178,7 @@ namespace e29
 
 
         e29::game_plugin_state GamePlugin;
+        e29::play_gate         PlayGate;
 
 
 

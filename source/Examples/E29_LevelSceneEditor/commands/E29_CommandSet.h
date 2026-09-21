@@ -33,10 +33,10 @@ namespace e29
         e29::commands::remove_scene_cmd                  CmdRemoveScene;
         e29::commands::add_scene_dependency_cmd          CmdAddSceneDependency;
         e29::commands::remove_scene_dependency_cmd       CmdRemoveSceneDependency;
-        e29::commands::add_library_dependency_cmd        CmdAddLibraryDependency;
-        e29::commands::remove_library_dependency_cmd     CmdRemoveLibraryDependency;
-        e29::commands::create_library_query_cmd          CmdCreateLibrary;
-        e29::commands::list_legal_reference_libraries_query_cmd CmdListLegalReferenceLibraries;
+        e10::commands::add_library_dependency_cmd        CmdAddLibraryDependency;
+        e10::commands::remove_library_dependency_cmd     CmdRemoveLibraryDependency;
+        e10::commands::create_library_query_cmd          CmdCreateLibrary;
+        e10::commands::list_legal_reference_libraries_query_cmd CmdListLegalReferenceLibraries;
         e29::commands::list_levels_query_cmd             CmdListLevels;
         e29::commands::list_scenes_query_cmd             CmdListScenes;
         e29::commands::list_entities_query_cmd           CmdListEntities;

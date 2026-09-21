@@ -148,7 +148,7 @@ namespace e29
 
 
 
-        e29::RenderPlayTransport(CmdContext, GamePlugin, { ImVec2(30.0f, 0.0f), true, true });
+        e29::RenderPlayTransport(CmdContext, { ImVec2(30.0f, 0.0f), true, true });
 
 
 
@@ -379,7 +379,7 @@ namespace e29
 
 
 
-            e29::RenderPlayTransport(CmdContext, GamePlugin, { ImVec2(52.0f, ButtonHeight), bHorizontal, false });
+            e29::RenderPlayTransport(CmdContext, { ImVec2(52.0f, ButtonHeight), bHorizontal, false });
             bFirstButton = false;
 
 

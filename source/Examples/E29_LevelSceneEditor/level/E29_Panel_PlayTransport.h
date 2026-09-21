@@ -19,9 +19,11 @@ namespace e29
         bool   m_bTooltips;
     };
 
-    inline void RenderPlayTransport( editor_context& Ed, game_plugin_state& Plugin, const transport_layout& Layout ) noexcept
+    inline void RenderPlayTransport( editor_context& Ed, const transport_layout& Layout ) noexcept
     {
         auto& State = Ed.State();
+        const auto* pGate = xeditor::host::current()->find<play_gate>();
+        const bool bBuilding = pGate && pGate->m_IsBuilding();
         using play_state = editor_state::play_state;
         constexpr const char* PlayIcon  = "\xEE\x9D\xA8";
         constexpr const char* PauseIcon = "\xEE\x9D\xA9";
@@ -57,9 +59,9 @@ namespace e29
         if (Layout.m_bHorizontal)
             ImGui::SameLine((ImGui::GetWindowWidth() - (Layout.m_ButtonSize.x * 2.0f + ImGui::GetStyle().ItemSpacing.x)) * 0.5f);
 
-        Slot(bStopped ? PlayIcon : StopIcon, Plugin.m_bBuilding, false, [&]
+        Slot(bStopped ? PlayIcon : StopIcon, bBuilding, false, [&]
         {
-            if (bStopped) RequestPlay(Ed, Plugin);
+            if (bStopped) RequestPlay(Ed);
             else          RequestStop(Ed, std::nullopt);
         });
         Tip(bStopped ? "Play" : "Stop", bStopped ? "Start playback" : "Stop playback");
@@ -72,7 +74,7 @@ namespace e29
         }
         else
         {
-            Slot(StepIcon, Plugin.m_bBuilding, false, [&] { RequestStep(Ed, Plugin); });
+            Slot(StepIcon, bBuilding, false, [&] { RequestStep(Ed); });
             Tip("Step", "Run one frame");
         }
 
