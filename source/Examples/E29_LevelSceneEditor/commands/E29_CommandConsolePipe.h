@@ -68,10 +68,6 @@ namespace e29
 
 {
 
-#ifndef E29_G_P_EDITOR_HOST_DEFINED
-#define E29_G_P_EDITOR_HOST_DEFINED
-    inline xeditor::host* g_pEditorHost = nullptr;
-#endif
 
 
 
@@ -353,7 +349,7 @@ namespace e29
 
         const auto Routable = History.GetRoutableCommands();
 
-        const std::string Result = ProcessConsoleCommand(Cmd, History, Routable, g_pEditorHost);
+        const std::string Result = ProcessConsoleCommand(Cmd, History, Routable, xeditor::host::current());
 
 
 

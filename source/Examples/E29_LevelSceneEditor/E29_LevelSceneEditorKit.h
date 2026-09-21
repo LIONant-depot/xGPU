@@ -909,7 +909,7 @@ namespace e29
         if (ImGui::MenuItem("New Entity"))
         {
             const auto Id = NextFreeEntityId(Scene);
-            e29::commands::Run(e29::LevelDocUndo(Undo), std::format("CreateEntity -Scene {} -Id {} -Folder {:08X}"
+            e29::commands::Run(e29::LevelDocUndo(), std::format("CreateEntity -Scene {} -Id {} -Folder {:08X}"
                 , e29::commands::FormatSceneGuid(SceneGuid)
                 , e29::commands::FormatEntityId(Id)
                 , static_cast<std::uint32_t>(TargetFolder)
@@ -918,7 +918,7 @@ namespace e29
         if (ImGui::MenuItem("New Folder"))
         {
             const auto Id = NextFreeFolderId(Scene);
-            e29::commands::Run(e29::LevelDocUndo(Undo), std::format("CreateFolder -Scene {} -Id {:08X} -Parent {:08X} -Name {}"
+            e29::commands::Run(e29::LevelDocUndo(), std::format("CreateFolder -Scene {} -Id {:08X} -Parent {:08X} -Name {}"
                 , e29::commands::FormatSceneGuid(SceneGuid)
                 , static_cast<std::uint32_t>(Id)
                 , static_cast<std::uint32_t>(TargetFolder)
@@ -1093,7 +1093,7 @@ namespace e29
                 const std::string After(AfterBuffer.data(), AfterLen > 0 ? static_cast<std::size_t>(AfterLen) : 0);
                 const std::uint32_t TypeGuid = Cmd.m_NewValue.m_pType ? Cmd.m_NewValue.m_pType->m_GUID : 0;
 
-                e29::commands::Run(e29::LevelDocUndo(Undo), std::format("SetProperty -Scene {} -Id {} -Component {:016X} -Path {} -TypeGuid {:08X} -Before {} -After {}"
+                e29::commands::Run(e29::LevelDocUndo(), std::format("SetProperty -Scene {} -Id {} -Component {:016X} -Path {} -TypeGuid {:08X} -Before {} -After {}"
                     , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
                     , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                     , It->second->m_Guid.m_Value
@@ -1179,7 +1179,7 @@ namespace e29
                 const std::uint32_t TypeGuid = BaseValue.m_pType ? BaseValue.m_pType->m_GUID
                     : (CurrentValue.m_pType ? CurrentValue.m_pType->m_GUID : 0);
 
-                e29::commands::Run(e29::LevelDocUndo(Undo), std::format("RevertOverride -Scene {} -Id {} -Component {:016X} -Path {} -TypeGuid {:08X} -Before {} -After {}"
+                e29::commands::Run(e29::LevelDocUndo(), std::format("RevertOverride -Scene {} -Id {} -Component {:016X} -Path {} -TypeGuid {:08X} -Before {} -After {}"
                     , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
                     , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                     , It->second->m_Guid.m_Value
@@ -1314,7 +1314,7 @@ namespace e29
                                     auto CompIt = m_ComponentMap.find(pInstance);
                                     if (CompIt != m_ComponentMap.end())
                                     {
-                                        e29::commands::Run(e29::LevelDocUndo(Undo), std::format("SetEntityReference -Scene {} -Id {} -Component {:016X} -Path {} -AfterScene {} -AfterId {}"
+                                        e29::commands::Run(e29::LevelDocUndo(), std::format("SetEntityReference -Scene {} -Id {} -Component {:016X} -Path {} -AfterScene {} -AfterId {}"
                                             , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
                                             , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                                             , CompIt->second->m_Guid.m_Value
@@ -1346,7 +1346,7 @@ namespace e29
                         auto CompIt = m_ComponentMap.find(pInstance);
                         if (CompIt != m_ComponentMap.end())
                         {
-                            e29::commands::Run(e29::LevelDocUndo(Undo), std::format("SetEntityReference -Scene {} -Id {} -Component {:016X} -Path {} -AfterScene {} -AfterId {}"
+                            e29::commands::Run(e29::LevelDocUndo(), std::format("SetEntityReference -Scene {} -Id {} -Component {:016X} -Path {} -AfterScene {} -AfterId {}"
                                 , e29::commands::FormatSceneGuid(State.m_SelectedEntityScene)
                                 , e29::commands::FormatEntityId(State.m_SelectedEntityId)
                                 , CompIt->second->m_Guid.m_Value
@@ -1459,13 +1459,13 @@ namespace e29
         // that is by definition already loaded and rendering in one of these same trees).
         Browser.m_OnAddLibraryDependency = [&Undo](e10::library::guid Owner, e10::library::guid Parent, const std::wstring& ParentPath)
         {
-            e29::commands::Run(e29::LevelDocUndo(Undo), std::format("AddLibraryDependency -Library {} -Parent {} -ParentPath {}"
+            e29::commands::Run(e29::LevelDocUndo(), std::format("AddLibraryDependency -Library {} -Parent {} -ParentPath {}"
                 , e29::commands::FormatLibraryGuid(Owner), e29::commands::FormatLibraryGuid(Parent), e29::commands::Base64Encode(xstrtool::To(ParentPath))));
         };
 
         Browser.m_OnRemoveLibraryDependency = [&Undo](e10::library::guid Owner, e10::library::guid Parent)
         {
-            e29::commands::Run(e29::LevelDocUndo(Undo), std::format("RemoveLibraryDependency -Library {} -Parent {}"
+            e29::commands::Run(e29::LevelDocUndo(), std::format("RemoveLibraryDependency -Library {} -Parent {}"
                 , e29::commands::FormatLibraryGuid(Owner), e29::commands::FormatLibraryGuid(Parent)));
         };
 

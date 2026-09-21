@@ -490,19 +490,13 @@ namespace e29::commands
 // MakePrefab (that synthesis step remains a known separate undo gap - see this file's top comment).
 namespace e29
 {
-    inline xundo::system* g_pUndo = nullptr;
-
-    #ifndef E29_G_P_LEVEL_UNDO_DEFINED
-#define E29_G_P_LEVEL_UNDO_DEFINED
-    inline xundo::system* g_pLevelUndo = nullptr;
-#endif
 
     inline xresource::full_guid MakePrefabDropViaCommands(e10::library_mgr& AssetMgr, e10::library::guid LibraryGUID, xresource::full_guid ParentGUID, const entity_drag_payload_t& Payload) noexcept
     {
         (void)AssetMgr;
-        // Prefab creation mutates the Level document — prefer Level session undo (g_pLevelUndo).
-        xundo::system* pDocUndo = g_pLevelUndo ? g_pLevelUndo : g_pUndo;
-        if (pDocUndo == nullptr || g_pGameMgr == nullptr) return {};
+        // Prefab creation mutates the Level document, so it goes through the Level session's undo.
+        xundo::system* pDocUndo = &LevelDocUndo();
+        if (g_pGameMgr == nullptr) return {};
 
         auto* pScene = g_pGameMgr->m_SceneMgr.Find(Payload.m_SceneGuid);
         if (pScene == nullptr) return {};

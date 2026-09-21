@@ -12,10 +12,6 @@
 
 namespace e29
 {
-#ifndef E29_G_P_EDITOR_HOST_DEFINED
-#define E29_G_P_EDITOR_HOST_DEFINED
-    inline xeditor::host* g_pEditorHost = nullptr;
-#endif
 
 
     // Forward (defined below with Ensure/IsLevelWritable).
@@ -63,12 +59,12 @@ namespace e29
             SaveEverything(*m_pGameMgr, *m_pState);
             if (m_pUndo) MarkDocumentClean(*m_pState, *m_pUndo);
             // Save restores just-loaded: drop write locks so peers can edit again.
-            if (g_pEditorHost != nullptr)
+            if (auto* pHost = xeditor::host::current())
             {
-                for (auto& S : g_pEditorHost->m_Sessions)
+                for (auto& S : pHost->m_Sessions)
                 {
                     if (!S || S->m_Document.get() != this) continue;
-                    ReleaseLevelEditAccess(*g_pEditorHost, *S, *m_pState);
+                    ReleaseLevelEditAccess(*pHost, *S, *m_pState);
                     break;
                 }
             }
@@ -172,7 +168,6 @@ namespace e29
             }
             if (auto* pDoc = static_cast<LevelDocument*>(pLive->m_Document.get()))
                 pDoc->Bind(State, pGameMgr, &pLive->m_Undo);
-            g_pLevelUndo = &pLive->m_Undo;
             return *pLive;
         }
 
@@ -188,7 +183,6 @@ namespace e29
                 bInHost = true;
                 if (auto* pDoc = static_cast<LevelDocument*>(pLive->m_Document.get()))
                     pDoc->Bind(State, pGameMgr, &pLive->m_Undo);
-                g_pLevelUndo = &pLive->m_Undo;
             }
             else if (!bWant && bInHost)
             {
@@ -200,7 +194,6 @@ namespace e29
                     Host.m_Sessions.erase(It);
                     pLive   = Owned.get();
                     bInHost = false;
-                    g_pLevelUndo = pLive ? &pLive->m_Undo : nullptr;
                     break;
                 }
             }
@@ -208,7 +201,6 @@ namespace e29
             {
                 if (auto* pDoc = static_cast<LevelDocument*>(pLive->m_Document.get()))
                     pDoc->Bind(State, pGameMgr, &pLive->m_Undo);
-                g_pLevelUndo = &pLive->m_Undo;
             }
         
             // Every frame (DESIGN 4.2): clean => unlocked (same as just-loaded). Dirty locks
@@ -221,6 +213,19 @@ namespace e29
 
         xundo::system& Undo() noexcept { return pLive->m_Undo; }
     };
+
+    inline xundo::system* FindLevelUndo() noexcept
+    {
+        auto* pHost  = xeditor::host::current();
+        auto* pLevel = pHost ? pHost->find<level_host_session>() : nullptr;
+        return pLevel && pLevel->pLive ? &pLevel->pLive->m_Undo : nullptr;
+    }
+
+    inline xundo::system& LevelDocUndo() noexcept
+    {
+        auto* pUndo = FindLevelUndo();
+        return pUndo ? *pUndo : xeditor::host::current()->workspace();
+    }
 }
 
 #endif // E29_LEVEL_DOCUMENT_H

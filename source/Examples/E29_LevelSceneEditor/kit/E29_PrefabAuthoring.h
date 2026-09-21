@@ -413,28 +413,19 @@ namespace e29
     // only ever runs one instance of itself, so this isn't introducing a new kind of assumption.
     inline xecs::game_mgr::instance* g_pGameMgr = nullptr;
     inline editor_state*             g_pState   = nullptr;
-    // Level session undo (document cmds). Workspace bare Undo stays on g_pUndo.
-    #ifndef E29_G_P_LEVEL_UNDO_DEFINED
-#define E29_G_P_LEVEL_UNDO_DEFINED
-    inline xundo::system*             g_pLevelUndo = nullptr;
-#endif
-    inline xundo::system& LevelDocUndo(xundo::system& WorkspaceFallback) noexcept
-    {
-        return g_pLevelUndo ? *g_pLevelUndo : WorkspaceFallback;
-    }
 
-#ifndef E29_G_P_EDITOR_HOST_DEFINED
-#define E29_G_P_EDITOR_HOST_DEFINED
-    inline xeditor::host* g_pEditorHost = nullptr;
-#endif
+
+    // Defined in E29_LevelDocument.h; declared here because this is the earliest header that needs them.
+    inline xundo::system* FindLevelUndo() noexcept; // null until the Level session exists
+    inline xundo::system& LevelDocUndo() noexcept;  // Level session undo, else the workspace undo
 
     // Claim Level/scene write locks before Level undo mutations (DESIGN 4.2).
     inline bool TryGateLevelMutation(xundo::system& System) noexcept
     {
-        if (g_pLevelUndo == nullptr || &System != g_pLevelUndo) return true;
-        if (g_pEditorHost == nullptr || g_pState == nullptr) return true;
+        auto* pHost = xeditor::host::current();
+        if (pHost == nullptr || g_pState == nullptr || &System != FindLevelUndo()) return true;
         xeditor::session* pSess = nullptr;
-        for (auto& S : g_pEditorHost->m_Sessions)
+        for (auto& S : pHost->m_Sessions)
         {
             if (S && &S->undo() == &System) { pSess = S.get(); break; }
         }
@@ -444,13 +435,13 @@ namespace e29
         if (!g_pState->m_CurrentLevel.empty())
         {
             const xresource::full_guid LevelGuid{ g_pState->m_CurrentLevel.m_Instance, xecs::level::type_guid_v };
-            if (!g_pEditorHost->try_acquire_write(LevelGuid, pSess)) return false;
+            if (!pHost->try_acquire_write(LevelGuid, pSess)) return false;
         }
         auto TryScene = [&](const xecs::scene::guid& SceneInst) noexcept -> bool
         {
             if (SceneInst.empty()) return true;
             const xresource::full_guid SceneGuid{ SceneInst.m_Instance, xecs::scene::type_guid_v };
-            return g_pEditorHost->try_acquire_write(SceneGuid, pSess);
+            return pHost->try_acquire_write(SceneGuid, pSess);
         };
         if (!TryScene(g_pState->m_SelectedEntityScene)) return false;
         if (!TryScene(g_pState->m_MultiSelectScene)) return false;

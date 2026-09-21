@@ -558,7 +558,7 @@ namespace e29
                     CmdHistory.emplace_back(Cmd);
 
                 LogEntries.push_back({ std::string(Cmd), console_log_source::User });
-                if (std::string Result = ProcessConsoleCommand(Cmd, History, Routable, g_pEditorHost); !Result.empty())
+                if (std::string Result = ProcessConsoleCommand(Cmd, History, Routable, xeditor::host::current()); !Result.empty())
                     LogEntries.push_back({ std::move(Result), console_log_source::System });
                 CmdBuffer[0] = 0;
                 bRefocus = true; // applied at the top of the panel on the NEXT frame - see bApplyPendingFill's own comment above

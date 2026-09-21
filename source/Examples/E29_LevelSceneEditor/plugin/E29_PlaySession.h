@@ -486,14 +486,10 @@ namespace e29
     // refers to) here too since this file's own place in the umbrella include order is earlier than
     // that one - inline variables have external linkage, so a plain extern declaration anywhere in
     // the same program is enough to use it, no redefinition risk.
-    extern xundo::system* g_pUndo;
-    extern xundo::system* g_pLevelUndo;
-
-    inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene::component_dependency>& MissingDeps ) noexcept
+inline void StripMissingComponentsFromOpenScenes( const std::vector<xecs::scene::component_dependency>& MissingDeps ) noexcept
     {
         if (!g_pGameMgr || !g_pState) return;
-        xundo::system* pDocUndo = g_pLevelUndo ? g_pLevelUndo : g_pUndo;
-        if (!pDocUndo) return;
+        xundo::system* pDocUndo = &LevelDocUndo();
 
         for (auto& SceneGuid : g_pState->m_OpenScenes)
         {
@@ -527,7 +523,7 @@ namespace e29
     //---------------------------------------------------------------------------
     // Called once per frame from the main loop, same shape as RenderGamePluginLogPanel - zero
     // parameters, reads/writes only through the established single-instance globals
-    // (g_PendingReloadCompatibility, g_pGameMgr/g_pUndo/g_pState/g_pGamePlugin), matching this
+    // (g_PendingReloadCompatibility, g_pGameMgr/g_pState/g_pGamePlugin), matching this
     // codebase's own convention for cross-cutting UI state that isn't naturally owned by one panel.
     //---------------------------------------------------------------------------
     inline void RenderReloadCompatibilityModal() noexcept

@@ -1598,19 +1598,11 @@ int E29_Example()
 
 
 
-    e29::g_pEditorHost = &EditorHost;
-
-
-
     if (auto Err = E29Undo.Init({}, false); !Err.empty())
 
 
 
         e29::Debugger(std::format("E29: xundo Init failed: {}", Err));
-
-
-
-    e29::g_pUndo = &E29Undo;
 
 
 
@@ -1622,6 +1614,7 @@ int E29_Example()
 
 
 
+    EditorHost.provide(LevelHostSession);
     xundo::system& LevelUndo = LevelHostSession.EnsureCreated(State, pGameMgr.get()).m_Undo;
 
 
@@ -2870,9 +2863,9 @@ int E29_Example()
         {
             if (AssetGuid.m_Type == xecs::level::type_guid_v)
             {
-                if (e29::g_pGameMgr == nullptr || e29::g_pState == nullptr || e29::g_pLevelUndo == nullptr)
+                if (e29::g_pGameMgr == nullptr || e29::g_pState == nullptr || e29::FindLevelUndo() == nullptr)
                     return;
-                if (e29::RequestOpenLevel(*e29::g_pGameMgr, *e29::g_pState, *e29::g_pLevelUndo, AssetGuid, /*bStartGameReload*/ true))
+                if (e29::RequestOpenLevel(*e29::g_pGameMgr, *e29::g_pState, *e29::FindLevelUndo(), AssetGuid, /*bStartGameReload*/ true))
                     e29::g_pState->m_bPendingStartGameReloadAfterOpen = true;
                 return;
             }
@@ -3238,7 +3231,7 @@ int E29_Example()
 
 
 
-            e29::g_pEditorHost->on_focus_regain();
+            EditorHost.on_focus_regain();
 
 
 
@@ -3514,7 +3507,7 @@ int E29_Example()
 
 
 
-        e29::g_pEditorHost->pump_services();
+        EditorHost.pump_services();
 
 
 
@@ -3776,7 +3769,7 @@ int E29_Example()
 
                     // Process-wide single Play (DESIGN 4.6). Fail loud if another owner holds it.
 
-                    if (e29::g_pEditorHost && !e29::g_pEditorHost->try_begin_play(&State))
+                    if (!EditorHost.try_begin_play(&State))
                     {
                         e29::diagnostics::Log("Play refused: another Play session is already active");
                         State.m_bPlayBusyPopup = true;
@@ -3863,7 +3856,7 @@ int E29_Example()
 
 
 
-                else          e29::RequestStop(State, E29Undo, std::nullopt); if (e29::g_pEditorHost) e29::g_pEditorHost->end_play(&State);
+                else          e29::RequestStop(State, E29Undo, std::nullopt); EditorHost.end_play(&State);
 
 
 
@@ -4776,7 +4769,7 @@ int E29_Example()
             ImGui::EndPopup();
         }
 
-        const bool bLevelWritable = e29::IsLevelWritable(e29::g_pEditorHost, LevelHostSession.pLive, State);
+        const bool bLevelWritable = e29::IsLevelWritable(&EditorHost, LevelHostSession.pLive, State);
 
         if (!bLevelWritable)
 
@@ -5152,7 +5145,7 @@ int E29_Example()
 
                     // Process-wide single Play (DESIGN 4.6). Fail loud if another owner holds it.
 
-                    if (e29::g_pEditorHost && !e29::g_pEditorHost->try_begin_play(&State))
+                    if (!EditorHost.try_begin_play(&State))
 
                     {
 
@@ -5250,7 +5243,7 @@ int E29_Example()
 
 
 
-                    else          e29::RequestStop(State, E29Undo, std::nullopt); if (e29::g_pEditorHost) e29::g_pEditorHost->end_play(&State);
+                    else          e29::RequestStop(State, E29Undo, std::nullopt); EditorHost.end_play(&State);
 
 
 
@@ -5788,31 +5781,11 @@ int E29_Example()
 
 
 
-        if (e29::g_pEditorHost)
-
-        {
-
-                        LevelHostSession.Sync(*e29::g_pEditorHost, State, pGameMgr.get());
-
-
-
-            e29::SyncOpenTextureEditorsToHost(*e29::g_pEditorHost);
-
-
-
-            e29::RenderOpenTextureEditors();
-
-
-
+        LevelHostSession.Sync(EditorHost, State, pGameMgr.get());
+        e29::SyncOpenTextureEditorsToHost(EditorHost);
+        e29::RenderOpenTextureEditors();
         // Host Drawer last so it stacks above Level/Texture peer windows (same OS window).
-
         EditorHost.draw_host_drawers();
-
-
-
-
-
-        }
 
 
 
@@ -5852,11 +5825,8 @@ int E29_Example()
 
     e29::g_OpenTextureEditors.clear();
 
-    e29::g_pEditorHost = nullptr;
-
-    e29::g_pLevelUndo = nullptr;
-
-    e29::g_pUndo = nullptr;
+    EditorHost.withdraw<e29::level_host_session>();
+    EditorHost.release_current();
 
     e29::g_pGameMgr = nullptr;
 

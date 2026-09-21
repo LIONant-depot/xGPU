@@ -61,8 +61,8 @@ namespace e29
     inline void RenderOpenTextureEditors() noexcept
     {
         // Drop host bridges for closed sessions before destroying them.
-        if (g_pEditorHost)
-            SyncOpenTextureEditorsToHost(*g_pEditorHost);
+        if (auto* pHost = xeditor::host::current())
+            SyncOpenTextureEditorsToHost(*pHost);
         std::erase_if(g_OpenTextureEditors, [](auto& S) noexcept { return !S || !S->m_bOpen; });
         for (auto& S : g_OpenTextureEditors) if (S) S->Render();
     }
