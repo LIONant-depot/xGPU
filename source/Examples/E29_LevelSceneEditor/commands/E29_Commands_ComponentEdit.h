@@ -2,7 +2,7 @@
 #define E29_COMMANDS_COMPONENT_EDIT_H
 #pragma once
 
-// Add/Remove Component - phase 3 of [[e29_command_undo_system_plan]] (memory). Replaces
+// Add/Remove Component - phase 3 of documentation/E29_LevelSceneEditor/command_undo_system_plan.md. Replaces
 // E29_Panel_EntityProperties.h's own DIRECT calls to GameMgr.AddOrRemoveComponents (the "Add
 // Component" combo and the component header's "[X]") with real xundo commands, same pattern as
 // phase 2's SetProperty (commands/E29_Commands_PropertyEdit.h, included below for
@@ -31,7 +31,7 @@
 // E29_LevelSceneEditorKit.h) and records a {Path, TypeGuid, ValueStr} list - the same string-based
 // snapshot shape SetProperty already uses, not a raw memcpy (this codebase's components can hold
 // non-trivial members like std::string/std::vector, which a memcpy would corrupt - see
-// [[xecs_scratch_buffer_construct_before_copy]] for a related, already-hit case of exactly that
+// dependencies/xECSV2/doc/scratch_buffer_construct_before_copy.md for a related, already-hit case of exactly that
 // class of bug). Undo re-adds the component (fresh, default-constructed) then replays every
 // snapshotted value back onto it via SetLivePropertyValue - restoring it exactly as it was,
 // including whatever value a prefab override had it set to.
@@ -42,7 +42,7 @@
 // touching here.
 //
 // m_lComponents/m_PropertyOverrides (the property-level override bookkeeping) IS now scrubbed and
-// restored on Remove/Undo - [[e29_command_undo_known_gaps]]'s own recorded gap #4: the original
+// restored on Remove/Undo - documentation/E29_LevelSceneEditor/command_undo_known_gaps.md's own recorded gap #4: the original
 // (pre-command) UI code never touched it either, orphaning a removed component's override entries.
 // remove_component_cmd::Redo scrubs the matching entry (same erase_if pattern
 // RemovePropertyOverride, E29_Commands_PropertyEdit.h, already uses) right after the component
@@ -360,7 +360,7 @@ namespace e29::commands
             const auto NewEntity = MigrateEntityComponents(SceneGuid, Id, {}, Sub);
             if (!NewEntity.isValid()) return "RemoveComponent: target not found";
 
-            // Scrub the now-meaningless override entry (gap #4, [[e29_command_undo_known_gaps]]) -
+            // Scrub the now-meaningless override entry (gap #4, documentation/E29_LevelSceneEditor/command_undo_known_gaps.md) -
             // BackupCurrenState already snapshotted it above, before this ran.
             ScrubComponentOverrideEntry(SceneGuid, NewEntity, CompGuid);
             return {};

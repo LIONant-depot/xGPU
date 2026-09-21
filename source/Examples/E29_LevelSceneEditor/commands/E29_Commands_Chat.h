@@ -3,7 +3,7 @@
 #pragma once
 
 // Say/GetLog - a small extension riding on phase 5's own Command Console pipe
-// ([[e29_command_undo_system_plan]] memory), direct user request: "add the ability [to] personalize
+// (documentation/E29_LevelSceneEditor/command_undo_system_plan.md), direct user request: "add the ability [to] personalize
 // commands... so if there are multiple AIs you guys can have a conversation". Two QUERY commands
 // (xundo::query_command_base, not command_base) - a conversation message is not an undo-able mutation
 // of the scene/entities, so it doesn't belong in the Edit namespace or the undo timeline at all,
@@ -12,7 +12,7 @@
 //
 // -From is left as a PLAIN argument (not Base64-encoded) on purpose, unlike -Text: an agent name is
 // an identifier (like Scene/Id/Component elsewhere in this codebase), not free-form content, and is
-// never expected to contain a space - see [[e29_command_undo_known_gaps]]'s own "standing rule" entry
+// never expected to contain a space - see documentation/E29_LevelSceneEditor/command_undo_known_gaps.md's own "standing rule" entry
 // for the full reasoning on why xcmdline::parser's naive space/tab tokenizer forces free text through
 // Base64 (-Text, here) but never single-token identifiers.
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"

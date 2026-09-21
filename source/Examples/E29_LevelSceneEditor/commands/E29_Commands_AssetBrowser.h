@@ -3,7 +3,7 @@
 #pragma once
 
 // Asset Browser command/undo layer - the foundation Make Prefab was deliberately left out of the
-// prior gap-closing pass for (see [[e29_command_undo_known_gaps]]): CreatePrefabFromGroupRoot calls
+// prior gap-closing pass for (see documentation/E29_LevelSceneEditor/command_undo_known_gaps.md): CreatePrefabFromGroupRoot calls
 // AssetMgr.NewAsset to create a real Prefab asset on disk, and no command in this system had ever had
 // to reverse an asset-library creation. Direct user framing: "I think make prefab or create prefab
 // instance may depend on the asset browser... We need to make it work with commands as well so it
@@ -70,7 +70,7 @@ namespace e29::commands
             // Deliberately NOT noexcept - library_mgr::getInfo/getNodeInfo pick a const-vs-write
             // overload via details::function_traits<T_CALLBACK>::arg<0>, the same kind of trait-
             // matching machinery that already broke on a noexcept callback once this session
-            // ([[xgpu_xcontainer_noexcept_lambda_trait_trap]], a DIFFERENT library's DIFFERENT trait
+            // (dependencies/xcontainer/documentation/noexcept_lambda_trait_trap.md, a DIFFERENT library's DIFFERENT trait
             // template) - not risking a second instance of that exact bug class here.
             // A trashed asset is still linked from its OLD parent's own m_lChildLinks - confirmed
             // live: MoveToTrash only prepends the trash tag to the asset's OWN m_RscLinks, it never

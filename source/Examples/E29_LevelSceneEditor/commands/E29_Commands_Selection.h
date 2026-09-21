@@ -2,7 +2,7 @@
 #define E29_COMMANDS_SELECTION_H
 #pragma once
 
-// Selection commands - phase 1 of [[e29_command_undo_system_plan]] (memory), the simplest slice:
+// Selection commands - phase 1 of documentation/E29_LevelSceneEditor/command_undo_system_plan.md, the simplest slice:
 // selection has no world-mutating side effect, so these are the safest place to prove the whole
 // xundo wiring (system, undo_file snapshot/restore, Ctrl+Z/Y, real UI call sites routed through
 // Execute() instead of direct State mutation) before tackling property editing/component add-remove/

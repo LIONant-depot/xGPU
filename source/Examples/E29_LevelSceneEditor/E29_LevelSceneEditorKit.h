@@ -306,7 +306,7 @@ namespace e29
         // (a value tweaked in the Inspector while watching it react) are automatically carried back
         // into the persistent scene on Stop, same reasoning as Unreal's own "Keep Simulation Changes"
         // (researched against Unity/Godot too - neither has a first-party equivalent; see
-        // [[e29_playmode_keep_property_tweaks]] memory for the full design). StopPlaySession reads
+        // documentation/E29_LevelSceneEditor/playmode_keep_property_tweaks.md for the full design). StopPlaySession reads
         // every SetProperty entry pushed since this index, replays the deduped result as brand-new
         // SetProperty commands against the just-restored (V1/disk) scene, then discards the rest of
         // the play session's history - so Ctrl+Z after Stop never lands on a stale, play-session-only
@@ -437,7 +437,7 @@ namespace e29
     }
 
     // ShowCreateMenuItems moved further down in this file (right after E29_PrefabAuthoring.h's own
-    // include) - phase 4's own [[e29_command_undo_system_plan]] routing needs e29::g_pGameMgr/
+    // include) - phase 4's own documentation/E29_LevelSceneEditor/command_undo_system_plan.md routing needs e29::g_pGameMgr/
     // g_pState (E29_PrefabAuthoring.h) and e29::commands::Run (E29_CommandContext.h), neither
     // available yet at this point in the file. Its only 2 callers (kit/E29_Panel_LevelTree.h) are
     // reached much later in the umbrella than either dependency, so moving it is a pure relocation -
@@ -895,7 +895,7 @@ namespace e29
     // user feedback once right-click-in-place existed - it made the "+" redundant.
     // Assumes it's called from inside an already-open popup (BeginPopupContextItem/BeginPopup).
     //
-    // "New Entity" routed through the command/undo system ([[e29_command_undo_system_plan]] memory,
+    // "New Entity" routed through the command/undo system (documentation/E29_LevelSceneEditor/command_undo_system_plan.md,
     // phase 4 - commands/E29_Commands_EntityLifecycle.h) - create_entity_cmd::Redo does the exact
     // migration this used to do inline, Undo deletes it again. "New Folder" now routed too (external
     // review flagged it as the one glaring inconsistency left next to CreateEntity/DeleteEntity sitting
@@ -965,7 +965,7 @@ namespace e29
 // block - included AFTER the kit's namespace closes (same ODR-nesting rule as PropertyEdit).
 #include "kit/E29_DocumentSession.h"
 
-// Property-edit command (phase 2 of the kit split's own follow-on, [[e29_command_undo_system_plan]]
+// Property-edit command (phase 2 of the kit split's own follow-on, documentation/E29_LevelSceneEditor/command_undo_system_plan.md
 // memory) included directly here, not relying on E29_LevelScene_Editor.cpp's own later include -
 // entity_inspector_bridge, right below, needs it. Same self-sufficiency reasoning as
 // kit/E29_Panel_LevelTree.h's own top comment for why. Closed/reopened around this include (rather
@@ -1065,7 +1065,7 @@ namespace e29
             // than copying/erasing it into a std::function - so each callback must be a named local
             // that outlives the registration; here that "local" is the std::function MEMBER itself
             // (see this struct's own comment), assigned below and then registered.
-            // Routed through the command/undo system ([[e29_command_undo_system_plan]] memory, phase
+            // Routed through the command/undo system (documentation/E29_LevelSceneEditor/command_undo_system_plan.md, phase
             // 2 - commands/E29_Commands_PropertyEdit.h) instead of applying the value/recording the
             // override directly here - this is the ORDINARY per-row commit path (Cmd.m_Name is a real
             // property path, Cmd.m_NewValue/m_Original real scalar values), never the whole-component
@@ -1304,7 +1304,7 @@ namespace e29
                                     }
                                 }
 
-                                // Routed through the command system (gap #3, [[e29_command_undo_known_gaps]])
+                                // Routed through the command system (gap #3, documentation/E29_LevelSceneEditor/command_undo_known_gaps.md)
                                 // instead of BeginEdit/setProperty/CommitEdit directly - see this file's
                                 // own top comment (E29_Commands_EntityReference.h) for why AfterScene/
                                 // AfterId (not the raw runtime handle It->second) are what actually cross

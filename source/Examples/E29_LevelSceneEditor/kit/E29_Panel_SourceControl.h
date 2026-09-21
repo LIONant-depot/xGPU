@@ -379,7 +379,7 @@ namespace e29
         double m_SpinnerVisibleUntil = 0.0;
 
         // Deferred "Undo Changes" confirm request - a real Dear ImGui pitfall found live-testing the
-        // Level Tree's own new SC Revert feature (see [[e29_level_tree_source_control_column]]):
+        // Level Tree's own new SC Revert feature (see documentation/E29_LevelSceneEditor/level_tree_source_control_column.md):
         // clicking a MenuItem closes ITS OWN enclosing popup ("SCRowContext") the same way a real
         // right-click menu always does, so a BeginPopupModal nested directly inside it only ever
         // rendered for the single frame of the click - the next frame "SCRowContext" isn't reached,
@@ -1028,7 +1028,7 @@ namespace e29
     }
 
     // Shared by the Pending Changes list AND a changelist's own file list (Phase 4C - ONE
-    // implementation, not duplicated per list, per [[feedback_no_redundant_data]]). Acts on the whole
+    // implementation, not duplicated per list, per the project's no-redundant-data rule). Acts on the whole
     // active multi-selection when the right-clicked row is part of one, otherwise just that one row -
     // same "right-click preserves/collapses selection" rule E10_asset_browser_files_tab.h's own
     // RowContext popup already established (independently re-implemented here, not shared code, per

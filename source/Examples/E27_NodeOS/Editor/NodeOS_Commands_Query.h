@@ -302,7 +302,7 @@ namespace nodeos
                     // Copied into a real std::string immediately - PortTypeToPreview's return is
                     // backed by a shared thread_local scratch buffer, so holding onto the raw
                     // const char* across another call (the NEXT iteration's own PortTypeToPreview,
-                    // below) would silently corrupt this one - see [[xgpu_thread_local_pointer_aliasing]].
+                    // below) would silently corrupt this one - see documentation/E27_NodeOS/thread_local_pointer_aliasing.md.
                     const std::string Preview = PortTypeToPreview(pEffType, pValue);
                     Out += std::format("  {} : {} = {}\n", Inputs[i].m_pName, pEffType, Preview.empty() ? "(none)" : Preview);
                 }
@@ -386,7 +386,7 @@ namespace nodeos
         //================================================================================================
         // ClearGraph - destroys every node/link and resets Spines/Columns to a single empty root, the
         // same baseline -CodegenSelfTest's own standalone setup starts from. This is step 2 of the
-        // safe plugin-reload sequence (see ReloadPlugin, below, and [[xgpu_plugin_dll_hotreload]]):
+        // safe plugin-reload sequence (see ReloadPlugin, below, and documentation/E27_NodeOS/plugin_dll_hotreload.md):
         // every node's m_pNode is destroyed through its OWN factory's DestroyNodeInstance while that
         // factory's module is still loaded - not just abandoned - so nothing is left holding a
         // dangling vtable pointer once UnloadPlugin actually FreeLibrary's it. Exposed standalone

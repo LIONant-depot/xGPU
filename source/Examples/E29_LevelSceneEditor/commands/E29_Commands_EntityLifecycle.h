@@ -2,7 +2,7 @@
 #define E29_COMMANDS_ENTITY_LIFECYCLE_H
 #pragma once
 
-// Create/Delete Entity - phase 4 of [[e29_command_undo_system_plan]] (memory). Replaces
+// Create/Delete Entity - phase 4 of documentation/E29_LevelSceneEditor/command_undo_system_plan.md. Replaces
 // kit/E29_Panel_LevelTree.h's direct calls (ShowCreateMenuItems' "New Entity", DoDeleteEntity) with
 // real xundo commands.
 //
@@ -348,7 +348,7 @@ namespace e29::commands
                 // Copy, not reference - matches DeleteEntitySubtree's own pattern (E29_PrefabAuthoring.h):
                 // SaveEntity below can (in principle) touch pool memory, and iterating a reference into a
                 // container that might reallocate underneath the loop is exactly the class of bug
-                // [[xecs_pool_reallocation_hazard]] already covers.
+                // dependencies/xECSV2/doc/pool_reallocation_hazard.md already covers.
                 auto ChildList = Details.m_pPool->getComponent<xecs::component::children>(Details.m_PoolIndex).m_List;
                 for (auto Child : ChildList) Walk(Child);
             }
@@ -619,7 +619,7 @@ namespace e29::commands
             // Almost nothing to snapshot - see this file's own top comment (undo of create is a pure
             // inverse, no data to preserve) - EXCEPT one real side effect Redo() has when -Parent is
             // given: it gives the PARENT a `children` component if it didn't already have one
-            // ([[e29_command_undo_known_gaps]]'s own gap #2). Recorded here, BEFORE Redo runs, since
+            // (documentation/E29_LevelSceneEditor/command_undo_known_gaps.md's own gap #2). Recorded here, BEFORE Redo runs, since
             // that's the only point "did the parent already have one" is still answerable.
             auto SceneArg  = m_Parser.getOptionArgAs<std::string>(m_hScene, 0);
             auto IdArg     = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
@@ -667,7 +667,7 @@ namespace e29::commands
                 if (auto* pScene = e29::g_pGameMgr->m_SceneMgr.Find(SceneGuid))
                     pScene->m_PendingChanges[PermId].m_New -= 1;
 
-            // Gap #2 fix ([[e29_command_undo_known_gaps]]): DeleteSubtreeByPermanentId above already
+            // Gap #2 fix (documentation/E29_LevelSceneEditor/command_undo_known_gaps.md): DeleteSubtreeByPermanentId above already
             // scrubbed this child out of the parent's children.m_List (DeleteEntitySubtree's own
             // existing parent-scrub side effect) - if Redo() had to ADD that children component in the
             // first place (the parent didn't have one before) and the list is now empty, strip the

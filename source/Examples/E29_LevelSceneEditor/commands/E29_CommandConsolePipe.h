@@ -8,7 +8,7 @@
 
 
 
-// Named-pipe server - phase 5 of [[e29_command_undo_system_plan]] (memory). Near-direct port of
+// Named-pipe server - phase 5 of documentation/E29_LevelSceneEditor/command_undo_system_plan.md. Near-direct port of
 
 // E27_NodeOS's own command_console_pipe_bridge/CommandConsolePipeThreadMain/PumpCommandConsolePipe/
 

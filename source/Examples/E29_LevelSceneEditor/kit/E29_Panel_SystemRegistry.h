@@ -97,7 +97,7 @@ namespace e29
                     // SetNextItemAllowOverlap that didn't reliably work (confirmed live - dragging
                     // stopped registering at all once the second item was layered on top). Simplest
                     // fix, per this project's own established lesson
-                    // ([[xgpu_imgui_overlapping_invisible_buttons]]): don't have two competing
+                    // (documentation/ImGui/overlapping_invisible_buttons.md): don't have two competing
                     // interactive items sharing the same screen space in the first place. The grip
                     // glyph used to be a SEPARATE item drawn via ImDrawList before this Selectable -
                     // no matter how the cursor position was juggled, that meant a drag could only ever

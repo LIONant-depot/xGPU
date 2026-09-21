@@ -2016,8 +2016,8 @@ namespace e10
                                     // reversible move-to-trash; this discards real edits for good).
                                     //
                                     // Live-tested real Dear ImGui pitfall (see
-                                    // [[e29_level_tree_source_control_column]]/
-                                    // [[xgpu_imgui_table_column0_indent_quirk]]-adjacent finding): a
+                                    // documentation/E29_LevelSceneEditor/level_tree_source_control_column.md/
+                                    // documentation/ImGui/table_column0_indent_quirk.md-adjacent finding): a
                                     // MenuItem click closes ITS OWN enclosing popup ("RowContext")
                                     // same as a real right-click menu always does, so a BeginPopupModal
                                     // nested directly inside it only ever renders the single frame of

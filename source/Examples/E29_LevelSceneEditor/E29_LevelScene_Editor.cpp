@@ -1542,7 +1542,7 @@ int E29_Example()
 
 
 
-    // Command/undo system - phase 1 of [[e29_command_undo_system_plan]] (memory): selection only,
+    // Command/undo system - phase 1 of documentation/E29_LevelSceneEditor/command_undo_system_plan.md: selection only,
 
 
 
@@ -2006,7 +2006,7 @@ int E29_Example()
 
 
 
-    // Command Console named pipe - phase 5 of [[e29_command_undo_system_plan]] (memory). Lets an
+    // Command Console named pipe - phase 5 of documentation/E29_LevelSceneEditor/command_undo_system_plan.md. Lets an
 
 
 
@@ -4390,7 +4390,7 @@ int E29_Example()
 
 
 
-        // relies on ([[e29_command_undo_known_gaps]]). The Undo/Redo QUERY commands
+        // relies on (documentation/E29_LevelSceneEditor/command_undo_known_gaps.md). The Undo/Redo QUERY commands
 
 
 

@@ -285,7 +285,7 @@ namespace e29
                 // "Remove Component" combo below makes for the same action.
                 if (Bridge.m_pPendingRemoveComponent)
                 {
-                    // Routed through the command/undo system ([[e29_command_undo_system_plan]]
+                    // Routed through the command/undo system (documentation/E29_LevelSceneEditor/command_undo_system_plan.md
                     // memory, phase 3 - commands/E29_Commands_ComponentEdit.h) - remove_component_cmd
                     // snapshots the component's current property values before removing it, so Undo
                     // can restore it exactly, not just re-add it with default values.

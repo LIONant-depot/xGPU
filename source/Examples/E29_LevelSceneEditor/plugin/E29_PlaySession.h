@@ -607,7 +607,7 @@ namespace e29
     // carried back into the persistent scene, never anything structural (CreateEntity/AddComponent/
     // etc, if they somehow also happened while Playing) - matches Unreal's own "Keep Simulation
     // Changes", which is similarly restricted to actors that already existed before simulating (see
-    // [[e29_playmode_keep_property_tweaks]] memory for the full research/design). Deduplicated by
+    // documentation/E29_LevelSceneEditor/playmode_keep_property_tweaks.md for the full research/design). Deduplicated by
     // (Scene, Id, Component, Path) - a property dragged back and forth several times during one play
     // session collapses to a single entry, not a replay of every intermediate value.
     //---------------------------------------------------------------------------

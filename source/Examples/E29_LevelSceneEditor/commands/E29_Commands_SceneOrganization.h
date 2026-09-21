@@ -2,7 +2,7 @@
 #define E29_COMMANDS_SCENE_ORGANIZATION_H
 #pragma once
 
-// InstantiatePrefab / MoveToFolder - gap #5 of [[e29_command_undo_known_gaps]] ("half the editor
+// InstantiatePrefab / MoveToFolder - gap #5 of documentation/E29_LevelSceneEditor/command_undo_known_gaps.md ("half the editor
 // isn't undo-routed"): dragging a Prefab asset onto the Level tree, and dragging an entity between
 // folders (or in/out of one), both mutated scene state directly - not undoable, not reachable from a
 // CLI/AI caller. "Make Prefab" and "Duplicate" are this gap's other two named items - deliberately

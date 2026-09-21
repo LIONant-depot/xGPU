@@ -54,7 +54,7 @@ namespace e29
             if (pInfo->m_TypeID != xecs::component::type::id::DATA) continue;
             if (e29::IsInternalComponent(pInfo)) continue;
             // findIndexComponentFromInfo, not getComponentBits().getBit() — see
-            // [[xecs_getbit_vs_findindexcomponentfrominfo]].
+            // dependencies/xECSV2/doc/getbit_vs_findindexcomponentfrominfo.md.
             if (pPool->findIndexComponentFromInfo(*pInfo) >= 0) continue;
 
             const char* pName = pInfo->m_pName ? pInfo->m_pName : "";

@@ -5,7 +5,7 @@
 // e29_command_context - the "database" every E29 xundo command mutates, retrieved via
 // command_base::get<e29_command_context>(). Direct port of E27_NodeOS's own
 // node_os_command_context/BackupSelection/RestoreSelection (Editor/NodeOS_CommandContext.h) - see
-// [[e29_command_undo_system_plan]] (memory) for the full phased plan this is step 1 of.
+// documentation/E29_LevelSceneEditor/command_undo_system_plan.md for the full phased plan this is step 1 of.
 //
 // Deliberately holds ONLY editor_state& - NOT a xecs::game_mgr::instance& the way E27_NodeOS's own
 // context holds its node/link vectors directly. E29's pGameMgr is a unique_ptr that gets destroyed

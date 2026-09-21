@@ -2,7 +2,7 @@
 #define E29_COMMANDS_ENTITY_REFERENCE_H
 #pragma once
 
-// SetEntityReference - gap #3 of [[e29_command_undo_known_gaps]]. Assigning/clearing an
+// SetEntityReference - gap #3 of documentation/E29_LevelSceneEditor/command_undo_known_gaps.md. Assigning/clearing an
 // xecs::component::entity-valued property (entity_reference::m_Target, drag-dropped onto or cleared
 // via the "X" button in the inspector, entity_inspector_bridge::m_OnEntityReferenceRender,
 // E29_LevelSceneEditorKit.h) used to mutate directly - not undoable, and not visible to a CLI/AI

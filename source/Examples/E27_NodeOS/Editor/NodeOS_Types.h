@@ -757,7 +757,7 @@ namespace nodeos
     //
     // xbitmap::setup() (see xbitmap.cpp) treats the VERY FIRST slot of the data span as a
     // mip-offset-table entry (an xbitmap::mip{ m_Offset }), not pixel payload - the same trap the
-    // raw-span CONSTRUCTOR has (see [[xgpu_screenshot_capture]] memory), just less obvious since
+    // raw-span CONSTRUCTOR has (see documentation/E27_NodeOS/screenshot_capture.md), just less obvious since
     // setup() looks like a plain "here's my buffer" call. Confirmed by hand against setup()'s own
     // asserts and getMipPtr's offset math: one extra uint32 slot at the front holding
     // sizeof(xbitmap::mip) (the byte offset to skip past this one-entry table) is what a correct

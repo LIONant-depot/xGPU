@@ -2,7 +2,7 @@
 #define E29_PANEL_COMMAND_CONSOLE_H
 #pragma once
 
-// Command Console panel - phase 6 of [[e29_command_undo_system_plan]] (memory), direct user request:
+// Command Console panel - phase 6 of documentation/E29_LevelSceneEditor/command_undo_system_plan.md, direct user request:
 // "you can bring over the command window from example 27". Near-direct port of E27_NodeOS's own
 // DrawCommandConsolePanel (source/Examples/E27_NodeOS/Editor/NodeOS_UI_CommandConsole.h) - a plain
 // text box for "Namespace/Edit-or-Query/Command -args..." strings routed through

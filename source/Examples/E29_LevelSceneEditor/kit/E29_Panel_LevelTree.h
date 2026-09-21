@@ -696,7 +696,7 @@ namespace e29
                                                     // Routed through the command/undo system
                                                     // (commands/E29_Commands_Selection.h) instead of
                                                     // mutating State directly - phase 1 of
-                                                    // [[e29_command_undo_system_plan]] (memory). Ctrl
+                                                    // documentation/E29_LevelSceneEditor/command_undo_system_plan.md. Ctrl
                                                     // held = ToggleMultiSelect (multi-select only,
                                                     // primary selection untouched); plain click =
                                                     // Select (primary selection + reset multi-select
@@ -736,7 +736,7 @@ namespace e29
                                             auto DoDeleteEntity = [&]() noexcept
                                             {
                                                 // Routed through the command/undo system
-                                                // ([[e29_command_undo_system_plan]] memory, phase 4 -
+                                                // (documentation/E29_LevelSceneEditor/command_undo_system_plan.md, phase 4 -
                                                 // commands/E29_Commands_EntityLifecycle.h) instead of
                                                 // calling DeleteEntitySubtree directly - selection/
                                                 // multi-select survival cleanup (this row or a now-

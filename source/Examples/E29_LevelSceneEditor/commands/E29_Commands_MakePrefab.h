@@ -3,8 +3,8 @@
 #pragma once
 
 // MakePrefab / MakePrefabVariant - the gap deliberately deferred from both the prior gap-closing
-// session ([[e29_command_undo_known_gaps]]) and the Asset Browser command-layer session
-// ([[e29_asset_browser_command_layer]]): "Make Prefab" creates a real Prefab ASSET on disk
+// session (documentation/E29_LevelSceneEditor/command_undo_known_gaps.md) and the Asset Browser command-layer session
+// (documentation/E29_LevelSceneEditor/asset_browser_command_layer.md): "Make Prefab" creates a real Prefab ASSET on disk
 // (AssetMgr.NewAsset) AND converts a live entity/group into an instance of it - a genuine composition
 // of what CreateAsset (E29_Commands_AssetBrowser.h) and the entity-subtree snapshot/restore machinery
 // (SnapshotSubtreeForRestore/RestoreSubtreeFromSnapshot, E29_Commands_EntityLifecycle.h) each already

@@ -4,7 +4,7 @@
 
 // Idle Work - a place for maintenance that only matters when nothing else is happening. Direct user
 // request/design, arrived at after two rounds of correction on the scene load/save hardening pass
-// ([[xecs_scene_save_future_hardening]] memory): the orphan/dangling consistency check started out
+// (dependencies/xECSV2/doc/scene_save_hardening.md): the orphan/dangling consistency check started out
 // inline on the Load/Play/Stop path, got moved to a detached background thread once "Load/Save should
 // stay fast" was raised, then got moved AGAIN - all the way out here - once the real scaling concern
 // surfaced: "scenes could be about 1,000,000 entities... what is ok now with 10 may not scale so

@@ -2,7 +2,7 @@
 #define E29_COMMANDS_PROPERTY_EDIT_H
 #pragma once
 
-// Property editing - phase 2 of [[e29_command_undo_system_plan]] (memory). Replaces
+// Property editing - phase 2 of documentation/E29_LevelSceneEditor/command_undo_system_plan.md. Replaces
 // entity_inspector_bridge::m_OnPropertyChanged's own DIRECT, unconditional override-recording
 // (E29_LevelSceneEditorKit.h - "every commit... writes only the new value... there is no automatic
 // 'values now match, drop the diff' comparison anywhere") with a real xundo command whose Redo()/

@@ -18,7 +18,7 @@ namespace e29
         auto& Details = GameMgr.m_ComponentMgr.getEntityDetails(Entity);
         if (Details.m_pPool == nullptr) return nullptr;
         // findIndexComponentFromInfo, not getComponentBits().getBit() - see
-        // [[xecs_getbit_vs_findindexcomponentfrominfo]] (a runtime-assigned component bit checked this
+        // dependencies/xECSV2/doc/getbit_vs_findindexcomponentfrominfo.md (a runtime-assigned component bit checked this
         // way can read as absent/invalid even when the component is genuinely present).
         if (Details.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) < 0)
             return nullptr;
@@ -301,7 +301,7 @@ namespace e29
         // wrongly-labeled "differs from prefab" indicator in the Properties panel between placement
         // and the next save. Checked via findIndexComponentFromInfo (matches the per-component lookup
         // SaveGroupMember/LoadGroupMember already use), not getComponentBits().getBit() - see
-        // [[xecs_getbit_vs_findindexcomponentfrominfo]].
+        // dependencies/xECSV2/doc/getbit_vs_findindexcomponentfrominfo.md.
         auto& ExistingDetails = GameMgr.m_ComponentMgr.getEntityDetails(Entity);
         if( ExistingDetails.m_pPool && ExistingDetails.m_pPool->findIndexComponentFromInfo(xecs::component::type::info_v<xecs::editor::prefab_instance>) >= 0 )
         {

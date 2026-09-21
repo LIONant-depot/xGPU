@@ -111,7 +111,7 @@ namespace nodeos
     // the process's heap/global state may already be corrupted by the time this returns - this is
     // "log it and skip this node," never "guaranteed safe to keep running normally" - but it's
     // strictly better than the whole editor going down over one bad node, which is the actual goal
-    // (see [[xgpu_plugin_dll_hotreload]] for the companion "don't need to restart to fix it" half).
+    // (see documentation/E27_NodeOS/plugin_dll_hotreload.md for the companion "don't need to restart to fix it" half).
     static unsigned long SEH_CallExecute(xnode_os_node* pNode, void** Inputs, void** Outputs) noexcept
     {
         __try

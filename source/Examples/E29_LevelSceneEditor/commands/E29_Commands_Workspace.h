@@ -63,7 +63,7 @@ namespace e29::commands
     //================================================================================================
     // Save - wraps e29::SaveEverything (E29_LevelSceneEditorKit.h), the SAME single "Save" action
     // File>Save/Ctrl+S already trigger. Gated on !State.isPlaying(), matching the existing Save-gating
-    // rule exactly ([[e29_save_gating_and_persist_mode_unify]] memory) - Play already blocks Save in
+    // rule exactly (documentation/E29_LevelSceneEditor/save_gating_and_persist_mode.md) - Play already blocks Save in
     // the UI, and there's no reason a command should be allowed to bypass that.
     //================================================================================================
     struct save_query_cmd : xundo::query_command_base
@@ -166,7 +166,7 @@ namespace e29::commands
     // guid - everything needed to build a working SetProperty (or confirm what AddComponent/
     // RemoveComponent already did). Reuses the exact xproperty::sprop::collector pattern already
     // proven safe with `noexcept` in phase 2/3/4's own component-snapshot code (unlike
-    // [[xgpu_xcontainer_noexcept_lambda_trait_trap]]'s own FindAsReadOnly callback, this one's fine).
+    // dependencies/xcontainer/documentation/noexcept_lambda_trait_trap.md's own FindAsReadOnly callback, this one's fine).
     // Property paths are shown RAW, not Base64 - trivial for a human or AI to encode when building the
     // actual SetProperty call, and far more readable here than a wall of base64 would be.
     //================================================================================================
