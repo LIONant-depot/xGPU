@@ -757,8 +757,23 @@ namespace e10
         {
             for (auto& E : m_AssetMgr.m_AssetPluginsDB.m_lPlugins)
             {
-                // Plain text menu item - ImGui::MenuItem has no inline-image slot, and this is a
-                // create-menu list, not the tile view the icon atlas is for (WrappedButton2, above).
+                // Show the resource type icon to the left of the resource name
+                e10::plugin_icon_ref IconRef = m_AssetMgr.m_AssetPluginsDB.getIconRef(E.m_TypeGUID, 0);
+                
+                ImGui::PushID(E.m_TypeName.c_str());
+                
+                // Draw icon
+                if (IconRef.isValid())
+                {
+                    float IconSize = ImGui::GetTextLineHeight();
+                    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + 4.0f);
+                    ImGui::ImageWithBg((ImTextureRef)(void*)IconRef.m_pTexture, ImVec2(IconSize, IconSize)
+                                , ImVec2(IconRef.m_U0, IconRef.m_V0), ImVec2(IconRef.m_U1, IconRef.m_V1)
+                                , ImVec4(0, 0, 0, 0), ImGui::ColorConvertU32ToFloat4(IM_COL32(255, 255, 255, 255)));
+                    ImGui::SameLine();
+                }
+                
+                // Draw text
                 if (ImGui::MenuItem(E.m_TypeName.c_str()))
                 {
                     auto LibGUID            = m_SelectedLibrary.empty() ? m_AssetMgr.m_ProjectGUID : m_SelectedLibrary;
@@ -769,6 +784,8 @@ namespace e10
                     m_SelectedItems.clear();
                     m_SelectedItems.push_back(LastGeneratedAsset);
                 }
+                
+                ImGui::PopID();
             }
         }
 
