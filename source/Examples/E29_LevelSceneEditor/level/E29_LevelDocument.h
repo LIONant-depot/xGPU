@@ -35,7 +35,7 @@ namespace e29
         {
             if (!m_pEd || m_pEd->m_State.m_CurrentLevel.empty()) return {};
             std::string Name;
-            RemapGUIDToString(Name, CurrentGuid());
+            e10::RemapGUIDToString(Name, CurrentGuid());
             return Name.empty() ? std::string("Level") : Name;
         }
 

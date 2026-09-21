@@ -315,7 +315,7 @@ namespace e29
         ImGui::SetNextWindowPos(ImVec2(915, 18), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(360, 680), ImGuiCond_FirstUseEver);
         const bool bWindowVisible = ImGui::Begin(e29::editor_tabs::kLevelTreeWindow);
-        e29::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kLevelTreeWindow, bWindowVisible ? 1 : 0);
+        xeditor::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kLevelTreeWindow, bWindowVisible ? 1 : 0);
         if (bWindowVisible)
         {
             if (bReadOnly) ImGui::BeginDisabled();
@@ -345,12 +345,12 @@ namespace e29
             else if (auto* pLevel = GameMgr.m_LevelMgr.Find(State.m_CurrentLevel))
             {
                 std::string LevelLabel;
-                e29::RemapGUIDToString(LevelLabel, xresource::full_guid{ State.m_CurrentLevel.m_Instance, State.m_CurrentLevel.m_Type });
+                e10::RemapGUIDToString(LevelLabel, xresource::full_guid{ State.m_CurrentLevel.m_Instance, State.m_CurrentLevel.m_Type });
 
                 // Search box, visually matching the asset browser's own (RenderTreeSearchBar's own
                 // comment). Adding entities/folders is right-click-in-place on a Scene/Folder row now
                 // (BeginPopupContextItem, below).
-                e29::RenderTreeSearchBar(State.m_TreeSearchString, ImGui::GetContentRegionAvail().x);
+                xeditor::RenderTreeSearchBar(State.m_TreeSearchString, ImGui::GetContentRegionAvail().x);
 
                 // The whole Level -> Scene -> Folder -> Entity hierarchy lives in one real
                 // ImGui::BeginTable now (ImGui's own documented "tree inside a table" shape -
@@ -464,7 +464,7 @@ namespace e29
                             const auto SceneGuid = pLevel->m_Scenes[iScene];
 
                             std::string SceneLabel;
-                            e29::RemapGUIDToString(SceneLabel, xresource::full_guid{ SceneGuid.m_Instance, SceneGuid.m_Type });
+                            e10::RemapGUIDToString(SceneLabel, xresource::full_guid{ SceneGuid.m_Instance, SceneGuid.m_Type });
 
                             const bool bIsOpenScene = std::find(State.m_OpenScenes.begin(), State.m_OpenScenes.end(), SceneGuid) != State.m_OpenScenes.end();
 
@@ -645,13 +645,13 @@ namespace e29
                                             if (pPI)
                                             {
                                                 std::string PrefabName;
-                                                e29::RemapGUIDToString(PrefabName, pPI->m_PrefabInstance);
+                                                e10::RemapGUIDToString(PrefabName, pPI->m_PrefabInstance);
                                                 EntityLabel += std::format(" (Prefab: {})", PrefabName);
                                             }
 
                                             // Search filters entities only (folders always stay visible
                                             // so a match nested inside one is still reachable).
-                                            if (!State.m_TreeSearchString.empty() && !e29::ContainsCaseInsensitive(EntityLabel, State.m_TreeSearchString))
+                                            if (!State.m_TreeSearchString.empty() && !xeditor::ContainsCaseInsensitive(EntityLabel, State.m_TreeSearchString))
                                                 return false;
 
                                             ImGui::PushID(static_cast<int>(Id));
@@ -1024,7 +1024,7 @@ namespace e29
                                                 {
                                                     ImGui::PushID(static_cast<int>(iDep));
                                                     std::string DepName;
-                                                    e29::RemapGUIDToString(DepName, xresource::full_guid{ pScene->m_ParentScenes[iDep].m_Instance, pScene->m_ParentScenes[iDep].m_Type });
+                                                    e10::RemapGUIDToString(DepName, xresource::full_guid{ pScene->m_ParentScenes[iDep].m_Instance, pScene->m_ParentScenes[iDep].m_Type });
 
                                                     ImGui::TableNextRow();
                                                     ImGui::TableSetColumnIndex(1);
@@ -1186,7 +1186,7 @@ namespace e29
             if (bReadOnly) ImGui::EndDisabled();
         }
         ImGui::End();
-        e29::diagnostics::Log("window end: %s", e29::editor_tabs::kLevelTreeWindow);
+        xeditor::diagnostics::Log("window end: %s", e29::editor_tabs::kLevelTreeWindow);
     }
 
 } // namespace e29

@@ -1077,7 +1077,7 @@ source_group("Examples/E28_FontResourcePipeline" FILES
 source_group("Examples/E29_LevelSceneEditor" FILES
   "source/Examples/E29_LevelSceneEditor/E29_LevelSceneEditorKit.h"
   "source/Examples/E29_LevelSceneEditor/E29_EditorTabs.h"
-  "source/Examples/E29_LevelSceneEditor/E29_Diagnostics.h"
+  "dependencies/xeditor/include/xeditor/diagnostics.h"
   "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_GamePlugin.h"
   "source/Examples/E29_LevelSceneEditor/E29_LevelScene_Editor.cpp"
 )

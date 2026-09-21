@@ -24,6 +24,7 @@
 // asset-browser's own xresource_pipeline.h umbrella pull of the same four headers becomes a no-op.
 #include "dependencies/xECSV2/src/xecs.h"
 #include "dependencies/xeditor/include/xeditor/commands.h"
+#include "dependencies/xeditor/include/xeditor/widgets.h"
 
 #define XRESOURCE_PIPELINE_NO_COMPILER
 #include "dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
@@ -58,7 +59,7 @@
 //-----------------------------------------------------------------------------------
 
 #include "source/Examples/E29_LevelSceneEditor/scene/E29_NameComponent.h"
-#include "source/Examples/E29_LevelSceneEditor/scene/E29_InspectorPickers.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_InspectorPickers.h"
 #include "source/Examples/E29_LevelSceneEditor/core/E29_EditorState.h"
 #include "source/Examples/E29_LevelSceneEditor/level/E29_LevelOps.h"
 #include "source/Examples/E29_LevelSceneEditor/scene/E29_SceneDependencies.h"

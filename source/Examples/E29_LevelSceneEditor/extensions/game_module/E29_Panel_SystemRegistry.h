@@ -31,7 +31,7 @@ namespace e29
         ImGui::SetNextWindowPos(ImVec2(18, 530), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(480, 220), ImGuiCond_FirstUseEver);
         const bool bWindowVisible = ImGui::Begin(e29::editor_tabs::kSystemRegistryWindow);
-        e29::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kSystemRegistryWindow, bWindowVisible ? 1 : 0);
+        xeditor::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kSystemRegistryWindow, bWindowVisible ? 1 : 0);
         if (bWindowVisible)
         {
             if (State.isPlaying())
@@ -166,7 +166,7 @@ namespace e29
             }
         }
         ImGui::End();
-        e29::diagnostics::Log("window end: %s", e29::editor_tabs::kSystemRegistryWindow);
+        xeditor::diagnostics::Log("window end: %s", e29::editor_tabs::kSystemRegistryWindow);
     }
 } // namespace e29
 

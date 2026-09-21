@@ -7,63 +7,63 @@ namespace e29
 
 
 
-        e29::diagnostics::Start();
+        xeditor::diagnostics::Start("E29_LevelSceneEditor.trace.log");
 
-        e29::diagnostics::InstallCrtReportHook();
+        xeditor::diagnostics::InstallCrtReportHook();
 
-        e29::diagnostics::InstallTerminateHandler();
+        xeditor::diagnostics::InstallTerminateHandler();
 
-        e29::diagnostics::Log("startup: E29_Example begin");
+        xeditor::diagnostics::Log("startup: E29_Example begin");
 
-        e29::diagnostics::Log("startup: creating xgpu instance");
+        xeditor::diagnostics::Log("startup: creating xgpu instance");
 
         if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_pLogErrorFunc = xeditor::NotifyError, .m_pLogWarning = xeditor::NotifyError }); Err)
 
         {
 
-            e29::diagnostics::Log("startup: xgpu instance creation failed");
+            xeditor::diagnostics::Log("startup: xgpu instance creation failed");
 
-            e29::diagnostics::RemoveCrtReportHook();
+            xeditor::diagnostics::RemoveCrtReportHook();
 
-            e29::diagnostics::RemoveTerminateHandler();
+            xeditor::diagnostics::RemoveTerminateHandler();
 
-            e29::diagnostics::Stop();
+            xeditor::diagnostics::Stop();
 
             return xgpu::getErrorInt(Err);
 
         }
 
-        e29::diagnostics::Log("startup: creating xgpu device");
+        xeditor::diagnostics::Log("startup: creating xgpu device");
 
         if (auto Err = Instance.Create(Device); Err)
 
         {
 
-            e29::diagnostics::Log("startup: xgpu device creation failed");
+            xeditor::diagnostics::Log("startup: xgpu device creation failed");
 
-            e29::diagnostics::RemoveCrtReportHook();
+            xeditor::diagnostics::RemoveCrtReportHook();
 
-            e29::diagnostics::RemoveTerminateHandler();
+            xeditor::diagnostics::RemoveTerminateHandler();
 
-            e29::diagnostics::Stop();
+            xeditor::diagnostics::Stop();
 
             return xgpu::getErrorInt(Err);
 
         }
 
-        e29::diagnostics::Log("startup: creating main window");
+        xeditor::diagnostics::Log("startup: creating main window");
 
         if (auto Err = Device.Create(MainWindow, {}); Err)
 
         {
 
-            e29::diagnostics::Log("startup: main window creation failed");
+            xeditor::diagnostics::Log("startup: main window creation failed");
 
-            e29::diagnostics::RemoveCrtReportHook();
+            xeditor::diagnostics::RemoveCrtReportHook();
 
-            e29::diagnostics::RemoveTerminateHandler();
+            xeditor::diagnostics::RemoveTerminateHandler();
 
-            e29::diagnostics::Stop();
+            xeditor::diagnostics::Stop();
 
             return xgpu::getErrorInt(Err);
 
@@ -71,7 +71,7 @@ namespace e29
 
 
 
-        e29::diagnostics::Log("startup: initializing resource manager");
+        xeditor::diagnostics::Log("startup: initializing resource manager");
 
         xresource::g_Mgr.Initiallize(20000);
 
@@ -87,19 +87,19 @@ namespace e29
 
         //
 
-        e29::diagnostics::Log("startup: xgpu/imgui CreateInstance begin");
+        xeditor::diagnostics::Log("startup: xgpu/imgui CreateInstance begin");
 
         e29::g_pTextureEditorDevice = &Device;
 
         xgpu::tools::imgui::CreateInstance(MainWindow);
 
-        e29::diagnostics::Log("startup: xgpu/imgui CreateInstance complete");
+        xeditor::diagnostics::Log("startup: xgpu/imgui CreateInstance complete");
 
-        e29::diagnostics::Log("startup: applying E29 theme begin");
+        xeditor::diagnostics::Log("startup: applying E29 theme begin");
 
         e29::theme::ApplyUnityInspiredTheme();
 
-        e29::diagnostics::Log("startup: applying E29 theme complete");
+        xeditor::diagnostics::Log("startup: applying E29 theme complete");
 
 
 
@@ -119,11 +119,11 @@ namespace e29
 
         // because every xGPU example is its own separate process (E10/E19-28 never call this line).
 
-        e29::diagnostics::Log("startup: selecting E29 default font begin");
+        xeditor::diagnostics::Log("startup: selecting E29 default font begin");
 
         ImGui::GetIO().FontDefault = ImGui::GetIO().Fonts->Fonts[4];
 
-        e29::diagnostics::Log("startup: selecting E29 default font complete");
+        xeditor::diagnostics::Log("startup: selecting E29 default font complete");
 
 
 
@@ -139,18 +139,18 @@ namespace e29
 
         //
 
-        e29::diagnostics::Log("startup: constructing ECS game manager begin");
+        xeditor::diagnostics::Log("startup: constructing ECS game manager begin");
         pGameMgr = std::make_unique<xecs::game_mgr::instance>();
 
-        e29::diagnostics::Log("startup: constructing ECS game manager complete");
+        xeditor::diagnostics::Log("startup: constructing ECS game manager complete");
 
 
 
-        e29::diagnostics::Log("startup: registering host components begin");
+        xeditor::diagnostics::Log("startup: registering host components begin");
 
         RegisterHostComponents(*pGameMgr);
 
-        e29::diagnostics::Log("startup: registering host components complete");
+        xeditor::diagnostics::Log("startup: registering host components complete");
 
 
 
@@ -232,21 +232,21 @@ namespace e29
 
 
 
-        e29::diagnostics::Log("startup: registering host systems begin");
+        xeditor::diagnostics::Log("startup: registering host systems begin");
 
         RegisterHostSystems(*pGameMgr);
 
-        e29::diagnostics::Log("startup: registering host systems complete");
+        xeditor::diagnostics::Log("startup: registering host systems complete");
 
-        e29::diagnostics::Log("startup: registering game plugin systems begin");
+        xeditor::diagnostics::Log("startup: registering game plugin systems begin");
 
         e29::RegisterGamePluginSystems(*pGameMgr, GamePlugin);
 
-        e29::diagnostics::Log("startup: registering game plugin systems complete");
+        xeditor::diagnostics::Log("startup: registering game plugin systems complete");
 
         {
 
-            e29::diagnostics::Log("startup: opening project begin");
+            xeditor::diagnostics::Log("startup: opening project begin");
 
             TCHAR szModulePath[MAX_PATH];
 
@@ -304,7 +304,7 @@ namespace e29
 
                 const bool bPluginPathExists = std::filesystem::exists(PluginPathForLog, PluginPathError);
 
-                e29::diagnostics::Log
+                xeditor::diagnostics::Log
 
                 ( "startup: project path=%s plugin path=%s exists=%d ec=%d"
 
@@ -320,19 +320,19 @@ namespace e29
 
                     xeditor::NotifyError(Err.getMessage());
 
-                    e29::diagnostics::Log("startup: opening project failed");
+                    xeditor::diagnostics::Log("startup: opening project failed");
 
-                    e29::diagnostics::RemoveCrtReportHook();
+                    xeditor::diagnostics::RemoveCrtReportHook();
 
-                    e29::diagnostics::RemoveTerminateHandler();
+                    xeditor::diagnostics::RemoveTerminateHandler();
 
-                    e29::diagnostics::Stop();
+                    xeditor::diagnostics::Stop();
 
                     return 1;
 
                 }
 
-                e29::diagnostics::Log("startup: opening project complete");
+                xeditor::diagnostics::Log("startup: opening project complete");
 
 
 
@@ -388,13 +388,13 @@ namespace e29
 
             {
 
-                e29::diagnostics::Log("startup: could not locate a bootstrapped example.lionprj above the executable");
+                xeditor::diagnostics::Log("startup: could not locate a bootstrapped example.lionprj above the executable");
 
             }
 
         }
 
-        e29::diagnostics::Log("startup: editor state and asset browser constructed");
+        xeditor::diagnostics::Log("startup: editor state and asset browser constructed");
 
 
 
@@ -519,7 +519,7 @@ namespace e29
 
         EntityInspector.m_Settings.m_TableFramePadding = ImVec2(4.0f, 1.0f);   // was {2, 6}
 
-        e29::WireResourcePickerCallbacks(EntityInspector);
+        e10::WireResourcePickerCallbacks(EntityInspector);
 
         InspectorBridge.RegisterCallbacks(EntityInspector, CmdContext);
 
@@ -575,7 +575,7 @@ namespace e29
 
 
 
-        e29::diagnostics::Log("startup: initialization complete, entering frame loop");
+        xeditor::diagnostics::Log("startup: initialization complete, entering frame loop");
 
             // Host service hooks (10.C.1.4): Idle Work + SC idle + Game.dll focus-reload.
         EditorHost.m_OnPumpServices = [&]() noexcept
@@ -611,7 +611,7 @@ namespace e29
 
 
 
-        e29::diagnostics::Log("shutdown: frame loop ended");
+        xeditor::diagnostics::Log("shutdown: frame loop ended");
 
 
 
@@ -634,7 +634,7 @@ namespace e29
 
 
 
-        e29::diagnostics::Log("shutdown: game plugin unloaded");
+        xeditor::diagnostics::Log("shutdown: game plugin unloaded");
 
 
 
@@ -642,7 +642,7 @@ namespace e29
 
 
 
-        e29::diagnostics::Log("shutdown: xgpu/imgui Shutdown begin");
+        xeditor::diagnostics::Log("shutdown: xgpu/imgui Shutdown begin");
 
 
 
@@ -650,23 +650,23 @@ namespace e29
 
 
 
-        e29::diagnostics::Log("shutdown: xgpu/imgui Shutdown complete");
+        xeditor::diagnostics::Log("shutdown: xgpu/imgui Shutdown complete");
 
 
 
-        e29::diagnostics::RemoveCrtReportHook();
+        xeditor::diagnostics::RemoveCrtReportHook();
 
 
 
-        e29::diagnostics::RemoveTerminateHandler();
+        xeditor::diagnostics::RemoveTerminateHandler();
 
 
 
-        e29::diagnostics::Log("shutdown: E29_Example return");
+        xeditor::diagnostics::Log("shutdown: E29_Example return");
 
 
 
-        e29::diagnostics::Stop();
+        xeditor::diagnostics::Stop();
 
 
 

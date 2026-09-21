@@ -74,7 +74,7 @@ namespace e29
 
                 static bool bWired = false;
 
-                if (!bWired) { e29::WireResourcePickerCallbacks(Inspector); bWired = true; }
+                if (!bWired) { e10::WireResourcePickerCallbacks(Inspector); bWired = true; }
 
 
 

@@ -153,56 +153,6 @@ namespace e29
     // NOT FolderIcon so the synthesized Dependencies row can't be mistaken for a user folder.
     constexpr const char* DependenciesIcon() noexcept { return "\xEE\x9C\x9B"; }
 
-    bool ContainsCaseInsensitive(std::string_view Haystack, std::string_view Needle) noexcept
-    {
-        if (Needle.empty()) return true;
-        auto It = std::search(Haystack.begin(), Haystack.end(), Needle.begin(), Needle.end(),
-            [](char A, char B) noexcept { return std::tolower(static_cast<unsigned char>(A)) == std::tolower(static_cast<unsigned char>(B)); });
-        return It != Haystack.end();
-    }
-
-    // Visually matches e10::assert_browser::RenderSearchBar (E10_AssetBrowser.h) - the magnifying-
-    // glass placeholder icon, gray "X" to clear, rounded InputText - reimplemented standalone rather
-    // than called directly since that method is bound to assert_browser's own m_SearchString member;
-    // it's the VISUAL pattern being reused here, backed by E29's own tree-search state instead. Skips
-    // the original's leading "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¼" sort/filter-type dropdown button - there's no equivalent filter-type
-    // concept for the Level tree, just a plain substring search.
-    void RenderTreeSearchBar(std::string& SearchString, float AvailWidth) noexcept
-    {
-        std::array<char, 256> Buffer{};
-        strcpy_s(Buffer.data(), Buffer.size(), SearchString.c_str());
-
-        const auto StartX = ImGui::GetCursorPosX();
-        if (Buffer[0] != 0)
-        {
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
-            if (ImGui::SmallButton("X")) Buffer[0] = 0;
-            ImGui::PopStyleColor();
-            ImGui::SameLine(0, 0.1f);
-        }
-        AvailWidth -= ImGui::GetCursorPosX() - StartX;
-
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, 7.0f);
-        ImGui::PushItemWidth(AvailWidth);
-        ImGui::InputText("##TreeSearch", Buffer.data(), Buffer.size());
-        const bool bActive  = ImGui::IsItemActive();
-        const bool bHasText = (Buffer[0] != 0);
-        if (!bActive && !bHasText)
-        {
-            const ImVec2 InputPos  = ImGui::GetItemRectMin();
-            const ImVec2 CursorPos = ImGui::GetCursorScreenPos();
-            ImGui::SetCursorScreenPos(ImVec2(InputPos.x + 10.0f, InputPos.y + 4.0f));
-            ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.5f, 0.5f, 0.5f, 1.0f));
-            ImGui::Text("\xee\x9c\xa1");
-            ImGui::PopStyleColor();
-            ImGui::SetCursorScreenPos(CursorPos);
-        }
-        ImGui::PopItemWidth();
-        ImGui::PopStyleVar();
-
-        SearchString = std::string_view(Buffer.data());
-    }
-
     void OpenLevel(xecs::game_mgr::instance& GameMgr, editor_state& State, xresource::full_guid LevelGuid)
     {
         const xecs::level::guid Guid{ .m_Instance = LevelGuid.m_Instance };

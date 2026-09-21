@@ -229,7 +229,7 @@ namespace e29
         auto& Host = *xeditor::host::current();
         if (!Host.try_begin_play(&State))
         {
-            diagnostics::Log("Play refused: another Play session is already active");
+            xeditor::diagnostics::Log("Play refused: another Play session is already active");
             State.m_bPlayBusyPopup = true;
             return "Play: another Play session is already active";
         }

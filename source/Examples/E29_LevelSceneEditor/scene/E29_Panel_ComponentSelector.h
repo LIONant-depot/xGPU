@@ -32,7 +32,7 @@ namespace e29
             return false;
         }
 
-        e29::RenderTreeSearchBar(State.m_ComponentSelectorSearchString, ImGui::GetContentRegionAvail().x);
+        xeditor::RenderTreeSearchBar(State.m_ComponentSelectorSearchString, ImGui::GetContentRegionAvail().x);
         ImGui::Separator();
 
         const bool bHasSearch = !State.m_ComponentSelectorSearchString.empty();
@@ -58,7 +58,7 @@ namespace e29
             if (pPool->findIndexComponentFromInfo(*pInfo) >= 0) continue;
 
             const char* pName = pInfo->m_pName ? pInfo->m_pName : "";
-            if (bHasSearch && !e29::ContainsCaseInsensitive(pName, State.m_ComponentSelectorSearchString))
+            if (bHasSearch && !xeditor::ContainsCaseInsensitive(pName, State.m_ComponentSelectorSearchString))
                 continue;
 
             std::string Category;

@@ -69,7 +69,7 @@
 
 #include "source/Tools/Editor/xeditor_resource_tab.h"
 
-#include "source/Examples/E29_LevelSceneEditor/E29_Diagnostics.h"
+#include "dependencies/xeditor/include/xeditor/diagnostics.h"
 
 #include "ximgui_toolbar.h"
 

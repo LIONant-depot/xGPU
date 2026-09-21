@@ -182,7 +182,7 @@ namespace e29
         if (!bEmbedded)
         {
             bWindowVisible = ImGui::Begin(e29::editor_tabs::kCommandConsoleWindow);
-            e29::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kCommandConsoleWindow, bWindowVisible ? 1 : 0);
+            xeditor::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kCommandConsoleWindow, bWindowVisible ? 1 : 0);
         }
         if (bWindowVisible)
         {
@@ -567,7 +567,7 @@ namespace e29
         if (!bEmbedded)
         {
             ImGui::End();
-            e29::diagnostics::Log("window end: %s", e29::editor_tabs::kCommandConsoleWindow);
+            xeditor::diagnostics::Log("window end: %s", e29::editor_tabs::kCommandConsoleWindow);
         }
     }
 }

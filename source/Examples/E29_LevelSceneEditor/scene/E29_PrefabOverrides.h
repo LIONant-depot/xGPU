@@ -106,7 +106,7 @@ namespace e29
                     OutLabel = Details.m_pPool->getComponent<e29::name>(Details.m_PoolIndex).m_Value;
             }
             std::string SceneLabel;
-            RemapGUIDToString(SceneLabel, xresource::full_guid{ SceneGuid.m_Instance, SceneGuid.m_Type });
+            e10::RemapGUIDToString(SceneLabel, xresource::full_guid{ SceneGuid.m_Instance, SceneGuid.m_Type });
             OutLabel += std::format(" ({})", SceneLabel);
             OutSceneGuid = SceneGuid;
             return true;

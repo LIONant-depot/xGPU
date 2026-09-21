@@ -3,7 +3,7 @@
 #pragma once
 #include <utility>
 #include "source/xGPU.h"
-#include "source/Examples/E29_LevelSceneEditor/E29_Diagnostics.h"
+#include "dependencies/xeditor/include/xeditor/diagnostics.h"
 #include "imgui_internal.h"
 #include "source/Tools/Editor/xeditor_resource_tab.h"
 #include "source/Tools/Editor/xeditor_dock_isolation.h"
@@ -120,7 +120,7 @@ namespace e29::editor_tabs
                 : TypeGuid;
             xeditor::DrawEditorRootTabIcon(pDevice, IconType); // every frame, selected or not
         }
-        diagnostics::Log("window begin: %s visible=%d", Title, bParentVisible ? 1 : 0);
+        xeditor::diagnostics::Log("window begin: %s visible=%d", Title, bParentVisible ? 1 : 0);
         const ImGuiID ParentDockspaceId = ImGui::GetID(kLevelEditorDockspaceId);
         const ImGuiWindowClass ParentDockClass = ParentEditorDockClass();
         if (bParentVisible)
@@ -133,7 +133,7 @@ namespace e29::editor_tabs
             ImGui::DockSpace(ParentDockspaceId, ImVec2(0.0f, 0.0f), ImGuiDockNodeFlags_KeepAliveOnly, &ParentDockClass);
         xeditor::FinishFullEditorDockspace(ParentDockspaceId, DockGuid);
         ImGui::End();
-        diagnostics::Log("window end: %s", Title);
+        xeditor::diagnostics::Log("window end: %s", Title);
         ImGui::PopStyleVar();
         return bParentVisible;
     }

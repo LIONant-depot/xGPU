@@ -31,7 +31,7 @@ namespace e29
         ImGui::SetNextWindowSize(ImVec2(480, 500), ImGuiCond_FirstUseEver);
         const bool bWindowVisible = ImGui::Begin(e29::editor_tabs::kInspectorWindow);
         if (bWindowVisible && bReadOnly) ImGui::BeginDisabled();
-        e29::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kInspectorWindow, bWindowVisible ? 1 : 0);
+        xeditor::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kInspectorWindow, bWindowVisible ? 1 : 0);
         if (bWindowVisible)
         {
             if (State.m_SelectedEntity.isValid() == false || State.m_SelectedEntityScene.empty())
@@ -303,7 +303,7 @@ namespace e29
         }
                 if (bWindowVisible && bReadOnly) ImGui::EndDisabled();
         ImGui::End();
-        e29::diagnostics::Log("window end: %s", e29::editor_tabs::kInspectorWindow);
+        xeditor::diagnostics::Log("window end: %s", e29::editor_tabs::kInspectorWindow);
     }
 } // namespace e29
 

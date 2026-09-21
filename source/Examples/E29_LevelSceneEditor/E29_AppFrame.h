@@ -11,7 +11,7 @@ namespace e29
 
 
 
-        e29::diagnostics::Log("frame %llu begin", static_cast<unsigned long long>(FrameNumber));
+        xeditor::diagnostics::Log("frame %llu begin", static_cast<unsigned long long>(FrameNumber));
 
 
 
@@ -231,7 +231,7 @@ namespace e29
 
 
 
-            e29::diagnostics::Log("frame %llu BeginRendering skipped", static_cast<unsigned long long>(FrameNumber));
+            xeditor::diagnostics::Log("frame %llu BeginRendering skipped", static_cast<unsigned long long>(FrameNumber));
 
 
 
@@ -243,7 +243,7 @@ namespace e29
 
 
 
-        e29::diagnostics::Log("frame %llu BeginRendering complete", static_cast<unsigned long long>(FrameNumber));
+        xeditor::diagnostics::Log("frame %llu BeginRendering complete", static_cast<unsigned long long>(FrameNumber));
 
 
 
@@ -318,7 +318,7 @@ namespace e29
 
 
 
-            e29::RemapGUIDToString(LevelTabName, xresource::full_guid{ State.m_CurrentLevel.m_Instance, State.m_CurrentLevel.m_Type });
+            e10::RemapGUIDToString(LevelTabName, xresource::full_guid{ State.m_CurrentLevel.m_Instance, State.m_CurrentLevel.m_Type });
 
 
 
@@ -385,7 +385,7 @@ namespace e29
 
 
 
-        e29::diagnostics::Log
+        xeditor::diagnostics::Log
 
 
 
@@ -409,7 +409,7 @@ namespace e29
 
 
 
-            e29::diagnostics::Log("frame %llu Parent Editor Window active", static_cast<unsigned long long>(FrameNumber));
+            xeditor::diagnostics::Log("frame %llu Parent Editor Window active", static_cast<unsigned long long>(FrameNumber));
 
 
 
@@ -709,9 +709,9 @@ namespace e29
 
 
 
-        e29::g_AssetBrowserPopup.SetDevice(Device);
+        e10::g_AssetBrowserPopup.SetDevice(Device);
 
-        e29::g_AssetBrowserPopup.RenderAsPopup(e10::g_LibMgr, xresource::g_Mgr);
+        e10::g_AssetBrowserPopup.RenderAsPopup(e10::g_LibMgr, xresource::g_Mgr);
 
 
 
@@ -884,7 +884,7 @@ namespace e29
 
 
 
-        e29::diagnostics::Log("frame %llu level tree render begin", static_cast<unsigned long long>(FrameNumber));
+        xeditor::diagnostics::Log("frame %llu level tree render begin", static_cast<unsigned long long>(FrameNumber));
 
 
 
@@ -896,7 +896,7 @@ namespace e29
 
 
 
-        e29::diagnostics::Log("frame %llu level tree render end", static_cast<unsigned long long>(FrameNumber));
+        xeditor::diagnostics::Log("frame %llu level tree render end", static_cast<unsigned long long>(FrameNumber));
 
 
 
@@ -916,7 +916,7 @@ namespace e29
 
 
 
-        e29::diagnostics::Log("frame %llu entity properties render begin", static_cast<unsigned long long>(FrameNumber));
+        xeditor::diagnostics::Log("frame %llu entity properties render begin", static_cast<unsigned long long>(FrameNumber));
 
 
 
@@ -928,11 +928,11 @@ namespace e29
 
 
 
-        e29::diagnostics::Log("frame %llu entity properties render end", static_cast<unsigned long long>(FrameNumber));
+        xeditor::diagnostics::Log("frame %llu entity properties render end", static_cast<unsigned long long>(FrameNumber));
 
 
 
-        e29::diagnostics::Log("frame %llu system registry render begin", static_cast<unsigned long long>(FrameNumber));
+        xeditor::diagnostics::Log("frame %llu system registry render begin", static_cast<unsigned long long>(FrameNumber));
 
 
 
@@ -944,7 +944,7 @@ namespace e29
 
 
 
-        e29::diagnostics::Log("frame %llu system registry render end", static_cast<unsigned long long>(FrameNumber));
+        xeditor::diagnostics::Log("frame %llu system registry render end", static_cast<unsigned long long>(FrameNumber));
 
 
 
@@ -979,7 +979,7 @@ namespace e29
 
 
 
-        e29::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kEditorWindow, bEditorWindowVisible ? 1 : 0);
+        xeditor::diagnostics::Log("window begin: %s visible=%d", e29::editor_tabs::kEditorWindow, bEditorWindowVisible ? 1 : 0);
 
 
 
@@ -991,7 +991,7 @@ namespace e29
 
 
 
-            e29::diagnostics::Log("toolbar host render begin");
+            xeditor::diagnostics::Log("toolbar host render begin");
 
 
 
@@ -1031,7 +1031,7 @@ namespace e29
 
 
 
-            e29::diagnostics::Log("toolbar host render end");
+            xeditor::diagnostics::Log("toolbar host render end");
 
 
 
@@ -1043,7 +1043,7 @@ namespace e29
 
 
 
-        e29::diagnostics::Log("window end: %s", e29::editor_tabs::kEditorWindow);
+        xeditor::diagnostics::Log("window end: %s", e29::editor_tabs::kEditorWindow);
 
 
 
@@ -1117,7 +1117,7 @@ namespace e29
 
 
 
-        e29::diagnostics::Log("frame %llu end", static_cast<unsigned long long>(FrameNumber));
+        xeditor::diagnostics::Log("frame %llu end", static_cast<unsigned long long>(FrameNumber));
 
 
 
