@@ -197,9 +197,9 @@ namespace e29
     // fast binary Vn bridge, because Stop needs the Level tree back) and marks the undo point Stop rewinds to.
     inline void EnterPlaying( editor_context& Ed ) noexcept
     {
-        SaveEverything(Ed.World(), Ed.m_State);
-        Ed.m_State.m_PlayHistoryBoundary = Ed.m_Undo.GetUndoIndex();
-        Ed.m_State.m_PlayState           = editor_state::play_state::Playing;
+        SaveEverything(Ed.World(), Ed.State());
+        Ed.State().m_PlayHistoryBoundary = Ed.m_Undo.GetUndoIndex();
+        Ed.State().m_PlayState           = editor_state::play_state::Playing;
     }
 
     // A pending Play that will never start (its build failed): drop it and release the Play lock it took.
@@ -220,7 +220,7 @@ namespace e29
     // Playing directly. From Paused: resume. Returns a short status for the CLI; the buttons ignore it.
     inline std::string RequestPlay( editor_context& Ed, game_plugin_state& Plugin ) noexcept
     {
-        auto& State = Ed.m_State;
+        auto& State = Ed.State();
         using play_state = editor_state::play_state;
         if (State.m_PlayState == play_state::Playing) return "Play: already playing";
         if (Plugin.m_bBuilding)                       return "Play: a build is already in flight";
@@ -253,7 +253,7 @@ namespace e29
     // One frame. From Paused: one tick, stays Paused. From Stopped: starts Play, runs the first tick, lands Paused.
     inline std::string RequestStep( editor_context& Ed, game_plugin_state& Plugin ) noexcept
     {
-        auto& State = Ed.m_State;
+        auto& State = Ed.State();
         using play_state = editor_state::play_state;
         if (State.m_PlayState == play_state::Playing) return "Step: pause first";
         if (State.m_PlayState == play_state::Stopped)
@@ -322,7 +322,7 @@ namespace e29
     inline void StripMissingComponentsFromOpenScenes( editor_context& Ed, const std::vector<xecs::scene::component_dependency>& MissingDeps ) noexcept
     {
         auto*          pWorld   = &Ed.World();
-        auto*          pState   = &Ed.m_State;
+        auto*          pState   = &Ed.State();
         xundo::system* pDocUndo = &Ed.m_Undo;
 
         for (auto& SceneGuid : pState->m_OpenScenes)
@@ -541,7 +541,7 @@ namespace e29
     //---------------------------------------------------------------------------
     inline std::string RequestStop(editor_context& Ed, std::optional<bool> KeepOverride) noexcept
     {
-        auto& State = Ed.m_State;
+        auto& State = Ed.State();
         if (State.m_PlayState == editor_state::play_state::Stopped) return "Stop: already stopped";
 
         if (KeepOverride.has_value())
@@ -578,7 +578,7 @@ namespace e29
     //---------------------------------------------------------------------------
     inline void RenderKeepTweaksModal(editor_context& Ed) noexcept
     {
-        auto& State = Ed.m_State;
+        auto& State = Ed.State();
         if (State.m_bAwaitingKeepTweaksAnswer)
             ImGui::OpenPopup("Keep Play Mode Changes?");
 
@@ -632,7 +632,7 @@ namespace e29
     template< typename T_REGISTER_HOST_COMPONENTS_FN >
     bool PollGameReload( editor_context& Ed, game_plugin_state& Plugin, T_REGISTER_HOST_COMPONENTS_FN&& RegisterHostComponents ) noexcept
     {
-        auto& State = Ed.m_State;
+        auto& State = Ed.State();
         if (!Plugin.m_bBuilding) return false;
         if (Plugin.m_BuildFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
 

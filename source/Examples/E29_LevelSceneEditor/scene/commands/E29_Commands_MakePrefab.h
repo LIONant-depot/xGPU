@@ -43,7 +43,7 @@ namespace e29::commands
     // on every call, leaking an abandoned, never-cleaned-up asset in the Trash on every Redo after an
     // Undo). Body is otherwise a verbatim copy - see that function's own comments for the full
     // reasoning behind each step, not repeated here.
-    inline xresource::full_guid CreatePrefabFromGroupRootWithAssetGuid(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::scene::guid SceneGuid, editor_state* pState, e10::library_mgr& AssetMgr, e10::library::guid LibraryGUID, xresource::full_guid ParentGUID, xecs::component::entity Root, xresource::full_guid ExplicitPrefabAssetGuid) noexcept
+    inline xresource::full_guid CreatePrefabFromGroupRootWithAssetGuid(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::scene::guid SceneGuid, scene_state* pState, e10::library_mgr& AssetMgr, e10::library::guid LibraryGUID, xresource::full_guid ParentGUID, xecs::component::entity Root, xresource::full_guid ExplicitPrefabAssetGuid) noexcept
     {
         xecs::component::entity OriginalParent;
         if (auto& RD = GameMgr.m_ComponentMgr.getEntityDetails(Root); RD.m_pPool && RD.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::parent>.m_BitID))
@@ -239,7 +239,7 @@ namespace e29::commands
 
             // BEFORE Redo runs anything - captures the ORIGINAL, pre-conversion group exactly, same
             // machinery delete_entity_cmd's own Undo relies on (E29_Commands_EntityLifecycle.h).
-            SnapshotSubtreeForRestore(EditorContext(), File, xecs::scene::guid{ .m_Instance = { Scene } }, static_cast<xecs::scene::permanent_id>(Id));
+            SnapshotSubtreeForRestore(SceneContext(), File, xecs::scene::guid{ .m_Instance = { Scene } }, static_cast<xecs::scene::permanent_id>(Id));
         }
 
         void Undo(xundo::undo_file& File) noexcept override
@@ -254,8 +254,8 @@ namespace e29::commands
 
             // Remove whatever instance is currently registered under RootId (the fresh copy Redo
             // created), then restore the original group from the snapshot taken before Redo ever ran.
-            DeleteSubtreeByPermanentId(EditorContext(), SceneGuid, RootId);
-            RestoreSubtreeFromSnapshot(EditorContext(), File, SceneGuid, RootId);
+            DeleteSubtreeByPermanentId(SceneContext(), SceneGuid, RootId);
+            RestoreSubtreeFromSnapshot(SceneContext(), File, SceneGuid, RootId);
 
             // Same documented asymmetry as CreateAsset's own Undo - trash, don't attempt to make the
             // on-disk info.txt vanish (MoveToTrash/MoveFromTrashTo is the only reversal primitive this
@@ -489,7 +489,7 @@ namespace e29
     inline xresource::full_guid MakePrefabDropViaCommands(e10::library_mgr& AssetMgr, e10::library::guid LibraryGUID, xresource::full_guid ParentGUID, const entity_drag_payload_t& Payload) noexcept
     {
         (void)AssetMgr;
-        auto* pEd = FindEditorContext();
+        auto* pEd = FindSceneContext();
         if (pEd == nullptr) return {};
         // Prefab creation mutates the Level document, so it goes through the editor's document undo.
         xundo::system* pDocUndo = &pEd->m_Undo;

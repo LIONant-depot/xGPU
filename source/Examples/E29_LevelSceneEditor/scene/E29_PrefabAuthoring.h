@@ -136,7 +136,7 @@ namespace e29
     // multi-selected an existing subtree - use it as the real root directly; otherwise (multiple
     // disjoint top-level entities) a synthetic root (Name + Children only) is created and every
     // top-level entity is reparented under it.
-    xecs::component::entity DetermineGroupRoot(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::scene::guid SceneGuid, editor_state& State, xecs::scene::permanent_id ClickedId) noexcept
+    xecs::component::entity DetermineGroupRoot(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::scene::guid SceneGuid, scene_state& State, xecs::scene::permanent_id ClickedId) noexcept
     {
         std::vector<xecs::scene::permanent_id> SelectedIds;
         if (State.m_MultiSelectScene == SceneGuid && State.m_MultiSelectedEntityIds.size() > 1 && State.m_MultiSelectedEntityIds.contains(ClickedId))
@@ -265,7 +265,7 @@ namespace e29
     // Prefab asset (at LibraryGUID/ParentGUID - the caller's own drop target) and converts the
     // original live group into an instance of it, generalizing the single-entity "drag out becomes an
     // instance" behavior.
-    xresource::full_guid CreatePrefabFromGroupRoot(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::scene::guid SceneGuid, editor_state* pState, e10::library_mgr& AssetMgr, e10::library::guid LibraryGUID, xresource::full_guid ParentGUID, xecs::component::entity Root) noexcept
+    xresource::full_guid CreatePrefabFromGroupRoot(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::scene::guid SceneGuid, scene_state* pState, e10::library_mgr& AssetMgr, e10::library::guid LibraryGUID, xresource::full_guid ParentGUID, xecs::component::entity Root) noexcept
     {
         // If Root already had a parent in the live scene (e.g. a single child entity that's part of
         // some OTHER, unrelated hierarchy, or a whole existing subtree being grouped), that positional
@@ -463,7 +463,7 @@ namespace e29
 
         xresource::full_guid OnDrop(e10::library_mgr& AssetMgr, e10::library::guid LibraryGUID, xresource::full_guid ParentGUID, const void* pData, std::size_t Size) const noexcept override
         {
-            if (Size != sizeof(entity_drag_payload_t) || FindEditorContext() == nullptr) return {};
+            if (Size != sizeof(entity_drag_payload_t) || FindSceneContext() == nullptr) return {};
             if (g_MakePrefabDropHandler == nullptr) return {};
             auto& Payload = *reinterpret_cast<const entity_drag_payload_t*>(pData);
             // Routed through MakePrefab / MakePrefabVariant commands (see MakePrefabDropViaCommands) so

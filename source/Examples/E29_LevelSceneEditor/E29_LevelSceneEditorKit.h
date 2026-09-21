@@ -60,6 +60,7 @@
 
 #include "source/Examples/E29_LevelSceneEditor/scene/E29_NameComponent.h"
 #include "dependencies/xresource_pipeline_v2/source/editor/E10_InspectorPickers.h"
+#include "source/Examples/E29_LevelSceneEditor/scene/E29_SceneContext.h"
 #include "source/Examples/E29_LevelSceneEditor/core/E29_EditorState.h"
 #include "source/Examples/E29_LevelSceneEditor/level/E29_LevelOps.h"
 #include "source/Examples/E29_LevelSceneEditor/scene/E29_SceneDependencies.h"

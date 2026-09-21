@@ -17,9 +17,9 @@ namespace e29::commands
     // AddSceneDependency - Owner gains Parent as a direct ParentScenes entry (undoable).
     // Usage: AddSceneDependency -Scene hexguid -Parent hexguid
     //================================================================================================
-    struct add_scene_dependency_cmd : scene_command
+    struct add_scene_dependency_cmd : editor_command
     {
-        add_scene_dependency_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "AddSceneDependency", pDataBase) { RegisterArguments(); }
+        add_scene_dependency_cmd(xundo::system& System, void* pDataBase) noexcept : editor_command(System, "AddSceneDependency", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Adds an explicit scene dependency (ParentScenes). Refuses cycles. Does not save. Usage: AddSceneDependency -Scene hexguid -Parent hexguid";
@@ -94,9 +94,9 @@ namespace e29::commands
     // is passed (nulls those refs first, then removes - one undo step restores refs + the edge).
     // Usage: RemoveSceneDependency -Scene hexguid -Parent hexguid [-ClearRefs 1]
     //================================================================================================
-    struct remove_scene_dependency_cmd : scene_command
+    struct remove_scene_dependency_cmd : editor_command
     {
-        remove_scene_dependency_cmd(xundo::system& System, void* pDataBase) noexcept : scene_command(System, "RemoveSceneDependency", pDataBase) { RegisterArguments(); }
+        remove_scene_dependency_cmd(xundo::system& System, void* pDataBase) noexcept : editor_command(System, "RemoveSceneDependency", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Removes an explicit scene dependency. Refuses if entity refs would break unless -ClearRefs 1 (null those refs, then remove). Usage: RemoveSceneDependency -Scene hexguid -Parent hexguid [-ClearRefs 1]";

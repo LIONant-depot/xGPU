@@ -85,7 +85,7 @@ namespace e29
     // searched - a reference into a scene nobody opened this session simply can't be resolved to a
     // live handle yet (matches how the reference itself only round-trips through save/load, not
     // through any live lookup that would need every scene loaded just to inspect one entity).
-    bool ResolveEntityReference(xecs::game_mgr::instance& GameMgr, editor_state& State, xecs::component::entity Entity, std::string& OutLabel, xecs::scene::guid& OutSceneGuid) noexcept
+    bool ResolveEntityReference(xecs::game_mgr::instance& GameMgr, scene_state& State, xecs::component::entity Entity, std::string& OutLabel, xecs::scene::guid& OutSceneGuid) noexcept
     {
         if (Entity.isValid() == false) return false;
 
@@ -279,7 +279,7 @@ namespace e29
     // Cmd.m_pClassObject - a plausible root cause for "override a property, then Save -> invalidated
     // vector iterator" style corruption that only manifests through real UI interaction, never
     // through headless, data-only testing (which never drives State/the component map at all).
-    void AttachPrefabInstanceComponent(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::scene::permanent_id Id, xecs::component::entity Entity, xecs::prefab::guid PrefabGuid, editor_state* pState) noexcept
+    void AttachPrefabInstanceComponent(xecs::game_mgr::instance& GameMgr, xecs::scene::instance& Scene, xecs::scene::permanent_id Id, xecs::component::entity Entity, xecs::prefab::guid PrefabGuid, scene_state* pState) noexcept
     {
         const bool bWasSelected = pState != nullptr && pState->m_SelectedEntity.m_Value == Entity.m_Value;
 

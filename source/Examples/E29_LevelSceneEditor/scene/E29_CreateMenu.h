@@ -20,7 +20,7 @@ namespace e29
     // this routing needs the editor's context (E29_EditorState.h) and
     // xeditor::Run (just included above) - neither was available at the function's original
     // position.
-    void ShowCreateMenuItems(editor_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::instance& Scene, xecs::scene::folder_id TargetFolder) noexcept
+    void ShowCreateMenuItems(scene_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::instance& Scene, xecs::scene::folder_id TargetFolder) noexcept
     {
         if (ImGui::MenuItem("New Entity"))
         {

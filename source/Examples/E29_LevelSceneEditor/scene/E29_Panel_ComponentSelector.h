@@ -8,7 +8,7 @@
 // (RenderTreeSearchBar + ContainsCaseInsensitive).
 //
 // Meant to be included via the umbrella (E29_LevelSceneEditorKit.h) only, after
-// editor_state, g_ComponentDisplayInfo, and command infrastructure are defined.
+// scene_state, g_ComponentDisplayInfo, and command infrastructure are defined.
 // Not designed to be included standalone. Not a docked editor window — Entity
 // Properties opens this as an ImGui popup that replaces the old BeginCombo list.
 #include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_ComponentEdit.h"
@@ -22,7 +22,7 @@ namespace e29
     // Returns true if a component was added this frame.
     //---------------------------------------------------------------------------
     inline bool RenderComponentSelectorPopupContents(
-        editor_context&        Ed,
+        scene_context&        Ed,
         xecs::pool::instance*  pPool) noexcept
     {
         auto& State = Ed.m_State;

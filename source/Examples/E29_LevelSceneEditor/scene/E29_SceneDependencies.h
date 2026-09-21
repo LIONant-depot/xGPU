@@ -250,7 +250,7 @@ namespace e29
         }
     }
 
-    void OpenScene(xecs::game_mgr::instance& GameMgr, editor_state& State, xresource::full_guid SceneGuid)
+    void OpenScene(xecs::game_mgr::instance& GameMgr, scene_state& State, xresource::full_guid SceneGuid)
     {
         const xecs::scene::guid Guid{ .m_Instance = SceneGuid.m_Instance };
         if (std::find(State.m_OpenScenes.begin(), State.m_OpenScenes.end(), Guid) != State.m_OpenScenes.end())

@@ -550,7 +550,7 @@ namespace e29::commands
             for (auto Aid : AddedIds)
             {
                 File.Write(static_cast<std::uint32_t>(Aid));
-                SnapshotSubtreeForRestore(EditorContext(), File, SceneGuid, Aid);
+                SnapshotSubtreeForRestore(SceneContext(), File, SceneGuid, Aid);
             }
         }
 
@@ -573,7 +573,7 @@ namespace e29::commands
             for (std::uint32_t i = 0; i < AddedCount; ++i)
             {
                 std::uint32_t Aid = 0; File.Read(Aid);
-                RestoreSubtreeFromSnapshot(EditorContext(), File, SceneGuid, static_cast<xecs::scene::permanent_id>(Aid));
+                RestoreSubtreeFromSnapshot(SceneContext(), File, SceneGuid, static_cast<xecs::scene::permanent_id>(Aid));
             }
 
             // Drop children that Undo-of-Removed restored: any live child path that was a Removed
@@ -811,7 +811,7 @@ namespace e29::commands
                 : ParseEntityId(std::get<std::string>(IdArg));
             File.Write(Scene);
             File.Write(Id);
-            SnapshotSubtreeForRestore(EditorContext(), File,
+            SnapshotSubtreeForRestore(SceneContext(), File,
                 xecs::scene::guid{ .m_Instance = { Scene } },
                 static_cast<xecs::scene::permanent_id>(Id));
         }
@@ -830,7 +830,7 @@ namespace e29::commands
                     /*bRecordPrefabOverride*/ false);
             }
 
-            RestoreSubtreeFromSnapshot(EditorContext(), File, SceneGuid, static_cast<xecs::scene::permanent_id>(Id));
+            RestoreSubtreeFromSnapshot(SceneContext(), File, SceneGuid, static_cast<xecs::scene::permanent_id>(Id));
 
             State().m_bEntityInspectorDirty = true;
         }

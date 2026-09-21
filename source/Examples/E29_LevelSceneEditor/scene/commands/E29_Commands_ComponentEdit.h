@@ -58,7 +58,7 @@ namespace e29::commands
     // be present - unlike ResolvePropertyTarget (E29_Commands_PropertyEdit.h), which deliberately
     // fails when the named component is absent (correct for property editing, wrong here: Add's
     // whole point is operating on an entity that does NOT yet have the component).
-    inline xecs::component::entity ResolveEntityHandle(editor_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id) noexcept
+    inline xecs::component::entity ResolveEntityHandle(scene_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id) noexcept
     {
         auto* pScene = Ed.World().m_SceneMgr.Find(SceneGuid);
         if (!pScene) return {};
@@ -72,7 +72,7 @@ namespace e29::commands
     // this entity happens to be the one currently selected in the UI - refresh State so the Entity
     // Properties panel picks up the migration in the same frame instead of showing a stale/dangling
     // handle. Returns the new entity handle (invalid if SceneGuid/Id didn't resolve).
-    inline xecs::component::entity MigrateEntityComponents(editor_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id, std::span<const xecs::component::type::info* const> Add, std::span<const xecs::component::type::info* const> Sub) noexcept
+    inline xecs::component::entity MigrateEntityComponents(scene_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id, std::span<const xecs::component::type::info* const> Add, std::span<const xecs::component::type::info* const> Sub) noexcept
     {
         auto* pScene = Ed.World().m_SceneMgr.Find(SceneGuid);
         if (!pScene) return {};
@@ -99,7 +99,7 @@ namespace e29::commands
     // Snapshots every property of Entity's Info component into {Path, TypeGuid, ValueStr} triples,
     // written length-prefixed to File - same string-based shape set_property_cmd already uses. Called
     // by remove_component_cmd::BackupCurrenState, BEFORE the component is actually removed.
-    inline void SnapshotComponentProperties(editor_context& Ed, xundo::undo_file& File, xecs::component::entity Entity, const xecs::component::type::info& Info) noexcept
+    inline void SnapshotComponentProperties(scene_context& Ed, xundo::undo_file& File, xecs::component::entity Entity, const xecs::component::type::info& Info) noexcept
     {
         auto& Details = Ed.World().m_ComponentMgr.getEntityDetails(Entity);
         if (!Details.m_pPool) { File.Write(std::uint32_t{ 0 }); return; }
@@ -152,7 +152,7 @@ namespace e29::commands
     // on the root, not necessarily on Entity, so without this the scrub never gets picked up by Save
     // (confirmed live: SaveScene only re-writes entities m_PendingChanges marks dirty, and a plain
     // erase_if on the root's own live data isn't enough on its own to mark IT dirty).
-    inline void ScrubComponentOverrideEntry(editor_context& Ed, xecs::scene::guid SceneGuid, xecs::component::entity Entity, std::uint64_t ComponentTypeGuidValue) noexcept
+    inline void ScrubComponentOverrideEntry(scene_context& Ed, xecs::scene::guid SceneGuid, xecs::component::entity Entity, std::uint64_t ComponentTypeGuidValue) noexcept
     {
         auto Ctx = e29::FindContainingPrefabInstance(Ed.World(), Entity);
         if (Ctx.m_pPI == nullptr) return;
@@ -174,7 +174,7 @@ namespace e29::commands
     // reads never desync the undo_file stream - matches RestoreComponentProperties/Count's own
     // always-read-Count convention just above. Called by remove_component_cmd::BackupCurrenState,
     // BEFORE Redo scrubs it.
-    inline void SnapshotComponentOverrideEntry(editor_context& Ed, xundo::undo_file& File, xecs::component::entity Entity, const xecs::component::type::info& Info) noexcept
+    inline void SnapshotComponentOverrideEntry(scene_context& Ed, xundo::undo_file& File, xecs::component::entity Entity, const xecs::component::type::info& Info) noexcept
     {
         xecs::editor::prefab_component_override* pFound = nullptr;
         auto Ctx = e29::FindContainingPrefabInstance(Ed.World(), Entity);
@@ -210,7 +210,7 @@ namespace e29::commands
     // ROOT dirty when it differs from Entity - same reasoning as ScrubComponentOverrideEntry's own
     // comment (a plain push_back into the root's own live m_lComponents isn't enough to get it
     // re-saved on its own).
-    inline void RestoreComponentOverrideEntry(editor_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::component::entity Entity, std::uint64_t ComponentTypeGuidValue) noexcept
+    inline void RestoreComponentOverrideEntry(scene_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::component::entity Entity, std::uint64_t ComponentTypeGuidValue) noexcept
     {
         bool bHadEntry = false; File.Read(bHadEntry);
 
@@ -277,7 +277,7 @@ namespace e29::commands
             if (!pInfo) return "AddComponent: unknown component";
 
             std::array<const xecs::component::type::info*, 1> Add{ pInfo };
-            if (!MigrateEntityComponents(EditorContext(), SceneGuid, Id, Add, {}).isValid()) return "AddComponent: target not found";
+            if (!MigrateEntityComponents(SceneContext(), SceneGuid, Id, Add, {}).isValid()) return "AddComponent: target not found";
             return {};
         }
 
@@ -307,7 +307,7 @@ namespace e29::commands
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
             std::array<const xecs::component::type::info*, 1> Sub{ pInfo };
-            MigrateEntityComponents(EditorContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(Id), {}, Sub);
+            MigrateEntityComponents(SceneContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(Id), {}, Sub);
         }
 
         xcmdline::parser::handle m_hScene, m_hId, m_hComponent;
@@ -347,12 +347,12 @@ namespace e29::commands
             if (!pInfo) return "RemoveComponent: unknown component";
 
             std::array<const xecs::component::type::info*, 1> Sub{ pInfo };
-            const auto NewEntity = MigrateEntityComponents(EditorContext(), SceneGuid, Id, {}, Sub);
+            const auto NewEntity = MigrateEntityComponents(SceneContext(), SceneGuid, Id, {}, Sub);
             if (!NewEntity.isValid()) return "RemoveComponent: target not found";
 
             // Scrub the now-meaningless override entry (gap #4, documentation/E29_LevelSceneEditor/command_undo_known_gaps.md) -
             // BackupCurrenState already snapshotted it above, before this ran.
-            ScrubComponentOverrideEntry(EditorContext(), SceneGuid, NewEntity, CompGuid);
+            ScrubComponentOverrideEntry(SceneContext(), SceneGuid, NewEntity, CompGuid);
             return {};
         }
 
@@ -373,12 +373,12 @@ namespace e29::commands
             // Snapshot the CURRENT (pre-removal) property values - this runs before Redo() actually
             // removes the component (see set_property_cmd's own comment for the confirmed ordering).
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
-            const auto Entity    = ResolveEntityHandle(EditorContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(Id));
+            const auto Entity    = ResolveEntityHandle(SceneContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(Id));
             auto* pInfo = World().m_ComponentMgr.findComponentTypeInfo(xecs::component::type::guid{ Component });
             if (pInfo && Entity.isValid())
             {
-                SnapshotComponentProperties(EditorContext(), File, Entity, *pInfo);
-                SnapshotComponentOverrideEntry(EditorContext(), File, Entity, *pInfo);
+                SnapshotComponentProperties(SceneContext(), File, Entity, *pInfo);
+                SnapshotComponentOverrideEntry(SceneContext(), File, Entity, *pInfo);
             }
             else
             {
@@ -404,17 +404,17 @@ namespace e29::commands
                 // RestoreComponentOverrideEntry drains its own fixed-shape bytes the same way, acting
                 // on nothing since {} is never a valid entity.
                 std::uint32_t Count = 0; File.Read(Count);
-                RestoreComponentOverrideEntry(EditorContext(), File, xecs::scene::guid{}, {}, Component);
+                RestoreComponentOverrideEntry(SceneContext(), File, xecs::scene::guid{}, {}, Component);
                 return;
             }
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
             std::array<const xecs::component::type::info*, 1> Add{ pInfo };
-            const auto NewEntity = MigrateEntityComponents(EditorContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Add, {});
+            const auto NewEntity = MigrateEntityComponents(SceneContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Add, {});
 
-            const auto Target = ResolvePropertyTarget(EditorContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Component);
+            const auto Target = ResolvePropertyTarget(SceneContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Component);
             RestoreComponentProperties(File, Target);
-            RestoreComponentOverrideEntry(EditorContext(), File, SceneGuid, NewEntity, Component);
+            RestoreComponentOverrideEntry(SceneContext(), File, SceneGuid, NewEntity, Component);
         }
 
         xcmdline::parser::handle m_hScene, m_hId, m_hComponent;

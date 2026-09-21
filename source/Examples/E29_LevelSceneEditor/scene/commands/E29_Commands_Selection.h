@@ -11,7 +11,7 @@
 // Split into TWO edit commands (Select, ToggleMultiSelect) rather than E27_NodeOS's single Select
 // covering everything - E29's selection model is richer than NodeOS's (a separate PRIMARY selection
 // driving the Properties panel, plus an independent ctrl-click multi-select set used only by
-// "Make Prefab" - see editor_state's own comment) and the two existing UI behaviors already
+// "Make Prefab" - see scene_state's own comment) and the two existing UI behaviors already
 // deliberately touch different subsets: a plain click sets primary AND resets multi-select to just
 // that entity; a ctrl-click only ever toggles multi-select membership, primary never moves. Forcing
 // both into one command with a pile of optional flags (E27's own approach, appropriate for ITS
@@ -47,7 +47,7 @@ namespace e29::commands
             auto IdArg    = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
             if (std::holds_alternative<xerr>(SceneArg) || std::holds_alternative<xerr>(IdArg)) return "Select: bad arguments";
 
-            auto& Ctx        = get<editor_context>();
+            auto& Ctx        = get<scene_context>();
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
             const auto Id         = ParseEntityId(std::get<std::string>(IdArg));
 
@@ -67,8 +67,8 @@ namespace e29::commands
             return {};
         }
 
-        void BackupCurrenState(xundo::undo_file& File) noexcept override { BackupSelection(get<editor_context>(), File); }
-        void Undo(xundo::undo_file& File) noexcept override { RestoreSelection(get<editor_context>(), File); }
+        void BackupCurrenState(xundo::undo_file& File) noexcept override { BackupSelection(get<scene_context>(), File); }
+        void Undo(xundo::undo_file& File) noexcept override { RestoreSelection(get<scene_context>(), File); }
 
         xcmdline::parser::handle m_hScene, m_hId;
     };
@@ -98,7 +98,7 @@ namespace e29::commands
             auto IdArg    = m_Parser.getOptionArgAs<std::string>(m_hId, 0);
             if (std::holds_alternative<xerr>(SceneArg) || std::holds_alternative<xerr>(IdArg)) return "ToggleMultiSelect: bad arguments";
 
-            auto& Ctx        = get<editor_context>();
+            auto& Ctx        = get<scene_context>();
             const auto SceneGuid = ParseSceneGuid(std::get<std::string>(SceneArg));
             const auto Id         = ParseEntityId(std::get<std::string>(IdArg));
             auto& S = Ctx.m_State;
@@ -126,8 +126,8 @@ namespace e29::commands
             return {};
         }
 
-        void BackupCurrenState(xundo::undo_file& File) noexcept override { BackupSelection(get<editor_context>(), File); }
-        void Undo(xundo::undo_file& File) noexcept override { RestoreSelection(get<editor_context>(), File); }
+        void BackupCurrenState(xundo::undo_file& File) noexcept override { BackupSelection(get<scene_context>(), File); }
+        void Undo(xundo::undo_file& File) noexcept override { RestoreSelection(get<scene_context>(), File); }
 
         xcmdline::parser::handle m_hScene, m_hId;
     };
@@ -146,7 +146,7 @@ namespace e29::commands
 
         std::string Redo() noexcept override
         {
-            auto& S = get<editor_context>().m_State;
+            auto& S = get<scene_context>().m_State;
             S.m_SelectedEntityId       = xecs::scene::invalid_permanent_id_v;
             S.m_SelectedEntity         = {};
             S.m_SelectedEntityScene    = {};
@@ -157,8 +157,8 @@ namespace e29::commands
             return {};
         }
 
-        void BackupCurrenState(xundo::undo_file& File) noexcept override { BackupSelection(get<editor_context>(), File); }
-        void Undo(xundo::undo_file& File) noexcept override { RestoreSelection(get<editor_context>(), File); }
+        void BackupCurrenState(xundo::undo_file& File) noexcept override { BackupSelection(get<scene_context>(), File); }
+        void Undo(xundo::undo_file& File) noexcept override { RestoreSelection(get<scene_context>(), File); }
     };
 }
 

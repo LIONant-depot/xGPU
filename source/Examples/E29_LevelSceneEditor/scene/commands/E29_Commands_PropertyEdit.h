@@ -35,7 +35,7 @@ namespace e29::commands
         void*                              m_pInstance = nullptr;
     };
 
-    inline resolved_property_target ResolvePropertyTarget(editor_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id, std::uint64_t ComponentGuidValue) noexcept
+    inline resolved_property_target ResolvePropertyTarget(scene_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id, std::uint64_t ComponentGuidValue) noexcept
     {
         resolved_property_target Out;
 
@@ -80,7 +80,7 @@ namespace e29::commands
     // override at all" (must be fully removed on Undo, not just set back to Before - see
     // RemovePropertyOverride's own comment, and the direct user report this fixes: "when I override a
     // property then I undo it... it needs to go back to a non-overwritten property").
-    inline bool HasPropertyOverride(editor_context& Ed, xecs::component::entity Entity, const xecs::component::type::info& Info, const std::string& Path) noexcept
+    inline bool HasPropertyOverride(scene_context& Ed, xecs::component::entity Entity, const xecs::component::type::info& Info, const std::string& Path) noexcept
     {
         auto Ctx = e29::FindContainingPrefabInstance(Ed.World(), Entity);
         if (Ctx.m_pPI == nullptr) return false;
@@ -101,7 +101,7 @@ namespace e29::commands
     // + write-or-update the matching prefab_property_override). Used by Redo() (After value) and by
     // Undo() ONLY when an override already existed before this edit (Before value) - see
     // set_property_cmd::Undo for the other case.
-    inline void RecordPropertyOverride(editor_context& Ed, const resolved_property_target& Target, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id, const std::string& Path, const std::string& ValueStr) noexcept
+    inline void RecordPropertyOverride(scene_context& Ed, const resolved_property_target& Target, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id, const std::string& Path, const std::string& ValueStr) noexcept
     {
         if (!Target.m_pInfo) return;
 
@@ -139,7 +139,7 @@ namespace e29::commands
     // otherwise a component would be left behind in xecs::editor::prefab_instance::m_lComponents with
     // an empty m_PropertyOverrides, which every other override-authoring path in this codebase treats
     // as "this component has overrides" (e.g. the Entity Properties panel's own override-tint check).
-    inline void RemovePropertyOverride(editor_context& Ed, const resolved_property_target& Target, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id, const std::string& Path) noexcept
+    inline void RemovePropertyOverride(scene_context& Ed, const resolved_property_target& Target, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id, const std::string& Path) noexcept
     {
         if (!Target.m_pInfo) return;
 
@@ -218,11 +218,11 @@ namespace e29::commands
             const auto TypeGuid   = static_cast<std::uint32_t>(std::strtoul(std::get<std::string>(TypeArg).c_str(), nullptr, 16));
             const auto After      = xeditor::Base64Decode(std::get<std::string>(AfterArg));
 
-            const auto Target = ResolvePropertyTarget(EditorContext(), SceneGuid, Id, CompGuid);
+            const auto Target = ResolvePropertyTarget(SceneContext(), SceneGuid, Id, CompGuid);
             if (!Target.m_pInfo) return "SetProperty: target not found";
 
             SetLivePropertyValue(Target, Path, TypeGuid, After);
-            RecordPropertyOverride(EditorContext(), Target, SceneGuid, Id, Path, After);
+            RecordPropertyOverride(SceneContext(), Target, SceneGuid, Id, Path, After);
             return {};
         }
 
@@ -249,8 +249,8 @@ namespace e29::commands
             bool bHadOverride = false;
             {
                 const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
-                if (const auto Target = ResolvePropertyTarget(EditorContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Component); Target.m_pInfo)
-                    bHadOverride = HasPropertyOverride(EditorContext(), Target.m_Entity, *Target.m_pInfo, Path);
+                if (const auto Target = ResolvePropertyTarget(SceneContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Component); Target.m_pInfo)
+                    bHadOverride = HasPropertyOverride(SceneContext(), Target.m_Entity, *Target.m_pInfo, Path);
             }
 
             File.Write(Scene);
@@ -273,19 +273,19 @@ namespace e29::commands
             bool bHadOverride = false;   File.Read(bHadOverride);
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
-            const auto Target = ResolvePropertyTarget(EditorContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Component);
+            const auto Target = ResolvePropertyTarget(SceneContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Component);
             if (!Target.m_pInfo) return;
 
             SetLivePropertyValue(Target, Path, TypeGuid, Before);
             if (bHadOverride)
-                RecordPropertyOverride(EditorContext(), Target, SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Path, Before);
+                RecordPropertyOverride(SceneContext(), Target, SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Path, Before);
             else
                 // This SetProperty was the edit that FIRST overrode this property - Undo must remove
                 // the override entirely (not merely restore it to the pre-edit value), so the property
                 // goes back to genuinely inherited-from-prefab. Direct user report this fixes: "when I
                 // override a property then I undo it... it needs to go back to a non-overwritten
                 // property."
-                RemovePropertyOverride(EditorContext(), Target, SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Path);
+                RemovePropertyOverride(SceneContext(), Target, SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Path);
         }
 
         xcmdline::parser::handle m_hScene, m_hId, m_hComponent, m_hPath, m_hTypeGuid, m_hBefore, m_hAfter;
@@ -335,11 +335,11 @@ namespace e29::commands
             const auto TypeGuid   = static_cast<std::uint32_t>(std::strtoul(std::get<std::string>(TypeArg).c_str(), nullptr, 16));
             const auto After      = xeditor::Base64Decode(std::get<std::string>(AfterArg));
 
-            const auto Target = ResolvePropertyTarget(EditorContext(), SceneGuid, Id, CompGuid);
+            const auto Target = ResolvePropertyTarget(SceneContext(), SceneGuid, Id, CompGuid);
             if (!Target.m_pInfo) return "RevertOverride: target not found";
 
             SetLivePropertyValue(Target, Path, TypeGuid, After);
-            RemovePropertyOverride(EditorContext(), Target, SceneGuid, Id, Path);
+            RemovePropertyOverride(SceneContext(), Target, SceneGuid, Id, Path);
             return {};
         }
 
@@ -377,11 +377,11 @@ namespace e29::commands
             const std::string Before = xeditor::ReadString(File);
 
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
-            const auto Target = ResolvePropertyTarget(EditorContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Component);
+            const auto Target = ResolvePropertyTarget(SceneContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Component);
             if (!Target.m_pInfo) return;
 
             SetLivePropertyValue(Target, Path, TypeGuid, Before);
-            RecordPropertyOverride(EditorContext(), Target, SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Path, Before);
+            RecordPropertyOverride(SceneContext(), Target, SceneGuid, static_cast<xecs::scene::permanent_id>(Id), Path, Before);
         }
 
         xcmdline::parser::handle m_hScene, m_hId, m_hComponent, m_hPath, m_hTypeGuid, m_hBefore, m_hAfter;

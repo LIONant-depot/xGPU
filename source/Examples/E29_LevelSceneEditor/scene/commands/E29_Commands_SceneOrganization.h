@@ -330,7 +330,7 @@ namespace e29::commands
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
             const auto PermId    = static_cast<xecs::scene::permanent_id>(Id);
 
-            DeleteSubtreeByPermanentId(EditorContext(), SceneGuid, PermId);
+            DeleteSubtreeByPermanentId(SceneContext(), SceneGuid, PermId);
 
                 if (auto* pScene = World().m_SceneMgr.Find(SceneGuid))
                     pScene->m_PendingChanges[PermId].m_New -= 1;

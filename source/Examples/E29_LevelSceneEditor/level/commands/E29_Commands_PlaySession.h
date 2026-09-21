@@ -37,9 +37,9 @@ namespace e29::commands
     // (with an explanatory result, not silence) if already Playing or a build is already in flight -
     // same guard the button's own BeginDisabled already enforces.
     //================================================================================================
-    struct play_query_cmd : scene_query_command
+    struct play_query_cmd : editor_query_command
     {
-        play_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "Play", pDataBase) { RegisterArguments(); }
+        play_query_cmd(xundo::system& System, void* pDataBase) noexcept : editor_query_command(System, "Play", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Starts Play (from Stopped, recompile-checks first) or resumes it (from Paused). Usage: Play"; }
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
@@ -52,9 +52,9 @@ namespace e29::commands
     //================================================================================================
     // Pause - mirrors the "Pause" button: only meaningful while actually Playing.
     //================================================================================================
-    struct pause_query_cmd : scene_query_command
+    struct pause_query_cmd : editor_query_command
     {
-        pause_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "Pause", pDataBase) { RegisterArguments(); }
+        pause_query_cmd(xundo::system& System, void* pDataBase) noexcept : editor_query_command(System, "Pause", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Pauses a running Play session. Usage: Pause"; }
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
@@ -67,9 +67,9 @@ namespace e29::commands
     // Step - mirrors the toolbar "Step" button: runs exactly one frame. From Stopped it starts Play first
     // (same path as Play) and lands Paused after the first tick; from Paused it ticks once and stays Paused.
     //================================================================================================
-    struct step_query_cmd : scene_query_command
+    struct step_query_cmd : editor_query_command
     {
-        step_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "Step", pDataBase) { RegisterArguments(); }
+        step_query_cmd(xundo::system& System, void* pDataBase) noexcept : editor_query_command(System, "Step", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Runs one frame (from Stopped: starts Play, ticks once, lands Paused; from Paused: ticks once). Usage: Step"; }
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
@@ -94,9 +94,9 @@ namespace e29::commands
     // m_bAwaitingKeepTweaksAnswer flag either way) - Stop stays on hold until it's answered one way or
     // the other, by a human or a follow-up -Keep call.
     //================================================================================================
-    struct stop_query_cmd : scene_query_command
+    struct stop_query_cmd : editor_query_command
     {
-        stop_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "Stop", pDataBase) { RegisterArguments(); }
+        stop_query_cmd(xundo::system& System, void* pDataBase) noexcept : editor_query_command(System, "Stop", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Stops Play/Pause, reverting to the pre-Play disk state. If properties changed while Playing, pass -Keep true|false to decide up front, or answer the confirmation dialog. Usage: Stop [-Keep true|false]"; }
         void RegisterArguments() noexcept override
         {
@@ -120,14 +120,14 @@ namespace e29::commands
     // GetPlayState - the read-only counterpart the other three need to be useful headlessly: no
     // synthetic mouse click can show a CLI/AI caller what the menu-bar buttons currently look like.
     //================================================================================================
-    struct get_play_state_query_cmd : scene_query_command
+    struct get_play_state_query_cmd : editor_query_command
     {
-        get_play_state_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "GetPlayState", pDataBase) { RegisterArguments(); }
+        get_play_state_query_cmd(xundo::system& System, void* pDataBase) noexcept : editor_query_command(System, "GetPlayState", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Reports the current Play/Pause/Stop transport state. Usage: GetPlayState"; }
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
         {
-            auto& State = get<editor_context>().m_State;
+            auto& State = get<editor_context>().State();
             const bool bBuilding = e29::g_pGamePlugin && e29::g_pGamePlugin->m_bBuilding;
             return std::format("PlayState={} Building={} PlayRequested={} StopRequested={}"
                 , PlayStateName(State.m_PlayState), bBuilding, State.m_bPlayRequested, State.m_bStopRequested);

@@ -21,7 +21,7 @@ namespace e29
 
     inline void RenderPlayTransport( editor_context& Ed, game_plugin_state& Plugin, const transport_layout& Layout ) noexcept
     {
-        auto& State = Ed.m_State;
+        auto& State = Ed.State();
         using play_state = editor_state::play_state;
         constexpr const char* PlayIcon  = "\xEE\x9D\xA8";
         constexpr const char* PauseIcon = "\xEE\x9D\xA9";

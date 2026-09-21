@@ -60,7 +60,7 @@ namespace e29
         // from xproperty this same frame.
         std::function<void(xproperty::inspector&, const int, void*&, void*)> m_OnGetComponentPointer;
 
-        void RegisterCallbacks(xproperty::inspector& Inspector, editor_context& Ed) noexcept
+        void RegisterCallbacks(xproperty::inspector& Inspector, scene_context& Ed) noexcept
         {
             // xdelegate::Register(...) unconditionally push_back's - it has no dedup and no
             // Unregister at all (confirmed reading dependencies/xdelegate/source/xdelegate.h

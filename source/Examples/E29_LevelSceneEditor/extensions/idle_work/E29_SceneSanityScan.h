@@ -128,9 +128,9 @@ namespace e29
 namespace e29::commands
 {
     // RunSanityCheck - the same scan, on demand: for testing it without waiting out the idle threshold, and for an AI/script.
-    struct run_sanity_check_query_cmd : scene_query_command
+    struct run_sanity_check_query_cmd : editor_query_command
     {
-        run_sanity_check_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "RunSanityCheck", pDataBase) { RegisterArguments(); }
+        run_sanity_check_query_cmd(xundo::system& System, void* pDataBase) noexcept : editor_query_command(System, "RunSanityCheck", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Manually runs the scene orphan/dangling sanity scan (normally idle-triggered) on every open scene, right now. Usage: RunSanityCheck"; }
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
@@ -146,9 +146,9 @@ namespace e29::commands
     };
 
     // GetIdleTasks - the Idle Work panel's table as text, newest first.
-    struct get_idle_tasks_query_cmd : scene_query_command
+    struct get_idle_tasks_query_cmd : editor_query_command
     {
-        get_idle_tasks_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "GetIdleTasks", pDataBase) { RegisterArguments(); }
+        get_idle_tasks_query_cmd(xundo::system& System, void* pDataBase) noexcept : editor_query_command(System, "GetIdleTasks", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Lists the idle-work tasks (running and finished), newest first. Usage: GetIdleTasks"; }
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override

@@ -23,7 +23,7 @@ namespace e29
     // one alongside EntityInspector and call Bridge.RegisterCallbacks(...) once at setup before
     // calling this every frame.
     //---------------------------------------------------------------------------
-    void RenderEntityPropertiesPanel(editor_context& Ed, xproperty::inspector& EntityInspector, entity_inspector_bridge& Bridge, bool bReadOnly = false) noexcept
+    void RenderEntityPropertiesPanel(scene_context& Ed, xproperty::inspector& EntityInspector, entity_inspector_bridge& Bridge, bool bReadOnly = false) noexcept
     {
         auto& GameMgr = Ed.World();
         auto& State   = Ed.m_State;

@@ -25,15 +25,15 @@ namespace e29
 
         xresource::full_guid CurrentGuid() const noexcept
         {
-            if (!m_pEd || m_pEd->m_State.m_CurrentLevel.empty()) return {};
-            return xresource::full_guid{ m_pEd->m_State.m_CurrentLevel.m_Instance, xecs::level::type_guid_v };
+            if (!m_pEd || m_pEd->State().m_CurrentLevel.empty()) return {};
+            return xresource::full_guid{ m_pEd->State().m_CurrentLevel.m_Instance, xecs::level::type_guid_v };
         }
 
         xresource::full_guid getGuid() const noexcept override { return CurrentGuid(); }
 
         std::string getDisplayName() const noexcept override
         {
-            if (!m_pEd || m_pEd->m_State.m_CurrentLevel.empty()) return {};
+            if (!m_pEd || m_pEd->State().m_CurrentLevel.empty()) return {};
             std::string Name;
             e10::RemapGUIDToString(Name, CurrentGuid());
             return Name.empty() ? std::string("Level") : Name;
@@ -41,13 +41,13 @@ namespace e29
 
         bool Load() noexcept override
         {
-            return m_pEd && !m_pEd->m_State.m_CurrentLevel.empty();
+            return m_pEd && !m_pEd->State().m_CurrentLevel.empty();
         }
 
         std::string Save() noexcept override
         {
             if (!m_pEd) return "LevelDocument: not bound";
-            auto& State = m_pEd->m_State;
+            auto& State = m_pEd->State();
             if (State.m_CurrentLevel.empty() && State.m_OpenScenes.empty())
                 return "LevelDocument: nothing open";
             SaveEverything(m_pEd->World(), State);
@@ -67,7 +67,7 @@ namespace e29
 
         bool isDirty() const noexcept override
         {
-            return m_pEd && HasUnsavedDocumentChanges(m_pEd->m_State, m_pEd->m_Undo);
+            return m_pEd && HasUnsavedDocumentChanges(m_pEd->State(), m_pEd->m_Undo);
         }
     };
 
@@ -204,7 +204,7 @@ namespace e29
         auto* pEd   = FindEditorContext();
         if (pHost == nullptr || pEd == nullptr || &System != &pEd->m_Undo) return true;
         for (auto& S : pHost->m_Sessions)
-            if (S && &S->undo() == &System) return EnsureLevelEditAccess(*pHost, *S, pEd->m_State);
+            if (S && &S->undo() == &System) return EnsureLevelEditAccess(*pHost, *S, pEd->State());
         return true;
     }
 }

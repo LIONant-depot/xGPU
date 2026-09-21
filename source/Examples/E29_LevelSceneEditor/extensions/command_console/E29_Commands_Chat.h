@@ -38,9 +38,9 @@ namespace e29::commands
     // seeing its own message land intact (the Base64 round trip is otherwise invisible from the
     // caller's side).
     //================================================================================================
-    struct say_query_cmd : scene_query_command
+    struct say_query_cmd : editor_query_command
     {
-        say_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "Say", pDataBase) { RegisterArguments(); }
+        say_query_cmd(xundo::system& System, void* pDataBase) noexcept : editor_query_command(System, "Say", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Leaves a message in the shared chat log for other AI/CLI clients to read via GetLog. Usage: Say -From name -Text base64";
@@ -75,9 +75,9 @@ namespace e29::commands
     // transcript, same as `tail -n`), so an AI polling this sees a normal conversation, not a
     // reversed one.
     //================================================================================================
-    struct get_log_query_cmd : scene_query_command
+    struct get_log_query_cmd : editor_query_command
     {
-        get_log_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "GetLog", pDataBase) { RegisterArguments(); }
+        get_log_query_cmd(xundo::system& System, void* pDataBase) noexcept : editor_query_command(System, "GetLog", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Returns the last N chat messages (default 10). Usage: GetLog [-Count n]";

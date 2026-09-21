@@ -28,16 +28,16 @@ namespace e29::commands
     // tell "nothing happened" apart from "something did" - compared before/after rather than trusting
     // Undo()/Redo()'s own void-ish `system&` return.
     //================================================================================================
-    struct undo_query_cmd : scene_query_command
+    struct undo_query_cmd : editor_query_command
     {
-        undo_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "Undo", pDataBase) { RegisterArguments(); }
+        undo_query_cmd(xundo::system& System, void* pDataBase) noexcept : editor_query_command(System, "Undo", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Undoes the last step (blocked while Play/Paused). Usage: Undo"; }
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
         {
             // Same gate as the Ctrl+Z shortcut (E29_LevelScene_Editor.cpp) - a CLI/Console-driven
             // agent shouldn't be able to do what the UI itself refuses to do while Playing/Paused.
-            auto& State = get<editor_context>().m_State;
+            auto& State = get<editor_context>().State();
             if (State.isPlaying()) return "Undo: blocked while Play/Paused";
             const auto Before = m_System.GetUndoIndex();
             m_System.Undo();
@@ -45,14 +45,14 @@ namespace e29::commands
         }
     };
 
-    struct redo_query_cmd : scene_query_command
+    struct redo_query_cmd : editor_query_command
     {
-        redo_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "Redo", pDataBase) { RegisterArguments(); }
+        redo_query_cmd(xundo::system& System, void* pDataBase) noexcept : editor_query_command(System, "Redo", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Redoes the next step (blocked while Play/Paused). Usage: Redo"; }
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
         {
-            auto& State = get<editor_context>().m_State;
+            auto& State = get<editor_context>().State();
             if (State.isPlaying()) return "Redo: blocked while Play/Paused";
             const auto Before = m_System.GetUndoIndex();
             m_System.Redo();
@@ -66,14 +66,14 @@ namespace e29::commands
     // rule exactly (documentation/E29_LevelSceneEditor/save_gating_and_persist_mode.md) - Play already blocks Save in
     // the UI, and there's no reason a command should be allowed to bypass that.
     //================================================================================================
-    struct save_query_cmd : scene_query_command
+    struct save_query_cmd : editor_query_command
     {
-        save_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "Save", pDataBase) { RegisterArguments(); }
+        save_query_cmd(xundo::system& System, void* pDataBase) noexcept : editor_query_command(System, "Save", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Saves the currently open Level/Scenes to disk (blocked while Play/Paused). Usage: Save"; }
         void RegisterArguments() noexcept override {}
         std::string Query() noexcept override
         {
-            auto& State = get<editor_context>().m_State;
+            auto& State = get<editor_context>().State();
             if (State.isPlaying()) return "Save: blocked while Play/Paused";
             e29::SaveEverything(World(), State);
             e29::MarkDocumentClean(State, EditorContext().m_Undo);
@@ -87,9 +87,9 @@ namespace e29::commands
     // -Save 1 (persist then close) or -Save 0 (discard then close) - there is no modal to click.
     // Clean Levels close with no -Save. Blocked while Play/Paused, same gate as Save/UI Close.
     //================================================================================================
-    struct close_query_cmd : scene_query_command
+    struct close_query_cmd : editor_query_command
     {
-        close_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "Close", pDataBase) { RegisterArguments(); }
+        close_query_cmd(xundo::system& System, void* pDataBase) noexcept : editor_query_command(System, "Close", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override
         {
             return "Closes the current Level (unload scenes, clear document). If modified, pass -Save 1 or -Save 0. Usage: Close [-Save 0|1]";
@@ -100,7 +100,7 @@ namespace e29::commands
         }
         std::string Query() noexcept override
         {
-            auto& State = get<editor_context>().m_State;
+            auto& State = get<editor_context>().State();
             if (State.isPlaying()) return "Close: blocked while Play/Paused";
             if (State.m_CurrentLevel.empty() && State.m_OpenScenes.empty())
                 return "Close: nothing open";
@@ -134,10 +134,10 @@ namespace e29::commands
     // SerializeRoundtrip - write+read the same binary SerializeGameState path mid-play reload uses
     // (Vn bridge). Forces the DLL/host BitID landmine without waiting for a Game.dll rebuild.
     //================================================================================================
-    struct serialize_roundtrip_query_cmd : scene_query_command
+    struct serialize_roundtrip_query_cmd : editor_query_command
     {
         serialize_roundtrip_query_cmd(xundo::system& System, void* pDataBase) noexcept
-            : scene_query_command(System, "SerializeRoundtrip", pDataBase) { RegisterArguments(); }
+            : editor_query_command(System, "SerializeRoundtrip", pDataBase) { RegisterArguments(); }
         void RegisterArguments() noexcept override {}
         const char* getCommandHelp() const noexcept override
         {
@@ -145,7 +145,7 @@ namespace e29::commands
         }
         std::string Query() noexcept override
         {
-            auto& State = get<editor_context>().m_State;
+            auto& State = get<editor_context>().State();
             if (State.m_CurrentLevel.empty() && State.m_OpenScenes.empty())
                 return "SerializeRoundtrip: nothing open (open a Level first)";
 
@@ -167,9 +167,9 @@ namespace e29::commands
     // Property paths are shown RAW, not Base64 - trivial for a human or AI to encode when building the
     // actual SetProperty call, and far more readable here than a wall of base64 would be.
     //================================================================================================
-    struct describe_entity_query_cmd : scene_query_command
+    struct describe_entity_query_cmd : editor_query_command
     {
-        describe_entity_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "DescribeEntity", pDataBase) { RegisterArguments(); }
+        describe_entity_query_cmd(xundo::system& System, void* pDataBase) noexcept : editor_query_command(System, "DescribeEntity", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Lists every component on an entity, with each property's path/value/TypeGuid - everything SetProperty needs. Usage: DescribeEntity -Scene hexguid -Id hexid"; }
         void RegisterArguments() noexcept override
         {
@@ -233,9 +233,9 @@ namespace e29::commands
     // "Add Component" combo already uses (E29_Panel_EntityProperties.h), so this lists exactly what
     // that UI would offer, not a superset that would fail if handed to AddComponent.
     //================================================================================================
-    struct list_component_types_query_cmd : scene_query_command
+    struct list_component_types_query_cmd : editor_query_command
     {
-        list_component_types_query_cmd(xundo::system& System, void* pDataBase) noexcept : scene_query_command(System, "ListComponentTypes", pDataBase) { RegisterArguments(); }
+        list_component_types_query_cmd(xundo::system& System, void* pDataBase) noexcept : editor_query_command(System, "ListComponentTypes", pDataBase) { RegisterArguments(); }
         const char* getCommandHelp() const noexcept override { return "Lists every addable component type (guid + name). Usage: ListComponentTypes"; }
         void RegisterArguments() noexcept override {}
 

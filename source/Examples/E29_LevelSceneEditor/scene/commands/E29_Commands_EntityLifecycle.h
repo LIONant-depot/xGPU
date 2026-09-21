@@ -82,7 +82,7 @@ namespace e29::commands
     // Mirrors level/E29_Panel_LevelTree.h's own DoDeleteEntity exactly, including the selection/
     // multi-select survival cleanup - this command can run from Undo/Redo just as easily as from the
     // context menu that used to be the only caller.
-    inline void DeleteSubtreeByPermanentId(editor_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id) noexcept
+    inline void DeleteSubtreeByPermanentId(scene_context& Ed, xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id) noexcept
     {
         auto* pScene = Ed.World().m_SceneMgr.Find(SceneGuid);
         if (!pScene) return;
@@ -129,7 +129,7 @@ namespace e29::commands
     // SaveEntity walk alone cannot undo them. Same IO shape as make_prefab_variant_cmd's own
     // BackupCurrenState/Undo for m_lComponents + m_HierarchyDiffs (E29_Commands_MakePrefab.h).
     // Always writes a bool so Restore can drain the record even when Snapshot early-outs.
-    inline void SnapshotContainingPrefabOverrides(editor_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
+    inline void SnapshotContainingPrefabOverrides(scene_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
     {
         xecs::editor::prefab_instance* pPI = nullptr;
         xecs::scene::permanent_id      PIRootId = xecs::scene::invalid_permanent_id_v;
@@ -174,7 +174,7 @@ namespace e29::commands
         }
     }
 
-    inline void RestoreContainingPrefabOverrides(editor_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid) noexcept
+    inline void RestoreContainingPrefabOverrides(scene_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid) noexcept
     {
         bool bHad = false; File.Read(bHad);
         if (!bHad) return;
@@ -240,7 +240,7 @@ namespace e29::commands
     // writing whatever SceneGuid/RootId encoding its own command string args need - this only writes
     // the position + subtree data, since a caller like make_prefab_cmd already knows how it wants to
     // encode Scene (it might not be a plain xecs::scene::guid round trip at all).
-    inline void SnapshotSubtreeForRestore(editor_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
+    inline void SnapshotSubtreeForRestore(scene_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
     {
         auto* pScene = Ed.World().m_SceneMgr.Find(SceneGuid);
         if (!pScene || !pScene->m_LocalToRuntime.contains(RootId))
@@ -365,7 +365,7 @@ namespace e29::commands
     // Counterpart to SnapshotSubtreeForRestore - reads back everything it wrote and restores the whole
     // subtree, including hierarchy, cross-entity references, and prefab-instance overrides, back to
     // its exact original position. Factored out of delete_entity_cmd's own Undo (moved verbatim).
-    inline void RestoreSubtreeFromSnapshot(editor_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
+    inline void RestoreSubtreeFromSnapshot(scene_context& Ed, xundo::undo_file& File, xecs::scene::guid SceneGuid, xecs::scene::permanent_id RootId) noexcept
     {
         std::uint32_t FolderVal = 0;     File.Read(FolderVal);
         std::uint32_t FolderIndex = 0;   File.Read(FolderIndex);
@@ -571,7 +571,7 @@ namespace e29::commands
                 // already needs), so re-resolve everything through it rather than trusting the local
                 // `Entity` above afterward.
                 std::array<const xecs::component::type::info*, 1> AddParent{ &xecs::component::type::info_v<xecs::component::parent> };
-                const auto NewChildEntity = MigrateEntityComponents(EditorContext(), SceneGuid, Id, AddParent, {});
+                const auto NewChildEntity = MigrateEntityComponents(SceneContext(), SceneGuid, Id, AddParent, {});
                 if (!NewChildEntity.isValid()) return "CreateEntity: failed to attach parent";
 
                 // Ensure the PARENT also has a `children` component - a freshly-authored entity usually
@@ -581,7 +581,7 @@ namespace e29::commands
                 if (!PDetails.m_pPool || !PDetails.m_pPool->m_pArchetype->getComponentBits().getBit(xecs::component::type::info_v<xecs::component::children>.m_BitID))
                 {
                     std::array<const xecs::component::type::info*, 1> AddChildren{ &xecs::component::type::info_v<xecs::component::children> };
-                    ParentEntity = MigrateEntityComponents(EditorContext(), SceneGuid, ParentId, AddChildren, {});
+                    ParentEntity = MigrateEntityComponents(SceneContext(), SceneGuid, ParentId, AddChildren, {});
                     if (!ParentEntity.isValid()) return "CreateEntity: failed to attach children to parent";
                 }
 
@@ -653,7 +653,7 @@ namespace e29::commands
             const auto SceneGuid = xecs::scene::guid{ .m_Instance = { Scene } };
             const auto PermId    = static_cast<xecs::scene::permanent_id>(Id);
 
-            DeleteSubtreeByPermanentId(EditorContext(), SceneGuid, PermId);
+            DeleteSubtreeByPermanentId(SceneContext(), SceneGuid, PermId);
 
             // Exact inverse of this command's own Redo() MarkEntityNew call - see this file's own top
             // comment quoting m_PendingChanges' documented undo contract.
@@ -678,7 +678,7 @@ namespace e29::commands
                             if (List.empty())
                             {
                                 std::array<const xecs::component::type::info*, 1> RemoveChildren{ &xecs::component::type::info_v<xecs::component::children> };
-                                MigrateEntityComponents(EditorContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(ParentId), {}, RemoveChildren);
+                                MigrateEntityComponents(SceneContext(), SceneGuid, static_cast<xecs::scene::permanent_id>(ParentId), {}, RemoveChildren);
                             }
                         }
                     }
@@ -724,7 +724,7 @@ namespace e29::commands
             auto* pScene = World().m_SceneMgr.Find(SceneGuid);
             if (!pScene || !pScene->m_LocalToRuntime.contains(Id)) return "DeleteEntity: target not found";
 
-            DeleteSubtreeByPermanentId(EditorContext(), SceneGuid, Id);
+            DeleteSubtreeByPermanentId(SceneContext(), SceneGuid, Id);
             return {};
         }
 
@@ -741,14 +741,14 @@ namespace e29::commands
             File.Write(Scene);
             File.Write(Id);
 
-            SnapshotSubtreeForRestore(EditorContext(), File, xecs::scene::guid{ .m_Instance = { Scene } }, static_cast<xecs::scene::permanent_id>(Id));
+            SnapshotSubtreeForRestore(SceneContext(), File, xecs::scene::guid{ .m_Instance = { Scene } }, static_cast<xecs::scene::permanent_id>(Id));
         }
 
         void Undo(xundo::undo_file& File) noexcept override
         {
             std::uint64_t Scene = 0; File.Read(Scene);
             std::uint32_t Id = 0;    File.Read(Id);
-            RestoreSubtreeFromSnapshot(EditorContext(), File, xecs::scene::guid{ .m_Instance = { Scene } }, static_cast<xecs::scene::permanent_id>(Id));
+            RestoreSubtreeFromSnapshot(SceneContext(), File, xecs::scene::guid{ .m_Instance = { Scene } }, static_cast<xecs::scene::permanent_id>(Id));
         }
 
         xcmdline::parser::handle m_hScene, m_hId;

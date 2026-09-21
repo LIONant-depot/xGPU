@@ -311,7 +311,7 @@ namespace e29
     void RenderLevelTreePanel(editor_context& Ed, xundo::system& Undo, bool bReadOnly = false) noexcept
     {
         auto& GameMgr = Ed.World();
-        auto& State   = Ed.m_State;
+        auto& State   = Ed.State();
         ImGui::SetNextWindowPos(ImVec2(915, 18), ImGuiCond_FirstUseEver);
         ImGui::SetNextWindowSize(ImVec2(360, 680), ImGuiCond_FirstUseEver);
         const bool bWindowVisible = ImGui::Begin(e29::editor_tabs::kLevelTreeWindow);

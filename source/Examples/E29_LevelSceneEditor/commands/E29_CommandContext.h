@@ -2,34 +2,40 @@
 #define E29_COMMAND_CONTEXT_H
 #pragma once
 
-// The "database" every E29 xundo command mutates (the editor_context, core/E29_EditorState.h), retrieved via
-// command_base::get<editor_context>(). Direct port of E27_NodeOS's own
-// node_os_command_context/BackupSelection/RestoreSelection (Editor/NodeOS_CommandContext.h) - see
-// documentation/E29_LevelSceneEditor/command_undo_system_plan.md for the full phased plan this is step 1 of.
+// The database every E29 xundo command mutates is its editor's context, retrieved through the base class of the command:
+// scene_command gets the scene context (the scene editing code), editor_command the Level editor's (levels, Play, the
+// game module, ...). Which pointer a command receives is decided where the command set is built (E29_CommandSet.h).
 //
-// Meant to be included after editor_state (and xeditor::NotifyError) are already defined -
-// via the kit umbrella (E29_LevelSceneEditorKit.h), or a caller that already includes it - same
-// convention every other extracted kit/plugin module in this project already follows, rather than
-// self-including the umbrella here (this header is itself reached FROM WITHIN the umbrella, via
-// level/E29_Panel_LevelTree.h - a self-include would just bounce off E29_LevelSceneEditorKit.h's own
-// include guard at that point, working by accident rather than by design).
+// Meant to be included after the contexts are defined, via the kit umbrella (E29_LevelSceneEditorKit.h).
 #include "dependencies/xundo/source/xundo_system.h"
 #include "dependencies/xeditor/include/xeditor/commands.h"
 #include "dependencies/xeditor/include/xeditor/serialize.h"
 
 namespace e29::commands
 {
-    // Every scene command reaches its editor's world and state through its command context: World() and State().
+    // Every scene command reaches its editor's world and state through its scene context: World(), State(), SceneContext().
     template<typename T_BASE>
     struct scene_command_mixin : T_BASE
     {
         using T_BASE::T_BASE;
-        xecs::game_mgr::instance& World() noexcept { return this->template get<editor_context>().World(); }
-        editor_state&             State() noexcept { return this->template get<editor_context>().m_State; }
-        editor_context&      EditorContext() noexcept { return this->template get<editor_context>(); }
+        xecs::game_mgr::instance& World() noexcept { return this->template get<scene_context>().World(); }
+        scene_state&              State() noexcept { return this->template get<scene_context>().m_State; }
+        scene_context&       SceneContext() noexcept { return this->template get<scene_context>(); }
     };
     using scene_command       = scene_command_mixin<xundo::command_base>;
     using scene_query_command = scene_command_mixin<xundo::query_command_base>;
+
+    // The same for the commands of the Level editor: World(), State() (with the Level fields), EditorContext().
+    template<typename T_BASE>
+    struct editor_command_mixin : T_BASE
+    {
+        using T_BASE::T_BASE;
+        xecs::game_mgr::instance& World() noexcept { return this->template get<editor_context>().World(); }
+        editor_state&             State() noexcept { return this->template get<editor_context>().State(); }
+        editor_context&      EditorContext() noexcept { return this->template get<editor_context>(); }
+    };
+    using editor_command       = editor_command_mixin<xundo::command_base>;
+    using editor_query_command = editor_command_mixin<xundo::query_command_base>;
 
     // Shared by select_cmd/toggle_multi_select_cmd/clear_selection_cmd - all three snapshot/restore
     // the exact same fields. m_SelectedEntity (the live runtime handle) is deliberately NOT part of
@@ -39,7 +45,7 @@ namespace e29::commands
     // standing rule of never carrying a raw runtime handle across a boundary where the world could
     // have changed underneath it - an Undo/Redo step is exactly such a boundary, potentially long
     // after the entity in question was last touched.
-    inline void BackupSelection(editor_context& Ctx, xundo::undo_file& File) noexcept
+    inline void BackupSelection(scene_context& Ctx, xundo::undo_file& File) noexcept
     {
         auto& S = Ctx.m_State;
         File.Write(S.m_SelectedEntityId);
@@ -51,7 +57,7 @@ namespace e29::commands
         File.Write(S.m_MultiSelectScene);
     }
 
-    inline void RestoreSelection(editor_context& Ctx, xundo::undo_file& File) noexcept
+    inline void RestoreSelection(scene_context& Ctx, xundo::undo_file& File) noexcept
     {
         auto& S = Ctx.m_State;
 
