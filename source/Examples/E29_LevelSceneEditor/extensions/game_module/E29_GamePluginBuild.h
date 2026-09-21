@@ -191,6 +191,14 @@ namespace e29
             bStale = Ec || ModuleSourceTime > DllTime;
         }
 
+        // Game.dll is one file for both configurations, so it must have been built with the configuration this editor runs in:
+        // a Release DLL loaded into a Debug editor crashes on the first call (the standard library and the ECS types differ).
+        // A marker written after each build records the configuration.
+        const auto ConfigMarker = P.m_BuildDir / L"Game.config";
+        const auto ReadMarker   = [&]() noexcept { std::wifstream In(ConfigMarker); std::wstring S; std::getline(In, S); return S; };
+        const bool bWrongConfig = !bStale && ReadMarker() != P.m_Config;
+        bStale = bStale || bWrongConfig;
+
         if (!bStale)
         {
             Plugin.m_LastStatus = "Game.dll: up to date, no rebuild needed";
@@ -198,7 +206,7 @@ namespace e29
             return build_result::UpToDate; // load it directly, no rebuild attempted
         }
 
-        Plugin.m_LastStatus = std::format("Game.dll: {} - rebuilding via cmake...", bDllMissing ? "DLL missing" : "source newer than DLL");
+        Plugin.m_LastStatus = std::format("Game.dll: {} - rebuilding via cmake...", bDllMissing ? "DLL missing" : bWrongConfig ? "built for another configuration" : "source newer than DLL");
         LogGamePlugin(Plugin.m_LastStatus);
 
         // MSBuild leaves a worker process alive after a build so a later one can reuse it, and that worker holds a lock on the
@@ -210,6 +218,9 @@ namespace e29
         // An explicit reconfigure before every build: `cmake --build`'s own automatic reconfigure does not reliably notice that
         // the generated CMakeLists.txt changed (a module was added or removed). It is cheap when nothing changed. The
         // generator is only given the first time, when the build directory is created.
+        // MSBuild would consider the other configuration's DLL up to date, so it goes first.
+        if (bWrongConfig) std::filesystem::remove(P.m_Dll, Ec);
+
         std::wstring Configure = std::format(L"cmake -S \"{}\" -B \"{}\"", P.m_Root.wstring(), P.m_BuildDir.wstring());
         if (!std::filesystem::exists(P.m_BuildDir / L"CMakeCache.txt", Ec)) Configure += ScriptProjectGeneratorArgs(P);
         if (const auto ConfigureExit = RunCmakeCommand(Configure, P.m_Root); ConfigureExit != 0)
@@ -231,6 +242,9 @@ namespace e29
             LogGamePlugin(Plugin.m_LastStatus);
             return build_result::Failed; // the currently loaded generation is left completely untouched
         }
+
+        std::filesystem::create_directories(ConfigMarker.parent_path(), Ec);
+        std::wofstream(ConfigMarker, std::ios::trunc) << P.m_Config;
 
         Plugin.m_LastStatus = "Game.dll: rebuild succeeded";
         LogGamePlugin(Plugin.m_LastStatus);
