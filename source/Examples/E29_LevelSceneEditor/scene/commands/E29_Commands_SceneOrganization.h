@@ -14,14 +14,14 @@
 // has ever had to reverse an asset-library creation, and getting that wrong risks corrupting the
 // asset database, not just scene state. Flagged rather than rushed, matching this project's own
 // standing rule against scope-creeping into a gap disproportionate to what was asked.
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_EntityLifecycle.h"
+#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_EntityLifecycle.h"
 
 namespace e29::commands
 {
     //================================================================================================
     // CreateFolder / DeleteFolder - closes a gap InstantiatePrefab/MoveToFolder above never covered:
     // "New Folder"/"Delete Folder" (ShowCreateMenuItems, E29_LevelSceneEditorKit.h; the Folder row's
-    // own context menu AND its "X" button, kit/E29_Panel_LevelTree.h) still mutated Scene.m_Folders
+    // own context menu AND its "X" button, level/E29_Panel_LevelTree.h) still mutated Scene.m_Folders
     // directly - flagged by external review as the one glaring inconsistency left sitting right next
     // to CreateEntity/DeleteEntity in that same menu. Same "-Id pre-minted by the caller" convention
     // create_entity_cmd already established (E29_Commands_EntityLifecycle.h), for the same

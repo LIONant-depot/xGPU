@@ -24,9 +24,9 @@
 // review's own framing. Included here, in the same order they used to appear inline in this file,
 // so this remains the one header E29_LevelScene_Editor.cpp includes - no external-facing change.
 // Mechanical move only - no behavior change; see each file's own top comment.
-#include "source/Examples/E29_LevelSceneEditor/plugin/E29_GamePluginLog.h"
-#include "source/Examples/E29_LevelSceneEditor/plugin/E29_GamePluginBuild.h"
-#include "source/Examples/E29_LevelSceneEditor/plugin/E29_GamePluginLoad.h"
-#include "source/Examples/E29_LevelSceneEditor/plugin/E29_PlaySession.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_GamePluginLog.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_GamePluginBuild.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_GamePluginLoad.h"
+#include "source/Examples/E29_LevelSceneEditor/level/E29_PlaySession.h"
 
 #endif

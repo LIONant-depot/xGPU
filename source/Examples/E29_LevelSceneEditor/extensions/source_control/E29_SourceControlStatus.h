@@ -3,7 +3,7 @@
 #pragma once
 
 // Source Control ACTIVE side - the idle-triggered refresh that actually talks to a real git/LFS
-// provider. Mirrors kit/E29_IdleWork.h's own LaunchSceneSanityScan shape exactly: a synchronous scan
+// provider. Mirrors extensions/idle_work/E29_IdleWork.h's own LaunchSceneSanityScan shape exactly: a synchronous scan
 // function that takes plain data only (never a live mgr&), dispatched through xscheduler::g_System
 // rather than a raw thread, guarded against overlapping scans of the SAME library root. See
 // source_control_abstraction_spec_v1_3.md, Part IV, "Status refresh -> Idle Work".
@@ -19,7 +19,7 @@
 // One GitLfsWorkspaceSession per open library, lazily created and Connect()'d on first use, kept
 // alive for the life of the process - git/git-lfs subprocess calls are cheap enough per-call that
 // there's no real teardown need before the app exits.
-#include "source/Examples/E29_LevelSceneEditor/kit/E29_IdleWork.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/idle_work/E29_IdleWork.h"
 #include "dependencies/xsource_control/source/sc_git_lfs_provider.hpp"
 #include "source/Examples/E10_TextureResourcePipeline/E10_SourceControlCache.h"
 #include <atomic>
@@ -324,7 +324,7 @@ namespace e29::source_control
     }
 
     // Own idle-period gating, independent of PumpIdleWork's own m_bTriggeredThisIdlePeriod flag -
-    // this file can't include kit/E29_IdleWork.h's own consumer back into it (E29_IdleWork.h is a
+    // this file can't include extensions/idle_work/E29_IdleWork.h's own consumer back into it (E29_IdleWork.h is a
     // shared, no-plugin-dependency file by design), so PumpIdleWork's own trigger state can't be
     // reused directly. Instead this remembers the m_LastActivityTime value it last fired for and
     // compares against the CURRENT one: NotifyActivity only ever changes m_LastActivityTime on real

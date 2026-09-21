@@ -135,7 +135,7 @@ namespace e29
 
 
 
-        // commands/E29_CommandConsolePipe.h's own comment for why this must run here (same clean
+        // extensions/command_console/E29_CommandConsolePipe.h's own comment for why this must run here (same clean
 
 
 
@@ -147,7 +147,7 @@ namespace e29
 
 
 
-        // parameter into PumpCommandConsolePipe itself) is how Idle Work (kit/E29_IdleWork.h) learns a
+        // parameter into PumpCommandConsolePipe itself) is how Idle Work (extensions/idle_work/E29_IdleWork.h) learns a
 
 
 

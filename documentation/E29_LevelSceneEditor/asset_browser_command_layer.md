@@ -7,7 +7,7 @@
 Direct user framing that started this: "I think make prefab or create prefab instance may depend on
 the asset browser... The next big task is going to be the asset browser... We need to make it work
 with commands as well so it can be added into a global undo system." Make Prefab itself
-(kit/E29_PrefabAuthoring.h) was deliberately deferred from the prior gap-closing session (see
+(scene/E29_PrefabAuthoring.h) was deliberately deferred from the prior gap-closing session (see
 [E29 command / undo - known gaps (closed)](command_undo_known_gaps.md)) because it calls `AssetMgr.NewAsset` to create a real asset on disk,
 and nothing in E29's command system had ever had to reverse an asset-library creation. This work
 builds that foundation - Make Prefab itself is still not implemented, deliberately, and is the next
@@ -16,7 +16,7 @@ natural follow-up now that CreateAsset/etc exist to compose with.
 **Two commits, `e56af26` (command layer) and `96c12ba` (UI wiring)** - see their own messages for full
 detail. High-level shape:
 
-- New file `commands/E29_Commands_AssetBrowser.h`: `ListAssets`/`DescribeAsset` (discovery, walk
+- New file `extensions/asset_browser/E29_Commands_AssetBrowser.h`: `ListAssets`/`DescribeAsset` (discovery, walk
   `e10::library_mgr`'s tree via the existing `getInfo`/`getNodeInfo` accessors), `RenameAsset`,
   `MoveAsset`, `DeleteAsset` (soft-delete via Trash, fully reversible), `RestoreAsset` (a genuine
   forward action distinct from DeleteAsset's Undo - the Trash UI's "Restore to X" can target a
@@ -58,8 +58,8 @@ conditional swap calling the exact same functions the direct path already called
 command already CLI-verified correct.
 
 **Follow-up, landed the same day**: `MakePrefab`/`MakePrefabVariant` (new file
-`commands/E29_Commands_MakePrefab.h`) compose this layer's `CreateOrRestoreAsset` (made a free
-function, shared rather than duplicated) with `kit/E29_PrefabAuthoring.h`'s existing
+`scene/commands/E29_Commands_MakePrefab.h`) compose this layer's `CreateOrRestoreAsset` (made a free
+function, shared rather than duplicated) with `scene/E29_PrefabAuthoring.h`'s existing
 `CreatePrefabFromGroupRoot`/`CreatePrefabVariantFromInstance` - bracketed as ONE undo step each, not
 two adjacent history entries (the open question this memory used to flag). `MakePrefab`'s Undo reuses
 `SnapshotSubtreeForRestore`/`RestoreSubtreeFromSnapshot` (factored out of `delete_entity_cmd`,

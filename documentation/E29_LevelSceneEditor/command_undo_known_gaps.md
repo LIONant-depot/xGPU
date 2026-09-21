@@ -26,7 +26,7 @@ item's own note for the exact test performed.
    couldn't have caught this on its own.
 
 3. **Entity-reference assign/clear bypassing the command system - FIXED.** New file
-   `commands/E29_Commands_EntityReference.h` - `SetEntityReference` command. Real design decision,
+   `scene/commands/E29_Commands_EntityReference.h` - `SetEntityReference` command. Real design decision,
    not a mechanical wrap: Before/After are encoded as `{SceneGuid, permanent_id}` pairs, NEVER a raw
    `xecs::component::entity` runtime handle - same reasoning delete_entity_cmd's own top comment
    already established for parent/children/entity_reference fields (a raw handle is meaningless the
@@ -54,7 +54,7 @@ item's own note for the exact test performed.
 
 5. **"Half the editor isn't undo-routed" - Instantiate + folder reparent FIXED, Make Prefab
    deliberately deferred, Duplicate doesn't exist.**
-   - **Instantiate** - new `InstantiatePrefab` command (`commands/E29_Commands_SceneOrganization.h`).
+   - **Instantiate** - new `InstantiatePrefab` command (`scene/commands/E29_Commands_SceneOrganization.h`).
      Mirrors `InstantiatePrefabIntoScene` (E29_PrefabAuthoring.h) but registers the group's ROOT under
      an explicit, caller-minted id (same `-Id pre-minted by the caller` convention `create_entity_cmd`
      already established) so Redo stays deterministic across an Undo/Redo cycle; descendants still get
@@ -75,7 +75,7 @@ item's own note for the exact test performed.
      first undo, and all 3 entities ended up back in their exact original order.
    - **Make Prefab - landed 2026-09-10** (`MakePrefab`/`MakePrefabVariant`, see
      [E29 Asset Browser command layer](asset_browser_command_layer.md) for full detail). Composes the Asset Browser command layer's
-     `CreateOrRestoreAsset` with `kit/E29_PrefabAuthoring.h`'s existing
+     `CreateOrRestoreAsset` with `scene/E29_PrefabAuthoring.h`'s existing
      `CreatePrefabFromGroupRoot`/`CreatePrefabVariantFromInstance`; Undo restores the original entity
      subtree (via `SnapshotSubtreeForRestore`/`RestoreSubtreeFromSnapshot`, factored out of
      `delete_entity_cmd`) and trashes the created asset. Found and fixed a real engine crash along the
@@ -86,11 +86,11 @@ item's own note for the exact test performed.
 
 **Also added mid-session, direct user request while watching this session drive Play/Pause via
 synthetic mouse clicks**: `Play`/`Pause`/`Stop`/`GetPlayState` query commands
-(`commands/E29_Commands_PlaySession.h`) - set the exact same flags
+(`level/commands/E29_Commands_PlaySession.h`) - set the exact same flags
 (`State.m_PlayState`/`m_bPlayRequested`/`m_bStopRequested`) the menu-bar buttons themselves set, so
 the existing per-frame polling (`PollGameReload`, the deferred-Stop consumption) does the real work
 identically regardless of mouse or CLI origin. New global `e29::g_pGamePlugin`
-(`plugin/E29_GamePluginBuild.h`), same "one instance per process" pattern as `g_pGameMgr`/`g_pState`.
+(`extensions/game_module/E29_GamePluginBuild.h`), same "one instance per process" pattern as `g_pGameMgr`/`g_pState`.
 This is what made gap #1's own Play-state-gate verification possible without any synthetic mouse
 input at all.
 

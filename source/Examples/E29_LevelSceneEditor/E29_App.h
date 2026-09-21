@@ -12,56 +12,56 @@
 
 // E29_LevelSceneEditorKit.h just above, so this is the only reordering actually needed.
 
-#include "source/Examples/E29_LevelSceneEditor/kit/E29_ProjectScriptConfig.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_ProjectScriptConfig.h"
 
 #include "dependencies/xECSV2/src/xecs_plugin_api.h"
 
-#include "source/Examples/E29_LevelSceneEditor/E29_GamePlugin.h"
-#include "source/Examples/E29_LevelSceneEditor/kit/E29_Panel_PlayTransport.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_GamePlugin.h"
+#include "source/Examples/E29_LevelSceneEditor/level/E29_Panel_PlayTransport.h"
 
 #include "dependencies/xundo/source/xundo_history.h"
 
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
 
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Selection.h"
+#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_Selection.h"
 
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandConsolePipe.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/command_console/E29_CommandConsolePipe.h"
 
 #include "dependencies/xeditor/include/xeditor/host.h"
 
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Chat.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/command_console/E29_Commands_Chat.h"
 
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Level.h"
+#include "source/Examples/E29_LevelSceneEditor/level/commands/E29_Commands_Level.h"
 
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SceneDependency.h"
+#include "source/Examples/E29_LevelSceneEditor/level/commands/E29_Commands_SceneDependency.h"
 
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_LibraryDependency.h"
+#include "source/Examples/E29_LevelSceneEditor/level/commands/E29_Commands_LibraryDependency.h"
 
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Workspace.h"
+#include "source/Examples/E29_LevelSceneEditor/level/commands/E29_Commands_Workspace.h"
 
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PlaySession.h"
+#include "source/Examples/E29_LevelSceneEditor/level/commands/E29_Commands_PlaySession.h"
 
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SceneOrganization.h"
+#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_SceneOrganization.h"
 
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetBrowser.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_Commands_AssetBrowser.h"
 
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetFiles.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_Commands_AssetFiles.h"
 
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Scripting.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_Commands_Scripting.h"
 
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_MakePrefab.h"
+#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_MakePrefab.h"
 
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Compilation.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_Commands_Compilation.h"
 
 #include "source/Examples/E29_LevelSceneEditor/extensions/source_control/E29_Commands_SourceControl.h"
 
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_TextureEditor.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_Commands_TextureEditor.h"
 
-#include "source/Examples/E29_LevelSceneEditor/E29_LevelDocument.h"
+#include "source/Examples/E29_LevelSceneEditor/level/E29_LevelDocument.h"
 
-#include "source/Examples/E29_LevelSceneEditor/kit/E29_IdleWork.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/idle_work/E29_IdleWork.h"
 
-#include "source/Examples/E29_LevelSceneEditor/kit/E29_ComponentCompatibility.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_ComponentCompatibility.h"
 
 #include "source/Examples/E29_LevelSceneEditor/E29_Theme.h"
 
@@ -355,7 +355,7 @@ namespace e29
 
 
 
-        // automation - see commands/E29_CommandConsolePipe.h's own top comment for the full threading
+        // automation - see extensions/command_console/E29_CommandConsolePipe.h's own top comment for the full threading
 
 
 

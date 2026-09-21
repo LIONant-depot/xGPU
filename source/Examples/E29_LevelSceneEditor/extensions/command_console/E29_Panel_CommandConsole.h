@@ -7,12 +7,12 @@
 // DrawCommandConsolePanel (source/Examples/E27_NodeOS/Editor/NodeOS_UI_CommandConsole.h) - a plain
 // text box for "Namespace/Edit-or-Query/Command -args..." strings routed through
 // xundo::history::Route(), the SAME dispatch phase 5's named-pipe server
-// (commands/E29_CommandConsolePipe.h) already uses. Exists specifically so a query command never
+// (extensions/command_console/E29_CommandConsolePipe.h) already uses. Exists specifically so a query command never
 // NEEDS a bespoke ImGui widget to be reachable - the same text protocol an AI or a script (xeditorcli)
 // already uses works here too, with the same self-documenting "-h" help every command exposes.
 //
 // Reuses console_log_entry/console_log_source/ProcessConsoleCommand from
-// commands/E29_CommandConsolePipe.h rather than redefining them - the SAME log a pipe-driven command
+// extensions/command_console/E29_CommandConsolePipe.h rather than redefining them - the SAME log a pipe-driven command
 // already appends to (phase 5) is what this panel renders, so a Say/GetLog/SetProperty/etc. sent over
 // the pipe shows up here exactly like one typed into this box, never a silent side-channel.
 //
@@ -27,7 +27,7 @@
 // convention. Already included transitively via the kit umbrella (E29_LevelSceneEditorKit.h's own
 // top-of-file include).
 #include "source/Examples/E19_MaterialEditor/E19_TextEditor.h"
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandConsolePipe.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/command_console/E29_CommandConsolePipe.h"
 
 namespace e29
 {
@@ -166,7 +166,7 @@ namespace e29
         }
 
         // Bottom-right, completing the existing bottom row (System Registry at x=18, Game.dll Log at
-        // x=506, both y=530 size 220 - kit/E29_Panel_SystemRegistry.h / plugin/E29_GamePluginLog.h) -
+        // x=506, both y=530 size 220 - extensions/game_module/E29_Panel_SystemRegistry.h / extensions/game_module/E29_GamePluginLog.h) -
         // E27's own (1265, 18) default position was copied blindly at first and landed almost entirely
         // off the RIGHT edge of E29's own 1288-wide window (Level Tree already occupies x=[915,1275] at
         // that y), confirmed via a live screenshot. ImGuiCond_FirstUseEver only applies once ever

@@ -9,9 +9,9 @@
 //
 // Add/Remove Component commands (E29_Commands_ComponentEdit.h, which pulls in
 // E29_Commands_PropertyEdit.h/E29_CommandContext.h/xundo_system.h itself) included directly here -
-// same self-sufficiency reasoning as kit/E29_Panel_LevelTree.h's own top comment for why.
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_ComponentEdit.h"
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_ApplyOverrides.h"
+// same self-sufficiency reasoning as level/E29_Panel_LevelTree.h's own top comment for why.
+#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_ComponentEdit.h"
+#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_ApplyOverrides.h"
 #include "source/Examples/E29_LevelSceneEditor/GameProject/E29_GameRegistration.h"
 
 namespace e29
@@ -286,7 +286,7 @@ namespace e29
                 if (Bridge.m_pPendingRemoveComponent)
                 {
                     // Routed through the command/undo system (documentation/E29_LevelSceneEditor/command_undo_system_plan.md
-                    // memory, phase 3 - commands/E29_Commands_ComponentEdit.h) - remove_component_cmd
+                    // memory, phase 3 - scene/commands/E29_Commands_ComponentEdit.h) - remove_component_cmd
                     // snapshots the component's current property values before removing it, so Undo
                     // can restore it exactly, not just re-add it with default values.
                     e29::commands::Run(e29::LevelDocUndo(), std::format("RemoveComponent -Scene {} -Id {} -Component {:016X}"

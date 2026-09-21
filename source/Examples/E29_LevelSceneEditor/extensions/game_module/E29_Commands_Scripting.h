@@ -12,9 +12,9 @@
 // remove/list file operations wrapped as xundo commands (matching CreateAsset/DeleteAsset's own
 // command_base shape in E29_Commands_AssetBrowser.h, since adding/removing a source file is the
 // same kind of reversible content operation, not a real external round-trip).
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetBrowser.h"
-#include "source/Examples/E29_LevelSceneEditor/kit/E29_ProjectScriptConfig.h"
-#include "source/Examples/E29_LevelSceneEditor/plugin/E29_GameModuleSources.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_Commands_AssetBrowser.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_ProjectScriptConfig.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_GameModuleSources.h"
 #include <fstream>
 
 namespace e29::commands

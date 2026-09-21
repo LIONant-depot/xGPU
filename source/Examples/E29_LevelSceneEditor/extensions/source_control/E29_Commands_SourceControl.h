@@ -15,12 +15,12 @@
 // DecodeAssetPath, same file) - real paths contain backslashes/spaces that would otherwise collide
 // with the CLI's own token splitting.
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetFiles.h" // EncodeAssetPath/DecodeAssetPath
+#include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_Commands_AssetFiles.h" // EncodeAssetPath/DecodeAssetPath
 #include "source/Examples/E29_LevelSceneEditor/extensions/source_control/E29_SourceControlStatus.h"
 
 namespace e29
 {
-    // Forward-only (not #include'd here - plugin/E29_GamePluginBuild.h and E29_PlaySession.h both
+    // Forward-only (not #include'd here - extensions/game_module/E29_GamePluginBuild.h and E29_PlaySession.h both
     // assume a specific inclusion position within the umbrella's own Log/Build/Load/PlaySession
     // order and break badly if pulled in directly from this deep in the commands chain, confirmed
     // live). g_pGamePlugin/StartGameReload are already fully defined earlier in the SAME translation

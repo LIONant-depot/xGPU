@@ -7,7 +7,7 @@
 // not designed to be included standalone.
 //
 // E29_Theme.h included directly (not just relying on E29_LevelScene_Editor.cpp's own later include)
-// for UnityCheckbox - same self-sufficiency reasoning as kit/E29_Panel_LevelTree.h's own top comment.
+// for UnityCheckbox - same self-sufficiency reasoning as level/E29_Panel_LevelTree.h's own top comment.
 #include "source/Examples/E29_LevelSceneEditor/E29_Theme.h"
 
 namespace e29

@@ -5,7 +5,7 @@
 // Add/Remove Component - phase 3 of documentation/E29_LevelSceneEditor/command_undo_system_plan.md. Replaces
 // E29_Panel_EntityProperties.h's own DIRECT calls to GameMgr.AddOrRemoveComponents (the "Add
 // Component" combo and the component header's "[X]") with real xundo commands, same pattern as
-// phase 2's SetProperty (commands/E29_Commands_PropertyEdit.h, included below for
+// phase 2's SetProperty (scene/commands/E29_Commands_PropertyEdit.h, included below for
 // ResolvePropertyTarget/SetLivePropertyValue reuse).
 //
 // AddOrRemoveComponents ALWAYS migrates the entity to a new handle (a real archetype change, not an
@@ -50,7 +50,7 @@
 // SnapshotComponentProperties' own string-based shape, reusing prefab_property_override's own two
 // fields directly rather than inventing a parallel format) so Undo can restore it exactly, matching
 // how carefully every other command in this system already mirrors its own side effects on Undo.
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PropertyEdit.h"
+#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_PropertyEdit.h"
 
 namespace e29::commands
 {

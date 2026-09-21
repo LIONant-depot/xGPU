@@ -439,13 +439,13 @@ namespace e29
     // ShowCreateMenuItems moved further down in this file (right after E29_PrefabAuthoring.h's own
     // include) - phase 4's own documentation/E29_LevelSceneEditor/command_undo_system_plan.md routing needs e29::g_pGameMgr/
     // g_pState (E29_PrefabAuthoring.h) and e29::commands::Run (E29_CommandContext.h), neither
-    // available yet at this point in the file. Its only 2 callers (kit/E29_Panel_LevelTree.h) are
+    // available yet at this point in the file. Its only 2 callers (level/E29_Panel_LevelTree.h) are
     // reached much later in the umbrella than either dependency, so moving it is a pure relocation -
     // see its own comment at the new location.
 
     // EnsureDefaultFolder (the auto-created "Default" bucket every unfoldered entity used to get
     // adopted into) removed entirely - direct user request. Unfoldered entities now render loose at
-    // the scene root again (see kit/E29_Panel_LevelTree.h's own "Unfoldered" block), same as before
+    // the scene root again (see level/E29_Panel_LevelTree.h's own "Unfoldered" block), same as before
     // "Default" was introduced.
 
     // Folders are purely organizational - deleting one must never delete gameplay content. Its
@@ -875,8 +875,8 @@ namespace e29
 
 } // namespace e29
 
-#include "kit/E29_PrefabOverrides.h"
-#include "kit/E29_PrefabAuthoring.h"
+#include "scene/E29_PrefabOverrides.h"
+#include "scene/E29_PrefabAuthoring.h"
 
 // e29::commands::Run/FormatSceneGuid (E29_CommandContext.h, lightweight - no dependency on
 // DeleteEntitySubtree itself, but needs e29::g_pGameMgr/g_pState, which E29_PrefabAuthoring.h just
@@ -896,7 +896,7 @@ namespace e29
     // Assumes it's called from inside an already-open popup (BeginPopupContextItem/BeginPopup).
     //
     // "New Entity" routed through the command/undo system (documentation/E29_LevelSceneEditor/command_undo_system_plan.md,
-    // phase 4 - commands/E29_Commands_EntityLifecycle.h) - create_entity_cmd::Redo does the exact
+    // phase 4 - scene/commands/E29_Commands_EntityLifecycle.h) - create_entity_cmd::Redo does the exact
     // migration this used to do inline, Undo deletes it again. "New Folder" now routed too (external
     // review flagged it as the one glaring inconsistency left next to CreateEntity/DeleteEntity sitting
     // right beside it in this same menu) - CreateFolder/DeleteFolder commands, commands/
@@ -963,23 +963,23 @@ namespace e29
 
 // Level document Close / Save-before-open (File menu + double-click/drop). Own namespace e29
 // block - included AFTER the kit's namespace closes (same ODR-nesting rule as PropertyEdit).
-#include "kit/E29_DocumentSession.h"
+#include "level/E29_DocumentSession.h"
 
 // Property-edit command (phase 2 of the kit split's own follow-on, documentation/E29_LevelSceneEditor/command_undo_system_plan.md
 // memory) included directly here, not relying on E29_LevelScene_Editor.cpp's own later include -
 // entity_inspector_bridge, right below, needs it. Same self-sufficiency reasoning as
-// kit/E29_Panel_LevelTree.h's own top comment for why. Closed/reopened around this include (rather
+// level/E29_Panel_LevelTree.h's own top comment for why. Closed/reopened around this include (rather
 // than included mid-namespace like the earlier, WRONG version of this edit was) because
 // E29_Commands_PropertyEdit.h declares its own `namespace e29::commands { ... }` at file scope - if
 // this #include ran while namespace e29 was already open, that would nest into e29::e29::commands
 // instead, exactly the ODR-nesting bug this comment is here to prevent regressing.
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PropertyEdit.h"
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_EntityReference.h"
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetBrowser.h"
+#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_PropertyEdit.h"
+#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_EntityReference.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_Commands_AssetBrowser.h"
 // Needed here (not just from E29_LevelScene_Editor.cpp's own later include) because
 // RegisterAssetBrowserCallbacks, just below, now also wires the raw-file hooks and needs
 // e29::commands::EncodeAssetPath - include guards make the .cpp's own separate include harmless.
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetFiles.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_Commands_AssetFiles.h"
 
 namespace e29
 {
@@ -1066,7 +1066,7 @@ namespace e29
             // that outlives the registration; here that "local" is the std::function MEMBER itself
             // (see this struct's own comment), assigned below and then registered.
             // Routed through the command/undo system (documentation/E29_LevelSceneEditor/command_undo_system_plan.md, phase
-            // 2 - commands/E29_Commands_PropertyEdit.h) instead of applying the value/recording the
+            // 2 - scene/commands/E29_Commands_PropertyEdit.h) instead of applying the value/recording the
             // override directly here - this is the ORDINARY per-row commit path (Cmd.m_Name is a real
             // property path, Cmd.m_NewValue/m_Original real scalar values), never the whole-component
             // BeginEdit/CommitEdit snapshot bracket the Revert Override action below uses (that one's
@@ -1125,7 +1125,7 @@ namespace e29
             };
             Inspector.m_OnOverrideCheck.Register(m_OnOverrideCheck);
 
-            // Routed through RevertOverride (commands/E29_Commands_PropertyEdit.h) instead of the
+            // Routed through RevertOverride (scene/commands/E29_Commands_PropertyEdit.h) instead of the
             // old inline BeginEdit/setProperty/erase_if path - same live+bookkeeping result, but
             // Ctrl+Z restores the overridden value and re-records the override entry.
             m_OnOverrideReset = [this, &GameMgr, &State, &Undo](xproperty::inspector& /*Inspector*/, const xproperty::type::object& Obj, void* pInstance, std::string_view Path)
@@ -1536,11 +1536,11 @@ namespace e29
 
 } // namespace e29
 
-#include "kit/E29_Panel_LevelTree.h"
-#include "kit/E29_Panel_ComponentSelector.h"
-#include "kit/E29_Panel_EntityProperties.h"
-#include "kit/E29_Panel_SystemRegistry.h"
-#include "kit/E29_Panel_CommandConsole.h"
+#include "level/E29_Panel_LevelTree.h"
+#include "scene/E29_Panel_ComponentSelector.h"
+#include "scene/E29_Panel_EntityProperties.h"
+#include "extensions/game_module/E29_Panel_SystemRegistry.h"
+#include "extensions/command_console/E29_Panel_CommandConsole.h"
 #include "extensions/source_control/E29_Panel_SourceControl.h"
 
 #endif // E29_LEVEL_SCENE_EDITOR_KIT_H

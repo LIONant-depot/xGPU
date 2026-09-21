@@ -11,7 +11,7 @@
 // editor_state, g_ComponentDisplayInfo, and command infrastructure are defined.
 // Not designed to be included standalone. Not a docked editor window — Entity
 // Properties opens this as an ImGui popup that replaces the old BeginCombo list.
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_ComponentEdit.h"
+#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_ComponentEdit.h"
 #include "source/Examples/E29_LevelSceneEditor/GameProject/E29_GameRegistration.h"
 #include <cstring>
 

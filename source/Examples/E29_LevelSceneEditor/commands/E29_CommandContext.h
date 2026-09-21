@@ -22,7 +22,7 @@
 // via the kit umbrella (E29_LevelSceneEditorKit.h), or a caller that already includes it - same
 // convention every other extracted kit/plugin module in this project already follows, rather than
 // self-including the umbrella here (this header is itself reached FROM WITHIN the umbrella, via
-// kit/E29_Panel_LevelTree.h - a self-include would just bounce off E29_LevelSceneEditorKit.h's own
+// level/E29_Panel_LevelTree.h - a self-include would just bounce off E29_LevelSceneEditorKit.h's own
 // include guard at that point, working by accident rather than by design).
 #include "dependencies/xundo/source/xundo_system.h"
 
@@ -30,7 +30,7 @@ namespace e29 { bool TryGateLevelMutation(xundo::system& System) noexcept; }
 
 namespace e29::commands
 {
-    // Who authored a Command Console log entry - moved here (from commands/E29_CommandConsolePipe.h,
+    // Who authored a Command Console log entry - moved here (from extensions/command_console/E29_CommandConsolePipe.h,
     // phase 5) so Run() below (a phase 1 foundational helper, included far earlier than phase 5's own
     // pipe file) can log every command through the SAME shared log a pipe-driven or console-typed one
     // already uses, without a forward-declaration/ordering problem. User=green (typed into the
@@ -46,17 +46,17 @@ namespace e29::commands
 
     // Set once, right after ConsoleLog itself is constructed in E29_LevelScene_Editor.cpp's main
     // function (same "global pointer bound once at startup" pattern as e29::g_pGameMgr/g_pState,
-    // E29_PrefabAuthoring.h) - Run() is called from many files (kit/E29_Panel_LevelTree.h,
-    // E29_LevelSceneEditorKit.h's m_OnPropertyChanged, kit/E29_Panel_EntityProperties.h, ...), so a
+    // E29_PrefabAuthoring.h) - Run() is called from many files (level/E29_Panel_LevelTree.h,
+    // E29_LevelSceneEditorKit.h's m_OnPropertyChanged, scene/E29_Panel_EntityProperties.h, ...), so a
     // global pointer avoids threading a ConsoleLog& parameter through every one of those call sites
     // just for this.
     inline std::vector<console_log_entry>* g_pConsoleLog = nullptr;
 
-    // One line of the Say/GetLog conversation (commands/E29_Commands_Chat.h) - lets multiple AI/CLI
+    // One line of the Say/GetLog conversation (extensions/command_console/E29_Commands_Chat.h) - lets multiple AI/CLI
     // clients talking to the same running E29 session leave messages for each other over the Command
     // Console pipe. In-memory only, current session (matches E29Undo's own bAutoLoadSave=false choice
     // - a fresh conversation each run), deliberately separate from ConsoleLog
-    // (commands/E29_CommandConsolePipe.h, phase 5) - that log is command-dispatch echo/result text,
+    // (extensions/command_console/E29_CommandConsolePipe.h, phase 5) - that log is command-dispatch echo/result text,
     // this one is purely a conversation transcript, so GetLog doesn't have to filter dispatch noise
     // out of what it returns.
     struct chat_message
@@ -225,7 +225,7 @@ namespace e29::commands
     // completing what was documented but not yet wired up since phase 1) - direct port of
     // E27_NodeOS's own Run() (Editor/NodeOS_CommandBuilders.h). Pushes the SAME echo-then-result
     // shape ProcessConsoleCommand/DrawCommandConsolePanel already use for a typed/piped command
-    // (commands/E29_CommandConsolePipe.h, kit/E29_Panel_CommandConsole.h), tagged User - a UI click
+    // (extensions/command_console/E29_CommandConsolePipe.h, extensions/command_console/E29_Panel_CommandConsole.h), tagged User - a UI click
     // and a typed command are both "the user did this" from the log's own point of view. Direct user
     // report this fixes: "now you have to route the users commands there as well... nothing showing
     // up there yet."

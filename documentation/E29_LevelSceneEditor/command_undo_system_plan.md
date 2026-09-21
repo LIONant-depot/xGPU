@@ -61,7 +61,7 @@ the kit split was done):
 
 New files: `source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h`
 (`e29_command_context{ editor_state& m_State }`, `BackupSelection`/`RestoreSelection`, the `Run()`
-logging wrapper) and `commands/E29_Commands_Selection.h` (`select_cmd`, `toggle_multi_select_cmd`,
+logging wrapper) and `scene/commands/E29_Commands_Selection.h` (`select_cmd`, `toggle_multi_select_cmd`,
 `clear_selection_cmd` - two edit commands rather than E27's one `Select`, since E29's selection model
 splits primary vs. multi-select in a way NodeOS's flatter model doesn't). Wired into
 `E29_LevelScene_Editor.cpp`: `xundo::system E29Undo` + `xundo::history E29History` (namespace "E29",
@@ -98,7 +98,7 @@ both Ctrl+Z and Ctrl+Y work correctly live.
 **Phase 2 (property editing) - DONE, verified live by direct user testing, 2026-09-07.** Direct user
 caution going in: "careful with resetting the overrides" - this shaped the whole design.
 
-New file: `source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PropertyEdit.h`
+New file: `source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_PropertyEdit.h`
 (`set_property_cmd` - Scene/Id/Component/Path/TypeGuid/Before/After as CLI args, self-contained via
 `BackupCurrenState`/`undo_file`, not relying on `m_Parser` during Undo). Deliberately does NOT go
 through `xproperty::inspector::BeginEdit`/`CommitEdit`'s whole-component snapshot bracket - that
@@ -153,7 +153,7 @@ other kit/plugin include.
 
 **Phase 3 (Add/Remove Component) - DONE, verified live by direct user testing, 2026-09-07.**
 
-New file: `source/Examples/E29_LevelSceneEditor/commands/E29_Commands_ComponentEdit.h`
+New file: `source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_ComponentEdit.h`
 (`add_component_cmd`, `remove_component_cmd`). `AddOrRemoveComponents` always migrates the entity to
 a NEW handle (real archetype change, not in-place) - `MigrateEntityComponents` factors out the
 caller-responsibility remap every pre-existing call site did by hand (erase old
@@ -195,7 +195,7 @@ override system phase 2 already had to get right.
 hardest phase - two dedicated research passes (one via a delegated Explore agent, one via direct
 source reading) plus a live debugger call stack were needed before it was actually correct.**
 
-New file: `source/Examples/E29_LevelSceneEditor/commands/E29_Commands_EntityLifecycle.h`
+New file: `source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_EntityLifecycle.h`
 (`create_entity_cmd`, `delete_entity_cmd`, `DeleteSubtreeByPermanentId` shared helper). Key design
 decision: a deleted entity's `parent`/`children`/`entity_reference` fields hold RAW RUNTIME HANDLES,
 meaningless the instant the entity is destroyed - phase 2/3's "snapshot properties as strings" isn't
@@ -253,7 +253,7 @@ vs. a new command's own lifecycle events.
 
 **Phase 5 (CLI/pipe) - DONE, verified live via a real end-to-end round trip, 2026-09-09.** Near-direct
 port of E27_NodeOS's own named-pipe server (NOT the full Command Console UI panel - that part stays
-deferred to phase 6): `commands/E29_CommandConsolePipe.h` (`command_console_pipe_bridge`,
+deferred to phase 6): `extensions/command_console/E29_CommandConsolePipe.h` (`command_console_pipe_bridge`,
 `CommandConsolePipeThreadMain`, `PumpCommandConsolePipe`, `ProcessConsoleCommand`) + a standalone
 `E29CLI.cpp` client (zero Vulkan/ImGui deps, its own `add_executable` CMake target, mirrors
 `NodeOSCLI.cpp` exactly). Listens on `\\.\pipe\E29_LevelSceneEditor_Console`; commands route as
@@ -267,7 +267,7 @@ text through the pipe.
 
 **Say/GetLog chat extension - DONE, verified live, 2026-09-09.** Direct user request, riding on phase
 5's own pipe: "add the ability [to] personalize commands... so if there are multiple AIs you guys can
-have a conversation." New file `commands/E29_Commands_Chat.h` - two `xundo::query_command_base`
+have a conversation." New file `extensions/command_console/E29_Commands_Chat.h` - two `xundo::query_command_base`
 commands (not `command_base` - a chat message isn't an undo-able scene mutation, matches
 `query_command_base`'s own documented purpose): `Say -From name -Text base64` (appends to a NEW
 `e29_command_context::m_ChatLog`, deliberately separate from the phase-5 `ConsoleLog` - a pure
@@ -294,7 +294,7 @@ pass (2026-09-07) found a few real issues in phases 1-4 (one already fixed: `cre
 instruction: fix these later, not as part of finishing the phase list.
 
 **Phase 6 (Command Console panel) - DONE, verified live, 2026-09-09.** Direct user request: "you can
-bring over the command window from example 27." `kit/E29_Panel_CommandConsole.h` - near-direct port of
+bring over the command window from example 27." `extensions/command_console/E29_Panel_CommandConsole.h` - near-direct port of
 `DrawCommandConsolePanel` (autocomplete via `xstrtool::SubstringDamerauLevenshteinDistanceI`, shell-
 style Up/Down history via `ImGuiInputTextFlags_CallbackHistory`, a persistent `TextEditor` for the
 colored log). Renders the SAME `ConsoleLog`/`command_console_pipe_bridge` phase 5 already built - no
@@ -309,7 +309,7 @@ phase 1) - the ONE function every UI-driven command routes through - never actua
 into the Command Console's log, only pipe-driven and console-typed commands did (`PumpCommandConsole
 Pipe`/`DrawCommandConsolePanel` each had their own separate echo logic `Run()` never shared). Direct
 user report: "now you have to route the users commands there as well... nothing showing up there
-yet." Fixed by moving `console_log_entry`/`console_log_source` from `commands/E29_CommandConsolePipe.h`
+yet." Fixed by moving `console_log_entry`/`console_log_source` from `extensions/command_console/E29_CommandConsolePipe.h`
 into `E29_CommandContext.h` itself (a phase-1 foundational file, included far earlier - the ordering
 problem this move solves is the same shape as several earlier phases' own g_pGameMgr/xundo_history
 availability issues) and adding a `g_pConsoleLog` global pointer (same "bound once at startup" pattern
@@ -319,7 +319,7 @@ pipe/console paths already used.
 **Level/Scene discovery + workspace commands - DONE, verified live, 2026-09-09.** Direct user reports,
 each building on the last: "clearly one of the commands should be load a level...", "yes I think you
 are missing Level/Scene commands", "ListFolders -Scene ... -From root...". New file
-`commands/E29_Commands_Level.h` - six Query commands (not Edit - workspace/discovery actions, not
+`level/commands/E29_Commands_Level.h` - six Query commands (not Edit - workspace/discovery actions, not
 scene-content mutations, same reasoning as Say/GetLog): `OpenLevel -Level hexguid` (loads + activates
 a Level's scenes; reports success by checking `State.m_CurrentLevel` afterward, since
 `e29::OpenLevel`'s own return type is void), `CloseScene -Scene hexguid` (wraps the existing

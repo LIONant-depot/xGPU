@@ -24,7 +24,7 @@
 // Deliberately does NOT own the cross-scene Dependencies edge (pOwningScene->m_ParentScenes) or the
 // cycle / missing-dep refusal - those live in m_OnEntityReferenceRender (must already be an explicit
 // Dependencies-folder edge; never auto-added) and in AddSceneDependency / RemoveSceneDependency.
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PropertyEdit.h"
+#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_PropertyEdit.h"
 
 namespace e29::commands
 {

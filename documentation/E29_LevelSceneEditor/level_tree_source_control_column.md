@@ -5,7 +5,7 @@
 > Migrated from the working notes on 2026-09-21 (last edited 2026-09-17).
 
 Direct user request (2026-09-18): "Lets do the 'level Tree' left source control column. Similar to
-the one we have done in all other views." Landed in `kit/E29_Panel_LevelTree.h` (already a real
+the one we have done in all other views." Landed in `level/E29_Panel_LevelTree.h` (already a real
 `ImGui::BeginTable("LevelTree", ...)`, not plain indented TreeNodeEx calls) - added a new leftmost
 "##SC" column (narrow, fixed 20px, unlabeled) ahead of the existing "Name"/"Actions" columns, bumping
 the table from 2 to 3 columns. Required a mechanical mid-file column-index shift (every

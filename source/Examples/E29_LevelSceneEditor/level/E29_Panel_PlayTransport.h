@@ -3,7 +3,7 @@
 #pragma once
 
 // Play / Step / Pause / Stop buttons, shared by the menu-bar transport and the editor toolbar - they differ
-// only in layout (transport_layout). All behavior lives in plugin/E29_PlaySession.h (RequestPlay/...), which
+// only in layout (transport_layout). All behavior lives in level/E29_PlaySession.h (RequestPlay/...), which
 // the CLI Play/Pause/Step/Stop commands use too.
 //
 // Unity-style, worked out to keep the mouse from ever landing on a moved button: two fixed slots, centered as

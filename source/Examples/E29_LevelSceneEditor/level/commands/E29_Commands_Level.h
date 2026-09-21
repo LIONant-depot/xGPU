@@ -20,7 +20,7 @@
 namespace e29
 {
     // Forward-only, same reasoning as the identical declaration in E29_Commands_SourceControl.h -
-    // kit/E29_ComponentCompatibility.h is already fully defined earlier in this same translation unit
+    // extensions/game_module/E29_ComponentCompatibility.h is already fully defined earlier in this same translation unit
     // via the umbrella, this just makes it visible here too without re-including anything (that header
     // assumes a specific inclusion position and breaks badly pulled in directly this deep in the
     // commands chain - confirmed live).
@@ -299,7 +299,7 @@ namespace e29::commands
     //================================================================================================
     // ListEntities - every entity in a scene (flat, not folder-structured - see ListFolders below for
     // the tree view), {id, name-or-"Entity #id"} one per line, same fallback E29's own Level Tree panel
-    // uses (kit/E29_Panel_LevelTree.h).
+    // uses (level/E29_Panel_LevelTree.h).
     //================================================================================================
     struct list_entities_query_cmd : xundo::query_command_base
     {

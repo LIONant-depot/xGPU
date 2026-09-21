@@ -9,7 +9,7 @@
 // /PDBALTPATH + PDB_OUTPUT_DIRECTORY + /nodeReuse:false story this function's own cmake invocation
 // relies on. Meant to be included via the umbrella (E29_GamePlugin.h) only, after
 // E29_GamePluginLog.h (LogGamePlugin).
-#include "source/Examples/E29_LevelSceneEditor/plugin/E29_GameModuleSources.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_GameModuleSources.h"
 
 namespace e29
 {

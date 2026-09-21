@@ -15,7 +15,7 @@
 // directly rather than relying on the .cpp's own later include of it, same "a file that names a
 // symbol should include what declares it" reasoning every other kit/plugin file here already follows.
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
-#include "source/Examples/E29_LevelSceneEditor/kit/E29_ComponentCompatibility.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_ComponentCompatibility.h"
 #include <sstream>
 #include <iterator>
 #include <unordered_map>
@@ -559,7 +559,7 @@ namespace e29
     // Best-effort: a guid the OLD registry itself doesn't resolve either (shouldn't happen - it came
     // straight out of this session's own live world moments ago) is silently skipped.
     //---------------------------------------------------------------------------
-    // Declared (not defined - see commands/E29_Commands_MakePrefab.h for the inline definition this
+    // Declared (not defined - see scene/commands/E29_Commands_MakePrefab.h for the inline definition this
     // refers to) here too since this file's own place in the umbrella include order is earlier than
     // that one - inline variables have external linkage, so a plain extern declaration anywhere in
     // the same program is enough to use it, no redefinition risk.

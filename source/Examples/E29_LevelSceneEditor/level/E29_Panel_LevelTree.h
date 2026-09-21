@@ -12,22 +12,22 @@
 // them - this panel is reached through the kit umbrella BEFORE that .cpp's own includes run, and a
 // file that names a type/function should include what declares it rather than depend on a distant
 // caller's own include order. #pragma once makes the .cpp's own later include a safe no-op.
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Selection.h"
+#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_Selection.h"
 
 // Create/Delete Entity commands (E29_Commands_EntityLifecycle.h) - needs DeleteEntitySubtree
-// (kit/E29_PrefabAuthoring.h), already included by the umbrella well before this panel is reached
+// (scene/E29_PrefabAuthoring.h), already included by the umbrella well before this panel is reached
 // (see that file's own top comment for why this panel can safely assume it).
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_EntityLifecycle.h"
+#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_EntityLifecycle.h"
 
 // InstantiatePrefab/MoveToFolder commands (E29_Commands_SceneOrganization.h) - same "this panel is
 // reached before the umbrella's own later include runs" reasoning as the two includes just above.
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SceneOrganization.h"
+#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_SceneOrganization.h"
 
 // AddScene/RemoveScene (E29_Commands_Level.h) - Level membership edits, same "include what you name"
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_SceneDependency.h"
+#include "source/Examples/E29_LevelSceneEditor/level/commands/E29_Commands_SceneDependency.h"
 // self-sufficiency as the command includes above. OpenLevel/List* live here too; this panel only
 // needs the two undoable membership commands.
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_Level.h"
+#include "source/Examples/E29_LevelSceneEditor/level/commands/E29_Commands_Level.h"
 
 // BeginDragDropTargetCustom (window-wide Level drop highlight when a level is already open) -
 // same include E10_asset_browser_files_tab.h uses for FilesBackgroundDropTarget.
@@ -694,7 +694,7 @@ namespace e29
                                                 if (Drag.x == 0.0f && Drag.y == 0.0f) // released without ever dragging past the threshold
                                                 {
                                                     // Routed through the command/undo system
-                                                    // (commands/E29_Commands_Selection.h) instead of
+                                                    // (scene/commands/E29_Commands_Selection.h) instead of
                                                     // mutating State directly - phase 1 of
                                                     // documentation/E29_LevelSceneEditor/command_undo_system_plan.md. Ctrl
                                                     // held = ToggleMultiSelect (multi-select only,
@@ -737,7 +737,7 @@ namespace e29
                                             {
                                                 // Routed through the command/undo system
                                                 // (documentation/E29_LevelSceneEditor/command_undo_system_plan.md, phase 4 -
-                                                // commands/E29_Commands_EntityLifecycle.h) instead of
+                                                // scene/commands/E29_Commands_EntityLifecycle.h) instead of
                                                 // calling DeleteEntitySubtree directly - selection/
                                                 // multi-select survival cleanup (this row or a now-
                                                 // deleted descendant of it) now lives in the command's

@@ -3,7 +3,7 @@
 #pragma once
 
 // Create/Delete Entity - phase 4 of documentation/E29_LevelSceneEditor/command_undo_system_plan.md. Replaces
-// kit/E29_Panel_LevelTree.h's direct calls (ShowCreateMenuItems' "New Entity", DoDeleteEntity) with
+// level/E29_Panel_LevelTree.h's direct calls (ShowCreateMenuItems' "New Entity", DoDeleteEntity) with
 // real xundo commands.
 //
 // CREATE is cheap either direction: Redo makes a bare entity (no components at all, matching
@@ -73,13 +73,13 @@
 // which is what made it worth recording this precisely. Fixed by having Walk() (below) immediately
 // undo SaveEntity's own side effect for the shadow id right after each call.
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_ComponentEdit.h"
+#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_ComponentEdit.h"
 
 namespace e29::commands
 {
     // Shared by delete_entity_cmd::Redo and create_entity_cmd::Undo (see this file's own top comment
     // for why undo-of-create reuses the real cascade instead of a bespoke "just this one" delete).
-    // Mirrors kit/E29_Panel_LevelTree.h's own DoDeleteEntity exactly, including the selection/
+    // Mirrors level/E29_Panel_LevelTree.h's own DoDeleteEntity exactly, including the selection/
     // multi-select survival cleanup - this command can run from Undo/Redo just as easily as from the
     // context menu that used to be the only caller.
     inline void DeleteSubtreeByPermanentId(xecs::scene::guid SceneGuid, xecs::scene::permanent_id Id) noexcept

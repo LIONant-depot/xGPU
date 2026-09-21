@@ -10,7 +10,7 @@
 // (SnapshotSubtreeForRestore/RestoreSubtreeFromSnapshot, E29_Commands_EntityLifecycle.h) each already
 // solve on their own. This file is that composition, not a third reimplementation.
 //
-// Two distinct existing functions in kit/E29_PrefabAuthoring.h, two distinct commands here, matching
+// Two distinct existing functions in scene/E29_PrefabAuthoring.h, two distinct commands here, matching
 // that file's own split:
 //   CreatePrefabFromGroupRoot - the general path: creates the asset, then DELETES the original live
 //   root+descendants and INSTANTIATES a fresh copy under the prefab, splicing back into the original
@@ -21,7 +21,7 @@
 //   as MakePrefabVariant.
 //
 // DELIBERATELY NOT WRAPPED, same "flag rather than rush" precedent as EmptyTrashcan/Duplicate before
-// it: DetermineGroupRoot's own synthetic-root-creation path (kit/E29_PrefabAuthoring.h) - multi-
+// it: DetermineGroupRoot's own synthetic-root-creation path (scene/E29_PrefabAuthoring.h) - multi-
 // selecting 2+ DISJOINT top-level entities (no single existing subtree already covers the whole
 // selection) synthesizes a brand-new "Prefab Root" entity and reparents each selected entity under
 // it, BEFORE either MakePrefab/MakePrefabVariant below ever runs. That synthesis step is a real,
@@ -30,12 +30,12 @@
 // (a single existing entity, root of a real subtree already, or from that synthesis step run
 // separately/manually) exactly as DetermineGroupRoot itself already hands back today. Making THAT
 // step undo-routed too is a distinct, smaller follow-up, not folded in here.
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_AssetBrowser.h"
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_EntityLifecycle.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_Commands_AssetBrowser.h"
+#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_EntityLifecycle.h"
 
 namespace e29::commands
 {
-    // Identical to e29::CreatePrefabFromGroupRoot (kit/E29_PrefabAuthoring.h) except the new Prefab
+    // Identical to e29::CreatePrefabFromGroupRoot (scene/E29_PrefabAuthoring.h) except the new Prefab
     // asset is created under an EXPLICIT, caller-pre-minted guid instead of an auto-generated one -
     // same "-Asset is pre-minted by the caller" convention CreateAsset/InstantiatePrefab already
     // established, needed so make_prefab_cmd::Redo stays deterministic/re-runnable across an
@@ -273,7 +273,7 @@ namespace e29::commands
     //================================================================================================
     // MakePrefabVariant - the fast path for a single entity that's already a prefab instance: creates
     // the asset and re-points that SAME live entity's own prefab_instance component at it (no delete/
-    // recreate at all - see CreatePrefabVariantFromInstance's own comment, kit/E29_PrefabAuthoring.h,
+    // recreate at all - see CreatePrefabVariantFromInstance's own comment, scene/E29_PrefabAuthoring.h,
     // for why this is safe: the entity's current data already IS what a fresh instance of the new
     // variant looks like). Undo restores the old m_PrefabInstance/m_lComponents/m_ComponentDiffs and
     // trashes the created asset.

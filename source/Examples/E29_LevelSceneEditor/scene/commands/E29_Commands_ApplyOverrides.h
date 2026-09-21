@@ -4,14 +4,14 @@
 
 // ApplyOverrides - Unity-style "Apply Overrides to Prefab": pushes every recorded override on one
 // prefab_instance up into the source Prefab asset, saves the prefab, and clears the instance's
-// m_lComponents bookkeeping. The previous UI path (kit/E29_Panel_EntityProperties.h) called
+// m_lComponents bookkeeping. The previous UI path (scene/E29_Panel_EntityProperties.h) called
 // ApplyInstanceOverridesToPrefab directly with no undo. BackupCurrenState snapshots (1) the full
 // override bookkeeping that will be cleared and (2) each affected Prefab property's BEFORE value so
 // Undo can put the Prefab asset AND the instance's override list back.
 
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_PropertyEdit.h"
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_Commands_EntityLifecycle.h"
-#include "source/Examples/E29_LevelSceneEditor/kit/E29_PrefabAuthoring.h"
+#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_PropertyEdit.h"
+#include "source/Examples/E29_LevelSceneEditor/scene/commands/E29_Commands_EntityLifecycle.h"
+#include "source/Examples/E29_LevelSceneEditor/scene/E29_PrefabAuthoring.h"
 
 namespace e29::commands
 {

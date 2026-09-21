@@ -9,7 +9,7 @@
 #include "Plugins/xtexture.plugin/source/Editor/xtexture_editor.h"
 #include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandContext.h"
 #include "dependencies/xeditor/include/xeditor/host.h"
-#include "source/Examples/E29_LevelSceneEditor/commands/E29_CommandConsolePipe.h"
+#include "source/Examples/E29_LevelSceneEditor/extensions/command_console/E29_CommandConsolePipe.h"
 #include <vector>
 #include <memory>
 #include <algorithm>
