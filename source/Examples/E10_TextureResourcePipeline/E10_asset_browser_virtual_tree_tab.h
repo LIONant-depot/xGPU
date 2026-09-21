@@ -98,7 +98,7 @@ namespace e10
         // renaming", taking the exact same code path as before. Deliberately skips ButtonBehavior
         // entirely while renaming (rather than leaving it active alongside the InputText added
         // below) - this project has hit the "first-submitted overlapping item permanently owns
-        // hover" class of ImGui bug before (see [[xgpu_imgui_overlapping_invisible_buttons]]);
+        // hover" class of ImGui bug before (see documentation/ImGui/overlapping_invisible_buttons.md);
         // simply never registering the outer button's own hover/click behavior during rename mode
         // sidesteps that class of bug entirely rather than needing AllowOverlap juggling.
         static int WrappedButton2(xresource::instance_guid G, const char* label, const ImVec2& size, ImU32 Color, const char* pIcon, bool& held, bool bModified = false
@@ -2440,7 +2440,7 @@ namespace e10
                     // the OpenPopup'd id as abandoned (its Begin* wasn't reached the very next frame,
                     // since "Resource Menu" no longer reports open) and force-closed it before any
                     // screenshot/user could ever see it. Fixed the same way as
-                    // [[e29_level_tree_source_control_column]]'s own Level Tree fix: the MenuItem only
+                    // documentation/E29_LevelSceneEditor/level_tree_source_control_column.md's own Level Tree fix: the MenuItem only
                     // records a request; the real OpenPopup/BeginPopupModal pair lives at
                     // m_bSCRevertPending's own call site below, OUTSIDE "Resource Menu"'s block, at a
                     // stable point reached every frame regardless of popup state.
