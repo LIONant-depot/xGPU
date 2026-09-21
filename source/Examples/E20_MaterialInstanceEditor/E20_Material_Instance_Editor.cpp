@@ -15,9 +15,9 @@
 #define XRESOURCE_PIPELINE_NO_COMPILER
 #include "dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
 #include "source/xstrtool.h"
-#include "source/Examples/E10_TextureResourcePipeline/E10_Resources.h"
-#include "source/Examples/E10_TextureResourcePipeline/E10_AssetMgr.h"
-#include "source/Examples/E10_TextureResourcePipeline/E10_AssetBrowser.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_Resources.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetMgr.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetBrowser.h"
 
 #include "Plugins/xmaterial.plugin/source/xmaterial_xgpu_rsc_loader.h"
 #include "Plugins/xmaterial.plugin/source/xmaterial_runtime.h"

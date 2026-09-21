@@ -21,7 +21,7 @@
 // there's no real teardown need before the app exits.
 #include "source/Examples/E29_LevelSceneEditor/extensions/idle_work/E29_IdleWork.h"
 #include "dependencies/xsource_control/source/sc_git_lfs_provider.hpp"
-#include "source/Examples/E10_TextureResourcePipeline/E10_SourceControlCache.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_SourceControlCache.h"
 #include <atomic>
 #include <cwctype>
 #include <memory>

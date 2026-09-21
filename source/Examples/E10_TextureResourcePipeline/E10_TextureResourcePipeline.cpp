@@ -8,7 +8,7 @@
 #include "source/tools/xgpu_view.h"
 #include <format>
 
-#include "E10_Resources.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_Resources.h"
 
 //#include "../dependencies/xundo/source/xundo_system.h"
 //#include "../dependencies/xundo/source/Examples/xundo_example_history.h"
@@ -132,12 +132,12 @@ namespace e10
 
 //------------------------------------------------------------------------------------------------
 
-#include "E10_PluginMgr.h"
-#include "E10_AssetBrowser.h"
-#include "E10_asset_browser_virtual_tree_tab.h"
-#include "E10_asset_browser_compiler_tab.h"
-#include "E10_asset_browser_plugin_tab.h"
-#include "E10_asset_browser_files_tab.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_PluginMgr.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetBrowser.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_virtual_tree_tab.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_compiler_tab.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_plugin_tab.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_files_tab.h"
 // E10_asset_browser_search_tab.h deliberately NOT included - removed as a standalone tab/window per
 // the Asset Browser window-split plan (see plan file lively-knitting-sifakis.md). Its type-filtered
 // cross-library search capability is meant to fold into the new Virtual Tree window eventually, but

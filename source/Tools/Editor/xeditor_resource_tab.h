@@ -11,8 +11,8 @@
 // (Level Tree, Editor, Preview, …). Icon + name only.
 #include "dependencies/imgui/imgui.h"
 #include "dependencies/imgui/imgui_internal.h"
-#include "source/Examples/E10_TextureResourcePipeline/E10_AssetMgr.h"
-#include "source/Examples/E10_TextureResourcePipeline/E10_AssetBrowser.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetMgr.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetBrowser.h"
 #include <cstdio>
 #include <string>
 

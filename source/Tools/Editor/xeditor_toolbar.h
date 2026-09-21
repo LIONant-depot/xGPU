@@ -8,7 +8,7 @@
 // ImGuiWindowFlags_MenuBar to ImGui::Begin. Hosts must also PushStyleVar(WindowPadding, 0) around Begin/End like E29's Level Editor, or a hairline gap appears under the menu bar.
 // Feedback colors/layout follow E10's Compile + Feedback strip.
 #include "dependencies/xundo/source/xundo_system.h"
-#include "source/Examples/E10_TextureResourcePipeline/E10_AssetMgr.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetMgr.h"
 #include "dependencies/xstrtool/source/xstrtool.h"
 #include "imgui.h"
 #include <memory>

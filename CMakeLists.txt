@@ -367,15 +367,15 @@ set(XGPU_SOURCES
   "source/Examples/E08_AsyncTextureLoading/E08_AsyncTextureLoading.cpp"
   "source/Examples/E09_Raw3DViewer/E09_Raw3DViewer.cpp"
   "source/Examples/E10_TextureResourcePipeline/E10_TextureResourcePipeline.cpp"
-  "source/Examples/E10_TextureResourcePipeline/E10_Resources.h"
-  "source/Examples/E10_TextureResourcePipeline/E10_PluginMgr.h"
-  "source/Examples/E10_TextureResourcePipeline/E10_AssetMgr.h"
-  "source/Examples/E10_TextureResourcePipeline/E10_AssetBrowser.h"
-  "source/Examples/E10_TextureResourcePipeline/E10_asset_browser_virtual_tree_tab.h"
-  "source/Examples/E10_TextureResourcePipeline/E10_asset_browser_search_tab.h"
-  "source/Examples/E10_TextureResourcePipeline/E10_asset_browser_compiler_tab.h"
-  "source/Examples/E10_TextureResourcePipeline/E10_asset_browser_plugin_tab.h"
-  "source/Examples/E10_TextureResourcePipeline/E10_asset_browser_files_tab.h"
+  "dependencies/xresource_pipeline_v2/source/editor/E10_Resources.h"
+  "dependencies/xresource_pipeline_v2/source/editor/E10_PluginMgr.h"
+  "dependencies/xresource_pipeline_v2/source/editor/E10_AssetMgr.h"
+  "dependencies/xresource_pipeline_v2/source/editor/E10_AssetBrowser.h"
+  "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_virtual_tree_tab.h"
+  "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_search_tab.h"
+  "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_compiler_tab.h"
+  "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_plugin_tab.h"
+  "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_files_tab.h"
   "source/Examples/E11_NormalMaps/E11_NormalMaps.cpp"
   "source/Examples/E12_Lighting/E12_Ligting.cpp"
   "source/Examples/E13_ParallaxOcclusionMapping/E13_POM.cpp"
@@ -802,16 +802,16 @@ source_group("Examples/E09_Raw3DViewer" FILES
 
 source_group("Examples/E10_TextureResourcePipeline" FILES
    "source/Examples/E10_TextureResourcePipeline/E10_TextureResourcePipeline.cpp"
-   "source/Examples/E10_TextureResourcePipeline/E10_Resources.h"
-   "source/Examples/E10_TextureResourcePipeline/E10_PluginMgr.h"
-   "source/Examples/E10_TextureResourcePipeline/E10_AssetMgr.h"
+   "dependencies/xresource_pipeline_v2/source/editor/E10_Resources.h"
+   "dependencies/xresource_pipeline_v2/source/editor/E10_PluginMgr.h"
+   "dependencies/xresource_pipeline_v2/source/editor/E10_AssetMgr.h"
 )
 
 source_group("Examples/E10_TextureResourcePipeline/AssetBrowser" FILES
-   "source/Examples/E10_TextureResourcePipeline/E10_AssetBrowser.h"
-   "source/Examples/E10_TextureResourcePipeline/E10_asset_browser_virtual_tree_tab.h"
-   "source/Examples/E10_TextureResourcePipeline/E10_asset_browser_search_tab.h"
-   "source/Examples/E10_TextureResourcePipeline/E10_asset_browser_compiler_tab.h"
+   "dependencies/xresource_pipeline_v2/source/editor/E10_AssetBrowser.h"
+   "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_virtual_tree_tab.h"
+   "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_search_tab.h"
+   "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_compiler_tab.h"
 )
 
 # Include the xtexture.plugin so it works

@@ -43,7 +43,7 @@
 // above (E29_Panel_SourceControl.h itself pulls both in too, but only LATER in the umbrella's own
 // include list - after this panel).
 #include "source/Examples/E29_LevelSceneEditor/extensions/source_control/E29_Commands_SourceControl.h"
-#include "source/Examples/E10_TextureResourcePipeline/E10_SourceControlCache.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_SourceControlCache.h"
 
 namespace e29
 {

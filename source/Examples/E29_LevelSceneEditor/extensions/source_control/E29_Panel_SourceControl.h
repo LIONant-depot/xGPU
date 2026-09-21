@@ -15,7 +15,7 @@
 // top comment) - includes what it names rather than relying on a distant caller's include order.
 #include "source/Examples/E29_LevelSceneEditor/E29_EditorTabs.h"
 #include "source/Examples/E29_LevelSceneEditor/extensions/source_control/E29_Commands_SourceControl.h"
-#include "source/Examples/E10_TextureResourcePipeline/E10_SourceControlCache.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/E10_SourceControlCache.h"
 #include <cmath>
 #include <unordered_set>
 
