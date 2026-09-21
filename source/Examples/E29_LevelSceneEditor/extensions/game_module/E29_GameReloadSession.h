@@ -170,7 +170,7 @@ namespace e29
         // background task. See BuildGamePluginIfStale's own comment on ModuleSourceTime for why: it
         // reads e29::g_ScriptConfig/e10::g_LibMgr, neither safe to touch from the background thread
         // this function's lambda runs on.
-        const auto ModuleSourceTime = GetLatestModuleSourceWriteTime();
+        const auto ModuleSourceTime = GetLatestModuleSourceWriteTime(Plugin.m_Paths);
         Plugin.m_BuildFuture = std::async(std::launch::async, [&Plugin, ModuleSourceTime]() noexcept
         {
             return BuildGamePluginIfStale(Plugin, ModuleSourceTime);

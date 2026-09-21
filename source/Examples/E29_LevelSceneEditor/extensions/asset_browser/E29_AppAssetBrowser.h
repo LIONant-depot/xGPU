@@ -136,7 +136,7 @@ namespace e29
 
                         xeditor::NotifyError(std::format("Failed to save Script.config.txt: {}", Err.getMessage()));
 
-                    e29::RegenerateGameModuleSources();
+                    e29::RegenerateGameModuleSources(e29::g_pGamePlugin->m_Paths);
 
                 }
 

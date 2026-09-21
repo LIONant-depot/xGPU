@@ -44,11 +44,11 @@ namespace e29
         // more obviously correct behavior, not a deliberate design change in its own right.
         const std::uint32_t NextGeneration = Plugin.m_Token.m_Generation + 1;
         game_plugin_candidate Candidate;
-        Candidate = PrepareGamePluginCandidate(Plugin.m_CompiledDllPath, NextGeneration);
+        Candidate = PrepareGamePluginCandidate(Plugin.m_Paths, NextGeneration);
         if (Candidate.m_hModule)
         {
             const auto CandidateManifest = ProbeCandidateComponents(Candidate);
-            // An older-generation DLL missing the E29_GetComponentDisplayInfo export can't be
+            // An older-generation DLL missing the XScript_GetComponentDisplayInfo export can't be
             // checked at all - proceed exactly as before this feature existed, best-effort.
             if (!CandidateManifest.empty())
             {
@@ -57,7 +57,7 @@ namespace e29
 
                 // Scope the check to ONLY components the plugin itself is responsible for - a
                 // scene's own manifest also lists host built-ins (Name, Transform, ...), which
-                // E29_GetComponentDisplayInfo's self-registration list never claims at all (they're
+                // XScript_GetComponentDisplayInfo's self-registration list never claims at all (they're
                 // registered directly by RegisterHostComponents in the HOST binary, not by any
                 // Game.dll generation) - checking THOSE against a candidate's manifest would always
                 // show them "missing" regardless of whether anything actually changed. The OLD

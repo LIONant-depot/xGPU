@@ -2,59 +2,79 @@
 #define E29_GAME_MODULE_SOURCES_H
 #pragma once
 
-// Generates GameProject\E29_Game_Modules.cmake from the project's own Script-Module build-membership
-// list (Project.config\Script.config.txt, e29::g_ScriptConfig.m_ModuleRefs - see
-// E29_ProjectScriptConfig.h) - the CMake fragment the top-level CMakeLists.txt's own E29_Game target
-// include()'s for its extra sources (see that file's own comment at its add_library(E29_Game SHARED
-// ...) call). Regenerated on every AddProjectModuleReference/RemoveProjectModuleReference
-// (E29_Commands_Scripting.h) and once at project load (LoadScriptConfig's own call site,
-// E29_LevelScene_Editor.cpp) so a fresh checkout's fragment is never stale relative to what's
-// actually persisted. The actual cmake reconfigure this fragment change requires rides Game.dll's
-// EXISTING reload triggers (window focus regained, Play pressed, etc.) - direct user decision, no
-// new trigger mechanism ("what we had was based on unity experience... we keep what we have").
+// The script project. A script module is only source files (its resource descriptor's source_db folder); the editor turns the
+// project's referenced modules into a CMake project it generates under <project>\Cache\Script (never checked in, rebuilt from
+// the modules), builds it with Visual Studio's generator, and gets Game.dll in the root of the project's compiled resources
+// (<project>\Cache\Resources\Platforms\WINDOWS). The generated project links the game entry points of xscript_module.plugin
+// and the xECSV2 import library of this editor's own build, so the DLL shares the editor's one component registry.
+//
+// The project is regenerated when the module list changes (AddProjectModuleReference and friends) and once when the project
+// loads. The cmake reconfigure and build it needs ride the Game.dll reload triggers (window focus regained, Play pressed).
 #include <fstream>
 
 namespace e29
 {
-    // Same derivation game_plugin_state's own m_CompiledDllPath already uses (this process's own exe
-    // path, parent_path() up to the repo root) - fully self-contained, doesn't reach into
-    // game_plugin_state/g_pGamePlugin at all. "Where is the xGPU repo" and "which project is open"
-    // are two different paths in general - they only happen to nest in this dev environment.
-    inline std::filesystem::path GetRepoRoot() noexcept
+    // Everything about where the script project's files are. Computed once on the main thread: the build runs on a background
+    // thread and must not reach into the library manager.
+    struct script_project_paths
+    {
+        std::filesystem::path m_Project;      // the project root (the folder that holds Descriptors and Project.config)
+        std::filesystem::path m_Root;         // <project>\Cache\Script
+        std::filesystem::path m_BuildDir;     // <Root>\Build: the Visual Studio solution and its intermediate files
+        std::filesystem::path m_CMakeLists;   // <Root>\CMakeLists.txt, generated
+        std::filesystem::path m_Dll;          // <project>\Cache\Resources\Platforms\WINDOWS\Game.dll, the compiled resource
+        std::filesystem::path m_PdbDir;       // where the linker writes Game.pdb for the running configuration
+        std::filesystem::path m_LoadedDir;    // <Root>\Loaded: the copies of Game.dll that are actually loaded
+        std::filesystem::path m_XGpuRoot;     // the xGPU checkout this editor was built from
+        std::filesystem::path m_XGpuBinDir;   // its build directory: <Config>\xECSV2.lib is under it
+        std::wstring          m_Config;       // "Debug" or "Release": the configuration of the running editor
+
+        std::filesystem::path RuntimeDir() const { return m_XGpuRoot / L"plugins" / L"xscript_module.plugin" / L"source" / L"Runtime"; }
+    };
+
+    inline script_project_paths MakeScriptProjectPaths(const std::filesystem::path& Project) noexcept
     {
         TCHAR szModulePath[MAX_PATH];
         GetModuleFileName(NULL, szModulePath, MAX_PATH);
-        // .../Build/xGPUExamples.vs2022/Debug/xGPU_unit_test.exe -> four parent_path() calls to repo root.
-        return std::filesystem::path(szModulePath).parent_path().parent_path().parent_path().parent_path();
+        const std::filesystem::path ExeDir = std::filesystem::path(szModulePath).parent_path();   // .../Build/<BuildDirName>/<Config>
+
+        script_project_paths P;
+        P.m_Project    = Project;
+        P.m_Config     = ExeDir.filename().wstring();
+        P.m_XGpuBinDir = ExeDir.parent_path();
+        P.m_XGpuRoot   = P.m_XGpuBinDir.parent_path().parent_path();
+        P.m_Root       = Project / L"Cache" / L"Script";
+        P.m_BuildDir   = P.m_Root / L"Build";
+        P.m_CMakeLists = P.m_Root / L"CMakeLists.txt";
+        P.m_Dll        = Project / L"Cache" / L"Resources" / L"Platforms" / L"WINDOWS" / L"Game.dll";
+        P.m_PdbDir     = P.m_BuildDir / L"GamePdb" / P.m_Config;
+        P.m_LoadedDir  = P.m_Root / L"Loaded";
+        return P;
     }
 
-    inline std::filesystem::path GameModuleFragmentPath() noexcept
+    // The project this example edits sits next to the xGPU checkout.
+    inline script_project_paths MakeScriptProjectPaths() noexcept
     {
-        return GetRepoRoot() / L"source" / L"Examples" / L"E29_LevelSceneEditor" / L"GameProject" / L"E29_Game_Modules.cmake";
+        auto P = MakeScriptProjectPaths(std::filesystem::path{});
+        return MakeScriptProjectPaths(P.m_XGpuRoot / L"example.lionprj");
     }
 
-    // REAL BUG FOUND LIVE (2026-09-19), while testing the PCH-header fix above:
-    // BuildGamePluginIfStale's own staleness check (E29_GamePluginBuild.h) only ever compared
-    // GameProject/E29_Game.cpp's own mtime against the compiled DLL's - a module's own source_db
-    // files (and the generated fragment listing them) were never consulted at all, so editing an
-    // existing module file's CONTENT (SetScriptSourceFileContent deliberately does NOT call
-    // RegenerateGameModuleSources for exactly this case - a content-only edit needs no reconfigure)
-    // would never be seen as stale and would silently never trigger a rebuild through any of the
-    // normal reload triggers. Confirmed by touching TestModule.h and observing Play still reported
-    // "up to date" against the un-rebuilt DLL. Fixed by having BuildGamePluginIfStale also compare
-    // against the newest of: the generated fragment's own mtime (covers add/remove/rename, which DO
-    // regenerate it) and every currently-referenced module's own source_db file mtimes (covers a
-    // pure content edit, which doesn't touch the fragment at all) - this walks the exact same
-    // g_ScriptConfig.m_ModuleRefs list RegenerateGameModuleSources already does, so a module that
-    // fails to resolve is silently skipped here too, matching this codebase's own established
-    // best-effort posture for a stale/incomplete reference.
-    inline std::filesystem::file_time_type GetLatestModuleSourceWriteTime() noexcept
+    // The newest time at which anything the DLL is built from changed: the game entry files, the generated project (a module
+    // added, removed or renamed) and every referenced module's own source files (a plain content edit changes none of the
+    // others). It reads the script config and the library manager, so it is called on the main thread and its result is
+    // handed to the build as a value. A module that does not resolve is skipped, like a stale reference everywhere else.
+    inline std::filesystem::file_time_type GetLatestModuleSourceWriteTime(const script_project_paths& P) noexcept
     {
         std::error_code Ec;
         auto Latest = std::filesystem::file_time_type::min();
+        auto Consider = [&](const std::filesystem::path& File) noexcept
+        {
+            if (const auto T = std::filesystem::last_write_time(File, Ec); !Ec && T > Latest) Latest = T;
+        };
 
-        if (const auto FragTime = std::filesystem::last_write_time(GameModuleFragmentPath(), Ec); !Ec && FragTime > Latest)
-            Latest = FragTime;
+        Consider(P.m_CMakeLists);
+        Consider(P.RuntimeDir() / L"xscript_game_entry.cpp");
+        Consider(P.RuntimeDir() / L"xscript_registration.h");
 
         for (auto& Ref : g_ScriptConfig.m_ModuleRefs)
         {
@@ -73,43 +93,21 @@ namespace e29
             {
                 if (Ec || !Fs.is_regular_file()) continue;
                 const auto Ext = Fs.path().extension().wstring();
-                if (Ext != L".cpp" && Ext != L".h" && Ext != L".hpp") continue;
-
-                if (const auto FileTime = Fs.last_write_time(Ec); !Ec && FileTime > Latest)
-                    Latest = FileTime;
+                if (Ext == L".cpp" || Ext == L".h" || Ext == L".hpp") Consider(Fs.path());
             }
         }
         return Latest;
     }
 
-    // Every referenced Script-Module resource's own source_db files, plus a source_group(TREE ...)
-    // call per module so Visual Studio's Solution Explorer shows one folder per module - direct user
-    // request ("at least from their tree perspective... create a root folder with the name of the
-    // script-module and dump its tree there"). A module that doesn't resolve (e.g. stale guid) or has
-    // an empty/missing source_db is silently skipped, not treated as an error - matches this
-    // project's own "best-effort, never block on an admittedly-incomplete reference" posture.
+    // Writes <Root>\CMakeLists.txt from the referenced modules: their source files, one source_group per module so Visual
+    // Studio's Solution Explorer shows a folder per module, and their headers force-included into the precompiled header.
+    // A header is only listed in a target's sources for display; CMake does not compile it, so a header-only module (the
+    // common case, since self-registration is inline by design) would never run its registration. Force-including it into the
+    // PCH, which CMake does compile, guarantees it is compiled, with no generated stub.
     //
-    // REAL BUG FOUND LIVE (2026-09-19), fixed via the PCH rather than generated stubs: a module
-    // consisting ONLY of a header (the common case, since E29_REGISTER_COMPONENT/SYSTEM's whole
-    // self-registration mechanism is header-safe/inline by design) was listed in
-    // E29_GAME_MODULE_SOURCES as a plain .h - CMake tracks a .h in a target's source list for IDE
-    // display only, it does NOT compile it as its own translation unit, so its self-registration
-    // globals never ran (confirmed via ListComponentTypes silently missing it). The first fix
-    // generated a throwaway companion .cpp per header - direct user correction: that's solving the
-    // wrong layer. E29_Game already has its own real, always-compiled .cpp for exactly this purpose -
-    // the synthetic translation unit CMake's own target_precompile_headers() generates to build the
-    // PCH (CMakeLists.txt's "$<$<COMPILE_LANGUAGE:CXX>:.../xecs.h>" entry). Every .h/.hpp a module
-    // contributes now goes into E29_GAME_MODULE_PCH_HEADERS instead, appended onto that SAME
-    // target_precompile_headers() call - it gets force-#include'd into the PCH's own compile unit
-    // (guaranteeing real compilation) AND into every other source in the target (module .cpp files
-    // included), with no new generated .cpp anywhere. This also matches how these modules are
-    // expected to actually be authored: a header's declarations are normally #include'd by whichever
-    // .cpp in the same module actually uses them - the stub was only ever needed for the degenerate
-    // header-with-no-consumer case a minimal test fixture happens to hit. Component definitions are
-    // the natural fit for this (declarative, rarely edited once stable); systems are expected to live
-    // in .cpp files instead (no shared declarations to expose, most of their own iteration is in
-    // OnUpdate logic), so PCH invalidation from a module edit should be the exception, not the norm.
-    inline void RegenerateGameModuleSources() noexcept
+    // The file is only written when its content changes (and then this returns true): its time is one of the things the DLL is
+    // compared against, and rewriting it at every launch would force a full rebuild every time the editor opens.
+    inline bool RegenerateGameModuleSources(const script_project_paths& P) noexcept
     {
         struct module_entry { std::wstring m_Folder; std::wstring m_Name; std::vector<std::wstring> m_Files; };
         std::vector<module_entry> Modules;
@@ -143,66 +141,69 @@ namespace e29
             if (!Entry.m_Files.empty()) Modules.push_back(std::move(Entry));
         }
 
-        // Forward slashes throughout - CMake's own list/string syntax treats backslash as an escape
-        // character (same real bug already found+fixed once this session for the now-deleted Phase 2
-        // per-resource compiler's own generated CMakeLists.txt).
-        auto ToForward = [](std::wstring Path) noexcept { std::ranges::replace(Path, L'\\', L'/'); return Path; };
+        // Forward slashes throughout: CMake treats a backslash as an escape character.
+        auto Fwd = [](const std::filesystem::path& Path) noexcept { std::wstring S = Path.wstring(); std::ranges::replace(S, L'\\', L'/'); return S; };
+        const auto Root = Fwd(P.m_XGpuRoot);
 
-        std::wstring Content = L"# Auto-generated by AddProjectModuleReference/RemoveProjectModuleReference - do not edit by hand.\n";
-        Content += L"set(E29_GAME_MODULE_SOURCES\n";
-        for (auto& M : Modules)
-            for (auto& F : M.m_Files)
-                Content += L"  \"" + ToForward(F) + L"\"\n";
-        Content += L")\n\n";
+        std::wstring C = L"# Generated by the editor from the project's script modules - do not edit; it is rewritten when the module list changes.\n";
+        C += L"cmake_minimum_required(VERSION 3.10)\nproject(Script LANGUAGES CXX)\n";
+        C += L"add_definitions(-DUNICODE -D_UNICODE)\nset(CMAKE_CXX_STANDARD 20)\nset(CMAKE_CXX_STANDARD_REQUIRED ON)\n";
+        C += L"set(CMAKE_SUPPRESS_REGENERATION true)\nset(CMAKE_CONFIGURATION_TYPES \"Debug;Release\" CACHE STRING \"\" FORCE)\n\n";
+        C += std::format(L"set(XGPU_ROOT \"{}\")\n\n", Root);
 
-        // Every module header, force-included into E29_Game's own PCH (see this function's own top
-        // comment) instead of getting a generated compile-unit stub - pre-wrapped in the same
-        // COMPILE_LANGUAGE:CXX guard CMakeLists.txt's own xecs.h entry uses, so the CMakeLists.txt
-        // call site is just "target_precompile_headers(E29_Game PRIVATE <xecs.h entry>
-        // ${E29_GAME_MODULE_PCH_HEADERS})" - no per-entry wrapping needed there.
-        Content += L"set(E29_GAME_MODULE_PCH_HEADERS\n";
+        C += L"set(MODULE_SOURCES\n";
+        for (auto& M : Modules) for (auto& F : M.m_Files) C += L"  \"" + Fwd(F) + L"\"\n";
+        C += L")\n\nset(MODULE_PCH_HEADERS\n";
         for (auto& M : Modules)
             for (auto& F : M.m_Files)
             {
                 const auto Ext = std::filesystem::path(F).extension().wstring();
-                if (Ext == L".h" || Ext == L".hpp")
-                    Content += L"  \"$<$<COMPILE_LANGUAGE:CXX>:" + ToForward(F) + L">\"\n";
+                if (Ext == L".h" || Ext == L".hpp") C += L"  \"$<$<COMPILE_LANGUAGE:CXX>:" + Fwd(F) + L">\"\n";
             }
-        Content += L")\n\n";
+        C += L")\n\n";
+
+        // Each consumer needs its own copy of xtextfile's and xproperty's backend (no shared state), which is why they are compiled
+        // into the DLL and, like the entry point, kept out of the precompiled header.
+        C += L"set(BACKEND_SOURCES \"${XGPU_ROOT}/dependencies/xtextfile/source/xtextfile.cpp\" \"${XGPU_ROOT}/dependencies/xproperty/source/xcore/my_properties.cpp\")\n";
+        C += L"add_library(Game SHARED \"${XGPU_ROOT}/plugins/xscript_module.plugin/source/Runtime/xscript_game_entry.cpp\" ${MODULE_SOURCES} ${BACKEND_SOURCES})\n";
+        C += L"target_include_directories(Game PRIVATE \"${XGPU_ROOT}\"";
+        for (const wchar_t* Dep : { L"xECSV2/src", L"xerr", L"xresource_guid", L"xtextfile", L"xproperty", L"xresource_pipeline_v2", L"xstrtool", L"xcontainer", L"xdelegate", L"xscheduler", L"xmath", L"xbits" })
+            C += std::format(L" \"${{XGPU_ROOT}}/dependencies/{}\"", Dep);
+        C += L")\ntarget_compile_definitions(Game PRIVATE XECS_BUILD_SHARED)\n";
+        C += std::format(L"target_link_libraries(Game PRIVATE \"{}/$<CONFIG>/xECSV2.lib\")\n", Fwd(P.m_XGpuBinDir));
+        C += L"target_precompile_headers(Game PRIVATE \"$<$<COMPILE_LANGUAGE:CXX>:${XGPU_ROOT}/dependencies/xECSV2/src/xecs.h>\" ${MODULE_PCH_HEADERS})\n";
+        C += L"set_source_files_properties(${BACKEND_SOURCES} PROPERTIES SKIP_PRECOMPILE_HEADERS ON)\n";
+
+        // The DLL goes to the compiled resources; the debugger finds symbols through the path embedded at link time, so the PDB
+        // is linked with only its bare name (/PDBALTPATH) and the editor copies it next to the copy of the DLL it loads. That
+        // leaves the compiler's own PDB free to be rewritten while a debugger is attached. /FS lets concurrent compiles share
+        // one PDB, which /MP makes likely.
+        const auto DllDir = Fwd(P.m_Dll.parent_path());
+        C += std::format(L"set_target_properties(Game PROPERTIES RUNTIME_OUTPUT_DIRECTORY_DEBUG \"{0}\" RUNTIME_OUTPUT_DIRECTORY_RELEASE \"{0}\" PDB_OUTPUT_DIRECTORY \"${{CMAKE_BINARY_DIR}}/GamePdb\")\n", DllDir);
+        C += L"set_property(TARGET Game APPEND_STRING PROPERTY LINK_FLAGS \" /PDBALTPATH:Game.pdb\")\n";
+        C += L"target_compile_options(Game PRIVATE /FS /MP)\n\n";
 
         for (auto& M : Modules)
         {
-            Content += std::format(L"source_group(TREE \"{}\" PREFIX \"{}\" FILES\n", ToForward(M.m_Folder), M.m_Name);
-            for (auto& F : M.m_Files)
-                Content += L"  \"" + ToForward(F) + L"\"\n";
-            Content += L")\n";
+            C += std::format(L"source_group(TREE \"{}\" PREFIX \"{}\" FILES\n", Fwd(M.m_Folder), M.m_Name);
+            for (auto& F : M.m_Files) C += L"  \"" + Fwd(F) + L"\"\n";
+            C += L")\n";
         }
 
-        // REAL BUG FOUND LIVE (2026-09-19): this function runs unconditionally at every project
-        // load (LoadScriptConfig's own call site) as well as on every Add/RemoveProjectModuleReference
-        // - previously harmless (nothing consumed the fragment's own mtime), but now that
-        // BuildGamePluginIfStale's staleness check also looks at GameModuleFragmentPath()'s mtime
-        // (GetLatestModuleSourceWriteTime, above) an unconditional rewrite makes the fragment look
-        // "just modified" on every single launch even when nothing actually changed, forcing a full
-        // cmake reconfigure + PCH rebuild every time the editor opens - confirmed live (rebuild fired
-        // on startup with no edits made). Fixed by only writing when the generated content actually
-        // differs from what's already on disk, so the fragment's mtime - and therefore the staleness
-        // check - only moves on a real add/remove/rename, exactly like every other module source file
-        // already does for a real content edit.
-        std::error_code Ec;
-        const auto FragmentPath = GameModuleFragmentPath();
         {
-            std::wifstream ExistingIn(FragmentPath, std::ios::binary);
+            std::wifstream ExistingIn(P.m_CMakeLists, std::ios::binary);
             if (ExistingIn.is_open())
             {
                 std::wstring Existing((std::istreambuf_iterator<wchar_t>(ExistingIn)), std::istreambuf_iterator<wchar_t>());
-                if (Existing == Content) return;
+                if (Existing == C) return false;
             }
         }
 
-        std::filesystem::create_directories(FragmentPath.parent_path(), Ec);
-        std::wofstream Out(FragmentPath, std::ios::trunc);
-        Out << Content;
+        std::error_code Ec;
+        std::filesystem::create_directories(P.m_CMakeLists.parent_path(), Ec);
+        std::wofstream Out(P.m_CMakeLists, std::ios::trunc);
+        Out << C;
+        return true;
     }
 }
 

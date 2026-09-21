@@ -9,7 +9,7 @@
 // xecs_plugin_api.h's own comment requires (LoadGamePluginComponents, RegisterGamePluginSystems),
 // and detach/unload (UnloadGamePlugin). Meant to be included via the umbrella (E29_GamePlugin.h)
 // only, after E29_GamePluginLog.h and E29_GamePluginBuild.h (game_plugin_state).
-#include "source/Examples/E29_LevelSceneEditor/GameProject/E29_GameRegistration.h"
+#include "plugins/xscript_module.plugin/source/Runtime/xscript_registration.h"
 
 namespace e29
 {
@@ -23,7 +23,7 @@ namespace e29
         xscene::g_ComponentDisplayInfo.clear();
         if (!Plugin.isLoaded()) return;
 
-        auto* pGetInfo = reinterpret_cast<e29_game_registration::pfn_get_component_display_info>(GetProcAddress(Plugin.m_hModule, e29_game_registration::kGetComponentDisplayInfoName));
+        auto* pGetInfo = reinterpret_cast<xscript::pfn_get_component_display_info>(GetProcAddress(Plugin.m_hModule, xscript::kGetComponentDisplayInfoName));
         if (pGetInfo == nullptr) return;
 
         pGetInfo([](void* pUserData, std::uint64_t /*Guid*/, const char* pName, const char* pCategory, int Priority) noexcept
@@ -42,35 +42,27 @@ namespace e29
     // deleted the previous one anyway (safe then: nothing still has it mapped). Returns the new
     // copy's path, or empty on failure (nothing compiled yet, or the copy itself failed).
     //---------------------------------------------------------------------------
-    inline std::wstring CopyGamePluginForLoad( const std::wstring& CompiledDllPath, std::uint32_t Generation ) noexcept
+    inline std::wstring CopyGamePluginForLoad( const script_project_paths& P, std::uint32_t Generation ) noexcept
     {
         std::error_code Ec;
-        const std::filesystem::path Compiled = CompiledDllPath;
-        if (!std::filesystem::exists(Compiled, Ec))
+        if (!std::filesystem::exists(P.m_Dll, Ec))
         {
-            LogGamePlugin(std::format("Game.dll: nothing compiled yet at {}", Compiled.string()));
+            LogGamePlugin(std::format("Game.dll: nothing compiled yet at {}", P.m_Dll.string()));
             return {};
         }
 
-        const auto Dir     = Compiled.parent_path();
-        const auto Stem    = Compiled.stem().wstring();
-        const auto NewDll  = Dir / std::format(L"{}_loaded_{}.dll", Stem, Generation);
-        // The COMPILED pdb lives in its own separate "GamePdb/<Config>" directory now (sibling to
-        // Dir) AND is linked with /PDBALTPATH set to just its own bare filename ("E29_Game.pdb", no
-        // directory) instead of the real compile-time absolute path - see CMakeLists.txt's own
-        // comment on the E29_Game target for the full story of why (relocating the directory ALONE
-        // was tried first and empirically disproven - the debugger resolves symbols via the
-        // EMBEDDED path regardless of where the file physically sits, confirmed live via Restart
-        // Manager). Because the embedded path is just a bare filename, NewPdb below must be that
-        // SAME bare name ("E29_Game.pdb", not generation-suffixed like NewDll) for the debugger's
-        // own resolution (starting with the loaded module's own directory) to actually find it.
-        const auto SrcPdb  = Dir.parent_path() / L"GamePdb" / Dir.filename() / (Stem + L".pdb");
-        const auto NewPdb  = Dir / (Stem + L".pdb");
+        // The loaded copies live under Cache\Script\Loaded, apart from the compiled resource. The compiled PDB is linked with
+        // /PDBALTPATH set to its bare name, so the debugger looks for it next to the module it loaded: NewPdb is therefore
+        // always the same bare name, not generation-suffixed like the DLL.
+        std::filesystem::create_directories(P.m_LoadedDir, Ec);
+        const auto NewDll = P.m_LoadedDir / std::format(L"Game_loaded_{}.dll", Generation);
+        const auto SrcPdb = P.m_PdbDir / L"Game.pdb";
+        const auto NewPdb = P.m_LoadedDir / L"Game.pdb";
 
-        std::filesystem::copy_file(Compiled, NewDll, std::filesystem::copy_options::overwrite_existing, Ec);
+        std::filesystem::copy_file(P.m_Dll, NewDll, std::filesystem::copy_options::overwrite_existing, Ec);
         if (Ec)
         {
-            LogGamePlugin(std::format("Game.dll: failed to copy {} -> {}", Compiled.string(), NewDll.string()));
+            LogGamePlugin(std::format("Game.dll: failed to copy {} -> {}", P.m_Dll.string(), NewDll.string()));
             return {};
         }
 
@@ -104,11 +96,11 @@ namespace e29
     // and LoadLibrary it - no registry mutation at all, safe to call while an OLD generation is still
     // fully loaded and running. Returns an invalid candidate (m_hModule==nullptr) on any failure -
     // nothing was allocated, nothing to Discard.
-    inline game_plugin_candidate PrepareGamePluginCandidate( const std::wstring& CompiledDllPath, std::uint32_t Generation ) noexcept
+    inline game_plugin_candidate PrepareGamePluginCandidate( const script_project_paths& Paths, std::uint32_t Generation ) noexcept
     {
         game_plugin_candidate Candidate;
 
-        const std::wstring LoadedPath = CopyGamePluginForLoad(CompiledDllPath, Generation);
+        const std::wstring LoadedPath = CopyGamePluginForLoad(Paths, Generation);
         if (LoadedPath.empty())
         {
             LogGamePlugin("Game.dll: nothing to load");
@@ -152,7 +144,7 @@ namespace e29
     }
 
     // Step 2: the candidate's own full component manifest, by stable guid - available immediately,
-    // zero registry mutation, since E29_GetComponentDisplayInfo's data comes from a self-registration
+    // zero registry mutation, since XScript_GetComponentDisplayInfo's data comes from a self-registration
     // list populated at LoadLibrary/static-init time, well before XecsPlugin_RegisterComponents is
     // ever called. Empty (not a failure) for an older-generation DLL built before this export existed
     // - every component then just can't be cross-checked, same "best-effort" posture as everywhere
@@ -162,7 +154,7 @@ namespace e29
         std::vector<xecs::scene::component_dependency> Result;
         if (!Candidate.m_hModule) return Result;
 
-        auto* pGetInfo = reinterpret_cast<e29_game_registration::pfn_get_component_display_info>(GetProcAddress(Candidate.m_hModule, e29_game_registration::kGetComponentDisplayInfoName));
+        auto* pGetInfo = reinterpret_cast<xscript::pfn_get_component_display_info>(GetProcAddress(Candidate.m_hModule, xscript::kGetComponentDisplayInfoName));
         if (!pGetInfo) return Result;
 
         pGetInfo([](void* pUserData, std::uint64_t Guid, const char* pName, const char*, int) noexcept
@@ -215,7 +207,7 @@ namespace e29
     // had.
     inline bool LoadGamePluginComponents( xecs::game_mgr::instance& GameMgr, game_plugin_state& Plugin, std::uint32_t Generation ) noexcept
     {
-        auto Candidate = PrepareGamePluginCandidate(Plugin.m_CompiledDllPath, Generation);
+        auto Candidate = PrepareGamePluginCandidate(Plugin.m_Paths, Generation);
         return CommitGamePluginCandidate(GameMgr, Plugin, Candidate, Generation);
     }
 
@@ -256,14 +248,14 @@ namespace e29
         // delete now that nothing has it mapped - best-effort; a leftover file here would be
         // cosmetic, never a correctness problem. The .pdb is NOT
         // Plugin.m_LoadedDllPath-with-a-different-extension anymore - CopyGamePluginForLoad's own
-        // comment explains why it's always the fixed bare name "E29_Game.pdb" (matching this
-        // target's compiled PDB_NAME), never generation-suffixed like the .dll itself.
+        // comment explains why it's always the fixed bare name "Game.pdb" (matching the
+        // script project's PDB name), never generation-suffixed like the .dll itself.
         if (!Plugin.m_LoadedDllPath.empty())
         {
             std::error_code Ec;
             const std::filesystem::path LoadedDll = Plugin.m_LoadedDllPath;
             std::filesystem::remove(LoadedDll, Ec);
-            std::filesystem::remove(LoadedDll.parent_path() / L"E29_Game.pdb", Ec);
+            std::filesystem::remove(LoadedDll.parent_path() / L"Game.pdb", Ec);
             Plugin.m_LoadedDllPath.clear();
         }
     }

@@ -83,7 +83,7 @@ namespace e29::commands
             std::ofstream Out(FilePath, std::ios::binary);
             if (!Out.is_open()) return "AddScriptSourceFile: failed to create the file";
             Out.close();
-            RegenerateGameModuleSources();
+            RegenerateGameModuleSources(g_pGamePlugin->m_Paths);
             return {};
         }
 
@@ -113,7 +113,7 @@ namespace e29::commands
             if (SourceDb.empty()) return;
             std::error_code Ec;
             std::filesystem::remove(SourceDb + L"\\" + FileName, Ec);
-            RegenerateGameModuleSources();
+            RegenerateGameModuleSources(g_pGamePlugin->m_Paths);
         }
 
         xcmdline::parser::handle m_hLibrary, m_hAsset, m_hFileName;
@@ -154,7 +154,7 @@ namespace e29::commands
             std::error_code Ec;
             std::filesystem::remove(SourceDb + L"\\" + FileName, Ec);
             if (Ec) return "RemoveScriptSourceFile: failed to delete the file";
-            RegenerateGameModuleSources();
+            RegenerateGameModuleSources(g_pGamePlugin->m_Paths);
             return {};
         }
 
@@ -205,7 +205,7 @@ namespace e29::commands
             std::filesystem::create_directories(SourceDb, Ec);
             std::ofstream Out(SourceDb + L"\\" + FileName, std::ios::binary);
             if (Out.is_open()) Out.write(Content.data(), static_cast<std::streamsize>(Content.size()));
-            RegenerateGameModuleSources();
+            RegenerateGameModuleSources(g_pGamePlugin->m_Paths);
         }
 
         xcmdline::parser::handle m_hLibrary, m_hAsset, m_hFileName;
@@ -388,7 +388,7 @@ namespace e29::commands
 
             std::filesystem::rename(SourceDb + L"\\" + OldName, SourceDb + L"\\" + NewName, Ec);
             if (Ec) return "RenameScriptSourceFile: rename failed";
-            RegenerateGameModuleSources();
+            RegenerateGameModuleSources(g_pGamePlugin->m_Paths);
             return {};
         }
 
@@ -422,7 +422,7 @@ namespace e29::commands
             if (SourceDb.empty()) return;
             std::error_code Ec;
             std::filesystem::rename(SourceDb + L"\\" + NewName, SourceDb + L"\\" + OldName, Ec);
-            RegenerateGameModuleSources();
+            RegenerateGameModuleSources(g_pGamePlugin->m_Paths);
         }
 
         xcmdline::parser::handle m_hLibrary, m_hAsset, m_hOldFileName, m_hNewFileName;
@@ -457,7 +457,7 @@ namespace e29::commands
             Refs.push_back(ModuleGuid);
             if (auto Err = SaveScriptConfig(e10::g_LibMgr.m_ProjectPath, g_ScriptConfig); Err)
                 return std::format("AddProjectModuleReference: {}", Err.getMessage());
-            RegenerateGameModuleSources();
+            RegenerateGameModuleSources(g_pGamePlugin->m_Paths);
             return {};
         }
 
@@ -474,7 +474,7 @@ namespace e29::commands
             if (auto It = std::find(Refs.begin(), Refs.end(), ModuleGuid); It != Refs.end())
                 Refs.erase(It);
             SaveScriptConfig(e10::g_LibMgr.m_ProjectPath, g_ScriptConfig);
-            RegenerateGameModuleSources();
+            RegenerateGameModuleSources(g_pGamePlugin->m_Paths);
         }
 
         xcmdline::parser::handle m_hModule;
@@ -533,7 +533,7 @@ namespace e29::commands
                 Refs.insert(Refs.begin() + static_cast<std::ptrdiff_t>(OriginalIndex), ModuleGuid); // restore in-memory state to match what's still on disk
                 return std::format("RemoveProjectModuleReference: {}", Err.getMessage());
             }
-            RegenerateGameModuleSources();
+            RegenerateGameModuleSources(g_pGamePlugin->m_Paths);
 
             // Only worth a real trial compile if removing this module could plausibly affect anything
             // currently open - skip it entirely (the common case) rather than pay a compile for a
@@ -548,11 +548,11 @@ namespace e29::commands
                 // PollGameReload (the only other consumer) runs on this same main thread.
                 if (g_pGamePlugin->m_bBuilding) g_pGamePlugin->m_BuildFuture.wait();
 
-                const auto BuildResult = BuildGamePluginIfStale(*g_pGamePlugin, GetLatestModuleSourceWriteTime());
+                const auto BuildResult = BuildGamePluginIfStale(*g_pGamePlugin, GetLatestModuleSourceWriteTime(g_pGamePlugin->m_Paths));
                 if (BuildResult == build_result::Rebuilt)
                 {
                     const std::uint32_t TrialGeneration = g_pGamePlugin->m_Token.m_Generation + 1000000; // scratch-only, never Commit'ed
-                    auto Candidate = PrepareGamePluginCandidate(g_pGamePlugin->m_CompiledDllPath, TrialGeneration);
+                    auto Candidate = PrepareGamePluginCandidate(g_pGamePlugin->m_Paths, TrialGeneration);
                     if (Candidate.m_hModule)
                     {
                         const auto NewManifest = ProbeCandidateComponents(Candidate);
@@ -572,7 +572,7 @@ namespace e29::commands
                             // again (not the trial DLL this command just discarded).
                             Refs.insert(Refs.begin() + static_cast<std::ptrdiff_t>(OriginalIndex), ModuleGuid);
                             SaveScriptConfig(e10::g_LibMgr.m_ProjectPath, g_ScriptConfig);
-                            RegenerateGameModuleSources();
+                            RegenerateGameModuleSources(g_pGamePlugin->m_Paths);
 
                             std::string Names;
                             for (auto& Dep : Missing) Names += (Names.empty() ? "" : ", ") + Dep.m_Name;
@@ -616,7 +616,7 @@ namespace e29::commands
                 Refs.insert(Refs.begin() + static_cast<std::ptrdiff_t>(Idx), ModuleGuid);
             }
             SaveScriptConfig(e10::g_LibMgr.m_ProjectPath, g_ScriptConfig);
-            RegenerateGameModuleSources();
+            RegenerateGameModuleSources(g_pGamePlugin->m_Paths);
         }
 
         xcmdline::parser::handle m_hModule;
@@ -644,7 +644,7 @@ namespace e29::commands
     };
 
     //================================================================================================
-    // RegenerateProjectModuleSources - force-regenerates GameProject\E29_Game_Modules.cmake from the
+    // RegenerateProjectModuleSources - force-regenerates the generated script project (Cache\Script\CMakeLists.txt) from the
     // CURRENT build-membership list, on demand. Every mutating command in this file already triggers
     // this as a side effect - this exists for recovery/debugging (e.g. after a raw file edit made
     // outside the command bus) rather than any normal workflow needing to call it directly.
@@ -657,7 +657,7 @@ namespace e29::commands
 
         std::string Query() noexcept override
         {
-            RegenerateGameModuleSources();
+            RegenerateGameModuleSources(g_pGamePlugin->m_Paths);
             return "RegenerateProjectModuleSources: regenerated";
         }
     };

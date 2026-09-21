@@ -154,7 +154,7 @@ namespace e29
 
 
 
-        // E29's sample Game.dll (source/Examples/E29_LevelSceneEditor/GameProject/E29_Game.cpp) -
+        // The game DLL, built from the project's script modules (E29_GameModuleSources.h) -
 
         // loading it here, BEFORE RegisterSystems below locks the component registry, is what makes an
 
@@ -182,15 +182,15 @@ namespace e29
 
         // Gated behind XECS_BUILD_SHARED (only defined when CMake's XECS_BUILD_SHARED_LIBRARY option is
 
-        // ON - see CMakeLists.txt and E29_Game.cpp's own top comment): a Game.dll only makes sense when
+        // ON - see CMakeLists.txt): a Game.dll only makes sense when
 
         // xECSV2 itself is a shared library, since it depends on RegisterComponents/RegisterSystems
 
         // mutating the ONE shared, cross-module component registry - in the default (non-shared) build,
 
-        // the E29_Game CMake target isn't even defined, so BuildGamePluginIfStale's own cmake invocation
+        // the generated script project would have no xECSV2.lib to link, so BuildGamePluginIfStale's own cmake invocation
 
-        // would just fail with "target not found" every single time it ran (once per focus-regain,
+        // would just fail every single time it ran (once per focus-regain,
 
         // forever). Confirmed live: that failure also silently cancelled every Play request, since
 
@@ -202,13 +202,7 @@ namespace e29
 
         {
 
-            TCHAR szModulePath[MAX_PATH];
-
-            GetModuleFileName(NULL, szModulePath, MAX_PATH);
-
-            std::filesystem::path GameDllPath = std::filesystem::path(szModulePath).parent_path() / L"E29_Game.dll";
-
-            GamePlugin.m_CompiledDllPath = GameDllPath.wstring();
+            GamePlugin.m_Paths = e29::MakeScriptProjectPaths();
 
             // Synchronous, main-thread-only call site (see this block's own top comment) - safe to call
 
@@ -218,7 +212,12 @@ namespace e29
 
             // precomputed parameter instead).
 
-            e29::BuildGamePluginIfStale(GamePlugin, e29::GetLatestModuleSourceWriteTime());
+            // Only when there is none: the module list is not known yet (the project is opened below), and regenerating now
+            // would replace the modules of the last run with none.
+            if (!std::filesystem::exists(GamePlugin.m_Paths.m_CMakeLists))
+                e29::RegenerateGameModuleSources(GamePlugin.m_Paths);
+
+            e29::BuildGamePluginIfStale(GamePlugin, e29::GetLatestModuleSourceWriteTime(GamePlugin.m_Paths));
 
             e29::LoadGamePluginComponents(*pGameMgr, GamePlugin, /*Generation*/ 1);
 
@@ -376,11 +375,16 @@ namespace e29
 
                     xeditor::NotifyError(std::format("Failed to load Script.config.txt: {}", Err.getMessage()));
 
-                // Keeps GameProject\E29_Game_Modules.cmake in sync with whatever was actually persisted,
+                // Keeps the generated script project (Cache\Script\CMakeLists.txt) in sync with whatever was actually persisted,
 
-                // regardless of how it got there (a fresh checkout may have no fragment yet at all).
+                // regardless of how it got there (a fresh checkout has no generated project yet at all).
 
-                e29::RegenerateGameModuleSources();
+#if defined(XECS_BUILD_SHARED)
+                // The module list is only known now: one that changed since the DLL was built (or a fresh checkout) needs a rebuild.
+                if (e29::RegenerateGameModuleSources(GamePlugin.m_Paths)) e29::StartGameReload(GamePlugin);
+#else
+                e29::RegenerateGameModuleSources(GamePlugin.m_Paths);
+#endif
 
             }
 

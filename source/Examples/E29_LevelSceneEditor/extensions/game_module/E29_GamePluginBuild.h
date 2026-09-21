@@ -5,9 +5,7 @@
 // Extracted from E29_GamePlugin.h (mechanical move, phase 3 of the kit split - see the umbrella
 // file's own top comment). game_plugin_state (the one loaded-generation record threaded through
 // build/load/play-session alike) and the staleness-check + cmake-invoking rebuild itself
-// (BuildGamePluginIfStale) - see CMakeLists.txt's own E29_Game target comments for the
-// /PDBALTPATH + PDB_OUTPUT_DIRECTORY + /nodeReuse:false story this function's own cmake invocation
-// relies on. Meant to be included via the umbrella (E29_GamePlugin.h) only, after
+// (BuildGamePluginIfStale), which builds the generated script project (E29_GameModuleSources.h). Meant to be included via the umbrella (E29_GamePlugin.h) only, after
 // E29_GamePluginLog.h (LogGamePlugin).
 #include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_GameModuleSources.h"
 #include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_GameModuleEvents.h"
@@ -29,20 +27,20 @@ namespace e29
     // the host's own registrations) - E29 only ever hosts one game plugin at a time, so there is
     // only ever one non-host slot to assign.
     //
-    // m_CompiledDllPath (fixed - the E29_Game CMake target's own build output) and m_LoadedDllPath
+    // m_Paths.m_Dll (fixed - the script project's own build output) and m_LoadedDllPath
     // (a generation-suffixed COPY of it, made fresh every load/reload, that's the one actually
     // LoadLibrary'd) are deliberately different files/paths - direct user requirement: "the dll
     // that we are loading should not be the same one that the compiler is compiling... the job of
     // the editor is to copy the new version of the dll with any symbols it may need for debugging."
     // This means a rebuild (whether the user's own external build or E29's own auto-build below)
     // never has to fight a file this process still has mapped - the compiler always writes to
-    // m_CompiledDllPath, which is NEVER the currently-loaded file.
+    // m_Paths.m_Dll, which is NEVER the currently-loaded file.
     struct game_plugin_state
     {
         game_module_events m_Events;      // the editors that take part in a reload subscribe here
         HMODULE                m_hModule          = nullptr;
         xecs::plugin::token     m_Token            = {};
-        std::wstring            m_CompiledDllPath;
+        script_project_paths    m_Paths;
         std::wstring            m_LoadedDllPath;
 
         // Human-readable outcome of the most recent build/load attempt - printf's own log lines are
@@ -61,7 +59,7 @@ namespace e29
         // completion without blocking, and only THEN - and only on success - performs the actual,
         // destructive reload steps (destroy world, unload old generation, load new one). This is
         // exactly why the compiled/loaded DLL split exists at all: the build always targets
-        // m_CompiledDllPath, which is never the loaded file, so it can safely run in the background
+        // m_Paths.m_Dll, which is never the loaded file, so it can safely run in the background
         // while the OLD generation keeps running completely undisturbed, whether the build
         // eventually succeeds or fails.
         std::future<build_result> m_BuildFuture;
@@ -77,43 +75,17 @@ namespace e29
     inline game_plugin_state* g_pGamePlugin = nullptr;
 
     //---------------------------------------------------------------------------
-    // "The editor should try to recompile automatically; if it's already compiled (newer than the
-    // one we're using) just load, no need to try to recompile" (direct user direction). CompiledDllPath
-    // is the E29_Game CMake target's own, fixed build output (NEVER the file actually loaded - see
-    // game_plugin_state's own comment on the compiled/loaded split), from which the build directory
-    // and config are derived structurally (`<ProjectRoot>\Build\<BuildDirName>\<Config>\` is this
-    // project's own fixed layout - see xgpu_build_quirks). Rebuilds via the E29_Game CMake target
-    // (Phase 7/8's own CMakeLists.txt addition) rather than a raw cl.exe shellout the way
-    // E27_NodeOS's compiler does - that pattern is scoped for many small single-.cpp node plugins
-    // recompiled individually; Game.dll is one larger, normally-built target that already has a
-    // real CMake target, so reusing cmake's own (fine-grained, header-dependency-aware) staleness
-    // tracking for the ACTUAL rebuild decision is both simpler and more correct than re-deriving
-    // it from a single source file's timestamp by hand.
+    // "The editor should try to recompile automatically; if it's already compiled (newer than the one we're using) just load"
+    // (direct user direction). The DLL is only rebuilt when it is older than what it is built from: the timestamp check
+    // decides whether to invoke cmake at all, and an up-to-date DLL never even sees a rebuild attempted.
     //
-    // The timestamp check here exists purely to decide whether to invoke cmake AT ALL, not to
-    // second-guess what it decides once invoked - per the user's explicit ask, an up-to-date DLL
-    // should never even see a rebuild attempted (skips the cmake generate/build overhead, which is
-    // otherwise incurred on every single load/reload regardless of whether anything changed).
+    // It blocks until the build ends, which is fine because its only caller runs it on a background thread (StartGameReload),
+    // never on the render thread. It touches only Plugin.m_LastStatus, the log (which has a lock) and files and processes,
+    // never the world, the editor state or anything ImGui.
     //
-    // Blocking (WaitForSingleObject(..., INFINITE) below), but that's no longer a UI-freeze concern -
-    // the ONLY caller is StartGameReload's own std::async background thread (see game_plugin_state's
-    // own comment on why), never the main/render thread directly. Only touches Plugin.m_LastStatus/
-    // LogGamePlugin (thread-safe - see GetGamePluginLogMutex) and local filesystem/process state -
-    // never GameMgr, State, or anything ImGui-related, so it's safe to run concurrently with the
-    // editor's own main loop.
-    //
-    // ModuleSourceTime: the newest mtime across every currently-referenced Script-Module's own
-    // source_db files (and the generated fragment listing them) - see GetLatestModuleSourceWriteTime's
-    // own comment for the real bug this closes (a module content-only edit was never seen as stale at
-    // all). Deliberately a plain VALUE passed in, computed by the caller (StartGameReload) on the MAIN
-    // thread, rather than this function calling GetLatestModuleSourceWriteTime() itself - that
-    // function reads e29::g_ScriptConfig/e10::g_LibMgr, both ordinary globals with no lock of their
-    // own, and this function's own doc comment above is explicit that it must never touch shared
-    // mutable state precisely because its only caller runs it on a background thread. Confirmed live:
-    // calling it directly from here reproduced a real, reproducible crash inside xECSV2.dll shortly
-    // after a reload - consistent with a data race against the main thread (which can concurrently run
-    // AddProjectModuleReference/RemoveProjectModuleReference, mutating that exact vector) corrupting
-    // unrelated heap state rather than crashing at the race site itself.
+    // ModuleSourceTime is a plain value computed by the caller on the main thread (GetLatestModuleSourceWriteTime): that
+    // function reads the script config and the library manager, which have no lock, and calling it from here crashed the
+    // editor after a reload.
     // Runs one command line synchronously to completion, piping its stdout/stderr through
     // LogGamePlugin one line at a time and returning its exit code (or -1 if it couldn't even be
     // launched). Extracted so BuildGamePluginIfStale can run TWO commands in sequence (an explicit
@@ -189,32 +161,34 @@ namespace e29
         return static_cast<int>(ExitCode);
     }
 
+    // The generator the editor itself was configured with, so the script project is built with the same Visual Studio.
+    inline std::wstring ScriptProjectGeneratorArgs( const script_project_paths& P ) noexcept
+    {
+        std::string Generator = "Visual Studio 17 2022", Platform = "x64";
+        if (std::ifstream Cache(P.m_XGpuBinDir / L"CMakeCache.txt"); Cache.is_open())
+        {
+            for (std::string Line; std::getline(Cache, Line); )
+            {
+                if (Line.starts_with("CMAKE_GENERATOR:INTERNAL="))          Generator = Line.substr(sizeof("CMAKE_GENERATOR:INTERNAL=") - 1);
+                if (Line.starts_with("CMAKE_GENERATOR_PLATFORM:INTERNAL=")) Platform  = Line.substr(sizeof("CMAKE_GENERATOR_PLATFORM:INTERNAL=") - 1);
+            }
+        }
+        std::wstring Args = std::format(L" -G \"{}\"", xstrtool::To(Generator));
+        if (!Platform.empty()) Args += std::format(L" -A {}", xstrtool::To(Platform));
+        return Args;
+    }
+
     inline build_result BuildGamePluginIfStale( game_plugin_state& Plugin, std::filesystem::file_time_type ModuleSourceTime ) noexcept
     {
         std::error_code Ec;
-        const std::filesystem::path Dll        = Plugin.m_CompiledDllPath;
-        const std::filesystem::path ExeDir     = Dll.parent_path();               // .../Build/<BuildDirName>/<Config>
-        const std::filesystem::path BuildDir   = ExeDir.parent_path();            // .../Build/<BuildDirName>
-        const std::filesystem::path ProjectRoot= BuildDir.parent_path().parent_path();
-        const std::wstring          Config     = ExeDir.filename().wstring();     // "Debug" or "Release"
-        const std::filesystem::path SourcePath = ProjectRoot / L"source" / L"Examples" / L"E29_LevelSceneEditor" / L"GameProject" / L"E29_Game.cpp";
+        const auto& P = Plugin.m_Paths;
 
-        const bool bDllMissing = !std::filesystem::exists(Dll, Ec);
+        const bool bDllMissing = !std::filesystem::exists(P.m_Dll, Ec);
         bool bStale = bDllMissing;
         if (!bStale)
         {
-            auto SourceTime = std::filesystem::last_write_time(SourcePath, Ec);
-            if (Ec)
-            {
-                Plugin.m_LastStatus = std::format("Game.dll: can't stat source {} - skipping rebuild attempt", SourcePath.string());
-                LogGamePlugin(Plugin.m_LastStatus);
-                return build_result::UpToDate;
-            }
-            if (ModuleSourceTime > SourceTime)
-                SourceTime = ModuleSourceTime;
-
-            const auto DllTime = std::filesystem::last_write_time(Dll, Ec);
-            bStale = Ec || SourceTime > DllTime;
+            const auto DllTime = std::filesystem::last_write_time(P.m_Dll, Ec);
+            bStale = Ec || ModuleSourceTime > DllTime;
         }
 
         if (!bStale)
@@ -227,71 +201,30 @@ namespace e29
         Plugin.m_LastStatus = std::format("Game.dll: {} - rebuilding via cmake...", bDllMissing ? "DLL missing" : "source newer than DLL");
         LogGamePlugin(Plugin.m_LastStatus);
 
-        // /nodeReuse:false (passed through to MSBuild via cmake's own "-- <native tool args>"
-        // convention) - direct fix for a live LNK1201 ("error writing to program database ...pdb")
-        // reproduced by the user. NOT a Visual Studio conflict - only this function ever builds
-        // E29_Game, VS never does. The race is this function against ITSELF, across separate
-        // reload triggers (focus-regain/Play/Level-open) over one editing session: `cmake --build`
-        // spawns MSBuild, which by default (/nodeReuse:true) leaves a worker process alive AFTER
-        // this call returns specifically so a LATER build can reuse it for speed (confirmed live via
-        // a lingering MSBuild.exe "...\<random>.proj" node process still running well after its own
-        // triggering build had finished) - that worker holds a PDB-write lock via mspdbsrv.exe. If
-        // the editor's whole process tree ever gets killed uncleanly mid-build (e.g. a forced
-        // taskkill, or a crash) the worker can be left in a bad state and corrupt/contend with the
-        // NEXT auto-build's own attempt to write the same E29_Game.pdb, later in the same or a
-        // future session. E29_Game.cpp is one small file - there's no meaningful incremental-build
-        // speed to lose by asking THIS invocation not to spawn/reuse a persistent worker at all.
-        // Belt-and-suspenders on top of the /nodeReuse:false switch below - confirmed live that the
-        // command-line switch alone does NOT reliably stop every nested MSBuild worker node it spawns
-        // for a multi-project (solution-level) build from defaulting back to node reuse (a worker
-        // process was still observed running with an explicit /nodeReuse:true on its own command
-        // line despite the outer invocation's /nodeReuse:false). MSBUILDDISABLENODEREUSE is the
-        // environment-variable form of the same setting and is Microsoft's own documented, more
-        // reliable way to force it onto every node a build spawns, nested workers included - exactly
-        // the mechanism CI systems use for this. Idempotent (safe to set every call).
+        // MSBuild leaves a worker process alive after a build so a later one can reuse it, and that worker holds a lock on the
+        // PDB. If the editor's process tree is killed uncleanly, the next build can then fail with LNK1201. Only this function
+        // builds the script project, and it is one small target, so nothing is gained by reusing a worker.
+        // MSBUILDDISABLENODEREUSE forces that onto every node a build spawns; the /nodeReuse:false switch alone did not.
         SetEnvironmentVariableW(L"MSBUILDDISABLENODEREUSE", L"1");
 
-        // REAL BUG FOUND LIVE (2026-09-19): `cmake --build`'s own automatic reconfigure (via its
-        // ZERO_CHECK project) does NOT reliably pick up a changed E29_Game_Modules.cmake - confirmed
-        // by running the exact same `cmake --build --target E29_Game` command twice in a row after
-        // editing the fragment (removing a Script-Module's own source file) and observing the output
-        // DLL's mtime/size never change, reporting "success" both times; an EXPLICIT `cmake -S -B`
-        // reconfigure immediately before the SAME build command DOES pick it up correctly (confirmed
-        // live: output DLL mtime and size both changed exactly as expected). This affects every reload
-        // path that goes through this function, not just one - fixed here, once, as two separate
-        // RunCmakeCommand calls (a single `cmd /c "A && B"` string would need fragile nested quoting
-        // for two already-quoted `cmake` invocations). The reconfigure step is cheap when nothing
-        // structural actually changed (CMake's own no-op fast path), so this doesn't meaningfully cost
-        // the common "just recompiled the same file list" case.
-        if (const auto ConfigureExit = RunCmakeCommand(std::format(L"cmake -S \"{}\" -B \"{}\"", ProjectRoot.wstring(), BuildDir.wstring()), ProjectRoot); ConfigureExit != 0)
+        // An explicit reconfigure before every build: `cmake --build`'s own automatic reconfigure does not reliably notice that
+        // the generated CMakeLists.txt changed (a module was added or removed). It is cheap when nothing changed. The
+        // generator is only given the first time, when the build directory is created.
+        std::wstring Configure = std::format(L"cmake -S \"{}\" -B \"{}\"", P.m_Root.wstring(), P.m_BuildDir.wstring());
+        if (!std::filesystem::exists(P.m_BuildDir / L"CMakeCache.txt", Ec)) Configure += ScriptProjectGeneratorArgs(P);
+        if (const auto ConfigureExit = RunCmakeCommand(Configure, P.m_Root); ConfigureExit != 0)
         {
             Plugin.m_LastStatus = std::format("Game.dll: cmake reconfigure FAILED (exit={}) - see stdout for the error log", ConfigureExit);
             LogGamePlugin(Plugin.m_LastStatus);
             return build_result::Failed;
         }
 
-        // REAL BUG FOUND LIVE (2026-09-19, follow-up): the reconfigure above wasn't the whole story -
-        // isolated the remainder in a minimal standalone CMake+target_precompile_headers repro (no
-        // xGPU code involved at all): even after a CORRECT reconfigure that regenerates
-        // cmake_pch.hxx's own CONTENT (confirmed - the include line for a removed header was genuinely
-        // gone from the file on disk), MSBuild's own incremental build still would NOT recompile
-        // cmake_pch.pch/cmake_pch.obj - reproduced 100% reliably, 5/5 consecutive attempts, in
-        // isolation. MSBuild's dependency tracking for the PCH-creation step evidently keys off
-        // cmake_pch.cxx itself (the one-line "#include cmake_pch.hxx" file CMake generates once and
-        // never rewrites) rather than re-scanning cmake_pch.hxx's own transitive content on every
-        // build - so a header being ADDED to or REMOVED FROM the PCH's own force-include list doesn't
-        // register as "stale" to MSBuild at all. Confirmed the fix in the same isolated repro: touching
-        // cmake_pch.cxx's own mtime (content unchanged) is enough to make MSBuild correctly reconsider
-        // and recompile the PCH. Only relevant for E29_Game (this is the one target in this project
-        // with a data-driven, per-project PCH header list); a missing file here just means nothing to
-        // touch yet, not an error.
-        if (const auto PchFile = BuildDir / L"CMakeFiles" / L"E29_Game.dir" / L"cmake_pch.cxx"; std::filesystem::exists(PchFile, Ec))
-        {
-            const auto Now = std::filesystem::file_time_type::clock::now();
-            std::filesystem::last_write_time(PchFile, Now, Ec);
-        }
+        // MSBuild decides whether the precompiled header is stale from cmake_pch.cxx, a one-line file CMake never rewrites, so
+        // adding a header to (or removing one from) the PCH list does not make it rebuild. Touching that file does.
+        if (const auto PchFile = P.m_BuildDir / L"CMakeFiles" / L"Game.dir" / L"cmake_pch.cxx"; std::filesystem::exists(PchFile, Ec))
+            std::filesystem::last_write_time(PchFile, std::filesystem::file_time_type::clock::now(), Ec);
 
-        const auto BuildExit = RunCmakeCommand(std::format(L"cmake --build \"{}\" --target E29_Game --config {} -- /nodeReuse:false", BuildDir.wstring(), Config), ProjectRoot);
+        const auto BuildExit = RunCmakeCommand(std::format(L"cmake --build \"{}\" --target Game --config {} -- /nodeReuse:false", P.m_BuildDir.wstring(), P.m_Config), P.m_Root);
         if (BuildExit != 0)
         {
             Plugin.m_LastStatus = std::format("Game.dll: BUILD FAILED (exit={}) - see stdout for the compiler's own error log", BuildExit);
