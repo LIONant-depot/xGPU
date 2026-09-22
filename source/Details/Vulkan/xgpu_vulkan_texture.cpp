@@ -272,7 +272,7 @@ namespace xgpu::vulkan
             ,   .arrayLayers    = 1
             ,   .samples        = VK_SAMPLE_COUNT_1_BIT
             ,   .tiling         = VK_IMAGE_TILING_OPTIMAL
-            ,   .usage          = std::uint32_t(isDepth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) | VK_IMAGE_USAGE_SAMPLED_BIT
+            ,   .usage          = std::uint32_t(isDepth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT
             ,   .sharingMode    = VK_SHARING_MODE_EXCLUSIVE
             ,   .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED
             };
@@ -434,6 +434,11 @@ namespace xgpu::vulkan
             }
 
             // Create optimal tiled target image
+            // TRANSFER_SRC_BIT (alongside the DST_BIT this path already needed for its own upload) lets
+            // Readback/ReadTexture read this image back later - the same VUID (-00186, "usage flag") that
+            // caught its absence here also caught it on the m_nMips==0/render-target branch above, so every
+            // texture xGPU creates can be read back with UpdateRegion/Readback, not just the ones it happens
+            // to be convenient for.
             VkImageCreateInfo ImageCreateInfo
             {
                 .sType          = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO
@@ -451,7 +456,7 @@ namespace xgpu::vulkan
             ,   .arrayLayers    = Setup.m_FaceCount
             ,   .samples        = VK_SAMPLE_COUNT_1_BIT
             ,   .tiling         = VK_IMAGE_TILING_OPTIMAL
-            ,   .usage          = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT
+            ,   .usage          = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT
             ,   .sharingMode    = VK_SHARING_MODE_EXCLUSIVE
             ,   .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED
             };
@@ -733,7 +738,272 @@ namespace xgpu::vulkan
         m_VKDescriptorImageInfo.imageView   = m_VKView;
         m_VKDescriptorImageInfo.imageLayout = isDepth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
+        // True only for the "with data" staging path above (OutImageLayout was set there, right after its
+        // own real UNDEFINED->TRANSFER_DST_OPTIMAL->SHADER_READ_ONLY_OPTIMAL transitions) - the "empty"
+        // (m_nMips==0) path's image genuinely stays at UNDEFINED despite the descriptor above, see this
+        // field's own comment in the header.
+        m_bContentReady = (OutImageLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+
         return nullptr;
+    }
+
+    //---------------------------------------------------------------------------------------
+    // Same staging-buffer + vkCmdCopyBufferToImage idiom as Initialize's own staging path above, just a
+    // sub-rectangle of an already-created image instead of the whole thing at creation time. The image is
+    // expected to be resting at SHADER_READ_ONLY_OPTIMAL (where Initialize always leaves it, and where a
+    // finished render-pass color attachment also ends up - xgpu_vulkan_renderpass.cpp's finalLayout), and is
+    // left there afterward.
+    xgpu::device::error* texture::UpdateRegion
+    ( int                           OffsetX
+    , int                           OffsetY
+    , int                           Width
+    , int                           Height
+    , std::span<const std::byte>   Source
+    ) noexcept
+    {
+        if (OffsetX < 0 || OffsetY < 0 || Width <= 0 || Height <= 0 || OffsetX + Width > m_Width || OffsetY + Height > m_Height)
+        {
+            m_Device->m_Instance->ReportError("UpdateTexture: region is out of bounds for this texture");
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "UpdateTexture: region is out of bounds for this texture");
+        }
+
+        VkBuffer        StagingBuffer{};
+        VkDeviceMemory  StagingMemory{};
+        {
+            VkBufferCreateInfo BufferCreateInfo
+            { .sType        = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
+            , .size         = static_cast<VkDeviceSize>(Source.size())
+            , .usage        = VK_BUFFER_USAGE_TRANSFER_SRC_BIT
+            , .sharingMode  = VK_SHARING_MODE_EXCLUSIVE
+            };
+            if (auto VKErr = vkCreateBuffer(m_Device->m_VKDevice, &BufferCreateInfo, m_Device->m_Instance->m_pVKAllocator, &StagingBuffer); VKErr)
+            {
+                m_Device->m_Instance->ReportError(VKErr, "Fail to create a staging buffer while updating a texture region");
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a staging buffer while updating a texture region");
+            }
+
+            VkMemoryRequirements MemoryRequirements;
+            vkGetBufferMemoryRequirements(m_Device->m_VKDevice, StagingBuffer, &MemoryRequirements);
+
+            VkMemoryAllocateInfo MemoryAllocInfo{ .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, .allocationSize = MemoryRequirements.size };
+            m_Device->getMemoryType(MemoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, MemoryAllocInfo.memoryTypeIndex);
+
+            if (auto VKErr = vkAllocateMemory(m_Device->m_VKDevice, &MemoryAllocInfo, m_Device->m_Instance->m_pVKAllocator, &StagingMemory); VKErr)
+            {
+                m_Device->m_Instance->ReportError(VKErr, "Fail to allocate memory for the texture-region staging buffer");
+                vkDestroyBuffer(m_Device->m_VKDevice, StagingBuffer, m_Device->m_Instance->m_pVKAllocator);
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to allocate memory for the texture-region staging buffer");
+            }
+
+            if (auto VKErr = vkBindBufferMemory(m_Device->m_VKDevice, StagingBuffer, StagingMemory, 0); VKErr)
+            {
+                m_Device->m_Instance->ReportError(VKErr, "Fail to bind memory for the texture-region staging buffer");
+                vkFreeMemory(m_Device->m_VKDevice, StagingMemory, m_Device->m_Instance->m_pVKAllocator);
+                vkDestroyBuffer(m_Device->m_VKDevice, StagingBuffer, m_Device->m_Instance->m_pVKAllocator);
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to bind memory for the texture-region staging buffer");
+            }
+
+            void* pData{};
+            if (auto VKErr = vkMapMemory(m_Device->m_VKDevice, StagingMemory, 0, MemoryRequirements.size, 0, &pData); VKErr)
+            {
+                m_Device->m_Instance->ReportError(VKErr, "Fail to map the texture-region staging buffer");
+                vkFreeMemory(m_Device->m_VKDevice, StagingMemory, m_Device->m_Instance->m_pVKAllocator);
+                vkDestroyBuffer(m_Device->m_VKDevice, StagingBuffer, m_Device->m_Instance->m_pVKAllocator);
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to map the texture-region staging buffer");
+            }
+            std::memcpy(pData, Source.data(), Source.size());
+            vkUnmapMemory(m_Device->m_VKDevice, StagingMemory);
+        }
+
+        if (auto [PerDevice, Error] = m_Device->m_Instance->getLocalStorage().getOrCreatePerDevice(*m_Device); Error)
+        {
+            vkFreeMemory(m_Device->m_VKDevice, StagingMemory, m_Device->m_Instance->m_pVKAllocator);
+            vkDestroyBuffer(m_Device->m_VKDevice, StagingBuffer, m_Device->m_Instance->m_pVKAllocator);
+            return Error;
+        }
+        else
+        {
+            const VkImageSubresourceRange SubresourceRange{ .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 };
+
+            auto Barrier = [&](VkImageLayout OldLayout, VkImageLayout NewLayout, VkAccessFlags SrcAccess, VkAccessFlags DstAccess, VkPipelineStageFlags SrcStage, VkPipelineStageFlags DstStage)
+            {
+                VkImageMemoryBarrier ImageMemoryBarrier
+                { .sType                = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER
+                , .srcAccessMask         = SrcAccess
+                , .dstAccessMask         = DstAccess
+                , .oldLayout             = OldLayout
+                , .newLayout             = NewLayout
+                , .srcQueueFamilyIndex   = VK_QUEUE_FAMILY_IGNORED
+                , .dstQueueFamilyIndex   = VK_QUEUE_FAMILY_IGNORED
+                , .image                 = m_VKImage
+                , .subresourceRange      = SubresourceRange
+                };
+                vkCmdPipelineBarrier(PerDevice.m_VKSetupCmdBuffer, SrcStage, DstStage, 0, 0, nullptr, 0, nullptr, 1, &ImageMemoryBarrier);
+            };
+
+            // The "empty" (m_nMips==0, render-target-shaped) Initialize path leaves the real image at
+            // UNDEFINED despite m_VKDescriptorImageInfo claiming SHADER_READ_ONLY_OPTIMAL (see
+            // m_bContentReady's own comment in the header) - the very first UpdateRegion on such a texture
+            // (e.g. a freshly created atlas, before anything has ever been rendered into or written to it)
+            // must transition FROM its real starting layout, not the descriptor's aspirational one.
+            if (m_bContentReady)
+            {
+                Barrier(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+                       , VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_WRITE_BIT
+                       , VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+            }
+            else
+            {
+                Barrier(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+                       , 0, VK_ACCESS_TRANSFER_WRITE_BIT
+                       , VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+            }
+
+            VkBufferImageCopy Region
+            { .bufferOffset      = 0
+            , .bufferRowLength   = 0
+            , .bufferImageHeight = 0
+            , .imageSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }
+            , .imageOffset       = { OffsetX, OffsetY, 0 }
+            , .imageExtent       = { static_cast<std::uint32_t>(Width), static_cast<std::uint32_t>(Height), 1 }
+            };
+            vkCmdCopyBufferToImage(PerDevice.m_VKSetupCmdBuffer, StagingBuffer, m_VKImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &Region);
+
+            Barrier(VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                   , VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT
+                   , VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+            PerDevice.FlushVKSetupCommandBuffer();
+            m_bContentReady = true;   // the image genuinely rests at SHADER_READ_ONLY_OPTIMAL now, either way
+        }
+
+        vkFreeMemory(m_Device->m_VKDevice, StagingMemory, m_Device->m_Instance->m_pVKAllocator);
+        vkDestroyBuffer(m_Device->m_VKDevice, StagingBuffer, m_Device->m_Instance->m_pVKAllocator);
+        return nullptr;
+    }
+
+    //---------------------------------------------------------------------------------------
+    // Mirrors xgpu_vulkan_window.cpp's CaptureBackbuffer (transition -> vkCmdCopyImageToBuffer -> transition
+    // back, map/memcpy/unmap), generalized to this texture's own VkImage/SHADER_READ_ONLY_OPTIMAL resting
+    // layout instead of the swapchain backbuffer/PRESENT_SRC_KHR. No format conversion - each uint32 in Dest
+    // is this texture's own m_VKFormat byte order (e.g. R8G8B8A8_UNORM comes back R in the low byte, not the
+    // B8G8R8A8 the swapchain's own Screenshot happens to read). Synchronous - the caller is responsible for
+    // making sure this texture's GPU work (a render into it, an UpdateRegion) is already complete.
+    xgpu::device::error* texture::Readback
+    ( std::vector<std::uint32_t>&  Dest
+    , int&                          Width
+    , int&                          Height
+    ) noexcept
+    {
+        const std::uint32_t W        = m_Width;
+        const std::uint32_t H        = m_Height;
+        const VkDeviceSize  DataSize = VkDeviceSize(W) * VkDeviceSize(H) * 4;
+
+        VkBuffer        ReadbackBuffer{};
+        VkDeviceMemory  ReadbackMemory{};
+        {
+            VkBufferCreateInfo BufferCreateInfo
+            { .sType        = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
+            , .size         = DataSize
+            , .usage        = VK_BUFFER_USAGE_TRANSFER_DST_BIT
+            , .sharingMode  = VK_SHARING_MODE_EXCLUSIVE
+            };
+            if (auto VKErr = vkCreateBuffer(m_Device->m_VKDevice, &BufferCreateInfo, m_Device->m_Instance->m_pVKAllocator, &ReadbackBuffer); VKErr)
+            {
+                m_Device->m_Instance->ReportError(VKErr, "Fail to create the texture readback buffer");
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create the texture readback buffer");
+            }
+
+            VkMemoryRequirements MemoryRequirements;
+            vkGetBufferMemoryRequirements(m_Device->m_VKDevice, ReadbackBuffer, &MemoryRequirements);
+
+            VkMemoryAllocateInfo MemoryAllocInfo{ .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, .allocationSize = MemoryRequirements.size };
+            m_Device->getMemoryType(MemoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, MemoryAllocInfo.memoryTypeIndex);
+
+            if (auto VKErr = vkAllocateMemory(m_Device->m_VKDevice, &MemoryAllocInfo, m_Device->m_Instance->m_pVKAllocator, &ReadbackMemory); VKErr)
+            {
+                m_Device->m_Instance->ReportError(VKErr, "Fail to allocate memory for the texture readback buffer");
+                vkDestroyBuffer(m_Device->m_VKDevice, ReadbackBuffer, m_Device->m_Instance->m_pVKAllocator);
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to allocate memory for the texture readback buffer");
+            }
+
+            if (auto VKErr = vkBindBufferMemory(m_Device->m_VKDevice, ReadbackBuffer, ReadbackMemory, 0); VKErr)
+            {
+                m_Device->m_Instance->ReportError(VKErr, "Fail to bind memory for the texture readback buffer");
+                vkFreeMemory(m_Device->m_VKDevice, ReadbackMemory, m_Device->m_Instance->m_pVKAllocator);
+                vkDestroyBuffer(m_Device->m_VKDevice, ReadbackBuffer, m_Device->m_Instance->m_pVKAllocator);
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to bind memory for the texture readback buffer");
+            }
+        }
+
+        if (auto [PerDevice, Error] = m_Device->m_Instance->getLocalStorage().getOrCreatePerDevice(*m_Device); Error)
+        {
+            vkFreeMemory(m_Device->m_VKDevice, ReadbackMemory, m_Device->m_Instance->m_pVKAllocator);
+            vkDestroyBuffer(m_Device->m_VKDevice, ReadbackBuffer, m_Device->m_Instance->m_pVKAllocator);
+            return Error;
+        }
+        else
+        {
+            const VkImageSubresourceRange SubresourceRange{ .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 };
+
+            auto Barrier = [&](VkImageLayout OldLayout, VkImageLayout NewLayout, VkAccessFlags SrcAccess, VkAccessFlags DstAccess, VkPipelineStageFlags SrcStage, VkPipelineStageFlags DstStage)
+            {
+                VkImageMemoryBarrier ImageMemoryBarrier
+                { .sType                = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER
+                , .srcAccessMask         = SrcAccess
+                , .dstAccessMask         = DstAccess
+                , .oldLayout             = OldLayout
+                , .newLayout             = NewLayout
+                , .srcQueueFamilyIndex   = VK_QUEUE_FAMILY_IGNORED
+                , .dstQueueFamilyIndex   = VK_QUEUE_FAMILY_IGNORED
+                , .image                 = m_VKImage
+                , .subresourceRange      = SubresourceRange
+                };
+                vkCmdPipelineBarrier(PerDevice.m_VKSetupCmdBuffer, SrcStage, DstStage, 0, 0, nullptr, 0, nullptr, 1, &ImageMemoryBarrier);
+            };
+
+            Barrier(VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+                   , VK_ACCESS_SHADER_READ_BIT, VK_ACCESS_TRANSFER_READ_BIT
+                   , VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+            VkBufferImageCopy Region
+            { .bufferOffset      = 0
+            , .bufferRowLength   = 0
+            , .bufferImageHeight = 0
+            , .imageSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }
+            , .imageOffset       = { 0, 0, 0 }
+            , .imageExtent       = { W, H, 1 }
+            };
+            vkCmdCopyImageToBuffer(PerDevice.m_VKSetupCmdBuffer, m_VKImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, ReadbackBuffer, 1, &Region);
+
+            Barrier(VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+                   , VK_ACCESS_TRANSFER_READ_BIT, VK_ACCESS_SHADER_READ_BIT
+                   , VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+            PerDevice.FlushVKSetupCommandBuffer();
+        }
+
+        xgpu::device::error* Result = nullptr;
+        void* pMapped{};
+        if (auto VKErr = vkMapMemory(m_Device->m_VKDevice, ReadbackMemory, 0, DataSize, 0, &pMapped); VKErr)
+        {
+            m_Device->m_Instance->ReportError(VKErr, "Fail to map the texture readback buffer");
+            Result = VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to map the texture readback buffer");
+            Width = Height = 0;
+            Dest.clear();
+        }
+        else
+        {
+            Width  = static_cast<int>(W);
+            Height = static_cast<int>(H);
+            Dest.resize(static_cast<std::size_t>(W) * static_cast<std::size_t>(H));
+            std::memcpy(Dest.data(), pMapped, static_cast<std::size_t>(DataSize));
+            vkUnmapMemory(m_Device->m_VKDevice, ReadbackMemory);
+        }
+
+        vkFreeMemory(m_Device->m_VKDevice, ReadbackMemory, m_Device->m_Instance->m_pVKAllocator);
+        vkDestroyBuffer(m_Device->m_VKDevice, ReadbackBuffer, m_Device->m_Instance->m_pVKAllocator);
+        return Result;
     }
 
     void texture::DeathMarch(xgpu::texture&& Texture) noexcept

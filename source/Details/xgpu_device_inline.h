@@ -41,6 +41,20 @@ namespace xgpu
                                                                     , std::shared_ptr<device_handle>&       SharedDevice
                                                                     ) noexcept = 0;
 
+            virtual device::error*          UpdateTexture           ( xgpu::texture&                        Texture
+                                                                    , int                                    OffsetX
+                                                                    , int                                    OffsetY
+                                                                    , int                                    Width
+                                                                    , int                                    Height
+                                                                    , std::span<const std::byte>            Source
+                                                                    ) noexcept = 0;
+
+            virtual device::error*          ReadTexture             ( const xgpu::texture&                  Texture
+                                                                    , std::vector<std::uint32_t>&           Dest
+                                                                    , int&                                   Width
+                                                                    , int&                                   Height
+                                                                    ) noexcept = 0;
+
             virtual void Destroy(pipeline_instance&& PipelineInstance)  noexcept = 0;
             virtual void Destroy(pipeline&& Pipeline)                   noexcept = 0;
             virtual void Destroy(texture&& Texture)                     noexcept = 0;
@@ -148,13 +162,43 @@ namespace xgpu
 
     //------------------------------------------------------------------------------------------------
 
-    [[nodiscard]] device::error* 
+    [[nodiscard]] device::error*
     device::Create
     ( buffer&                   Buffer
-    , const buffer::setup&      Setup 
+    , const buffer::setup&      Setup
     ) noexcept
     {
         return m_Private->Create( Buffer, Setup, m_Private );
+    }
+
+    //------------------------------------------------------------------------------------------------
+
+    XGPU_INLINE
+    [[nodiscard]] device::error*
+    device::UpdateTexture
+    ( texture&                      Texture
+    , int                           OffsetX
+    , int                           OffsetY
+    , int                           Width
+    , int                           Height
+    , std::span<const std::byte>   Source
+    ) noexcept
+    {
+        return m_Private->UpdateTexture(Texture, OffsetX, OffsetY, Width, Height, Source);
+    }
+
+    //------------------------------------------------------------------------------------------------
+
+    XGPU_INLINE
+    [[nodiscard]] device::error*
+    device::ReadTexture
+    ( const texture&                Texture
+    , std::vector<std::uint32_t>&  Dest
+    , int&                          Width
+    , int&                          Height
+    ) noexcept
+    {
+        return m_Private->ReadTexture(Texture, Dest, Width, Height);
     }
 
     //------------------------------------------------------------------------------------------------

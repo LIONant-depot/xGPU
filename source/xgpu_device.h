@@ -60,7 +60,31 @@ namespace xgpu
                                                                 ) noexcept;
 
         XGPU_INLINE [[nodiscard]] device::error* Create         ( buffer&                           Buffer
-                                                                , const buffer::setup&              Setup 
+                                                                , const buffer::setup&              Setup
+                                                                ) noexcept;
+
+        // Writes Source into the [OffsetX,OffsetY]..[+Width,+Height] sub-rectangle of Texture's mip 0 (only -
+        // no mips/array layers/cubemaps), leaving the rest of the texture untouched. Texture must already be
+        // created (with the same format as Source implies) and not currently in use by an in-flight command
+        // buffer. General-purpose - any atlas or streaming/dynamic texture content, not tied to one feature.
+        XGPU_INLINE [[nodiscard]] device::error* UpdateTexture  ( texture&                          Texture
+                                                                , int                                OffsetX
+                                                                , int                                OffsetY
+                                                                , int                                Width
+                                                                , int                                Height
+                                                                , std::span<const std::byte>        Source
+                                                                ) noexcept;
+
+        // Reads back Texture's mip 0 as packed 32-bit pixels, one uint32 per texel in whatever byte order
+        // Texture's own format actually uses (no conversion - e.g. R8G8B8A8_UNORM comes back R in the low
+        // byte; the swapchain's own format, which window::Screenshot reads, happens to be B8G8R8A8, but that
+        // is not true of every texture format). Only meaningful for an uncompressed 8-bit-per-channel format.
+        // Synchronous: Texture's GPU work must already be complete (e.g. a fence already waited on) before
+        // calling this, there is no internal wait.
+        XGPU_INLINE [[nodiscard]] device::error* ReadTexture    ( const texture&                    Texture
+                                                                , std::vector<std::uint32_t>&       Dest
+                                                                , int&                               Width
+                                                                , int&                               Height
                                                                 ) noexcept;
 
         XGPU_INLINE void                         Destroy        ( pipeline_instance&&               PipelineInstance ) noexcept;

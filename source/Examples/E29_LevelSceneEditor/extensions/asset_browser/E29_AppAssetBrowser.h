@@ -161,5 +161,15 @@ namespace e29
                 }
                 ResourceEditors.Open(AssetGuid, LibraryGuid);
             };
+
+        // Per-resource thumbnails (Texture today; any other type that registers a xeditor::thumbnail_renderer
+        // going forward) - same dependency-inversion shape as m_OnOpenAsset just above: the browser only
+        // knows it can ask for one, everything about how it's made/cached lives in xeditor.
+        xeditor::g_ThumbnailCache.Init(MainWindow);
+        AsserBrowser.m_OnRequestThumbnail = [this](xresource::full_guid AssetGuid) -> e10::plugin_icon_ref
+            {
+                if (!ResourceEditors.m_pDevice) return {};
+                return xeditor::g_ThumbnailCache.RequestThumbnail(*ResourceEditors.m_pDevice, AssetGuid);
+            };
     }
 }

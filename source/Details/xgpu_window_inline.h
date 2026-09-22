@@ -14,6 +14,9 @@ namespace xgpu
             // in during the next PageFlip(), the only point the back-buffer is both fully drawn and
             // still application-owned.
             virtual     bool                            Screenshot              ( std::vector<std::uint32_t>& Dest, int& Width, int& Height ) noexcept = 0;
+
+            // See xgpu::window::ReadbackTexture's own comment.
+            virtual     bool                            ReadbackTexture         ( const xgpu::texture& Texture, std::vector<std::uint32_t>& Dest, int& Width, int& Height, bool& bDone ) noexcept = 0;
             virtual     void                            CmdRenderBegin          ( xgpu::cmd_buffer& CmdBuffer )                             noexcept = 0;
             virtual     void                            CmdRenderBegin          ( xgpu::cmd_buffer& CmdBuffer, const xgpu::renderpass& Renderpass )                      noexcept = 0;
             virtual     void                            CmdRenderEnd            ( xgpu::cmd_buffer& CmdBuffer )                             noexcept = 0;
@@ -96,6 +99,15 @@ namespace xgpu
     window::Screenshot(std::vector<std::uint32_t>& Dest, int& Width, int& Height) noexcept
     {
         return m_Private->Screenshot(Dest, Width, Height);
+    }
+
+    //--------------------------------------------------------------------------
+
+    XGPU_INLINE
+    [[nodiscard]] bool
+    window::ReadbackTexture(const texture& Texture, std::vector<std::uint32_t>& Dest, int& Width, int& Height, bool& bDone) noexcept
+    {
+        return m_Private->ReadbackTexture(Texture, Dest, Width, Height, bDone);
     }
 
     //--------------------------------------------------------------------------

@@ -136,6 +136,13 @@ namespace xgpu::vulkan
                                                                             , int&                          Height
                                                                             ) noexcept;
         virtual
+        bool                                    ReadbackTexture             ( const xgpu::texture&        Texture
+                                                                            , std::vector<std::uint32_t>&  Dest
+                                                                            , int&                          Width
+                                                                            , int&                          Height
+                                                                            , bool&                         bDone
+                                                                            ) noexcept override;
+        virtual
         xgpu::device                            getDevice                   ( void
                                                                             ) const noexcept override;
 
@@ -165,6 +172,19 @@ namespace xgpu::vulkan
         std::vector<std::uint32_t>*             m_pPendingScreenshotDest   {nullptr};   // non-null while a Screenshot() request is waiting for the next PageFlip()
         int*                                    m_pPendingScreenshotWidth  {nullptr};
         int*                                    m_pPendingScreenshotHeight {nullptr};
+        // ReadbackTexture() requests waiting for the next PageFlip() - a vector, not a single slot: more than
+        // one can be requested in the same frame (e.g. a thumbnail cache generating several textures at once),
+        // and a single slot silently overwritten by a second request left the first stuck waiting forever
+        // (a real, confirmed bug - its scratch texture leaked, never destroyed).
+        struct pending_readback
+        {
+            const xgpu::texture*        m_pTexture {nullptr};
+            std::vector<std::uint32_t>* m_pDest    {nullptr};
+            int*                        m_pWidth   {nullptr};
+            int*                        m_pHeight  {nullptr};
+            bool*                       m_pDone    {nullptr};
+        };
+        std::vector<pending_readback>           m_PendingReadbacks      {};
         bool                                    m_bRebuildSwapChain     {false};
         int                                     m_BeginState            {0};
         int                                     m_nCmds                 {0};

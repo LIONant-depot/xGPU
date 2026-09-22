@@ -383,10 +383,40 @@ namespace xgpu::vulkan
     ) noexcept
     {
         auto I = std::make_shared<xgpu::vulkan::texture>();
-        if( auto Err = I->Initialize( std::reinterpret_pointer_cast<xgpu::vulkan::device>(SharedDevice), Setup ); Err ) 
+        if( auto Err = I->Initialize( std::reinterpret_pointer_cast<xgpu::vulkan::device>(SharedDevice), Setup ); Err )
             return Err;
         Texture.m_Private = I;
         return nullptr;
+    }
+
+    //----------------------------------------------------------------------------------------------------------
+
+    xgpu::device::error* device::UpdateTexture
+    ( xgpu::texture&                Texture
+    , int                           OffsetX
+    , int                           OffsetY
+    , int                           Width
+    , int                           Height
+    , std::span<const std::byte>   Source
+    ) noexcept
+    {
+        auto pTexture = static_cast<xgpu::vulkan::texture*>(Texture.m_Private.get());
+        if (!pTexture) return VGPU_ERROR(xgpu::device::error::FAILURE, "UpdateTexture: the texture has not been created");
+        return pTexture->UpdateRegion(OffsetX, OffsetY, Width, Height, Source);
+    }
+
+    //----------------------------------------------------------------------------------------------------------
+
+    xgpu::device::error* device::ReadTexture
+    ( const xgpu::texture&          Texture
+    , std::vector<std::uint32_t>&  Dest
+    , int&                          Width
+    , int&                          Height
+    ) noexcept
+    {
+        auto pTexture = static_cast<xgpu::vulkan::texture*>(Texture.m_Private.get());
+        if (!pTexture) return VGPU_ERROR(xgpu::device::error::FAILURE, "ReadTexture: the texture has not been created");
+        return pTexture->Readback(Dest, Width, Height);
     }
 
     void device::PageFlipNotification(void) noexcept

@@ -63,6 +63,20 @@ namespace xgpu::vulkan
                                                             , std::shared_ptr<device_handle>&           SharedDevice
                                                             ) noexcept override;
 
+        virtual xgpu::device::error*    UpdateTexture       ( xgpu::texture&                            Texture
+                                                            , int                                        OffsetX
+                                                            , int                                        OffsetY
+                                                            , int                                        Width
+                                                            , int                                        Height
+                                                            , std::span<const std::byte>                Source
+                                                            ) noexcept override;
+
+        virtual xgpu::device::error*    ReadTexture         ( const xgpu::texture&                      Texture
+                                                            , std::vector<std::uint32_t>&               Dest
+                                                            , int&                                       Width
+                                                            , int&                                       Height
+                                                            ) noexcept override;
+
         void                            PageFlipNotification( void ) noexcept;
         void                            DeathMarch          ( void ) noexcept;
         virtual void                    Shutdown            ( void ) noexcept override;

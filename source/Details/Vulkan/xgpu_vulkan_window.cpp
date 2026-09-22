@@ -812,6 +812,22 @@ namespace xgpu::vulkan
             m_pPendingScreenshotHeight = nullptr;
         }
 
+        // Same safe point as the screenshot above - a texture rendered into via StartRenderPass this frame
+        // shares this frame's own command buffer, so it's only now (post-EndFrame's fence wait) actually
+        // GPU-complete. Forwards to the device's own ReadTexture (the same synchronous setup-command-buffer
+        // path Device.ReadTexture always uses) - safe here specifically because nothing is still pending on
+        // this texture at this exact point, unlike calling it directly mid-frame.
+        if (!m_PendingReadbacks.empty())
+        {
+            auto Device = getDevice();
+            for (auto& R : m_PendingReadbacks)
+            {
+                (void)Device.ReadTexture(*R.m_pTexture, *R.m_pDest, *R.m_pWidth, *R.m_pHeight);
+                *R.m_pDone = true;
+            }
+            m_PendingReadbacks.clear();
+        }
+
         auto& Frame       = m_Frames[m_FrameIndex];
         auto& Semaphore   = m_FrameSemaphores[m_SemaphoreIndex];
 
@@ -847,6 +863,15 @@ namespace xgpu::vulkan
 
         // Let the device know what is going on...
         m_Device->PageFlipNotification();
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+
+    bool window::ReadbackTexture(const xgpu::texture& Texture, std::vector<std::uint32_t>& Dest, int& Width, int& Height, bool& bDone) noexcept
+    {
+        bDone = false;
+        m_PendingReadbacks.push_back({ &Texture, &Dest, &Width, &Height, &bDone });
+        return true;
     }
 
     //------------------------------------------------------------------------------------------------------------------------

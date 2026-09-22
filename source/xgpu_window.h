@@ -42,6 +42,18 @@ namespace xgpu
         // xgpu_screenshot.h for an xbitmap-wrapping convenience, since the engine core itself has no
         // dependency on xbitmap.
         XGPU_INLINE [[nodiscard]]   bool                Screenshot              ( std::vector<std::uint32_t>& Dest, int& Width, int& Height ) noexcept;
+
+        // Same idea as Screenshot(), generalized to an arbitrary texture instead of only this window's own
+        // back-buffer: a texture rendered into via StartRenderPass shares THIS frame's own command buffer,
+        // so it is only actually GPU-complete at the exact point PageFlip() itself already waits on this
+        // frame's fence (the same safe point Screenshot()'s own copy runs at) - reading it back any earlier
+        // (e.g. immediately after the StartRenderPass draw, via a separate synchronous path) races the real
+        // render and is undefined. Call this any time before the PageFlip() you want it captured after; bDone
+        // is set to false immediately and flips true once that PageFlip() has actually performed the copy -
+        // poll it instead of assuming any particular frame count, since a caller may not control when PageFlip
+        // itself is invoked (e.g. code running mid-frame inside a UI panel, as opposed to Screenshot()'s own
+        // typical caller - the main loop right before it calls PageFlip() itself).
+        XGPU_INLINE [[nodiscard]]   bool                ReadbackTexture         ( const texture& Texture, std::vector<std::uint32_t>& Dest, int& Width, int& Height, bool& bDone ) noexcept;
         XGPU_INLINE                 void                setClearColor           ( float R, float G, float B, float A ) noexcept;
         XGPU_INLINE [[nodiscard]]   std::size_t         getSystemWindowHandle   ( void ) const noexcept;
         XGPU_INLINE [[nodiscard]]   bool                isFocused               ( void ) const noexcept;
