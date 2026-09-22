@@ -113,6 +113,7 @@ FetchAndPopulate("https://github.com/LIONant-depot/xundo.git" "main")
 FetchAndPopulate("https://github.com/LIONant-depot/xsource_control.git" "main")
 FetchAndPopulate("https://github.com/thedmd/imgui-node-editor.git" "master")
 FetchAndPopulate("https://github.com/LIONant-depot/toolbar.imgui.git" "main")
+FetchAndPopulate("https://github.com/LIONant-depot/xeditor.git" "main")
 
 #
 # Add ImGui files directly
@@ -646,10 +647,10 @@ source_group("Examples/E07_PrimitiveGeoms" FILES
 )
 
 # Include the xgeom_static.plugin so it works
-include_directories( "${CMAKE_SOURCE_DIR}/dependencies/example.lionprj/Cache/Plugins/xgeom_static.plugin" )
+include_directories( "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/Plugins/xgeom_static.plugin" )
 
 # Include the xgeom_skin.plugin so it works
-include_directories( "${CMAKE_SOURCE_DIR}/dependencies/example.lionprj/Cache/Plugins/xgeom_skin.plugin" )
+include_directories( "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/Plugins/xgeom_skin.plugin" )
 
 source_group("Examples/E08_AsyncTextureLoading" FILES
    "source/Examples/E08_AsyncTextureLoading/E08_AsyncTextureLoading.cpp"
@@ -674,7 +675,7 @@ source_group("Examples/E10_TextureResourcePipeline/AssetBrowser" FILES
 )
 
 # Include the xtexture.plugin so it works
-include_directories( "${CMAKE_SOURCE_DIR}/dependencies/example.lionprj/Cache/Plugins/xtexture.plugin" )
+include_directories( "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/Plugins/xtexture.plugin" )
 
 source_group("Examples/E10_TextureResourcePipeline/Shaders" FILES
   "${CMAKE_BINARY_DIR}/sprv_shaders_h/e10_2d_cube_frag.h"
@@ -792,7 +793,7 @@ source_group("Examples/E19_MaterialEditor" FILES
 )
 
 # Include the material.plugin so it works
-include_directories( "${CMAKE_SOURCE_DIR}/dependencies/example.lionprj/Cache/Plugins/xmaterial.plugin" )
+include_directories( "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/Plugins/xmaterial.plugin" )
 
 # We also need to predefine EDITOR 
 target_compile_definitions(${TARGET_PROJECT} PRIVATE EDITOR)
@@ -876,6 +877,21 @@ if(NOT EXISTS "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/Plugins/xrtcs.plugin/so
         message(FATAL_ERROR "Failed to clone xrtcs.plugin: ${result}")
     endif()
 endif()
+
+# Same for xscene.plugin and xlevel.plugin: the Scene and Level editors, header-only, nothing to compile
+# ahead of time, so they were never added to Install.bat's PLUGINS loop either. Referenced below through
+# the "plugins/" worm hole (see the symlink created near the top of this file).
+foreach(HeaderOnlyPlugin xscene.plugin xlevel.plugin)
+    if(NOT EXISTS "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/Plugins/${HeaderOnlyPlugin}/source")
+        execute_process(
+            COMMAND git clone --depth 1 https://github.com/LIONant-depot/${HeaderOnlyPlugin}.git "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/Plugins/${HeaderOnlyPlugin}"
+            RESULT_VARIABLE result
+        )
+        if(result)
+            message(FATAL_ERROR "Failed to clone ${HeaderOnlyPlugin}: ${result}")
+        endif()
+    endif()
+endforeach()
 include_directories( "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/Plugins/xrtcs.plugin" )
 
 source_group("Examples/E26_RTCS_Editor" FILES
