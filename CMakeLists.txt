@@ -878,10 +878,11 @@ if(NOT EXISTS "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/Plugins/xrtcs.plugin/so
     endif()
 endif()
 
-# Same for xscene.plugin and xlevel.plugin: the Scene and Level editors, header-only, nothing to compile
-# ahead of time, so they were never added to Install.bat's PLUGINS loop either. Referenced below through
-# the "plugins/" worm hole (see the symlink created near the top of this file).
-foreach(HeaderOnlyPlugin xscene.plugin xlevel.plugin)
+# Same for xscene.plugin, xlevel.plugin and xscript_module.plugin: the Scene and Level editors and the
+# scripting core, header-only, nothing to compile ahead of time, so they were never added to Install.bat's
+# PLUGINS loop either. Referenced below through the "plugins/" worm hole (see the symlink created near the
+# top of this file).
+foreach(HeaderOnlyPlugin xscene.plugin xlevel.plugin xscript_module.plugin)
     if(NOT EXISTS "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/Plugins/${HeaderOnlyPlugin}/source")
         execute_process(
             COMMAND git clone --depth 1 https://github.com/LIONant-depot/${HeaderOnlyPlugin}.git "${CMAKE_SOURCE_DIR}/example.lionprj/Cache/Plugins/${HeaderOnlyPlugin}"

@@ -49,12 +49,19 @@ note in Build/; delete a line once it's actually fixed and verified.
 - [x] Fixed 2026-09-22, same pass: `xeditor` (the shared editor framework - `dependencies/xeditor`) was never
       fetched anywhere either; only present on this dev machine by a past manual clone. Added it to the
       `FetchAndPopulate` list alongside the other ~20 dependencies there.
-- [ ] BLOCKS a truly fresh clone from finishing (found verifying the two fixes above end-to-end):
-      `example.lionprj/Cache/Plugins/xscript_module.plugin` (the E29 game-module scripting core) has no git
-      remote of its own - it's a plain local folder on this dev machine, fully covered by `example.lionprj`'s
-      own `Cache/` gitignore rule, so it has never been pushed anywhere. `E29_GamePluginLoad.h` `#include`s
-      `plugins/xscript_module.plugin/source/Runtime/xscript_registration.h`, so a fresh clone hits
-      `error C1083: Cannot open include file` there once the xscene/xlevel/xeditor gaps above are fixed.
-      Needs a decision, not just a fix: push it as its own `xscript_module.plugin` repo (matching every
-      other plugin) and wire it into `Install.bat`/CMakeLists.txt the same way, or is it not meant to ship
-      in a fresh clone yet?
+- [x] Fixed 2026-09-22: `example.lionprj/Cache/Plugins/xscript_module.plugin` (the E29 game-module scripting
+      core) had no git remote of its own - it was a plain local folder on this dev machine, fully covered by
+      `example.lionprj`'s own `Cache/` gitignore rule, so it had never been pushed anywhere, and a fresh
+      clone hit `error C1083: Cannot open include file 'plugins/xscript_module.plugin/...'`. Pushed as its
+      own repo (`LIONant-depot/xscript_module.plugin`, same header-only shape as xscene/xlevel) and added to
+      the same CMakeLists.txt clone-on-demand `foreach`.
+- [x] Fixed 2026-09-22: `xgeom_skin.plugin`'s local clone had two remotes - `origin` (a personal fork,
+      `nickreal03/xgeom_skin.plugin`) and `lionant` (the canonical `LIONant-depot/xgeom_skin.plugin`, which
+      every other plugin's `origin` points straight at). Tonight's "push it all" pushed to `origin` only, so
+      the canonical repo Install.bat actually clones from stayed on an old commit - a fresh clone built an
+      xgeom_skin.plugin with no Editor/ at all. Pushed the same commits to `lionant` too. No other plugin has
+      this second remote; checked all of tonight's other pushes and they only have one `origin`, already
+      correct.
+- [x] Verified 2026-09-22: with all of the above, a genuine fresh `git clone` of xGPU from GitHub (not the
+      dev tree, not the stale scratch clone) configures, generates and builds `xGPU_unit_test.exe` (Release)
+      with zero compile errors - the flow the user's original report was blocked on.
