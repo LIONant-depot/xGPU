@@ -29,9 +29,12 @@ namespace xeditor
         {
             #include "draw_frag.h"
         };
+        // A real PBR material (mb_standard_pbr.frag / mb_material_pbr.frag - the common case) needs the full
+        // varying interface a plain position/uv/color pass-through can't provide; see the shader's own
+        // comment for why it's a separate file instead of draw_vert.glsl (used broadly elsewhere).
         static constexpr auto s_MeshVertShader = std::array
         {
-            #include "draw_vert.h"
+            #include "xeditor_mesh_preview_full_vert.h"
         };
 
         struct push_const2D
@@ -41,9 +44,22 @@ namespace xeditor
             xmath::fvec2    m_UVScale;
         };
 
+        // Exactly the guaranteed-minimum 128-byte Vulkan push-constant budget (two mat4s) - no room to spare.
         struct push_constants
         {
-            xmath::fmat4    m_L2C;
+            xmath::fmat4    m_L2W;
+            xmath::fmat4    m_W2C;
+        };
+
+        // Mirrors mb_standard_pbr.frag's "lighting_uniforms" (set 2, binding 1) field for field - a real
+        // material's fragment shader reads these for actual shading, not just to satisfy the pipeline layout.
+        struct alignas(256) ubo_lighting
+        {
+            xmath::fvec4    m_LightColor;
+            xmath::fvec4    m_AmbientLightColor;
+            xmath::fvec4    m_wSpaceLightPos;        // xyz = position, w = falloff radius (0 = infinite)
+            xmath::fvec4    m_wSpaceEyePos;
+            xmath::fvec4    m_LightParams;           // .x = area radius, .y = temperature (K), .z = intensity mult, .w = spare
         };
 
         bool Init(xgpu::device& Device) noexcept
@@ -56,8 +72,13 @@ namespace xeditor
             { xgpu::vertex_descriptor::attribute{ .m_Offset = offsetof(e19::draw_vert, m_X),     .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D }
             , xgpu::vertex_descriptor::attribute{ .m_Offset = offsetof(e19::draw_vert, m_U),     .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D }
             , xgpu::vertex_descriptor::attribute{ .m_Offset = offsetof(e19::draw_vert, m_Color), .m_Format = xgpu::vertex_descriptor::format::UINT8_4D_NORMALIZED }
+            , xgpu::vertex_descriptor::attribute{ .m_Offset = offsetof(e19::draw_vert, m_NX),    .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D }
+            , xgpu::vertex_descriptor::attribute{ .m_Offset = offsetof(e19::draw_vert, m_TX),    .m_Format = xgpu::vertex_descriptor::format::FLOAT_4D }
             };
             if (!Ok(Device.Create(m_MeshVD, xgpu::vertex_descriptor::setup{ .m_VertexSize = sizeof(e19::draw_vert), .m_Attributes = Attributes }))) return false;
+
+            if (!Ok(Device.Create(m_LightUBO, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ
+                , .m_EntryByteSize = sizeof(ubo_lighting), .m_EntryCount = 4 }))) return false;
 
             // The background: a textured 2D plane
             xgpu::vertex_descriptor VD2D;
@@ -105,8 +126,12 @@ namespace xeditor
 
             std::vector<xgpu::pipeline::sampler> Samplers(Bindings.size());
             auto Shaders = std::array<const xgpu::shader*, 2>{ &Fragment, &Vert };
+            // Binding 1 (set 2, per xgpu's uniform_binds convention) - mb_standard_pbr.frag's "lighting_uniforms".
+            // A material whose fragment shader doesn't declare it (not built on mb_standard_pbr.frag) simply
+            // never reads this bind; declaring it unconditionally costs nothing there.
+            auto UniformBinds = std::array{ xgpu::pipeline::uniform_binds{ .m_BindIndex = 1, .m_Usage = { .m_bFragment = true }, .m_Type = xgpu::pipeline::uniform_binds::type::UBO_DYNAMIC } };
             if (!Ok(m_pDevice->Create(m_Pipeline, xgpu::pipeline::setup
-                { .m_VertexDescriptor = m_MeshVD, .m_Shaders = Shaders, .m_PushConstantsSize = sizeof(push_constants), .m_Samplers = Samplers }))) return false;
+                { .m_VertexDescriptor = m_MeshVD, .m_Shaders = Shaders, .m_PushConstantsSize = sizeof(push_constants), .m_UniformBinds = UniformBinds, .m_Samplers = Samplers }))) return false;
 
             if (!Bindings.empty())
                 return Ok(m_pDevice->Create(m_Instance, { .m_PipeLine = m_Pipeline, .m_SamplersBindings = Bindings }));
@@ -204,9 +229,21 @@ namespace xeditor
             m_View.LookAt(m_Distance + Distance - 1, m_Angles, { 0, 0, 0 });
 
             push_constants PushConst;
-            PushConst.m_L2C = m_View.getW2C() * xmath::fmat4::fromScale({ 2.f });
+            PushConst.m_L2W = xmath::fmat4::fromScale({ 2.f });
+            PushConst.m_W2C = m_View.getW2C();
+
+            // A fixed, camera-relative key light (product-shot style: up and to the side of whatever angle
+            // the mesh is being viewed from) - there is no scene lighting to draw from in this preview.
+            auto& Lighting               = m_LightUBO.allocEntry<ubo_lighting>();
+            Lighting.m_LightColor        = xmath::fvec4(1) * 4;
+            Lighting.m_AmbientLightColor = xmath::fvec4(1) * 0.7f;
+            Lighting.m_wSpaceLightPos    = xmath::fvec4(m_View.getPosition() + xmath::fvec3{ 1, 2, 1 } * m_Distance, 20.f);
+            Lighting.m_wSpaceEyePos      = xmath::fvec4(m_View.getPosition(), 0);
+            Lighting.m_LightParams       = { 2.f, 6500.f, 1.f, 0.f };  // area radius, temperature (K), intensity mult, spare
+
             CmdBuffer.setPipelineInstance(m_Instance);
             CmdBuffer.setPushConstants(PushConst);
+            CmdBuffer.setDynamicUBO(m_LightUBO, 1);
             m_Meshes.Rendering(CmdBuffer, m_Model);
         }
 
@@ -214,6 +251,7 @@ namespace xeditor
         bool                            m_bReady  = false;
         e19::mesh_manager               m_Meshes;
         xgpu::vertex_descriptor         m_MeshVD;
+        xgpu::buffer                    m_LightUBO;
         xgpu::pipeline                  m_Pipeline2D;
         xgpu::pipeline_instance         m_Background;
         xgpu::texture                   m_CheckerTexture;

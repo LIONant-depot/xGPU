@@ -285,6 +285,7 @@ set(VERT_SHADER_SOURCES
   "source/Examples/E27_NodeOS/E27_normal_vert.glsl"
   "plugins/xfont.plugin/source/Editor/shaders/E28_msdf_vert.glsl"
   "plugins/xfont.plugin/source/Editor/shaders/E28_wire_vert.glsl"
+  "source/Tools/Editor/shaders/xeditor_mesh_preview_full_vert.glsl"
   )
 
 # List geometry shader sources

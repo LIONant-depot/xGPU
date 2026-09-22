@@ -11,6 +11,10 @@ namespace e19
         float           m_X, m_Y, m_Z;
         float           m_U, m_V;
         std::uint32_t   m_Color;
+        // Trailing, so every existing offsetof-based vertex descriptor (position/uv/color only) keeps working
+        // unchanged; a real PBR material's preview (xeditor_mesh_preview.h) reads these too.
+        float           m_NX, m_NY, m_NZ;
+        float           m_TX, m_TY, m_TZ, m_TW;    // xyz = tangent, w = binormal sign
     };
 
     struct vert_2d
@@ -84,6 +88,8 @@ namespace e19
                     V.m_U = v.m_Texcoord.m_X;
                     V.m_V = v.m_Texcoord.m_Y;
                     V.m_Color = ~0;
+                    V.m_NX = v.m_Normal.m_X;  V.m_NY = v.m_Normal.m_Y;  V.m_NZ = v.m_Normal.m_Z;
+                    V.m_TX = v.m_Tangent.m_X; V.m_TY = v.m_Tangent.m_Y; V.m_TZ = v.m_Tangent.m_Z; V.m_TW = v.m_Tangent.m_D;
                 }
             });
 
@@ -130,6 +136,8 @@ namespace e19
                     V.m_U = v.m_Texcoord.m_X;
                     V.m_V = v.m_Texcoord.m_Y;
                     V.m_Color = ~0;
+                    V.m_NX = v.m_Normal.m_X;  V.m_NY = v.m_Normal.m_Y;  V.m_NZ = v.m_Normal.m_Z;
+                    V.m_TX = v.m_Tangent.m_X; V.m_TY = v.m_Tangent.m_Y; V.m_TZ = v.m_Tangent.m_Z; V.m_TW = v.m_Tangent.m_D;
                 }
             });
 
@@ -176,6 +184,8 @@ namespace e19
                     V.m_U = v.m_Texcoord.m_X;
                     V.m_V = v.m_Texcoord.m_Y;
                     V.m_Color = ~0;
+                    V.m_NX = v.m_Normal.m_X;  V.m_NY = v.m_Normal.m_Y;  V.m_NZ = v.m_Normal.m_Z;
+                    V.m_TX = v.m_Tangent.m_X; V.m_TY = v.m_Tangent.m_Y; V.m_TZ = v.m_Tangent.m_Z; V.m_TW = v.m_Tangent.m_D;
                 }
             });
 
@@ -222,6 +232,8 @@ namespace e19
                     V.m_U = v.m_Texcoord.m_X;
                     V.m_V = v.m_Texcoord.m_Y;
                     V.m_Color = ~0;
+                    V.m_NX = v.m_Normal.m_X;  V.m_NY = v.m_Normal.m_Y;  V.m_NZ = v.m_Normal.m_Z;
+                    V.m_TX = v.m_Tangent.m_X; V.m_TY = v.m_Tangent.m_Y; V.m_TZ = v.m_Tangent.m_Z; V.m_TW = v.m_Tangent.m_D;
                 }
             });
 

@@ -32,8 +32,25 @@ note in Build/; delete a line once it's actually fixed and verified.
 
 ## Known gaps, longer-standing
 
-- [ ] Material editor's PBR preview logs `vkCmdDrawIndexed(): ... set 2 not bound` Vulkan validation errors; the
-      E19 example the preview was copied from does the same, so it's pre-existing, not a regression.
+- [x] Fixed 2026-09-23: Material/Material Instance editor preview spammed two Vulkan validation errors every
+      frame (`VUID-VkGraphicsPipelineCreateInfo-layout-07988` - the compiled fragment shader's `lighting_uniforms`
+      UBO at set 2 binding 1 not in the pipeline layout; `VUID-RuntimeSpirv-OpEntryPoint-08743` - a vertex/
+      fragment interface mismatch at locations 1-5) plus the `vkCmdDrawIndexed` complaint that follows from the
+      first. Root cause: a real PBR material (built on `mb_standard_pbr.frag`/`mb_material_pbr.frag` via the
+      graph's "Output: Shader File" node - the common case, e.g. "Default PBR Material") needs the full 6-field
+      `VaryingFull` vertex interface and that lighting UBO, but the preview drew primitive shapes with a plain
+      position/UV/color vertex shader and no uniform buffer at all - present since the original E19 example this
+      was copied from, not a regression. Fixed: gave `e19::mesh_manager`'s primitives real normal/tangent data
+      (already computed by `xprim_geom`, previously discarded), a new preview vertex shader
+      (`xeditor_mesh_preview_full_vert.glsl`) outputting the full interface, and a `lighting_uniforms` UBO filled
+      with a fixed camera-relative key light each frame (`xeditor_mesh_preview.h`). Verified live: zero validation
+      errors with both editors open, and the sphere preview now shows real PBR shading (specular highlight, the
+      instance's actual textures) instead of position-only data.
+- [ ] Seen once, not reproduced since: `VUID-VkMappedMemoryRange-size-01390` (a MemoryMap flush/invalidate size
+      not a multiple of `nonCoherentAtomSize`) at app startup, before any editor was opened, during the
+      background compile-queue's own initial scan - unrelated to the PBR preview fix above (checked: the byte
+      count doesn't match any of `e19::mesh_manager`'s buffers). Two clean re-runs of the exact same steps
+      didn't reproduce it; flag if it recurs, don't chase blind.
 - [ ] E23 GPU id-buffer picking and packed edge labels were not ported to the plugin Skeleton editor; it uses CPU
       ray-picking and plain name labels instead. Revisit if picking accuracy on dense skeletons becomes an issue.
 - [ ] Static Geom and Skin Geom editors duplicate their node-hierarchy command code; candidate to unify into one
