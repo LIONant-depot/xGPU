@@ -48,7 +48,7 @@
 #include "plugins/xgeom_skin.plugin/source/xgeom_skin_descriptor.h"
 #include "plugins/xgeom_skin.plugin/source/xgeom_skin_details.h"
 #include "plugins/xgeom_skin.plugin/source/xgeom_skin_xgpu_rsc_loader.h"
-#include "plugins/xgeom_skin.plugin/source/xgeom_skin_xgpu_rsc_loader.cpp"
+// The loader itself is compiled once, with the plugin's editor (xgeom_skin_editor.h, included by E29).
 #include "plugins/xgeom_skin.plugin/source/xgeom_skin_xgpu_runtime.h"
 
 #include "source/tools/xgpu_imgui_timeline.h"

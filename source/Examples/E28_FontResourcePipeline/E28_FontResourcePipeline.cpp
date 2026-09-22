@@ -22,7 +22,7 @@
 
 #include "plugins/xfont.plugin/source/xfont_rsc_descriptor.h"
 #include "plugins/xfont.plugin/source/xfont_xgpu_rsc_loader.h"
-#include "plugins/xfont.plugin/source/xfont_xgpu_rsc_loader.cpp"
+// The loader itself is compiled once, with the plugin's editor (xfont_editor.h, included by E29).
 
 #include "imgui_internal.h"
 

@@ -34,7 +34,7 @@
 #include "plugins/xskeleton.plugin/source/xskeleton_descriptor.h"
 #include "plugins/xskeleton.plugin/source/xskeleton_details.h"
 #include "plugins/xskeleton.plugin/source/xskeleton_xgpu_rsc_loader.h"
-#include "plugins/xskeleton.plugin/source/xskeleton_xgpu_rsc_loader.cpp"
+// The loader itself is compiled once, with the plugin's editors (xskeleton_editor_scene.h, included by E29).
 
 #include "imgui_internal.h"
 #include "source/tools/editors/xgpu_editor_viewport.h"

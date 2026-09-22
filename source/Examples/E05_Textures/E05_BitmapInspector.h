@@ -1,3 +1,4 @@
+#pragma once
 #include "source/xGPU.h"
 #include <iostream>
 #include <fstream>

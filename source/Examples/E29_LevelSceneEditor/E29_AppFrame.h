@@ -1108,7 +1108,11 @@ namespace e29
 
 
 
+        g_WindowCapture.BeforeFlip(MainWindow);
+
         MainWindow.PageFlip();
+
+        g_WindowCapture.AfterFlip();
 
 
 

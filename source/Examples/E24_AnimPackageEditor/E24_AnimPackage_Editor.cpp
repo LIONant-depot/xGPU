@@ -39,7 +39,7 @@
 #include "plugins/xanim_package.plugin/source/xanim_package.h"
 #include "plugins/xanim_package.plugin/source/xanim_package_descriptor.h"
 #include "plugins/xanim_package.plugin/source/xanim_package_xgpu_rsc_loader.h"
-#include "plugins/xanim_package.plugin/source/xanim_package_xgpu_rsc_loader.cpp"
+// The loader itself is compiled once, with the plugin's editor (xanim_package_editor.h, included by E29).
 
 #include "source/tools/xgpu_imgui_timeline.h"
 #include "source/tools/editors/xgpu_editor_anim_pose.h"

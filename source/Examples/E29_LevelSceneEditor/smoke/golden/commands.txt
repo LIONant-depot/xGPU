@@ -1,6 +1,8 @@
 AddProjectModuleReference
 AddScriptSourceFile
+CaptureWindow
 Close
+CloseResourceEditor
 CompileAuto
 CompilePause
 CompileStart

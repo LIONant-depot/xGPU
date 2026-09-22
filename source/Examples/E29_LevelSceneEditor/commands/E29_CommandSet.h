@@ -13,6 +13,8 @@ namespace e29
     {
         e29::commands::open_resource_editor_cmd          CmdOpenResourceEditor;
         e29::commands::resource_editor_command_cmd       CmdResourceEditorCommand;
+        e29::commands::close_resource_editor_cmd         CmdCloseResourceEditor;
+        e29::commands::capture_window_cmd                CmdCaptureWindow;
         xscene::commands::select_cmd                        CmdSelect;
         xscene::commands::toggle_multi_select_cmd           CmdToggleMultiSelect;
         xscene::commands::clear_selection_cmd               CmdClearSelection;
@@ -109,6 +111,8 @@ namespace e29
         command_set(xundo::system& Workspace, xundo::system& Level, xscene::scene_context* pScene, xlevel::level_context* pEditor) noexcept
         : CmdOpenResourceEditor(Workspace, pEditor)
         , CmdResourceEditorCommand(Workspace, pEditor)
+        , CmdCloseResourceEditor(Workspace, pEditor)
+        , CmdCaptureWindow(Workspace, pEditor)
         , CmdSelect(Level, pScene)
         , CmdToggleMultiSelect(Level, pScene)
         , CmdClearSelection(Level, pScene)

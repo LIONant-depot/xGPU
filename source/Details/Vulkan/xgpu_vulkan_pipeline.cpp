@@ -399,6 +399,11 @@ namespace xgpu::vulkan
         //
         std::array<VkDescriptorSetLayoutBinding, 10> dynamicBindings{};
         VkDescriptorSetLayoutCreateInfo dynamicLayoutInfo = { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, .pNext = nullptr };
+
+        // These must outlive the vkCreateDescriptorSetLayout call below: dynamicLayoutInfo points at them
+        std::array<VkDescriptorBindingFlags, 10> bindingFlags{};  // All zero/default
+        VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo = { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
+
         nDynamic = static_cast<int>(m_DynamicView.size());
         if (nDynamic > 0) 
         {
@@ -416,12 +421,8 @@ namespace xgpu::vulkan
             dynamicLayoutInfo.pBindings     = dynamicBindings.data();
 
             // No UPDATE_AFTER_BIND needed for dynamic UBOs (and it's invalid anyway)
-            std::array<VkDescriptorBindingFlags, 10> bindingFlags{};  // All zero/default
-            VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo = 
-            { .sType            = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO
-            , .bindingCount     = static_cast<uint32_t>(nDynamic)
-            , .pBindingFlags    = bindingFlags.data()
-            };
+            bindingFlagsInfo.bindingCount  = static_cast<uint32_t>(nDynamic);
+            bindingFlagsInfo.pBindingFlags = bindingFlags.data();
             dynamicLayoutInfo.pNext = &bindingFlagsInfo;
         }
         else 

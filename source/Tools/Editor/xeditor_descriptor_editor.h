@@ -16,6 +16,10 @@ namespace xeditor
     {
         std::unique_ptr<xresource_pipeline::descriptor::base>   m_pDescriptor;
 
+        // Reading can report an error for a descriptor that is still usable (one that cross-checks another resource which is not compiled yet):
+        // when this says yes for the descriptor that was read, it is kept.
+        std::function<bool(const xresource_pipeline::descriptor::base&)> m_TolerateReadError;
+
         bool isLoaded() const noexcept override { return m_pDescriptor != nullptr; }
 
         bool Reset() noexcept override
@@ -32,7 +36,7 @@ namespace xeditor
             if (!pFactory) return false;
             auto pNew = pFactory->CreateDescriptor();
             xproperty::settings::context Context;
-            if (pNew->Serialize(true, Path, Context)) return false;
+            if (pNew->Serialize(true, Path, Context) && !(m_TolerateReadError && m_TolerateReadError(*pNew))) return false;
             m_pDescriptor = std::move(pNew);
             return true;
         }
@@ -170,6 +174,29 @@ namespace xeditor
         };
     }
 
+    // An inspector edit of the descriptor has already been applied: report it as a command so it is undoable, logged and the same as a typed one.
+    // For editors that have their own window but share the descriptor commands.
+    inline void ReportDescriptorEdit(xundo::system& Undo, descriptor_document& Doc, const xproperty::ui::undo::cmd& Cmd) noexcept
+    {
+        using cmd_util::FormatValue;
+        using cmd_util::IsAtomicType;
+        Doc.m_bDirty = true;
+
+        if (Cmd.m_NewValue.is<std::string>() && Cmd.m_Original.is<std::string>() && !Cmd.m_Name.empty() && Cmd.m_Name.find('/') == std::string::npos)
+        {
+            // An edit bracket (array insert / delete / reorder): both values are whole-object snapshots.
+            const std::string Line = std::format("SnapshotEdit -Label {} -Before {} -After {}", Base64Encode(Cmd.m_Name)
+                , Base64Encode(Cmd.m_Original.get<std::string>()), Base64Encode(Cmd.m_NewValue.get<std::string>()));
+            LogConsole(std::format("SnapshotEdit \"{}\"", Cmd.m_Name), log_source::User);
+            if (auto Err = Undo.Execute(Line); !Err.empty()) NotifyError(std::format("edit failed: {}", Err));
+            return;
+        }
+
+        if (!Cmd.m_NewValue.m_pType || !Cmd.m_Original.m_pType || !(IsAtomicType(Cmd.m_NewValue.getTypeGuid()) || Cmd.m_NewValue.isEnum())) return;   // not something a command can carry
+        Run(Undo, std::format("SetProperty -Path {} -Value {} -Before {}", Base64Encode(Cmd.m_Name)
+            , Base64Encode(FormatValue(Cmd.m_NewValue)), Base64Encode(FormatValue(Cmd.m_Original))));
+    }
+
     //--------------------------------------------------------------------------------------------
     // The editor
     //--------------------------------------------------------------------------------------------
@@ -207,22 +234,7 @@ namespace xeditor
         {
             m_Document.m_bDirty = true;
             if (OnCustomChange(Cmd)) return;
-            using cmd_util::FormatValue;
-            using cmd_util::IsAtomicType;
-
-            if (Cmd.m_NewValue.is<std::string>() && Cmd.m_Original.is<std::string>() && !Cmd.m_Name.empty() && Cmd.m_Name.find('/') == std::string::npos)
-            {
-                // An edit bracket (array insert / delete / reorder): both values are whole-object snapshots.
-                const std::string Line = std::format("SnapshotEdit -Label {} -Before {} -After {}", Base64Encode(Cmd.m_Name)
-                    , Base64Encode(Cmd.m_Original.get<std::string>()), Base64Encode(Cmd.m_NewValue.get<std::string>()));
-                LogConsole(std::format("SnapshotEdit \"{}\"", Cmd.m_Name), log_source::User);
-                if (auto Err = m_Undo.Execute(Line); !Err.empty()) NotifyError(std::format("edit failed: {}", Err));
-                return;
-            }
-
-            if (!Cmd.m_NewValue.m_pType || !Cmd.m_Original.m_pType || !IsAtomicType(Cmd.m_NewValue.getTypeGuid())) return;   // not something a command can carry
-            Run(m_Undo, std::format("SetProperty -Path {} -Value {} -Before {}", Base64Encode(Cmd.m_Name)
-                , Base64Encode(FormatValue(Cmd.m_NewValue)), Base64Encode(FormatValue(Cmd.m_Original))));
+            ReportDescriptorEdit(m_Undo, m_Document, Cmd);
         }
     };
 }

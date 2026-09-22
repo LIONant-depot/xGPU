@@ -5,6 +5,7 @@
 // A material shown on a primitive (cube, sphere, capsule, cylinder) over a checker background: what the Material and Material Instance editors
 // preview with. The editor gives it the material's fragment shader and texture bindings (SetMaterial); the panel calls Render every frame.
 #include "source/Examples/E19_MaterialEditor/E19_mesh_manager.h"
+#include "source/Tools/Editor/xeditor_camera.h"
 #include "source/tools/xgpu_imgui_breach.h"
 #include "source/tools/xgpu_view.h"
 #include "source/tools/xgpu_xcore_bitmap_helpers.h"
@@ -132,7 +133,7 @@ namespace xeditor
         {
             if (!m_bReady) { ImGui::TextDisabled("Preview needs a GPU device (open from E29)."); return; }
 
-            static constexpr const char* s_Names[] = { "Cube", "Sphere", "Capsule", "Cylinder" };
+            static constexpr const char* s_Names[] = { "Cube", "Sphere", "Capsule", "Cylinder" };      // keep in step with s_ModelNames
             if (ImGui::Button("\xEE\xAF\x92 Meshes")) ImGui::OpenPopup("Meshes");
             if (ImGui::BeginPopup("Meshes"))
             {
@@ -161,6 +162,14 @@ namespace xeditor
             xgpu::tools::imgui::AddCustomRenderCallback([this, Avail](xgpu::cmd_buffer& CmdBuffer, const ImVec2&, const ImVec2&) { Draw(CmdBuffer, Avail.x, Avail.y); });
             ImGui::PopClipRect();
         }
+
+    public:     // what the commands of the preview reach
+        e19::mesh_manager::model        m_Model   = e19::mesh_manager::model::CUBE;
+
+        static constexpr const char* s_ModelNames[] = { "Cube", "Sphere", "Capsule", "Cylinder" };
+
+        // The camera's numbers, for the camera commands: the preview always looks at the mesh, so there is no target
+        xeditor::camera_access Camera() noexcept { return { &m_Angles, &m_Distance, nullptr, [this] { m_Angles = {}; m_Distance = 2; } }; }
 
     private:
         static bool Ok(xgpu::device::error* pErr) noexcept
@@ -204,7 +213,6 @@ namespace xeditor
         xgpu::device*                   m_pDevice = nullptr;
         bool                            m_bReady  = false;
         e19::mesh_manager               m_Meshes;
-        e19::mesh_manager::model        m_Model   = e19::mesh_manager::model::CUBE;
         xgpu::vertex_descriptor         m_MeshVD;
         xgpu::pipeline                  m_Pipeline2D;
         xgpu::pipeline_instance         m_Background;
@@ -215,6 +223,32 @@ namespace xeditor
         xgpu::tools::view               m_View;
         xmath::radian3                  m_Angles;
         float                           m_Distance = 2;
+    };
+
+    // The commands of a mesh preview: which mesh, and the camera
+    struct mesh_preview_cmds
+    {
+        struct mesh_cmd : xundo::query_command_base
+        {
+            mesh_preview& m_Preview;
+            mesh_cmd(xundo::system& System, mesh_preview& Preview) noexcept : query_command_base(System, "SetPreviewMesh", nullptr), m_Preview(Preview) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "The mesh the material is previewed on (view state; without -Model it says which). Usage: SetPreviewMesh [-Model Cube|Sphere|Capsule|Cylinder]"; }
+            void RegisterArguments() noexcept override { m_hModel = m_Parser.addOption("Model", "Cube, Sphere, Capsule or Cylinder", false, 1); }
+            std::string Query() noexcept override
+            {
+                std::string Name;
+                if (!cmd_util::GetArg(m_Parser, m_hModel, Name)) return std::format("SetPreviewMesh: {}", mesh_preview::s_ModelNames[static_cast<int>(m_Preview.m_Model)]);
+                for (int i = 0; i < 4; ++i)
+                    if (Name == mesh_preview::s_ModelNames[i]) { m_Preview.m_Model = static_cast<e19::mesh_manager::model>(i); return std::format("SetPreviewMesh: {}", Name); }
+                return "SetPreviewMesh: Model is Cube, Sphere, Capsule or Cylinder";
+            }
+            xcmdline::parser::handle m_hModel;
+        };
+
+        camera_cmds m_Camera;
+        mesh_cmd    m_Mesh;
+
+        mesh_preview_cmds(xundo::system& System, mesh_preview& Preview) noexcept : m_Camera(System, Preview.Camera()), m_Mesh(System, Preview) {}
     };
 }
 

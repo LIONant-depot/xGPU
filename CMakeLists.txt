@@ -246,11 +246,11 @@ set(FRAG_SHADER_SOURCES
   "plugins/xgeom_static.plugin/source/Editor/shaders/E21_WireFrame_frag.glsl"
   "plugins/xgeom_static.plugin/source/Editor/shaders/E21_DebugNormalRender_frag.glsl"
   "source/Examples/E23_SkeletonEditor/E23_Pick_frag.glsl"
-  "source/Examples/E23_SkeletonEditor/E23_WedgeFill_frag.glsl"
-  "source/Examples/E23_SkeletonEditor/E23_ShadowGeneration_frag.glsl"
+  "plugins/xskeleton.plugin/source/Editor/shaders/E23_WedgeFill_frag.glsl"
+  "plugins/xskeleton.plugin/source/Editor/shaders/E23_ShadowGeneration_frag.glsl"
   "source/Examples/E27_NodeOS/E27_normal_frag.glsl"
-  "source/Examples/E28_FontResourcePipeline/E28_msdf_frag.glsl"
-  "source/Examples/E28_FontResourcePipeline/E28_wire_frag.glsl"
+  "plugins/xfont.plugin/source/Editor/shaders/E28_msdf_frag.glsl"
+  "plugins/xfont.plugin/source/Editor/shaders/E28_wire_frag.glsl"
 
   )
 
@@ -279,11 +279,11 @@ set(VERT_SHADER_SOURCES
   "plugins/xgeom_static.plugin/source/Editor/shaders/E21_WireFrame_vert.glsl"
   "plugins/xgeom_static.plugin/source/Editor/shaders/E21_DebugNormalRender_vert.glsl"
   "source/Examples/E23_SkeletonEditor/E23_Pick_vert.glsl"
-  "source/Examples/E23_SkeletonEditor/E23_WedgeFill_vert.glsl"
-  "source/Examples/E23_SkeletonEditor/E23_ShadowGeneration_vert.glsl"
+  "plugins/xskeleton.plugin/source/Editor/shaders/E23_WedgeFill_vert.glsl"
+  "plugins/xskeleton.plugin/source/Editor/shaders/E23_ShadowGeneration_vert.glsl"
   "source/Examples/E27_NodeOS/E27_normal_vert.glsl"
-  "source/Examples/E28_FontResourcePipeline/E28_msdf_vert.glsl"
-  "source/Examples/E28_FontResourcePipeline/E28_wire_vert.glsl"
+  "plugins/xfont.plugin/source/Editor/shaders/E28_msdf_vert.glsl"
+  "plugins/xfont.plugin/source/Editor/shaders/E28_wire_vert.glsl"
   )
 
 # List geometry shader sources
@@ -852,10 +852,10 @@ source_group("Examples/E23_SkeletonEditor" FILES
    "source/Examples/E23_SkeletonEditor/E23_Skeleton_Editor.cpp"
    "source/Examples/E23_SkeletonEditor/E23_Pick_frag.glsl"
    "source/Examples/E23_SkeletonEditor/E23_Pick_vert.glsl"
-   "source/Examples/E23_SkeletonEditor/E23_WedgeFill_frag.glsl"
-   "source/Examples/E23_SkeletonEditor/E23_WedgeFill_vert.glsl"
-   "source/Examples/E23_SkeletonEditor/E23_ShadowGeneration_frag.glsl"
-   "source/Examples/E23_SkeletonEditor/E23_ShadowGeneration_vert.glsl"
+   "plugins/xskeleton.plugin/source/Editor/shaders/E23_WedgeFill_frag.glsl"
+   "plugins/xskeleton.plugin/source/Editor/shaders/E23_WedgeFill_vert.glsl"
+   "plugins/xskeleton.plugin/source/Editor/shaders/E23_ShadowGeneration_frag.glsl"
+   "plugins/xskeleton.plugin/source/Editor/shaders/E23_ShadowGeneration_vert.glsl"
 )
 
 source_group("Examples/E24_AnimPackageEditor" FILES
