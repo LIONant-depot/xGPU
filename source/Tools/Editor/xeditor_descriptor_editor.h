@@ -156,6 +156,134 @@ namespace xeditor
             xcmdline::parser::handle m_hLabel, m_hBefore, m_hAfter;
         };
 
+        // ListOp: insert, delete or move an element of a 1D, ordinally-keyed array property (undoable).
+        // SetProperty already resizes a list by appending/truncating at the end (a path ending in "[]");
+        // this is the missing middle - insert/delete/move without hand-editing every other element. Goes
+        // through the exact same TryGetSize/TrySetSize/TrySwap shift chains xPropertyImGuiInspector.cpp's
+        // own mouse-driven array controls use, found via the collector's existing "[]" size-marker
+        // callback (it already hands back the array's list_table and owning instance - no xproperty change
+        // needed), then reuses the same whole-object before/after snapshot SnapshotEdit does for its own
+        // undo, rather than inventing a second undo shape.
+        struct list_op_cmd : xundo::command_base
+        {
+            descriptor_document& m_Doc;
+            list_op_cmd(xundo::system& System, descriptor_document& Doc) noexcept : command_base(System, "ListOp", nullptr), m_Doc(Doc) { RegisterArguments(); }
+            const char* getCommandHelp() const noexcept override { return "Inserts, deletes or moves an element of a 1D array property (undoable; ordinal keys only). Usage: ListOp -Path base64 -Op Insert|Delete|Move -Index n [-ToIndex n]"; }
+            void RegisterArguments() noexcept override
+            {
+                m_hPath  = m_Parser.addOption("Path",    "Array property path, base64 (no trailing [])",             true,  1);
+                m_hOp    = m_Parser.addOption("Op",      "Insert, Delete or Move",                                   true,  1);
+                m_hIndex = m_Parser.addOption("Index",   "Element index (Insert/Delete); the source index for Move", true,  1);
+                m_hTo    = m_Parser.addOption("ToIndex", "Destination index (Move only)",                            false, 1);
+            }
+
+            // The array's list_table (element 0 - 1D only) and its owning instance, for Path (no trailing
+            // "[]"). The collector already computes exactly this for the size marker it reports for every
+            // list; asking it for "Path[]" specifically is cheaper than a whole extra traversal mechanism.
+            bool FindArray(const std::string& Path, const xproperty::type::members*& pOutMembers, void*& pOutInstance, std::string& Error) noexcept
+            {
+                pOutMembers = nullptr; pOutInstance = nullptr;
+                const std::string SizeMarker = Path + "[]";
+                xproperty::settings::context Context;
+                xproperty::sprop::collector(m_Doc.m_pDescriptor.get(), *m_Doc.m_pDescriptor->getProperties(), Context
+                    , [&](const char* pName, xproperty::any&&, const xproperty::type::members& Member, bool, const void* pInstance) noexcept
+                    {
+                        if (!pOutMembers && SizeMarker == pName) { pOutMembers = &Member; pOutInstance = const_cast<void*>(pInstance); }
+                    });
+                if (!pOutMembers) { Error = std::format("ListOp: no array '{}'", Path); return false; }
+                return true;
+            }
+
+            bool Apply(const std::string& Path, const std::string& Op, std::size_t Index, std::size_t ToIndex, std::string& Error) noexcept
+            {
+                const xproperty::type::members* pMembers = nullptr;
+                void* pInstance = nullptr;
+                if (!FindArray(Path, pMembers, pInstance, Error)) return false;
+
+                xproperty::settings::context Context;
+                const auto WithTable = [&](const auto& ListMember) noexcept -> bool
+                {
+                    if (ListMember.m_Table.size() != 1)      { Error = "ListOp: only a 1D array is supported"; return false; }
+                    const auto& T = ListMember.m_Table[0];
+                    if (!T.m_bHasRealSetSize)                { Error = "ListOp: this array's size can't be changed"; return false; }
+                    if (T.m_KeyAtomicType.m_GUID != xproperty::settings::var_type<std::size_t>::guid_v) { Error = "ListOp: only an ordinal array is supported"; return false; }
+
+                    const auto SizeResult = T.TryGetSize(pInstance, Context);
+                    const std::size_t N   = SizeResult ? SizeResult.value() : 0;
+                    const auto KeyOf      = [](std::size_t I) noexcept { xproperty::any K; K.set<std::size_t>(I); return K; };
+                    const auto SwapAt     = [&](std::size_t A, std::size_t B) noexcept { (void)T.TrySwap(pInstance, KeyOf(A), KeyOf(B), Context); };
+
+                    if (Op == "Insert")
+                    {
+                        if (Index > N) { Error = std::format("ListOp: index {} is past the end (size {})", Index, N); return false; }
+                        if (!T.TrySetSize(pInstance, N + 1, Context)) { Error = "ListOp: failed to resize"; return false; }
+                        for (std::size_t k = N; k > Index; --k) SwapAt(k, k - 1);
+                    }
+                    else if (Op == "Delete")
+                    {
+                        if (Index >= N) { Error = std::format("ListOp: index {} is out of range (size {})", Index, N); return false; }
+                        for (std::size_t k = Index; k + 1 < N; ++k) SwapAt(k, k + 1);
+                        if (!T.TrySetSize(pInstance, N - 1, Context)) { Error = "ListOp: failed to resize"; return false; }
+                    }
+                    else // Move
+                    {
+                        if (Index >= N || ToIndex >= N) { Error = std::format("ListOp: index out of range (size {})", N); return false; }
+                        if (Index < ToIndex) for (std::size_t k = Index; k < ToIndex; ++k) SwapAt(k, k + 1);
+                        else                 for (std::size_t k = Index; k > ToIndex; --k) SwapAt(k, k - 1);
+                    }
+                    return true;
+                };
+
+                if (const auto* pListVar   = std::get_if<xproperty::type::members::list_var>  (&pMembers->m_Variant)) return WithTable(*pListVar);
+                if (const auto* pListProps = std::get_if<xproperty::type::members::list_props>(&pMembers->m_Variant)) return WithTable(*pListProps);
+                Error = "ListOp: not an array";
+                return false;
+            }
+
+            std::string Redo() noexcept override
+            {
+                std::string Path, Op, IndexText, ToIndexText;
+                if (!GetArg(m_Parser, m_hPath, Path) || !GetArg(m_Parser, m_hOp, Op) || !GetArg(m_Parser, m_hIndex, IndexText)) return "ListOp: bad arguments";
+                if (!m_Doc.isLoaded()) return "ListOp: nothing loaded";
+                Path = Base64Decode(Path);
+
+                std::size_t Index = 0, ToIndex = 0;
+                if (std::from_chars(IndexText.data(), IndexText.data() + IndexText.size(), Index).ec != std::errc()) return "ListOp: Index takes a number";
+                if (Op == "Move")
+                {
+                    if (!GetArg(m_Parser, m_hTo, ToIndexText) || std::from_chars(ToIndexText.data(), ToIndexText.data() + ToIndexText.size(), ToIndex).ec != std::errc())
+                        return "ListOp: Move needs -ToIndex";
+                }
+                else if (Op != "Insert" && Op != "Delete") return std::format("ListOp: unknown op '{}'", Op);
+
+                std::string Error;
+                if (!Apply(Path, Op, Index, ToIndex, Error)) return Error;
+                m_Doc.m_bDirty = true;
+                return {};
+            }
+            void BackupCurrenState(xundo::undo_file& File) noexcept override
+            {
+                std::string Before;
+                if (m_Doc.isLoaded())
+                {
+                    xproperty::settings::context Context;
+                    Before = xproperty::ui::undo::SnapshotToString(*m_Doc.m_pDescriptor->getProperties(), m_Doc.m_pDescriptor.get(), Context);
+                }
+                WriteString(File, Before);
+            }
+            void Undo(xundo::undo_file& File) noexcept override
+            {
+                const std::string Before = ReadString(File);
+                if (m_Doc.isLoaded())
+                {
+                    xproperty::settings::context Context;
+                    xproperty::ui::undo::ApplySnapshotFromString(*m_Doc.m_pDescriptor->getProperties(), m_Doc.m_pDescriptor.get(), Before, Context);
+                    m_Doc.m_bDirty = true;
+                }
+            }
+            xcmdline::parser::handle m_hPath, m_hOp, m_hIndex, m_hTo;
+        };
+
         // Every property of the descriptor with its value, one per line: the paths SetProperty takes.
         struct list_properties_cmd : xundo::query_command_base
         {
@@ -204,12 +332,13 @@ namespace xeditor
     {
         descriptor_cmds::set_property_cmd       m_SetProperty;
         descriptor_cmds::snapshot_edit_cmd      m_SnapshotEdit;
+        descriptor_cmds::list_op_cmd            m_ListOp;
         descriptor_cmds::list_properties_cmd    m_ListProperties;
         inspector_panel                         m_DescriptorInspector{ "Description" };
 
         descriptor_editor(const char* pTypeName, xresource::full_guid Guid, e10::library::guid LibraryGuid, xgpu::device* pDevice) noexcept
             : document_editor(pTypeName, Guid, LibraryGuid, pDevice)
-            , m_SetProperty(m_Undo, m_Document), m_SnapshotEdit(m_Undo, m_Document), m_ListProperties(m_Undo, m_Document)
+            , m_SetProperty(m_Undo, m_Document), m_SnapshotEdit(m_Undo, m_Document), m_ListOp(m_Undo, m_Document), m_ListProperties(m_Undo, m_Document)
         {
             BindDescriptorInspector();
         }

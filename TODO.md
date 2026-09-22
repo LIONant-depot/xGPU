@@ -8,8 +8,16 @@ note in Build/; delete a line once it's actually fixed and verified.
 - [ ] Anim Package editor has no `ListPreview` (its viewport settings aren't exposed as a preview struct yet).
 - [ ] Material graph editor: canvas zoom/pan and node selection have no commands (everything else - create/delete/
       connect/move/properties/shader text - does).
-- [ ] No command to insert, delete or move an element in the middle of a list property; only append/resize via a
-      path ending in `[]` plus `SetProperty`, or the inspector's `SnapshotEdit`.
+- [x] Fixed 2026-09-23: `ListOp -Path -Op Insert|Delete|Move -Index n [-ToIndex n]` (undoable; 1D ordinal
+      arrays only). Lives once on `descriptor_editor` (`xeditor_descriptor_editor.h`), so every editor that
+      derives from it got it for free (anim package, font, skin geom, static geom, material instance,
+      skeleton); `xtexture.plugin` builds its session by hand and needed the one-line add everywhere else
+      gets automatically. Goes through the exact same `TryGetSize/TrySetSize/TrySwap` shift chains
+      `xPropertyImGuiInspector.cpp`'s own mouse-driven array controls use (found via the property
+      collector's existing `"Path[]"` size-marker callback - no xproperty change needed), then reuses
+      `SnapshotEdit`'s own whole-object before/after undo instead of a new one. Verified live: insert/
+      delete/move + undo/redo, on both a `list_var` (Textures, atomic) and a `list_props` (TextureDefaults,
+      object) array, plus refusals for a 2D/non-existent/non-array path and an out-of-range index.
 - [ ] `SetPreview`/`SetProperty` on a bogus enum item name is now refused (fixed) - keep an eye out for the same
       "silently accepted" shape elsewhere if a new enum-backed command is added.
 
