@@ -669,10 +669,23 @@ namespace xgpu::tools
         const xmath::irect&   Viewport = getViewport();
 
         // Build ray in viewspace.
-        const float       HalfW = (Viewport.m_Min.m_X + Viewport.m_Max.m_X) * 0.5f;
-        xmath::fvec3        Ray( -(ScreenX - HalfW ),
-                             -(ScreenY - (Viewport.m_Min.m_Y  + Viewport.m_Max.m_Y) * 0.5f) * m_Aspect,
-                             -HalfW*Distance.m_X );
+        // CenterX/Y are the viewport midpoints (correct for an offset panel). HalfWidth is half the
+        // viewport WIDTH - used as the focal-plane scale on Z. The old code used (Min.X+Max.X)/2 for
+        // BOTH, which is only equal to half-width when Min.X == 0. Docked/split editors (Min.X > 0)
+        // then got a stretched Z, so the ray drifted off the bone under the cursor.
+        //
+        // Y must NOT be multiplied by m_Aspect here. getV2CScales FOV path is ScaleX = -Focal/aspect,
+        // ScaleY = -Focal (Y already flipped for this engine's Y-up NDC). With Z = -HalfWidth*ScaleX,
+        // an unscaled pixel delta on X and on Y both invert to the matching ndc/view ratios; the old
+        // "* m_Aspect" on Y over-steepened the vertical aim (worse on wide panels), which reads as the
+        // hover sitting above/below the cursor. Compile/Feedback live in the parent editor window above
+        // the dockspace - they do not shift this panel's Min.Y.
+        const float HalfWidth = Viewport.getWidth()  * 0.5f;
+        const float CenterX   = Viewport.m_Min.m_X + HalfWidth;
+        const float CenterY   = (Viewport.m_Min.m_Y + Viewport.m_Max.m_Y) * 0.5f;
+        xmath::fvec3        Ray( -(ScreenX - CenterX ),
+                             -(ScreenY - CenterY),
+                             -HalfWidth*Distance.m_X );
 
         // Take the ray into the world space
         Ray = getV2W().RotateVector( Ray );
