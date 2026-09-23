@@ -1,6 +1,26 @@
 namespace xgpu::vulkan
 {
     //----------------------------------------------------------------------------------
+    // vkFlushMappedMemoryRanges/vkInvalidateMappedMemoryRanges require offset and size to
+    // be multiples of nonCoherentAtomSize, unless size == VK_WHOLE_SIZE or offset+size ==
+    // the allocation size. A partial Lock/Unlock (Count != m_nEntries) can request a byte
+    // range that isn't aligned to that (e.g. 64 on most desktop GPUs), so round it out to
+    // an aligned range instead of using the raw entry-based offset/size.
+    static VkMappedMemoryRange ComputeAlignedRange( VkDeviceMemory Memory, VkDeviceSize AtomSize, VkDeviceSize AllocationSize, VkDeviceSize RawOffset, VkDeviceSize RawSize ) noexcept
+    {
+        const VkDeviceSize AlignedOffset = (RawOffset / AtomSize) * AtomSize;
+        VkDeviceSize        AlignedEnd   = ((RawOffset + RawSize + AtomSize - 1) / AtomSize) * AtomSize;
+        if (AlignedEnd > AllocationSize) AlignedEnd = AllocationSize;
+
+        return VkMappedMemoryRange
+        { .sType  = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE
+        , .memory = Memory
+        , .offset = AlignedOffset
+        , .size   = AlignedEnd - AlignedOffset
+        };
+    }
+
+    //----------------------------------------------------------------------------------
 
     xgpu::device::error* buffer::Initialize( std::shared_ptr<device>&& Device, const xgpu::buffer::setup& Setup ) noexcept
     {
@@ -109,35 +129,47 @@ namespace xgpu::vulkan
         assert((StartIndex+Count) <= m_nEntries);
         assert(m_ByteSize);
 
-        const VkDeviceSize MapOffset = StartIndex*m_EntrySizeBytes;
-        const VkDeviceSize MapSize   = Count == m_nEntries ? VK_WHOLE_SIZE : static_cast<VkDeviceSize>(m_EntrySizeBytes * Count);
+        const VkDeviceSize RawOffset = static_cast<VkDeviceSize>(StartIndex) * m_EntrySizeBytes;
+        const VkDeviceSize RawSize   = static_cast<VkDeviceSize>(Count)      * m_EntrySizeBytes;
 
+        // The range vkMapMemory is given here must be the EXACT same range MapUnlock later
+        // flushes (ComputeAlignedRange is a pure function of these same inputs, so both calls
+        // agree independently) - vkFlushMappedMemoryRanges/vkInvalidateMappedMemoryRanges are
+        // only allowed to touch bytes within the currently-mapped range, not just within the
+        // memory object as a whole, so mapping the raw (unaligned) entry range while flushing
+        // an atom-size-rounded one would ask to flush bytes that were never actually mapped.
+        const VkMappedMemoryRange Range = Count == m_nEntries
+            ? VkMappedMemoryRange
+              { .sType  = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE
+              , .memory = m_VKBufferMemory
+              , .offset = 0
+              , .size   = VK_WHOLE_SIZE
+              }
+            : ComputeAlignedRange( m_VKBufferMemory, m_Device->m_VKPhysicalDeviceProperties.limits.nonCoherentAtomSize, static_cast<VkDeviceSize>(m_ByteSize), RawOffset, RawSize );
+
+        void* pMappedBase;
         if( auto VKErr = vkMapMemory
         ( m_Device->m_VKDevice
         , m_VKBufferMemory
-        , MapOffset
-        , MapSize
+        , Range.offset
+        , Range.size
         , 0
-        , &pMemory
+        , &pMappedBase
         ); VKErr )
         {
             m_Device->m_Instance->ReportError(VKErr, "Fail to Map Memory from Buffer");
             return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to Map Memory from Buffer");
         }
 
+        // The caller expects a pointer to their logical StartIndex, which can differ from
+        // Range.offset once that offset gets rounded down to a nonCoherentAtomSize boundary.
+        pMemory = reinterpret_cast<std::byte*>(pMappedBase) + (RawOffset - Range.offset);
+
         // Belt-and-suspenders on top of always allocating HOST_COHERENT memory now (see Create):
         // guarantees this map sees whatever the GPU most recently wrote, rather than relying
         // exclusively on the memory type choice. A no-op on coherent memory per the Vulkan spec, so
         // this is free insurance, not a workaround for a specific known-non-coherent case.
-        auto InvalidateRanges = std::array
-        {
-            VkMappedMemoryRange
-            { .sType  = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE
-            , .memory = m_VKBufferMemory
-            , .offset = MapOffset
-            , .size   = MapSize
-            }
-        };
+        auto InvalidateRanges = std::array{ Range };
         if( auto VKErr = vkInvalidateMappedMemoryRanges(m_Device->m_VKDevice, static_cast<std::uint32_t>(InvalidateRanges.size()), InvalidateRanges.data()); VKErr )
         {
             m_Device->m_Instance->ReportError(VKErr, "Fail to Invalidate Mapped Memory for Buffer");
@@ -249,12 +281,20 @@ namespace xgpu::vulkan
 
         auto Ranges = std::array
         {
-            VkMappedMemoryRange
-            {.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE
-            ,   .memory = m_VKBufferMemory
-            ,   .offset = static_cast<VkDeviceSize>(StartIndex * m_EntrySizeBytes)
-            ,   .size = Count == m_nEntries ? VK_WHOLE_SIZE : static_cast<VkDeviceSize>(m_EntrySizeBytes * Count)
-            }
+            Count == m_nEntries
+            ? VkMappedMemoryRange
+              { .sType  = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE
+              , .memory = m_VKBufferMemory
+              , .offset = 0
+              , .size   = VK_WHOLE_SIZE
+              }
+            : ComputeAlignedRange
+              ( m_VKBufferMemory
+              , m_Device->m_VKPhysicalDeviceProperties.limits.nonCoherentAtomSize
+              , static_cast<VkDeviceSize>(m_ByteSize)
+              , static_cast<VkDeviceSize>(StartIndex * m_EntrySizeBytes)
+              , static_cast<VkDeviceSize>(Count * m_EntrySizeBytes)
+              )
         };
 
         if (auto VKErr = vkFlushMappedMemoryRanges(m_Device->m_VKDevice, static_cast<std::uint32_t>(Ranges.size()), Ranges.data()); VKErr)
