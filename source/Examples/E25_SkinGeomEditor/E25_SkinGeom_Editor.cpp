@@ -881,9 +881,20 @@ int E25_Example()
         pInspector->m_OnResourceBrowser.m_Delegates.clear();
         pInspector->m_OnResourceLeftSize.m_Delegates.clear();
 
-        pInspector->m_OnResourceWigzmos.Register<[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view, bool& bOpen, const xresource::full_guid& PreFullGuid)
+        pInspector->m_OnResourceWigzmos.Register<[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view Path, bool& bOpen, const xresource::full_guid& PreFullGuid)
         {
+            // The per-property PushID that would normally isolate this button's ID is disabled in
+            // xPropertyImGuiInspector.cpp's own generic dispatch (a pre-existing, wider issue left
+            // untouched here - this fix is scoped to just this editor's own resource-ref rows).
+            // Without it, RenderResourceWigzmos's plain ImGui::Button(Name) collides with any other
+            // unset/same-named resource-ref row in the same inspector (both fall back to "empty") -
+            // confirmed live: "2 visible items with conflicting ID" the instant this row was touched,
+            // which also silently broke drag-and-drop onto it (ResourceBrowserPopup's
+            // BeginDragDropTarget relies on ImGui's own "last submitted item" state, which an ID
+            // collision corrupts for whichever button loses the conflict).
+            ImGui::PushID(Path.data(), Path.data() + Path.size());
             xgpu::tools::editors::RenderResourceWigzmos(bOpen, PreFullGuid);
+            ImGui::PopID();
         }>();
 
         pInspector->m_OnResourceBrowser.Register<[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view Path, bool& bOpen, xresource::full_guid& Out, std::span<const xresource::type_guid> Filters)
