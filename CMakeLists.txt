@@ -112,6 +112,22 @@ FetchAndPopulate("https://github.com/LIONant-depot/xECSV2.git" "main")
 FetchAndPopulate("https://github.com/LIONant-depot/xundo.git" "main")
 FetchAndPopulate("https://github.com/LIONant-depot/xsource_control.git" "main")
 FetchAndPopulate("https://github.com/thedmd/imgui-node-editor.git" "master")
+
+# imgui-node-editor (upstream, unpatched) calls ImGui::GetKeyIndex, an API that no longer exists in
+# the ImGui version this project vendors (docking branch) - without this shim, a fresh fetch of this
+# dependency fails to compile outright, not just at runtime (confirmed live: this was only present as
+# an uncommitted local edit in one checkout, invisible to any fresh clone or re-fetch of this
+# upstream-only dependency - there is nowhere else to persist a fix to a repo we don't own). Applied
+# idempotently since FetchAndPopulate only clones once and never re-fetches an existing checkout, so
+# this runs on every configure regardless.
+set(IMGUI_NODE_EDITOR_INTERNAL_H "${CMAKE_SOURCE_DIR}/dependencies/imgui-node-editor/imgui_node_editor_internal.h")
+if(EXISTS "${IMGUI_NODE_EDITOR_INTERNAL_H}")
+  file(READ "${IMGUI_NODE_EDITOR_INTERNAL_H}" IMGUI_NODE_EDITOR_INTERNAL_CONTENTS)
+  string(FIND "${IMGUI_NODE_EDITOR_INTERNAL_CONTENTS}" "GetKeyIndex(T a)" GETKEYINDEX_SHIM_FOUND)
+  if(GETKEYINDEX_SHIM_FOUND EQUAL -1)
+    file(APPEND "${IMGUI_NODE_EDITOR_INTERNAL_H}" "\nnamespace ImGui{ template< typename T> T GetKeyIndex(T a) {return a;} }\n")
+  endif()
+endif()
 FetchAndPopulate("https://github.com/LIONant-depot/toolbar.imgui.git" "main")
 FetchAndPopulate("https://github.com/LIONant-depot/xeditor.git" "main")
 
