@@ -237,7 +237,7 @@ namespace e05
             , member_help < "If the pixel format contains signed data"
             >>
         , obj_member_ro
-            < "UAdress Mode"
+            < "UAddress Mode"
             ,  +[](bitmap_inspector& I, bool bRead, std::string& Out )
             {
                 assert(bRead);
@@ -249,10 +249,10 @@ namespace e05
                 default: Out = "Unexpected wrap"; break;
                 }
             }
-            , member_help<"Size in bytes of the file"
+            , member_help<"How the texture repeats along U (horizontally): clamped to the edge, mirrored, or wrapped"
             >>
         , obj_member_ro
-            < "VAdress Mode"
+            < "VAddress Mode"
             ,  +[](bitmap_inspector& I, bool bRead, std::string& Out )
             {
                 assert(bRead);
@@ -264,7 +264,7 @@ namespace e05
                 default: Out = "Unexpected wrap"; break;
                 }
             }
-            , member_help<"Size in bytes of the file"
+            , member_help<"How the texture repeats along V (vertically): clamped to the edge, mirrored, or wrapped"
             >>
         , obj_member_ro
             < "DataSize"
