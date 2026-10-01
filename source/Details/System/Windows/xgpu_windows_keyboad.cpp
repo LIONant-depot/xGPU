@@ -116,18 +116,18 @@ namespace xgpu::windows
     ,   xgpu::keyboard::digital::KEY_MINUS                     // 109
     ,   xgpu::keyboard::digital::KEY_PERIOD                    // 110
     ,   xgpu::keyboard::digital::KEY_SLASH                     // 111
-    ,   xgpu::keyboard::digital::KEY_P                         // 112
-    ,   xgpu::keyboard::digital::KEY_Q                         // 113
-    ,   xgpu::keyboard::digital::KEY_R                         // 114
-    ,   xgpu::keyboard::digital::KEY_S                         // 115
-    ,   xgpu::keyboard::digital::KEY_T                         // 116
-    ,   xgpu::keyboard::digital::KEY_U                         // 117
-    ,   xgpu::keyboard::digital::KEY_V                         // 118
-    ,   xgpu::keyboard::digital::KEY_W                         // 119
-    ,   xgpu::keyboard::digital::KEY_X                         // 120
-    ,   xgpu::keyboard::digital::KEY_Y                         // 121
-    ,   xgpu::keyboard::digital::KEY_Z                         // 122
-    ,   xgpu::keyboard::digital::KEY_LBRACKET                  // 123
+    ,   xgpu::keyboard::digital::KEY_F1                         // 112
+    ,   xgpu::keyboard::digital::KEY_F2                         // 113
+    ,   xgpu::keyboard::digital::KEY_F3                         // 114
+    ,   xgpu::keyboard::digital::KEY_F4                         // 115
+    ,   xgpu::keyboard::digital::KEY_F5                         // 116
+    ,   xgpu::keyboard::digital::KEY_F6                         // 117
+    ,   xgpu::keyboard::digital::KEY_F7                         // 118
+    ,   xgpu::keyboard::digital::KEY_F8                         // 119
+    ,   xgpu::keyboard::digital::KEY_F9                         // 120
+    ,   xgpu::keyboard::digital::KEY_F10                        // 121
+    ,   xgpu::keyboard::digital::KEY_F11                        // 122
+    ,   xgpu::keyboard::digital::KEY_F12                        // 123
     ,   xgpu::keyboard::digital::KEY_NULL                      // 124
     ,   xgpu::keyboard::digital::KEY_RBRACKET                  // 125
     ,   xgpu::keyboard::digital::KEY_TILDE                     // 126
