@@ -1035,8 +1035,43 @@ struct breach_instance : window_info
 
     //------------------------------------------------------------------------------------------------------------
 
+    //
+    // The displays as they are now (they change: a monitor is plugged, unplugged, rearranged). The primary one first, as ImGui wants.
+    //
+    static BOOL CALLBACK EnumMonitorsProc(HMONITOR hMonitor, HDC, LPRECT, LPARAM lParam)
+    {
+        auto& Monitors = *reinterpret_cast<ImVector<ImGuiPlatformMonitor>*>(lParam);
+        MONITORINFO Info{ sizeof(MONITORINFO) };
+        if (!::GetMonitorInfo(hMonitor, &Info)) return TRUE;
+
+        ImGuiPlatformMonitor M;
+        M.MainPos        = ImVec2((float)Info.rcMonitor.left, (float)Info.rcMonitor.top);
+        M.MainSize       = ImVec2((float)(Info.rcMonitor.right  - Info.rcMonitor.left), (float)(Info.rcMonitor.bottom - Info.rcMonitor.top));
+        M.WorkPos        = ImVec2((float)Info.rcWork.left, (float)Info.rcWork.top);
+        M.WorkSize       = ImVec2((float)(Info.rcWork.right  - Info.rcWork.left), (float)(Info.rcWork.bottom - Info.rcWork.top));
+        M.DpiScale       = 1.0f;
+        M.PlatformHandle = (void*)hMonitor;
+        if (Info.dwFlags & MONITORINFOF_PRIMARY) Monitors.push_front(M);
+        else                                     Monitors.push_back(M);
+        return TRUE;
+    }
+
+    static void UpdateMonitors( ImGuiPlatformIO& platform_io ) noexcept
+    {
+        platform_io.Monitors.resize(0);
+        ::EnumDisplayMonitors(nullptr, nullptr, EnumMonitorsProc, reinterpret_cast<LPARAM>(&platform_io.Monitors));
+        if (platform_io.Monitors.Size == 0)                       // cannot happen on Windows; keeps ImGui from having none
+        {
+            ImGuiPlatformMonitor M;
+            M.MainPos = M.WorkPos = ImVec2(0.0f, 0.0f);
+            M.MainSize = M.WorkSize = ImVec2(1920.0f, 1080.0f);
+            platform_io.Monitors.push_back(M);
+        }
+    }
+
     xgpu::device::error* StartNewFrame( ImGuiIO& io ) noexcept
     {
+        UpdateMonitors(ImGui::GetPlatformIO());
         //
         // Setup display size (every frame to accommodate for window resizing)
         // TODO: Note that display size is the actual drawable pixels       
@@ -1653,11 +1688,7 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
         };
 
 
-        platform_io.Monitors.resize(0);
-        ImGuiPlatformMonitor monitor;
-        monitor.MainPos = monitor.WorkPos = ImVec2((float)-5000.0f, (float)-5000.0f);
-        monitor.MainSize = monitor.WorkSize = ImVec2((float)10000.0f, (float)10000.0f);
-        platform_io.Monitors.push_back(monitor);
+        breach_instance::UpdateMonitors(platform_io);
     }
 
     //
