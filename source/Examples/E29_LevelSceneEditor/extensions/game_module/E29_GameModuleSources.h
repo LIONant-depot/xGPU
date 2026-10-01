@@ -79,7 +79,7 @@ namespace e29
         for (auto& Ref : g_ScriptConfig.m_ModuleRefs)
         {
             std::wstring DescFolder;
-            e10::g_LibMgr.getNodeInfo(Ref, [&](e10::library_db::info_node& Node)
+            xresource_editor::g_LibMgr.getNodeInfo(Ref, [&](xresource_editor::library_db::info_node& Node)
             {
                 const auto SlashPos = Node.m_Path.find_last_of(L'\\');
                 DescFolder = (SlashPos == std::wstring::npos) ? Node.m_Path : Node.m_Path.substr(0, SlashPos);
@@ -116,7 +116,7 @@ namespace e29
         {
             std::wstring DescFolder;
             std::string  Name;
-            e10::g_LibMgr.getNodeInfo(Ref, [&](e10::library_db::info_node& Node)
+            xresource_editor::g_LibMgr.getNodeInfo(Ref, [&](xresource_editor::library_db::info_node& Node)
             {
                 Name = Node.m_Info.m_Name;
                 const auto SlashPos = Node.m_Path.find_last_of(L'\\');

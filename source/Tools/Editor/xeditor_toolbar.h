@@ -8,7 +8,7 @@
 // ImGuiWindowFlags_MenuBar to ImGui::Begin. Hosts must also PushStyleVar(WindowPadding, 0) around Begin/End like E29's Level Editor, or a hairline gap appears under the menu bar.
 // Feedback colors/layout follow E10's Compile + Feedback strip.
 #include "dependencies/xundo/source/xundo_system.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetMgr.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_mgr.h"
 #include "dependencies/xstrtool/source/xstrtool.h"
 #include "imgui.h"
 #include <memory>
@@ -23,7 +23,7 @@ namespace xeditor
         xundo::system*                                                  m_pUndo              = nullptr;
         bool                                                            m_bDirty             = false;
         bool                                                            m_bCanCompile        = true;
-        std::shared_ptr<e10::compilation::historical_entry::log>        m_Log;
+        std::shared_ptr<xresource_editor::compilation::historical_entry::log>        m_Log;
         std::vector<std::string>*                                       m_pValidationErrors  = nullptr;
 
         void (*m_OnSave)(void* pUser)    = nullptr;
@@ -74,7 +74,7 @@ namespace xeditor
 
         if (Model.m_bCanCompile)
         {
-            e10::compilation::historical_entry::result Results = e10::compilation::historical_entry::result::SUCCESS;
+            xresource_editor::compilation::historical_entry::result Results = xresource_editor::compilation::historical_entry::result::SUCCESS;
             if (Model.m_Log)
             {
                 xcontainer::lock::scope lk(*Model.m_Log);
@@ -82,8 +82,8 @@ namespace xeditor
             }
 
             const bool bValidationFail = Model.m_pValidationErrors && !Model.m_pValidationErrors->empty();
-            const bool bBusy = Results == e10::compilation::historical_entry::result::COMPILING
-                            || Results == e10::compilation::historical_entry::result::COMPILING_WARNINGS;
+            const bool bBusy = Results == xresource_editor::compilation::historical_entry::result::COMPILING
+                            || Results == xresource_editor::compilation::historical_entry::result::COMPILING_WARNINGS;
 
             // Default for all editors: center Compile + Feedback like E29 Play/Stop
             // (SameLine((windowWidth - groupW) * 0.5f)).
@@ -114,11 +114,11 @@ namespace xeditor
             {
                 switch (Results)
                 {
-                case e10::compilation::historical_entry::result::COMPILING_WARNINGS: Color = IM_COL32(255, 255, 0, 255); break;
-                case e10::compilation::historical_entry::result::COMPILING:          Color = IM_COL32(0, 255, 0, 255);   break;
-                case e10::compilation::historical_entry::result::FAILURE:            Color = IM_COL32(255, 170, 140, 255); break;
-                case e10::compilation::historical_entry::result::SUCCESS_WARNINGS:   Color = IM_COL32(255, 255, 0, 255); break;
-                case e10::compilation::historical_entry::result::SUCCESS:            Color = IM_COL32(255, 255, 255, 255); break;
+                case xresource_editor::compilation::historical_entry::result::COMPILING_WARNINGS: Color = IM_COL32(255, 255, 0, 255); break;
+                case xresource_editor::compilation::historical_entry::result::COMPILING:          Color = IM_COL32(0, 255, 0, 255);   break;
+                case xresource_editor::compilation::historical_entry::result::FAILURE:            Color = IM_COL32(255, 170, 140, 255); break;
+                case xresource_editor::compilation::historical_entry::result::SUCCESS_WARNINGS:   Color = IM_COL32(255, 255, 0, 255); break;
+                case xresource_editor::compilation::historical_entry::result::SUCCESS:            Color = IM_COL32(255, 255, 255, 255); break;
                 }
             }
 

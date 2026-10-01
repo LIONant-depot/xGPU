@@ -260,14 +260,14 @@ set(FRAG_SHADER_SOURCES
   "plugins/xgeom_skin.plugin/source/runtime/GeomSkinShadowMapCreation_frag.glsl"
   "plugins/xgeom_skin.plugin/source/runtime/GeomSkinBasicShader_frag.glsl"
   "plugins/xgeom_static.plugin/source/Editor/shaders/E21_GridShader_frag.glsl"
-  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_WireFrame_frag.glsl"
-  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_DebugNormalRender_frag.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/xgeom_static_wireframe_frag.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/xgeom_static_debug_normal_frag.glsl"
   "source/Examples/E23_SkeletonEditor/E23_Pick_frag.glsl"
-  "plugins/xskeleton.plugin/source/Editor/shaders/E23_WedgeFill_frag.glsl"
-  "plugins/xskeleton.plugin/source/Editor/shaders/E23_ShadowGeneration_frag.glsl"
+  "plugins/xskeleton.plugin/source/Editor/shaders/xskeleton_wedge_fill_frag.glsl"
+  "plugins/xskeleton.plugin/source/Editor/shaders/xskeleton_shadow_generation_frag.glsl"
   "source/Examples/E27_NodeOS/E27_normal_frag.glsl"
-  "plugins/xfont.plugin/source/Editor/shaders/E28_msdf_frag.glsl"
-  "plugins/xfont.plugin/source/Editor/shaders/E28_wire_frag.glsl"
+  "plugins/xfont.plugin/source/Editor/shaders/xfont_msdf_frag.glsl"
+  "plugins/xfont.plugin/source/Editor/shaders/xfont_wire_frag.glsl"
 
   )
 
@@ -293,21 +293,21 @@ set(VERT_SHADER_SOURCES
   "plugins/xgeom_skin.plugin/source/runtime/GeomSkinShadowMapCreation_vert.glsl"
   "plugins/xgeom_skin.plugin/source/runtime/GeomSkinBasicShader_vert.glsl"
   "plugins/xgeom_static.plugin/source/Editor/shaders/E21_GridShader_vert.glsl"
-  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_WireFrame_vert.glsl"
-  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_DebugNormalRender_vert.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/xgeom_static_wireframe_vert.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/xgeom_static_debug_normal_vert.glsl"
   "source/Examples/E23_SkeletonEditor/E23_Pick_vert.glsl"
-  "plugins/xskeleton.plugin/source/Editor/shaders/E23_WedgeFill_vert.glsl"
-  "plugins/xskeleton.plugin/source/Editor/shaders/E23_ShadowGeneration_vert.glsl"
+  "plugins/xskeleton.plugin/source/Editor/shaders/xskeleton_wedge_fill_vert.glsl"
+  "plugins/xskeleton.plugin/source/Editor/shaders/xskeleton_shadow_generation_vert.glsl"
   "source/Examples/E27_NodeOS/E27_normal_vert.glsl"
-  "plugins/xfont.plugin/source/Editor/shaders/E28_msdf_vert.glsl"
-  "plugins/xfont.plugin/source/Editor/shaders/E28_wire_vert.glsl"
+  "plugins/xfont.plugin/source/Editor/shaders/xfont_msdf_vert.glsl"
+  "plugins/xfont.plugin/source/Editor/shaders/xfont_wire_vert.glsl"
   "source/Tools/Editor/shaders/xeditor_mesh_preview_full_vert.glsl"
   )
 
 # List geometry shader sources
 set(GEOM_SHADER_SOURCES 
-  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_WireFrame_geom.glsl"
-  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_DebugNormalRender_geom.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/xgeom_static_wireframe_geom.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/xgeom_static_debug_normal_geom.glsl"
   )
 
 # Generate headers
@@ -385,15 +385,15 @@ set(XGPU_SOURCES
   "source/Examples/E08_AsyncTextureLoading/E08_AsyncTextureLoading.cpp"
   "source/Examples/E09_Raw3DViewer/E09_Raw3DViewer.cpp"
   "source/Examples/E10_TextureResourcePipeline/E10_TextureResourcePipeline.cpp"
-  "dependencies/xresource_pipeline_v2/source/editor/E10_Resources.h"
-  "dependencies/xresource_pipeline_v2/source/editor/E10_PluginMgr.h"
-  "dependencies/xresource_pipeline_v2/source/editor/E10_AssetMgr.h"
-  "dependencies/xresource_pipeline_v2/source/editor/E10_AssetBrowser.h"
-  "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_virtual_tree_tab.h"
-  "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_search_tab.h"
-  "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_compiler_tab.h"
-  "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_plugin_tab.h"
-  "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_files_tab.h"
+  "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_resources.h"
+  "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_plugin_mgr.h"
+  "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_mgr.h"
+  "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser.h"
+  "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser_virtual_tree_tab.h"
+  "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser_search_tab.h"
+  "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser_compiler_tab.h"
+  "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser_plugin_tab.h"
+  "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser_files_tab.h"
   "source/Examples/E11_NormalMaps/E11_NormalMaps.cpp"
   "source/Examples/E12_Lighting/E12_Ligting.cpp"
   "source/Examples/E13_ParallaxOcclusionMapping/E13_POM.cpp"
@@ -498,8 +498,8 @@ set(XGPU_SOURCES
   "plugins/xscene.plugin/source/Editor/xscene_commands_entity_reference.h"
   "plugins/xlevel.plugin/source/Editor/xlevel_commands_play_session.h"
   "plugins/xscene.plugin/source/Editor/xscene_commands_scene_organization.h"
-  "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_Assets.h"
-  "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_AssetFiles.h"
+  "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_commands_assets.h"
+  "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_commands_asset_files.h"
   "plugins/xscene.plugin/source/Editor/xscene_commands_make_prefab.h"
   "source/Examples/E29_LevelSceneEditor/E29_LevelScene_Editor.cpp"
   "dependencies/toolbar.imgui/ximgui_toolbar.h"
@@ -679,16 +679,16 @@ source_group("Examples/E09_Raw3DViewer" FILES
 
 source_group("Examples/E10_TextureResourcePipeline" FILES
    "source/Examples/E10_TextureResourcePipeline/E10_TextureResourcePipeline.cpp"
-   "dependencies/xresource_pipeline_v2/source/editor/E10_Resources.h"
-   "dependencies/xresource_pipeline_v2/source/editor/E10_PluginMgr.h"
-   "dependencies/xresource_pipeline_v2/source/editor/E10_AssetMgr.h"
+   "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_resources.h"
+   "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_plugin_mgr.h"
+   "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_mgr.h"
 )
 
 source_group("Examples/E10_TextureResourcePipeline/AssetBrowser" FILES
-   "dependencies/xresource_pipeline_v2/source/editor/E10_AssetBrowser.h"
-   "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_virtual_tree_tab.h"
-   "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_search_tab.h"
-   "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_compiler_tab.h"
+   "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser.h"
+   "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser_virtual_tree_tab.h"
+   "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser_search_tab.h"
+   "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser_compiler_tab.h"
 )
 
 # Include the xtexture.plugin so it works
@@ -838,12 +838,12 @@ source_group("Examples/E21_StaticGeomEditor/Shaders" FILES
   "plugins/xgeom_static.plugin/source/runtime/GeomStaticBasicShader_frag.glsl"
   "plugins/xgeom_static.plugin/source/Editor/shaders/E21_GridShader_frag.glsl"
   "plugins/xgeom_static.plugin/source/Editor/shaders/E21_GridShader_vert.glsl"
-  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_WireFrame_frag.glsl"
-  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_WireFrame_vert.glsl"
-  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_WireFrame_geom.glsl"
-  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_DebugNormalRender_vert.glsl"
-  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_DebugNormalRender_geom.glsl"
-  "plugins/xgeom_static.plugin/source/Editor/shaders/E21_DebugNormalRender_frag.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/xgeom_static_wireframe_frag.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/xgeom_static_wireframe_vert.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/xgeom_static_wireframe_geom.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/xgeom_static_debug_normal_vert.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/xgeom_static_debug_normal_geom.glsl"
+  "plugins/xgeom_static.plugin/source/Editor/shaders/xgeom_static_debug_normal_frag.glsl"
 )
 
 source_group("Examples/E21_StaticGeomEditor/Shaders/Headers" FILES
@@ -853,12 +853,12 @@ source_group("Examples/E21_StaticGeomEditor/Shaders/Headers" FILES
   "${CMAKE_BINARY_DIR}/sprv_shaders_h/GeomStaticBasicShader_frag.h"
   "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_GridShader_vert.h"
   "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_GridShader_frag.h"
-  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_WireFrame_frag.h"
-  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_WireFrame_vert.h"
-  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_WireFrame_geom.h"
-  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_DebugNormalRender_vert.h"
-  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_DebugNormalRender_geom.h"
-  "${CMAKE_BINARY_DIR}/sprv_shaders_h/E21_DebugNormalRender_frag.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/xgeom_static_wireframe_frag.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/xgeom_static_wireframe_vert.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/xgeom_static_wireframe_geom.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/xgeom_static_debug_normal_vert.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/xgeom_static_debug_normal_geom.h"
+  "${CMAKE_BINARY_DIR}/sprv_shaders_h/xgeom_static_debug_normal_frag.h"
 )
 
 
@@ -870,10 +870,10 @@ source_group("Examples/E23_SkeletonEditor" FILES
    "source/Examples/E23_SkeletonEditor/E23_Skeleton_Editor.cpp"
    "source/Examples/E23_SkeletonEditor/E23_Pick_frag.glsl"
    "source/Examples/E23_SkeletonEditor/E23_Pick_vert.glsl"
-   "plugins/xskeleton.plugin/source/Editor/shaders/E23_WedgeFill_frag.glsl"
-   "plugins/xskeleton.plugin/source/Editor/shaders/E23_WedgeFill_vert.glsl"
-   "plugins/xskeleton.plugin/source/Editor/shaders/E23_ShadowGeneration_frag.glsl"
-   "plugins/xskeleton.plugin/source/Editor/shaders/E23_ShadowGeneration_vert.glsl"
+   "plugins/xskeleton.plugin/source/Editor/shaders/xskeleton_wedge_fill_frag.glsl"
+   "plugins/xskeleton.plugin/source/Editor/shaders/xskeleton_wedge_fill_vert.glsl"
+   "plugins/xskeleton.plugin/source/Editor/shaders/xskeleton_shadow_generation_frag.glsl"
+   "plugins/xskeleton.plugin/source/Editor/shaders/xskeleton_shadow_generation_vert.glsl"
 )
 
 source_group("Examples/E24_AnimPackageEditor" FILES
@@ -1001,8 +1001,8 @@ source_group("Examples/E29_LevelSceneEditor/commands" FILES
   "plugins/xscene.plugin/source/Editor/xscene_commands_entity_reference.h"
   "plugins/xlevel.plugin/source/Editor/xlevel_commands_play_session.h"
   "plugins/xscene.plugin/source/Editor/xscene_commands_scene_organization.h"
-  "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_Assets.h"
-  "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_AssetFiles.h"
+  "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_commands_assets.h"
+  "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_commands_asset_files.h"
   "plugins/xscene.plugin/source/Editor/xscene_commands_make_prefab.h"
 )
 

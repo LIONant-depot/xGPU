@@ -22,9 +22,9 @@
 #define XRESOURCE_PIPELINE_NO_COMPILER
 #include "dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
 #include "source/xstrtool.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_Resources.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetMgr.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetBrowser.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_resources.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_mgr.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser.h"
 
 #include "plugins/xtexture.plugin/source/xtexture_xgpu_rsc_loader.h"
 
@@ -103,15 +103,15 @@ namespace e23
 
     // Wedge fill - same texture*color+gamma-decode as g_OutlineFragShader (draw_frag.h), plus an
     // RGB brightness boost applied after the alpha blend's own dilution would otherwise wash it out
-    // (see E23_WedgeFill_frag.glsl's own comment for the full reasoning). Its own vertex shader for
+    // (see xskeleton_wedge_fill_frag.glsl's own comment for the full reasoning). Its own vertex shader for
     // the same push-constant-layout reason as the pick pipeline above.
     constexpr static std::uint32_t g_WedgeFillVertShader[] =
     {
-        #include "E23_WedgeFill_vert.h"
+        #include "xskeleton_wedge_fill_vert.h"
     };
     constexpr static std::uint32_t g_WedgeFillFragShader[] =
     {
-        #include "E23_WedgeFill_frag.h"
+        #include "xskeleton_wedge_fill_frag.h"
     };
 
     // Shadow-map generation - position-only, depth-write-only (empty fragment shader), same pair
@@ -120,11 +120,11 @@ namespace e23
     // linked in below for the ground grid) samples it back with its own PCF code.
     constexpr static std::uint32_t g_ShadowGenerationVertShader[] =
     {
-        #include "E23_ShadowGeneration_vert.h"
+        #include "xskeleton_shadow_generation_vert.h"
     };
     constexpr static std::uint32_t g_ShadowGenerationFragShader[] =
     {
-        #include "E23_ShadowGeneration_frag.h"
+        #include "xskeleton_shadow_generation_frag.h"
     };
 
     //---------------------------------------------------------------------------
@@ -148,7 +148,7 @@ namespace e23
         xmath::fmat4    m_L2C;
     };
 
-    // Matches E23_WedgeFill_vert/frag.glsl's PushConsts block exactly (both mat4s first, then the
+    // Matches xskeleton_wedge_fill_vert/frag.glsl's PushConsts block exactly (both mat4s first, then the
     // float) - the vertex shader ignores m_Boost and the fragment shader ignores both matrices (it
     // reads the already-projected shadow position from the vertex stage instead), but every field
     // has to be declared on both sides so the rest land at the same byte offset (same reason
@@ -171,7 +171,7 @@ namespace e23
         std::int32_t    m_BoneID;
     };
 
-    // Matches E23_ShadowGeneration_vert.glsl's PushConsts block exactly (just mat4 L2C, to the
+    // Matches xskeleton_shadow_generation_vert.glsl's PushConsts block exactly (just mat4 L2C, to the
     // light's clip space) - same shape as E15_Shadowmap's shadow_generation_push_constants.
     struct shadow_generation_push_constants
     {
@@ -254,7 +254,7 @@ namespace e23
     struct skeleton_state
     {
         xrsc::skeleton                                     m_Ref           = {};
-        e10::library::guid                                 m_LibraryGUID   = {};
+        xresource_editor::library::guid                                 m_LibraryGUID   = {};
         xresource::full_guid                               m_InfoGUID      = {};
         std::wstring                                       m_DescriptorPath= {};
         xskeleton_desc::descriptor                          m_Descriptor    = {}; // backs the "Skeleton Properties" inspector - see LoadSkeleton
@@ -289,9 +289,9 @@ namespace e23
         // Compile/save tracking - mirrors E21_StaticGeomEditor's selected_descriptor. Saving the
         // descriptor (SaveSkeletonDescriptor) is what actually triggers a recompile - a background
         // file-watcher in the library manager picks up the change and runs the plugin's compiler,
-        // broadcasting progress via e10::g_LibMgr.m_OnCompilationState (see the registration in
+        // broadcasting progress via xresource_editor::g_LibMgr.m_OnCompilationState (see the registration in
         // E23_Example) to whichever shared_ptr<log> this GUID's compile currently owns.
-        std::shared_ptr<e10::compilation::historical_entry::log> m_Log     = {};
+        std::shared_ptr<xresource_editor::compilation::historical_entry::log> m_Log     = {};
         bool                                                m_bReload       = false;
         bool                                                m_bErrors       = false;
 
@@ -331,7 +331,7 @@ namespace e23
             m_RenamingBoneName.clear();
             m_bRenameJustStarted = false;
             m_RenameBuf.clear();
-            m_Log           = std::make_shared<e10::compilation::historical_entry::log>(e10::compilation::historical_entry::communication{ .m_Result = e10::compilation::historical_entry::result::SUCCESS });
+            m_Log           = std::make_shared<xresource_editor::compilation::historical_entry::log>(xresource_editor::compilation::historical_entry::communication{ .m_Result = xresource_editor::compilation::historical_entry::result::SUCCESS });
             m_bReload       = false;
             m_bErrors       = false;
         }
@@ -590,7 +590,7 @@ namespace e23
 
     //---------------------------------------------------------------------------
 
-    void LoadSkeleton(skeleton_state& State, e10::library::guid LibraryGUID, xresource::full_guid InfoGUID)
+    void LoadSkeleton(skeleton_state& State, xresource_editor::library::guid LibraryGUID, xresource::full_guid InfoGUID)
     {
         xresource::g_Mgr.ReleaseRef(State.m_Ref);
         State.clear();
@@ -599,7 +599,7 @@ namespace e23
         State.m_LibraryGUID = LibraryGUID;
         State.m_InfoGUID    = InfoGUID;
 
-        e10::g_LibMgr.getNodeInfo(State.m_LibraryGUID, State.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
+        xresource_editor::g_LibMgr.getNodeInfo(State.m_LibraryGUID, State.m_InfoGUID, [&](xresource_editor::library_db::info_node& NodeInfo)
         {
             GenerateDescriptorPath(State, NodeInfo.m_Path);
         });
@@ -1569,7 +1569,7 @@ namespace e23
 
     // Compensates for the wedge fill's own alpha blend diluting brightness against the gray floor
     // (FillAlphaScale ~0.55 means the true color only ever contributes ~55% of what reaches the
-    // screen) - see E23_WedgeFill_frag.glsl's own comment. Tunable in one place.
+    // screen) - see xskeleton_wedge_fill_frag.glsl's own comment. Tunable in one place.
     inline constexpr float g_WedgeFillBoost   = 1.8f;
 
     void EmitSegment(std::vector<e19::draw_vert>& Verts, const xmath::fvec3& A, const xmath::fvec3& B, std::uint32_t ColorA, std::uint32_t ColorB)
@@ -2679,7 +2679,7 @@ int E23_Example()
     //
     // Wedge fill pipeline - same wedge shapes, TRIANGLE_LIST instead of LINE_LIST (Primitive3D
     // VertexDescriptor already defaults to it), alpha-blended for the light fill, and its own
-    // shaders (E23_WedgeFill_vert/frag.glsl) rather than the outline's - the fragment stage boosts
+    // shaders (xskeleton_wedge_fill_vert/frag.glsl) rather than the outline's - the fragment stage boosts
     // brightness after the blend's own dilution (see that shader's own comment for why).
     //
     xgpu::pipeline          WedgeFillPipeline;
@@ -2900,36 +2900,36 @@ int E23_Example()
     //
     resource_mgr_user_data ResourceMgrUserData;
 
-    e10::assert_browser  AsserBrowser;
+    xresource_editor::asset_browser  AsserBrowser;
     e23::skeleton_state  SkeletonState;
 
     // Compile-progress subscriber - the library manager broadcasts every resource's compile state
     // (any type, any selection) through this one delegate; filter to whichever skeleton is currently
     // loaded and mirror its log/result locally, matching E21_StaticGeomEditor's CallBackForCompilation.
-    auto CallBackForCompilation = [&](e10::library_mgr&, e10::library::guid, xresource::full_guid gCompilingEntry, std::shared_ptr<e10::compilation::historical_entry::log>& LogInformation)
+    auto CallBackForCompilation = [&](xresource_editor::library_mgr&, xresource_editor::library::guid, xresource::full_guid gCompilingEntry, std::shared_ptr<xresource_editor::compilation::historical_entry::log>& LogInformation)
     {
         if (SkeletonState.m_InfoGUID != gCompilingEntry) return;
 
         if (SkeletonState.m_Log.get() != LogInformation.get())
             SkeletonState.m_Log = LogInformation;
 
-        e10::compilation::historical_entry::result Result;
+        xresource_editor::compilation::historical_entry::result Result;
         {
             xcontainer::lock::scope lk(*SkeletonState.m_Log);
             Result = SkeletonState.m_Log->get().m_Result;
         }
 
-        if (Result == e10::compilation::historical_entry::result::SUCCESS || Result == e10::compilation::historical_entry::result::SUCCESS_WARNINGS)
+        if (Result == xresource_editor::compilation::historical_entry::result::SUCCESS || Result == xresource_editor::compilation::historical_entry::result::SUCCESS_WARNINGS)
         {
             SkeletonState.m_bReload = true;
             SkeletonState.m_bErrors = false;
         }
-        else if (Result == e10::compilation::historical_entry::result::FAILURE)
+        else if (Result == xresource_editor::compilation::historical_entry::result::FAILURE)
         {
             SkeletonState.m_bErrors = true;
         }
     };
-    e10::g_LibMgr.m_OnCompilationState.Register(CallBackForCompilation);
+    xresource_editor::g_LibMgr.m_OnCompilationState.Register(CallBackForCompilation);
 
     //
     // Property inspectors - render settings (currently just pose mode) and the selected skeleton
@@ -2986,7 +2986,7 @@ int E23_Example()
             //
             // Open the project
             //
-            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
+            if (auto Err = xresource_editor::g_LibMgr.OpenProject(szFileName); Err)
             {
                 e23::Debugger(Err.getMessage());
                 return 1;
@@ -3001,7 +3001,7 @@ int E23_Example()
             //
             ResourceMgrUserData.m_Device = Device;
             xresource::g_Mgr.setUserData(&ResourceMgrUserData, false);
-            xresource::g_Mgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", e10::g_LibMgr.m_ProjectPath));
+            xresource::g_Mgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", xresource_editor::g_LibMgr.m_ProjectPath));
         }
     }
 
@@ -3608,12 +3608,12 @@ int E23_Example()
 
                 ImGui::Separator();
                 {
-                    const bool bDisableSave = !e10::g_LibMgr.isReadyToSave() && SkeletonState.empty();
+                    const bool bDisableSave = !xresource_editor::g_LibMgr.isReadyToSave() && SkeletonState.empty();
                     if (bDisableSave) ImGui::BeginDisabled();
                     if (ImGui::MenuItem("\xEE\x9D\x8E Save ", "Ctrl+S"))
                     {
                         xproperty::settings::context Context;
-                        e10::g_LibMgr.Save(Context);
+                        xresource_editor::g_LibMgr.Save(Context);
                     }
                     if (bDisableSave) ImGui::EndDisabled();
                 }
@@ -3627,8 +3627,8 @@ int E23_Example()
                 xcontainer::lock::scope lk(*SkeletonState.m_Log);
                 auto& Log = SkeletonState.m_Log->get();
 
-                bool bDisable = Log.m_Result == e10::compilation::historical_entry::result::COMPILING
-                             || Log.m_Result == e10::compilation::historical_entry::result::COMPILING_WARNINGS;
+                bool bDisable = Log.m_Result == xresource_editor::compilation::historical_entry::result::COMPILING
+                             || Log.m_Result == xresource_editor::compilation::historical_entry::result::COMPILING_WARNINGS;
 
                 std::vector<std::string> ValidationErrors;
                 if (!bDisable)
@@ -3645,11 +3645,11 @@ int E23_Example()
                 std::uint32_t Color = IM_COL32(255, 255, 255, 255);
                 switch (Log.m_Result)
                 {
-                case e10::compilation::historical_entry::result::COMPILING_WARNINGS: Color = IM_COL32(255, 255, 0,   255); break;
-                case e10::compilation::historical_entry::result::COMPILING:          Color = IM_COL32(0,   255, 0,   255); break;
-                case e10::compilation::historical_entry::result::FAILURE:            Color = IM_COL32(255, 170, 140, 255); break;
-                case e10::compilation::historical_entry::result::SUCCESS_WARNINGS:   Color = IM_COL32(255, 255, 0,   255); break;
-                case e10::compilation::historical_entry::result::SUCCESS:            Color = IM_COL32(255, 255, 255, 255); break;
+                case xresource_editor::compilation::historical_entry::result::COMPILING_WARNINGS: Color = IM_COL32(255, 255, 0,   255); break;
+                case xresource_editor::compilation::historical_entry::result::COMPILING:          Color = IM_COL32(0,   255, 0,   255); break;
+                case xresource_editor::compilation::historical_entry::result::FAILURE:            Color = IM_COL32(255, 170, 140, 255); break;
+                case xresource_editor::compilation::historical_entry::result::SUCCESS_WARNINGS:   Color = IM_COL32(255, 255, 0,   255); break;
+                case xresource_editor::compilation::historical_entry::result::SUCCESS:            Color = IM_COL32(255, 255, 255, 255); break;
                 }
 
                 ImGui::PushStyleColor(ImGuiCol_Text, Color);
@@ -3715,7 +3715,7 @@ int E23_Example()
         }
 
         AsserBrowser.SetDevice(Device);
-        AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
+        AsserBrowser.Render(xresource_editor::g_LibMgr, xresource::g_Mgr);
 
         if (auto SelAsset = AsserBrowser.getSelectedAsset(); SelAsset.empty() == false && SelAsset.m_Type == xrsc::skeleton_type_guid_v)
         {

@@ -336,7 +336,7 @@ namespace xeditor
         descriptor_cmds::list_properties_cmd    m_ListProperties;
         inspector_panel                         m_DescriptorInspector{ "Description" };
 
-        descriptor_editor(const char* pTypeName, xresource::full_guid Guid, e10::library::guid LibraryGuid, xgpu::device* pDevice) noexcept
+        descriptor_editor(const char* pTypeName, xresource::full_guid Guid, xresource_editor::library::guid LibraryGuid, xgpu::device* pDevice) noexcept
             : document_editor(pTypeName, Guid, LibraryGuid, pDevice)
             , m_SetProperty(m_Undo, m_Document), m_SnapshotEdit(m_Undo, m_Document), m_ListOp(m_Undo, m_Document), m_ListProperties(m_Undo, m_Document)
         {

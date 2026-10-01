@@ -323,7 +323,7 @@ are missing Level/Scene commands", "ListFolders -Scene ... -From root...". New f
 scene-content mutations, same reasoning as Say/GetLog): `OpenLevel -Level hexguid` (loads + activates
 a Level's scenes; reports success by checking `State.m_CurrentLevel` afterward, since
 `e29::OpenLevel`'s own return type is void), `CloseScene -Scene hexguid` (wraps the existing
-`e29::CloseScene` helper), `ListLevels`/`ListScenes [-Level hexguid]` (walk `e10::g_LibMgr`'s own
+`e29::CloseScene` helper), `ListLevels`/`ListScenes [-Level hexguid]` (walk `xresource_editor::g_LibMgr`'s own
 type-indexed asset map via a shared `BuildAssetNameMap` helper - the same map the Asset Browser itself
 walks), `ListEntities -Scene hexguid` (flat, id+name, same name-resolution fallback the Level Tree
 panel's own row rendering already uses), `ListFolders -Scene hexguid [-From folderid-or-root]`

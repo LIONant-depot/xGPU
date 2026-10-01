@@ -6,7 +6,7 @@
 // registers a factory; the host keeps the open editors (open_resource_editors), renders them and lists them in
 // xeditor::host so the command console reaches each one as Name\Command.
 #include "dependencies/xeditor/include/xeditor/host.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetMgr.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_mgr.h"
 
 #include <algorithm>
 #include <functional>
@@ -38,7 +38,7 @@ namespace xeditor
         bool m_bRequestFocus = false;
     };
 
-    using resource_editor_factory = std::function<std::unique_ptr<resource_editor>(xresource::full_guid, e10::library::guid, xgpu::device*)>;
+    using resource_editor_factory = std::function<std::unique_ptr<resource_editor>(xresource::full_guid, xresource_editor::library::guid, xgpu::device*)>;
 
     inline std::unordered_map<xresource::type_guid, resource_editor_factory>& ResourceEditorFactories() noexcept
     {
@@ -65,14 +65,14 @@ namespace xeditor
         }
 
         // The library a resource lives in (empty when no open library has it).
-        static e10::library::guid FindLibraryOf(xresource::full_guid Guid) noexcept
+        static xresource_editor::library::guid FindLibraryOf(xresource::full_guid Guid) noexcept
         {
-            for (auto& Lib : e10::g_LibMgr.m_mLibraryDB)
+            for (auto& Lib : xresource_editor::g_LibMgr.m_mLibraryDB)
             {
                 bool bFound = false;
-                Lib.second->m_InfoByTypeDataBase.FindAsReadOnly(Guid.m_Type, [&](const std::unique_ptr<e10::library_db::info_db>& InfoDB)
+                Lib.second->m_InfoByTypeDataBase.FindAsReadOnly(Guid.m_Type, [&](const std::unique_ptr<xresource_editor::library_db::info_db>& InfoDB)
                 {
-                    InfoDB->m_InfoDataBase.FindAsReadOnly(Guid.m_Instance, [&](const e10::library_db::info_node&) { bFound = true; });
+                    InfoDB->m_InfoDataBase.FindAsReadOnly(Guid.m_Instance, [&](const xresource_editor::library_db::info_node&) { bFound = true; });
                 });
                 if (bFound) return Lib.first;
             }
@@ -82,7 +82,7 @@ namespace xeditor
         static bool HasEditorFor(xresource::type_guid Type) noexcept { return ResourceEditorFactories().contains(Type); }
 
         // Focuses the editor already open for this resource, or opens one. Null when the type has no editor.
-        resource_editor* Open(xresource::full_guid Guid, e10::library::guid LibraryGuid) noexcept
+        resource_editor* Open(xresource::full_guid Guid, xresource_editor::library::guid LibraryGuid) noexcept
         {
             if (auto* pOpen = Find(Guid)) { pOpen->Focus(); return pOpen; }
             auto It = ResourceEditorFactories().find(Guid.m_Type);

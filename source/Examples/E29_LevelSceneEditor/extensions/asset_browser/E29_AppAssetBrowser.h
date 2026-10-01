@@ -7,14 +7,14 @@ namespace e29
     // open-asset routing (Level / Texture), and the extra Project Settings sections.
     inline void app::WireAssetBrowser()
     {
-        e10::RegisterAssetBrowserCallbacks(AsserBrowser, E29Undo, CmdContext.m_Undo, MainWindow);
-        e10::RegisterSourceControlCallbacks(AsserBrowser, E29Undo);
+        xresource_editor::RegisterAssetBrowserCallbacks(AsserBrowser, E29Undo, CmdContext.m_Undo, MainWindow);
+        xresource_editor::RegisterSourceControlCallbacks(AsserBrowser, E29Undo);
 
 
 
-        // "Scripting" section in the merged Plugins/Project Settings tab (e10::plugin_tab,
+        // "Scripting" section in the merged Plugins/Project Settings tab (xresource_editor::plugin_tab,
 
-        // E10_asset_browser_plugin_tab.h) - the project's Script-Module build-membership list
+        // xresource_editor_asset_browser_plugin_tab.h) - the project's Script-Module build-membership list
 
         // (Project.config\Script.config.txt, e29::g_ScriptConfig.m_ModuleRefs), rendered as a normal
 
@@ -58,7 +58,7 @@ namespace e29
 
         // registered lazily, once, the first time this section is actually selected - E29 has no way to
 
-        // reach plugin_tab's own instance ahead of time (it's created generically inside assert_browser's
+        // reach plugin_tab's own instance ahead of time (it's created generically inside asset_browser's
 
         // own tab list), so "wire on first use" is the only hook point available, not a startup call.
 
@@ -74,7 +74,7 @@ namespace e29
 
                 static bool bWired = false;
 
-                if (!bWired) { e10::WireResourcePickerCallbacks(Inspector); bWired = true; }
+                if (!bWired) { xresource_editor::WireResourcePickerCallbacks(Inspector); bWired = true; }
 
 
 
@@ -132,7 +132,7 @@ namespace e29
 
                 {
 
-                    if (auto Err = e29::SaveScriptConfig(e10::g_LibMgr.m_ProjectPath, e29::g_ScriptConfig); Err)
+                    if (auto Err = e29::SaveScriptConfig(xresource_editor::g_LibMgr.m_ProjectPath, e29::g_ScriptConfig); Err)
 
                         xeditor::NotifyError(std::format("Failed to save Script.config.txt: {}", Err.getMessage()));
 
@@ -151,7 +151,7 @@ namespace e29
         // Double-click: a Level opens in the Level editor, a resource type with a registered editor (Texture, Static Geom, ...)
         // opens in its own window, and every other type keeps today's inert setSelection-only default.
 
-        AsserBrowser.m_OnOpenAsset = [this](e10::library::guid LibraryGuid, xresource::full_guid AssetGuid)
+        AsserBrowser.m_OnOpenAsset = [this](xresource_editor::library::guid LibraryGuid, xresource::full_guid AssetGuid)
             {
                 if (AssetGuid.m_Type == xecs::level::type_guid_v)
                 {
@@ -166,7 +166,7 @@ namespace e29
         // going forward) - same dependency-inversion shape as m_OnOpenAsset just above: the browser only
         // knows it can ask for one, everything about how it's made/cached lives in xeditor.
         xeditor::g_ThumbnailCache.Init(MainWindow);
-        AsserBrowser.m_OnRequestThumbnail = [this](xresource::full_guid AssetGuid) -> e10::plugin_icon_ref
+        AsserBrowser.m_OnRequestThumbnail = [this](xresource::full_guid AssetGuid) -> xresource_editor::plugin_icon_ref
             {
                 if (!ResourceEditors.m_pDevice) return {};
                 return xeditor::g_ThumbnailCache.RequestThumbnail(*ResourceEditors.m_pDevice, AssetGuid);

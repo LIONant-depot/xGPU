@@ -8,7 +8,7 @@
 
 // E29_GameModuleSources.h) for its own staleness check, so g_ScriptConfig must already be declared
 
-// by the time the umbrella below compiles. E10_AssetMgr.h (e10::g_LibMgr) is already visible via
+// by the time the umbrella below compiles. xresource_editor_asset_mgr.h (xresource_editor::g_LibMgr) is already visible via
 
 // E29_LevelSceneEditorKit.h just above, so this is the only reordering actually needed.
 
@@ -35,7 +35,7 @@
 
 #include "plugins/xlevel.plugin/source/Editor/xlevel_commands_scene_dependency.h"
 
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_LibraryDependency.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_commands_library_dependency.h"
 
 #include "plugins/xlevel.plugin/source/Editor/xlevel_commands_workspace.h"
 
@@ -43,17 +43,17 @@
 
 #include "plugins/xscene.plugin/source/Editor/xscene_commands_scene_organization.h"
 
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_Assets.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_commands_assets.h"
 
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_AssetFiles.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_commands_asset_files.h"
 
 #include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_Commands_Scripting.h"
 
 #include "plugins/xscene.plugin/source/Editor/xscene_commands_make_prefab.h"
 
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_Compilation.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_commands_compilation.h"
 
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_SourceControl.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_commands_source_control.h"
 
 #include "source/Examples/E29_LevelSceneEditor/extensions/asset_browser/E29_Commands_ResourceEditors.h"
 
@@ -256,7 +256,7 @@ namespace e29
 
 
 
-        e10::assert_browser  AsserBrowser;
+        xresource_editor::asset_browser  AsserBrowser;
 
 
 

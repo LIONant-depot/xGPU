@@ -13,15 +13,15 @@ the table from 2 to 3 columns. Required a mechanical mid-file column-index shift
 Entity/Runtime row blocks) - done as two sequential `replace_all` passes (1→2 first, THEN 0→1, in
 that order) to avoid double-shifting.
 
-Reuses the EXACT SAME `e10::DrawSourceControlBadge`/`GetSourceControlTooltipText`
-(`E10_AssetBrowser.h`) and `e10::source_control::GetCachedFileStatus`/`GetCachedLockStatus`/
-`GetLastRefreshTime` (`E10_SourceControlCache.h`) + `e29::commands::ResolveLibraryRootPath`
+Reuses the EXACT SAME `xresource_editor::DrawSourceControlBadge`/`GetSourceControlTooltipText`
+(`xresource_editor_asset_browser.h`) and `xresource_editor::source_control::GetCachedFileStatus`/`GetCachedLockStatus`/
+`GetLastRefreshTime` (`xresource_editor_source_control_cache.h`) + `e29::commands::ResolveLibraryRootPath`
 (`E29_Commands_SourceControl.h`) the Asset Tree and Source Control tab already share - all three
 views read identically. New helper `RenderLevelTreeSourceControlBadge(full_guid)` in
 `E29_Panel_LevelTree.h` itself resolves "which library owns this resource" (no existing helper did
 this - `getNodeInfo`'s own global-search overload loops every open library internally but never
 surfaces which one matched) via a fresh per-library loop, then derives the real Descriptor.txt path
-the same way `E10_asset_browser_virtual_tree_tab.h`'s own tile badges do (info.txt's path → sibling
+the same way `xresource_editor_asset_browser_virtual_tree_tab.h`'s own tile badges do (info.txt's path → sibling
 Descriptor.txt → strip the owning library's root).
 
 **Scope, per live user correction across 3 follow-up messages** (all landed same session):
@@ -73,7 +73,7 @@ surfaced 3 real problems, all fixed and re-verified across several rebuild/relau
    then a width bump, then a full revert of the badge size back to 12px (matching every other view)
    once the user explicitly called out the size mismatch. Final shipped state: "##SC" column = 21px
    (30% narrower than a 30px waypoint), badge = 12px (unchanged from the original, matching
-   `E10_asset_browser_virtual_tree_tab.h`/`files_tab`), `CellPadding.x` = 0 for this table only
+   `xresource_editor_asset_browser_virtual_tree_tab.h`/`files_tab`), `CellPadding.x` = 0 for this table only
    (`Push/PopStyleVar`, not the shared theme default), `IndentSpacing` = 8 for this table only
    (half of `E29_Theme.h`'s global 16, also scoped via `Push/PopStyleVar`, not a global theme edit).
 

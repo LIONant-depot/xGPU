@@ -17,19 +17,19 @@ natural follow-up now that CreateAsset/etc exist to compose with.
 detail. High-level shape:
 
 - New file `extensions/asset_browser/E29_Commands_AssetBrowser.h`: `ListAssets`/`DescribeAsset` (discovery, walk
-  `e10::library_mgr`'s tree via the existing `getInfo`/`getNodeInfo` accessors), `RenameAsset`,
+  `xresource_editor::library_mgr`'s tree via the existing `getInfo`/`getNodeInfo` accessors), `RenameAsset`,
   `MoveAsset`, `DeleteAsset` (soft-delete via Trash, fully reversible), `RestoreAsset` (a genuine
   forward action distinct from DeleteAsset's Undo - the Trash UI's "Restore to X" can target a
   DIFFERENT parent than the one deleted from), `CreateAsset` (undo-routed, pre-minted instance guid
   same "-Id pre-minted by the caller" convention `create_entity_cmd`/`instantiate_prefab_cmd` use),
   `SaveAssets`. An asset guid is a genuine `xresource::full_guid` (instance+type, unlike Scene/Level's
   single-type `def_guid`) - new `FormatAssetGuid`/`ParseAssetGuid` (32 hex: 16 instance + 16 type,
-  E29_CommandContext.h), plus `FormatLibraryGuid`/`ParseLibraryGuid` for `e10::library::guid`.
-- Scoped entirely to E29's own `commands/` directory - `E10_AssetMgr.h`'s `library_mgr` itself is
+  E29_CommandContext.h), plus `FormatLibraryGuid`/`ParseLibraryGuid` for `xresource_editor::library::guid`.
+- Scoped entirely to E29's own `commands/` directory - `xresource_editor_asset_mgr.h`'s `library_mgr` itself is
   untouched, since it's shared by 8 examples (E10, E19-E21, E23-E25, E28, plus E29).
-- UI wiring (2nd commit): optional callback hooks added to `e10::assert_browser`
-  (`E10_AssetBrowser.h`) - `m_OnRenameAsset`/`m_OnMoveAsset`/`m_OnDeleteAsset`/`m_OnRestoreAsset`/
-  `m_OnCreateAsset`, default-empty. `E10_asset_browser_virtual_tree_tab.h`'s own ~13 real mutation
+- UI wiring (2nd commit): optional callback hooks added to `xresource_editor::asset_browser`
+  (`xresource_editor_asset_browser.h`) - `m_OnRenameAsset`/`m_OnMoveAsset`/`m_OnDeleteAsset`/`m_OnRestoreAsset`/
+  `m_OnCreateAsset`, default-empty. `xresource_editor_asset_browser_virtual_tree_tab.h`'s own ~13 real mutation
   call sites now check the hook first, call it INSTEAD of `library_mgr` directly when set. E29
   registers handlers (`RegisterAssetBrowserCallbacks`, E29_LevelSceneEditorKit.h) that `Run()` the
   matching command. Confirmed additive/safe by the build itself succeeding across all 8 consumers.

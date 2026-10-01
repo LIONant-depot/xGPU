@@ -119,7 +119,7 @@ namespace e29
     // ImGuiInputTextFlags_CallbackHistory) && (flags & ImGuiInputTextFlags_Multiline))") - multiline
     // already owns Up/Down for moving the cursor between wrapped/real lines and doesn't support
     // reassigning them. Direct user follow-up once told this: history now works like the Asset
-    // Browser's own path-history popup (E10_AssetBrowser.h's RenderPathHistoryPopup) - a small "History"
+    // Browser's own path-history popup (xresource_editor_asset_browser.h's RenderPathHistoryPopup) - a small "History"
     // button opens a click-to-recall popup (below) instead of relying on arrow keys at all; suggestions
     // stay mouse-click-only, same as they always were alongside the (now-removed) keyboard cycling.
     static int CommandConsoleCallback(ImGuiInputTextCallbackData* pData)
@@ -398,8 +398,8 @@ namespace e29
             // Run | History | Input, all one row, all sharing the input's own (auto-grown) height -
             // direct user request, simplified after two earlier layouts both had real problems: Run
             // submits, same as pressing Enter; History opens the click-to-recall popup (further below).
-            // Same history glyph as the Asset/Resource browsers' own history button (E10_AssetBrowser.h's
-            // "\xee\xa5\xb2", opened via assert_browser::RenderPathHistoryPopup) - direct user request to
+            // Same history glyph as the Asset/Resource browsers' own history button (xresource_editor_asset_browser.h's
+            // "\xee\xa5\xb2", opened via asset_browser::RenderPathHistoryPopup) - direct user request to
             // keep the icon language consistent across panels, no "History" text label (that panel has
             // never used one either).
             const bool bRunClicked = ImGui::Button("Run", ImVec2(RunBtnW, InputBoxH));
@@ -410,7 +410,7 @@ namespace e29
             ImGui::SameLine();
 
             // Clear ("X") button - a REAL, separate widget drawn BEFORE the input, same structural
-            // pattern as the Asset/Resource browsers' own search box (E10_AssetBrowser.h's
+            // pattern as the Asset/Resource browsers' own search box (xresource_editor_asset_browser.h's
             // RenderSearchBar: its own "X" button is likewise a plain sequential widget to the LEFT of
             // the InputText, never overlaid on top of it). The earlier version drew this "X" as an
             // overlay AFTER InputTextMultiline, positioned on top of the input's own rect via
@@ -490,7 +490,7 @@ namespace e29
                 CmdBuffer[0] = 0;
 
             // History popup - direct user follow-up, matching the Asset Browser's own path-history
-            // popup (E10_AssetBrowser.h's RenderPathHistoryPopup): the History button opens a
+            // popup (xresource_editor_asset_browser.h's RenderPathHistoryPopup): the History button opens a
             // click-to-recall list instead of arrow-key browsing (which multiline can't support - see
             // CommandConsoleCallback's own comment). Anchored to the INPUT box's own rect (not the
             // button's) - direct user request that it land directly above the text window with the

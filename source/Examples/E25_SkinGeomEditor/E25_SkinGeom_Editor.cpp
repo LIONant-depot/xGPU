@@ -16,9 +16,9 @@
 #define XRESOURCE_PIPELINE_NO_COMPILER
 #include "dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
 #include "source/xstrtool.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_Resources.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetMgr.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetBrowser.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_resources.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_mgr.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser.h"
 
 #include "plugins/xtexture.plugin/source/xtexture_xgpu_rsc_loader.h"
 
@@ -224,7 +224,7 @@ namespace e25
     {
         xrsc::geom_skin                      m_Ref            = {};   // compiled skin mesh resource
         xrsc::skeleton                       m_SkeletonRef    = {};   // compiled skeleton resource, resolved from the descriptor
-        e10::library::guid                   m_LibraryGUID    = {};
+        xresource_editor::library::guid                   m_LibraryGUID    = {};
         xresource::full_guid                 m_InfoGUID       = {};
         std::wstring                         m_DescriptorPath = {};
         xgeom_skin::descriptor               m_Descriptor     = {};
@@ -256,7 +256,7 @@ namespace e25
         std::vector<xmath::fmat4>            m_PoseWorldMats;   // per-bone world-space pose (rest or animated)
         std::vector<xmath::fmat4>            m_SkinMatrices;    // per-bone World * InvBindPose, uploaded to the BoneMatrixBuffer SSBO
 
-        std::shared_ptr<e10::compilation::historical_entry::log> m_Log = {};
+        std::shared_ptr<xresource_editor::compilation::historical_entry::log> m_Log = {};
         bool                                  m_bReload        = false;
         bool                                  m_bErrors        = false;
 
@@ -276,7 +276,7 @@ namespace e25
             m_bPlaying      = false;
             m_PoseWorldMats.clear();
             m_SkinMatrices.clear();
-            m_Log           = std::make_shared<e10::compilation::historical_entry::log>(e10::compilation::historical_entry::communication{ .m_Result = e10::compilation::historical_entry::result::SUCCESS });
+            m_Log           = std::make_shared<xresource_editor::compilation::historical_entry::log>(xresource_editor::compilation::historical_entry::communication{ .m_Result = xresource_editor::compilation::historical_entry::result::SUCCESS });
             m_bReload       = false;
             m_bErrors       = false;
         }
@@ -328,7 +328,7 @@ namespace e25
 
     //---------------------------------------------------------------------------
 
-    void LoadSkinGeom(skin_state& State, e10::library::guid LibraryGUID, xresource::full_guid InfoGUID)
+    void LoadSkinGeom(skin_state& State, xresource_editor::library::guid LibraryGUID, xresource::full_guid InfoGUID)
     {
         xresource::g_Mgr.ReleaseRef(State.m_Ref);
         xresource::g_Mgr.ReleaseRef(State.m_SkeletonRef);
@@ -339,7 +339,7 @@ namespace e25
         State.m_LibraryGUID = LibraryGUID;
         State.m_InfoGUID    = InfoGUID;
 
-        e10::g_LibMgr.getNodeInfo(State.m_LibraryGUID, State.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
+        xresource_editor::g_LibMgr.getNodeInfo(State.m_LibraryGUID, State.m_InfoGUID, [&](xresource_editor::library_db::info_node& NodeInfo)
         {
             GenerateDescriptorPath(State, NodeInfo.m_Path);
         });
@@ -690,7 +690,7 @@ int E25_Example()
     //
     resource_mgr_user_data ResourceMgrUserData;
 
-    e10::assert_browser  AsserBrowser;
+    xresource_editor::asset_browser  AsserBrowser;
     e25::skin_state       SkinState;
     e25::render_settings  RenderSettings;
 
@@ -782,30 +782,30 @@ int E25_Example()
     };
 
     // Compile-progress subscriber - mirrors E23/E24's own CallBackForCompilation exactly.
-    auto CallBackForCompilation = [&](e10::library_mgr&, e10::library::guid, xresource::full_guid gCompilingEntry, std::shared_ptr<e10::compilation::historical_entry::log>& LogInformation)
+    auto CallBackForCompilation = [&](xresource_editor::library_mgr&, xresource_editor::library::guid, xresource::full_guid gCompilingEntry, std::shared_ptr<xresource_editor::compilation::historical_entry::log>& LogInformation)
     {
         if (SkinState.m_InfoGUID != gCompilingEntry) return;
 
         if (SkinState.m_Log.get() != LogInformation.get())
             SkinState.m_Log = LogInformation;
 
-        e10::compilation::historical_entry::result Result;
+        xresource_editor::compilation::historical_entry::result Result;
         {
             xcontainer::lock::scope lk(*SkinState.m_Log);
             Result = SkinState.m_Log->get().m_Result;
         }
 
-        if (Result == e10::compilation::historical_entry::result::SUCCESS || Result == e10::compilation::historical_entry::result::SUCCESS_WARNINGS)
+        if (Result == xresource_editor::compilation::historical_entry::result::SUCCESS || Result == xresource_editor::compilation::historical_entry::result::SUCCESS_WARNINGS)
         {
             SkinState.m_bReload = true;
             SkinState.m_bErrors = false;
         }
-        else if (Result == e10::compilation::historical_entry::result::FAILURE)
+        else if (Result == xresource_editor::compilation::historical_entry::result::FAILURE)
         {
             SkinState.m_bErrors = true;
         }
     };
-    e10::g_LibMgr.m_OnCompilationState.Register(CallBackForCompilation);
+    xresource_editor::g_LibMgr.m_OnCompilationState.Register(CallBackForCompilation);
 
     //
     // Property inspectors - descriptor (authoring) and render settings (preview), both driven by
@@ -927,7 +927,7 @@ int E25_Example()
             TCHAR LIONantProject[] = L"\\example.lionprj";
             for (int i = 0; szFileName[I++] = LIONantProject[i]; ++i);
 
-            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
+            if (auto Err = xresource_editor::g_LibMgr.OpenProject(szFileName); Err)
             {
                 e25::Debugger(Err.getMessage());
                 return 1;
@@ -939,7 +939,7 @@ int E25_Example()
 
             ResourceMgrUserData.m_Device = Device;
             xresource::g_Mgr.setUserData(&ResourceMgrUserData, false);
-            xresource::g_Mgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", e10::g_LibMgr.m_ProjectPath));
+            xresource::g_Mgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", xresource_editor::g_LibMgr.m_ProjectPath));
         }
     }
 
@@ -1261,12 +1261,12 @@ int E25_Example()
 
                 ImGui::Separator();
                 {
-                    const bool bDisableSave = !e10::g_LibMgr.isReadyToSave() && SkinState.empty();
+                    const bool bDisableSave = !xresource_editor::g_LibMgr.isReadyToSave() && SkinState.empty();
                     if (bDisableSave) ImGui::BeginDisabled();
                     if (ImGui::MenuItem("Save", "Ctrl+S"))
                     {
                         xproperty::settings::context Context;
-                        e10::g_LibMgr.Save(Context);
+                        xresource_editor::g_LibMgr.Save(Context);
                     }
                     if (bDisableSave) ImGui::EndDisabled();
                 }
@@ -1280,8 +1280,8 @@ int E25_Example()
                 xcontainer::lock::scope lk(*SkinState.m_Log);
                 auto& Log = SkinState.m_Log->get();
 
-                bool bDisable = Log.m_Result == e10::compilation::historical_entry::result::COMPILING
-                             || Log.m_Result == e10::compilation::historical_entry::result::COMPILING_WARNINGS;
+                bool bDisable = Log.m_Result == xresource_editor::compilation::historical_entry::result::COMPILING
+                             || Log.m_Result == xresource_editor::compilation::historical_entry::result::COMPILING_WARNINGS;
 
                 std::vector<std::string> ValidationErrors;
                 if (!bDisable)
@@ -1298,11 +1298,11 @@ int E25_Example()
                 std::uint32_t Color = IM_COL32(255, 255, 255, 255);
                 switch (Log.m_Result)
                 {
-                case e10::compilation::historical_entry::result::COMPILING_WARNINGS: Color = IM_COL32(255, 255, 0,   255); break;
-                case e10::compilation::historical_entry::result::COMPILING:          Color = IM_COL32(0,   255, 0,   255); break;
-                case e10::compilation::historical_entry::result::FAILURE:            Color = IM_COL32(255, 170, 140, 255); break;
-                case e10::compilation::historical_entry::result::SUCCESS_WARNINGS:   Color = IM_COL32(255, 255, 0,   255); break;
-                case e10::compilation::historical_entry::result::SUCCESS:            Color = IM_COL32(255, 255, 255, 255); break;
+                case xresource_editor::compilation::historical_entry::result::COMPILING_WARNINGS: Color = IM_COL32(255, 255, 0,   255); break;
+                case xresource_editor::compilation::historical_entry::result::COMPILING:          Color = IM_COL32(0,   255, 0,   255); break;
+                case xresource_editor::compilation::historical_entry::result::FAILURE:            Color = IM_COL32(255, 170, 140, 255); break;
+                case xresource_editor::compilation::historical_entry::result::SUCCESS_WARNINGS:   Color = IM_COL32(255, 255, 0,   255); break;
+                case xresource_editor::compilation::historical_entry::result::SUCCESS:            Color = IM_COL32(255, 255, 255, 255); break;
                 }
 
                 ImGui::PushStyleColor(ImGuiCol_Text, Color);
@@ -1594,14 +1594,14 @@ int E25_Example()
         }
 
         AsserBrowser.SetDevice(Device);
-        AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
+        AsserBrowser.Render(xresource_editor::g_LibMgr, xresource::g_Mgr);
 
         // Drives the per-field resource-ref picker popup (xgpu_editor_resource_picker.h's
         // g_AssetBrowserPopup) - ShowAsPopup() only arms it, this is what actually draws it each frame.
         // Missing this call is why clicking a resource-ref button previously did nothing: the popup's
         // "wants to open" state was set, but nothing ever rendered it. Matches E21's own per-frame call.
         xgpu::tools::editors::g_AssetBrowserPopup.SetDevice(Device);
-        xgpu::tools::editors::g_AssetBrowserPopup.RenderAsPopup(e10::g_LibMgr, xresource::g_Mgr);
+        xgpu::tools::editors::g_AssetBrowserPopup.RenderAsPopup(xresource_editor::g_LibMgr, xresource::g_Mgr);
 
         if (auto SelAsset = AsserBrowser.getSelectedAsset(); SelAsset.empty() == false && SelAsset.m_Type == xgeom_skin::resource_type_guid_v)
         {

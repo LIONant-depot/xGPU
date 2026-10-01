@@ -16,9 +16,9 @@
 #define XRESOURCE_PIPELINE_NO_COMPILER
 #include "dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
 #include "source/xstrtool.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_Resources.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetMgr.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetBrowser.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_resources.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_mgr.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser.h"
 
 #include "plugins/xtexture.plugin/source/xtexture_xgpu_rsc_loader.h"
 
@@ -449,7 +449,7 @@ namespace e24
     {
         xrsc::anim_package                  m_Ref            = {};   // compiled anim package resource
         xrsc::skeleton                      m_SkeletonRef    = {};   // compiled skeleton resource, resolved from the descriptor
-        e10::library::guid                  m_LibraryGUID    = {};
+        xresource_editor::library::guid                  m_LibraryGUID    = {};
         xresource::full_guid                m_InfoGUID       = {};
         std::wstring                        m_DescriptorPath = {};
         xanim_package_desc::descriptor      m_Descriptor     = {};
@@ -484,9 +484,9 @@ namespace e24
         // Compile/save tracking - mirrors E23_SkeletonEditor::skeleton_state exactly. Saving the
         // descriptor (SaveDescriptor) is what actually triggers a recompile - a background
         // file-watcher in the library manager picks up the change and runs the plugin's compiler,
-        // broadcasting progress via e10::g_LibMgr.m_OnCompilationState (see the registration in
+        // broadcasting progress via xresource_editor::g_LibMgr.m_OnCompilationState (see the registration in
         // E24_Example) to whichever shared_ptr<log> this GUID's compile currently owns.
-        std::shared_ptr<e10::compilation::historical_entry::log> m_Log = {};
+        std::shared_ptr<xresource_editor::compilation::historical_entry::log> m_Log = {};
         bool                                 m_bReload       = false;
         bool                                 m_bErrors       = false;
 
@@ -514,7 +514,7 @@ namespace e24
             m_LoopsElapsed  = 0;
             m_bPlaying      = false;
             m_bNeedsReframe = true;
-            m_Log           = std::make_shared<e10::compilation::historical_entry::log>(e10::compilation::historical_entry::communication{ .m_Result = e10::compilation::historical_entry::result::SUCCESS });
+            m_Log           = std::make_shared<xresource_editor::compilation::historical_entry::log>(xresource_editor::compilation::historical_entry::communication{ .m_Result = xresource_editor::compilation::historical_entry::result::SUCCESS });
             m_bReload       = false;
             m_bErrors       = false;
         }
@@ -571,7 +571,7 @@ namespace e24
 
     //---------------------------------------------------------------------------
 
-    void LoadAnimPackage(anim_state& State, e10::library::guid LibraryGUID, xresource::full_guid InfoGUID)
+    void LoadAnimPackage(anim_state& State, xresource_editor::library::guid LibraryGUID, xresource::full_guid InfoGUID)
     {
         xresource::g_Mgr.ReleaseRef(State.m_Ref);
         xresource::g_Mgr.ReleaseRef(State.m_SkeletonRef);
@@ -582,7 +582,7 @@ namespace e24
         State.m_LibraryGUID = LibraryGUID;
         State.m_InfoGUID    = InfoGUID;
 
-        e10::g_LibMgr.getNodeInfo(State.m_LibraryGUID, State.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
+        xresource_editor::g_LibMgr.getNodeInfo(State.m_LibraryGUID, State.m_InfoGUID, [&](xresource_editor::library_db::info_node& NodeInfo)
         {
             GenerateDescriptorPath(State, NodeInfo.m_Path);
         });
@@ -672,7 +672,7 @@ namespace e24
         else
         {
             auto FullGuid = xresource::g_Mgr.getFullGuid(PreFullGuid);
-            e10::g_LibMgr.getNodeInfo(FullGuid, [&](e10::library_db::info_node& Node)
+            xresource_editor::g_LibMgr.getNodeInfo(FullGuid, [&](xresource_editor::library_db::info_node& Node)
                 {
                     Name = Node.m_Info.m_Name;
                 });
@@ -695,7 +695,7 @@ namespace e24
         ImGui::PopStyleColor();
     }
 
-    e10::assert_browser g_AssetBrowserPopup;
+    xresource_editor::asset_browser g_AssetBrowserPopup;
 
     void ResourceBrowserPopup(const void* pUID, bool& Open, xresource::full_guid& Output, std::span<const xresource::type_guid> Filters)
     {
@@ -703,7 +703,7 @@ namespace e24
         {
             struct drag_and_drop_folder_payload_t
             {
-                e10::folder::guid           m_Parent;
+                xresource_editor::folder::guid           m_Parent;
                 xresource::full_guid        m_Source;
                 bool                        m_bSelection;
             };
@@ -742,7 +742,7 @@ namespace e24
 
         if (Open && not g_AssetBrowserPopup.isVisible())
         {
-            g_AssetBrowserPopup.ShowAsPopup(e10::g_LibMgr, pUID, Filters, Output.m_Type);
+            g_AssetBrowserPopup.ShowAsPopup(xresource_editor::g_LibMgr, pUID, Filters, Output.m_Type);
         }
 
         if (auto SelectedAsset = g_AssetBrowserPopup.getSelectedAsset(); SelectedAsset.empty() == false)
@@ -955,37 +955,37 @@ int E24_Example()
     //
     resource_mgr_user_data ResourceMgrUserData;
 
-    e10::assert_browser  AsserBrowser;
+    xresource_editor::asset_browser  AsserBrowser;
     e24::anim_state       AnimState;
 
     // Compile-progress subscriber - the library manager broadcasts every resource's compile state
     // (any type, any selection) through this one delegate; filter to whichever AnimPackage is
     // currently loaded and mirror its log/result locally, matching E23_SkeletonEditor's own
     // CallBackForCompilation exactly.
-    auto CallBackForCompilation = [&](e10::library_mgr&, e10::library::guid, xresource::full_guid gCompilingEntry, std::shared_ptr<e10::compilation::historical_entry::log>& LogInformation)
+    auto CallBackForCompilation = [&](xresource_editor::library_mgr&, xresource_editor::library::guid, xresource::full_guid gCompilingEntry, std::shared_ptr<xresource_editor::compilation::historical_entry::log>& LogInformation)
     {
         if (AnimState.m_InfoGUID != gCompilingEntry) return;
 
         if (AnimState.m_Log.get() != LogInformation.get())
             AnimState.m_Log = LogInformation;
 
-        e10::compilation::historical_entry::result Result;
+        xresource_editor::compilation::historical_entry::result Result;
         {
             xcontainer::lock::scope lk(*AnimState.m_Log);
             Result = AnimState.m_Log->get().m_Result;
         }
 
-        if (Result == e10::compilation::historical_entry::result::SUCCESS || Result == e10::compilation::historical_entry::result::SUCCESS_WARNINGS)
+        if (Result == xresource_editor::compilation::historical_entry::result::SUCCESS || Result == xresource_editor::compilation::historical_entry::result::SUCCESS_WARNINGS)
         {
             AnimState.m_bReload = true;
             AnimState.m_bErrors = false;
         }
-        else if (Result == e10::compilation::historical_entry::result::FAILURE)
+        else if (Result == xresource_editor::compilation::historical_entry::result::FAILURE)
         {
             AnimState.m_bErrors = true;
         }
     };
-    e10::g_LibMgr.m_OnCompilationState.Register(CallBackForCompilation);
+    xresource_editor::g_LibMgr.m_OnCompilationState.Register(CallBackForCompilation);
 
     //
     // Property inspector - the selected AnimPackage descriptor's own properties (import sources,
@@ -1038,7 +1038,7 @@ int E24_Example()
 
             std::wcout << "Project Path: " << szFileName << "\n";
 
-            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
+            if (auto Err = xresource_editor::g_LibMgr.OpenProject(szFileName); Err)
             {
                 e24::Debugger(Err.getMessage());
                 return 1;
@@ -1050,7 +1050,7 @@ int E24_Example()
 
             ResourceMgrUserData.m_Device = Device;
             xresource::g_Mgr.setUserData(&ResourceMgrUserData, false);
-            xresource::g_Mgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", e10::g_LibMgr.m_ProjectPath));
+            xresource::g_Mgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", xresource_editor::g_LibMgr.m_ProjectPath));
         }
     }
 
@@ -1230,12 +1230,12 @@ int E24_Example()
 
                 ImGui::Separator();
                 {
-                    const bool bDisableSave = !e10::g_LibMgr.isReadyToSave() && AnimState.empty();
+                    const bool bDisableSave = !xresource_editor::g_LibMgr.isReadyToSave() && AnimState.empty();
                     if (bDisableSave) ImGui::BeginDisabled();
                     if (ImGui::MenuItem("Save", "Ctrl+S"))
                     {
                         xproperty::settings::context Context;
-                        e10::g_LibMgr.Save(Context);
+                        xresource_editor::g_LibMgr.Save(Context);
                     }
                     if (bDisableSave) ImGui::EndDisabled();
                 }
@@ -1249,8 +1249,8 @@ int E24_Example()
                 xcontainer::lock::scope lk(*AnimState.m_Log);
                 auto& Log = AnimState.m_Log->get();
 
-                bool bDisable = Log.m_Result == e10::compilation::historical_entry::result::COMPILING
-                             || Log.m_Result == e10::compilation::historical_entry::result::COMPILING_WARNINGS;
+                bool bDisable = Log.m_Result == xresource_editor::compilation::historical_entry::result::COMPILING
+                             || Log.m_Result == xresource_editor::compilation::historical_entry::result::COMPILING_WARNINGS;
 
                 std::vector<std::string> ValidationErrors;
                 if (!bDisable)
@@ -1267,11 +1267,11 @@ int E24_Example()
                 std::uint32_t Color = IM_COL32(255, 255, 255, 255);
                 switch (Log.m_Result)
                 {
-                case e10::compilation::historical_entry::result::COMPILING_WARNINGS: Color = IM_COL32(255, 255, 0,   255); break;
-                case e10::compilation::historical_entry::result::COMPILING:          Color = IM_COL32(0,   255, 0,   255); break;
-                case e10::compilation::historical_entry::result::FAILURE:            Color = IM_COL32(255, 170, 140, 255); break;
-                case e10::compilation::historical_entry::result::SUCCESS_WARNINGS:   Color = IM_COL32(255, 255, 0,   255); break;
-                case e10::compilation::historical_entry::result::SUCCESS:            Color = IM_COL32(255, 255, 255, 255); break;
+                case xresource_editor::compilation::historical_entry::result::COMPILING_WARNINGS: Color = IM_COL32(255, 255, 0,   255); break;
+                case xresource_editor::compilation::historical_entry::result::COMPILING:          Color = IM_COL32(0,   255, 0,   255); break;
+                case xresource_editor::compilation::historical_entry::result::FAILURE:            Color = IM_COL32(255, 170, 140, 255); break;
+                case xresource_editor::compilation::historical_entry::result::SUCCESS_WARNINGS:   Color = IM_COL32(255, 255, 0,   255); break;
+                case xresource_editor::compilation::historical_entry::result::SUCCESS:            Color = IM_COL32(255, 255, 255, 255); break;
                 }
 
                 ImGui::PushStyleColor(ImGuiCol_Text, Color);
@@ -1360,12 +1360,12 @@ int E24_Example()
         }
 
         AsserBrowser.SetDevice(Device);
-        AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
+        AsserBrowser.Render(xresource_editor::g_LibMgr, xresource::g_Mgr);
 
         // Drives the SkeletonRef resource-picker popup registered on Inspector above - the asset
         // browser decides on its own each frame whether it needs to actually show anything.
         e24::g_AssetBrowserPopup.SetDevice(Device);
-        e24::g_AssetBrowserPopup.RenderAsPopup(e10::g_LibMgr, xresource::g_Mgr);
+        e24::g_AssetBrowserPopup.RenderAsPopup(xresource_editor::g_LibMgr, xresource::g_Mgr);
 
         if (auto SelAsset = AsserBrowser.getSelectedAsset(); SelAsset.empty() == false && SelAsset.m_Type == xanim_package_desc::resource_type_guid_v)
         {

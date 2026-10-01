@@ -13,9 +13,9 @@
 #define XRESOURCE_PIPELINE_NO_COMPILER
 #include "dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
 #include "source/xstrtool.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_Resources.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetMgr.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetBrowser.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_resources.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_mgr.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser.h"
 #include "source/Examples/E05_Textures/E05_BitmapInspector.h"
 
 #include "plugins/xtexture.plugin/source/xtexture_xgpu_rsc_loader.h"
@@ -37,7 +37,7 @@
 // typed `unsigned int` by the language, not `int`. std::array{...}'s CTAD locks onto the FIRST
 // literal's type (`int`, since every header starts with the small 0x07230203 magic number), so the
 // moment a later word needs the sign bit, list-initialization fails as a narrowing conversion. This
-// bit me for real adding E28_msdf_frag.glsl's kBevelLightDir = vec2(-1.0, -0.5). uint32_t sidesteps
+// bit me for real adding xfont_msdf_frag.glsl's kBevelLightDir = vec2(-1.0, -0.5). uint32_t sidesteps
 // it entirely: every 32-bit literal - whichever of int/unsigned int the compiler picked for it -
 // converts to uint32_t without narrowing, since the VALUE always fits.
 inline std::span<const std::int32_t> AsShaderSpan(const std::uint32_t* pWords, std::size_t Count) noexcept
@@ -48,20 +48,20 @@ inline std::span<const std::int32_t> AsShaderSpan(const std::uint32_t* pWords, s
 }
 constexpr std::uint32_t g_MsdfVertSPVWords[] =
 {
-    #include "E28_msdf_vert.h"
+    #include "xfont_msdf_vert.h"
 };
 constexpr std::uint32_t g_MsdfFragSPVWords[] =
 {
-    #include "E28_msdf_frag.h"
+    #include "xfont_msdf_frag.h"
 };
-// Dedicated shader pair for the glyph-bounds debug overlay - see E28_wire_vert.glsl's own comment.
+// Dedicated shader pair for the glyph-bounds debug overlay - see xfont_wire_vert.glsl's own comment.
 constexpr std::uint32_t g_WireVertSPVWords[] =
 {
-    #include "E28_wire_vert.h"
+    #include "xfont_wire_vert.h"
 };
 constexpr std::uint32_t g_WireFragSPVWords[] =
 {
-    #include "E28_wire_frag.h"
+    #include "xfont_wire_frag.h"
 };
 
 //-----------------------------------------------------------------------------------
@@ -93,7 +93,7 @@ namespace e28
     struct font_state
     {
         xrsc::font_ref          m_Ref            = {};
-        e10::library::guid      m_LibraryGUID    = {};
+        xresource_editor::library::guid      m_LibraryGUID    = {};
         xresource::full_guid    m_InfoGUID       = {};
         std::wstring             m_DescriptorPath = {};
         std::wstring             m_ResourcePath   = {}; // where the compiled binary would be - see LoadFont; checked with std::filesystem::exists before ever calling xresource::mgr::getResource, exactly like E10's own SelectedDescriptor.m_ResourcePath check, since a freshly selected/created font is routinely not compiled yet
@@ -107,7 +107,7 @@ namespace e28
         // Compile/save tracking - mirrors E23_SkeletonEditor's skeleton_state. Saving the
         // descriptor (SaveDescriptor) is what actually triggers a recompile - a background
         // file-watcher in the library manager picks up the change and runs xfont_compiler,
-        // broadcasting progress via e10::g_LibMgr.m_OnCompilationState (see the registration
+        // broadcasting progress via xresource_editor::g_LibMgr.m_OnCompilationState (see the registration
         // in E28_Example) to whichever shared_ptr<log> this GUID's compile currently owns.
         // m_Log is reassigned from CallBackForCompilation, which runs SYNCHRONOUSLY on whatever thread
         // calls m_OnCompilationState.NotifyAll() - that's CompilingThreadWorker, a background compile-
@@ -120,15 +120,15 @@ namespace e28
         // (its own content-level xcontainer::lock, a separate and still-necessary protection) while also
         // holding m_LogMutex - copy the shared_ptr out via GetLog() first, then lock the copy's content.
         mutable std::mutex                                        m_LogMutex = {};
-        std::shared_ptr<e10::compilation::historical_entry::log> m_Log = {};
+        std::shared_ptr<xresource_editor::compilation::historical_entry::log> m_Log = {};
 
-        std::shared_ptr<e10::compilation::historical_entry::log> GetLog() const
+        std::shared_ptr<xresource_editor::compilation::historical_entry::log> GetLog() const
         {
             std::lock_guard Lk(m_LogMutex);
             return m_Log;
         }
 
-        void SetLog(std::shared_ptr<e10::compilation::historical_entry::log> NewLog)
+        void SetLog(std::shared_ptr<xresource_editor::compilation::historical_entry::log> NewLog)
         {
             std::lock_guard Lk(m_LogMutex);
             m_Log = std::move(NewLog);
@@ -208,7 +208,7 @@ namespace e28
             m_ResourcePath.clear();
             m_Descriptor = {};
             m_TextureInspector.clear();
-            SetLog(std::make_shared<e10::compilation::historical_entry::log>(e10::compilation::historical_entry::communication{ .m_Result = e10::compilation::historical_entry::result::SUCCESS }));
+            SetLog(std::make_shared<xresource_editor::compilation::historical_entry::log>(xresource_editor::compilation::historical_entry::communication{ .m_Result = xresource_editor::compilation::historical_entry::result::SUCCESS }));
             m_bReload    = false;
             m_bErrors    = false;
         }
@@ -236,7 +236,7 @@ namespace e28
     // (clear() + AppendEntity() + AppendEntityComponent() against the just-loaded descriptor) -
     // see this file's own top-of-inspector comment for why binding once at startup against an
     // empty descriptor is what to avoid.
-    void LoadFont(font_state& State, e10::library::guid LibraryGUID, xresource::full_guid InfoGUID, xproperty::inspector& Inspector, xproperty::inspector& TextureInspectorUI)
+    void LoadFont(font_state& State, xresource_editor::library::guid LibraryGUID, xresource::full_guid InfoGUID, xproperty::inspector& Inspector, xproperty::inspector& TextureInspectorUI)
     {
         // Deferred, not immediate - see font_state::m_PendingRelease's own comment. LoadFont runs
         // mid-frame, after this frame's Font Preview window may have already queued an ImGui::Image()
@@ -254,7 +254,7 @@ namespace e28
         // ever emits exactly one virtual resource (see xfont_compiler.cpp's own m_VirtualResources
         // push_back), so the first entry is it.
         xresource::full_guid TextureGUID = {};
-        e10::g_LibMgr.getNodeInfo(State.m_LibraryGUID, State.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
+        xresource_editor::g_LibMgr.getNodeInfo(State.m_LibraryGUID, State.m_InfoGUID, [&](xresource_editor::library_db::info_node& NodeInfo)
         {
             GenerateDescriptorPath(State, NodeInfo.m_Path);
             if (!NodeInfo.m_Dependencies.m_VirtualResources.empty())
@@ -463,8 +463,8 @@ namespace e28
         float       m_BevelWeight     { 0.06f };  // em-equivalent units (converted to screen px the same way OutlineWidth is)
         bool        m_bGlow           { false };  // soft colored halo fading outward from the edge - see https://www.redblobgames.com/articles/sdf-fonts/'s own "glow" section; MTSDF/SDF only, no-op on BITMAP (same reasoning as Bevel/Outline - no distance field outside the glyph to fade from)
         float       m_GlowRadius      { 0.15f };  // em-equivalent units (converted to screen px the same way OutlineWidth is) - how far outward the halo reaches before fading to nothing
-        float       m_GlowIntensity   { 0.8f };   // 0-1 opacity multiplier; color itself is a shader constant (kGlowColor in E28_msdf_frag.glsl), same precedent as the shadow's own fixed color
-        bool        m_bItalic          { false }; // synthetic italic - vertex-level shear (real skew, not a UV trick), see E28_msdf_vert.glsl
+        float       m_GlowIntensity   { 0.8f };   // 0-1 opacity multiplier; color itself is a shader constant (kGlowColor in xfont_msdf_frag.glsl), same precedent as the shadow's own fixed color
+        bool        m_bItalic          { false }; // synthetic italic - vertex-level shear (real skew, not a UV trick), see xfont_msdf_vert.glsl
         float       m_ItalicShear      { 0.2f };  // slope (dx per unit y), dimensionless
         bool        m_bShowGlyphBounds{ false };  // debug: draws the real glyph mesh in red wireframe, on top of the rendered text
 
@@ -477,7 +477,7 @@ namespace e28
         , obj_scope<"Effects"
             // ShowOutline/Bold/Bevel all need a real distance field to threshold/shade from - BITMAP
             // is plain rasterized alpha coverage, so the shader's own BITMAP branch returns before any
-            // of them would apply (see E28_msdf_frag.glsl) - hidden here to match, rather than leaving
+            // of them would apply (see xfont_msdf_frag.glsl) - hidden here to match, rather than leaving
             // a toggle that silently does nothing. Shadow and Italic DO still work on BITMAP (shadow
             // just resamples the same real alpha coverage translated; italic is a pure vertex shear) -
             // left visible/functional for it.
@@ -689,7 +689,7 @@ namespace e28
         float m_X, m_Y, m_U, m_V;
     };
 
-    // Layout must match E28_msdf_vert.glsl/E28_msdf_frag.glsl's own PC block exactly (field order,
+    // Layout must match xfont_msdf_vert.glsl/xfont_msdf_frag.glsl's own PC block exactly (field order,
     // no vec3/mat fields so the default push_constant packing needs no manual padding).
     struct msdf_push_constants
     {
@@ -705,11 +705,11 @@ namespace e28
         float          m_BevelWeightPx;
         float          m_GlowRadiusPx;   // 0 = off; else how far the soft glow halo extends outward, in screen px
         float          m_GlowIntensity;  // 0-1, glow opacity multiplier (color itself is a shader constant, same precedent as the fill/outline/shadow colors below)
-        float          m_ItalicShear; // slope (dx per unit y) - see E28_msdf_vert.glsl's own comment on why field order/size here must stay in sync with that shader's own (shorter) PC block
+        float          m_ItalicShear; // slope (dx per unit y) - see xfont_msdf_vert.glsl's own comment on why field order/size here must stay in sync with that shader's own (shorter) PC block
     };
 
-    // Push constants for the glyph-bounds debug overlay's OWN dedicated pipeline (E28_wire_vert/frag)
-    // - see E28_wire_vert.glsl's own comment on why this is a separate shader pair rather than a
+    // Push constants for the glyph-bounds debug overlay's OWN dedicated pipeline (xfont_wire_vert/frag)
+    // - see xfont_wire_vert.glsl's own comment on why this is a separate shader pair rather than a
     // branch in msdf_push_constants/the MSDF shader. Color is fixed (opaque red) in the shader itself.
     struct wire_push_constants
     {
@@ -739,7 +739,7 @@ namespace e28
         // tracking the real content size closely enough that the display never looks visibly padded.
         xgpu::vertex_descriptor  m_VertexDescriptor;
         xgpu::pipeline           m_Pipeline;
-        // Glyph-bounds debug overlay's own pipeline (E28_wire_vert/frag) - see that shader's own
+        // Glyph-bounds debug overlay's own pipeline (xfont_wire_vert/frag) - see that shader's own
         // comment on why it's separate rather than a branch in the main MSDF pipeline. Has no texture
         // samplers and no dependency on the atlas/SDF texture, so unlike m_PipelineInstance below it's
         // created once here and never needs rebuilding.
@@ -1121,7 +1121,7 @@ namespace e28
 
             if (m_WireQuadCount > 0)
             {
-                // Draws the inset copy built above (own dedicated pipeline - see E28_wire_vert.glsl's
+                // Draws the inset copy built above (own dedicated pipeline - see xfont_wire_vert.glsl's
                 // own comment), NOT the real glyph triangles - shows each glyph's own mesh shape
                 // (diagonal included), just inset by a debug-only margin so it isn't swallowed by
                 // msdf-atlas-gen's own antialiasing padding on the real quad. Same Scale/Translate as
@@ -1157,28 +1157,28 @@ int E28_Example()
 
     resource_mgr_user_data ResourceMgrUserData;
 
-    e10::assert_browser AsserBrowser;
+    xresource_editor::asset_browser AsserBrowser;
     e28::font_state      FontState;
 
     e28::text_renderer TextRenderer;
     if (auto Err = TextRenderer.Create(Device); Err)
         return Err;
 
-    auto CallBackForCompilation = [&](e10::library_mgr&, e10::library::guid, xresource::full_guid gCompilingEntry, std::shared_ptr<e10::compilation::historical_entry::log>& LogInformation)
+    auto CallBackForCompilation = [&](xresource_editor::library_mgr&, xresource_editor::library::guid, xresource::full_guid gCompilingEntry, std::shared_ptr<xresource_editor::compilation::historical_entry::log>& LogInformation)
     {
         if (FontState.m_InfoGUID != gCompilingEntry) return;
 
         if (FontState.GetLog().get() != LogInformation.get())
             FontState.SetLog(LogInformation);
 
-        e10::compilation::historical_entry::result Result;
+        xresource_editor::compilation::historical_entry::result Result;
         {
             const auto LogCopy = FontState.GetLog();
             xcontainer::lock::scope lk(*LogCopy);
             Result = LogCopy->get().m_Result;
         }
 
-        if (Result == e10::compilation::historical_entry::result::COMPILING || Result == e10::compilation::historical_entry::result::COMPILING_WARNINGS)
+        if (Result == xresource_editor::compilation::historical_entry::result::COMPILING || Result == xresource_editor::compilation::historical_entry::result::COMPILING_WARNINGS)
         {
             // The on-disk resource this reference points to is about to be overwritten - stop holding
             // it NOW rather than waiting for SUCCESS. Only a flag is set here (this runs on the
@@ -1192,17 +1192,17 @@ int E28_Example()
             FontState.SetCompileStartTime(std::filesystem::file_time_type::clock::now());
             FontState.m_bCompileDetected = true;
         }
-        else if (Result == e10::compilation::historical_entry::result::SUCCESS || Result == e10::compilation::historical_entry::result::SUCCESS_WARNINGS)
+        else if (Result == xresource_editor::compilation::historical_entry::result::SUCCESS || Result == xresource_editor::compilation::historical_entry::result::SUCCESS_WARNINGS)
         {
             FontState.m_bReload = true;
             FontState.m_bErrors = false;
         }
-        else if (Result == e10::compilation::historical_entry::result::FAILURE)
+        else if (Result == xresource_editor::compilation::historical_entry::result::FAILURE)
         {
             FontState.m_bErrors = true;
         }
     };
-    e10::g_LibMgr.m_OnCompilationState.Register(CallBackForCompilation);
+    xresource_editor::g_LibMgr.m_OnCompilationState.Register(CallBackForCompilation);
 
     //
     // Property inspector - the selected font descriptor's own properties, driven by xproperty
@@ -1253,7 +1253,7 @@ int E28_Example()
 
             std::wcout << "Project Path: " << szFileName << "\n";
 
-            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
+            if (auto Err = xresource_editor::g_LibMgr.OpenProject(szFileName); Err)
             {
                 e28::Debugger(Err.getMessage());
                 return 1;
@@ -1265,7 +1265,7 @@ int E28_Example()
 
             ResourceMgrUserData.m_Device = Device;
             xresource::g_Mgr.setUserData(&ResourceMgrUserData, false);
-            xresource::g_Mgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", e10::g_LibMgr.m_ProjectPath));
+            xresource::g_Mgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", xresource_editor::g_LibMgr.m_ProjectPath));
         }
     }
 
@@ -1551,12 +1551,12 @@ int E28_Example()
 
                 ImGui::Separator();
                 {
-                    const bool bDisableSave = !e10::g_LibMgr.isReadyToSave() && FontState.empty();
+                    const bool bDisableSave = !xresource_editor::g_LibMgr.isReadyToSave() && FontState.empty();
                     if (bDisableSave) ImGui::BeginDisabled();
                     if (ImGui::MenuItem("\xEE\x9D\x8E Save ", "Ctrl+S"))
                     {
                         xproperty::settings::context Context;
-                        e10::g_LibMgr.Save(Context);
+                        xresource_editor::g_LibMgr.Save(Context);
                     }
                     if (bDisableSave) ImGui::EndDisabled();
                 }
@@ -1571,8 +1571,8 @@ int E28_Example()
                 xcontainer::lock::scope lk(*LogCopy);
                 auto& Log = LogCopy->get();
 
-                bool bDisable = Log.m_Result == e10::compilation::historical_entry::result::COMPILING
-                             || Log.m_Result == e10::compilation::historical_entry::result::COMPILING_WARNINGS;
+                bool bDisable = Log.m_Result == xresource_editor::compilation::historical_entry::result::COMPILING
+                             || Log.m_Result == xresource_editor::compilation::historical_entry::result::COMPILING_WARNINGS;
 
                 std::vector<std::string> ValidationErrors;
                 if (!bDisable)
@@ -1589,11 +1589,11 @@ int E28_Example()
                 std::uint32_t Color = IM_COL32(255, 255, 255, 255);
                 switch (Log.m_Result)
                 {
-                case e10::compilation::historical_entry::result::COMPILING_WARNINGS: Color = IM_COL32(255, 255, 0,   255); break;
-                case e10::compilation::historical_entry::result::COMPILING:          Color = IM_COL32(0,   255, 0,   255); break;
-                case e10::compilation::historical_entry::result::FAILURE:            Color = IM_COL32(255, 170, 140, 255); break;
-                case e10::compilation::historical_entry::result::SUCCESS_WARNINGS:   Color = IM_COL32(255, 255, 0,   255); break;
-                case e10::compilation::historical_entry::result::SUCCESS:            Color = IM_COL32(255, 255, 255, 255); break;
+                case xresource_editor::compilation::historical_entry::result::COMPILING_WARNINGS: Color = IM_COL32(255, 255, 0,   255); break;
+                case xresource_editor::compilation::historical_entry::result::COMPILING:          Color = IM_COL32(0,   255, 0,   255); break;
+                case xresource_editor::compilation::historical_entry::result::FAILURE:            Color = IM_COL32(255, 170, 140, 255); break;
+                case xresource_editor::compilation::historical_entry::result::SUCCESS_WARNINGS:   Color = IM_COL32(255, 255, 0,   255); break;
+                case xresource_editor::compilation::historical_entry::result::SUCCESS:            Color = IM_COL32(255, 255, 255, 255); break;
                 }
 
                 ImGui::PushStyleColor(ImGuiCol_Text, Color);
@@ -1627,7 +1627,7 @@ int E28_Example()
         }
 
         AsserBrowser.SetDevice(Device);
-        AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
+        AsserBrowser.Render(xresource_editor::g_LibMgr, xresource::g_Mgr);
 
         if (auto SelAsset = AsserBrowser.getSelectedAsset(); SelAsset.empty() == false && SelAsset.m_Type == xrsc::font_type_guid_v)
         {

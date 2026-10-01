@@ -14,9 +14,9 @@
 #define XRESOURCE_PIPELINE_NO_COMPILER
 #include "dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
 #include "source/xstrtool.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_Resources.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetMgr.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetBrowser.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_resources.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_mgr.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser.h"
 
 #include "Plugins/xmaterial.plugin/source/xmaterial_xgpu_rsc_loader.h"
 #include "Plugins/xmaterial.plugin/source/xmaterial_runtime.h"
@@ -72,32 +72,32 @@ namespace e21
 
     constexpr static std::uint32_t g_WireframeFragShader[] =
     {
-        #include "E21_WireFrame_frag.h"
+        #include "xgeom_static_wireframe_frag.h"
     };
 
     constexpr static std::uint32_t g_WireframeVertShader[] =
     {
-        #include "E21_WireFrame_vert.h"
+        #include "xgeom_static_wireframe_vert.h"
     };
 
     constexpr static std::uint32_t g_WireframeGeomShader[] =
     {
-        #include "E21_WireFrame_geom.h"
+        #include "xgeom_static_wireframe_geom.h"
     };
 
     constexpr static std::uint32_t g_DebugNormalFragShader[] =
     {
-        #include "E21_DebugNormalRender_frag.h"
+        #include "xgeom_static_debug_normal_frag.h"
     };
 
     constexpr static std::uint32_t g_DebugNormalVertShader[] =
     {
-        #include "E21_DebugNormalRender_vert.h"
+        #include "xgeom_static_debug_normal_vert.h"
     };
 
     constexpr static std::uint32_t g_DebugNormalGeomShader[] =
     {
-        #include "E21_DebugNormalRender_geom.h"
+        #include "xgeom_static_debug_normal_geom.h"
     };
 
 
@@ -161,7 +161,7 @@ namespace e21
             m_DescriptorPath.clear();
             m_ResourcePath.clear();
 
-            m_Log = std::make_shared<e10::compilation::historical_entry::log>(e10::compilation::historical_entry::communication{ .m_Result = e10::compilation::historical_entry::result::SUCCESS });
+            m_Log = std::make_shared<xresource_editor::compilation::historical_entry::log>(xresource_editor::compilation::historical_entry::communication{ .m_Result = xresource_editor::compilation::historical_entry::result::SUCCESS });
         }
 
         void GeneratePaths(const std::wstring& InfoPath)
@@ -208,10 +208,10 @@ namespace e21
 
         xrsc::geom_static                                           m_GeomRef               = {};
         xrsc::material_instance_ref                                 m_MaterialInstanceRef   = {};
-        e10::library::guid                                          m_LibraryGUID           = {};
+        xresource_editor::library::guid                                          m_LibraryGUID           = {};
         xresource::full_guid                                        m_InfoGUID              = {};
         std::unique_ptr<xresource_pipeline::descriptor::base>       m_pDescriptor           = {};
-        std::shared_ptr<e10::compilation::historical_entry::log>    m_Log                   = {};
+        std::shared_ptr<xresource_editor::compilation::historical_entry::log>    m_Log                   = {};
         std::wstring                                                m_DescriptorPath        = {};
         std::wstring                                                m_ResourcePath          = {};
         std::wstring                                                m_LogPath               = {};
@@ -339,7 +339,7 @@ namespace e21
             auto FullGuid = xresource::g_Mgr.getFullGuid(PreFullGuid);
 
             // Find our entry and get the name
-            e10::g_LibMgr.getNodeInfo(FullGuid, [&](e10::library_db::info_node& Node)
+            xresource_editor::g_LibMgr.getNodeInfo(FullGuid, [&](xresource_editor::library_db::info_node& Node)
                 {
                     Name = Node.m_Info.m_Name;
                 });
@@ -549,7 +549,7 @@ namespace e21
         ImGui::PopStyleColor();
     }
 
-    e10::assert_browser g_AssetBrowserPopup;
+    xresource_editor::asset_browser g_AssetBrowserPopup;
 
     void ResourceBrowserPopup(const void* pUID, bool& Open, xresource::full_guid& Output, std::span<const xresource::type_guid > Filters )
     {
@@ -561,7 +561,7 @@ namespace e21
             // This is the drag and drop payload from the asset browser we just duplicated here
             struct drag_and_drop_folder_payload_t
             {
-                e10::folder::guid           m_Parent;
+                xresource_editor::folder::guid           m_Parent;
                 xresource::full_guid        m_Source;
                 bool                        m_bSelection;
             };
@@ -606,7 +606,7 @@ namespace e21
         //
         if (Open && not g_AssetBrowserPopup.isVisible()) 
         {
-            g_AssetBrowserPopup.ShowAsPopup(e10::g_LibMgr, pUID, Filters, Output.m_Type);
+            g_AssetBrowserPopup.ShowAsPopup(xresource_editor::g_LibMgr, pUID, Filters, Output.m_Type);
         }
 
         //
@@ -1838,9 +1838,9 @@ int E21_Example()
     xmaterial_instance::descriptor  Descriptor;
     xgeom_static::details           GeomStaticDetails;
 
-    e10::assert_browser         AsserBrowser;
+    xresource_editor::asset_browser         AsserBrowser;
     e21::selected_descriptor    SelectedDescriptor;
-    auto                        CallBackForCompilation = [&](e10::library_mgr& LibMgr, e10::library::guid gLibrary, xresource::full_guid gCompilingEntry, std::shared_ptr<e10::compilation::historical_entry::log>& LogInformation)
+    auto                        CallBackForCompilation = [&](xresource_editor::library_mgr& LibMgr, xresource_editor::library::guid gLibrary, xresource::full_guid gCompilingEntry, std::shared_ptr<xresource_editor::compilation::historical_entry::log>& LogInformation)
     {
         // Filter by our entry...
         if (SelectedDescriptor.m_InfoGUID == gCompilingEntry)
@@ -1853,14 +1853,14 @@ int E21_Example()
             //
             // Check if we are done compiling
             //
-            e10::compilation::historical_entry::result Results;
+            xresource_editor::compilation::historical_entry::result Results;
             {
                 xcontainer::lock::scope lk(*SelectedDescriptor.m_Log);
                 Results = SelectedDescriptor.m_Log->get().m_Result;
             }
 
             // If we are successful we should reload the texture
-            if (Results == e10::compilation::historical_entry::result::SUCCESS_WARNINGS || Results == e10::compilation::historical_entry::result::SUCCESS)
+            if (Results == xresource_editor::compilation::historical_entry::result::SUCCESS_WARNINGS || Results == xresource_editor::compilation::historical_entry::result::SUCCESS)
             {
                 SelectedDescriptor.m_bReload = true;
                 SelectedDescriptor.m_bErrors = false;
@@ -1871,7 +1871,7 @@ int E21_Example()
             }
         }
     };
-    e10::g_LibMgr.m_OnCompilationState.Register(CallBackForCompilation);
+    xresource_editor::g_LibMgr.m_OnCompilationState.Register(CallBackForCompilation);
 
     //
     // Create mesh mgr
@@ -1936,7 +1936,7 @@ int E21_Example()
             //
             // Open the project
             //
-            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
+            if (auto Err = xresource_editor::g_LibMgr.OpenProject(szFileName); Err)
             {
                 e21::Debugger(Err.getMessage());
                 return 1;
@@ -1952,7 +1952,7 @@ int E21_Example()
             //
             ResourceMgrUserData.m_Device = Device;
             xresource::g_Mgr.setUserData(&ResourceMgrUserData, false);
-            xresource::g_Mgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", e10::g_LibMgr.m_ProjectPath));
+            xresource::g_Mgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", xresource_editor::g_LibMgr.m_ProjectPath));
         }
     }
 
@@ -2004,7 +2004,7 @@ int E21_Example()
             // May need to change the resource descriptor
             auto FullGuid           = Cmd.m_NewValue.get<xresource::full_guid>();
             auto TemplateFileName   = std::format( L"{}/Cache/Resources/Logs/Material/{:02X}/{:02X}/{:X}.log/MaterialInstance.txt"
-                                                 , e10::g_LibMgr.m_ProjectPath
+                                                 , xresource_editor::g_LibMgr.m_ProjectPath
                                                  , FullGuid.m_Instance.m_Value & 0xff
                                                  , (FullGuid.m_Instance.m_Value & 0xff00) >> 8
                                                  , FullGuid.m_Instance.m_Value
@@ -2482,12 +2482,12 @@ int E21_Example()
 
                 ImGui::Separator();
                 {
-                    bool bDisableSave = !e10::g_LibMgr.isReadyToSave() && SelectedDescriptor.m_InfoGUID.empty();
+                    bool bDisableSave = !xresource_editor::g_LibMgr.isReadyToSave() && SelectedDescriptor.m_InfoGUID.empty();
                     if (bDisableSave) ImGui::BeginDisabled();
                     if (ImGui::MenuItem("\xEE\x9D\x8E Save ", "Ctrl+S"))
                     {
                         xproperty::settings::context Context;
-                        e10::g_LibMgr.Save(Context);
+                        xresource_editor::g_LibMgr.Save(Context);
 
                         if (SelectedDescriptor.m_InfoGUID.empty() == false )
                         {
@@ -2508,8 +2508,8 @@ int E21_Example()
                 xcontainer::lock::scope lk(*SelectedDescriptor.m_Log);
                 auto& Log = SelectedDescriptor.m_Log->get();
 
-                bool Disable = Log.m_Result == e10::compilation::historical_entry::result::COMPILING_WARNINGS
-                            || Log.m_Result == e10::compilation::historical_entry::result::COMPILING
+                bool Disable = Log.m_Result == xresource_editor::compilation::historical_entry::result::COMPILING_WARNINGS
+                            || Log.m_Result == xresource_editor::compilation::historical_entry::result::COMPILING
                             || SelectedDescriptor.m_pDescriptor == nullptr;
 
                 std::vector<std::string> ValidationErrors;
@@ -2531,19 +2531,19 @@ int E21_Example()
                 {
                     switch (Log.m_Result)
                     {
-                    case e10::compilation::historical_entry::result::COMPILING_WARNINGS:
+                    case xresource_editor::compilation::historical_entry::result::COMPILING_WARNINGS:
                         Color = IM_COL32(255, 255, 0, 255);
                         break;
-                    case e10::compilation::historical_entry::result::COMPILING:
+                    case xresource_editor::compilation::historical_entry::result::COMPILING:
                         Color = IM_COL32(0, 255, 0, 255);
                         break;
-                    case e10::compilation::historical_entry::result::FAILURE:
+                    case xresource_editor::compilation::historical_entry::result::FAILURE:
                         Color = IM_COL32(255, 170, 140, 255);
                         break;
-                    case e10::compilation::historical_entry::result::SUCCESS_WARNINGS:
+                    case xresource_editor::compilation::historical_entry::result::SUCCESS_WARNINGS:
                         Color = IM_COL32(255, 255, 0, 255);
                         break;
-                    case e10::compilation::historical_entry::result::SUCCESS:
+                    case xresource_editor::compilation::historical_entry::result::SUCCESS:
                         Color = IM_COL32(255, 255, 255, 255);
                         break;
                     }
@@ -3208,16 +3208,16 @@ int E21_Example()
         }
 
         AsserBrowser.SetDevice(Device);
-        AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
+        AsserBrowser.Render(xresource_editor::g_LibMgr, xresource::g_Mgr);
 
         // We let the asset browser to decide if it needs to show or not
         e21::g_AssetBrowserPopup.SetDevice(Device);
-        e21::g_AssetBrowserPopup.RenderAsPopup( e10::g_LibMgr, xresource::g_Mgr);
+        e21::g_AssetBrowserPopup.RenderAsPopup( xresource_editor::g_LibMgr, xresource::g_Mgr);
 
         if (auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false && NewAsset.m_Type == xrsc::geom_static_type_guid_v)
         {
             // Generate the paths
-            e10::g_LibMgr.getNodeInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
+            xresource_editor::g_LibMgr.getNodeInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](xresource_editor::library_db::info_node& NodeInfo)
             {
                 SelectedDescriptor.GeneratePaths(NodeInfo.m_Path);
             });
@@ -3232,7 +3232,7 @@ int E21_Example()
             SelectedDescriptor.m_InfoGUID    = SelectedAsset;
 
             // Generate the paths
-            e10::g_LibMgr.getNodeInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
+            xresource_editor::g_LibMgr.getNodeInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](xresource_editor::library_db::info_node& NodeInfo)
             {
                 SelectedDescriptor.GeneratePaths(NodeInfo.m_Path);
             });

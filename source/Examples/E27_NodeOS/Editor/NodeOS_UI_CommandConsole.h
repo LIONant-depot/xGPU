@@ -21,7 +21,7 @@ namespace nodeos
     //
     // Autocomplete scoring reuses the same weighted substring/prefix Damerau-Levenshtein distance
     // E10_TextureResourcePipeline's asset browser already uses for its own fuzzy search box
-    // (E10_asset_browser_virtual_tree_tab.h) - xstrtool::SubstringDamerauLevenshteinDistanceI - rather
+    // (xresource_editor_asset_browser_virtual_tree_tab.h) - xstrtool::SubstringDamerauLevenshteinDistanceI - rather
     // than inventing a second fuzzy-match convention. The result UI is deliberately much lighter than
     // that asset browser's icon grid/popup: a plain Selectable() list under the input is all a text
     // command needs.

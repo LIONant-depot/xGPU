@@ -32,7 +32,7 @@ namespace xeditor
     struct file_document : IDocument
     {
         xresource::full_guid    m_Guid          = {};
-        e10::library::guid      m_LibraryGuid   = {};
+        xresource_editor::library::guid      m_LibraryGuid   = {};
         std::wstring            m_DescriptorPath;       // <resource>.desc\Descriptor.txt
         std::wstring            m_ResourcePath;         // the compiled resource (may not exist yet)
         std::wstring            m_LogPath;              // the compiler's log folder (Details.txt, shader.txt, ... live there)
@@ -54,7 +54,7 @@ namespace xeditor
         bool Load() noexcept override
         {
             std::wstring InfoPath;
-            e10::g_LibMgr.getNodeInfo(m_LibraryGuid, m_Guid, [&](e10::library_db::info_node& Node) { InfoPath = Node.m_Path; });
+            xresource_editor::g_LibMgr.getNodeInfo(m_LibraryGuid, m_Guid, [&](xresource_editor::library_db::info_node& Node) { InfoPath = Node.m_Path; });
             if (InfoPath.empty()) return false;
             GeneratePaths(InfoPath);
 
@@ -69,7 +69,7 @@ namespace xeditor
         {
             if (!isLoaded()) return "nothing loaded";
             if (!WriteToFile(m_DescriptorPath)) return "could not write " + xstrtool::To(m_DescriptorPath);
-            e10::g_LibMgr.MakeDescriptorDirty({ m_LibraryGuid.m_Instance }, m_Guid);     // this is what queues the compile
+            xresource_editor::g_LibMgr.MakeDescriptorDirty({ m_LibraryGuid.m_Instance }, m_Guid);     // this is what queues the compile
             m_bDirty = false;
             return {};
         }
@@ -291,9 +291,9 @@ namespace xeditor
     // Commands every document editor has: queries (xundo keeps them apart from edits, and none is itself undoable)
     //--------------------------------------------------------------------------------------------
     // The state of the last compile of a resource, its validation errors and the tail of the compiler's log: what CompileStatus answers
-    inline std::string DescribeCompile(const std::shared_ptr<e10::compilation::historical_entry::log>& Log, bool bDirty, const std::vector<std::string>& Errors, int nLines) noexcept
+    inline std::string DescribeCompile(const std::shared_ptr<xresource_editor::compilation::historical_entry::log>& Log, bool bDirty, const std::vector<std::string>& Errors, int nLines) noexcept
     {
-        using result = e10::compilation::historical_entry::result;
+        using result = xresource_editor::compilation::historical_entry::result;
         std::string Text;
         std::string Tail;
         result Result = result::SUCCESS;
@@ -330,9 +330,9 @@ namespace xeditor
         struct compile_status_cmd : xundo::query_command_base
         {
             file_document&                                              m_Doc;
-            std::shared_ptr<e10::compilation::historical_entry::log>&   m_Log;
+            std::shared_ptr<xresource_editor::compilation::historical_entry::log>&   m_Log;
             std::vector<std::string>&                                   m_Errors;
-            compile_status_cmd(xundo::system& System, file_document& Doc, std::shared_ptr<e10::compilation::historical_entry::log>& Log, std::vector<std::string>& Errors) noexcept
+            compile_status_cmd(xundo::system& System, file_document& Doc, std::shared_ptr<xresource_editor::compilation::historical_entry::log>& Log, std::vector<std::string>& Errors) noexcept
                 : query_command_base(System, "CompileStatus", nullptr), m_Doc(Doc), m_Log(Log), m_Errors(Errors) { RegisterArguments(); }
             const char* getCommandHelp() const noexcept override { return "How the last compile of the resource went: state (compiling, success, failed), unsaved changes, validation errors, the compiler's log. Usage: CompileStatus [-Lines n]"; }
             void RegisterArguments() noexcept override { m_hLines = m_Parser.addOption("Lines", "How many lines of the log (default 15)", false, 1); }
@@ -543,10 +543,10 @@ namespace xeditor
         bool                                    m_bCompileFailed = false;   // one failed: OnCompileFailed runs on the next frame
         mutable std::mutex                      m_CompileStartMutex;
         std::filesystem::file_time_type         m_CompileStart{};
-        std::shared_ptr<e10::compilation::historical_entry::log> m_CompilationLog = std::make_shared<e10::compilation::historical_entry::log>(
-            e10::compilation::historical_entry::communication{ .m_Result = e10::compilation::historical_entry::result::SUCCESS });
+        std::shared_ptr<xresource_editor::compilation::historical_entry::log> m_CompilationLog = std::make_shared<xresource_editor::compilation::historical_entry::log>(
+            xresource_editor::compilation::historical_entry::communication{ .m_Result = xresource_editor::compilation::historical_entry::result::SUCCESS });
 
-        document_editor(const char* pTypeName, xresource::full_guid Guid, e10::library::guid LibraryGuid, xgpu::device* pDevice) noexcept
+        document_editor(const char* pTypeName, xresource::full_guid Guid, xresource_editor::library::guid LibraryGuid, xgpu::device* pDevice) noexcept
             : m_Save(m_Undo, m_Document), m_Compile(m_Undo, m_Document, m_ValidationErrors), m_UndoCmd(m_Undo), m_RedoCmd(m_Undo), m_CompileStatus(m_Undo, m_Document, m_CompilationLog, m_ValidationErrors)
             , m_pDevice(pDevice), m_TypeName(pTypeName)
         {
@@ -557,10 +557,10 @@ namespace xeditor
             m_Document.m_OnReplaced = [this] { OnDocumentReplaced(); };
 
             m_IdSuffix = std::format("##{:016X}{:016X}", Guid.m_Instance.m_Value, Guid.m_Type.m_Value);
-            e10::g_LibMgr.m_OnCompilationState.Register<&document_editor::OnCompilationState>(*this);
+            xresource_editor::g_LibMgr.m_OnCompilationState.Register<&document_editor::OnCompilationState>(*this);
         }
 
-        ~document_editor() noexcept override { e10::g_LibMgr.m_OnCompilationState.RemoveDelegates(this); }
+        ~document_editor() noexcept override { xresource_editor::g_LibMgr.m_OnCompilationState.RemoveDelegates(this); }
 
         // ---- what a resource type overrides
         virtual void OnDocumentReplaced() noexcept {}           // an undo rebuilt the content
@@ -578,26 +578,26 @@ namespace xeditor
             m_Panels.push_back({ std::string(pName) + m_IdSuffix, Where, std::move(Render), Flags });
         }
 
-        void OnCompilationState(e10::library_mgr&, e10::library::guid, xresource::full_guid Compiling, std::shared_ptr<e10::compilation::historical_entry::log>& Log) noexcept
+        void OnCompilationState(xresource_editor::library_mgr&, xresource_editor::library::guid, xresource::full_guid Compiling, std::shared_ptr<xresource_editor::compilation::historical_entry::log>& Log) noexcept
         {
             if (Compiling != m_Document.m_Guid) return;
             if (m_CompilationLog.get() != Log.get()) m_CompilationLog = Log;
             if (!m_CompilationLog) return;
-            e10::compilation::historical_entry::result Result;
+            xresource_editor::compilation::historical_entry::result Result;
             {
                 xcontainer::lock::scope Lock(*m_CompilationLog);
                 Result = m_CompilationLog->get().m_Result;
             }
-            if (Result == e10::compilation::historical_entry::result::COMPILING || Result == e10::compilation::historical_entry::result::COMPILING_WARNINGS)
+            if (Result == xresource_editor::compilation::historical_entry::result::COMPILING || Result == xresource_editor::compilation::historical_entry::result::COMPILING_WARNINGS)
             {
                 // Stamped here, on the compile thread, the moment the compile is seen: any compiled file older than this is stale. Stamping when the
                 // main thread gets to the flag can be after a fast compile already wrote its files.
                 SetCompileStartTime(std::filesystem::file_time_type::clock::now());
                 m_bCompileStarted = true;
             }
-            else if (Result == e10::compilation::historical_entry::result::SUCCESS || Result == e10::compilation::historical_entry::result::SUCCESS_WARNINGS)
+            else if (Result == xresource_editor::compilation::historical_entry::result::SUCCESS || Result == xresource_editor::compilation::historical_entry::result::SUCCESS_WARNINGS)
                 m_bCompiled = true;
-            else if (Result == e10::compilation::historical_entry::result::FAILURE)
+            else if (Result == xresource_editor::compilation::historical_entry::result::FAILURE)
                 m_bCompileFailed = true;
         }
 

@@ -11,7 +11,7 @@
 #include "source/Tools/Editor/xeditor_resource_editor.h"
 #include "source/xGPU.h"
 #include "dependencies/xbmp_tools/src/xbmp_tools.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetMgr.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_mgr.h"
 
 #include <filesystem>
 #include <future>
@@ -30,14 +30,14 @@ namespace xeditor
         static constexpr int s_MaxCells   = s_Cols * s_Rows;   // 64 - grown to a second page only if this genuinely isn't enough
 
         // The sharded on-disk cache path for one resource, mirroring Descriptors' own
-        // <lowbyte>/<2ndbyte>/<hex>  scheme (E10_AssetMgr.h's NewAsset) - both instance and type in the
+        // <lowbyte>/<2ndbyte>/<hex>  scheme (xresource_editor_asset_mgr.h's NewAsset) - both instance and type in the
         // filename since, unlike Descriptors, there is no per-type directory here to disambiguate a
         // (astronomically unlikely, but not architecturally prevented) instance-only collision.
         static std::wstring DiskPath(xresource::full_guid Guid) noexcept
         {
             const auto LibGuid = open_resource_editors::FindLibraryOf(Guid);
             std::wstring Root;
-            e10::g_LibMgr.m_mLibraryDB.FindAsReadOnly(LibGuid, [&](const std::unique_ptr<e10::library_db>& Lib) { Root = Lib->m_Library.m_Path; });
+            xresource_editor::g_LibMgr.m_mLibraryDB.FindAsReadOnly(LibGuid, [&](const std::unique_ptr<xresource_editor::library_db>& Lib) { Root = Lib->m_Library.m_Path; });
             if (Root.empty()) return {};
 
             const std::uint64_t V = Guid.m_Instance.m_Value;
@@ -46,11 +46,11 @@ namespace xeditor
         }
 
         // The main entry point: called once per visible row per frame by the browser (through a hook, not a
-        // direct include - see E10_AssetBrowser.h's m_OnRequestThumbnail). Returns an invalid ref (the
+        // direct include - see xresource_editor_asset_browser.h's m_OnRequestThumbnail). Returns an invalid ref (the
         // browser then falls back to the type icon) until a real thumbnail is actually ready. Returns
-        // e10::plugin_icon_ref directly (texture handle + UV rect) rather than a same-shaped type of its
+        // xresource_editor::plugin_icon_ref directly (texture handle + UV rect) rather than a same-shaped type of its
         // own - it's exactly what the browser's existing type-icon atlas already returns and draws with.
-        e10::plugin_icon_ref RequestThumbnail(xgpu::device& Device, xresource::full_guid Guid) noexcept
+        xresource_editor::plugin_icon_ref RequestThumbnail(xgpu::device& Device, xresource::full_guid Guid) noexcept
         {
             if (!ThumbnailRendererFactories().contains(Guid.m_Type)) return {};   // this type never opted in
 
@@ -81,7 +81,7 @@ namespace xeditor
         }
 
         // Drops a resource's cached thumbnail (disk + the atlas cell, if it holds one) so the next request
-        // regenerates fresh. Wired to e10::g_LibMgr.m_OnCompilationState in Init() below.
+        // regenerates fresh. Wired to xresource_editor::g_LibMgr.m_OnCompilationState in Init() below.
         void Invalidate(xresource::full_guid Guid) noexcept
         {
             std::error_code Ec;
@@ -108,12 +108,12 @@ namespace xeditor
             m_pWindow = &Window;
             if (m_bCompileHookRegistered) return;
             m_bCompileHookRegistered = true;
-            e10::g_LibMgr.m_OnCompilationState.Register<&thumbnail_cache::OnCompilationState>(*this);
+            xresource_editor::g_LibMgr.m_OnCompilationState.Register<&thumbnail_cache::OnCompilationState>(*this);
         }
 
         ~thumbnail_cache() noexcept
         {
-            if (m_bCompileHookRegistered) e10::g_LibMgr.m_OnCompilationState.RemoveDelegates(this);
+            if (m_bCompileHookRegistered) xresource_editor::g_LibMgr.m_OnCompilationState.RemoveDelegates(this);
         }
 
     private:
@@ -129,12 +129,12 @@ namespace xeditor
             bool                       m_bReadbackDone  = false;    // flipped by the window's own PageFlip() - see Generate()'s own comment
         };
 
-        e10::plugin_icon_ref CellRef(int Cell) noexcept
+        xresource_editor::plugin_icon_ref CellRef(int Cell) noexcept
         {
             const int cx = Cell % s_Cols, cy = Cell / s_Cols;
             const float U = 1.0f / s_Cols, V = 1.0f / s_Rows;
             // plugin_icon_ref::m_pTexture must be a pointer to the PUBLIC xgpu::texture wrapper (matching
-            // E10_AssetBrowser.h's own m_IconAtlasGPUHandle convention: "shared_ptr<xgpu::texture> ->
+            // xresource_editor_asset_browser.h's own m_IconAtlasGPUHandle convention: "shared_ptr<xgpu::texture> ->
             // shared_ptr<void>", cast back with static_cast<xgpu::texture*> at the drawing side) - NOT
             // m_Private.get() (one level too deep, the internal Vulkan backend object). Passing the wrong
             // level here was a real, confirmed bug: the browser's ImageWithBg call reinterpreted whatever
@@ -304,11 +304,11 @@ namespace xeditor
             return true;
         }
 
-        void OnCompilationState(e10::library_mgr&, e10::library::guid, xresource::full_guid Guid, std::shared_ptr<e10::compilation::historical_entry::log>& Log) noexcept
+        void OnCompilationState(xresource_editor::library_mgr&, xresource_editor::library::guid, xresource::full_guid Guid, std::shared_ptr<xresource_editor::compilation::historical_entry::log>& Log) noexcept
         {
             if (!Log) return;
             xcontainer::lock::scope Lock(*Log);
-            using result = e10::compilation::historical_entry::result;
+            using result = xresource_editor::compilation::historical_entry::result;
             const auto R = Log->get().m_Result;
             if (R == result::SUCCESS || R == result::SUCCESS_WARNINGS) Invalidate(Guid);
         }

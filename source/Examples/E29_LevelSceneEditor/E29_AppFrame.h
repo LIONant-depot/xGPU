@@ -318,7 +318,7 @@ namespace e29
 
 
 
-            e10::RemapGUIDToString(LevelTabName, xresource::full_guid{ State.m_CurrentLevel.m_Instance, State.m_CurrentLevel.m_Type });
+            xresource_editor::RemapGUIDToString(LevelTabName, xresource::full_guid{ State.m_CurrentLevel.m_Instance, State.m_CurrentLevel.m_Type });
 
 
 
@@ -705,13 +705,13 @@ namespace e29
 
         AsserBrowser.SetDevice(Device);
 
-        AsserBrowser.EnsureInitialized(e10::g_LibMgr, xresource::g_Mgr);
+        AsserBrowser.EnsureInitialized(xresource_editor::g_LibMgr, xresource::g_Mgr);
 
 
 
-        e10::g_AssetBrowserPopup.SetDevice(Device);
+        xresource_editor::g_AssetBrowserPopup.SetDevice(Device);
 
-        e10::g_AssetBrowserPopup.RenderAsPopup(e10::g_LibMgr, xresource::g_Mgr);
+        xresource_editor::g_AssetBrowserPopup.RenderAsPopup(xresource_editor::g_LibMgr, xresource::g_Mgr);
 
 
 

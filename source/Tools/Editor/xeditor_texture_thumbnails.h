@@ -5,7 +5,7 @@
 // The resource button of a property that references a resource, with a small picture next to it when the resource is a texture (a big one in the
 // tooltip). The editor owns one and wires it to its inspector; it keeps a reference to the textures it shows (the least recently used are let go)
 // so a picture is not loaded again every frame.
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_InspectorPickers.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_inspector_pickers.h"
 #include "Plugins/xtexture.plugin/source/xtexture_xgpu_rsc_loader.h"
 
 #include <algorithm>
@@ -33,7 +33,7 @@ namespace xeditor
         void Render(bool& bOpen, const xresource::full_guid& PreFullGuid) noexcept
         {
             std::string Name;
-            e10::RemapGUIDToString(Name, PreFullGuid);
+            xresource_editor::RemapGUIDToString(Name, PreFullGuid);
 
             ImVec4 Base = ImGui::GetStyleColorVec4(ImGuiCol_Button);
             Base.w = 1; Base.x *= 0.75f; Base.y *= 0.75f; Base.z *= 0.75f;
@@ -79,7 +79,7 @@ namespace xeditor
             Inspector.m_OnResourceBrowser.Register<[](xproperty::inspector&, const xproperty::type::object&, void*, std::string_view Path, bool& bOpen, xresource::full_guid& Out, std::span<const xresource::type_guid> Filters)
             {
                 const void* pUID = reinterpret_cast<const void*>(std::hash<std::string_view>{}(Path));
-                e10::ResourceBrowserPopup(pUID, bOpen, Out, Filters);
+                xresource_editor::ResourceBrowserPopup(pUID, bOpen, Out, Filters);
             }>();
         }
 

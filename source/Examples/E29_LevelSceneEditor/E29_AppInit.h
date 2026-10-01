@@ -313,7 +313,7 @@ namespace e29
 
                 );
 
-                if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
+                if (auto Err = xresource_editor::g_LibMgr.OpenProject(szFileName); Err)
 
                 {
 
@@ -343,9 +343,9 @@ namespace e29
 
 
 
-                ProjectPath = e10::g_LibMgr.m_ProjectPath;
+                ProjectPath = xresource_editor::g_LibMgr.m_ProjectPath;
 
-                xresource::g_Mgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", e10::g_LibMgr.m_ProjectPath));
+                xresource::g_Mgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", xresource_editor::g_LibMgr.m_ProjectPath));
 
                 pGameMgr->m_SceneMgr.m_ProjectPath  = ProjectPath;
 
@@ -424,11 +424,11 @@ namespace e29
 
         // Level Editor/Entity Properties instead of floating as an undockable overlay. (The "+" pickers
 
-        // elsewhere in this file use a separate e10::assert_browser instance, e29::g_AssetBrowserPopup,
+        // elsewhere in this file use a separate xresource_editor::asset_browser instance, e29::g_AssetBrowserPopup,
 
         // which stays at the POPUP default.)
 
-        AsserBrowser.setDisplayMode(e10::assert_browser::display_mode::DOCKABLE);
+        AsserBrowser.setDisplayMode(xresource_editor::asset_browser::display_mode::DOCKABLE);
 
         AsserBrowser.SetWindowName(e29::editor_tabs::kResourceBrowserWindow);
 
@@ -450,7 +450,7 @@ namespace e29
         EditorHost.provide(PlayGate);
 #endif
         EditorHost.m_IdleWork.m_OnRun.Register<&e29::scene_sanity_scanner::Run>(SceneScanner);
-        EditorHost.m_IdleWork.m_OnRun.Register<&e10::source_control::ScanAllLibrariesWhenIdle>();
+        EditorHost.m_IdleWork.m_OnRun.Register<&xresource_editor::source_control::ScanAllLibrariesWhenIdle>();
         GamePlugin.m_Events.m_OnCollectRequiredComponents.Register<&app::CollectRequiredComponents>(*this);
         GamePlugin.m_Events.m_OnBeforeReload.Register<&app::BeforeReload>(*this);
         GamePlugin.m_Events.m_OnAfterReload.Register<&app::AfterReload>(*this);
@@ -532,7 +532,7 @@ namespace e29
 
         EntityInspector.m_Settings.m_TableFramePadding = ImVec2(4.0f, 1.0f);   // was {2, 6}
 
-        e10::WireResourcePickerCallbacks(EntityInspector);
+        xresource_editor::WireResourcePickerCallbacks(EntityInspector);
 
         InspectorBridge.RegisterCallbacks(EntityInspector, CmdContext);
 
@@ -593,7 +593,7 @@ namespace e29
             // Host service hooks (10.C.1.4): Idle Work + SC idle + Game.dll focus-reload.
         EditorHost.m_OnPumpServices = [&]() noexcept
         {
-            e10::source_control::ScanNewlyOpenedLibraries();
+            xresource_editor::source_control::ScanNewlyOpenedLibraries();
         };
         EditorHost.m_OnSourceChanged = [&]() noexcept { e29::StartGameReload(GamePlugin); };
         EditorHost.m_OnFocusRegain = [&]() noexcept

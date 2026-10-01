@@ -28,9 +28,9 @@
 
 #define XRESOURCE_PIPELINE_NO_COMPILER
 #include "dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_Resources.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetMgr.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetBrowser.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_resources.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_mgr.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser.h"
 #include "source/Examples/E29_LevelSceneEditor/E29_EditorTabs.h"
 
 //-----------------------------------------------------------------------------------
@@ -38,16 +38,16 @@
 // and browser hooks, and the panels of the game module, the command console and source control. The headers are not standalone: order matters.
 //-----------------------------------------------------------------------------------
 
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_InspectorPickers.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_inspector_pickers.h"
 #include "plugins/xscene.plugin/source/Editor/xscene_editor.h"
 #include "plugins/xlevel.plugin/source/Editor/xlevel_editor.h"
 
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_Assets.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_Commands_AssetFiles.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetBrowserCallbacks.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_commands_assets.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_commands_asset_files.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser_callbacks.h"
 
 #include "source/Examples/E29_LevelSceneEditor/extensions/game_module/E29_Panel_SystemRegistry.h"
 #include "source/Examples/E29_LevelSceneEditor/extensions/command_console/E29_Panel_CommandConsole.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_Panel_SourceControl.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_panel_source_control.h"
 
 #endif // E29_LEVEL_SCENE_EDITOR_KIT_H

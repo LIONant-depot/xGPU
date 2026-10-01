@@ -11,8 +11,8 @@
 // (Level Tree, Editor, Preview, …). Icon + name only.
 #include "dependencies/imgui/imgui.h"
 #include "dependencies/imgui/imgui_internal.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetMgr.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetBrowser.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_mgr.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser.h"
 #include <cstdio>
 #include <string>
 
@@ -21,10 +21,10 @@ namespace xeditor
     inline constexpr float kEditorTabIconPx = 18.0f;
     inline constexpr const char* kEditorTabIconSpacer = "     ";
 
-    inline std::string ResolveResourceDisplayName(e10::library::guid LibraryGuid, xresource::full_guid Guid, const char* Fallback) noexcept
+    inline std::string ResolveResourceDisplayName(xresource_editor::library::guid LibraryGuid, xresource::full_guid Guid, const char* Fallback) noexcept
     {
         std::string Name;
-        e10::g_LibMgr.getNodeInfo(LibraryGuid, Guid, [&](e10::library_db::info_node& Node)
+        xresource_editor::g_LibMgr.getNodeInfo(LibraryGuid, Guid, [&](xresource_editor::library_db::info_node& Node)
         {
             Name = Node.m_Info.m_Name;
         });
@@ -39,7 +39,7 @@ namespace xeditor
         if (!Guid.empty())
         {
             auto FullGuid = xresource::g_Mgr.getFullGuid(Guid);
-            e10::g_LibMgr.getNodeInfo(FullGuid, [&](e10::library_db::info_node& Node)
+            xresource_editor::g_LibMgr.getNodeInfo(FullGuid, [&](xresource_editor::library_db::info_node& Node)
             {
                 Name = Node.m_Info.m_Name;
             });
@@ -58,8 +58,8 @@ namespace xeditor
     inline void DrawEditorRootTabIcon(xgpu::device* pDevice, xresource::type_guid TypeGuid, int IconIndex = 0) noexcept
     {
         if (!pDevice) return;
-        e10::EnsureIconAtlasTexture(e10::g_LibMgr.m_AssetPluginsDB, *pDevice);
-        auto Icon = e10::g_LibMgr.m_AssetPluginsDB.getIconRef(TypeGuid, IconIndex);
+        xresource_editor::EnsureIconAtlasTexture(xresource_editor::g_LibMgr.m_AssetPluginsDB, *pDevice);
+        auto Icon = xresource_editor::g_LibMgr.m_AssetPluginsDB.getIconRef(TypeGuid, IconIndex);
         if (!Icon.isValid()) return;
 
         ImGuiWindow* Window = ImGui::GetCurrentWindow();

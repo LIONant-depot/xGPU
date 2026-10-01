@@ -8,7 +8,7 @@
 #include "source/tools/xgpu_view.h"
 #include <format>
 
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_Resources.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_resources.h"
 
 //#include "../dependencies/xundo/source/xundo_system.h"
 //#include "../dependencies/xundo/source/Examples/xundo_example_history.h"
@@ -65,7 +65,7 @@ constexpr auto g_FragShader3DCubeSPV = std::array
 static_assert(xproperty::meta::meets_requirements_v< true, false, std::string> );
 
 
-namespace e10
+namespace xresource_editor
 {
     //------------------------------------------------------------------------------------------------
 
@@ -132,13 +132,13 @@ namespace e10
 
 //------------------------------------------------------------------------------------------------
 
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_PluginMgr.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_AssetBrowser.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_virtual_tree_tab.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_compiler_tab.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_plugin_tab.h"
-#include "dependencies/xresource_pipeline_v2/source/editor/E10_asset_browser_files_tab.h"
-// E10_asset_browser_search_tab.h deliberately NOT included - removed as a standalone tab/window per
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_plugin_mgr.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser_virtual_tree_tab.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser_compiler_tab.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser_plugin_tab.h"
+#include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser_files_tab.h"
+// xresource_editor_asset_browser_search_tab.h deliberately NOT included - removed as a standalone tab/window per
 // the Asset Browser window-split plan (see plan file lively-knitting-sifakis.md). Its type-filtered
 // cross-library search capability is meant to fold into the new Virtual Tree window eventually, but
 // that UI hasn't been designed yet ("not sure how yet" - direct user framing) - the .h file itself is
@@ -498,7 +498,7 @@ struct material_mgr
             xgpu::pipeline_instance TempPI;
             if (auto Err = Device.Create(TempPI, Setup); Err)
             {
-                e10::DebugMessage(xgpu::getErrorMsg(Err));
+                xresource_editor::DebugMessage(xgpu::getErrorMsg(Err));
                 std::exit(xgpu::getErrorInt(Err));
             }
 
@@ -520,7 +520,7 @@ struct material_mgr
         auto Texture = std::make_unique<xgpu::texture>();
         if (auto Err = xgpu::tools::bitmap::Create(*Texture, Device, Bitmap); Err)
         {
-            e10::DebugMessage(xgpu::getErrorMsg(Err));
+            xresource_editor::DebugMessage(xgpu::getErrorMsg(Err));
             std::exit(xgpu::getErrorInt(Err));
         }
 
@@ -594,33 +594,33 @@ struct material_mgr
             {
                 xgpu::vertex_descriptor::attribute
                 {
-                    .m_Offset = offsetof(e10::vert_3d, m_Position)
+                    .m_Offset = offsetof(xresource_editor::vert_3d, m_Position)
                 ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
                 }
             ,   xgpu::vertex_descriptor::attribute
                 {
-                    .m_Offset = offsetof(e10::vert_3d, m_Binormal)
+                    .m_Offset = offsetof(xresource_editor::vert_3d, m_Binormal)
                 ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
                 }
             ,   xgpu::vertex_descriptor::attribute
                 {
-                    .m_Offset = offsetof(e10::vert_3d, m_Tangent)
+                    .m_Offset = offsetof(xresource_editor::vert_3d, m_Tangent)
                 ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
                 }
             ,   xgpu::vertex_descriptor::attribute
                 {
-                    .m_Offset = offsetof(e10::vert_3d, m_Normal)
+                    .m_Offset = offsetof(xresource_editor::vert_3d, m_Normal)
                 ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
                 }
             ,   xgpu::vertex_descriptor::attribute
                 {
-                    .m_Offset = offsetof(e10::vert_3d, m_TexCoord)
+                    .m_Offset = offsetof(xresource_editor::vert_3d, m_TexCoord)
                 ,   .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
                 }
             };
             auto Setup = xgpu::vertex_descriptor::setup
             {
-                .m_VertexSize = sizeof(e10::vert_3d)
+                .m_VertexSize = sizeof(xresource_editor::vert_3d)
             ,   .m_Attributes = Attributes
             };
 
@@ -632,16 +632,16 @@ struct material_mgr
             auto Attributes = std::array
             {
                 xgpu::vertex_descriptor::attribute
-                { .m_Offset = offsetof(e10::vert_2d, m_X)
+                { .m_Offset = offsetof(xresource_editor::vert_2d, m_X)
                 , .m_Format = xgpu::vertex_descriptor::format::FLOAT_2D
                 }
             ,   xgpu::vertex_descriptor::attribute
-                { .m_Offset = offsetof(e10::vert_2d, m_UV)
+                { .m_Offset = offsetof(xresource_editor::vert_2d, m_UV)
                 , .m_Format = xgpu::vertex_descriptor::format::FLOAT_3D
                 }
             };
             auto Setup = xgpu::vertex_descriptor::setup
-            { .m_VertexSize = sizeof(e10::vert_2d)
+            { .m_VertexSize = sizeof(xresource_editor::vert_2d)
             , .m_Attributes = Attributes
             };
 
@@ -737,7 +737,7 @@ struct material_mgr
         {
             .m_VertexDescriptor  = VertexDescriptor
         ,   .m_Shaders           = Shaders
-        ,   .m_PushConstantsSize = sizeof(e10::push_contants)
+        ,   .m_PushConstantsSize = sizeof(xresource_editor::push_contants)
         ,   .m_Samplers          = Samplers
         ,   .m_Primitive         = {.m_Cull             = xgpu::pipeline::primitive::cull::NONE }
         ,   .m_DepthStencil      = {.m_bDepthTestEnable = (bool)Material.m_3DRender }
@@ -812,12 +812,12 @@ struct mesh_mgr
         mesh& Mesh = m_Meshes[static_cast<int>(model::PLANE_2D)];
         Mesh.m_IndexCount = 6;
 
-        if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e10::vert_2d), .m_EntryCount = 4 }); Err)
+        if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(xresource_editor::vert_2d), .m_EntryCount = 4 }); Err)
             exit(xgpu::getErrorInt(Err));
 
         (void)Mesh.m_VertexBuffer.MemoryMap(0, 4, [&](void* pData)
         {
-            auto pVertex = static_cast<e10::vert_2d*>(pData);
+            auto pVertex = static_cast<xresource_editor::vert_2d*>(pData);
             pVertex[0] = { -100.0f, -100.0f,  { 0.0f, 0.0f, 0.0f } };
             pVertex[1] = {  100.0f, -100.0f,  { 1.0f, 0.0f, 0.0f } };
             pVertex[2] = {  100.0f,  100.0f,  { 1.0f, 1.0f, 0.0f } };
@@ -850,12 +850,12 @@ struct mesh_mgr
         mesh& Mesh = m_Meshes[static_cast<int>(model::EXPLODED_CUBE_2D)];
         Mesh.m_IndexCount = 6 * 6;
 
-        if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e10::vert_2d), .m_EntryCount = 4*6 }); Err)
+        if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(xresource_editor::vert_2d), .m_EntryCount = 4*6 }); Err)
             exit( xgpu::getErrorInt(Err) );
 
         (void)Mesh.m_VertexBuffer.MemoryMap(0, 4*6, [&](void* pData)
         {
-            auto pVertex = static_cast<e10::vert_2d*>(pData);
+            auto pVertex = static_cast<xresource_editor::vert_2d*>(pData);
 
             int iVert=0;
             pVertex[iVert++] = { 0.0f, -100.0f,  xmath::fvec3(1.0f,  1.0f,  1.0f).NormalizeSafe() };
@@ -933,12 +933,12 @@ struct mesh_mgr
 
         Mesh.m_IndexCount = static_cast<int>(Primitive.m_Indices.size());
 
-        if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e10::vert_3d), .m_EntryCount = static_cast<int>(Primitive.m_Vertices.size()) }); Err)
+        if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(xresource_editor::vert_3d), .m_EntryCount = static_cast<int>(Primitive.m_Vertices.size()) }); Err)
             exit(xgpu::getErrorInt(Err));
 
         (void)Mesh.m_VertexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Vertices.size()), [&](void* pData)
         {
-            auto pVertex = static_cast<e10::vert_3d*>(pData);
+            auto pVertex = static_cast<xresource_editor::vert_3d*>(pData);
             for( int i=0; i< static_cast<int>(Primitive.m_Vertices.size()); ++i )
             {
                 auto&       V  = pVertex[i];
@@ -975,12 +975,12 @@ struct mesh_mgr
 
         Mesh.m_IndexCount = static_cast<int>(Primitive.m_Indices.size());
 
-        if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(e10::vert_3d), .m_EntryCount = static_cast<int>(Primitive.m_Vertices.size()) }); Err)
+        if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(xresource_editor::vert_3d), .m_EntryCount = static_cast<int>(Primitive.m_Vertices.size()) }); Err)
             exit(xgpu::getErrorInt(Err));
 
         (void)Mesh.m_VertexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Vertices.size()), [&](void* pData)
         {
-            auto pVertex = static_cast<e10::vert_3d*>(pData);
+            auto pVertex = static_cast<xresource_editor::vert_3d*>(pData);
             for( int i=0; i< static_cast<int>(Primitive.m_Vertices.size()); ++i )
             {
                 auto&       V  = pVertex[i];
@@ -1105,7 +1105,7 @@ struct selected_desc
         m_pDescriptor.reset();
         m_ValidationErrors.clear();
 
-        m_Log = std::make_shared<e10::compilation::historical_entry::log>( e10::compilation::historical_entry::communication{.m_Result = e10::compilation::historical_entry::result::SUCCESS } );
+        m_Log = std::make_shared<xresource_editor::compilation::historical_entry::log>( xresource_editor::compilation::historical_entry::communication{.m_Result = xresource_editor::compilation::historical_entry::result::SUCCESS } );
     }
 
     void GeneratePaths(const std::wstring& InfoPath)
@@ -1147,9 +1147,9 @@ struct selected_desc
     }
 
     xresource_pipeline::info* m_pTempInfo = {};   // This is assumed to be temporary and so you can't trust its value
-    e10::library::guid                                          m_LibraryGUID       = {};
+    xresource_editor::library::guid                                          m_LibraryGUID       = {};
     xresource::full_guid                                        m_InfoGUID          = {};
-    std::shared_ptr<e10::compilation::historical_entry::log>    m_Log               = {};
+    std::shared_ptr<xresource_editor::compilation::historical_entry::log>    m_Log               = {};
     std::wstring                                                m_DescriptorPath    = {};
     std::wstring                                                m_ResourcePath      = {};
     std::unique_ptr<xresource_pipeline::descriptor::base>       m_pDescriptor       = {};
@@ -1174,7 +1174,7 @@ void RenderResourceWigzmos(xproperty::inspector&, const xproperty::type::object&
         auto FullGuid = xresource::g_Mgr.getFullGuid(PreFullGuid);
 
         // Find our entry and get the name
-        e10::g_LibMgr.getNodeInfo(FullGuid, [&](e10::library_db::info_node& Node)
+        xresource_editor::g_LibMgr.getNodeInfo(FullGuid, [&](xresource_editor::library_db::info_node& Node)
             {
                 Name = Node.m_Info.m_Name;
             });
@@ -1191,7 +1191,7 @@ void RenderResourceWigzmos(xproperty::inspector&, const xproperty::type::object&
 int E10_Example()
 {
     xgpu::instance Instance;
-    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = e10::DebugMessage, .m_pLogWarning = e10::DebugMessage }); Err)
+    if (auto Err = xgpu::CreateInstance(Instance, { .m_bDebugMode = true, .m_bEnableRenderDoc = true, .m_pLogErrorFunc = xresource_editor::DebugMessage, .m_pLogWarning = xresource_editor::DebugMessage }); Err)
         return xgpu::getErrorInt(Err);
 
     xgpu::device Device;
@@ -1214,7 +1214,7 @@ int E10_Example()
 
     material_mgr            MaterialMgr(xresource::g_Mgr);
     mesh_mgr                MeshMgr;
-    e10::assert_browser     AsserBrowser;
+    xresource_editor::asset_browser     AsserBrowser;
     resource_mgr_user_data  m_ResourceMgrUserData;
 
     MeshMgr.Initialize(Device);
@@ -1234,8 +1234,8 @@ int E10_Example()
     //
     // Setup the compiler
     //
-    //auto                Compiler = std::make_unique<e10::compiler>();
-    auto CallBackForCompilation = [&](e10::library_mgr& LibMgr, e10::library::guid gLibrary, xresource::full_guid gCompilingEntry, std::shared_ptr<e10::compilation::historical_entry::log>& LogInformation)
+    //auto                Compiler = std::make_unique<xresource_editor::compiler>();
+    auto CallBackForCompilation = [&](xresource_editor::library_mgr& LibMgr, xresource_editor::library::guid gLibrary, xresource::full_guid gCompilingEntry, std::shared_ptr<xresource_editor::compilation::historical_entry::log>& LogInformation)
     {
         // Filter by our entry...
         if (SelectedDescriptor.m_InfoGUID == gCompilingEntry)
@@ -1248,20 +1248,20 @@ int E10_Example()
             //
             // Check if we are done compiling
             //
-            e10::compilation::historical_entry::result Results;
+            xresource_editor::compilation::historical_entry::result Results;
             {
                 xcontainer::lock::scope lk(*SelectedDescriptor.m_Log);
                 Results = SelectedDescriptor.m_Log->get().m_Result;
             }
 
             // If we are successful we should reload the texture
-            if (Results == e10::compilation::historical_entry::result::SUCCESS_WARNINGS || Results == e10::compilation::historical_entry::result::SUCCESS )
+            if (Results == xresource_editor::compilation::historical_entry::result::SUCCESS_WARNINGS || Results == xresource_editor::compilation::historical_entry::result::SUCCESS )
             {
                 SelectedDescriptor.m_bReloadTexture = true;
             }
         }
     };
-    e10::g_LibMgr.m_OnCompilationState.Register(CallBackForCompilation);
+    xresource_editor::g_LibMgr.m_OnCompilationState.Register(CallBackForCompilation);
 
     //
     // Set the project path
@@ -1285,9 +1285,9 @@ int E10_Example()
             //
             // Open the project
             //
-            if (auto Err = e10::g_LibMgr.OpenProject(szFileName); Err)
+            if (auto Err = xresource_editor::g_LibMgr.OpenProject(szFileName); Err)
             {
-                e10::DebugMessage(Err.getMessage().data());
+                xresource_editor::DebugMessage(Err.getMessage().data());
                 return 1;
             }
 
@@ -1301,7 +1301,7 @@ int E10_Example()
             //
             m_ResourceMgrUserData.m_Device          = Device;
             xresource::g_Mgr.setUserData(&m_ResourceMgrUserData, false);
-            xresource::g_Mgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", e10::g_LibMgr.m_ProjectPath));
+            xresource::g_Mgr.setRootPath(std::format(L"{}//Cache//Resources//Platforms//Windows", xresource_editor::g_LibMgr.m_ProjectPath));
         }
     }
 
@@ -1353,7 +1353,7 @@ int E10_Example()
     {
         ModificationCount++;
         UndoSystem.Add(Cmd);
-        if (auto Err = e10::g_LibMgr.MakeDescriptorDirty({ SelectedDescriptor.m_LibraryGUID.m_Instance }, SelectedDescriptor.m_InfoGUID); Err.empty() == false )
+        if (auto Err = xresource_editor::g_LibMgr.MakeDescriptorDirty({ SelectedDescriptor.m_LibraryGUID.m_Instance }, SelectedDescriptor.m_InfoGUID); Err.empty() == false )
         {
             printf("Error: %s", Err.c_str());
         }
@@ -1361,7 +1361,7 @@ int E10_Example()
 
         if (Cmd.m_Name == "Texture/Input/Filename")
         {
-            e10::g_LibMgr.getInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](xresource_pipeline::info& Info )
+            xresource_editor::g_LibMgr.getInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](xresource_pipeline::info& Info )
             {
                 auto str = Cmd.m_NewValue.get<std::wstring>();
 
@@ -1537,7 +1537,7 @@ int E10_Example()
                 //CmdBuffer.setPipelineInstance(BackgroundMaterialInstance);
                 MaterialMgr.SetMaterialInstance(Device, CmdBuffer, BackgroundMaterialInstance, true, true);
 
-                e10::push_contants PushContants;
+                xresource_editor::push_contants PushContants;
 
                 PushContants.m_Scale =
                 { (150 * 2.0f) / MainWindowWidth
@@ -1566,7 +1566,7 @@ int E10_Example()
             //
             if( SelectedDescriptor.m_InfoGUID.empty() == false && UserMaterialInstance.m_TextureRef.isValid() )
             {
-                e10::push_contants PushContants;
+                xresource_editor::push_contants PushContants;
 
                 PushContants.m_Scale.m_X = (DrawControls.m_2DMouseScale * 0.01f) / (MainWindowWidth / MainWindowHeight) * BitmapInspector.m_pBitmap->getAspectRatio();
                 PushContants.m_Scale.m_Y = (DrawControls.m_2DMouseScale * 0.01f);
@@ -1731,12 +1731,12 @@ int E10_Example()
 
                 // Save menu
                 {
-                    bool bDisableSave = !e10::g_LibMgr.isReadyToSave() && ModificationCount == 0;
+                    bool bDisableSave = !xresource_editor::g_LibMgr.isReadyToSave() && ModificationCount == 0;
                     if (bDisableSave) ImGui::BeginDisabled();
                     if (ImGui::MenuItem("Save", "Ctrl-S"))
                     {
                         xproperty::settings::context Context;
-                        e10::g_LibMgr.Save(Context);
+                        xresource_editor::g_LibMgr.Save(Context);
                     }
                     if (bDisableSave) ImGui::EndDisabled();
                 }
@@ -1794,12 +1794,12 @@ int E10_Example()
             // Add a button to the menu bar
             {
                 ImGui::Separator();
-                bool bDisableSave = !e10::g_LibMgr.isReadyToSave() && ModificationCount == 0;
+                bool bDisableSave = !xresource_editor::g_LibMgr.isReadyToSave() && ModificationCount == 0;
                 if (bDisableSave) ImGui::BeginDisabled();
                 if (ImGui::Button(" Save "))
                 {
                     xproperty::settings::context Context;
-                    e10::g_LibMgr.Save(Context);
+                    xresource_editor::g_LibMgr.Save(Context);
                 }
                 if (bDisableSave) ImGui::EndDisabled();
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("Save Every thing, Resource Manager, however this will not save the Descriptor");
@@ -1812,8 +1812,8 @@ int E10_Example()
                 xcontainer::lock::scope lk(*SelectedDescriptor.m_Log);
                 auto& Log = SelectedDescriptor.m_Log->get();
 
-                if ( Log.m_Result == e10::compilation::historical_entry::result::COMPILING_WARNINGS 
-                     || Log.m_Result == e10::compilation::historical_entry::result::COMPILING 
+                if ( Log.m_Result == xresource_editor::compilation::historical_entry::result::COMPILING_WARNINGS 
+                     || Log.m_Result == xresource_editor::compilation::historical_entry::result::COMPILING 
                      || SelectedDescriptor.m_ValidationErrors.empty() == false )
                 {
                     ImGui::BeginDisabled();
@@ -1825,8 +1825,8 @@ int E10_Example()
                 }
                 if (ImGui::IsItemHovered()) ImGui::SetTooltip("This saves the descriptor witch will trigger the a compilation");
 
-                if (Log.m_Result == e10::compilation::historical_entry::result::COMPILING_WARNINGS 
-                    || Log.m_Result == e10::compilation::historical_entry::result::COMPILING 
+                if (Log.m_Result == xresource_editor::compilation::historical_entry::result::COMPILING_WARNINGS 
+                    || Log.m_Result == xresource_editor::compilation::historical_entry::result::COMPILING 
                     || SelectedDescriptor.m_ValidationErrors.empty() == false )
                 {
                     ImGui::EndDisabled();
@@ -1842,19 +1842,19 @@ int E10_Example()
                 {
                     switch( Log.m_Result )
                     {
-                    case e10::compilation::historical_entry::result::COMPILING_WARNINGS:
+                    case xresource_editor::compilation::historical_entry::result::COMPILING_WARNINGS:
                         Color = IM_COL32(255, 255, 0, 255);
                         break;
-                    case e10::compilation::historical_entry::result::COMPILING:
+                    case xresource_editor::compilation::historical_entry::result::COMPILING:
                         Color = IM_COL32(0, 255, 0, 255);
                         break;
-                    case e10::compilation::historical_entry::result::FAILURE:
+                    case xresource_editor::compilation::historical_entry::result::FAILURE:
                         Color = IM_COL32(255, 170, 140, 255);
                         break;
-                    case e10::compilation::historical_entry::result::SUCCESS_WARNINGS:
+                    case xresource_editor::compilation::historical_entry::result::SUCCESS_WARNINGS:
                         Color = IM_COL32(255, 255, 0, 255);
                         break;
-                    case e10::compilation::historical_entry::result::SUCCESS:
+                    case xresource_editor::compilation::historical_entry::result::SUCCESS:
                         Color = IM_COL32(255, 255, 255, 255);
                         break;
                     }
@@ -1913,7 +1913,7 @@ int E10_Example()
         // Show a texture selector in IMGUI
         //
         AsserBrowser.SetDevice(Device);
-        AsserBrowser.Render(e10::g_LibMgr, xresource::g_Mgr);
+        AsserBrowser.Render(xresource_editor::g_LibMgr, xresource::g_Mgr);
 
         if ( auto NewAsset = AsserBrowser.getNewAsset(); NewAsset.empty() == false && NewAsset.m_Type == xrsc::texture_type_guid_v)
         {
@@ -1925,7 +1925,7 @@ int E10_Example()
                 SelectedDescriptor.m_InfoGUID    = NewAsset;
 
                 // Generate the paths
-                e10::g_LibMgr.getNodeInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
+                xresource_editor::g_LibMgr.getNodeInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](xresource_editor::library_db::info_node& NodeInfo)
                 {
                     SelectedDescriptor.GeneratePaths(NodeInfo.m_Path);
                 });
@@ -1965,7 +1965,7 @@ int E10_Example()
             // Load new descriptor
             //
             {
-                e10::g_LibMgr.getNodeInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](e10::library_db::info_node& NodeInfo)
+                xresource_editor::g_LibMgr.getNodeInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](xresource_editor::library_db::info_node& NodeInfo)
                 {
                     SelectedDescriptor.GeneratePaths(NodeInfo.m_Path);
                 });
@@ -2026,7 +2026,7 @@ int E10_Example()
                 xproperty::settings::context Context;
                 if ( 0 == static_cast<int>(&E - Inspectors.data()))
                 {
-                    e10::g_LibMgr.getInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](xresource_pipeline::info& Info)
+                    xresource_editor::g_LibMgr.getInfo(SelectedDescriptor.m_LibraryGUID, SelectedDescriptor.m_InfoGUID, [&](xresource_pipeline::info& Info)
                     {
                         SelectedDescriptor.m_pTempInfo = &Info;
                         E.Show(Context, [] {});

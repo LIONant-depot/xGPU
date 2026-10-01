@@ -47,7 +47,7 @@ namespace e29
         // Matches E27_NodeOS's own DrawRuntimeLogPanel exactly (no autoscroll - an earlier version
         // of this function added a GetScrollY()/GetScrollMaxY()/SetScrollHereY() check here; pulled
         // back out after a live crash while docking this window. Root cause turned out to be
-        // unrelated to this function entirely - E10_AssetBrowser.h's own MainWindow() was calling
+        // unrelated to this function entirely - xresource_editor_asset_browser.h's own MainWindow() was calling
         // ImGui::End() INSIDE its `if (ImGui::Begin(...))` block, skipping it whenever Begin()
         // returned false (a docked-but-not-the-active-tab window) - permanently unbalancing
         // ImGui's window stack from that frame on. Fixed there; this function was never the

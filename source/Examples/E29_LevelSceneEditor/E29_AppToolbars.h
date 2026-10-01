@@ -607,7 +607,7 @@ namespace e29
 
                 AsserBrowser.SetDevice(Device);
 
-                AsserBrowser.RenderEmbeddedTab(e10::g_LibMgr, xresource::g_Mgr, "Resources");
+                AsserBrowser.RenderEmbeddedTab(xresource_editor::g_LibMgr, xresource::g_Mgr, "Resources");
 
                 break;
 
@@ -615,13 +615,13 @@ namespace e29
 
                 AsserBrowser.SetDevice(Device);
 
-                AsserBrowser.RenderEmbeddedTab(e10::g_LibMgr, xresource::g_Mgr, "Assets");
+                AsserBrowser.RenderEmbeddedTab(xresource_editor::g_LibMgr, xresource::g_Mgr, "Assets");
 
                 break;
 
             case 2:
 
-                e10::RenderSourceControlPanel(E29Undo);
+                xresource_editor::RenderSourceControlPanel(E29Undo);
 
                 break;
 
@@ -647,7 +647,7 @@ namespace e29
 
                 AsserBrowser.SetDevice(Device);
 
-                AsserBrowser.RenderEmbeddedTab(e10::g_LibMgr, xresource::g_Mgr, "Compilation");
+                AsserBrowser.RenderEmbeddedTab(xresource_editor::g_LibMgr, xresource::g_Mgr, "Compilation");
 
                 break;
 
@@ -655,7 +655,7 @@ namespace e29
 
                 AsserBrowser.SetDevice(Device);
 
-                AsserBrowser.RenderEmbeddedTab(e10::g_LibMgr, xresource::g_Mgr, "Project Settings");
+                AsserBrowser.RenderEmbeddedTab(xresource_editor::g_LibMgr, xresource::g_Mgr, "Project Settings");
 
                 break;
 

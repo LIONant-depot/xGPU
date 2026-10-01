@@ -7,12 +7,12 @@
 // button). E23/E24 never needed this (neither has a resource-ref field outside its main descriptor);
 // E25's render_settings.m_PreviewAnimRef is the first consumer beyond E21 itself.
 //
-// Requires the includer to already have pulled in E10_AssetMgr.h/E10_AssetBrowser.h (for e10::g_LibMgr
-// / e10::assert_browser) - not included here to avoid dragging E10's asset-browser machinery into
+// Requires the includer to already have pulled in xresource_editor_asset_mgr.h/xresource_editor_asset_browser.h (for xresource_editor::g_LibMgr
+// / xresource_editor::asset_browser) - not included here to avoid dragging E10's asset-browser machinery into
 // every editor that only wants the viewport/pose-eval halves of this folder.
 namespace xgpu::tools::editors
 {
-    inline e10::assert_browser g_AssetBrowserPopup;
+    inline xresource_editor::asset_browser g_AssetBrowserPopup;
 
     // Pulled out of E21_StaticGeom_Editor.cpp's RemapGUIDToString - resolves a resource ref to its
     // asset-browser display name (falling back to the raw GUID hex if the node lookup fails), so a
@@ -27,7 +27,7 @@ namespace xgpu::tools::editors
         {
             auto FullGuid = xresource::g_Mgr.getFullGuid(PreFullGuid);
 
-            e10::g_LibMgr.getNodeInfo(FullGuid, [&](e10::library_db::info_node& Node)
+            xresource_editor::g_LibMgr.getNodeInfo(FullGuid, [&](xresource_editor::library_db::info_node& Node)
             {
                 Name = Node.m_Info.m_Name;
             });
@@ -72,7 +72,7 @@ namespace xgpu::tools::editors
             // This is the drag and drop payload from the asset browser we just duplicated here
             struct drag_and_drop_folder_payload_t
             {
-                e10::folder::guid           m_Parent;
+                xresource_editor::folder::guid           m_Parent;
                 xresource::full_guid        m_Source;
                 bool                        m_bSelection;
             };
@@ -117,7 +117,7 @@ namespace xgpu::tools::editors
         //
         if (Open && not g_AssetBrowserPopup.isVisible())
         {
-            g_AssetBrowserPopup.ShowAsPopup(e10::g_LibMgr, pUID, Filters, Output.m_Type);
+            g_AssetBrowserPopup.ShowAsPopup(xresource_editor::g_LibMgr, pUID, Filters, Output.m_Type);
         }
 
         //
