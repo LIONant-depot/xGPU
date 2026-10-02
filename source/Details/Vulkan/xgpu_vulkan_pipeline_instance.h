@@ -2,6 +2,8 @@ namespace xgpu::vulkan
 {
     struct pipeline_instance : xgpu::details::pipeline_instance_handle
     {
+        std::uint64_t m_Serial = NextCacheSerial();      // see NextCacheSerial
+
         virtual                ~pipeline_instance           ( void 
                                                             ) noexcept;
         xgpu::device::error*    Initialize                  ( std::shared_ptr<vulkan::device>&&     Device
@@ -14,6 +16,13 @@ namespace xgpu::vulkan
             pipeline_instance*              m_pPipelineInstance {};
             std::array<VkDescriptorSet,3>   m_VKDescriptorSet   {};
             VkPipeline                      m_VKPipeline        {}; // Cache this here for performace but this is just a view
+        };
+
+        // What the device keeps for an instance (per_renderpass is also part of a command buffer, whose size is fixed): who it was made for.
+        struct cached : per_renderpass
+        {
+            std::uint64_t   m_Serial        {};     // the instance
+            VkRenderPass    m_VKRenderPass  {};     // and the render pass
         };
 
         std::shared_ptr<vulkan::pipeline>                   m_Pipeline              {};

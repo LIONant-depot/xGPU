@@ -1387,8 +1387,11 @@ namespace xgpu::vulkan
         //
         // Create the render pipeline if we have not done so yet
         //
-        auto It = m_Device->m_PipeLineInstanceMap.find(reinterpret_cast<std::uint64_t>(&PipelineInstance));
-        if (It == m_Device->m_PipeLineInstanceMap.end())
+        // Cached by the instance's serial (never by its address: a new instance can be made where a destroyed one was) and only trusted for
+        // the render pass it was made for.
+        auto       It   = m_Device->m_PipeLineInstanceMap.find(PipelineInstance.m_Serial);
+        const bool bHit = It != m_Device->m_PipeLineInstanceMap.end() && It->second.m_Serial == PipelineInstance.m_Serial && It->second.m_VKRenderPass == CB.m_VKActiveRenderPass;
+        if (!bHit)
         {
             const auto& Pipe               = *PipelineInstance.m_Pipeline;
             auto        PipelineCreateInfo = Pipe.m_VkPipelineCreateInfo;
@@ -1398,7 +1401,8 @@ namespace xgpu::vulkan
             //
             // See if we have already created this material
             //
-            std::uint64_t pipelineKey = reinterpret_cast<std::uint64_t>(CB.m_VKActiveRenderPass) ^ reinterpret_cast<std::uint64_t>(PipelineInstance.m_Pipeline.get());
+            // The render pass is an address (they are rarely remade); the pipeline is its serial. Mixed, so two different pairs do not meet by accident.
+            std::uint64_t pipelineKey = (reinterpret_cast<std::uint64_t>(CB.m_VKActiveRenderPass) * 0x9E3779B97F4A7C15ull) ^ (PipelineInstance.m_Pipeline->m_Serial * 0xC2B2AE3D27D4EB4Full);
             auto itPipeline = m_Device->m_PipeLineMap.find(pipelineKey);
             if (itPipeline == m_Device->m_PipeLineMap.end())
             {
@@ -1452,7 +1456,12 @@ namespace xgpu::vulkan
             //
             // Cache this instance
             //
-            m_Device->m_PipeLineInstanceMap.emplace(std::pair{ reinterpret_cast<std::uint64_t>(&PipelineInstance), PerRenderPass });
+            pipeline_instance::cached Cached;
+            static_cast<pipeline_instance::per_renderpass&>(Cached) = PerRenderPass;
+            Cached.m_Serial       = PipelineInstance.m_Serial;
+            Cached.m_VKRenderPass = CB.m_VKActiveRenderPass;
+            if (It != m_Device->m_PipeLineInstanceMap.end()) It->second = Cached;      // the same instance in another render pass
+            else                                             m_Device->m_PipeLineInstanceMap.emplace(std::pair{ PipelineInstance.m_Serial, Cached });
         }
         else
         {

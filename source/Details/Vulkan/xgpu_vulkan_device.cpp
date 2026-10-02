@@ -468,7 +468,7 @@ namespace xgpu::vulkan
                 {
                     {
                         std::lock_guard Lk(m_LockedVKDescriptorPool);
-                        if (auto It = m_PipeLineInstanceMap.find(reinterpret_cast<std::uint64_t>(E.m_Private.get())); It != m_PipeLineInstanceMap.end())
+                        if (auto It = m_PipeLineInstanceMap.find(static_cast<xgpu::vulkan::pipeline_instance*>(E.m_Private.get())->m_Serial); It != m_PipeLineInstanceMap.end())
                         {
                             vkFreeDescriptorSets(m_VKDevice, m_LockedVKDescriptorPool.get(), static_cast<std::uint32_t>(static_cast<xgpu::vulkan::pipeline_instance*>(E.m_Private.get())->m_Pipeline->m_nVKDescriptorSetLayout), It->second.m_VKDescriptorSet.data());
                             m_PipeLineInstanceMap.erase(It);

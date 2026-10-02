@@ -1,7 +1,19 @@
+#include <atomic>
+
 namespace xgpu::vulkan
 {
+    // A number nothing else will ever have: names a pipeline or a pipeline instance in the device's caches. Their addresses are not good
+    // names: the next object made can land where a destroyed one was, and would then be handed the destroyed one's cached pipeline.
+    inline std::uint64_t NextCacheSerial( void ) noexcept
+    {
+        static std::atomic<std::uint64_t> s_Serial{ 0 };
+        return ++s_Serial;
+    }
+
     struct pipeline : xgpu::details::pipeline_handle
     {
+        std::uint64_t m_Serial = NextCacheSerial();
+
         xgpu::device::error* Initialize     ( std::shared_ptr<device>&&    Device
                                             , const xgpu::pipeline::setup& Setup
                                             ) noexcept;

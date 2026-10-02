@@ -99,7 +99,7 @@ namespace xgpu::vulkan
             std::vector<xgpu::window>             m_Window;
         };
 
-        using mati_per_renderpass_map = std::unordered_map<std::uint64_t, pipeline_instance::per_renderpass>;
+        using mati_per_renderpass_map = std::unordered_map<std::uint64_t, pipeline_instance::cached>;
         using mat_per_renderpass_map = std::unordered_map<std::uint64_t, pipeline::per_renderpass>;
 
 

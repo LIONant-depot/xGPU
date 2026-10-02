@@ -192,6 +192,12 @@ namespace xgpu::vulkan
     {
         auto& Instance = *reinterpret_cast<instance*>(pUserData);
 
+        // A generic vertex shader (position, normal, tangent, uv, ... for every material) paired with the fragment shader of one material that
+        // reads only some of it: legal, and the shader compiler drops the unused inputs from the fragment shader on purpose (optimization
+        // for performance). There is nothing to fix in any one pipeline, so this performance hint is not reported; everything else is.
+        if ( !(flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) && pMsg && std::string_view(pMsg).find("WARNING-Shader-OutputNotConsumed") != std::string_view::npos )
+            return false;
+
         if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
         {
             Instance.ReportError( (VkResult)msgCode, xgpu::FormatString( "[%s] Code %d : %s", pLayerPrefix, msgCode, pMsg ) );
