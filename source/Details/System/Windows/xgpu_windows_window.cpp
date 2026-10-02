@@ -168,6 +168,8 @@ namespace xgpu::windows
                 ReleaseCapture();
             }
             break;
+        // Alt, and every key pressed while Alt is held, arrive as the SYS variants: same handling (DefWindowProc still sees them, for Alt+F4)
+        case WM_SYSKEYDOWN:
         case WM_KEYDOWN:
             if( auto pWin = reinterpret_cast<windows::window*>( GetWindowLongPtr( hWnd, GWLP_USERDATA ) ); pWin )
             {
@@ -180,6 +182,7 @@ namespace xgpu::windows
                     pWin->m_Keyboard->m_KeyIsDown[static_cast<int>(xgpu::keyboard::digital::KEY_LCONTROL) ] = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
                     pWin->m_Keyboard->m_KeyIsDown[static_cast<int>(xgpu::keyboard::digital::KEY_LSHIFT)   ] = (GetKeyState(VK_SHIFT)   & 0x8000) != 0;
                     pWin->m_Keyboard->m_KeyIsDown[static_cast<int>(xgpu::keyboard::digital::KEY_LALT)     ] = (GetKeyState(VK_MENU)    & 0x8000) != 0;
+                    pWin->m_Keyboard->m_KeyIsDown[Code] = true;      // the key's own message says it is down, whatever GetKeyState says (it lags an injected message)
 
                     // TODO: Optimize this....
                     // Get the ascii character
@@ -198,6 +201,7 @@ namespace xgpu::windows
                 }
             }
             break;
+        case WM_SYSKEYUP:
         case WM_KEYUP:
             if( auto pWin = reinterpret_cast<windows::window*>( GetWindowLongPtr( hWnd, GWLP_USERDATA ) ); pWin )
             {
@@ -248,6 +252,8 @@ namespace xgpu::windows
                 V             = (zDelta*100.0f)/std::numeric_limits<short>::max();
             }
             break;
+        case WM_SYSCHAR:                    // Alt+key would beep (there is no menu for it to open)
+            return 0;
         case WM_SYSCOMMAND:
             if ((wParam & 0xfff0) == SC_KEYMENU) // Disable ALT application menu
                 return 0;

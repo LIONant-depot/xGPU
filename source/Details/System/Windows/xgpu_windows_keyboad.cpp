@@ -22,7 +22,7 @@ namespace xgpu::windows
     ,   xgpu::keyboard::digital::KEY_NULL                      // 15
     ,   xgpu::keyboard::digital::KEY_LSHIFT                    // 16
     ,   xgpu::keyboard::digital::KEY_LCONTROL                  // 17
-    ,   xgpu::keyboard::digital::KEY_NULL                      // 18
+    ,   xgpu::keyboard::digital::KEY_LALT                      // 18  VK_MENU
     ,   xgpu::keyboard::digital::KEY_NULL                      // 19
     ,   xgpu::keyboard::digital::KEY_NULL                      // 20
     ,   xgpu::keyboard::digital::KEY_NULL                      // 21
