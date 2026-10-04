@@ -522,7 +522,8 @@ namespace xgpu::vulkan
     void pipeline::DeathMarch(xgpu::pipeline&& Pipeline) noexcept
     {
         if (!m_Device) return;
+        // The device stays: the destructor of this object (when the device empties its death list) destroys the sampler, the layouts and the pipeline layout through it - resetting it here
+        // made that destructor dereference a null device (a crash, the first time anything destroyed a pipeline). The device -> list -> pipeline -> device cycle ends when the list is cleared.
         m_Device->Destroy(std::move(Pipeline));
-        m_Device.reset();
     }
 }

@@ -40,6 +40,7 @@ namespace xgpu
             std::uint32_t       m_Offset;
             format              m_Format;
             int                 m_iStream;
+            bool                m_bPerInstance = false;     // the stream of this attribute advances once per instance (DrawInstance), not once per vertex: every attribute of a stream must agree
         };
 
         enum class topology : std::uint8_t

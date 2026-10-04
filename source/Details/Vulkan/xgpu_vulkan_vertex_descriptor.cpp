@@ -76,6 +76,7 @@ namespace xgpu::vulkan
             m_VKInputAttributesDescription[i].format   = Format.first;
 
             m_VKInputBindingDescription[E.m_iStream].stride += Format.second;
+            if (E.m_bPerInstance) m_VKInputBindingDescription[E.m_iStream].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
             nBindings = std::max(nBindings, static_cast<std::uint32_t>(E.m_iStream + 1) );
         }
 
