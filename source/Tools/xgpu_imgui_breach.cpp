@@ -8,8 +8,63 @@
 
 #include "imgui_internal.h"
 #include "xgpu_imgui_breach.h"
+#if !defined(_WIN32)
+    #include <filesystem>
+    #include <string>
+    #include <string_view>
+    #include <vector>
+    #include <cctype>
+    #include <cstdlib>
+#endif
 
 namespace xgpu::tools::imgui {
+
+#if !defined(_WIN32)
+    //
+    // The fonts are the Windows ones ("C:/Windows/Fonts/consola.ttf", ...). Off Windows the same file is looked for
+    // where it can be: under WSL the Windows drive is /mnt/<letter>, then the user's and the system font folders;
+    // then a free look-alike (DejaVu) for the text fonts. Empty when there is none (the caller falls back).
+    //
+    static std::string FindFontFile( std::string_view WindowsPath ) noexcept
+    {
+        namespace fs = std::filesystem;
+        const std::string Name( WindowsPath.substr( WindowsPath.find_last_of("/\\") + 1 ) );
+
+        std::vector<std::string> Candidates;
+        if( WindowsPath.size() > 2 && WindowsPath[1] == ':' )
+        {
+            std::string Mnt = std::string("/mnt/") + static_cast<char>(std::tolower(static_cast<unsigned char>(WindowsPath[0]))) + std::string(WindowsPath.substr(2));
+            for( auto& c : Mnt ) if( c == '\\' ) c = '/';
+            Candidates.push_back( std::move(Mnt) );
+        }
+        if( const char* pHome = std::getenv("HOME"); pHome && *pHome )
+        {
+            Candidates.push_back( std::string(pHome) + "/.local/share/fonts/" + Name );
+            Candidates.push_back( std::string(pHome) + "/.fonts/" + Name );
+        }
+        Candidates.push_back( "/usr/local/share/fonts/" + Name );
+        Candidates.push_back( "/usr/share/fonts/truetype/msttcorefonts/" + Name );
+
+        struct look_alike { const char* m_pWindows; const char* m_pFree; };
+        static constexpr look_alike LookAlikes[] =
+        { { "consola.ttf",  "DejaVuSansMono.ttf"      }
+        , { "consolab.ttf", "DejaVuSansMono-Bold.ttf" }
+        , { "segoeui.ttf",  "DejaVuSans.ttf"          }
+        , { "segoeuib.ttf", "DejaVuSans-Bold.ttf"     }
+        };
+        for( const auto& L : LookAlikes )
+        {
+            if( Name != L.m_pWindows ) continue;
+            for( const char* pDir : { "/usr/share/fonts/truetype/dejavu/", "/usr/share/fonts/dejavu/", "/usr/share/fonts/TTF/", "/usr/share/fonts/dejavu-sans-fonts/", "/usr/share/fonts/dejavu-sans-mono-fonts/" } )
+                Candidates.push_back( std::string(pDir) + L.m_pFree );
+        }
+
+        std::error_code Ec;
+        for( const auto& C : Candidates ) if( fs::is_regular_file(C, Ec) ) return C;
+        return {};
+    }
+#endif
+
 
 // Set true by the focus-edge-detection block inside BeginRendering's own StartNewFrame (below), the
 // moment the window transitions unfocused -> focused; cleared by ConsumeWindowFocusGained (also
@@ -1531,7 +1586,13 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;       // Enable Keyboard Controls
     io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;           // Enable Docking
+#if defined(_WIN32)
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;         // Enable Multi-Viewport / Platform Windows
+#else
+    // Linux/WSLg: multi-viewport child windows still incomplete; OpenLevel crashed with
+    // AddSettingsHandler duplicate-TypeName assert when ViewportsEnable was on. Docking alone is enough.
+    io.ConfigFlags &= ~ImGuiConfigFlags_ViewportsEnable;
+#endif
     io.BackendRendererName = "xgpu_imgui_breach";
     io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;  // We can honor the ImDrawCmd::VtxOffset field, allowing for large meshes.
 
@@ -1569,10 +1630,28 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
         ImFontAtlas* atlas = io.Fonts;
         atlas->Clear();
 
+        // Windows: the font files as they are. Elsewhere see FindFontFile; a text font found nowhere becomes ImGui's own
+        // (so the Fonts[] indices every caller relies on stay the same), a merged icon font found nowhere is left out.
+        auto AddFontFile = [&]( const char* pFile, float Size, const ImFontConfig* pConfig, const ImWchar* pRanges ) -> ImFont*
+        {
+        #if defined(_WIN32)
+            return atlas->AddFontFromFileTTF(pFile, Size, pConfig, pRanges);
+        #else
+            if( const std::string Path = FindFontFile(pFile); !Path.empty() )
+                if( ImFont* pFont = atlas->AddFontFromFileTTF(Path.c_str(), Size, pConfig, pRanges) ) return pFont;
+            std::printf("xgpu imgui: font %s not found - %s\n", pFile, (pConfig && pConfig->MergeMode) ? "its glyphs are left out" : "using ImGui's default font");
+            if( pConfig && pConfig->MergeMode ) return atlas->Fonts.empty() ? nullptr : atlas->Fonts.back();
+            ImFontConfig Default = pConfig ? *pConfig : ImFontConfig{};
+            Default.SizePixels  = Size;
+            Default.GlyphOffset = ImVec2(0, 0);
+            return atlas->AddFontDefault(&Default);
+        #endif
+        };
+
         // Load the first font (Consolas)
         ImFontConfig config1;
         config1.PixelSnapH = true;
-        ImFont* font1 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/consola.ttf", 12.0f, &config1, glyph_ranges1);
+        ImFont* font1 = AddFontFile("C:/Windows/Fonts/consola.ttf", 12.0f, &config1, glyph_ranges1);
         assert(font1 != nullptr && "Failed to load consola.ttf");
 
         // Load and merge the second font (Segoe Icons)
@@ -1580,21 +1659,21 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
         config2.MergeMode = true;   // Merge into the previous font
         config2.PixelSnapH = true;  // Align horizontally
         config2.GlyphOffset.y = 3.0f; // Move icons down
-        ImFont* font2 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segmdl2.ttf", 12.0f, &config2, glyph_ranges2);
+        ImFont* font2 = AddFontFile("C:/Windows/Fonts/segmdl2.ttf", 12.0f, &config2, glyph_ranges2);
         assert(font2 != nullptr && "Failed to load segmdl2.ttf");
 
 
-        ImFont* font3 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/consolab.ttf", 12.0f, &config1, glyph_ranges1);
-        ImFont* font4 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segmdl2.ttf", 12.0f, &config2, glyph_ranges2);
+        ImFont* font3 = AddFontFile("C:/Windows/Fonts/consolab.ttf", 12.0f, &config1, glyph_ranges1);
+        ImFont* font4 = AddFontFile("C:/Windows/Fonts/segmdl2.ttf", 12.0f, &config2, glyph_ranges2);
 
-        ImFont* font5 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segmdl2.ttf", 64.0f, &config1, glyph_ranges2);
+        ImFont* font5 = AddFontFile("C:/Windows/Fonts/segmdl2.ttf", 64.0f, &config1, glyph_ranges2);
 
         // Fonts[3] - a genuinely larger BAKED font (bold Consolas @ 16px + merged icons), not the same
         // 12px atlas glyphs stretched via ImGui::GetFont()->Scale at render time (which just upscales
         // the existing low-res bitmap, i.e. the "resize a low res one" the Compilation view's resource
         // names used to do via ScaleText - direct user correction, replaced with this real font).
-        ImFont* font6 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/consolab.ttf", 16.0f, &config1, glyph_ranges1);
-        ImFont* font7 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segmdl2.ttf", 16.0f, &config2, glyph_ranges2);
+        ImFont* font6 = AddFontFile("C:/Windows/Fonts/consolab.ttf", 16.0f, &config1, glyph_ranges1);
+        ImFont* font7 = AddFontFile("C:/Windows/Fonts/segmdl2.ttf", 16.0f, &config2, glyph_ranges2);
 
         // Fonts[4]/[5] - proportional Segoe UI (regular/semibold) for E29's Unity-inspired theme
         // (see E29_Theme.h). Every font up to here is Consolas - fine for the original examples'
@@ -1629,16 +1708,16 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
 
         // 15 -> 17: direct user feedback ("some fonts are too small, not easy to read") against a
         // real monitor - bumped the base size, not just relying on the +33% "large emphasis" step.
-        ImFont* font8  = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segoeui.ttf",  17.0f, &config3, glyph_ranges1);
-        ImFont* font9  = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segmdl2.ttf",  13.0f, &config4, glyph_ranges2);
-        ImFont* font10 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segoeuib.ttf", 17.0f, &config3, glyph_ranges1);
-        ImFont* font11 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segmdl2.ttf",  13.0f, &config4, glyph_ranges2);
+        ImFont* font8  = AddFontFile("C:/Windows/Fonts/segoeui.ttf",  17.0f, &config3, glyph_ranges1);
+        ImFont* font9  = AddFontFile("C:/Windows/Fonts/segmdl2.ttf",  13.0f, &config4, glyph_ranges2);
+        ImFont* font10 = AddFontFile("C:/Windows/Fonts/segoeuib.ttf", 17.0f, &config3, glyph_ranges1);
+        ImFont* font11 = AddFontFile("C:/Windows/Fonts/segmdl2.ttf",  13.0f, &config4, glyph_ranges2);
 
         // Fonts[6] - Segoe UI Semibold @ 22px, the Unity-theme's "large emphasis" companion to
         // Fonts[3] (Consolas Bold @ 16px) - see getLargeEmphasisFont(). Paired the same +33% size bump
         // Fonts[3] itself uses over Fonts[1] (12px -> 16px), scaled from Segoe UI's own 17px base.
-        ImFont* font12 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segoeuib.ttf", 22.0f, &config3, glyph_ranges1);
-        ImFont* font13 = atlas->AddFontFromFileTTF("C:/Windows/Fonts/segmdl2.ttf",  17.0f, &config4, glyph_ranges2);
+        ImFont* font12 = AddFontFile("C:/Windows/Fonts/segoeuib.ttf", 22.0f, &config3, glyph_ranges1);
+        ImFont* font13 = AddFontFile("C:/Windows/Fonts/segmdl2.ttf",  17.0f, &config4, glyph_ranges2);
 
         // Build the atlas
         bool success = atlas->Build();
