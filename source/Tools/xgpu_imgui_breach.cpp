@@ -1323,7 +1323,7 @@ bool BeginRendering( bool bEnableDocking ) noexcept
 
     if (auto Err = Instance.StartNewFrame(io))
     {
-        printf("StartNewFrame failed: %s\n", Err );
+        printf("StartNewFrame failed: %s\n", xgpu::getErrorMsg(Err) );
         return true;
     }
 
@@ -1371,7 +1371,7 @@ void CreateChildWindow( ImGuiViewport* pViewport ) noexcept
 
     if (auto Err = Instance.m_Shared->m_Device.Create(pInfo->m_Window, Setup))
     {
-        printf("Failed to create child window: %s\n", Err );
+        printf("Failed to create child window: %s\n", xgpu::getErrorMsg(Err) );
         delete pInfo;
         return;
     }

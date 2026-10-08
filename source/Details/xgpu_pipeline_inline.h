@@ -129,7 +129,7 @@ namespace xgpu
         };
     }
 
-    pipeline::~pipeline()
+    pipeline::~pipeline() noexcept
     {
         if (m_Private.use_count() > 1) return;
         if (!m_Private) return;

@@ -74,10 +74,10 @@ namespace xgpu::nullsys
         virtual void                setFocus             ( void ) const noexcept override {}
         virtual std::pair<int, int> getPosition          ( void ) const noexcept override { return { 0, 0 }; }
         virtual void                setPosition          ( int, int )   noexcept override {}
-        virtual void                setSize              ( int W, int H ) noexcept { m_Width = W; m_Height = H; }
+        virtual void                setSize              ( int W, int H ) noexcept override { m_Width = W; m_Height = H; }
         bool getResizedAndReset ( void ) noexcept { auto b = m_isResized; m_isResized = false; return b; }
-        bool isMinimized        ( void ) const noexcept { return false; }
-        void setMousePosition   ( int, int ) noexcept {}
+        bool isMinimized        ( void ) const noexcept override { return false; }
+        void setMousePosition   ( int, int ) noexcept override {}
         void setFrameless       ( bool f ) noexcept { m_isFrameless = f; }
         virtual ~window() = default;
 

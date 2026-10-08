@@ -239,7 +239,7 @@ namespace xgpu
     }
 
 
-    window::~window()
+    window::~window() noexcept
     {
         if (m_Private.use_count() > 1) return;
         if (!m_Private) return;

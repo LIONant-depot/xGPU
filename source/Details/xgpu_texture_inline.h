@@ -46,7 +46,7 @@ namespace xgpu
         return m_Private->getAdressModes();
     }
 
-    texture::~texture(void)
+    texture::~texture(void) noexcept
     {
         if (m_Private.use_count() > 1) return;
         if (!m_Private) return;

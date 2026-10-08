@@ -61,7 +61,7 @@ namespace xgpu::vulkan
         void                                    setDynamicUBO               ( xgpu::cmd_buffer& CmdBuffer
                                                                             , xgpu::buffer&     Buffer
                                                                             , int               BindIndex
-                                                                            ) noexcept;
+                                                                            ) noexcept override;
         virtual
         void                                    setPipelineInstance         ( xgpu::cmd_buffer&         CmdBuffer
                                                                             , xgpu::pipeline_instance&  Instance
@@ -76,7 +76,7 @@ namespace xgpu::vulkan
         void                                    setStreamingBuffers         ( xgpu::cmd_buffer&         CmdBuffer
                                                                             , std::span<xgpu::buffer>   Buffers
                                                                             , int                       StartingElementIndex
-                                                                            ) noexcept;
+                                                                            ) noexcept override;
         virtual
         void                                    DrawInstance                ( xgpu::cmd_buffer& CmdBuffer
                                                                             , int               InstanceCount
