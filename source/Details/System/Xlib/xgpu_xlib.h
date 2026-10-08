@@ -63,6 +63,7 @@ namespace xgpu::xlib
         virtual void                setFocus                ( void ) const noexcept override;
         virtual std::pair<int, int> getPosition             ( void ) const noexcept override;
         virtual void                setPosition             ( int x, int y )      noexcept override;
+        void                        RefreshPosition         ( void )              noexcept;   // m_TruePosition from the server (once a frame)
         virtual void                setSize                 ( int Width, int Height ) noexcept override;
         bool                        getResizedAndReset      ( void )              noexcept { auto b = m_isResized; m_isResized = false; return b; }
         bool                        isMinimized             ( void ) const noexcept override { return m_isMinimize; }
@@ -86,7 +87,7 @@ namespace xgpu::xlib
         bool                                        m_isFrameless   { false };
         bool                                        m_isHovered     { false };
         bool                                        m_isFocused     { false };
-        std::pair<int, int>                         m_TruePosition  {};
+        std::pair<int, int>                         m_TruePosition  {};   // the client area's screen position (RefreshPosition)
     };
 }
 #endif

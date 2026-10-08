@@ -713,6 +713,12 @@ struct window_info
     xgpu::window                        m_Window            {};
     std::array<buffers, 2>              m_PrimitiveBuffers  {};
     int                                 m_iFrame            {0};
+#if !defined(_WIN32)
+    // Where the window manager has this (secondary viewport) window, as seen on the previous frames (see SyncViewportsFromPlatform)
+    ImVec2                              m_SeenPos           {-FLT_MAX, -FLT_MAX};
+    ImVec2                              m_SeenSize          {-FLT_MAX, -FLT_MAX};
+    int                                 m_SeenFrames        {0};
+#endif
 
     //------------------------------------------------------------------------------------------------------------
 
@@ -1124,6 +1130,45 @@ struct breach_instance : window_info
         }
     }
 
+#if !defined(_WIN32)
+    //
+    // X11: a window goes where the window manager puts it, later (asynchronously) and not always where it was asked to
+    // (it keeps windows on the screen, for one). Win32 moves it right away, exactly, so ImGui never asks there. ImGui only
+    // re-reads a viewport's position/size when the backend raises PlatformRequestMove/Resize; without that its idea of
+    // a torn-out window stayed where it had asked for it while the window was somewhere else, and the mouse (which is in
+    // screen coordinates) missed it. Raised once the window has stayed put for two frames at a place ImGui did not ask
+    // for, so a window that is still being moved (WM lag while dragging) is left alone.
+    //
+    static void SyncViewportsFromPlatform( void ) noexcept
+    {
+        ImGuiPlatformIO& PlatformIO = ImGui::GetPlatformIO();
+        for (int n = 1; n < PlatformIO.Viewports.Size; n++)       // [0] is the main viewport: ImGui reads its position every frame
+        {
+            auto* pViewport = static_cast<ImGuiViewportP*>(PlatformIO.Viewports[n]);
+            if (pViewport->RendererUserData == nullptr || !pViewport->PlatformWindowCreated) continue;
+            auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
+
+            const auto [X, Y] = Info.m_Window.getPosition();
+            const ImVec2 Pos ( static_cast<float>(X), static_cast<float>(Y) );
+            const ImVec2 Size( static_cast<float>(Info.m_Window.getWidth()), static_cast<float>(Info.m_Window.getHeight()) );
+
+            if (Pos.x != Info.m_SeenPos.x || Pos.y != Info.m_SeenPos.y || Size.x != Info.m_SeenSize.x || Size.y != Info.m_SeenSize.y)
+            {
+                Info.m_SeenPos    = Pos;
+                Info.m_SeenSize   = Size;
+                Info.m_SeenFrames = 0;
+                continue;
+            }
+            if (Info.m_SeenFrames < 2) { ++Info.m_SeenFrames; continue; }
+
+            if (Pos.x != pViewport->LastPlatformPos.x || Pos.y != pViewport->LastPlatformPos.y)
+                pViewport->PlatformRequestMove = true;
+            if (Size.x > 0 && Size.y > 0 && (Size.x != pViewport->LastPlatformSize.x || Size.y != pViewport->LastPlatformSize.y))
+                pViewport->PlatformRequestResize = true;
+        }
+    }
+#endif
+
     xgpu::device::error* StartNewFrame( ImGuiIO& io ) noexcept
     {
         UpdateMonitors(ImGui::GetPlatformIO());
@@ -1198,6 +1243,7 @@ struct breach_instance : window_info
             for (int n = 0; n < PlatformIO.Viewports.Size; n++)
             {
                 ImGuiViewport*  pViewport = PlatformIO.Viewports[n];
+                if (pViewport->RendererUserData == nullptr) continue;   // its OS window could not be created (CreateChildWindow)
                 auto&           Info    = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
 
 #ifdef __EMSCRIPTEN__
@@ -1308,6 +1354,7 @@ struct breach_instance : window_info
             bool is_focused = false;
             for (auto& vp : PlatformIO.Viewports)
             {
+                if (vp->RendererUserData == nullptr) continue;
                 auto& Info = *reinterpret_cast<window_info*>(vp->RendererUserData);
                 is_focused = is_focused || Info.m_Window.isFocused();
             }
@@ -1319,6 +1366,10 @@ struct breach_instance : window_info
                 if (is_focused) g_bWindowFocusGainedPending = true;
             }
         }
+
+#if !defined(_WIN32)
+        SyncViewportsFromPlatform();
+#endif
 
         // Start the frame
         ImGui::NewFrame();
@@ -1480,6 +1531,7 @@ void SetChildWindowSize(ImGuiViewport* pViewport, ImVec2 size ) noexcept
 static
 ImVec2 GetChildWindowSize(ImGuiViewport* pViewport ) noexcept
 {
+    if (pViewport->RendererUserData == nullptr) return pViewport->Size;
     auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
     return { (float)Info.m_Window.getWidth(), (float)Info.m_Window.getHeight() };
 }
@@ -1489,6 +1541,7 @@ ImVec2 GetChildWindowSize(ImGuiViewport* pViewport ) noexcept
 static
 void SetChildWindowPos(ImGuiViewport* pViewport, ImVec2 pos) noexcept
 {
+    if (pViewport->RendererUserData == nullptr) return;
     auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
     Info.m_Window.setPosition(static_cast<int>(pos.x), static_cast<int>(pos.y));
 }
@@ -1498,6 +1551,7 @@ void SetChildWindowPos(ImGuiViewport* pViewport, ImVec2 pos) noexcept
 static
 void SetChildWindowSize(ImGuiViewport* pViewport, ImVec2 size) noexcept
 {
+    if (pViewport->RendererUserData == nullptr) return;
     auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
     Info.m_Window.setSize(static_cast<int>(size.x), static_cast<int>(size.y));
 }
@@ -1507,6 +1561,7 @@ void SetChildWindowSize(ImGuiViewport* pViewport, ImVec2 size) noexcept
 static
 ImVec2 GetChildWindowPos(ImGuiViewport* pViewport)
 {
+    if (pViewport->RendererUserData == nullptr) return pViewport->Pos;
     auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
     auto [X,Y] = Info.m_Window.getPosition();
     return ImVec2((float)X, (float)Y);
@@ -1518,6 +1573,7 @@ static
 void RenderChildWindow(ImGuiViewport* pViewport, void*) noexcept
 {
     GETINSTANCE;
+    if (pViewport->RendererUserData == nullptr) return;
     auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
     (void)Info.m_Window.BeginRendering();
     Info.Render( io, pViewport->DrawData );
@@ -1529,6 +1585,7 @@ static
 void ChildSwapBuffers(ImGuiViewport* pViewport, void*) noexcept
 {
     GETINSTANCE;
+    if (pViewport->RendererUserData == nullptr) return;
     auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
     Info.m_Window.PageFlip();
 }
@@ -1586,13 +1643,7 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;       // Enable Keyboard Controls
     io.ConfigFlags &= ~ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;           // Enable Docking
-#if defined(_WIN32)
     io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;         // Enable Multi-Viewport / Platform Windows
-#else
-    // Linux/WSLg: multi-viewport child windows still incomplete; OpenLevel crashed with
-    // AddSettingsHandler duplicate-TypeName assert when ViewportsEnable was on. Docking alone is enough.
-    io.ConfigFlags &= ~ImGuiConfigFlags_ViewportsEnable;
-#endif
     io.BackendRendererName = "xgpu_imgui_breach";
     io.BackendFlags |= ImGuiBackendFlags_RendererHasVtxOffset;  // We can honor the ImDrawCmd::VtxOffset field, allowing for large meshes.
 
@@ -1750,18 +1801,21 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
 
         platform_io.Platform_SetWindowFocus = [](ImGuiViewport* pViewport)
         {
+            if (pViewport->RendererUserData == nullptr) return;
             auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
             Info.m_Window.setFocus();
         };
 
         platform_io.Platform_GetWindowFocus = [](ImGuiViewport* pViewport)
         {
+            if (pViewport->RendererUserData == nullptr) return false;
             auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
             return Info.m_Window.isFocused();
         };
 
         platform_io.Platform_GetWindowMinimized = [](ImGuiViewport* pViewport)
         {
+            if (pViewport->RendererUserData == nullptr) return true;     // no OS window: nothing to draw into
             auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
             return Info.m_Window.isMinimized();
         };

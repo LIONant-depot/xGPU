@@ -1,6 +1,8 @@
 #include "xgpu_xlib.h"
 
 #include <unordered_map>
+#include <cstdio>
+#include <cstdlib>
 #include <mutex>
 #include <vector>
 #include <string_view>
@@ -86,10 +88,23 @@ namespace xgpu::xlib
         Atom                                        m_MotifWMHints      { 0 };
         std::unordered_map<unsigned long, window*>  m_Windows           {};
 
+        // The pointer, in root (screen) coordinates, from the last pointer event, and the window that got it
+        int                                         m_RootX             { 0 };
+        int                                         m_RootY             { 0 };
+        bool                                        m_bHaveRoot         { false };
+        window*                                     m_pPointerWindow    { nullptr };
+
         ~connection( void ) noexcept { if( m_pDisplay ) XCloseDisplay(m_pDisplay); }
     };
 
     static XErrorHandler s_PrevErrorHandler = nullptr;
+
+    // XGPU_XLIB_TRACE=1: pointer events, window moves and positions on stderr (input/multi-viewport debugging)
+    static bool Trace( void ) noexcept
+    {
+        static const bool b = []{ const char* p = std::getenv("XGPU_XLIB_TRACE"); return p && *p && *p != '0'; }();
+        return b;
+    }
 
     // Xlib's default handler exits the process. A focus request on a window that is not viewable yet is a harmless
     // BadMatch (the user can click away at any time), so swallow just that and leave everything else to the previous handler.
@@ -263,6 +278,7 @@ namespace xgpu::xlib
     {
         if( m_Connection && m_Window )
         {
+            if( m_Connection->m_pPointerWindow == this ) m_Connection->m_pPointerWindow = nullptr;
             m_Connection->m_Windows.erase(m_Window);
             XDestroyWindow(m_Connection->m_pDisplay, m_Window);
             XFlush(m_Connection->m_pDisplay);
@@ -279,18 +295,27 @@ namespace xgpu::xlib
 
     //----------------------------------------------------------------------------------
 
+    // The screen position of the client area, as read by ProcessInputEvents this frame (see there): the mouse position
+    // (POS_ABS) is made relative to the same value, so position + POS_ABS is the pointer on the screen even while the
+    // window manager is still moving the window.
     std::pair<int, int> window::getPosition( void ) const noexcept
+    {
+        return m_TruePosition;
+    }
+
+    void window::RefreshPosition( void ) noexcept
     {
         int         X = 0, Y = 0;
         ::Window    Child;
-        XTranslateCoordinates( m_Connection->m_pDisplay, m_Window, m_Connection->m_Root, 0, 0, &X, &Y, &Child );
-        return { X, Y };
+        if( XTranslateCoordinates( m_Connection->m_pDisplay, m_Window, m_Connection->m_Root, 0, 0, &X, &Y, &Child ) )
+            m_TruePosition = { X, Y };
     }
 
     //----------------------------------------------------------------------------------
 
     void window::setPosition( int X, int Y ) noexcept
     {
+        if( Trace() ) std::fprintf(stderr, "[xlib] setPosition %lx -> %d,%d (was %d,%d)\n", m_Window, X, Y, m_TruePosition.first, m_TruePosition.second);
         XMoveWindow(m_Connection->m_pDisplay, m_Window, X, Y);
         XFlush(m_Connection->m_pDisplay);
     }
@@ -305,9 +330,12 @@ namespace xgpu::xlib
 
     //----------------------------------------------------------------------------------
 
-    void window::setMousePosition( int X, int Y ) noexcept   // screen coordinates, as SetCursorPos
+    // X, Y are relative to this window's client area: that is what the caller hands over (the ImGui backend passes
+    // io.MousePos minus the viewport's position, in both single and multi-viewport mode). Warping relative to the root
+    // window put the pointer at the window coordinates on the screen instead.
+    void window::setMousePosition( int X, int Y ) noexcept
     {
-        XWarpPointer(m_Connection->m_pDisplay, 0, m_Connection->m_Root, 0, 0, 0, 0, X, Y);
+        XWarpPointer(m_Connection->m_pDisplay, 0, m_Window, 0, 0, 0, 0, X, Y);
         XFlush(m_Connection->m_pDisplay);
     }
 
@@ -330,6 +358,35 @@ namespace xgpu::xlib
         }
     }
 
+    // The mouse state is shared by every window of the instance and POS_ABS is relative to the window that got the
+    // last pointer event: that window is the hovered one, the others are not (the ImGui backend adds the hovered
+    // window's screen position to POS_ABS; two "hovered" windows would report the same point at two places). While a
+    // button is held X sends the motion to the window that got the press (implicit grab), relative to it, so the
+    // pointer can be outside it: it stays the hovered one, which is what dragging a viewport out needs.
+    static
+    void SetHovered( connection& C, window& W ) noexcept
+    {
+        for( auto& [Id, pWindow] : C.m_Windows ) if( pWindow ) pWindow->m_isHovered = false;
+        W.m_isHovered      = true;
+        C.m_pPointerWindow = &W;
+    }
+
+    // Every pointer event carries the root coordinates. POS_REL adds up their motion (the same in every window);
+    // POS_ABS is set from them in ProcessInputEvents, relative to the pointer window's position of this frame.
+    static
+    void SetPointerRoot( connection& C, linux_os::mouse& M, int RootX, int RootY ) noexcept
+    {
+        constexpr auto POS_REL = static_cast<int>(xgpu::mouse::analog::POS_REL);
+        if( C.m_bHaveRoot )
+        {
+            M.m_Analog[POS_REL][0] += static_cast<float>(RootX - C.m_RootX);
+            M.m_Analog[POS_REL][1] += static_cast<float>(RootY - C.m_RootY);
+        }
+        C.m_RootX     = RootX;
+        C.m_RootY     = RootY;
+        C.m_bHaveRoot = true;
+    }
+
     static
     bool Dispatch( connection& C, XEvent& E ) noexcept
     {
@@ -340,8 +397,10 @@ namespace xgpu::xlib
         auto&   K = *W.m_Keyboard;
 
         constexpr auto POS_REL   = static_cast<int>(xgpu::mouse::analog::POS_REL);
-        constexpr auto POS_ABS   = static_cast<int>(xgpu::mouse::analog::POS_ABS);
         constexpr auto WHEEL_REL = static_cast<int>(xgpu::mouse::analog::WHEEL_REL);
+
+        if( Trace() && E.type >= x::ButtonPress && E.type <= x::LeaveNotify )
+            std::fprintf(stderr, "[xlib] ev %d win %lx xy %d,%d root %d,%d\n", E.type, E.xany.window, E.xbutton.x, E.xbutton.y, E.xbutton.x_root, E.xbutton.y_root);
 
         switch( E.type )
         {
@@ -351,19 +410,17 @@ namespace xgpu::xlib
             break;
 
         case x::MotionNotify:
-            {
-                const float X = static_cast<float>(E.xmotion.x);
-                const float Y = static_cast<float>(E.xmotion.y);
-                M.m_Analog[POS_REL][0] += X - M.m_Analog[POS_ABS][0];
-                M.m_Analog[POS_REL][1] += Y - M.m_Analog[POS_ABS][1];
-                M.m_Analog[POS_ABS][0]  = X;
-                M.m_Analog[POS_ABS][1]  = Y;
-                W.m_isHovered           = true;
-            }
+            SetPointerRoot(C, M, E.xmotion.x_root, E.xmotion.y_root);
+            SetHovered(C, W);
             break;
 
-        case x::EnterNotify: W.m_isHovered = true;  break;
-        case x::LeaveNotify: W.m_isHovered = false; break;
+        case x::EnterNotify:
+            SetPointerRoot(C, M, E.xcrossing.x_root, E.xcrossing.y_root);
+            SetHovered(C, W);
+            break;
+        case x::LeaveNotify:
+            if( W.m_ButtonsDown == 0 ) W.m_isHovered = false;   // grabbed: the motion still comes here
+            break;
 
         case x::ButtonPress:
         case x::ButtonRelease:
@@ -397,16 +454,17 @@ namespace xgpu::xlib
                 {
                     // X grabs the pointer for us until the button is released (Windows' SetCapture)
                     ++W.m_ButtonsDown;
+                    SetPointerRoot(C, M, E.xbutton.x_root, E.xbutton.y_root);
+                    SetHovered(C, W);
                     W.setFocus();
 
                     M.m_ButtonIsDown[Digital] = true;
-                    M.m_Analog[POS_ABS][0]    = static_cast<float>(E.xbutton.x);
-                    M.m_Analog[POS_ABS][1]    = static_cast<float>(E.xbutton.y);
                     M.m_Analog[POS_REL][0]    = 0;
                     M.m_Analog[POS_REL][1]    = 0;
                 }
                 else
                 {
+                    SetPointerRoot(C, M, E.xbutton.x_root, E.xbutton.y_root);
                     if( W.m_ButtonsDown > 0 ) --W.m_ButtonsDown;
                     M.m_ButtonIsDown[Digital]                         = false;
                     M.m_ButtonWasDown[M.m_ButtonIndex][Digital]       = true;
@@ -515,6 +573,29 @@ namespace xgpu::xlib
                 XEvent Event;
                 XNextEvent(pDisplay, &Event);
                 if( false == Dispatch(*Connection, Event) ) bContinue = false;
+            }
+
+            // Where every window is now (the window manager moves them asynchronously: a frame that set a position may
+            // not see it yet). POS_ABS is the pointer relative to its window as of right now, not as of the event: X sends
+            // no motion when a window moves under a still pointer, so the event's window coordinates go stale - with the
+            // window's new position added back the pointer looked moved by the same amount, and a dragged ImGui viewport
+            // ran away to the edge of the screen.
+            for( auto& [Id, pWindow] : Connection->m_Windows ) if( pWindow ) pWindow->RefreshPosition();
+            if( Connection->m_pPointerWindow && Connection->m_bHaveRoot )
+            {
+                constexpr auto POS_ABS = static_cast<int>(xgpu::mouse::analog::POS_ABS);
+                const auto [WX, WY] = Connection->m_pPointerWindow->m_TruePosition;
+                m_Mouse->m_Analog[POS_ABS][0] = static_cast<float>(Connection->m_RootX - WX);
+                m_Mouse->m_Analog[POS_ABS][1] = static_cast<float>(Connection->m_RootY - WY);
+                if( Trace() )
+                {
+                    static float LX = -1e9f, LY = -1e9f; static unsigned long LW = 0;
+                    if( LX != m_Mouse->m_Analog[POS_ABS][0] || LY != m_Mouse->m_Analog[POS_ABS][1] || LW != Connection->m_pPointerWindow->m_Window )
+                    {
+                        LX = m_Mouse->m_Analog[POS_ABS][0]; LY = m_Mouse->m_Analog[POS_ABS][1]; LW = Connection->m_pPointerWindow->m_Window;
+                        std::fprintf(stderr, "[xlib] frame pointer win %lx at %d,%d abs %.0f,%.0f root %d,%d\n", LW, WX, WY, LX, LY, Connection->m_RootX, Connection->m_RootY);
+                    }
+                }
             }
         }
         return bContinue;
