@@ -148,6 +148,14 @@ namespace xgpu::vulkan
         //
         vkGetPhysicalDeviceMemoryProperties(m_VKPhysicalDevice, &m_VKDeviceMemoryProperties);
         vkGetPhysicalDeviceProperties(m_VKPhysicalDevice, &m_VKPhysicalDeviceProperties);
+
+        // Which GPU/driver the validation messages are about (on WSLg: "Microsoft Direct3D12 (...)" = Mesa Dozen, or llvmpipe)
+        if (m_Instance->m_bValidation)
+            std::fprintf(stderr, "[xGPU] Vulkan device: %s (API %u.%u.%u), maxPushConstantsSize %u\n"
+                , m_VKPhysicalDeviceProperties.deviceName
+                , VK_API_VERSION_MAJOR(m_VKPhysicalDeviceProperties.apiVersion), VK_API_VERSION_MINOR(m_VKPhysicalDeviceProperties.apiVersion)
+                , VK_API_VERSION_PATCH(m_VKPhysicalDeviceProperties.apiVersion)
+                , m_VKPhysicalDeviceProperties.limits.maxPushConstantsSize );
         
         //
         // Create the Pipeline Cache

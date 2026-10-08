@@ -443,6 +443,18 @@ namespace xgpu::vulkan
         // Set the push constants for this pipeline
         //
         {
+            // A push-constant range above the device's limit is invalid (VUID-VkPushConstantRange-size-00298) and every
+            // vkCmdPushConstants on it too. Vulkan only guarantees 128 bytes: WSLg's Dozen (D3D12) driver allows exactly 128
+            // while most desktop drivers allow 256, so an oversized block "works" on one machine and not on the next. Refuse it
+            // here, by name, instead of letting the draw calls fail later.
+            if (const auto MaxPushConstants = m_Device->m_VKPhysicalDeviceProperties.limits.maxPushConstantsSize; Setup.m_PushConstantsSize > MaxPushConstants)
+            {
+                m_Device->m_Instance->ReportError(std::format("Pipeline push constants are {} bytes but this device ({}) allows only {} "
+                                                              "(maxPushConstantsSize). Keep push constants <= 128 bytes (the Vulkan minimum) and move the rest to a uniform buffer"
+                                                             , Setup.m_PushConstantsSize, m_Device->m_VKPhysicalDeviceProperties.deviceName, MaxPushConstants));
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Pipeline push constants exceed the device's maxPushConstantsSize");
+            }
+
             std::array<VkPushConstantRange, 1> pushConstantRange;
 
             if (Setup.m_PushConstantsSize)

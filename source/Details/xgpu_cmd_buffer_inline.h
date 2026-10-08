@@ -91,6 +91,11 @@ namespace xgpu
     cmd_buffer& cmd_buffer::setPushConstants( const T& PushConstants ) noexcept
     {
         static_assert( std::is_reference_v<T> == false && std::is_pointer_v<T> == false );
+    #ifndef XGPU_ALLOW_PUSH_CONSTANTS_ABOVE_128
+        // 128 bytes is all Vulkan guarantees (maxPushConstantsSize; WSLg's Dozen driver allows exactly that). Bigger blocks only
+        // run on some drivers: put the rest in a uniform buffer, or define XGPU_ALLOW_PUSH_CONSTANTS_ABOVE_128 for device-specific code.
+        static_assert( sizeof(T) <= 128, "push constants above 128 bytes are not portable (Vulkan maxPushConstantsSize minimum)" );
+    #endif
         m_pWindow->setPushConstants(*this, &PushConstants, sizeof(T));
         return *this;
     }
