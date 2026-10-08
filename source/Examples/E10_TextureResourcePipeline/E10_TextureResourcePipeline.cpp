@@ -90,6 +90,21 @@ namespace xresource_editor
 
     struct push_contants
     {
+        // What the E10 shaders' uPushConstant really holds (e10_*.glsl): 128 bytes, the most every Vulkan device must accept
+        // (maxPushConstantsSize - WSLg's Dozen driver allows exactly 128; the fields below used to be pushed as 192 bytes).
+        // ColorMask / Mode / NormalModes are 0/1 switches, so they travel as bits of m_Flags.
+        struct gpu
+        {
+            xmath::fmat4    m_L2C;
+            xmath::fvec4    m_TintColor;
+            xmath::fvec4    m_ScaleTranslate;           // xy: Scale, zw: Translation
+            xmath::fvec4    m_LightPosMip;              // xyz: local space light position, w: mip level
+            float           m_UVScale[2];
+            float           m_ToGamma;
+            std::uint32_t   m_Flags;                    // bits 0-3 ColorMask.xyzw, 4-7 Mode.xyzw, 8-11 NormalModes.xyzw
+        };
+        static_assert(sizeof(gpu) == 128, "the E10 push-constant block must stay at 128 bytes");
+
         float           m_MipLevel       {0};
         float           m_ToGamma        {1};
         xmath::fvec2    m_Scale          {1};
@@ -100,8 +115,22 @@ namespace xresource_editor
         xmath::fvec4    m_Mode           {0};
         xmath::fvec4    m_NormalModes    {0};
         xmath::fmat4    m_L2C;
-        xmath::fvec3    m_LocalSpaceLightPosition;
-        xmath::fvec4    m_UVMode;
+        xmath::fvec3    m_LocalSpaceLightPosition {0};
+
+        gpu Pack( void ) const noexcept
+        {
+            constexpr auto Bits = []( const xmath::fvec4& V, int Shift ) constexpr noexcept -> std::uint32_t
+            { return ( (V.m_X != 0 ? 1u : 0u) | (V.m_Y != 0 ? 2u : 0u) | (V.m_Z != 0 ? 4u : 0u) | (V.m_W != 0 ? 8u : 0u) ) << Shift; };
+            return gpu
+            { .m_L2C            = m_L2C
+            , .m_TintColor      = m_TintColor
+            , .m_ScaleTranslate = xmath::fvec4(m_Scale.m_X, m_Scale.m_Y, m_Translation.m_X, m_Translation.m_Y)
+            , .m_LightPosMip    = xmath::fvec4(m_LocalSpaceLightPosition.m_X, m_LocalSpaceLightPosition.m_Y, m_LocalSpaceLightPosition.m_Z, m_MipLevel)
+            , .m_UVScale        = { m_UVScale.m_X, m_UVScale.m_Y }
+            , .m_ToGamma        = m_ToGamma
+            , .m_Flags          = Bits(m_ColorMask, 0) | Bits(m_Mode, 4) | Bits(m_NormalModes, 8)
+            };
+        }
     };
 
     //------------------------------------------------------------------------------------------------
@@ -737,7 +766,7 @@ struct material_mgr
         {
             .m_VertexDescriptor  = VertexDescriptor
         ,   .m_Shaders           = Shaders
-        ,   .m_PushConstantsSize = sizeof(xresource_editor::push_contants)
+        ,   .m_PushConstantsSize = sizeof(xresource_editor::push_contants::gpu)
         ,   .m_Samplers          = Samplers
         ,   .m_Primitive         = {.m_Cull             = xgpu::pipeline::primitive::cull::NONE }
         ,   .m_DepthStencil      = {.m_bDepthTestEnable = (bool)Material.m_3DRender }
@@ -1557,7 +1586,7 @@ int E10_Example()
                 PushContants.m_MipLevel = 0;
                 PushContants.m_NormalModes.setup(0);
 
-                CmdBuffer.setPushConstants(PushContants);
+                CmdBuffer.setPushConstants(PushContants.Pack());
                 MeshMgr.Render(CmdBuffer, mesh_mgr::model::PLANE_2D);
             }
 
@@ -1655,13 +1684,13 @@ int E10_Example()
                 {
                     if ( BitmapInspector.m_pBitmap->isCubemap() )
                     {
-                        CmdBuffer.setPushConstants(PushContants);
+                        CmdBuffer.setPushConstants(PushContants.Pack());
                         MeshMgr.Render(CmdBuffer, mesh_mgr::model::EXPLODED_CUBE_2D);
 
                     }
                     else
                     {
-                        CmdBuffer.setPushConstants(PushContants);
+                        CmdBuffer.setPushConstants(PushContants.Pack());
                         MeshMgr.Render(CmdBuffer, mesh_mgr::model::PLANE_2D);
                     }
                 }
@@ -1691,7 +1720,7 @@ int E10_Example()
                     if (DrawOptions.m_RenderMode == draw_options::render_mode::RENDER_3D_WITH_LIGHTING)
                         PushContants.m_NormalModes.m_Z = 1;
 
-                    CmdBuffer.setPushConstants(PushContants);
+                    CmdBuffer.setPushConstants(PushContants.Pack());
 
                     if (BitmapInspector.m_pBitmap->isCubemap())
                     {

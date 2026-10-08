@@ -4,19 +4,18 @@ layout(location = 1) in vec3 aUV;
 
 layout(push_constant) uniform uPushConstant 
 { 
-   float MipLevel;
-   float ToGamma;
-   vec2  uScale; 
-   vec2  uTranslate; 
-   vec2  uvScale; 
-   vec4  TintColor;
-   vec4  ColorMask; 
-   vec4  Mode;
-   vec4  NormalModes;
+   // 128 bytes: the most every Vulkan device must accept (maxPushConstantsSize; WSLg's Dozen driver allows exactly 128).
+   // Must match push_contants::gpu on the C++ side (xtexture_editor_preview.h, xtexture_thumbnail.h, E10_TextureResourcePipeline.cpp).
    mat4  L2C;
-   vec3  LocalSpaceLightPos;
-   vec4  UVMode;
+   vec4  TintColor;
+   vec4  ScaleTranslate;     // xy: uScale, zw: uTranslate
+   vec4  LightPosMip;        // xyz: LocalSpaceLightPos, w: MipLevel
+   vec2  uvScale;
+   float ToGamma;
+   uint  Flags;              // 0/1 switches, 4 bits each: ColorMask.xyzw (bits 0-3), Mode.xyzw (4-7), NormalModes.xyzw (8-11)
 } pc;
+
+vec4 UnpackFlags4( uint Shift ) { return vec4( (uvec4(pc.Flags >> Shift) >> uvec4(0u, 1u, 2u, 3u)) & uvec4(1u) ); }
 
 out gl_PerVertex { vec4 gl_Position; };
 layout(location = 0) out struct 
@@ -27,5 +26,5 @@ layout(location = 0) out struct
 void main()
 {
     Out.UV      = aUV; 
-    gl_Position = vec4(aPos * pc.uScale + pc.uTranslate, 0, 1);
+    gl_Position = vec4(aPos * pc.ScaleTranslate.xy + pc.ScaleTranslate.zw, 0, 1);
 }

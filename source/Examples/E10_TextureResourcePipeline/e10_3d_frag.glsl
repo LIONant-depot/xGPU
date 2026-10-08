@@ -19,30 +19,29 @@ layout (location = 0)   out         vec4        outFragColor;
 
 layout(push_constant) uniform uPushConstant 
 { 
-   float MipLevel;
-   float ToGamma;
-   vec2  uScale; 
-   vec2  uTranslate; 
-   vec2  uvScale; 
-   vec4  TintColor;
-   vec4  ColorMask; 
-   vec4  Mode;
-   vec4  NormalModes;
+   // 128 bytes: the most every Vulkan device must accept (maxPushConstantsSize; WSLg's Dozen driver allows exactly 128).
+   // Must match push_contants::gpu on the C++ side (xtexture_editor_preview.h, xtexture_thumbnail.h, E10_TextureResourcePipeline.cpp).
    mat4  L2C;
-   vec3  LocalSpaceLightPos;
-   vec4  UVMode;
+   vec4  TintColor;
+   vec4  ScaleTranslate;     // xy: uScale, zw: uTranslate
+   vec4  LightPosMip;        // xyz: LocalSpaceLightPos, w: MipLevel
+   vec2  uvScale;
+   float ToGamma;
+   uint  Flags;              // 0/1 switches, 4 bits each: ColorMask.xyzw (bits 0-3), Mode.xyzw (4-7), NormalModes.xyzw (8-11)
 } pc;
+
+vec4 UnpackFlags4( uint Shift ) { return vec4( (uvec4(pc.Flags >> Shift) >> uvec4(0u, 1u, 2u, 3u)) & uvec4(1u) ); }
 
 void main() 
 {
-    vec4 Color     = clamp( texture( uSamplerColor, In.UV.xy ), 0, 1)                 *    pc.Mode.w + 
-                     clamp( textureLod( uSamplerColor, In.UV.xy, pc.MipLevel ), 0, 1) * (1-pc.Mode.w);
+    vec4 Color     = clamp( texture( uSamplerColor, In.UV.xy ), 0, 1)                 *    UnpackFlags4(4u).w + 
+                     clamp( textureLod( uSamplerColor, In.UV.xy, pc.LightPosMip.w ), 0, 1) * (1-UnpackFlags4(4u).w);
 
     // Decode the normal
-    float DisplayNormal = dot(pc.NormalModes.xy, pc.NormalModes.xy);
+    float DisplayNormal = dot(UnpackFlags4(8u).xy, UnpackFlags4(8u).xy);
     vec3 NormalFromBC3 = vec3( Color.ag, 0);
     vec3 NormalFromBC5 = vec3( Color.gr, 0);
-    vec3 Normal        = NormalFromBC3.rgb * pc.NormalModes.x + NormalFromBC5.rgb * pc.NormalModes.y;
+    vec3 Normal        = NormalFromBC3.rgb * UnpackFlags4(8u).x + NormalFromBC5.rgb * UnpackFlags4(8u).y;
     Normal.xy = Normal.rg * 2.0 - 1.0;
     Normal.z  = sqrt(max( 0, 1 - dot(Normal.xy, Normal.xy)));
 
@@ -55,23 +54,23 @@ void main()
     Normal = Normal * 0.5 + 0.5;
 
     // Make sure that display normal is activated in the case where we want lighting but we did not have a compressed normal
-    DisplayNormal = max( DisplayNormal, pc.NormalModes.z);
+    DisplayNormal = max( DisplayNormal, UnpackFlags4(8u).z);
 
     // Choose between lighting mode or normal mode
-    Normal = vec3(LightingDiffuse) * pc.NormalModes.z + Normal * ( 1 - pc.NormalModes.z);
+    Normal = vec3(LightingDiffuse) * UnpackFlags4(8u).z + Normal * ( 1 - UnpackFlags4(8u).z);
 
     Color = (Color * (1 - DisplayNormal)) + vec4( (Normal.rgb * DisplayNormal), DisplayNormal);
 
     // Apply tint color
     Color = Color * pc.TintColor;
 
-    vec4 NewColor = vec4( dot( Color, pc.ColorMask ).rrr, 1);
+    vec4 NewColor = vec4( dot( Color, UnpackFlags4(0u) ).rrr, 1);
     vec4 NoAlpha  = vec4( Color.rgb, 1);
 
     // Output color
-    outFragColor = Color    * pc.Mode.x 
-                 + NewColor * pc.Mode.y 
-                 + NoAlpha  * pc.Mode.z;
+    outFragColor = Color    * UnpackFlags4(4u).x 
+                 + NewColor * UnpackFlags4(4u).y 
+                 + NoAlpha  * UnpackFlags4(4u).z;
 
     // We must convert to gamma every time...
     outFragColor.rgb = pow( outFragColor.rgb, vec3(1/pc.ToGamma) );
