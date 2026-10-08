@@ -2,7 +2,15 @@
 #define XGPU_TOOLS_BASIS_UNIVERSAL_TEXTURE_LOADER_H
 #pragma once
 #define BASISU_NO_ITERATOR_DEBUG_LEVEL
+// Third-party header (basis_universal): its own enum arithmetic warns under clang (-Wdeprecated-anon-enum-enum-conversion); silenced for this include only.
+#if defined(__clang__)
+    #pragma clang diagnostic push
+    #pragma clang diagnostic ignored "-Wdeprecated-anon-enum-enum-conversion"
+#endif
 #include "dependencies/basis_universal/transcoder/basisu_transcoder.h"
+#if defined(__clang__)
+    #pragma clang diagnostic pop
+#endif
 
 namespace xgpu::tools::basis_universal
 {
