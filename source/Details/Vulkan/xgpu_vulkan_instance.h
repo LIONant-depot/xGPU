@@ -3,7 +3,9 @@ namespace xgpu::vulkan
     struct instance final : xgpu::system::instance
     {
         VkInstance                          m_VKInstance            { VK_NULL_HANDLE };
+    #if defined(_WIN32)
         HINSTANCE                           m_hInstance             { 0 };
+    #endif
         bool                                m_bValidation           { false };
         std::shared_ptr<instance>           m_Self;
         std::string                         m_AppName;

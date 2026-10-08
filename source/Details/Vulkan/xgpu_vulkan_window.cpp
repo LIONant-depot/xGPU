@@ -666,6 +666,7 @@ namespace xgpu::vulkan
         //
         // Create the surface
         //
+    #if defined(_WIN32)
         if constexpr( std::is_same_v<xgpu::system::window, xgpu::windows::window> )
         {
             // Get the Surface creation extension since we are about to use it
@@ -691,6 +692,7 @@ namespace xgpu::vulkan
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "Vulkan Fail to create window surface");
             }
         }
+    #endif
 
         //
         // Check to see if the selected queue supports presentation to a given surface

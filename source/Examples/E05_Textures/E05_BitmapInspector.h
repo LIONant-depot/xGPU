@@ -117,7 +117,7 @@ namespace e05
             // Determine the size of the file
             //
             {
-                std::ifstream file(std::wstring(FileName), std::ios::binary | std::ios::ate);
+                std::ifstream file(std::filesystem::path(std::wstring(FileName)), std::ios::binary | std::ios::ate);
                 m_FileSize = file.tellg();
             }
 
