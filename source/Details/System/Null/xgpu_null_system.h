@@ -52,6 +52,7 @@ namespace xgpu::nullsys
 
     struct instance : xgpu::details::instance_handle
     {
+        static std::span<const char* const> getSurfaceExtensions( void ) noexcept { return {}; }   // no windows, no surfaces
         bool ProcessInputEvents( void ) noexcept { return true; }   // no OS message pump
         local_storage               m_LocalStorage  {};
         std::shared_ptr<keyboard>   m_Keyboard      = std::make_shared<keyboard>();

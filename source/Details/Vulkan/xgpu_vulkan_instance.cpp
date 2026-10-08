@@ -241,10 +241,12 @@ namespace xgpu::vulkan
         };
 
         {
-            // Enable surface extensions depending on os
-            #if defined(_WIN32)
-                Extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
-            #elif defined(VK_USE_PLATFORM_ANDROID_KHR)
+            // The OS backend names the surface extensions its windows need
+            for( const char* pName : xgpu::system::instance::getSurfaceExtensions() )
+                Extensions.push_back(pName);
+
+            // Legacy platform macros no backend implements yet
+            #if defined(VK_USE_PLATFORM_ANDROID_KHR)
                 Extensions.push_back(VK_KHR_ANDROID_SURFACE_EXTENSION_NAME);
             #elif defined(_DIRECT2DISPLAY)
                 Extensions.push_back(VK_KHR_DISPLAY_EXTENSION_NAME);

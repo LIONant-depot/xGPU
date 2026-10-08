@@ -306,11 +306,18 @@ namespace xgpu::vulkan
                 {
                     m_ImageCount = SurfaceCapabilities.minImageCount;
                 }
-                else if ( m_ImageCount > SurfaceCapabilities.maxImageCount )
+                else if ( SurfaceCapabilities.maxImageCount != 0 && m_ImageCount > SurfaceCapabilities.maxImageCount )     // maxImageCount 0 means no limit
                 {
                     m_ImageCount = SurfaceCapabilities.maxImageCount;
                     m_Device->m_Instance->ReportWarning( "Reducing the down how many buffers we can utilize to render as device surface does not support as many as requested");
                 }
+
+                // The count above was settled after SwapChainInfo was filled in: the swapchain must ask for the settled one
+                SwapChainInfo.minImageCount = m_ImageCount;
+
+                // Screenshot() copies the back buffer out: the swapchain images need the transfer-source usage for that to be legal
+                if( SurfaceCapabilities.supportedUsageFlags & VK_IMAGE_USAGE_TRANSFER_SRC_BIT )
+                    SwapChainInfo.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
                 if( SurfaceCapabilities.currentExtent.width != 0xffffffff )
                 {
@@ -689,6 +696,15 @@ namespace xgpu::vulkan
             if( auto VKErr = VKCreateWin32Surface(Instance->m_VKInstance, &SurfaceCreateInfo, nullptr, &m_VKSurface ); VKErr )
             {
                 Instance->ReportError(VKErr, "Vulkan Fail to create window surface");
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Vulkan Fail to create window surface");
+            }
+        }
+    #elif defined(XGPU_SYSTEM_XLIB)
+        if constexpr( std::is_same_v<xgpu::system::window, xgpu::xlib::window> )
+        {
+            if( auto VKErr = xgpu::system::window::CreateVulkanSurface(Instance->m_VKInstance, m_VKSurface); VKErr )
+            {
+                Instance->ReportError(VKErr, "Vulkan Fail to create window surface (VK_KHR_xlib_surface)");
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "Vulkan Fail to create window surface");
             }
         }

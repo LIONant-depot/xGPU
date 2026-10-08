@@ -12,6 +12,7 @@
 #include<vector>
 #include<variant>
 #include<cassert>
+#include<cstring>
 #include<mutex>
 #include<optional>
 
