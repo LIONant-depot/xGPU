@@ -2,7 +2,9 @@
 #define VGPU_WINDOWS_H
 #pragma once
 
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <windows.h>
 
 #include "xgpu_windows_localstorage.h"

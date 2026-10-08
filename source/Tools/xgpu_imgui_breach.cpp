@@ -977,8 +977,8 @@ struct breach_instance : window_info
     breach_instance( xgpu::instance& Intance, xgpu::window MainWindow ) noexcept
     : window_info{MainWindow }
     {
-        Intance.Create( m_Mouse,    {} );
-        Intance.Create( m_Keyboard, {} );
+        (void)Intance.Create( m_Mouse,    {} );
+        (void)Intance.Create( m_Keyboard, {} );
     }
 
     //------------------------------------------------------------------------------------------------------------
@@ -1464,7 +1464,7 @@ void RenderChildWindow(ImGuiViewport* pViewport, void*) noexcept
 {
     GETINSTANCE;
     auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
-    Info.m_Window.BeginRendering();
+    (void)Info.m_Window.BeginRendering();
     Info.Render( io, pViewport->DrawData );
 }
 
