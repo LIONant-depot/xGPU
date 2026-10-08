@@ -1,8 +1,8 @@
 #pragma once
 
 #include "source/xGPU.h"
-#include "plugins/xmaterial.plugin/source/graph/xmaterial_graph.h"
-#include "source/tools/xgpu_imgui_breach.h"
+#include "plugins/xmaterial.plugin/source/Graph/xmaterial_graph.h"
+#include "source/Tools/xgpu_imgui_breach.h"
 #include "dependencies/xresource_mgr/source/xresource_mgr.h"
 #include "dependencies/imgui-node-editor/imgui_node_editor.h"
 #include "dependencies/imgui/imgui_internal.h"

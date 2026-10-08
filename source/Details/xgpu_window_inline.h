@@ -94,8 +94,8 @@ namespace xgpu
 
     //--------------------------------------------------------------------------
 
-    XGPU_INLINE
-    [[nodiscard]] bool
+    [[nodiscard]] XGPU_INLINE
+    bool
     window::Screenshot(std::vector<std::uint32_t>& Dest, int& Width, int& Height) noexcept
     {
         return m_Private->Screenshot(Dest, Width, Height);
@@ -103,8 +103,8 @@ namespace xgpu
 
     //--------------------------------------------------------------------------
 
-    XGPU_INLINE
-    [[nodiscard]] bool
+    [[nodiscard]] XGPU_INLINE
+    bool
     window::ReadbackTexture(const texture& Texture, std::vector<std::uint32_t>& Dest, int& Width, int& Height, bool& bDone) noexcept
     {
         return m_Private->ReadbackTexture(Texture, Dest, Width, Height, bDone);
@@ -132,8 +132,8 @@ namespace xgpu
 
     //--------------------------------------------------------------------------
 
-    XGPU_INLINE
-    [[nodiscard]] bool
+    [[nodiscard]] XGPU_INLINE
+    bool
     window::BeginRendering(void) const noexcept
     {
         if( m_Private->BegingRendering() ) return true;
@@ -150,8 +150,8 @@ namespace xgpu
 
     //--------------------------------------------------------------------------
 
-    XGPU_INLINE
-    [[nodiscard]] std::size_t
+    [[nodiscard]] XGPU_INLINE
+    std::size_t
     window::getSystemWindowHandle( void ) const noexcept
     {
         return m_Private->getSystemWindowHandle();
@@ -159,7 +159,7 @@ namespace xgpu
 
     //--------------------------------------------------------------------------
 
-    XGPU_INLINE [[nodiscard]] bool
+    [[nodiscard]] XGPU_INLINE bool
     window::isFocused(void) const noexcept
     {
         return m_Private->isFocused();
@@ -167,7 +167,7 @@ namespace xgpu
 
     //--------------------------------------------------------------------------
 
-    XGPU_INLINE [[nodiscard]] bool
+    [[nodiscard]] XGPU_INLINE bool
     window::isCapturing(void) const noexcept
     {
         return m_Private->isCapturing();
@@ -175,7 +175,7 @@ namespace xgpu
 
     //--------------------------------------------------------------------------
 
-    XGPU_INLINE [[nodiscard]] bool
+    [[nodiscard]] XGPU_INLINE bool
     window::isHovered(void) const noexcept
     {
         return m_Private->isHovered();
@@ -191,8 +191,8 @@ namespace xgpu
 
     //--------------------------------------------------------------------------
 
-    XGPU_INLINE
-    [[nodiscard]] bool
+    [[nodiscard]] XGPU_INLINE
+    bool
     window::isMinimized(void) const noexcept
     {
         return m_Private->isMinimized();
@@ -200,7 +200,7 @@ namespace xgpu
 
     //--------------------------------------------------------------------------
 
-    XGPU_INLINE [[nodiscard]]
+    [[nodiscard]] XGPU_INLINE 
     std::pair<int, int> window::getPosition(void) const noexcept
     {
         return m_Private->getPosition();
@@ -232,7 +232,7 @@ namespace xgpu
 
     //--------------------------------------------------------------------------
 
-    XGPU_INLINE [[nodiscard]]
+    [[nodiscard]] XGPU_INLINE 
     void window::getDevice( xgpu::device& Device ) const noexcept
     {
         Device = m_Private->getDevice();

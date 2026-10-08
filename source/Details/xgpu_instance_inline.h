@@ -18,28 +18,28 @@ namespace xgpu
 
     //--------------------------------------------------------------------------------------
 
-    XGPU_INLINE [[nodiscard]]
+    [[nodiscard]] XGPU_INLINE 
     xgpu::device::error* instance::Create( xgpu::device& Device, const xgpu::device::setup& Setup ) noexcept
     {
         return m_Private->CreateDevice( Device, Setup );
     }
 
     //--------------------------------------------------------------------------------------
-    XGPU_INLINE [[nodiscard]]
+    [[nodiscard]] XGPU_INLINE 
     xgpu::keyboard::error* instance::Create(xgpu::keyboard& Keyboard, const xgpu::keyboard::setup& Setup ) noexcept
     {
         return m_Private->CreateKeyboard( Keyboard, Setup );
     }
 
     //--------------------------------------------------------------------------------------
-    XGPU_INLINE [[nodiscard]]
+    [[nodiscard]] XGPU_INLINE 
     xgpu::mouse::error* instance::Create(xgpu::mouse& Mouse, const xgpu::mouse::setup& Setup ) noexcept
     {
         return m_Private->CreateMouse( Mouse, Setup );
     }
 
     //--------------------------------------------------------------------------------------
-    XGPU_INLINE [[nodiscard]]
+    [[nodiscard]] XGPU_INLINE 
     bool instance::ProcessInputEvents( void ) noexcept
     {
         return m_Private->ProcessInputEvents();

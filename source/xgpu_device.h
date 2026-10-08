@@ -31,35 +31,35 @@ namespace xgpu
 
         XGPU_INLINE               void           getInstance    ( xgpu::instance& Instance 
                                                                 ) const noexcept;
-        XGPU_INLINE [[nodiscard]] device::error* Create         ( window&                           Window
+        [[nodiscard]] XGPU_INLINE device::error* Create         ( window&                           Window
                                                                 , const window::setup&              Setup 
                                                                 ) noexcept;
 
-        XGPU_INLINE [[nodiscard]] device::error* Create         ( renderpass&                       Renderpass
+        [[nodiscard]] XGPU_INLINE device::error* Create         ( renderpass&                       Renderpass
                                                                 , const renderpass::setup&          Setup 
                                                                 ) noexcept;
 
-        XGPU_INLINE [[nodiscard]] device::error* Create         ( pipeline&                         Pipeline
+        [[nodiscard]] XGPU_INLINE device::error* Create         ( pipeline&                         Pipeline
                                                                 , const pipeline::setup&            Setup 
                                                                 ) noexcept;
 
-        XGPU_INLINE [[nodiscard]] device::error* Create         ( pipeline_instance&                PipelineInstance
+        [[nodiscard]] XGPU_INLINE device::error* Create         ( pipeline_instance&                PipelineInstance
                                                                 , const pipeline_instance::setup&   Setup 
                                                                 ) noexcept;
 
-        XGPU_INLINE [[nodiscard]] device::error* Create         ( shader&                           Shader
+        [[nodiscard]] XGPU_INLINE device::error* Create         ( shader&                           Shader
                                                                 , const shader::setup&              Setup 
                                                                 ) noexcept;
 
-        XGPU_INLINE [[nodiscard]] device::error* Create         ( vertex_descriptor&                VDescriptor
+        [[nodiscard]] XGPU_INLINE device::error* Create         ( vertex_descriptor&                VDescriptor
                                                                 , const vertex_descriptor::setup&   Setup 
                                                                 ) noexcept;
 
-        XGPU_INLINE [[nodiscard]] device::error* Create         ( texture&                          Texture
+        [[nodiscard]] XGPU_INLINE device::error* Create         ( texture&                          Texture
                                                                 , const texture::setup&             Setup 
                                                                 ) noexcept;
 
-        XGPU_INLINE [[nodiscard]] device::error* Create         ( buffer&                           Buffer
+        [[nodiscard]] XGPU_INLINE device::error* Create         ( buffer&                           Buffer
                                                                 , const buffer::setup&              Setup
                                                                 ) noexcept;
 
@@ -67,7 +67,7 @@ namespace xgpu
         // no mips/array layers/cubemaps), leaving the rest of the texture untouched. Texture must already be
         // created (with the same format as Source implies) and not currently in use by an in-flight command
         // buffer. General-purpose - any atlas or streaming/dynamic texture content, not tied to one feature.
-        XGPU_INLINE [[nodiscard]] device::error* UpdateTexture  ( texture&                          Texture
+        [[nodiscard]] XGPU_INLINE device::error* UpdateTexture  ( texture&                          Texture
                                                                 , int                                OffsetX
                                                                 , int                                OffsetY
                                                                 , int                                Width
@@ -81,7 +81,7 @@ namespace xgpu
         // is not true of every texture format). Only meaningful for an uncompressed 8-bit-per-channel format.
         // Synchronous: Texture's GPU work must already be complete (e.g. a fence already waited on) before
         // calling this, there is no internal wait.
-        XGPU_INLINE [[nodiscard]] device::error* ReadTexture    ( const texture&                    Texture
+        [[nodiscard]] XGPU_INLINE device::error* ReadTexture    ( const texture&                    Texture
                                                                 , std::vector<std::uint32_t>&       Dest
                                                                 , int&                               Width
                                                                 , int&                               Height

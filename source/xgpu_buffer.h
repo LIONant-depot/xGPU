@@ -33,8 +33,8 @@ namespace xgpu
         [[nodiscard]]
         error*              MemoryMap               ( int StartIndex, int Count, T_CALLBACK&& Callback ) noexcept;
 
-        XGPU_INLINE
-        [[nodiscard]] 
+        [[nodiscard]] XGPU_INLINE
+        
         int                 getEntryCount           ( void ) const noexcept;
 
         template< typename T >
@@ -42,8 +42,8 @@ namespace xgpu
         T&                  allocEntry              ( void ) noexcept;
 
 
-        XGPU_INLINE
-        [[nodiscard]] 
+        [[nodiscard]] XGPU_INLINE
+        
         error*              Resize                  ( int NewEntryCount ) noexcept;
 
         template< typename T >

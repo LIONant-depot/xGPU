@@ -6,9 +6,9 @@
 // preview with. The editor gives it the material's fragment shader and texture bindings (SetMaterial); the panel calls Render every frame.
 #include "source/Examples/E19_MaterialEditor/E19_mesh_manager.h"
 #include "source/Tools/Editor/xeditor_camera.h"
-#include "source/tools/xgpu_imgui_breach.h"
-#include "source/tools/xgpu_view.h"
-#include "source/tools/xgpu_xcore_bitmap_helpers.h"
+#include "source/Tools/xgpu_imgui_breach.h"
+#include "source/Tools/xgpu_view.h"
+#include "source/Tools/xgpu_xcore_bitmap_helpers.h"
 #include "dependencies/imgui/imgui.h"
 
 #include <array>

@@ -1,5 +1,5 @@
 #include "source/xGPU.h"
-#include "source/tools/xgpu_view.h"
+#include "source/Tools/xgpu_view.h"
 
 //------------------------------------------------------------------------------------------------
 namespace e02

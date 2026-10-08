@@ -4,8 +4,8 @@
 #include "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
 #include "dependencies/xstrtool/source/xstrtool.h"
 
-#include "source/tools/xgpu_xcore_bitmap_helpers.h"
-#include "source/tools/xgpu_view.h"
+#include "source/Tools/xgpu_xcore_bitmap_helpers.h"
+#include "source/Tools/xgpu_view.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -51,10 +51,10 @@
 // The loader itself is compiled once, with the plugin's editor (xgeom_skin_editor.h, included by E29).
 #include "plugins/xgeom_skin.plugin/source/xgeom_skin_xgpu_runtime.h"
 
-#include "source/tools/xgpu_imgui_timeline.h"
-#include "source/tools/editors/xgpu_editor_viewport.h"
-#include "source/tools/editors/xgpu_editor_anim_pose.h"
-#include "source/tools/editors/xgpu_editor_resource_picker.h"
+#include "source/Tools/xgpu_imgui_timeline.h"
+#include "source/Tools/editors/xgpu_editor_viewport.h"
+#include "source/Tools/editors/xgpu_editor_anim_pose.h"
+#include "source/Tools/editors/xgpu_editor_resource_picker.h"
 
 //-----------------------------------------------------------------------------------
 //

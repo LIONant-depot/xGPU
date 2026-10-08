@@ -78,8 +78,8 @@ namespace xgpu
 
     //------------------------------------------------------------------------------------------------
 
-    XGPU_INLINE
-    [[nodiscard]] device::error* 
+    [[nodiscard]] XGPU_INLINE
+    device::error* 
     device::Create
     ( window&               Window
     , const window::setup&  Setup 
@@ -90,8 +90,8 @@ namespace xgpu
 
     //------------------------------------------------------------------------------------------------
 
-    XGPU_INLINE 
-    [[nodiscard]] device::error* 
+    [[nodiscard]] XGPU_INLINE 
+    device::error* 
     device::Create
     ( renderpass&               Renderpass
     , const renderpass::setup&  Setup
@@ -102,8 +102,8 @@ namespace xgpu
 
     //------------------------------------------------------------------------------------------------
 
-    XGPU_INLINE
-    [[nodiscard]] device::error* 
+    [[nodiscard]] XGPU_INLINE
+    device::error* 
     device::Create
     ( pipeline&                   Pipeline
     , const pipeline::setup&      Setup
@@ -114,8 +114,8 @@ namespace xgpu
 
     //------------------------------------------------------------------------------------------------
 
-    XGPU_INLINE 
-    [[nodiscard]] device::error*
+    [[nodiscard]] XGPU_INLINE 
+    device::error*
     device::Create
     ( shader&               Shader
     , const shader::setup&  Setup
@@ -126,8 +126,8 @@ namespace xgpu
 
     //------------------------------------------------------------------------------------------------
 
-    XGPU_INLINE 
-    [[nodiscard]] device::error* 
+    [[nodiscard]] XGPU_INLINE 
+    device::error* 
     device::Create
     ( vertex_descriptor&                VDescriptor
     , const vertex_descriptor::setup&   Setup 
@@ -138,8 +138,8 @@ namespace xgpu
 
     //------------------------------------------------------------------------------------------------
 
-    XGPU_INLINE 
-    [[nodiscard]] device::error* 
+    [[nodiscard]] XGPU_INLINE 
+    device::error* 
     device::Create
     ( texture&                          Texture
     , const texture::setup&             Setup
@@ -150,8 +150,8 @@ namespace xgpu
 
     //------------------------------------------------------------------------------------------------
 
-    XGPU_INLINE 
-    [[nodiscard]] device::error* 
+    [[nodiscard]] XGPU_INLINE 
+    device::error* 
     device::Create
     ( pipeline_instance&                PipelineInstance
     , const pipeline_instance::setup&   Setup
@@ -173,8 +173,8 @@ namespace xgpu
 
     //------------------------------------------------------------------------------------------------
 
-    XGPU_INLINE
-    [[nodiscard]] device::error*
+    [[nodiscard]] XGPU_INLINE
+    device::error*
     device::UpdateTexture
     ( texture&                      Texture
     , int                           OffsetX
@@ -189,8 +189,8 @@ namespace xgpu
 
     //------------------------------------------------------------------------------------------------
 
-    XGPU_INLINE
-    [[nodiscard]] device::error*
+    [[nodiscard]] XGPU_INLINE
+    device::error*
     device::ReadTexture
     ( const texture&                Texture
     , std::vector<std::uint32_t>&  Dest

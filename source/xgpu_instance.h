@@ -27,10 +27,10 @@ namespace xgpu
             callback_warning*   m_pLogWarning       { nullptr };
         };
 
-        XGPU_INLINE [[nodiscard]] xgpu::device::error*          Create              ( xgpu::device&    Device,      const xgpu::device::setup&   Setup = xgpu::device::setup{}      ) noexcept;
-        XGPU_INLINE [[nodiscard]] xgpu::keyboard::error*        Create              ( xgpu::keyboard&  Keyboard,    const xgpu::keyboard::setup& Setup = xgpu::keyboard::setup{}    ) noexcept;
-        XGPU_INLINE [[nodiscard]] xgpu::mouse::error*           Create              ( xgpu::mouse&     Mouse,       const xgpu::mouse::setup&    Setup = xgpu::mouse::setup{}       ) noexcept;
-        XGPU_INLINE [[nodiscard]] bool                          ProcessInputEvents  ( void ) noexcept;
+        [[nodiscard]] XGPU_INLINE xgpu::device::error*          Create              ( xgpu::device&    Device,      const xgpu::device::setup&   Setup = xgpu::device::setup{}      ) noexcept;
+        [[nodiscard]] XGPU_INLINE xgpu::keyboard::error*        Create              ( xgpu::keyboard&  Keyboard,    const xgpu::keyboard::setup& Setup = xgpu::keyboard::setup{}    ) noexcept;
+        [[nodiscard]] XGPU_INLINE xgpu::mouse::error*           Create              ( xgpu::mouse&     Mouse,       const xgpu::mouse::setup&    Setup = xgpu::mouse::setup{}       ) noexcept;
+        [[nodiscard]] XGPU_INLINE bool                          ProcessInputEvents  ( void ) noexcept;
 
         std::shared_ptr<details::instance_handle>   m_Private           {};
     };

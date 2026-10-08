@@ -3,7 +3,7 @@
 #pragma once
 
 #include <vector>
-#include "source/tools/Import3D/import3d.h"
+#include "source/Tools/Import3D/import3d.h"
 #include "source/Examples/E06_AssimLoader/E06_LoadTextureHelper.h"
 
 namespace e16

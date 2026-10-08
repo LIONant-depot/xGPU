@@ -178,9 +178,9 @@ namespace xgpu
         ,   ENUM_COUNT
         };
 
-        XGPU_INLINE [[nodiscard]] bool        isPressed           ( digital ButtonID ) const noexcept;
-        XGPU_INLINE [[nodiscard]] bool        wasPressed          ( digital ButtonID ) const noexcept;
-        XGPU_INLINE [[nodiscard]] int         getLatestChar       ( void )             const noexcept;
+        [[nodiscard]] XGPU_INLINE bool        isPressed           ( digital ButtonID ) const noexcept;
+        [[nodiscard]] XGPU_INLINE bool        wasPressed          ( digital ButtonID ) const noexcept;
+        [[nodiscard]] XGPU_INLINE int         getLatestChar       ( void )             const noexcept;
 
         std::shared_ptr<details::keyboard_handle> m_Private{};
     };

@@ -6,7 +6,7 @@
 // tooltip). The editor owns one and wires it to its inspector; it keeps a reference to the textures it shows (the least recently used are let go)
 // so a picture is not loaded again every frame.
 #include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_inspector_pickers.h"
-#include "Plugins/xtexture.plugin/source/xtexture_xgpu_rsc_loader.h"
+#include "plugins/xtexture.plugin/source/xtexture_xgpu_rsc_loader.h"
 
 #include <algorithm>
 #include <functional>

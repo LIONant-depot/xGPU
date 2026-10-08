@@ -1,7 +1,7 @@
 #define IMGUI_DEFINE_MATH_OPERATORS // Allows ImVec2 arithmetic
 
 #include "E05_BitmapInspector.h"
-#include "source/tools/xgpu_imgui_breach.h"
+#include "source/Tools/xgpu_imgui_breach.h"
 #include "dependencies/xmath/source/xmath.h"
 #include "dependencies/imgui/imgui_internal.h"
 #include "source/Tools/xgpu_xcore_bitmap_helpers.h"

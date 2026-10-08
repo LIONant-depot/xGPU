@@ -4,8 +4,8 @@
 // one line instead of each guessing its own minimal subset. #pragma once makes repeated inclusion
 // (every one of the 13 headers includes this first) free after the first hit.
 #include "source/xGPU.h"
-#include "source/tools/xgpu_imgui_breach.h"
-#include "source/tools/xgpu_view.h"
+#include "source/Tools/xgpu_imgui_breach.h"
+#include "source/Tools/xgpu_view.h"
 
 #include <atomic>              // std::atomic<int> compile counter, see CompilePluginWorker
 #include <mutex>               // guards the shared plugin PCH rebuild, see EnsurePluginPchFresh; also command_console_pipe_bridge

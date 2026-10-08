@@ -5,8 +5,8 @@
 #include "source/Examples/E05_Textures/E05_BitmapInspector.h"
 #include "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h" 
 #include <fstream>
-#include "source/tools/xgpu_xcore_bitmap_helpers.h"
-#include "source/tools/xgpu_view.h"
+#include "source/Tools/xgpu_xcore_bitmap_helpers.h"
+#include "source/Tools/xgpu_view.h"
 #include <regex>
 #include <algorithm>
 #include <unordered_set>
@@ -19,12 +19,12 @@
 #include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_mgr.h"
 #include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_asset_browser.h"
 
-#include "Plugins/xmaterial.plugin/source/xmaterial_xgpu_rsc_loader.h"
-#include "Plugins/xmaterial.plugin/source/xmaterial_runtime.h"
+#include "plugins/xmaterial.plugin/source/xmaterial_xgpu_rsc_loader.h"
+#include "plugins/xmaterial.plugin/source/xmaterial_runtime.h"
 
-#include "Plugins/xmaterial_instance.plugin/source/xmaterial_intance_descriptor.h"
-#include "Plugins/xmaterial_instance.plugin/source/xmaterial_instance_xgpu_rsc_loader.h"
-#include "Plugins/xmaterial_instance.plugin/source/xmaterial_instance_runtime.h"
+#include "plugins/xmaterial_instance.plugin/source/xmaterial_intance_descriptor.h"
+#include "plugins/xmaterial_instance.plugin/source/xmaterial_instance_xgpu_rsc_loader.h"
+#include "plugins/xmaterial_instance.plugin/source/xmaterial_instance_runtime.h"
 // The loader itself is compiled once, with the plugin's editor (xmaterial_instance_editor.h, included by E29).
 
 #include "../E19_MaterialEditor/E19_mesh_manager.h"

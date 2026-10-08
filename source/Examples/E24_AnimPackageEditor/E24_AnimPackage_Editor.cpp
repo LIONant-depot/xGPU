@@ -4,8 +4,8 @@
 #include "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
 #include "dependencies/xstrtool/source/xstrtool.h"
 
-#include "source/tools/xgpu_xcore_bitmap_helpers.h"
-#include "source/tools/xgpu_view.h"
+#include "source/Tools/xgpu_xcore_bitmap_helpers.h"
+#include "source/Tools/xgpu_view.h"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -41,9 +41,9 @@
 #include "plugins/xanim_package.plugin/source/xanim_package_xgpu_rsc_loader.h"
 // The loader itself is compiled once, with the plugin's editor (xanim_package_editor.h, included by E29).
 
-#include "source/tools/xgpu_imgui_timeline.h"
-#include "source/tools/editors/xgpu_editor_anim_pose.h"
-#include "source/tools/editors/xgpu_editor_viewport.h"
+#include "source/Tools/xgpu_imgui_timeline.h"
+#include "source/Tools/editors/xgpu_editor_anim_pose.h"
+#include "source/Tools/editors/xgpu_editor_viewport.h"
 
 //-----------------------------------------------------------------------------------
 //

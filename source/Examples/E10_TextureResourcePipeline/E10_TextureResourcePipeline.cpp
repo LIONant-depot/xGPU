@@ -1,11 +1,11 @@
 #include "source/Examples/E05_Textures/E05_BitmapInspector.h"
-#include "source/tools/xgpu_imgui_breach.h"
-#include "source/tools/xgpu_xcore_bitmap_helpers.h"
+#include "source/Tools/xgpu_imgui_breach.h"
+#include "source/Tools/xgpu_xcore_bitmap_helpers.h"
 #include "dependencies/xproperty/source/xcore/my_properties.h"
 #include "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
-#include "source/tools/xgpu_basis_universal_texture_loader.h"
+#include "source/Tools/xgpu_basis_universal_texture_loader.h"
 #include "dependencies/xprim_geom/source/xprim_geom.h"
-#include "source/tools/xgpu_view.h"
+#include "source/Tools/xgpu_view.h"
 #include <format>
 
 #include "dependencies/xresource_pipeline_v2/source/editor/xresource_editor_resources.h"
@@ -18,11 +18,11 @@
 
 #define XRESOURCE_PIPELINE_NO_COMPILER
 #include "dependencies/xresource_pipeline_v2/source/xresource_pipeline.h"
-#include "Plugins/xtexture.plugin/source/xtexture_xgpu_rsc_loader.h"
-#include "Plugins/xtexture.plugin/source/xtexture_rsc_descriptor.h"
+#include "plugins/xtexture.plugin/source/xtexture_xgpu_rsc_loader.h"
+#include "plugins/xtexture.plugin/source/xtexture_rsc_descriptor.h"
 #include "imgui_internal.h"
 
-#include "Plugins/xtexture.plugin/source/xtexture_xgpu_rsc_loader.cpp"
+#include "plugins/xtexture.plugin/source/xtexture_xgpu_rsc_loader.cpp"
 
 constexpr auto g_VertShader2DSPV = std::array
 {

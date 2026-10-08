@@ -1,6 +1,6 @@
 #include "source/xGPU.h"
 
-#include "source/tools/xgpu_view.h"
+#include "source/Tools/xgpu_view.h"
 #include "dependencies/xprim_geom/source/xprim_geom.h"
 #include "source/Examples/E16_Animation/E16_AnimCharacter.h"
 

@@ -139,18 +139,18 @@ namespace xgpu
 //
 // Private headers
 //
-#include "details/xgpu_keyboard_inline.h"
-#include "details/xgpu_mouse_inline.h"
-#include "details/xgpu_window_inline.h"
-#include "details/xgpu_cmd_buffer_inline.h"
-#include "details/xgpu_instance_inline.h"
-#include "details/xgpu_pipeline_inline.h"
-#include "details/xgpu_pipeline_instance_inline.h"
-#include "details/xgpu_vertex_descriptor_inline.h"
-#include "details/xgpu_buffer_inline.h"
-#include "details/xgpu_device_inline.h"
-#include "details/xgpu_shader_inline.h"
-#include "details/xgpu_texture_inline.h"
-#include "details/xgpu_renderpass_inline.h"
+#include "Details/xgpu_keyboard_inline.h"
+#include "Details/xgpu_mouse_inline.h"
+#include "Details/xgpu_window_inline.h"
+#include "Details/xgpu_cmd_buffer_inline.h"
+#include "Details/xgpu_instance_inline.h"
+#include "Details/xgpu_pipeline_inline.h"
+#include "Details/xgpu_pipeline_instance_inline.h"
+#include "Details/xgpu_vertex_descriptor_inline.h"
+#include "Details/xgpu_buffer_inline.h"
+#include "Details/xgpu_device_inline.h"
+#include "Details/xgpu_shader_inline.h"
+#include "Details/xgpu_texture_inline.h"
+#include "Details/xgpu_renderpass_inline.h"
 
 #endif

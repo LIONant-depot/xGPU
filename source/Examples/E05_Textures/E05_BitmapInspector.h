@@ -5,7 +5,7 @@
 
 #include "dependencies/xbitmap/source/xbitmap.h"
 #include "dependencies/xbmp_tools/src/xbmp_tools.h"
-#include "source/tools/xgpu_basis_universal_texture_loader.h"
+#include "source/Tools/xgpu_basis_universal_texture_loader.h"
 #include "dependencies/xproperty/source/xcore/my_properties.h"
 #include "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
 #include "dependencies/xserializer/source/xserializer.h"

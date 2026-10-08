@@ -4,8 +4,8 @@
 #include "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
 #include "dependencies/xstrtool/source/xstrtool.h"
 
-#include "source/tools/xgpu_xcore_bitmap_helpers.h"
-#include "source/tools/xgpu_view.h"
+#include "source/Tools/xgpu_xcore_bitmap_helpers.h"
+#include "source/Tools/xgpu_view.h"
 #include <algorithm>
 #include <cfloat>
 #include <unordered_map>
@@ -37,7 +37,7 @@
 // The loader itself is compiled once, with the plugin's editors (xskeleton_editor_scene.h, included by E29).
 
 #include "imgui_internal.h"
-#include "source/tools/editors/xgpu_editor_viewport.h"
+#include "source/Tools/editors/xgpu_editor_viewport.h"
 
 //-----------------------------------------------------------------------------------
 //

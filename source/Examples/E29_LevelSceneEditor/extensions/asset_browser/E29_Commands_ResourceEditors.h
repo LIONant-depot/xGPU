@@ -6,7 +6,7 @@
 // kept in xeditor::open_resource_editors. Including a plugin's editor header registers its factory. Open editors are also listed in
 // xeditor::host, so `list` and Name\Command reach them like the Level; the two commands below are the guid-addressed way in.
 
-#include "Plugins/xtexture.plugin/source/Editor/xtexture_editor.h"
+#include "plugins/xtexture.plugin/source/Editor/xtexture_editor.h"
 #include "plugins/xgeom_static.plugin/source/Editor/xgeom_static_editor.h"
 #include "plugins/xmaterial_instance.plugin/source/Editor/xmaterial_instance_editor.h"
 #include "plugins/xmaterial.plugin/source/Editor/xmaterial_editor.h"

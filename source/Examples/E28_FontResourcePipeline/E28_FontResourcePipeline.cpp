@@ -4,7 +4,7 @@
 #include "dependencies/xproperty/source/examples/imgui/xPropertyImGuiInspector.h"
 #include "dependencies/xstrtool/source/xstrtool.h"
 
-#include "source/tools/xgpu_xcore_bitmap_helpers.h"
+#include "source/Tools/xgpu_xcore_bitmap_helpers.h"
 #include <filesystem>
 #include <iostream>
 #include <atomic>

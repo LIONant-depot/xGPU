@@ -2,7 +2,7 @@
 #define XGPU_EDITOR_VIEWPORT_H
 #pragma once
 
-#include "source/tools/xgpu_view.h"
+#include "source/Tools/xgpu_view.h"
 
 // Shared viewport/camera plumbing pulled out of E23/E24, which had it duplicated line-for-line -
 // every 3D-preview editor in this codebase (E19/E20/E21/E23/E24) opens the same kind of plain,

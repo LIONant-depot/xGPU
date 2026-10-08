@@ -23,10 +23,10 @@ namespace xgpu
         XGPU_INLINE                                     window                  ( void ) = default;
         XGPU_INLINE                                    ~window                  ( void ) noexcept;
 
-        XGPU_INLINE [[nodiscard]]   bool                isValid                 ( void ) const noexcept;
-        XGPU_INLINE [[nodiscard]]   int                 getWidth                ( void ) const noexcept;
-        XGPU_INLINE [[nodiscard]]   int                 getHeight               ( void ) const noexcept;
-        XGPU_INLINE [[nodiscard]]   bool                BeginRendering          ( void ) const noexcept;
+        [[nodiscard]] XGPU_INLINE bool                isValid                 ( void ) const noexcept;
+        [[nodiscard]] XGPU_INLINE int                 getWidth                ( void ) const noexcept;
+        [[nodiscard]] XGPU_INLINE int                 getHeight               ( void ) const noexcept;
+        [[nodiscard]] XGPU_INLINE bool                BeginRendering          ( void ) const noexcept;
         XGPU_INLINE                 cmd_buffer          getCmdBuffer            ( void ) noexcept;
         XGPU_INLINE                 cmd_buffer          StartRenderPass         ( const renderpass& Renderpass ) noexcept;
         XGPU_INLINE                 void                PageFlip                ( void ) noexcept;
@@ -41,7 +41,7 @@ namespace xgpu
         // to some other system) is deliberately left to the caller - see source/Tools/
         // xgpu_screenshot.h for an xbitmap-wrapping convenience, since the engine core itself has no
         // dependency on xbitmap.
-        XGPU_INLINE [[nodiscard]]   bool                Screenshot              ( std::vector<std::uint32_t>& Dest, int& Width, int& Height ) noexcept;
+        [[nodiscard]] XGPU_INLINE bool                Screenshot              ( std::vector<std::uint32_t>& Dest, int& Width, int& Height ) noexcept;
 
         // Same idea as Screenshot(), generalized to an arbitrary texture instead of only this window's own
         // back-buffer: a texture rendered into via StartRenderPass shares THIS frame's own command buffer,
@@ -53,19 +53,19 @@ namespace xgpu
         // poll it instead of assuming any particular frame count, since a caller may not control when PageFlip
         // itself is invoked (e.g. code running mid-frame inside a UI panel, as opposed to Screenshot()'s own
         // typical caller - the main loop right before it calls PageFlip() itself).
-        XGPU_INLINE [[nodiscard]]   bool                ReadbackTexture         ( const texture& Texture, std::vector<std::uint32_t>& Dest, int& Width, int& Height, bool& bDone ) noexcept;
+        [[nodiscard]] XGPU_INLINE bool                ReadbackTexture         ( const texture& Texture, std::vector<std::uint32_t>& Dest, int& Width, int& Height, bool& bDone ) noexcept;
         XGPU_INLINE                 void                setClearColor           ( float R, float G, float B, float A ) noexcept;
-        XGPU_INLINE [[nodiscard]]   std::size_t         getSystemWindowHandle   ( void ) const noexcept;
-        XGPU_INLINE [[nodiscard]]   bool                isFocused               ( void ) const noexcept;
-        XGPU_INLINE [[nodiscard]]   bool                isCapturing             ( void ) const noexcept;
-        XGPU_INLINE [[nodiscard]]   bool                isHovered               ( void ) const noexcept;
+        [[nodiscard]] XGPU_INLINE std::size_t         getSystemWindowHandle   ( void ) const noexcept;
+        [[nodiscard]] XGPU_INLINE bool                isFocused               ( void ) const noexcept;
+        [[nodiscard]] XGPU_INLINE bool                isCapturing             ( void ) const noexcept;
+        [[nodiscard]] XGPU_INLINE bool                isHovered               ( void ) const noexcept;
         XGPU_INLINE                 void                setFocus                ( void ) const noexcept;
-        XGPU_INLINE [[nodiscard]]   bool                isMinimized             ( void ) const noexcept;
-        XGPU_INLINE [[nodiscard]]   std::pair<int,int>  getPosition             ( void ) const noexcept;
+        [[nodiscard]] XGPU_INLINE bool                isMinimized             ( void ) const noexcept;
+        [[nodiscard]] XGPU_INLINE std::pair<int,int>  getPosition             ( void ) const noexcept;
         XGPU_INLINE                 void                setPosition             ( int x, int y ) noexcept;
         XGPU_INLINE                 void                setSize                 ( int Width, int Height) noexcept;
         XGPU_INLINE                 void                setMousePosition        ( int x, int y ) noexcept;
-        XGPU_INLINE [[nodiscard]]   void                getDevice               ( xgpu::device& Device ) const noexcept;
+        [[nodiscard]] XGPU_INLINE void                getDevice               ( xgpu::device& Device ) const noexcept;
 
         std::shared_ptr<details::window_handle> m_Private{};
     };

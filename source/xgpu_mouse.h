@@ -37,9 +37,9 @@ namespace xgpu
         ,   ENUM_COUNT
         };
 
-        XGPU_INLINE [[nodiscard]] bool                  isPressed       ( digital ButtonID ) const noexcept;
-        XGPU_INLINE [[nodiscard]] bool                  wasPressed      ( digital ButtonID ) const noexcept;
-        XGPU_INLINE [[nodiscard]] std::array<float,2>   getValue        ( analog  PosID )    const noexcept;
+        [[nodiscard]] XGPU_INLINE bool                  isPressed       ( digital ButtonID ) const noexcept;
+        [[nodiscard]] XGPU_INLINE bool                  wasPressed      ( digital ButtonID ) const noexcept;
+        [[nodiscard]] XGPU_INLINE std::array<float,2>   getValue        ( analog  PosID )    const noexcept;
 
         std::shared_ptr<details::mouse_handle> m_Private{};
     };
