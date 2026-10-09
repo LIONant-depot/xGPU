@@ -75,7 +75,14 @@ namespace xgpu::vulkan
             m_VKInputAttributesDescription[i].offset   = E.m_Offset;
             m_VKInputAttributesDescription[i].format   = Format.first;
 
-            m_VKInputBindingDescription[E.m_iStream].stride += Format.second;
+            // A stream's stride is where its last attribute ends (not the sum of the attribute sizes): the same for a tightly packed
+            // vertex, and still right when two attributes read overlapping bytes - e.g. a 3 x int16 position read as SINT16_4D (the
+            // fourth component is the next attribute's bytes, ignored by an ivec3 input) because R16G16B16_SINT is not a vertex buffer
+            // format everywhere (Mesa's D3D12 Vulkan driver, WSL, has none of the 3 x 16 bit formats; the 4 x 16 bit ones are required).
+            {
+                auto& Stride = m_VKInputBindingDescription[E.m_iStream].stride;
+                Stride = std::max(Stride, static_cast<std::uint32_t>(E.m_Offset + Format.second));
+            }
             if (E.m_bPerInstance) m_VKInputBindingDescription[E.m_iStream].inputRate = VK_VERTEX_INPUT_RATE_INSTANCE;
             nBindings = std::max(nBindings, static_cast<std::uint32_t>(E.m_iStream + 1) );
         }
