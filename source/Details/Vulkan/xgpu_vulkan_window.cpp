@@ -1231,7 +1231,6 @@ namespace xgpu::vulkan
         //
         {
             auto& Frame     = m_Frames[m_FrameIndex];
-            auto& Semaphore = m_FrameSemaphores[m_SemaphoreIndex];
 
             //
             // Make sure that the previous frame has finish rendering
@@ -1254,12 +1253,25 @@ namespace xgpu::vulkan
             }
 
 
-            if( auto VKErr = vkAcquireNextImageKHR( m_Device->m_VKDevice, m_VKSwapchain, UINT64_MAX, Semaphore.m_VKImageAcquiredSemaphore, VK_NULL_HANDLE, &m_FrameIndex ); VKErr )
+            // VK_SUBOPTIMAL_KHR is a success code: the image was acquired and the semaphore will be signaled, so render it;
+            // vkQueuePresentKHR then reports SUBOPTIMAL too and rebuilds the swapchain. VK_ERROR_OUT_OF_DATE_KHR means no image
+            // was acquired: rebuild the swapchain at the surface's current size and acquire again. The Windows driver resizes
+            // the swapchain only after WM_SIZE, so it never hit this; X11 (and WSLg) report it as soon as the window changes size.
+            for( int Retry = 0; ; ++Retry )
             {
-                //if( VKErr == VK_ERROR_OUT_OF_DATE_KHR )
-                // TODO: Report Error???
+                auto& Sem   = m_FrameSemaphores[m_SemaphoreIndex];
+                auto  VKErr = vkAcquireNextImageKHR( m_Device->m_VKDevice, m_VKSwapchain, UINT64_MAX, Sem.m_VKImageAcquiredSemaphore, VK_NULL_HANDLE, &m_FrameIndex );
+                if( VKErr == VK_SUCCESS || VKErr == VK_SUBOPTIMAL_KHR ) break;
+
+                if( VKErr == VK_ERROR_OUT_OF_DATE_KHR && Retry < 4 )
+                {
+                    vkDeviceWaitIdle(m_Device->m_VKDevice);
+                    if( auto Err = CreateOrResizeWindow( getWidth(), getHeight() ); Err == nullptr ) continue;
+                }
+
                 m_Device->m_Instance->ReportError(VKErr, "vkAcquireNextImageKHR");
                 assert(false);
+                break;
             }
         }
 
