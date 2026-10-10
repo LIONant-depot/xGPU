@@ -1,3 +1,5 @@
+#include "xgpu_virtual_input.h"
+
 namespace xgpu
 {
     namespace details
@@ -15,6 +17,7 @@ namespace xgpu
     [[nodiscard]] XGPU_INLINE
     bool keyboard::isPressed( digital ButtonID ) const noexcept
     {
+        if (virtual_input::Active()) return virtual_input::State().m_KeyDown[static_cast<int>(ButtonID)];                // the virtual keyboard, not the machine's
         return m_Private->isPressedGeneric( static_cast<int>(ButtonID) );
     }
 
@@ -22,6 +25,7 @@ namespace xgpu
     [[nodiscard]] XGPU_INLINE
     bool keyboard::wasPressed( digital ButtonID ) const noexcept
     {
+        if (virtual_input::Active()) return virtual_input::State().m_KeyWasDown[static_cast<int>(ButtonID)];
         return m_Private->wasPressedGeneric( static_cast<int>(ButtonID) );
     }
 
@@ -29,6 +33,7 @@ namespace xgpu
     [[nodiscard]] XGPU_INLINE
     int keyboard::getLatestChar( void ) const noexcept
     {
+        if (virtual_input::Active()) return virtual_input::State().m_LatestChar;
         return m_Private->getLatestChar();
     }
 

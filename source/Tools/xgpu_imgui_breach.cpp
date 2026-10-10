@@ -1250,7 +1250,8 @@ struct breach_instance : window_info
                 const bool focused = true;
                 IM_ASSERT(platform_io.Viewports.Size == 1);
 #else
-                const bool bHovered = Info.m_Window.isHovered();
+                // Virtual input (xgpu_virtual_input.h): the virtual mouse is over the main window (the first viewport), whatever the machine's mouse does
+                const bool bHovered = xgpu::virtual_input::Active() ? (n == 0) : Info.m_Window.isHovered();
 #endif
                 if(bHovered)
                 {
@@ -1344,6 +1345,13 @@ struct breach_instance : window_info
                 {
                     LastChar = 0;
                 }
+            }
+
+            // Virtual input: a typed character needs no key press (the repeat logic above is for a held key), and this is where the frame's input has been read
+            if (xgpu::virtual_input::Active())
+            {
+                if (!bPresses && xgpu::virtual_input::State().m_LatestChar != 0) io.AddInputCharacter(static_cast<unsigned int>(xgpu::virtual_input::State().m_LatestChar));
+                xgpu::virtual_input::NextFrame();
             }                
         }
 
