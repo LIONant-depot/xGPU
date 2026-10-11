@@ -84,7 +84,7 @@ namespace xgpu::tools::bitmap
             Setup.m_Height              = Bitmap.getHeight();
             Setup.m_Width               = Bitmap.getWidth();
             Setup.m_MipSizes            = std::span{ Mips.data(), static_cast<std::size_t>(Bitmap.getMipCount())};
-            Setup.m_AllFacesData        = { Bitmap.getMip<const std::byte>(0).data(), Bitmap.getDataSize() };
+            Setup.m_AllFacesData        = { Bitmap.getMip<const std::byte>(0).data(), Bitmap.getFrameSize() };      // the pixels of every face (frame 0): getDataSize() also counts the mip offset table in front of getMip(0), so it read past the end
             Setup.m_FaceCount           = Bitmap.getFaceCount();
             Setup.m_isGamma             = !Bitmap.isLinearSpace();
             Setup.m_isCubemap           = Bitmap.isCubemap();
