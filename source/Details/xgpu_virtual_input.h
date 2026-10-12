@@ -10,6 +10,8 @@
 #include <array>
 #include <cstdint>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace xgpu::virtual_input
 {
@@ -25,6 +27,7 @@ namespace xgpu::virtual_input
         std::array<bool,  256>              m_KeyWasDown    {};
         int                                 m_LatestChar    = 0;      // the character of this frame (0: none)
         std::string                         m_Typing;                 // text still to be typed, one character per frame
+        std::vector<std::pair<int,bool>>    m_ButtonQueue;            // button presses/releases still to come, one per frame (a double click: down, up, down)
         std::uint64_t                       m_Frames        = 0;      // frames the consumer has read: a client that sends an input and wants to see its effect waits for this to move
     };
 
@@ -48,9 +51,12 @@ namespace xgpu::virtual_input
     }
 
     inline void SetButton(int Button, bool bDown) noexcept { auto& S = State(); if (Button >= 0 && Button < static_cast<int>(S.m_ButtonDown.size())) S.m_ButtonDown[Button] = bDown; }
-    inline void AddWheel(float Delta) noexcept             { State().m_Wheel += Delta; }
+    // Delta in notches of the wheel, stored in the units the Windows mouse reports WM_MOUSEWHEEL in (a notch is 120 of 32767, x100),
+    // so a virtual notch scrolls exactly like a real one
+    inline void AddWheel(float Delta) noexcept             { State().m_Wheel += Delta * (120.0f * 100.0f / 32767.0f); }
     inline void SetKey(int Key, bool bDown) noexcept       { auto& S = State(); if (Key > 0 && Key < static_cast<int>(S.m_KeyDown.size())) S.m_KeyDown[Key] = bDown; }
     inline void SetChar(int Character) noexcept            { State().m_LatestChar = Character; }
+    inline void QueueButton(int Button, bool bDown) noexcept { State().m_ButtonQueue.emplace_back(Button, bDown); }
     inline void Type(const std::string& Text)  noexcept    { auto& S = State(); S.m_Typing += Text; if (S.m_LatestChar == 0 && !S.m_Typing.empty()) { S.m_LatestChar = static_cast<unsigned char>(S.m_Typing.front()); S.m_Typing.erase(0, 1); } }
 
     // Called by the consumer once per frame, after it read the input.
@@ -63,6 +69,7 @@ namespace xgpu::virtual_input
         S.m_Wheel         = 0.0f;
         S.m_LatestChar    = 0;
         if (!S.m_Typing.empty()) { S.m_LatestChar = static_cast<unsigned char>(S.m_Typing.front()); S.m_Typing.erase(0, 1); }       // the next character of the text being typed
+        if (!S.m_ButtonQueue.empty()) { SetButton(S.m_ButtonQueue.front().first, S.m_ButtonQueue.front().second); S.m_ButtonQueue.erase(S.m_ButtonQueue.begin()); }    // the next queued press/release
         ++S.m_Frames;
     }
 }

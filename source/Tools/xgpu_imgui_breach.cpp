@@ -1359,7 +1359,7 @@ struct breach_instance : window_info
         {
             ImGuiPlatformIO& PlatformIO = ImGui::GetPlatformIO();
             static bool was_focused = false;
-            bool is_focused = false;
+            bool is_focused = xgpu::virtual_input::Active();     // command-driven: focused for ImGui whatever the machine's focus is (it is never taken)
             for (auto& vp : PlatformIO.Viewports)
             {
                 if (vp->RendererUserData == nullptr) continue;
