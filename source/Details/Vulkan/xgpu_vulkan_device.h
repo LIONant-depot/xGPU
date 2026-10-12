@@ -77,6 +77,15 @@ namespace xgpu::vulkan
                                                             , int&                                       Height
                                                             ) noexcept override;
 
+        virtual xgpu::device::error*    ReadTexture         ( const xgpu::texture&                      Texture
+                                                            , std::vector<std::byte>&                   Dest
+                                                            , int&                                       Width
+                                                            , int&                                       Height
+                                                            ) noexcept override;
+        virtual xgpu::device::error*    Create              ( xgpu::timestamps&                         Timestamps
+                                                            , const xgpu::timestamps::setup&            Setup
+                                                            , std::shared_ptr<device_handle>&           SharedDevice
+                                                            ) noexcept override;
         void                            PageFlipNotification( void ) noexcept;
         void                            DeathMarch          ( void ) noexcept;
         virtual void                    Shutdown            ( void ) noexcept override;
@@ -116,6 +125,7 @@ namespace xgpu::vulkan
         VkPhysicalDeviceProperties                      m_VKPhysicalDeviceProperties{};
         lock_object<VkDescriptorPool>                   m_LockedVKDescriptorPool    {};
         int                                             m_FrameIndex                = 0;
+        bool                                            m_bHostQueryReset           = false;    // VkPhysicalDeviceHostQueryResetFeatures, needed by vulkan::timestamps
         std::array<death_march,2>                       m_DeathMarchList            {};
         mati_per_renderpass_map                         m_PipeLineInstanceMap       {};
         mat_per_renderpass_map                          m_PipeLineMap               {};

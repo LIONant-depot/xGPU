@@ -12,7 +12,7 @@ namespace xgpu
         struct setup
         {
             std::span<attachment>   m_Attachments       {};
-            bool                    m_bClearOnRender    { true };
+            bool                    m_bClearOnRender    { true };     // false: load what an earlier pass rendered into the attachments (they must have been rendered before)
             float                   m_ClearColorR       { 0.45f };
             float                   m_ClearColorG       { 0.45f };
             float                   m_ClearColorB       { 0.45f };

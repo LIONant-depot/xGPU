@@ -1839,8 +1839,16 @@ namespace xgpu::vulkan
         ( CB.m_VKCommandBuffer
         , ConstantFactor
         , DepthBiasClamp
-        , DepthBiasSlope 
+        , DepthBiasSlope
         );
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+
+    void window::WriteTimestamp(xgpu::cmd_buffer& CmdBuffer, xgpu::timestamps& Timestamps, int Index) noexcept
+    {
+        auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
+        static_cast<vulkan::timestamps&>(*Timestamps.m_Private).Write(CB.m_VKCommandBuffer, Index);
     }
 
     //------------------------------------------------------------------------------------------------------------------------

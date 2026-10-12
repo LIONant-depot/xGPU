@@ -118,6 +118,11 @@ namespace xgpu::vulkan
                                                                             , float             DepthBiasSlope
                                                                             ) noexcept override;
         virtual
+        void                                    WriteTimestamp              ( xgpu::cmd_buffer& CmdBuffer
+                                                                            , xgpu::timestamps& Timestamps
+                                                                            , int               Index
+                                                                            ) noexcept override;
+        virtual
         void                                    setClearColor               ( float             R
                                                                             , float             G
                                                                             , float             B

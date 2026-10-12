@@ -1810,6 +1810,7 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
         platform_io.Platform_SetWindowFocus = [](ImGuiViewport* pViewport)
         {
             if (pViewport->RendererUserData == nullptr) return;
+            if (xgpu::virtual_input::Active()) return;      // driven by commands (tests, an assistant): never take the machine's focus
             auto& Info = *reinterpret_cast<window_info*>(pViewport->RendererUserData);
             Info.m_Window.setFocus();
         };

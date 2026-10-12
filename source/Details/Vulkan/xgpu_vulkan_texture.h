@@ -15,6 +15,8 @@ namespace xgpu::vulkan
         // xgpu_vulkan_window.cpp's CaptureBackbuffer uses for the swapchain, generalized to this texture's
         // own VkImage/SHADER_READ_ONLY_OPTIMAL resting layout instead of the backbuffer/PRESENT_SRC_KHR.
         xgpu::device::error* Readback( std::vector<std::uint32_t>& Dest, int& Width, int& Height ) noexcept;
+        // Mip 0 as stored, in m_Format (uncompressed color formats only)
+        xgpu::device::error* ReadbackRaw( std::vector<std::byte>& Dest, int& Width, int& Height ) noexcept;
 
         virtual ~texture( void ) noexcept override;
 

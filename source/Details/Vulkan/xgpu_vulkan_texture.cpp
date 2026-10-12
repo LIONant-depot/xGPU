@@ -889,15 +889,56 @@ namespace xgpu::vulkan
     // is this texture's own m_VKFormat byte order (e.g. R8G8B8A8_UNORM comes back R in the low byte, not the
     // B8G8R8A8 the swapchain's own Screenshot happens to read). Synchronous - the caller is responsible for
     // making sure this texture's GPU work (a render into it, an UpdateRegion) is already complete.
+    // Bytes per texel of the uncompressed color formats, 0 for block-compressed and depth formats
+    static int getTexelSize( xgpu::texture::format Format ) noexcept
+    {
+        using fmt = xgpu::texture::format;
+        switch( Format )
+        {
+        case fmt::R8_UNORM:                                                             return 1;
+        case fmt::R4G4B4A4_UNORM: case fmt::R5G6B5_UNORM: case fmt::B5G5R5A1_UNORM:
+        case fmt::R16_SFLOAT:                                                           return 2;
+        case fmt::R8G8B8_UNORM:                                                         return 3;
+        case fmt::B8G8R8A8_UNORM: case fmt::B8G8R8U8_UNORM: case fmt::R8G8B8U8_UNORM:
+        case fmt::R8G8B8A8_UNORM: case fmt::R16G16_SFLOAT:  case fmt::R32_SFLOAT:       return 4;
+        case fmt::R16G16B16A16_SFLOAT: case fmt::R32G32_SFLOAT:                         return 8;
+        case fmt::R32G32B32_SFLOAT:                                                     return 12;
+        case fmt::R32G32B32A32_SFLOAT:                                                  return 16;
+        default:                                                                        return 0;
+        }
+    }
+
+    //----------------------------------------------------------------------------------------------------------
+
     xgpu::device::error* texture::Readback
     ( std::vector<std::uint32_t>&  Dest
     , int&                          Width
     , int&                          Height
     ) noexcept
     {
+        if( getTexelSize(m_Format) != 4 ) return VGPU_ERROR(xgpu::device::error::FAILURE, "Readback to 32-bit pixels needs a 4-byte texel format; use the std::byte ReadTexture instead");
+
+        std::vector<std::byte> Raw;
+        if( auto Err = ReadbackRaw(Raw, Width, Height); Err ) { Dest.clear(); return Err; }
+        Dest.resize(Raw.size() / 4);
+        std::memcpy(Dest.data(), Raw.data(), Raw.size());
+        return nullptr;
+    }
+
+    //----------------------------------------------------------------------------------------------------------
+
+    xgpu::device::error* texture::ReadbackRaw
+    ( std::vector<std::byte>&      Dest
+    , int&                          Width
+    , int&                          Height
+    ) noexcept
+    {
+        const int TexelSize = getTexelSize(m_Format);
+        if( TexelSize == 0 ) return VGPU_ERROR(xgpu::device::error::FAILURE, "Readback only supports uncompressed color formats");
+
         const std::uint32_t W        = m_Width;
         const std::uint32_t H        = m_Height;
-        const VkDeviceSize  DataSize = VkDeviceSize(W) * VkDeviceSize(H) * 4;
+        const VkDeviceSize  DataSize = VkDeviceSize(W) * VkDeviceSize(H) * TexelSize;
 
         VkBuffer        ReadbackBuffer{};
         VkDeviceMemory  ReadbackMemory{};
@@ -996,7 +1037,7 @@ namespace xgpu::vulkan
         {
             Width  = static_cast<int>(W);
             Height = static_cast<int>(H);
-            Dest.resize(static_cast<std::size_t>(W) * static_cast<std::size_t>(H));
+            Dest.resize(static_cast<std::size_t>(DataSize));
             std::memcpy(Dest.data(), pMapped, static_cast<std::size_t>(DataSize));
             vkUnmapMemory(m_Device->m_VKDevice, ReadbackMemory);
         }

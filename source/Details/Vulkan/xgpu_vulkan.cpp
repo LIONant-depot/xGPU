@@ -16,4 +16,5 @@
 #include "Details/Vulkan/xgpu_vulkan_vertex_descriptor.cpp"
 #include "Details/Vulkan/xgpu_vulkan_texture.cpp"
 #include "Details/Vulkan/xgpu_vulkan_buffer.cpp"
+#include "Details/Vulkan/xgpu_vulkan_timestamps.cpp"
 

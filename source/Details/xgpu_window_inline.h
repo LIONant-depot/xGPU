@@ -32,6 +32,7 @@ namespace xgpu
 
 
             virtual     void                            setDepthBias            ( xgpu::cmd_buffer& CmdBuffer, float ConstantFactor, float DepthBiasClamp, float DepthBiasSlope) noexcept = 0;
+            virtual     void                            WriteTimestamp          ( xgpu::cmd_buffer& CmdBuffer, xgpu::timestamps& Timestamps, int Index ) noexcept = 0;
             virtual     bool                            isMinimized             ( void ) const                                              noexcept = 0;
             virtual     void                            setClearColor           ( float R, float G, float B, float A )                      noexcept = 0;
             virtual     std::size_t                     getSystemWindowHandle   ( void ) const                                              noexcept = 0;

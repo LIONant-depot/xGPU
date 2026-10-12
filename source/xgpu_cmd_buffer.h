@@ -19,6 +19,7 @@ namespace xgpu
         XGPU_INLINE     cmd_buffer&     Draw                        ( int IndexCount, int FirstIndex = 0, int VertexOffset=0 ) noexcept;
         XGPU_INLINE     cmd_buffer&     DrawInstance                ( int InstanceCount, int IndexCount, int FirstInstance=0, int FirstIndex=0, int VertexOffset=0 ) noexcept;
         XGPU_INLINE     cmd_buffer&     setDepthBias                ( float ConstantFactor, float DepthBiasClamp, float DepthBiasSlope) noexcept;
+        XGPU_INLINE     cmd_buffer&     WriteTimestamp              ( xgpu::timestamps& Timestamps, int Index ) noexcept;   // see xgpu_timestamps.h
         XGPU_INLINE     void            Release                     ( void )                                noexcept;
 
         details::window_handle*         m_pWindow { nullptr };

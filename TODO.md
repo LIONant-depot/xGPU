@@ -32,6 +32,18 @@ note in Build/; delete a line once it's actually fixed and verified.
 
 ## Known gaps, longer-standing
 
+- [ ] `xgpu::buffer` (and the other handles with a user-declared destructor) has no move constructor, so
+ `Device.Destroy(std::move(B))` queues a *copy* and `B` keeps its reference. Fixed 2026-10-12: `device::DeathMarch` now moves
+ the buffer list out before clearing it (the last release of such a buffer queued it again into the vector being cleared:
+ an access violation when the static geom editor closed). Callers that want the handle gone now should take it out
+ (`xgpu::buffer R; R.m_Private.swap(B.m_Private);`), as `xgeom_static_xgpu_rsc_loader.cpp` and xLIONRender do. Giving the
+ handles real move semantics would remove the trap.
+
+- [ ] `window::EndFrame` waits for the GPU after every submit (`vkWaitForFences(..., UINT64_MAX)`), so the CPU never
+ records frame N+1 while the GPU runs frame N. Needed for the renderer later (frames in flight). `vulkan::timestamps`
+ already uses a ring of query sets so it keeps working then; its query-pool destroy should then go through
+ DeathMarch (marked `ponytail:` in `xgpu_vulkan_timestamps.cpp`).
+
 - [x] Fixed 2026-09-23: Material/Material Instance editor preview spammed two Vulkan validation errors every
       frame (`VUID-VkGraphicsPipelineCreateInfo-layout-07988` - the compiled fragment shader's `lighting_uniforms`
       UBO at set 2 binding 1 not in the pipeline layout; `VUID-RuntimeSpirv-OpEntryPoint-08743` - a vertex/

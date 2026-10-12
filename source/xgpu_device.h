@@ -62,6 +62,9 @@ namespace xgpu
         [[nodiscard]] XGPU_INLINE device::error* Create         ( buffer&                           Buffer
                                                                 , const buffer::setup&              Setup
                                                                 ) noexcept;
+        [[nodiscard]] XGPU_INLINE device::error* Create         ( timestamps&                       Timestamps
+                                                                , const timestamps::setup&          Setup
+                                                                ) noexcept;
 
         // Writes Source into the [OffsetX,OffsetY]..[+Width,+Height] sub-rectangle of Texture's mip 0 (only -
         // no mips/array layers/cubemaps), leaving the rest of the texture untouched. Texture must already be
@@ -83,6 +86,15 @@ namespace xgpu
         // calling this, there is no internal wait.
         [[nodiscard]] XGPU_INLINE device::error* ReadTexture    ( const texture&                    Texture
                                                                 , std::vector<std::uint32_t>&       Dest
+                                                                , int&                               Width
+                                                                , int&                               Height
+                                                                ) noexcept;
+
+        // Same as above but returns mip 0's texels exactly as stored, in the texture's own format (e.g. 8 bytes per
+        // texel of half floats for R16G16B16A16_SFLOAT) - for numerical comparisons of HDR render targets.
+        // Uncompressed color formats only.
+        [[nodiscard]] XGPU_INLINE device::error* ReadTexture    ( const texture&                    Texture
+                                                                , std::vector<std::byte>&           Dest
                                                                 , int&                               Width
                                                                 , int&                               Height
                                                                 ) noexcept;

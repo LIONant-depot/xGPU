@@ -114,4 +114,13 @@ namespace xgpu
         m_pWindow->setDepthBias(*this, ConstantFactor, DepthBiasClamp, DepthBiasSlope);
         return *this;
     }
+
+    //-----------------------------------------------------------------------------
+
+    XGPU_INLINE
+    cmd_buffer& cmd_buffer::WriteTimestamp( xgpu::timestamps& Timestamps, int Index ) noexcept
+    {
+        m_pWindow->WriteTimestamp(*this, Timestamps, Index);
+        return *this;
+    }
 }

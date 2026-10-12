@@ -55,6 +55,17 @@ namespace xgpu
                                                                     , int&                                   Height
                                                                     ) noexcept = 0;
 
+            virtual device::error*          ReadTexture             ( const xgpu::texture&                  Texture
+                                                                    , std::vector<std::byte>&               Dest
+                                                                    , int&                                   Width
+                                                                    , int&                                   Height
+                                                                    ) noexcept = 0;
+
+            virtual device::error*          Create                  ( xgpu::timestamps&                     Timestamps
+                                                                    , const xgpu::timestamps::setup&        Setup
+                                                                    , std::shared_ptr<device_handle>&       SharedDevice
+                                                                    ) noexcept = 0;
+
             virtual void Destroy(pipeline_instance&& PipelineInstance)  noexcept = 0;
             virtual void Destroy(pipeline&& Pipeline)                   noexcept = 0;
             virtual void Destroy(texture&& Texture)                     noexcept = 0;
@@ -199,6 +210,32 @@ namespace xgpu
     ) noexcept
     {
         return m_Private->ReadTexture(Texture, Dest, Width, Height);
+    }
+
+    //------------------------------------------------------------------------------------------------
+
+    [[nodiscard]] XGPU_INLINE
+    device::error*
+    device::ReadTexture
+    ( const texture&                Texture
+    , std::vector<std::byte>&      Dest
+    , int&                          Width
+    , int&                          Height
+    ) noexcept
+    {
+        return m_Private->ReadTexture(Texture, Dest, Width, Height);
+    }
+
+    //------------------------------------------------------------------------------------------------
+
+    [[nodiscard]] XGPU_INLINE
+    device::error*
+    device::Create
+    ( timestamps&                   Timestamps
+    , const timestamps::setup&      Setup
+    ) noexcept
+    {
+        return m_Private->Create( Timestamps, Setup, m_Private );
     }
 
     //------------------------------------------------------------------------------------------------

@@ -45,6 +45,7 @@ namespace xgpu::details
     struct texture_instance_handle;
     struct buffer_handle;
     struct renderpass_handle;
+    struct timestamps_handle;
 }
 
 namespace xgpu
@@ -131,6 +132,7 @@ namespace xgpu
 #include "xgpu_shader.h"
 #include "xgpu_pipeline.h"
 #include "xgpu_pipeline_instance.h"
+#include "xgpu_timestamps.h"
 #include "xgpu_cmd_buffer.h"
 #include "xgpu_renderpass.h"
 #include "xgpu_window.h"
@@ -153,5 +155,6 @@ namespace xgpu
 #include "Details/xgpu_shader_inline.h"
 #include "Details/xgpu_texture_inline.h"
 #include "Details/xgpu_renderpass_inline.h"
+#include "Details/xgpu_timestamps_inline.h"
 
 #endif

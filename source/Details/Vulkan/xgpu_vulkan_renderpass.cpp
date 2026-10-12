@@ -67,11 +67,12 @@ namespace xgpu::vulkan
             attachmentDescs[nAttachments++] = VkAttachmentDescription
             { .format           = Texture.m_VKFormat
             , .samples          = VK_SAMPLE_COUNT_1_BIT
-            , .loadOp           = VK_ATTACHMENT_LOAD_OP_CLEAR
+            , .loadOp           = Setup.m_bClearOnRender ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD
             , .storeOp          = VK_ATTACHMENT_STORE_OP_STORE
             , .stencilLoadOp    = VK_ATTACHMENT_LOAD_OP_DONT_CARE
             , .stencilStoreOp   = VK_ATTACHMENT_STORE_OP_DONT_CARE
-            , .initialLayout    = VK_IMAGE_LAYOUT_UNDEFINED
+              // Loading keeps what an earlier pass rendered, which left the image in this same final layout
+            , .initialLayout    = Setup.m_bClearOnRender ? VK_IMAGE_LAYOUT_UNDEFINED : (isDepth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)
             , .finalLayout      = isDepth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
             };
         }

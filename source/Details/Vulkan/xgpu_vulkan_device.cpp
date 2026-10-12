@@ -66,6 +66,15 @@ namespace xgpu::vulkan
         Features.shaderCullDistance = true;
         Features.samplerAnisotropy  = true;
 
+        // Host query reset (core in 1.2) lets vulkan::timestamps recycle its queries from the CPU, so a timestamp
+        // can be written anywhere in a frame, including inside a render pass (vkCmdResetQueryPool can't be)
+        VkPhysicalDeviceHostQueryResetFeatures HostQueryReset{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES };
+        {
+            VkPhysicalDeviceFeatures2 Features2{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &HostQueryReset };
+            vkGetPhysicalDeviceFeatures2( Device.m_VKPhysicalDevice, &Features2 );
+            Device.m_bHostQueryReset = HostQueryReset.hostQueryReset == VK_TRUE;
+        }
+
         static constexpr auto       enabledExtensions   = std::array
         { VK_KHR_SWAPCHAIN_EXTENSION_NAME
         , VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME
@@ -74,7 +83,7 @@ namespace xgpu::vulkan
         VkDeviceCreateInfo          deviceCreateInfo
         {
             .sType                      = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO
-        ,   .pNext                      = nullptr
+        ,   .pNext                      = Device.m_bHostQueryReset ? &HostQueryReset : nullptr
         ,   .queueCreateInfoCount       = static_cast<uint32_t>(queueCreateInfo.size())
         ,   .pQueueCreateInfos          = queueCreateInfo.data()
         ,   .enabledLayerCount          = 0
@@ -427,6 +436,37 @@ namespace xgpu::vulkan
         return pTexture->Readback(Dest, Width, Height);
     }
 
+    //----------------------------------------------------------------------------------------------------------
+
+    xgpu::device::error* device::ReadTexture
+    ( const xgpu::texture&          Texture
+    , std::vector<std::byte>&      Dest
+    , int&                          Width
+    , int&                          Height
+    ) noexcept
+    {
+        auto pTexture = static_cast<xgpu::vulkan::texture*>(Texture.m_Private.get());
+        if (!pTexture) return VGPU_ERROR(xgpu::device::error::FAILURE, "ReadTexture: the texture has not been created");
+        return pTexture->ReadbackRaw(Dest, Width, Height);
+    }
+
+    //----------------------------------------------------------------------------------------------------------
+
+    xgpu::device::error* device::Create
+    ( xgpu::timestamps&                 Timestamps
+    , const xgpu::timestamps::setup&    Setup
+    , std::shared_ptr<device_handle>&   SharedDevice
+    ) noexcept
+    {
+        auto T = std::make_unique<xgpu::vulkan::timestamps>();
+        if( auto Err = T->Initialize
+        ( std::reinterpret_pointer_cast<xgpu::vulkan::device>(SharedDevice)
+        , Setup
+        ); Err ) return Err;
+        Timestamps.m_Private = std::move(T);
+        return nullptr;
+    }
+
     void device::PageFlipNotification(void) noexcept
     {
         DeathMarch();
@@ -513,7 +553,11 @@ namespace xgpu::vulkan
 
         if (false == DeathMarch.m_Buffer.empty())
         {
+            // Moved out first: releasing the last reference of a buffer queues it again (~buffer -> DeathMarch -> Destroy, e.g. one
+            // handed to Destroy while its owner still held a copy), and that push_back must not land in the vector being cleared
+            auto Buffers = std::move(DeathMarch.m_Buffer);
             DeathMarch.m_Buffer.clear();
+            Buffers.clear();
         }
 
         if (false == DeathMarch.m_Window.empty())
