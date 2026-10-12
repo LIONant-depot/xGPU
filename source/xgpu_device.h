@@ -106,6 +106,8 @@ namespace xgpu
         XGPU_INLINE void                         Destroy        ( window&&                          Window )           noexcept;
         XGPU_INLINE void                         Destroy        ( renderpass&&                      Renderpass )       noexcept;
         XGPU_INLINE void                         Shutdown       ( void ) noexcept;
+        // Advances once per page flip: for data a user keeps one copy of per frame in flight (index % frames in flight)
+        [[nodiscard]] XGPU_INLINE std::uint64_t  getFrameIndex  ( void ) const noexcept;
 
         std::shared_ptr<details::device_handle>   m_Private;
     };

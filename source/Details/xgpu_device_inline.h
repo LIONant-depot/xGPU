@@ -74,6 +74,7 @@ namespace xgpu
             virtual void Destroy(renderpass&& RenderPass)               noexcept = 0;
 
             virtual void Shutdown(void)                                 noexcept = 0;
+            virtual std::uint64_t getFrameIndex(void) const             noexcept = 0;
         };
     }
 
@@ -268,6 +269,14 @@ namespace xgpu
     void device::Shutdown( void ) noexcept
     {
         m_Private->Shutdown();
+    }
+
+    //------------------------------------------------------------------------------------------------
+
+    XGPU_INLINE
+    std::uint64_t device::getFrameIndex( void ) const noexcept
+    {
+        return m_Private->getFrameIndex();
     }
 
 }

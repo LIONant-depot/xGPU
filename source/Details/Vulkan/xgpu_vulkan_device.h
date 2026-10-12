@@ -89,6 +89,7 @@ namespace xgpu::vulkan
         void                            PageFlipNotification( void ) noexcept;
         void                            DeathMarch          ( void ) noexcept;
         virtual void                    Shutdown            ( void ) noexcept override;
+        virtual std::uint64_t           getFrameIndex       ( void ) const noexcept override { return static_cast<std::uint64_t>(m_FrameIndex); }
 
         virtual void                    Destroy             ( xgpu::texture&& Texture )                     noexcept override;
         virtual void                    Destroy             ( xgpu::pipeline_instance&& PipelineInstance )  noexcept override;

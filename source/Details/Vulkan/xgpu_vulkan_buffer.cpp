@@ -35,19 +35,19 @@ namespace xgpu::vulkan
         assert(Setup.m_EntryCount >= 1 );
         assert(Setup.m_EntryByteSize > 0);
 
+        // Uniform entries are bound at dynamic offsets: each one is rounded up to the device's offset alignment (64 on most
+        // desktop GPUs, up to 256 elsewhere), so the user describes its data as is and pays only the padding this GPU needs
+        auto EntryByteSize = static_cast<VkDeviceSize>(Setup.m_EntryByteSize);
         if( Setup.m_Type == xgpu::buffer::type::UNIFORM )
         {
-            if( auto x = (Setup.m_EntryByteSize % m_Device->m_VKPhysicalDeviceProperties.limits.minUniformBufferOffsetAlignment); x != 0)
-            {
-                m_Device->m_Instance->ReportError(std::format("Uniform Buffer entry size does not meet the minimum Alignment requirements of {}", m_Device->m_VKPhysicalDeviceProperties.limits.minUniformBufferOffsetAlignment));
-                return VGPU_ERROR(xgpu::device::error::FAILURE, "Uniform Buffer entry size does not meet the minimum Alignment requirements");
-            }
+            const VkDeviceSize Align = m_Device->m_VKPhysicalDeviceProperties.limits.minUniformBufferOffsetAlignment;
+            EntryByteSize = (EntryByteSize + Align - 1) / Align * Align;
         }
 
         m_Type   = Setup.m_Type;
         m_Usage  = Setup.m_Usage;
 
-        VkDeviceSize ByteSize = Setup.m_EntryByteSize * Setup.m_EntryCount;
+        VkDeviceSize ByteSize = EntryByteSize * Setup.m_EntryCount;
         ByteSize = ((ByteSize - 1) / m_Device->m_BufferMemoryAlignment + 1) * m_Device->m_BufferMemoryAlignment;
         VkBufferCreateInfo BufferInfo
         { .sType         = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
@@ -104,7 +104,7 @@ namespace xgpu::vulkan
 
         m_ByteSize       = static_cast<int>(req.size);
         m_nEntries       = Setup.m_EntryCount;
-        m_EntrySizeBytes = Setup.m_EntryByteSize;
+        m_EntrySizeBytes = static_cast<int>(EntryByteSize);
 
         //
         // If the user wants us to copy the data right away we can do that
@@ -112,6 +112,7 @@ namespace xgpu::vulkan
         if(Setup.m_pData)
         {
             assert(*Setup.m_pData);
+            assert(m_EntrySizeBytes == Setup.m_EntryByteSize);     // initial data comes packed: its entries must not need padding
             void* pDst;
             if( auto Err = MapLock(pDst, 0, m_nEntries); Err ) return Err;
             std::memcpy( pDst, *Setup.m_pData, m_nEntries*m_EntrySizeBytes );

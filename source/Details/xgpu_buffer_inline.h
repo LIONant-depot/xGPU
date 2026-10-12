@@ -50,7 +50,7 @@ namespace xgpu
     template< typename T >
     T& buffer::allocEntry(void) noexcept
     {
-        assert(sizeof(T) == m_Private->getEntrySize());
+        assert(sizeof(T) <= m_Private->getEntrySize());     // uniform entries may be padded to the GPU's offset alignment
         return *std::construct_at(static_cast<T*>(m_Private->allocEntry()));
     }
 
