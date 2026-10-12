@@ -92,37 +92,26 @@ namespace xgpu::vulkan
         dependencies[1].srcSubpass = 0;
         dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
 
-        // Are we doing some kind of depth only pass? (Shadow maps, etc)
-        if( nColorAttachments == 0 )
-        {
-            assert(depthReference.layout);
+        // Into the pass: an earlier pass (or this one last frame) may still be sampling these attachments. Out of the pass: what it wrote is
+        // read by a later pass's shaders anywhere on the image (a shadow map, an HDR target tone mapped), so no BY_REGION here - that only
+        // orders accesses to the same pixel, and sampling the atlas or the HDR target is not. (It was BY_REGION and only late fragment
+        // tests for depth-only passes, and BOTTOM_OF_PIPE / MEMORY_READ for color passes: a later pass could read texels still being
+        // written - random shadow dots that changed run to run.)
+        constexpr VkPipelineStageFlags AttachmentStages = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+        constexpr VkAccessFlags        AttachmentWrites = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+        constexpr VkAccessFlags        AttachmentAccess = AttachmentWrites | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT;
 
-            dependencies[0].srcStageMask    = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-            dependencies[0].dstStageMask    = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT;
-            dependencies[0].srcAccessMask   = VK_ACCESS_SHADER_READ_BIT;
-            dependencies[0].dstAccessMask   = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-            dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+        dependencies[0].srcStageMask    = AttachmentStages | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        dependencies[0].dstStageMask    = AttachmentStages;
+        dependencies[0].srcAccessMask   = AttachmentWrites;
+        dependencies[0].dstAccessMask   = AttachmentAccess;
+        dependencies[0].dependencyFlags = 0;
 
-            dependencies[1].srcStageMask    = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
-            dependencies[1].dstStageMask    = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
-            dependencies[1].srcAccessMask   = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
-            dependencies[1].dstAccessMask   = VK_ACCESS_SHADER_READ_BIT;
-            dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-        }
-        else
-        {
-            dependencies[0].srcStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-            dependencies[0].dstStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-            dependencies[0].srcAccessMask   = VK_ACCESS_MEMORY_READ_BIT;
-            dependencies[0].dstAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-            dependencies[0].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-
-            dependencies[1].srcStageMask    = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-            dependencies[1].dstStageMask    = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-            dependencies[1].srcAccessMask   = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
-            dependencies[1].dstAccessMask   = VK_ACCESS_MEMORY_READ_BIT;
-            dependencies[1].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
-        }
+        dependencies[1].srcStageMask    = AttachmentStages;
+        dependencies[1].dstStageMask    = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT | AttachmentStages;
+        dependencies[1].srcAccessMask   = AttachmentWrites;
+        dependencies[1].dstAccessMask   = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT | AttachmentAccess;
+        dependencies[1].dependencyFlags = 0;
 
         VkRenderPassCreateInfo renderPassCreateInfo =
         { .sType            = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO
