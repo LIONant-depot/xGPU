@@ -65,6 +65,14 @@ namespace xgpu::windows
             SetWindowPos(m_hWindow, HWND_TOP, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
         }
 
+        virtual     void                            setTitle( std::string_view Title )                                  noexcept override
+        {
+            const int n = MultiByteToWideChar(CP_UTF8, 0, Title.data(), static_cast<int>(Title.size()), nullptr, 0);
+            std::wstring W(static_cast<std::size_t>(n), L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, Title.data(), static_cast<int>(Title.size()), W.data(), n);
+            SetWindowTextW(m_hWindow, W.c_str());
+        }
+
         virtual     void                            setSize(int Width, int Height)                                   noexcept
         {
             SetWindowPos(m_hWindow, NULL, 0, 0, Width, Height, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE);

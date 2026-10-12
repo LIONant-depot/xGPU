@@ -44,6 +44,7 @@ namespace xgpu
             virtual     void                            setFocus                ( void ) const                                              noexcept = 0;
             virtual     std::pair<int, int>             getPosition             ( void ) const                                              noexcept = 0;
             virtual     void                            setPosition             ( int x, int y )                                            noexcept = 0;
+            virtual     void                            setTitle                ( std::string_view Title )                                  noexcept = 0;
             virtual     void                            setSize                 ( int Width, int Height )                                   noexcept = 0;
             virtual     xgpu::device                    getDevice               ( void ) const                                              noexcept = 0;
             virtual     void                            setMousePosition        ( int x, int y )                                            noexcept = 0;
@@ -111,6 +112,14 @@ namespace xgpu
     window::ReadbackTexture(const texture& Texture, std::vector<std::uint32_t>& Dest, int& Width, int& Height, bool& bDone) noexcept
     {
         return m_Private->ReadbackTexture(Texture, Dest, Width, Height, bDone);
+    }
+
+    //------------------------------------------------------------------------------------------------
+
+    XGPU_INLINE
+    void window::setTitle( std::string_view Title ) noexcept
+    {
+        m_Private->setTitle(Title);
     }
 
     //------------------------------------------------------------------------------------------------

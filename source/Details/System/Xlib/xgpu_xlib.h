@@ -63,6 +63,7 @@ namespace xgpu::xlib
         virtual void                setFocus                ( void ) const noexcept override;
         virtual std::pair<int, int> getPosition             ( void ) const noexcept override;
         virtual void                setPosition             ( int x, int y )      noexcept override;
+        virtual void                setTitle                ( std::string_view Title ) noexcept override;
         void                        RefreshPosition         ( void )              noexcept;   // m_TruePosition from the server (once a frame)
         virtual void                setSize                 ( int Width, int Height ) noexcept override;
         bool                        getResizedAndReset      ( void )              noexcept { auto b = m_isResized; m_isResized = false; return b; }

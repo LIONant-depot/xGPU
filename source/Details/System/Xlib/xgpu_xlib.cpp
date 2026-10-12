@@ -313,6 +313,13 @@ namespace xgpu::xlib
 
     //----------------------------------------------------------------------------------
 
+    void window::setTitle( std::string_view Title ) noexcept
+    {
+        const std::string T(Title);
+        XStoreName(m_Connection->m_pDisplay, m_Window, T.c_str());
+        XFlush(m_Connection->m_pDisplay);
+    }
+
     void window::setPosition( int X, int Y ) noexcept
     {
         if( Trace() ) std::fprintf(stderr, "[xlib] setPosition %lx -> %d,%d (was %d,%d)\n", m_Window, X, Y, m_TruePosition.first, m_TruePosition.second);

@@ -62,6 +62,8 @@ namespace xgpu
         // typical caller - the main loop right before it calls PageFlip() itself).
         [[nodiscard]] XGPU_INLINE bool                ReadbackTexture         ( const texture& Texture, std::vector<std::uint32_t>& Dest, int& Width, int& Height, bool& bDone ) noexcept;
         XGPU_INLINE                 void                setClearColor           ( float R, float G, float B, float A ) noexcept;
+        // The OS window's title (UTF-8): e.g. a frame-rate readout
+        XGPU_INLINE                 void                setTitle                ( std::string_view Title ) noexcept;
         [[nodiscard]] XGPU_INLINE std::size_t         getSystemWindowHandle   ( void ) const noexcept;
         [[nodiscard]] XGPU_INLINE bool                isFocused               ( void ) const noexcept;
         [[nodiscard]] XGPU_INLINE bool                isCapturing             ( void ) const noexcept;
