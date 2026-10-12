@@ -141,6 +141,8 @@ namespace xgpu::vulkan
                                                                             , int&                          Height
                                                                             ) noexcept;
         virtual
+        void                                    CopyBuffer                  ( const xgpu::buffer& Src, xgpu::buffer& Dst, std::span<const xgpu::buffer::copy> Regions ) noexcept override;
+        virtual
         bool                                    ReadbackTexture             ( const xgpu::texture&        Texture
                                                                             , std::vector<std::uint32_t>&  Dest
                                                                             , int&                          Width

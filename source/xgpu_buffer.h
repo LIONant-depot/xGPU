@@ -14,6 +14,14 @@ namespace xgpu
         , STORAGE           // Read only or read/write... unlimited size
         };
 
+        // One region of window::CopyBuffer, in entries (both buffers must have the same entry size)
+        struct copy
+        {
+            int     m_SrcEntry  = 0;
+            int     m_DstEntry  = 0;
+            int     m_Count     = 1;
+        };
+
         struct setup
         {
             enum class usage : std::uint8_t

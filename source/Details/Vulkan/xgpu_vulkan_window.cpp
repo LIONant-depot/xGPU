@@ -1906,4 +1906,38 @@ namespace xgpu::vulkan
         vkDestroyRenderPass(m_Device->m_VKDevice, m_VKRenderPass, nullptr);
         vkDestroySurfaceKHR(m_Device->m_Instance->m_VKInstance, m_VKSurface, nullptr);
     }
+
+    //----------------------------------------------------------------------------------------------------------
+
+    void window::CopyBuffer( const xgpu::buffer& Src, xgpu::buffer& Dst, std::span<const xgpu::buffer::copy> Regions ) noexcept
+    {
+        if( Regions.empty() ) return;
+        const auto& S = *static_cast<const xgpu::vulkan::buffer*>(Src.m_Private.get());
+        auto&       D = *static_cast<xgpu::vulkan::buffer*>(Dst.m_Private.get());
+        assert(S.m_EntrySizeBytes == D.m_EntrySizeBytes);
+
+        std::vector<VkBufferCopy> Copies;
+        Copies.reserve(Regions.size());
+        const auto Entry = static_cast<VkDeviceSize>(S.m_EntrySizeBytes);
+        for( const auto& R : Regions )
+        {
+            assert(R.m_SrcEntry + R.m_Count <= S.m_nEntries && R.m_DstEntry + R.m_Count <= D.m_nEntries);
+            Copies.push_back({ .srcOffset = R.m_SrcEntry * Entry, .dstOffset = R.m_DstEntry * Entry, .size = R.m_Count * Entry });
+        }
+
+        auto&              Frame       = m_Frames[m_FrameIndex];
+        constexpr auto     ShaderStages = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+
+        // Write after read: earlier commands (and frames still in flight, same queue) finish reading Dst first
+        vkCmdPipelineBarrier(Frame.m_VKCommandBuffer, ShaderStages, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 0, nullptr);
+        vkCmdCopyBuffer(Frame.m_VKCommandBuffer, S.m_VKBuffer, D.m_VKBuffer, static_cast<std::uint32_t>(Copies.size()), Copies.data());
+
+        // Later shaders see the copy
+        const VkMemoryBarrier After
+        { .sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER
+        , .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT
+        , .dstAccessMask = VK_ACCESS_SHADER_READ_BIT
+        };
+        vkCmdPipelineBarrier(Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, ShaderStages, 0, 1, &After, 0, nullptr, 0, nullptr);
+    }
 }

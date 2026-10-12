@@ -30,6 +30,11 @@ namespace xgpu
         XGPU_INLINE                 cmd_buffer          getCmdBuffer            ( void ) noexcept;
         XGPU_INLINE                 cmd_buffer          StartRenderPass         ( const renderpass& Renderpass ) noexcept;
         XGPU_INLINE                 void                PageFlip                ( void ) noexcept;
+        // Records a GPU copy of Regions from Src (a CPU_WRITE_GPU_READ buffer) into Dst in this frame's command buffer, at
+        // this point of the frame: call it between render passes (not inside a StartRenderPass scope). The copy waits for the
+        // shader reads of earlier commands (frames still in flight included), and later shaders see its result. For
+        // keeping a device-local (GPU_READ) buffer up to date with deltas written by the CPU into a ring.
+        XGPU_INLINE                 void                CopyBuffer              ( const buffer& Src, buffer& Dst, std::span<const buffer::copy> Regions ) noexcept;
 
         // Registers Dest/Width/Height to receive the current frame's back-buffer pixels - one packed
         // uint32 per pixel (B8G8R8A8 byte order in memory, so 0xAARRGGBB when read as a hex integer on
