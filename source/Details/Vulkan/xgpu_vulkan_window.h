@@ -143,6 +143,8 @@ namespace xgpu::vulkan
         virtual
         void                                    CopyBuffer                  ( const xgpu::buffer& Src, xgpu::buffer& Dst, std::span<const xgpu::buffer::copy> Regions ) noexcept override;
         virtual
+        void                                    WriteTimestamp              ( xgpu::timestamps& Timestamps, int Index ) noexcept override;
+        virtual
         bool                                    ReadbackTexture             ( const xgpu::texture&        Texture
                                                                             , std::vector<std::uint32_t>&  Dest
                                                                             , int&                          Width
@@ -199,6 +201,27 @@ namespace xgpu::vulkan
         VkRect2D                                m_DefaultScissor        {};
         bool                                    m_bDeathMarched         {false};
         std::unordered_map<VkDescriptorType, descriptor_pool_ring> m_DescriptorRings{};
+
+        // This frame's descriptor sets by content (layout + buffers): a draw that binds the same buffers as an earlier one reuses
+        // its set instead of allocating and writing another (dynamic UBO offsets are given at bind time, not in the set).
+        // Cleared with the rings, after the frame's fence.
+        struct set_key
+        {
+            VkDescriptorSetLayout           m_Layout    {};
+            std::array<VkBuffer, 16>        m_Buffers   {};
+            bool operator==(const set_key&) const noexcept = default;
+        };
+        struct set_key_hash
+        {
+            std::size_t operator()(const set_key& K) const noexcept
+            {
+                std::size_t H = std::hash<const void*>{}(K.m_Layout);
+                for (auto B : K.m_Buffers) H = H * 1099511628211ull ^ std::hash<const void*>{}(B);
+                return H;
+            }
+        };
+        std::unordered_map<set_key, VkDescriptorSet, set_key_hash> m_FrameSets{};
+        bool                                    m_bReportedSetOverflow  {false};
 
     };
 }

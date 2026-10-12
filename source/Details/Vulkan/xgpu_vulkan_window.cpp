@@ -1378,11 +1378,12 @@ namespace xgpu::vulkan
         vkWaitForFences(m_Device->m_VKDevice, 1, &Frame.m_VKFence, VK_TRUE, UINT64_MAX);
         vkResetFences(m_Device->m_VKDevice, 1, &Frame.m_VKFence);
 
-        // Free the ring buffers
+        // Free the ring buffers (and the sets cached from them)
         for (auto& [type, ring] : m_DescriptorRings)
         {
             ring.AdvanceAndReset(m_Device->m_VKDevice);
         }
+        m_FrameSets.clear();
 
         return nullptr;
     }
@@ -1538,7 +1539,19 @@ namespace xgpu::vulkan
                                                     ? VK_DESCRIPTOR_TYPE_STORAGE_BUFFER
                                                     : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
             VkDescriptorSetLayout   layout      = Pipe.m_VKDescriptorSetLayout[Pipe.static_set_index_v];
-            VkDescriptorSet         staticSet   = m_DescriptorRings[descType].alloc(m_Device->m_VKDevice, layout);
+
+            set_key Key{ .m_Layout = layout };
+            for (std::size_t i = 0; i < StaticBuffers.size() && i < Key.m_Buffers.size(); ++i)
+                Key.m_Buffers[i] = std::reinterpret_pointer_cast<vulkan::buffer>(StaticBuffers[i]->m_Private)->m_VKBuffer;
+            VkDescriptorSet         staticSet   = VK_NULL_HANDLE;
+            if (auto It = m_FrameSets.find(Key); It != m_FrameSets.end()) staticSet = It->second;
+            else if ((staticSet = m_DescriptorRings[descType].alloc(m_Device->m_VKDevice, layout)) == VK_NULL_HANDLE)
+            {
+                if (!m_bReportedSetOverflow) { m_bReportedSetOverflow = true; m_Device->m_Instance->ReportError("xGPU: a frame ran out of descriptor sets (static); the draw keeps the previous set"); }
+            }
+            else
+            {
+            m_FrameSets.emplace(Key, staticSet);
 
             // Prepare writes
             std::array<VkWriteDescriptorSet, 8>    writes{};
@@ -1570,9 +1583,10 @@ namespace xgpu::vulkan
             }
 
             vkUpdateDescriptorSets(m_Device->m_VKDevice, static_cast<uint32_t>(writeCount), writes.data(), 0, nullptr);
+            }
 
             // Bind set 1
-            vkCmdBindDescriptorSets(CB.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, CB.m_VKPipelineLayout, Pipe.static_set_index_v, 1, &staticSet, 0, nullptr);
+            if (staticSet != VK_NULL_HANDLE) vkCmdBindDescriptorSets(CB.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, CB.m_VKPipelineLayout, Pipe.static_set_index_v, 1, &staticSet, 0, nullptr);
         }
 
         //
@@ -1785,7 +1799,26 @@ namespace xgpu::vulkan
 
         // Allocate fresh set from correct ring
         VkDescriptorSetLayout layout = Pipe.m_VKDescriptorSetLayout[Pipe.dynamic_set_index_v];
+
+        set_key Key{ .m_Layout = layout };
+        for (int i = 0; i < nDynamic && i < int(Key.m_Buffers.size()); ++i)
+            Key.m_Buffers[i] = std::reinterpret_pointer_cast<vulkan::buffer>(CB.m_CurrentDynamicVKBuffers[i]->m_Private)->m_VKBuffer;
+        if (auto It = m_FrameSets.find(Key); It != m_FrameSets.end())
+        {
+            vkCmdBindDescriptorSets(CB.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, CB.m_VKPipelineLayout, Pipe.dynamic_set_index_v, 1, &It->second
+                                   , static_cast<uint32_t>(nDynamic), CB.m_CurrentDynamicOffsets.data());
+            CB.m_DynamicDirty = false;
+            return;
+        }
+
         VkDescriptorSet newSet = m_DescriptorRings[setType].alloc(m_Device->m_VKDevice, layout);
+        if (newSet == VK_NULL_HANDLE)
+        {
+            if (!m_bReportedSetOverflow) { m_bReportedSetOverflow = true; m_Device->m_Instance->ReportError("xGPU: a frame ran out of descriptor sets (dynamic); the draw keeps the previous set"); }
+            CB.m_DynamicDirty = false;
+            return;
+        }
+        m_FrameSets.emplace(Key, newSet);
 
         // Update all bindings
         std::array<VkWriteDescriptorSet,   16> writes{};
@@ -1852,6 +1885,13 @@ namespace xgpu::vulkan
     }
 
     //------------------------------------------------------------------------------------------------------------------------
+
+    void window::WriteTimestamp(xgpu::timestamps& Timestamps, int Index) noexcept
+    {
+        static_cast<vulkan::timestamps&>(*Timestamps.m_Private).Write(m_Frames[m_FrameIndex].m_VKCommandBuffer, Index);
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
     void window::setClearColor(float R, float G, float B, float A)  noexcept
     {
         m_VKClearValue[0] = VkClearValue{ .color = {.float32 = {R,G,B,A}}};
@@ -1882,6 +1922,7 @@ namespace xgpu::vulkan
         }
         // Optional: clear the map
         m_DescriptorRings.clear();
+        m_FrameSets.clear();
 
 
         VkAllocationCallbacks* pAllocator = m_Device->m_Instance->m_pVKAllocator;

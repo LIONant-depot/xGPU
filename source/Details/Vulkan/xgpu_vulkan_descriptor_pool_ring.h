@@ -1,121 +1,84 @@
 namespace xgpu
 {
+    // Descriptor sets for one frame, of one descriptor type: fixed-size pools allocated in order, all of them reset together
+    // once the frame's fence has passed (AdvanceAndReset). A frame that needs more sets takes the next pool (created the first
+    // time it is needed, then kept for the following frames); the number of pools is capped, so a frame that asks for more
+    // sets than that gets VK_NULL_HANDLE and an error report - never unbounded growth.
+    // (It used to grow each new pool by 1.5x and reset one pool per frame: the pools a big frame filled were never reset, so
+    // every frame made a larger pool than the last - with ~100k sets per frame the driver stalled the whole machine.)
     struct descriptor_pool_ring
     {
+        static constexpr std::uint32_t sets_per_pool_v         = 4096;
+        static constexpr std::uint32_t descriptors_per_set_v   = 8;       // a set of the static / dynamic layouts holds at most this many
+        static constexpr std::size_t   max_pools_v             = 64;      // 262144 sets per frame and type
+
         inline
-        void Init(VkDevice VKDevice, VkDescriptorType VKType, const VkAllocationCallbacks* pCallbacks, uint32_t InitialSize = 1024) noexcept
+        void Init(VkDevice VKDevice, VkDescriptorType VKType, const VkAllocationCallbacks* pCallbacks, std::uint32_t = 0) noexcept
         {
             m_VKDescriptorType  = VKType;
-            m_MaxCapacity       = InitialSize;
             m_pCallBacks        = pCallbacks;
             m_Pools.push_back(createPool(VKDevice));
         }
 
+        // VK_NULL_HANDLE when the frame used every pool (the caller reports it)
         inline
         VkDescriptorSet alloc(VkDevice VKDevice, VkDescriptorSetLayout& Layout) noexcept
         {
-            VkDescriptorSet set = VK_NULL_HANDLE;
-            VkDescriptorSetAllocateInfo allocInfo
-            { .sType                = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO
-            , .descriptorPool       = m_Pools[m_CurrentIndex].m_VKPool
-            , .descriptorSetCount   = 1
-            , .pSetLayouts          = &Layout
-            };
-
-            if (vkAllocateDescriptorSets(VKDevice, &allocInfo, &set) == VK_SUCCESS)
+            while (true)
             {
-                m_Pools[m_CurrentIndex].m_Used++;
-                return set;
+                if (m_Current == m_Pools.size())
+                {
+                    if (m_Pools.size() >= max_pools_v) return VK_NULL_HANDLE;
+                    m_Pools.push_back(createPool(VKDevice));
+                    if (m_Pools.back() == VK_NULL_HANDLE) { m_Pools.pop_back(); return VK_NULL_HANDLE; }
+                }
+
+                VkDescriptorSet             Set = VK_NULL_HANDLE;
+                VkDescriptorSetAllocateInfo AllocInfo
+                { .sType                = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO
+                , .descriptorPool       = m_Pools[m_Current]
+                , .descriptorSetCount   = 1
+                , .pSetLayouts          = &Layout
+                };
+                if (vkAllocateDescriptorSets(VKDevice, &AllocInfo, &Set) == VK_SUCCESS) return Set;
+                ++m_Current;            // this pool is full: the next one
             }
-
-            // Grow 1.5× instead of 2×
-            m_MaxCapacity += m_MaxCapacity / 2;   // 1.5× growth
-            m_Pools.push_back(createPool(VKDevice));
-            m_CurrentIndex = static_cast<int>(m_Pools.size() - 1);
-
-            // Retry on the new larger pool
-            allocInfo.descriptorPool = m_Pools[m_CurrentIndex].m_VKPool;
-            vkAllocateDescriptorSets(VKDevice, &allocInfo, &set);
-            m_Pools[m_CurrentIndex].m_Used++;
-            return set;
         }
 
+        // After the frame's fence: every pool this frame used is free again
         inline
         void AdvanceAndReset(VkDevice VKDevice) noexcept
         {
-            vkResetDescriptorPool(VKDevice, m_Pools[m_CurrentIndex].m_VKPool, 0);
-            m_Pools[m_CurrentIndex].m_Used = 0;
-            m_CurrentIndex = (m_CurrentIndex + 1) % static_cast<int>(m_Pools.size());
-
-            // Shrink old empty small m_Pools while we have >=3 total
-            while (m_Pools.size() >= 3)
-            {
-                int Next = m_CurrentIndex;
-                if (m_Pools[Next].m_Used == 0 && m_Pools[Next].m_Capacity < m_MaxCapacity)
-                {
-                    vkDestroyDescriptorPool(VKDevice, m_Pools[Next].m_VKPool, nullptr);
-                    m_Pools.erase(m_Pools.begin() + Next);
-                    if (Next < m_CurrentIndex) --m_CurrentIndex;
-                }
-                else break;
-            }
-
-            // Keep at least 3 m_Pools
-            if (m_Pools.size() < 3)
-            {
-                int insertPos = (m_CurrentIndex + 1) % static_cast<int>(m_Pools.size() + 1);
-                do{ m_Pools.insert(m_Pools.begin() + insertPos, createPool(VKDevice)); } while (m_Pools.size() < 3);
-            }
+            for (std::size_t i = 0; i <= m_Current && i < m_Pools.size(); ++i) vkResetDescriptorPool(VKDevice, m_Pools[i], 0);
+            m_Current = 0;
         }
 
         inline
         void Destroy(VkDevice VKDevice) noexcept
         {
-            for (auto& Entry : m_Pools)
-            {
-                if (Entry.m_VKPool != VK_NULL_HANDLE)
-                {
-                    vkDestroyDescriptorPool(VKDevice, Entry.m_VKPool, m_pCallBacks);
-                    Entry.m_VKPool = VK_NULL_HANDLE;
-                }
-            }
+            for (auto& Pool : m_Pools) if (Pool != VK_NULL_HANDLE) vkDestroyDescriptorPool(VKDevice, Pool, m_pCallBacks);
             m_Pools.clear();
+            m_Current = 0;
         }
 
-    //protected:
-
-        struct entry
+        inline
+        VkDescriptorPool createPool(VkDevice VKDevice) noexcept
         {
-            VkDescriptorPool m_VKPool   = VK_NULL_HANDLE;
-            std::uint32_t    m_Used     = 0;
-            std::uint32_t    m_Capacity = 0;
-        };
-
-    //protected:
-
-        entry createPool(VkDevice VKDevice) noexcept
-        {
-            VkDescriptorPoolSize PoolSize{ m_VKDescriptorType, m_MaxCapacity };
+            VkDescriptorPoolSize PoolSize{ m_VKDescriptorType, sets_per_pool_v * descriptors_per_set_v };
             VkDescriptorPoolCreateInfo Info
             { .sType            = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO
-            //, .flags            = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT
-            , .maxSets          = m_MaxCapacity
+            , .maxSets          = sets_per_pool_v
             , .poolSizeCount    = 1
             , .pPoolSizes       = &PoolSize
             };
-
-            VkDescriptorPool pool = VK_NULL_HANDLE;
-            vkCreateDescriptorPool(VKDevice, &Info, m_pCallBacks, &pool);
-
-            return { pool, 0, m_MaxCapacity };
+            VkDescriptorPool Pool = VK_NULL_HANDLE;
+            if (vkCreateDescriptorPool(VKDevice, &Info, m_pCallBacks, &Pool) != VK_SUCCESS) return VK_NULL_HANDLE;
+            return Pool;
         }
 
-    //protected:
-
-        std::vector<entry>              m_Pools;
-        const VkAllocationCallbacks*    m_pCallBacks     = nullptr;
-        VkDescriptorType                m_VKDescriptorType;
-        int                             m_CurrentIndex   = 0;
-        std::uint32_t                   m_MaxCapacity    = 1024;
+        std::vector<VkDescriptorPool>   m_Pools;
+        const VkAllocationCallbacks*    m_pCallBacks        = nullptr;
+        VkDescriptorType                m_VKDescriptorType  {};
+        std::size_t                     m_Current           = 0;
     };
 }

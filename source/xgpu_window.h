@@ -35,6 +35,8 @@ namespace xgpu
         // shader reads of earlier commands (frames still in flight included), and later shaders see its result. For
         // keeping a device-local (GPU_READ) buffer up to date with deltas written by the CPU into a ring.
         XGPU_INLINE                 void                CopyBuffer              ( const buffer& Src, buffer& Dst, std::span<const buffer::copy> Regions ) noexcept;
+        // A GPU timestamp between render passes (cmd_buffer::WriteTimestamp is the one inside a pass) - see xgpu_timestamps.h
+        XGPU_INLINE                 void                WriteTimestamp          ( timestamps& Timestamps, int Index ) noexcept;
 
         // Registers Dest/Width/Height to receive the current frame's back-buffer pixels - one packed
         // uint32 per pixel (B8G8R8A8 byte order in memory, so 0xAARRGGBB when read as a hex integer on
