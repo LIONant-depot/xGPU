@@ -516,11 +516,19 @@ namespace xgpu::vulkan
                 {
                     {
                         std::lock_guard Lk(m_LockedVKDescriptorPool);
-                        if (auto It = m_PipeLineInstanceMap.find(static_cast<xgpu::vulkan::pipeline_instance*>(E.m_Private.get())->m_Serial); It != m_PipeLineInstanceMap.end())
+                        auto* pInstance = static_cast<xgpu::vulkan::pipeline_instance*>(E.m_Private.get());
+                        if (auto It = m_PipeLineInstanceMap.find(pInstance->m_Serial); It != m_PipeLineInstanceMap.end())
                         {
-                            vkFreeDescriptorSets(m_VKDevice, m_LockedVKDescriptorPool.get(), static_cast<std::uint32_t>(static_cast<xgpu::vulkan::pipeline_instance*>(E.m_Private.get())->m_Pipeline->m_nVKDescriptorSetLayout), It->second.m_VKDescriptorSet.data());
+                            // the cached sets: [0] is the instance's sampler set (window.cpp), the others its per render pass sets
+                            vkFreeDescriptorSets(m_VKDevice, m_LockedVKDescriptorPool.get(), static_cast<std::uint32_t>(pInstance->m_Pipeline->m_nVKDescriptorSetLayout), It->second.m_VKDescriptorSet.data());
                             m_PipeLineInstanceMap.erase(It);
                         }
+                        else if (pInstance->m_VKSamplerSet != VK_NULL_HANDLE)
+                        {
+                            // never drawn: no cache entry - its sampler set (allocated in Initialize) was leaking, and the pool holds 1024 sets
+                            vkFreeDescriptorSets(m_VKDevice, m_LockedVKDescriptorPool.get(), 1, &pInstance->m_VKSamplerSet);
+                        }
+                        pInstance->m_VKSamplerSet = VK_NULL_HANDLE;
                     }
                 }
                 E.m_Private.reset();
