@@ -65,6 +65,9 @@ namespace xgpu
         [[nodiscard]] XGPU_INLINE device::error* Create         ( timestamps&                       Timestamps
                                                                 , const timestamps::setup&          Setup
                                                                 ) noexcept;
+        [[nodiscard]] XGPU_INLINE device::error* Create         ( compute&                          Compute
+                                                                , const compute::setup&             Setup
+                                                                ) noexcept;
 
         // Writes Source into the [OffsetX,OffsetY]..[+Width,+Height] sub-rectangle of Texture's mip 0 (only -
         // no mips/array layers/cubemaps), leaving the rest of the texture untouched. Texture must already be

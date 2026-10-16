@@ -80,6 +80,14 @@ namespace xgpu::vulkan
                 , .pName    = Setup.m_EntryPoint
                 };
                 break;
+            case xgpu::shader::type::bit::COMPUTE:
+                m_ShaderStageCreateInfo = VkPipelineShaderStageCreateInfo
+                { .sType    = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO
+                , .stage    = VK_SHADER_STAGE_COMPUTE_BIT
+                , .module   = m_VKShaderModule
+                , .pName    = Setup.m_EntryPoint
+                };
+                break;
             default: assert(false);
         }
 

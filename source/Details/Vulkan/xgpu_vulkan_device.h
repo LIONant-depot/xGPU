@@ -86,6 +86,10 @@ namespace xgpu::vulkan
                                                             , const xgpu::timestamps::setup&            Setup
                                                             , std::shared_ptr<device_handle>&           SharedDevice
                                                             ) noexcept override;
+        virtual xgpu::device::error*    Create              ( xgpu::compute&                            Compute
+                                                            , const xgpu::compute::setup&               Setup
+                                                            , std::shared_ptr<device_handle>&           SharedDevice
+                                                            ) noexcept override;
         void                            PageFlipNotification( void ) noexcept;
         void                            DeathMarch          ( void ) noexcept;
         virtual void                    Shutdown            ( void ) noexcept override;

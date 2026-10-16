@@ -467,6 +467,20 @@ namespace xgpu::vulkan
         return nullptr;
     }
 
+    //----------------------------------------------------------------------------------------------------------
+
+    xgpu::device::error* device::Create
+    ( xgpu::compute&                    Compute
+    , const xgpu::compute::setup&       Setup
+    , std::shared_ptr<device_handle>&   SharedDevice
+    ) noexcept
+    {
+        auto C = std::make_shared<xgpu::vulkan::compute>();
+        if( auto Err = C->Initialize( std::reinterpret_pointer_cast<xgpu::vulkan::device>(SharedDevice), Setup ); Err ) return Err;
+        Compute.m_Private = std::move(C);
+        return nullptr;
+    }
+
     void device::PageFlipNotification(void) noexcept
     {
         DeathMarch();

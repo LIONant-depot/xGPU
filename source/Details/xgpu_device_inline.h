@@ -65,6 +65,10 @@ namespace xgpu
                                                                     , const xgpu::timestamps::setup&        Setup
                                                                     , std::shared_ptr<device_handle>&       SharedDevice
                                                                     ) noexcept = 0;
+            virtual device::error*          Create                  ( xgpu::compute&                        Compute
+                                                                    , const xgpu::compute::setup&           Setup
+                                                                    , std::shared_ptr<device_handle>&       SharedDevice
+                                                                    ) noexcept = 0;
 
             virtual void Destroy(pipeline_instance&& PipelineInstance)  noexcept = 0;
             virtual void Destroy(pipeline&& Pipeline)                   noexcept = 0;
@@ -237,6 +241,18 @@ namespace xgpu
     ) noexcept
     {
         return m_Private->Create( Timestamps, Setup, m_Private );
+    }
+
+    //------------------------------------------------------------------------------------------------
+
+    [[nodiscard]] XGPU_INLINE
+    device::error*
+    device::Create
+    ( compute&                      Compute
+    , const compute::setup&         Setup
+    ) noexcept
+    {
+        return m_Private->Create( Compute, Setup, m_Private );
     }
 
     //------------------------------------------------------------------------------------------------

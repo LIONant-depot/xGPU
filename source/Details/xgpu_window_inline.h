@@ -19,6 +19,7 @@ namespace xgpu
             virtual     bool                            ReadbackTexture         ( const xgpu::texture& Texture, std::vector<std::uint32_t>& Dest, int& Width, int& Height, bool& bDone ) noexcept = 0;
             virtual     void                            CopyBuffer              ( const xgpu::buffer& Src, xgpu::buffer& Dst, std::span<const xgpu::buffer::copy> Regions ) noexcept = 0;
             virtual     void                            WriteTimestamp          ( xgpu::timestamps& Timestamps, int Index ) noexcept = 0;
+            virtual     void                            Dispatch                ( xgpu::compute& Compute, std::span<xgpu::buffer* const> Buffers, const void* pPush, std::size_t PushSize, int X, int Y, int Z ) noexcept = 0;
             virtual     void                            CmdRenderBegin          ( xgpu::cmd_buffer& CmdBuffer )                             noexcept = 0;
             virtual     void                            CmdRenderBegin          ( xgpu::cmd_buffer& CmdBuffer, const xgpu::renderpass& Renderpass )                      noexcept = 0;
             virtual     void                            CmdRenderEnd            ( xgpu::cmd_buffer& CmdBuffer )                             noexcept = 0;
@@ -136,6 +137,14 @@ namespace xgpu
     void window::WriteTimestamp( timestamps& Timestamps, int Index ) noexcept
     {
         m_Private->WriteTimestamp(Timestamps, Index);
+    }
+
+    //------------------------------------------------------------------------------------------------
+
+    XGPU_INLINE
+    void window::Dispatch( compute& Compute, std::span<buffer* const> Buffers, const void* pPush, std::size_t PushSize, int X, int Y, int Z ) noexcept
+    {
+        m_Private->Dispatch(Compute, Buffers, pPush, PushSize, X, Y, Z);
     }
 
     //--------------------------------------------------------------------------
