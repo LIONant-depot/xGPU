@@ -1967,7 +1967,7 @@ namespace xgpu::vulkan
         }
 
         auto&              Frame       = m_Frames[m_FrameIndex];
-        constexpr auto     ShaderStages = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        constexpr auto     ShaderStages = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;     // (compute: Dispatch's buffers kept up to date the same way)
 
         // Write after read: earlier commands (and frames still in flight, same queue) finish reading Dst first
         vkCmdPipelineBarrier(Frame.m_VKCommandBuffer, ShaderStages, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 0, nullptr);
