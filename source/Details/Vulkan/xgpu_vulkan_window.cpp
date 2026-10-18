@@ -1554,8 +1554,8 @@ namespace xgpu::vulkan
             m_FrameSets.emplace(Key, staticSet);
 
             // Prepare writes
-            std::array<VkWriteDescriptorSet, 8>    writes{};
-            std::array<VkDescriptorBufferInfo, 8>  bufInfos{};
+            std::array<VkWriteDescriptorSet, 16>   writes{};      // as many as set_key holds
+            std::array<VkDescriptorBufferInfo, 16> bufInfos{};
             int writeCount = 0;
             int bindIdx = 0;
             for (const auto& pipeBind : Pipe.m_StaticView) 
