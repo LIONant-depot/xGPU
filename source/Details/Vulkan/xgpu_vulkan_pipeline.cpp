@@ -68,6 +68,7 @@ namespace xgpu::vulkan
         // Collect some basic information from the uniform buffers
         //
         m_nUniformBuffers = (int)Setup.m_UniformBinds.size();
+        assert(m_nUniformBuffers <= (int)m_UniformsBinds.size());
 
         // -------------------------------------------------------------------------
         // Validate + backup + build fast remap for ALL uniform buffers (static & dynamic)
@@ -364,7 +365,7 @@ namespace xgpu::vulkan
                 return f;
             };
 
-        std::array<VkDescriptorSetLayoutBinding, 10> staticBindings{}; // Max UBOs
+        std::array<VkDescriptorSetLayoutBinding, 16> staticBindings{}; // Max UBOs
         VkDescriptorSetLayoutCreateInfo staticLayoutInfo = { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
         nStatic = static_cast<int>(m_StaticView.size());
         if (nStatic > 0) 
@@ -397,11 +398,11 @@ namespace xgpu::vulkan
         //
         // Similar for dynamic (set 2), using m_DynamicView, descriptorType= DYNAMIC
         //
-        std::array<VkDescriptorSetLayoutBinding, 10> dynamicBindings{};
+        std::array<VkDescriptorSetLayoutBinding, 16> dynamicBindings{};
         VkDescriptorSetLayoutCreateInfo dynamicLayoutInfo = { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, .pNext = nullptr };
 
         // These must outlive the vkCreateDescriptorSetLayout call below: dynamicLayoutInfo points at them
-        std::array<VkDescriptorBindingFlags, 10> bindingFlags{};  // All zero/default
+        std::array<VkDescriptorBindingFlags, 16> bindingFlags{};  // All zero/default
         VkDescriptorSetLayoutBindingFlagsCreateInfo bindingFlagsInfo = { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_BINDING_FLAGS_CREATE_INFO };
 
         nDynamic = static_cast<int>(m_DynamicView.size());

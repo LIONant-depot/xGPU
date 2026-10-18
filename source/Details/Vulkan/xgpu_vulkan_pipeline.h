@@ -62,7 +62,7 @@ namespace xgpu::vulkan
         samples_array                                       m_VKSamplers                    {};
         stages_createinfo_array                             m_ShaderStagesCreateInfo        {};
         std::atomic_int                                     m_nPipelineInstances            {0};
-        std::array<xgpu::pipeline::uniform_binds,10>        m_UniformsBinds                 {};
+        std::array<xgpu::pipeline::uniform_binds,16>        m_UniformsBinds                 {};
         std::span<xgpu::pipeline::uniform_binds>            m_StaticView                    {};
         std::span<xgpu::pipeline::uniform_binds>            m_DynamicView                   {};
 //        std::array<xgpu::shader::type,5>                    m_UniformBufferBits             {};
