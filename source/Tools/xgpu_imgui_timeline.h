@@ -52,6 +52,7 @@ namespace xgpu::tools::imgui::timeline
     {
         float   m_ViewStart     = 0.0f;    // seconds - left edge of the visible window
         float   m_ViewDuration  = 4.0f;    // seconds visible across the widget's full width
+        bool    m_bFitted       = false;   // false until the first Draw() fitted the whole clip in the view (a reset state fits again)
         bool    m_bPanning      = false;
         float   m_PanStartMouseX    = 0.0f;
         float   m_PanStartViewStart = 0.0f;
@@ -127,6 +128,12 @@ namespace xgpu::tools::imgui::timeline
         // Capped at the content's own length (with a 1s floor for near-instant clips) - no reason to
         // zoom out past "the whole clip fits", so this IS the max zoom-out.
         const float MaxView = std::max(ContentDuration, 1.0f);
+        if (!State.m_bFitted)       // opens showing the whole clip: the user zooms in from there
+        {
+            State.m_bFitted      = true;
+            State.m_ViewStart    = 0.0f;
+            State.m_ViewDuration = MaxView;
+        }
         State.m_ViewDuration = std::min(State.m_ViewDuration, MaxView);
 
         // Wide enough for a tick's stacked "1.33s"/"f80" label to read clearly - reused below both to
