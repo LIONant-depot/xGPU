@@ -164,7 +164,8 @@ namespace xgpu::tools::imgui::timeline
         // Max zoom-in: once a single frame is at least MajorTickSpacingPx wide, it's already perfectly
         // legible - scales with the ruler's own pixel width and the clip's FPS instead of a fixed
         // constant.
-        const float MinView = bFrameStepped ? std::max(RulerWidth / (MajorTickSpacingPx * FPS), 0.01f) : 0.05f;
+        // (never above the whole clip: a short clip, or a wide ruler with a low FPS, would ask for a zoom-in limit longer than the clip, and clamp with min > max is undefined)
+        const float MinView = std::min(bFrameStepped ? std::max(RulerWidth / (MajorTickSpacingPx * FPS), 0.01f) : 0.05f, MaxView);
         State.m_ViewDuration = std::clamp(State.m_ViewDuration, MinView, MaxView);
 
         // Pan (right-drag) is checked against the WHOLE widget's own bounding box, computed before
