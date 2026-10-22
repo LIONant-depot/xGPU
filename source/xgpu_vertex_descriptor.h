@@ -56,6 +56,9 @@ namespace xgpu
             topology                m_Topology      { topology::TRIANGLE_LIST };
             std::uint32_t           m_VertexSize    {0};
             std::span<attribute>    m_Attributes    {};
+            bool                    m_bDynamicStride = false;   // streaming only (Vulkan 1.3): each stream's stride is given when it is bound, so a
+                                                                // stream bound as constant (cmd_buffer::setStreamingBuffers' ConstantStreams) has stride 0
+                                                                // and every vertex reads its first element - an optional stream the geometry lacks
         };
 
         std::shared_ptr<details::vertex_descriptor_handle> m_Private;

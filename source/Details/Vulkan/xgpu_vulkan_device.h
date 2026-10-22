@@ -131,6 +131,7 @@ namespace xgpu::vulkan
         lock_object<VkDescriptorPool>                   m_LockedVKDescriptorPool    {};
         int                                             m_FrameIndex                = 0;
         bool                                            m_bHostQueryReset           = false;    // VkPhysicalDeviceHostQueryResetFeatures, needed by vulkan::timestamps
+        bool                                            m_bDynamicVertexStride      = false;    // Vulkan 1.3 (core, no feature bit): vertex_descriptor::setup::m_bDynamicStride
         std::array<death_march,2>                       m_DeathMarchList            {};
         mati_per_renderpass_map                         m_PipeLineInstanceMap       {};
         mat_per_renderpass_map                          m_PipeLineMap               {};

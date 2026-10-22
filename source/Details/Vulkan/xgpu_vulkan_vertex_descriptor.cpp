@@ -96,6 +96,9 @@ namespace xgpu::vulkan
             };
         }
 
+        assert(!Setup.m_bDynamicStride || Setup.m_bUseStreaming);
+        m_bDynamicStride = Setup.m_bDynamicStride;
+
         m_VKInputStageCreateInfo = VkPipelineVertexInputStateCreateInfo
         { .sType                              = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO
         , .vertexBindingDescriptionCount      = nBindings

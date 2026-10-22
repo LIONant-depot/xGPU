@@ -1137,6 +1137,7 @@ namespace xgpu::vulkan
         CB.m_VKActiveRenderPass = m_VKRenderPass;
         CB.m_VKCommandBuffer    = m_Frames[m_FrameIndex].m_VKCommandBuffer;
         CB.m_VKPipelineLayout   = nullptr;
+        CB.m_nStridedStreams    = 0;
     }
 
     //------------------------------------------------------------------------------------------------------------------------
@@ -1204,6 +1205,7 @@ namespace xgpu::vulkan
         CB.m_VKActiveRenderPass = RenderPass.m_VKRenderPass;
         CB.m_VKCommandBuffer    = Frame.m_VKCommandBuffer;
         CB.m_VKPipelineLayout   = nullptr;
+        CB.m_nStridedStreams    = 0;
     }
 
     //------------------------------------------------------------------------------------------------------------------------
@@ -1507,6 +1509,13 @@ namespace xgpu::vulkan
         const auto& Pipe = *PerRenderPass.m_pPipelineInstance->m_Pipeline;
         CB.m_VKPipelineLayout = Pipe.m_VKPipelineLayout;
 
+        // A static stride pipeline bound in between overwrote the streams' dynamic strides
+        if( Pipe.m_bDynamicStride && CB.m_nStridedStreams )
+        {
+            const std::array<VkDeviceSize, 8> Offsets{};
+            vkCmdBindVertexBuffers2(CB.m_VKCommandBuffer, 0, CB.m_nStridedStreams, CB.m_StridedVKBuffers.data(), Offsets.data(), nullptr, CB.m_StridedStrides.data());
+        }
+
         //
         // Bind descriptor set: set 0 (samplers), if present
         //
@@ -1623,6 +1632,7 @@ namespace xgpu::vulkan
                 auto VertexOffset  = std::array{ static_cast<VkDeviceSize>(StartingElementIndex*VBuffer.m_EntrySizeBytes) };
                 static_assert( VertexBuffers.size() == VertexOffset.size() );
 
+                CB.m_nStridedStreams = 0;
                 vkCmdBindVertexBuffers
                 ( CB.m_VKCommandBuffer
                 , 0 // TODO: Binding!!!!!!!!!!!!!!!!!!!!!!!
@@ -1673,6 +1683,7 @@ namespace xgpu::vulkan
         }
 
         auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
+        CB.m_nStridedStreams = 0;
 
         vkCmdBindVertexBuffers
         ( CB.m_VKCommandBuffer
@@ -1681,6 +1692,35 @@ namespace xgpu::vulkan
         , VKBuffers.data()
         , Offsets.data()
         );
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+
+    void window::setStreamingBuffers(xgpu::cmd_buffer& CmdBuffer, std::span<xgpu::buffer* const> Buffers, std::uint32_t ConstantStreams, int StartingElementIndex ) noexcept
+    {
+        assert(m_Device->m_bDynamicVertexStride);
+        auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
+
+        auto iStart = 0u;
+        if( static_cast<xgpu::vulkan::buffer*>(Buffers[0]->m_Private.get())->m_Type == xgpu::buffer::type::INDEX )
+        {
+            setBuffer(CmdBuffer, *Buffers[0], StartingElementIndex);
+            iStart = 1;
+        }
+
+        const auto nStreams = static_cast<std::uint32_t>(Buffers.size() - iStart);
+        assert(nStreams <= CB.m_StridedVKBuffers.size());
+        for( std::uint32_t i = 0; i < nStreams; ++i )
+        {
+            auto& VBuffer = *static_cast<xgpu::vulkan::buffer*>(Buffers[iStart + i]->m_Private.get());
+            assert(VBuffer.m_Type == xgpu::buffer::type::VERTEX);
+            CB.m_StridedVKBuffers[i] = VBuffer.m_VKBuffer;
+            CB.m_StridedStrides[i]   = ((ConstantStreams >> i) & 1u) ? 0 : static_cast<VkDeviceSize>(VBuffer.m_EntrySizeBytes);
+        }
+        CB.m_nStridedStreams = nStreams;
+
+        const std::array<VkDeviceSize, 8> Offsets{};
+        vkCmdBindVertexBuffers2(CB.m_VKCommandBuffer, 0, nStreams, CB.m_StridedVKBuffers.data(), Offsets.data(), nullptr, CB.m_StridedStrides.data());
     }
 
     //------------------------------------------------------------------------------------------------------------------------

@@ -10,6 +10,10 @@ namespace xgpu
         XGPU_INLINE     cmd_buffer&     setDynamicUBO               ( xgpu::buffer& Buffer, int BindIndex) noexcept;
 
         XGPU_INLINE     cmd_buffer&     setStreamingBuffers         ( std::span<xgpu::buffer> Buffers, int StartingElementIndex=0) noexcept;
+        // Buffers not next to each other: an optional index buffer first, then stream 0, 1, ... Each stream's stride is its buffer's entry
+        // size, or 0 when its bit (stream i: bit i) is in ConstantStreams: every vertex reads its first element. For a pipeline whose
+        // vertex descriptor has m_bDynamicStride (Vulkan 1.3); binding such a pipeline later re-applies these streams.
+        XGPU_INLINE     cmd_buffer&     setStreamingBuffers         ( std::span<xgpu::buffer* const> Buffers, std::uint32_t ConstantStreams, int StartingElementIndex=0) noexcept;
         XGPU_INLINE     cmd_buffer&     setBuffer                   ( xgpu::buffer& Buffer, int StartingElementIndex=0) noexcept;
         XGPU_INLINE     cmd_buffer&     setViewport                 ( float x, float y, float w, float h, float minDepth = 0.0f, float maxDepth = 1.0f) noexcept;
         XGPU_INLINE     cmd_buffer&     setScissor                  ( int x, int y, int w, int h )          noexcept;
@@ -24,6 +28,6 @@ namespace xgpu
 
         details::window_handle*         m_pWindow { nullptr };
 
-        std::array<std::byte, 192>      m_Memory;
+        std::array<std::byte, 328>      m_Memory;
     };
 }

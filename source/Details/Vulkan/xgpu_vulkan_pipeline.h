@@ -54,7 +54,8 @@ namespace xgpu::vulkan
         VkPipelineMultisampleStateCreateInfo                m_VkMultisampleState            {};
         VkPipelineDepthStencilStateCreateInfo               m_VkDepthStencilState           {};
         VkPipelineViewportStateCreateInfo                   m_VKViewportInfo                {};
-        std::array<VkDynamicState,2>                        m_VKDyanmicStates               {};
+        std::array<VkDynamicState,3>                        m_VKDyanmicStates               {};
+        bool                                                m_bDynamicStride                = false;    // the vertex descriptor's: binding it replays the command buffer's strided streams
         VkPipelineDynamicStateCreateInfo                    m_VKDynamicStateCreateInfo      {};
         int                                                 m_nShaderStages                 { 0 };
         int                                                 m_nSamplers                     { 0 };

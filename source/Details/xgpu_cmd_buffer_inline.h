@@ -48,6 +48,13 @@ namespace xgpu
     }
 
     //--------------------------------------------------------------------------------------
+    cmd_buffer& cmd_buffer::setStreamingBuffers(std::span<xgpu::buffer* const> Buffers, std::uint32_t ConstantStreams, int StartingElementIndex ) noexcept
+    {
+        m_pWindow->setStreamingBuffers(*this, Buffers, ConstantStreams, StartingElementIndex);
+        return *this;
+    }
+
+    //--------------------------------------------------------------------------------------
 
     cmd_buffer& cmd_buffer::Draw(int IndexCount, int FirstIndex, int VertexOffset ) noexcept
     {

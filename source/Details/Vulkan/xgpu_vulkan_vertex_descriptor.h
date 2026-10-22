@@ -9,5 +9,6 @@ namespace xgpu::vulkan
         VkPipelineVertexInputStateCreateInfo             m_VKInputStageCreateInfo       {};
         std::array<VkVertexInputBindingDescription,16>   m_VKInputBindingDescription    {};
         std::array<VkVertexInputAttributeDescription,16> m_VKInputAttributesDescription {};
+        bool                                             m_bDynamicStride               = false;
     };
 }

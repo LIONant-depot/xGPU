@@ -155,6 +155,7 @@ namespace xgpu::vulkan
         //
         vkGetPhysicalDeviceMemoryProperties(m_VKPhysicalDevice, &m_VKDeviceMemoryProperties);
         vkGetPhysicalDeviceProperties(m_VKPhysicalDevice, &m_VKPhysicalDeviceProperties);
+        m_bDynamicVertexStride = m_VKPhysicalDeviceProperties.apiVersion >= VK_API_VERSION_1_3;
 
         // Which GPU/driver the validation messages are about (on WSLg: "Microsoft Direct3D12 (...)" = Mesa Dozen, or llvmpipe)
         if (m_Instance->m_bValidation)

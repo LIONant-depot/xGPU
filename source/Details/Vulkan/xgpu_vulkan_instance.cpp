@@ -229,7 +229,7 @@ namespace xgpu::vulkan
         ,   .applicationVersion = 1
         ,   .pEngineName        = "xGPU::Vulkan"
         ,   .engineVersion      = 1
-        ,   .apiVersion         = VK_API_VERSION_1_2
+        ,   .apiVersion         = VK_API_VERSION_1_3     // a 1.2 device still works (the filter below): only the 1.3 features are off (device::m_bDynamicVertexStride)
         };
 
         //

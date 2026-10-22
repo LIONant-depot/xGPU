@@ -18,6 +18,12 @@ namespace xgpu::vulkan
         VkPipelineLayout                    m_CurrentPipelineLayout{};
 
         std::array<xgpu::buffer*, 8>       m_CurrentDynamicVKBuffers{};
+
+        // ---- the last strided vertex streams (setStreamingBuffers with ConstantStreams): binding a pipeline with static strides
+        // overwrites the dynamic ones, so binding a dynamic stride pipeline applies these again
+        std::array<VkBuffer, 8>             m_StridedVKBuffers      {};
+        std::array<VkDeviceSize, 8>         m_StridedStrides        {};
+        std::uint32_t                       m_nStridedStreams       {0};
     };
 
     static_assert( sizeof(xgpu::cmd_buffer) == (sizeof(cmdbuffer) + sizeof(std::size_t)) );
@@ -76,6 +82,12 @@ namespace xgpu::vulkan
         void                                    setStreamingBuffers         ( xgpu::cmd_buffer&         CmdBuffer
                                                                             , std::span<xgpu::buffer>   Buffers
                                                                             , int                       StartingElementIndex
+                                                                            ) noexcept override;
+        virtual
+        void                                    setStreamingBuffers         ( xgpu::cmd_buffer&                 CmdBuffer
+                                                                            , std::span<xgpu::buffer* const>    Buffers
+                                                                            , std::uint32_t                     ConstantStreams
+                                                                            , int                               StartingElementIndex
                                                                             ) noexcept override;
         virtual
         void                                    DrawInstance                ( xgpu::cmd_buffer& CmdBuffer

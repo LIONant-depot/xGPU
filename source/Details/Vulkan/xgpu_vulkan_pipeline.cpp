@@ -500,9 +500,15 @@ namespace xgpu::vulkan
 
         m_VKDyanmicStates[0] = VK_DYNAMIC_STATE_VIEWPORT;
         m_VKDyanmicStates[1] = VK_DYNAMIC_STATE_SCISSOR;
+        m_bDynamicStride     = m_VertexDesciptor->m_bDynamicStride;
+        if( m_bDynamicStride )
+        {
+            if( !m_Device->m_bDynamicVertexStride ) return VGPU_ERROR(xgpu::device::error::FAILURE, "A dynamic stride vertex descriptor needs a Vulkan 1.3 device");
+            m_VKDyanmicStates[2] = VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE;
+        }
         m_VKDynamicStateCreateInfo = VkPipelineDynamicStateCreateInfo
         { .sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO
-        , .dynamicStateCount = static_cast<std::uint32_t>(m_VKDyanmicStates.size())
+        , .dynamicStateCount = m_bDynamicStride ? 3u : 2u
         , .pDynamicStates = m_VKDyanmicStates.data()
         };
 
