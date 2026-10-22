@@ -69,6 +69,9 @@ namespace xgpu
         // The OS window's title (UTF-8): e.g. a frame-rate readout
         XGPU_INLINE                 void                setTitle                ( std::string_view Title ) noexcept;
         [[nodiscard]] XGPU_INLINE std::size_t         getSystemWindowHandle   ( void ) const noexcept;
+        // Lets go of the mouse the window holds while a button is down (X11's implicit grab), so the window manager can take it: a window that
+        // draws its own title bar asks the window manager to move or resize it this way (_NET_WM_MOVERESIZE). Nothing to do on Windows.
+        XGPU_INLINE                 void                releaseMouseCapture     ( void ) noexcept;
         [[nodiscard]] XGPU_INLINE bool                isFocused               ( void ) const noexcept;
         [[nodiscard]] XGPU_INLINE bool                isCapturing             ( void ) const noexcept;
         [[nodiscard]] XGPU_INLINE bool                isHovered               ( void ) const noexcept;

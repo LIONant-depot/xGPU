@@ -320,6 +320,13 @@ namespace xgpu::xlib
         XFlush(m_Connection->m_pDisplay);
     }
 
+    void window::releaseMouseCapture( void ) noexcept
+    {
+        // The grab is this connection's (it took the button press): only it can let go of it
+        XUngrabPointer(m_Connection->m_pDisplay, x::CurrentTime);
+        XFlush(m_Connection->m_pDisplay);
+    }
+
     void window::setPosition( int X, int Y ) noexcept
     {
         if( Trace() ) std::fprintf(stderr, "[xlib] setPosition %lx -> %d,%d (was %d,%d)\n", m_Window, X, Y, m_TruePosition.first, m_TruePosition.second);

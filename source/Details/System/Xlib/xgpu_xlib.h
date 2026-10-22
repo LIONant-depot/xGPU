@@ -57,6 +57,7 @@ namespace xgpu::xlib
         virtual int                 getHeight               ( void ) const noexcept override { return m_Height; }
         virtual bool                BegingRendering         ( void )       noexcept override { return m_isMinimize; }
         virtual std::size_t         getSystemWindowHandle   ( void ) const noexcept override { return static_cast<std::size_t>(m_Window); }
+        virtual void                releaseMouseCapture     ( void )       noexcept override;
         virtual bool                isFocused               ( void ) const noexcept override { return m_isFocused; }
         virtual bool                isCapturing             ( void ) const noexcept override { return m_ButtonsDown > 0; }  // X grabs the pointer implicitly while a button is held
         virtual bool                isHovered               ( void ) const noexcept override { return m_isHovered; }

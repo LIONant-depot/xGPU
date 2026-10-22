@@ -39,6 +39,7 @@ namespace xgpu
             virtual     bool                            isMinimized             ( void ) const                                              noexcept = 0;
             virtual     void                            setClearColor           ( float R, float G, float B, float A )                      noexcept = 0;
             virtual     std::size_t                     getSystemWindowHandle   ( void ) const                                              noexcept = 0;
+            virtual     void                            releaseMouseCapture     ( void )                                                    noexcept {}
             virtual     bool                            isFocused               ( void ) const                                              noexcept = 0;
             virtual     bool                            isCapturing             ( void ) const                                              noexcept = 0;
             virtual     bool                            isHovered               ( void ) const                                              noexcept = 0;
@@ -192,6 +193,14 @@ namespace xgpu
     window::getSystemWindowHandle( void ) const noexcept
     {
         return m_Private->getSystemWindowHandle();
+    }
+
+    //--------------------------------------------------------------------------
+
+    XGPU_INLINE void
+    window::releaseMouseCapture( void ) noexcept
+    {
+        m_Private->releaseMouseCapture();
     }
 
     //--------------------------------------------------------------------------
