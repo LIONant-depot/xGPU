@@ -8,9 +8,9 @@
 
 #include "imgui_internal.h"
 #include "xgpu_imgui_breach.h"
+#include <string>
 #if !defined(_WIN32)
     #include <filesystem>
-    #include <string>
     #include <string_view>
     #include <vector>
     #include <cctype>
@@ -63,10 +63,6 @@ namespace xgpu::tools::imgui {
             for( const char* pDir : { "/usr/share/fonts/truetype/dejavu/", "/usr/share/fonts/dejavu/", "/usr/share/fonts/TTF/", "/usr/share/fonts/dejavu-sans-fonts/", "/usr/share/fonts/dejavu-sans-mono-fonts/" } )
                 Candidates.push_back( std::string(pDir) + L.m_pFree );
         }
-
-        // Segoe MDL2 Assets (the icons) can't be redistributed: an application can ship segmdl2_compat.ttf next to its
-        // executable instead, a free font with icons at the same code points
-        if( Name == "segmdl2.ttf" && !ExeDir.empty() ) Candidates.push_back( (ExeDir / "segmdl2_compat.ttf").string() );
 
         for( const auto& C : Candidates ) if( fs::is_regular_file(C, Ec) ) return C;
         return {};
@@ -1715,6 +1711,35 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
         #endif
         };
 
+        // The icons: segmdl2_compat.ttf next to the executable when the application ships it (a free font with icons at
+        // Segoe MDL2's code points, which every platform can have: Segoe MDL2 Assets itself is Windows-only and can't be
+        // redistributed), else Segoe MDL2 Assets. On Windows the real one is merged in behind it, so a code point the
+        // compat font lacks still draws (ImGui keeps the first glyph merged for a code point).
+        auto AddIconFont = [&]( float Size, const ImFontConfig* pConfig ) -> ImFont*
+        {
+            std::string Compat;
+        #if defined(_WIN32)
+            char Exe[MAX_PATH];
+            if( const DWORD n = GetModuleFileNameA(nullptr, Exe, MAX_PATH); n > 0 && n < MAX_PATH )
+            {
+                Compat.assign(Exe, n);
+                Compat = Compat.substr(0, Compat.find_last_of("\\/") + 1) + "segmdl2_compat.ttf";
+                if( GetFileAttributesA(Compat.c_str()) == INVALID_FILE_ATTRIBUTES ) Compat.clear();
+            }
+        #else
+            Compat = FindFontFile("segmdl2_compat.ttf");
+        #endif
+            if( Compat.empty() ) return AddFontFile("C:/Windows/Fonts/segmdl2.ttf", Size, pConfig, glyph_ranges2);
+
+            ImFont* pFont = atlas->AddFontFromFileTTF(Compat.c_str(), Size, pConfig, glyph_ranges2);
+        #if defined(_WIN32)
+            ImFontConfig Behind = pConfig ? *pConfig : ImFontConfig{};
+            Behind.MergeMode = true;
+            atlas->AddFontFromFileTTF("C:/Windows/Fonts/segmdl2.ttf", Size, &Behind, glyph_ranges2);
+        #endif
+            return pFont;
+        };
+
         // Load the first font (Consolas)
         ImFontConfig config1;
         config1.PixelSnapH = true;
@@ -1726,21 +1751,21 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
         config2.MergeMode = true;   // Merge into the previous font
         config2.PixelSnapH = true;  // Align horizontally
         config2.GlyphOffset.y = 3.0f; // Move icons down
-        ImFont* font2 = AddFontFile("C:/Windows/Fonts/segmdl2.ttf", 12.0f, &config2, glyph_ranges2);
+        ImFont* font2 = AddIconFont(12.0f, &config2);
         assert(font2 != nullptr && "Failed to load segmdl2.ttf");
 
 
         ImFont* font3 = AddFontFile("C:/Windows/Fonts/consolab.ttf", 12.0f, &config1, glyph_ranges1);
-        ImFont* font4 = AddFontFile("C:/Windows/Fonts/segmdl2.ttf", 12.0f, &config2, glyph_ranges2);
+        ImFont* font4 = AddIconFont(12.0f, &config2);
 
-        ImFont* font5 = AddFontFile("C:/Windows/Fonts/segmdl2.ttf", 64.0f, &config1, glyph_ranges2);
+        ImFont* font5 = AddIconFont(64.0f, &config1);
 
         // Fonts[3] - a genuinely larger BAKED font (bold Consolas @ 16px + merged icons), not the same
         // 12px atlas glyphs stretched via ImGui::GetFont()->Scale at render time (which just upscales
         // the existing low-res bitmap, i.e. the "resize a low res one" the Compilation view's resource
         // names used to do via ScaleText - direct user correction, replaced with this real font).
         ImFont* font6 = AddFontFile("C:/Windows/Fonts/consolab.ttf", 16.0f, &config1, glyph_ranges1);
-        ImFont* font7 = AddFontFile("C:/Windows/Fonts/segmdl2.ttf", 16.0f, &config2, glyph_ranges2);
+        ImFont* font7 = AddIconFont(16.0f, &config2);
 
         // Fonts[4]/[5] - proportional Segoe UI (regular/semibold) for E29's Unity-inspired theme
         // (see E29_Theme.h). Every font up to here is Consolas - fine for the original examples'
@@ -1776,15 +1801,15 @@ xgpu::device::error* CreateInstance( xgpu::window& MainWindow ) noexcept
         // 15 -> 17: direct user feedback ("some fonts are too small, not easy to read") against a
         // real monitor - bumped the base size, not just relying on the +33% "large emphasis" step.
         ImFont* font8  = AddFontFile("C:/Windows/Fonts/segoeui.ttf",  17.0f, &config3, glyph_ranges1);
-        ImFont* font9  = AddFontFile("C:/Windows/Fonts/segmdl2.ttf",  13.0f, &config4, glyph_ranges2);
+        ImFont* font9  = AddIconFont(13.0f, &config4);
         ImFont* font10 = AddFontFile("C:/Windows/Fonts/segoeuib.ttf", 17.0f, &config3, glyph_ranges1);
-        ImFont* font11 = AddFontFile("C:/Windows/Fonts/segmdl2.ttf",  13.0f, &config4, glyph_ranges2);
+        ImFont* font11 = AddIconFont(13.0f, &config4);
 
         // Fonts[6] - Segoe UI Semibold @ 22px, the Unity-theme's "large emphasis" companion to
         // Fonts[3] (Consolas Bold @ 16px) - see getLargeEmphasisFont(). Paired the same +33% size bump
         // Fonts[3] itself uses over Fonts[1] (12px -> 16px), scaled from Segoe UI's own 17px base.
         ImFont* font12 = AddFontFile("C:/Windows/Fonts/segoeuib.ttf", 22.0f, &config3, glyph_ranges1);
-        ImFont* font13 = AddFontFile("C:/Windows/Fonts/segmdl2.ttf",  17.0f, &config4, glyph_ranges2);
+        ImFont* font13 = AddIconFont(17.0f, &config4);
 
         // Build the atlas
         bool success = atlas->Build();
