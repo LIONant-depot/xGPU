@@ -30,7 +30,12 @@ namespace xgpu::tools::imgui {
         namespace fs = std::filesystem;
         const std::string Name( WindowsPath.substr( WindowsPath.find_last_of("/\\") + 1 ) );
 
+        // Next to the executable first: an application ships its fonts there
+        std::error_code Ec;
+        const fs::path ExeDir = fs::read_symlink("/proc/self/exe", Ec).parent_path();
+
         std::vector<std::string> Candidates;
+        if( !ExeDir.empty() ) Candidates.push_back( (ExeDir / Name).string() );
         if( WindowsPath.size() > 2 && WindowsPath[1] == ':' )
         {
             std::string Mnt = std::string("/mnt/") + static_cast<char>(std::tolower(static_cast<unsigned char>(WindowsPath[0]))) + std::string(WindowsPath.substr(2));
@@ -59,7 +64,10 @@ namespace xgpu::tools::imgui {
                 Candidates.push_back( std::string(pDir) + L.m_pFree );
         }
 
-        std::error_code Ec;
+        // Segoe MDL2 Assets (the icons) can't be redistributed: an application can ship segmdl2_compat.ttf next to its
+        // executable instead, a free font with icons at the same code points
+        if( Name == "segmdl2.ttf" && !ExeDir.empty() ) Candidates.push_back( (ExeDir / "segmdl2_compat.ttf").string() );
+
         for( const auto& C : Candidates ) if( fs::is_regular_file(C, Ec) ) return C;
         return {};
     }
