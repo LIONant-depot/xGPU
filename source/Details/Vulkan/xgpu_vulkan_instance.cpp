@@ -401,6 +401,8 @@ namespace xgpu::vulkan
         }
         else if (DecreateType == xgpu::device::discreate::DISCREATE_ONLY)
         {
+            // A machine with no discrete GPU (integrated only, a VM, a CI box with a software driver such as lavapipe) keeps what it has instead of failing
+            auto Others = PhysicalDevices;
             for (std::size_t i = 0; i < PhysicalDevices.size(); ++i)
             {
                 VkPhysicalDeviceProperties DeviceProperties;
@@ -411,6 +413,7 @@ namespace xgpu::vulkan
                     i--;
                 }
             }
+            if (PhysicalDevices.empty()) PhysicalDevices = std::move(Others);
         }
         else if( PhysicalDevices.size() )
         {

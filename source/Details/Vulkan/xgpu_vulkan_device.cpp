@@ -30,11 +30,9 @@ namespace xgpu::vulkan
             }
         }
 
-        if( Device.m_TransferQueueIndex == 0xffffffff )
-        {
-            Device.m_Instance->ReportError("Unable to find a transfer only queue");
-            return VGPU_ERROR(xgpu::device::error::FAILURE, "Unable to find a transfer only queue");
-        }
+        // A device with a single queue family (software drivers such as lavapipe, some integrated GPUs): the transfers share the main queue
+        if( Device.m_TransferQueueIndex == 0xffffffff ) Device.m_TransferQueueIndex = Device.m_MainQueueIndex;
+        const bool bOwnTransferFamily = Device.m_TransferQueueIndex != Device.m_MainQueueIndex;
 
         //
         // Prepare our queues
@@ -84,7 +82,7 @@ namespace xgpu::vulkan
         {
             .sType                      = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO
         ,   .pNext                      = Device.m_bHostQueryReset ? &HostQueryReset : nullptr
-        ,   .queueCreateInfoCount       = static_cast<uint32_t>(queueCreateInfo.size())
+        ,   .queueCreateInfoCount       = bOwnTransferFamily ? static_cast<uint32_t>(queueCreateInfo.size()) : 1u      // one family: it may be listed only once
         ,   .pQueueCreateInfos          = queueCreateInfo.data()
         ,   .enabledLayerCount          = 0
         ,   .ppEnabledLayerNames        = nullptr
