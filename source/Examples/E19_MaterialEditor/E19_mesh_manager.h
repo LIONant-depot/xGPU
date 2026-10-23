@@ -3,6 +3,7 @@
 #pragma once
 
 #include "dependencies/xprim_geom/source/xprim_geom.h"
+#include "dependencies/xprim_geom/source/xprim_geom_material_ball.h"
 
 namespace e19
 {
@@ -38,6 +39,7 @@ namespace e19
         , SPHERE
         , CAPSULE
         , CYLINDER
+        , MATERIAL_BALL
         , PLANE3D
         , PLANE2D
         , ENUM_COUNT
@@ -49,6 +51,7 @@ namespace e19
             CreateSphere(Device);
             CreateCapsule(Device);
             CreateCylinder(Device);
+            CreateFrom(Device, model::MATERIAL_BALL, xprim_geom::material_ball::Generate(0.8f));     // about the sphere's size in the view (it is taller)
             Create3DPlane(Device);
             Create2DPlane(Device);
         }
@@ -59,6 +62,36 @@ namespace e19
             CmdBuffer.setBuffer(Mesh.m_VertexBuffer);
             CmdBuffer.setBuffer(Mesh.m_IndexBuffer);
             CmdBuffer.Draw(Mesh.m_IndexCount);
+        }
+
+        // A primitive into the buffers of a model
+        void CreateFrom(xgpu::device& Device, model Model, const xprim_geom::mesh& Primitive)
+        {
+            mesh& Mesh = m_Meshes[static_cast<int>(Model)];
+            Mesh.m_IndexCount = static_cast<int>(Primitive.m_Indices.size());
+
+            if (auto Err = Device.Create(Mesh.m_VertexBuffer, { .m_Type = xgpu::buffer::type::VERTEX, .m_EntryByteSize = sizeof(draw_vert), .m_EntryCount = static_cast<int>(Primitive.m_Vertices.size()) }); Err)
+            {
+                assert(false);
+                exit(xgpu::getErrorInt(Err));
+            }
+            (void)Mesh.m_VertexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Vertices.size()), [&](void* pData)
+            {
+                auto pVertex = static_cast<draw_vert*>(pData);
+                for (const auto& v : Primitive.m_Vertices)
+                    *pVertex++ = draw_vert{ v.m_Position.m_X, v.m_Position.m_Y, v.m_Position.m_Z, v.m_Texcoord.m_X, v.m_Texcoord.m_Y, ~0u
+                                          , v.m_Normal.m_X, v.m_Normal.m_Y, v.m_Normal.m_Z, v.m_Tangent.m_X, v.m_Tangent.m_Y, v.m_Tangent.m_Z, v.m_Tangent.m_D };
+            });
+
+            if (auto Err = Device.Create(Mesh.m_IndexBuffer, { .m_Type = xgpu::buffer::type::INDEX, .m_EntryByteSize = sizeof(std::uint32_t), .m_EntryCount = static_cast<int>(Primitive.m_Indices.size()) }); Err)
+            {
+                assert(false);
+                exit(xgpu::getErrorInt(Err));
+            }
+            (void)Mesh.m_IndexBuffer.MemoryMap(0, static_cast<int>(Primitive.m_Indices.size()), [&](void* pData)
+            {
+                std::copy(Primitive.m_Indices.begin(), Primitive.m_Indices.end(), static_cast<std::uint32_t*>(pData));
+            });
         }
 
         //CUBE
