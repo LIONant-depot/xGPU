@@ -486,6 +486,30 @@ namespace xgpu::vulkan
     }
 
     //----------------------------------------------------------------------------------------------------------
+    // One frame in flight (window::EndFrame): what the CPU must not overwrite before the GPU is done with it waits here first
+
+    void device::AddInFlight( VkFence Fence ) noexcept
+    {
+        std::lock_guard Lk(m_InFlightLock);
+        m_InFlight.push_back(Fence);
+    }
+
+    void device::RemoveInFlight( VkFence Fence ) noexcept
+    {
+        std::lock_guard Lk(m_InFlightLock);
+        std::erase(m_InFlight, Fence);
+    }
+
+    void device::WaitInFlight( void ) noexcept
+    {
+        std::lock_guard Lk(m_InFlightLock);        // (held while waiting: a window resets a fence only after RemoveInFlight)
+        if( m_InFlight.empty() ) return;
+        vkWaitForFences( m_VKDevice, static_cast<std::uint32_t>(m_InFlight.size()), m_InFlight.data(), VK_TRUE, UINT64_MAX );
+        m_InFlight.clear();
+        if( m_LastDoneFrame < m_FrameIndex - 1 ) m_LastDoneFrame = m_FrameIndex - 1;      // (every frame submitted: the one being recorded is m_FrameIndex)
+    }
+
+    //----------------------------------------------------------------------------------------------------------
 
     void device::Destroy(xgpu::texture&& Texture)                     noexcept 
     { 

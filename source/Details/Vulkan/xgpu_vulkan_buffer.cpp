@@ -124,8 +124,9 @@ namespace xgpu::vulkan
 
     //----------------------------------------------------------------------------------
 
-    xgpu::device::error* buffer::MapLock( void*& pMemory, int StartIndex, int Count ) noexcept
+    xgpu::device::error* buffer::MapLock( void*& pMemory, int StartIndex, int Count, bool bWaitInFlight ) noexcept
     {
+        if( bWaitInFlight ) m_Device->WaitInFlight();          // the frame in flight may still read what is about to be written (MemoryMapFrameRegion: not)
         assert(StartIndex < m_nEntries);
         assert((StartIndex+Count) <= m_nEntries);
         assert(m_ByteSize);
@@ -325,6 +326,7 @@ namespace xgpu::vulkan
 
     xgpu::buffer::error* buffer::Resize( int NewEntryCount ) noexcept
     {
+        m_Device->WaitInFlight();          // (the old buffer is destroyed here: the frame in flight may still use it)
         assert( m_Usage != xgpu::buffer::setup::usage::GPU_READ );
 
         const xgpu::buffer::setup Setup
@@ -371,6 +373,9 @@ namespace xgpu::vulkan
                 break;
             }
         }
+        // The ring comes back to the first entry the frame before wrote (the frame in flight's: one at most, window::EndFrame): wait for it
+        if (m_AllocFrame != m_Device->m_FrameIndex) { m_PrevFrameStart = m_FrameStart; m_FrameStart = V; m_AllocFrame = m_Device->m_FrameIndex; }
+        if (V == m_PrevFrameStart) m_Device->WaitInFlight();
 
         m_LastOffset = V * m_EntrySizeBytes;
 

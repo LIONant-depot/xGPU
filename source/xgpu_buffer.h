@@ -41,6 +41,12 @@ namespace xgpu
         [[nodiscard]]
         error*              MemoryMap               ( int StartIndex, int Count, T_CALLBACK&& Callback ) noexcept;
 
+        // MemoryMap without waiting for the frame in flight: for a region no submitted frame reads (this frame's slot of a ring that has a
+        // slot per frame in flight and one more). MemoryMap waits for that frame first: it may still read what is about to be written
+        template< typename T_CALLBACK >
+        [[nodiscard]]
+        error*              MemoryMapFrameRegion    ( int StartIndex, int Count, T_CALLBACK&& Callback ) noexcept;
+
         [[nodiscard]] XGPU_INLINE
         
         int                 getEntryCount           ( void ) const noexcept;

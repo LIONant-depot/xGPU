@@ -240,9 +240,12 @@ namespace xgpu::vulkan
 
         // We don't use DestroyWindow() because
         // we want to preserve the old swapchain to create the new one.
-        // Destroy old Framebuffer
+        // Destroy old Framebuffer (the device idle: no frame in flight; the fences leave the device's list before they go)
         if( m_Frames.get() )
         {
+            for( std::uint32_t i = 0; i < m_ImageCount; i++ ) m_Device->RemoveInFlight(m_Frames[i].m_VKFence);
+            m_SlotInFlight.assign(m_SlotInFlight.size(), 0);
+            m_VKPrevFence = VK_NULL_HANDLE;
             for( std::uint32_t i = 0; i < m_ImageCount; i++ )
             {
                 MinimalDestroyFrame          ( m_Device->m_VKDevice, m_Frames[i],           pAllocator );
@@ -807,8 +810,7 @@ namespace xgpu::vulkan
         };
 
 
-        for (auto t : PoolSizes)
-            m_DescriptorRings[t].Init(m_Device->m_VKDevice, t, m_Device->m_Instance->m_pVKAllocator);
+        m_RingTypes.assign(PoolSizes.begin(), PoolSizes.end());      // (each slot's rings: Rings)
 
 
         return nullptr;
@@ -1285,6 +1287,18 @@ namespace xgpu::vulkan
         {
             auto& Frame = m_Frames[m_FrameIndex];
 
+            // The slot's last frame (one frame in flight: EndFrame) done before its command pool and its descriptor sets are reused
+            if( m_SlotInFlight.size() < static_cast<std::size_t>(m_ImageCount) ) m_SlotInFlight.resize(static_cast<std::size_t>(m_ImageCount), 0);
+            if( m_SlotInFlight[m_FrameIndex] )
+            {
+                m_Device->RemoveInFlight(Frame.m_VKFence);
+                vkWaitForFences( m_Device->m_VKDevice, 1, &Frame.m_VKFence, VK_TRUE, UINT64_MAX );
+                m_SlotInFlight[m_FrameIndex] = 0;
+                if( m_VKPrevFence == Frame.m_VKFence ) m_VKPrevFence = VK_NULL_HANDLE;
+            }
+            for (auto& [type, ring] : Rings()) ring.AdvanceAndReset(m_Device->m_VKDevice);
+            m_FrameSets.clear();
+
             if( auto VKErr = vkResetCommandPool(m_Device->m_VKDevice, Frame.m_VKCommandPool, 0); VKErr )
             {
                 // TODO: Report Error???
@@ -1302,6 +1316,10 @@ namespace xgpu::vulkan
                 m_Device->m_Instance->ReportError(VKErr, "vkBeginCommandBuffer");
                 assert(false);
             }
+
+            // The frame in flight's writes before anything of this one (the frames used to be ordered by EndFrame's wait)
+            const VkMemoryBarrier Barrier{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT, .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT };
+            vkCmdPipelineBarrier( Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &Barrier, 0, nullptr, 0, nullptr );
         }
 
         
@@ -1321,6 +1339,24 @@ namespace xgpu::vulkan
             vkCmdEndRenderPass(CB.m_VKCommandBuffer);
         }
         assert(m_BeginState>0);
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+
+    // The slot table sized for the swapchain (true: Index is in it)
+    static bool s_SlotOk(std::vector<std::uint8_t>& Slots, std::uint32_t Index) noexcept
+    {
+        if( Slots.size() <= Index ) Slots.resize(Index + 1, 0);
+        return true;
+    }
+
+    std::unordered_map<VkDescriptorType, descriptor_pool_ring>& window::Rings( void ) noexcept
+    {
+        const std::size_t i = static_cast<std::size_t>(m_FrameIndex);
+        if( m_SlotRings.size() <= i ) m_SlotRings.resize(i + 1);
+        auto& R = m_SlotRings[i];
+        if( R.empty() ) for (auto t : m_RingTypes) R[t].Init(m_Device->m_VKDevice, t, m_Device->m_Instance->m_pVKAllocator);
+        return R;
     }
 
     //------------------------------------------------------------------------------------------------------------------------
@@ -1377,24 +1413,33 @@ namespace xgpu::vulkan
             assert(false);
         }
 
-        // Wait for completion before freeing (measurement, XLION_FRAME_TIMES: how long, the mean over 120 frames)
-        static const bool s_bTimes = std::getenv("XLION_FRAME_TIMES") != nullptr;
+        // One frame in flight: this frame runs on the GPU while the CPU records the next; the one submitted before it is waited
+        // here (so at most one is ever in flight). A frame with a copy back (a screenshot, a readback: PageFlip copies right after)
+        // waits for itself, as every frame did before (XGPU_SERIAL_FRAMES: always). Measurement (XLION_FRAME_TIMES): the wait's mean
+        static const bool s_bSerial = std::getenv("XGPU_SERIAL_FRAMES") != nullptr;
+        static const bool s_bTimes  = std::getenv("XLION_FRAME_TIMES") != nullptr;
         const auto TWait = std::chrono::steady_clock::now();
-        vkWaitForFences(m_Device->m_VKDevice, 1, &Frame.m_VKFence, VK_TRUE, UINT64_MAX);
+        if( s_SlotOk(m_SlotInFlight, m_FrameIndex) && (s_bSerial || m_pPendingScreenshotDest || !m_PendingReadbacks.empty()) )
+        {
+            vkWaitForFences(m_Device->m_VKDevice, 1, &Frame.m_VKFence, VK_TRUE, UINT64_MAX);
+            m_Device->WaitInFlight();
+            m_VKPrevFence = VK_NULL_HANDLE;
+            m_Device->m_LastDoneFrame = m_Device->m_FrameIndex;      // (this one too: PageFlip moves the device's frame on)
+        }
+        else
+        {
+            if( m_VKPrevFence != VK_NULL_HANDLE ) vkWaitForFences(m_Device->m_VKDevice, 1, &m_VKPrevFence, VK_TRUE, UINT64_MAX);
+            if( m_Device->m_LastDoneFrame < m_Device->m_FrameIndex - 1 ) m_Device->m_LastDoneFrame = m_Device->m_FrameIndex - 1;
+            m_SlotInFlight[m_FrameIndex] = 1;
+            m_Device->AddInFlight(Frame.m_VKFence);
+            m_VKPrevFence = Frame.m_VKFence;
+        }
         if (s_bTimes)
         {
             static double s_Sum = 0; static int s_n = 0;
             s_Sum += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - TWait).count();
-            if (++s_n == 120) { std::printf("FENCEWAIT %.2f ms (the GPU's frame after the submit)\n", s_Sum / s_n); std::fflush(stdout); s_Sum = 0; s_n = 0; }
+            if (++s_n == 120) { std::printf("FENCEWAIT %.2f ms (EndFrame's wait%s)\n", s_Sum / s_n, s_bSerial ? ", serial" : ": the frame before"); std::fflush(stdout); s_Sum = 0; s_n = 0; }
         }
-        vkResetFences(m_Device->m_VKDevice, 1, &Frame.m_VKFence);
-
-        // Free the ring buffers (and the sets cached from them)
-        for (auto& [type, ring] : m_DescriptorRings)
-        {
-            ring.AdvanceAndReset(m_Device->m_VKDevice);
-        }
-        m_FrameSets.clear();
 
         return nullptr;
     }
@@ -1563,7 +1608,7 @@ namespace xgpu::vulkan
                 Key.m_Buffers[i] = std::reinterpret_pointer_cast<vulkan::buffer>(StaticBuffers[i]->m_Private)->m_VKBuffer;
             VkDescriptorSet         staticSet   = VK_NULL_HANDLE;
             if (auto It = m_FrameSets.find(Key); It != m_FrameSets.end()) staticSet = It->second;
-            else if ((staticSet = m_DescriptorRings[descType].alloc(m_Device->m_VKDevice, layout)) == VK_NULL_HANDLE)
+            else if ((staticSet = Rings()[descType].alloc(m_Device->m_VKDevice, layout)) == VK_NULL_HANDLE)
             {
                 if (!m_bReportedSetOverflow) { m_bReportedSetOverflow = true; m_Device->m_Instance->ReportError("xGPU: a frame ran out of descriptor sets (static); the draw keeps the previous set"); }
             }
@@ -1860,7 +1905,7 @@ namespace xgpu::vulkan
             return;
         }
 
-        VkDescriptorSet newSet = m_DescriptorRings[setType].alloc(m_Device->m_VKDevice, layout);
+        VkDescriptorSet newSet = Rings()[setType].alloc(m_Device->m_VKDevice, layout);
         if (newSet == VK_NULL_HANDLE)
         {
             if (!m_bReportedSetOverflow) { m_bReportedSetOverflow = true; m_Device->m_Instance->ReportError("xGPU: a frame ran out of descriptor sets (dynamic); the draw keeps the previous set"); }
@@ -1965,12 +2010,9 @@ namespace xgpu::vulkan
         }
 
         // Destroy all descriptor pools owned by every ring
-        for (auto& [type, ring] : m_DescriptorRings)
-        {
-            ring.Destroy(m_Device->m_VKDevice);
-        }
-        // Optional: clear the map
-        m_DescriptorRings.clear();
+        for (auto& Slot : m_SlotRings) for (auto& [type, ring] : Slot) ring.Destroy(m_Device->m_VKDevice);
+        m_SlotRings.clear();
+        for (auto& Frame : std::span(m_Frames.get(), m_Frames ? static_cast<std::size_t>(m_ImageCount) : 0)) m_Device->RemoveInFlight(Frame.m_VKFence);
         m_FrameSets.clear();
 
 

@@ -133,6 +133,13 @@ namespace xgpu::vulkan
         bool                                            m_bHostQueryReset           = false;    // VkPhysicalDeviceHostQueryResetFeatures, needed by vulkan::timestamps
         bool                                            m_bDynamicVertexStride      = false;    // Vulkan 1.3 (core, no feature bit): vertex_descriptor::setup::m_bDynamicStride
         std::array<death_march,2>                       m_DeathMarchList            {};
+        // The frames submitted and not waited yet (every window's): the CPU's first write into a GPU buffer waits them (WaitInFlight)
+        std::mutex                                      m_InFlightLock              {};
+        std::vector<VkFence>                            m_InFlight                  {};
+        std::atomic<int>                                m_LastDoneFrame             {-1};      // the newest m_FrameIndex known complete (its fence waited)
+        void                                            AddInFlight                 ( VkFence Fence ) noexcept;
+        void                                            RemoveInFlight              ( VkFence Fence ) noexcept;
+        void                                            WaitInFlight                ( void ) noexcept;
         mati_per_renderpass_map                         m_PipeLineInstanceMap       {};
         mat_per_renderpass_map                          m_PipeLineMap               {};
     };

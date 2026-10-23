@@ -213,7 +213,12 @@ namespace xgpu::vulkan
         VkViewport                              m_DefaultViewport       {};
         VkRect2D                                m_DefaultScissor        {};
         bool                                    m_bDeathMarched         {false};
-        std::unordered_map<VkDescriptorType, descriptor_pool_ring> m_DescriptorRings{};
+        // Per swapchain image: its frame's descriptor sets, reset once that frame's fence has passed (one frame in flight: EndFrame)
+        std::vector<std::unordered_map<VkDescriptorType, descriptor_pool_ring>> m_SlotRings{};
+        std::vector<VkDescriptorType>           m_RingTypes             {};
+        std::vector<std::uint8_t>               m_SlotInFlight          {};     // per image: its frame submitted and not waited yet
+        VkFence                                 m_VKPrevFence           {};     // the frame submitted last: the next EndFrame waits it
+        std::unordered_map<VkDescriptorType, descriptor_pool_ring>& Rings( void ) noexcept;     // this frame's (m_FrameIndex)
 
         // This frame's descriptor sets by content (layout + buffers): a draw that binds the same buffers as an earlier one reuses
         // its set instead of allocating and writing another (dynamic UBO offsets are given at bind time, not in the set).

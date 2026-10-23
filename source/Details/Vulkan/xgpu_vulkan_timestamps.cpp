@@ -48,7 +48,7 @@ namespace xgpu::vulkan
     {
         // ponytail: destroyed immediately, safe because EndFrame waits for the GPU; route through the device's
         // DeathMarch once xGPU keeps frames in flight
-        if( m_VKQueryPool ) vkDestroyQueryPool( m_Device->m_VKDevice, m_VKQueryPool, m_Device->m_Instance->m_pVKAllocator );
+        if( m_VKQueryPool ) { m_Device->WaitInFlight(); vkDestroyQueryPool( m_Device->m_VKDevice, m_VKQueryPool, m_Device->m_Instance->m_pVKAllocator ); }
     }
 
     //----------------------------------------------------------------------------------
@@ -94,6 +94,7 @@ namespace xgpu::vulkan
 
             // Free, or still being recorded (its frame has not been flipped yet)
             if( Set.m_Frame == -1 || Set.m_Frame == m_Device->m_FrameIndex ) continue;
+            if( Set.m_Frame > m_Device->m_LastDoneFrame ) break;      // (its frame may be in flight: not read, not reset, until a fence says it is done)
 
             // VK_NOT_READY is expected when part of the set is not done; availability says which
             (void)vkGetQueryPoolResults( m_Device->m_VKDevice, m_VKQueryPool, i * m_Count, m_Count
