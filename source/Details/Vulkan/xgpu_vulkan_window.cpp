@@ -1,3 +1,4 @@
+#include <chrono>
 namespace xgpu::vulkan
 {
     // Helper structure to hold the data needed by one rendering frame
@@ -1376,8 +1377,16 @@ namespace xgpu::vulkan
             assert(false);
         }
 
-        // Wait for completion before freeing
+        // Wait for completion before freeing (measurement, XLION_FRAME_TIMES: how long, the mean over 120 frames)
+        static const bool s_bTimes = std::getenv("XLION_FRAME_TIMES") != nullptr;
+        const auto TWait = std::chrono::steady_clock::now();
         vkWaitForFences(m_Device->m_VKDevice, 1, &Frame.m_VKFence, VK_TRUE, UINT64_MAX);
+        if (s_bTimes)
+        {
+            static double s_Sum = 0; static int s_n = 0;
+            s_Sum += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - TWait).count();
+            if (++s_n == 120) { std::printf("FENCEWAIT %.2f ms (the GPU's frame after the submit)\n", s_Sum / s_n); std::fflush(stdout); s_Sum = 0; s_n = 0; }
+        }
         vkResetFences(m_Device->m_VKDevice, 1, &Frame.m_VKFence);
 
         // Free the ring buffers (and the sets cached from them)
