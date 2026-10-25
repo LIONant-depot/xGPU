@@ -1857,6 +1857,20 @@ namespace xgpu::vulkan
 
     //------------------------------------------------------------------------------------------------------------------------
 
+    void window::DrawIndexedIndirect( xgpu::cmd_buffer& CmdBuffer, xgpu::buffer& Commands, int FirstCommand, int Count ) noexcept
+    {
+        if( Count <= 0 ) return;
+        auto&       CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
+        const auto& B  = *static_cast<const xgpu::vulkan::buffer*>(Commands.m_Private.get());
+        applyDynamicOffsets(CmdBuffer);
+        constexpr std::uint32_t Stride = sizeof(VkDrawIndexedIndirectCommand);
+        vkCmdDrawIndexedIndirect(CB.m_VKCommandBuffer, B.m_VKBuffer, VkDeviceSize(FirstCommand) * Stride, std::uint32_t(Count), Stride);
+        CB.m_nDynamicOffsets = 0;
+        CB.m_DynamicDirty = false;
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+
     void window::setPushConstants(xgpu::cmd_buffer& CmdBuffer, const void* pData, std::size_t Size ) noexcept
     {
         auto& CB    = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);

@@ -71,6 +71,14 @@ namespace xgpu
 
     //--------------------------------------------------------------------------------------
 
+    cmd_buffer& cmd_buffer::DrawIndexedIndirect( xgpu::buffer& Commands, int FirstCommand, int Count ) noexcept
+    {
+        m_pWindow->DrawIndexedIndirect(*this, Commands, FirstCommand, Count);
+        return *this;
+    }
+
+    //--------------------------------------------------------------------------------------
+
     cmd_buffer& cmd_buffer::setViewport( float x, float y, float w, float h, float minDepth, float maxDepth ) noexcept
     {
         m_pWindow->setViewport(*this, x,y,w,h,minDepth,maxDepth);

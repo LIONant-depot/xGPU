@@ -95,8 +95,10 @@ namespace xgpu::vulkan
                                                                             , int               IndexCount
                                                                             , int               FirstInstance
                                                                             , int               FirstIndex
-                                                                            , int               VertexOffset 
+                                                                            , int               VertexOffset
                                                                             ) noexcept override;
+        virtual
+        void                                    DrawIndexedIndirect         ( xgpu::cmd_buffer& CmdBuffer, xgpu::buffer& Commands, int FirstCommand, int Count ) noexcept override;
         virtual
         void                                    setViewport                 ( xgpu::cmd_buffer& CmdBuffer
                                                                             , float x

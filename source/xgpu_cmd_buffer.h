@@ -22,6 +22,9 @@ namespace xgpu
         XGPU_INLINE     cmd_buffer&     setPushConstants            ( const void* pData, std::size_t Size ) noexcept;
         XGPU_INLINE     cmd_buffer&     Draw                        ( int IndexCount, int FirstIndex = 0, int VertexOffset=0 ) noexcept;
         XGPU_INLINE     cmd_buffer&     DrawInstance                ( int InstanceCount, int IndexCount, int FirstInstance=0, int FirstIndex=0, int VertexOffset=0 ) noexcept;
+        // Count indexed draws in one call, their commands in a storage buffer from FirstCommand: 5 words each (index count, instance count,
+        // first index, vertex offset, first instance: VkDrawIndexedIndirectCommand); the vertex shader tells them apart by gl_InstanceIndex
+        XGPU_INLINE     cmd_buffer&     DrawIndexedIndirect         ( xgpu::buffer& Commands, int FirstCommand, int Count ) noexcept;
         XGPU_INLINE     cmd_buffer&     setDepthBias                ( float ConstantFactor, float DepthBiasClamp, float DepthBiasSlope) noexcept;
         XGPU_INLINE     cmd_buffer&     WriteTimestamp              ( xgpu::timestamps& Timestamps, int Index ) noexcept;   // see xgpu_timestamps.h
         XGPU_INLINE     void            Release                     ( void )                                noexcept;

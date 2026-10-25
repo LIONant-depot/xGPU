@@ -61,7 +61,7 @@ namespace xgpu::vulkan
                                     ? VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
                                     : Setup.m_Type == xgpu::buffer::type::UNIFORM 
                                         ? VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
-                                        : VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                                        : VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT     // (it may hold draw commands: DrawIndexedIndirect)
                                 ) | VK_BUFFER_USAGE_TRANSFER_SRC_BIT     // a source of window::CopyBuffer
                                   | VK_BUFFER_USAGE_TRANSFER_DST_BIT     // and a target (a device-local buffer read back through it)
          , .sharingMode   = VK_SHARING_MODE_EXCLUSIVE
@@ -197,7 +197,7 @@ namespace xgpu::vulkan
                                                                 ? VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
                                                                 : m_Type == xgpu::buffer::type::UNIFORM 
                                                                     ? VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT
-                                                                    : VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+                                                                    : VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
                                                                )
                                                                | VK_BUFFER_USAGE_TRANSFER_DST_BIT
                                                                | VK_BUFFER_USAGE_TRANSFER_SRC_BIT     // (a source of window::CopyBuffer too: one device-local buffer into another)
