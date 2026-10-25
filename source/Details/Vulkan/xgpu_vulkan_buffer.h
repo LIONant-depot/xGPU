@@ -22,7 +22,8 @@ namespace xgpu::vulkan
         std::atomic<int>            m_CurrentOffset     {};     // For uniform buffers
         std::byte*                  m_pVMapMemory       {};
         VkBuffer                    m_VKBuffer          {};
-        VkDeviceMemory              m_VKBufferMemory    {};
+        VkDeviceMemory              m_VKBufferMemory    {};     // host-visible (a GPU_READ buffer's until its data is copied over)
+        vram_allocation             m_VRAM              {};     // a GPU_READ buffer's device-local range (device::AllocVRAM)
         int                         m_LastOffset        {};
         int                         m_AllocFrame        {-1};   // dynamic UBO: the device frame of its last entry, where that frame and the one
         int                         m_FrameStart        {-1};   //   before it started in the ring: coming back to the frame before's first entry

@@ -21,4 +21,5 @@
 #include "Details/Vulkan/xgpu_vulkan_compute.cpp"
 #include "Details/Vulkan/xgpu_vulkan_texture_table.cpp"
 #include "Details/Vulkan/xgpu_vulkan_upload.cpp"
+#include "Details/Vulkan/xgpu_vulkan_vram.cpp"
 

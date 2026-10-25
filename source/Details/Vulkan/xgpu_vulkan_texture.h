@@ -33,7 +33,8 @@ namespace xgpu::vulkan
         std::shared_ptr<vulkan::device> m_Device                {};
         VkImage                         m_VKImage               {};
         VkImageView                     m_VKView                {};
-        VkDeviceMemory                  m_VKDeviceMemory        {};
+        VkDeviceMemory                  m_VKDeviceMemory        {};     // (a host-visible linear image's own memory)
+        vram_allocation                 m_VRAM                  {};     // its device-local range (device::AllocVRAM)
         VkDescriptorImageInfo           m_VKDescriptorImageInfo {};
         std::uint16_t                   m_Width                 {};
         std::uint16_t                   m_Height                {};

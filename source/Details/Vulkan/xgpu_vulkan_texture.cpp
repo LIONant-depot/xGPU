@@ -14,6 +14,7 @@ namespace xgpu::vulkan
         if (m_VKView)         vkDestroyImageView    (m_Device->m_VKDevice, m_VKView, m_Device->m_Instance->m_pVKAllocator);
         if (m_VKImage)        vkDestroyImage        (m_Device->m_VKDevice, m_VKImage, m_Device->m_Instance->m_pVKAllocator);
         if (m_VKDeviceMemory) vkFreeMemory          (m_Device->m_VKDevice, m_VKDeviceMemory, m_Device->m_Instance->m_pVKAllocator );
+        if (m_VRAM.isValid()) m_Device->FreeVRAM(m_VRAM);
     }
 
 
@@ -299,20 +300,15 @@ namespace xgpu::vulkan
                                 , VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
                                 , MemoryAllocInfo.memoryTypeIndex );
 
-            // TODO: THIS SHOULD BE THREAD SAFE??
-            if( auto VKErr = vkAllocateMemory( m_Device->m_VKDevice
-                                             , &MemoryAllocInfo
-                                             , m_Device->m_Instance->m_pVKAllocator
-                                             , &m_VKDeviceMemory ); VKErr )
+            // A range of a device-local block of the device (AllocVRAM), or its own allocation when it is large
+            m_VRAM = m_Device->AllocVRAM(MemoryRequirements, true);
+            if( !m_VRAM.isValid() )
             {
-                m_Device->m_Instance->ReportError(VKErr, "Fail to allocate the necesary memory for the texture in vram with zero mips");
+                m_Device->m_Instance->ReportError("Fail to allocate the necesary memory for the texture in vram with zero mips");
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to allocate the necesary memory for the texture in vram with zero mips");
             }
 
-            if( auto VKErr = vkBindImageMemory  ( m_Device->m_VKDevice
-                                                , m_VKImage
-                                                , m_VKDeviceMemory
-                                                , 0 ); VKErr )
+            if( auto VKErr = vkBindImageMemory( m_Device->m_VKDevice, m_VKImage, m_VRAM.m_Memory, m_VRAM.m_Offset ); VKErr )
             {
                 m_Device->m_Instance->ReportError(VKErr, "Fail to bind with the vram memory from the texture with zero mips");
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to bind with the vram memory from the texture with zero mips" );
@@ -414,20 +410,15 @@ namespace xgpu::vulkan
                                 , VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
                                 , MemoryAllocInfo.memoryTypeIndex );
 
-            // TODO: THIS SHOULD BE THREAD SAFE??
-            if( auto VKErr = vkAllocateMemory( m_Device->m_VKDevice
-                                             , &MemoryAllocInfo
-                                             , m_Device->m_Instance->m_pVKAllocator
-                                             , &m_VKDeviceMemory ); VKErr )
+            // A range of a device-local block of the device (AllocVRAM), or its own allocation when it is large
+            m_VRAM = m_Device->AllocVRAM(MemoryRequirements, true);
+            if( !m_VRAM.isValid() )
             {
-                m_Device->m_Instance->ReportError(VKErr, "Fail to allocate the necesary memory for the texture in vram");
+                m_Device->m_Instance->ReportError("Fail to allocate the necesary memory for the texture in vram");
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to allocate the necesary memory for the texture in vram");
             }
 
-            if( auto VKErr = vkBindImageMemory  ( m_Device->m_VKDevice
-                                                , m_VKImage
-                                                , m_VKDeviceMemory
-                                                , 0 ); VKErr )
+            if( auto VKErr = vkBindImageMemory( m_Device->m_VKDevice, m_VKImage, m_VRAM.m_Memory, m_VRAM.m_Offset ); VKErr )
             {
                 m_Device->m_Instance->ReportError(VKErr, "Fail to bind with the vram memory from the texture");
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to bind with the vram memory from the texture" );

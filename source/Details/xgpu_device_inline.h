@@ -90,6 +90,7 @@ namespace xgpu
             virtual bool          isDone(timeline_point P)              noexcept = 0;
             virtual void          Wait(timeline_point P)                noexcept = 0;
             virtual std::uint64_t getMainQueueWaits(void) const         noexcept = 0;
+            virtual device::memory_stats getMemoryStats(void)           noexcept = 0;
         };
     }
 
@@ -332,5 +333,6 @@ namespace xgpu
     XGPU_INLINE bool           device::isDone( timeline_point P ) noexcept         { return m_Private->isDone(P); }
     XGPU_INLINE void           device::Wait( timeline_point P ) noexcept           { m_Private->Wait(P); }
     XGPU_INLINE std::uint64_t  device::getMainQueueWaits( void ) const noexcept    { return m_Private->getMainQueueWaits(); }
+    XGPU_INLINE device::memory_stats device::getMemoryStats( void ) noexcept        { return m_Private->getMemoryStats(); }
 
 }

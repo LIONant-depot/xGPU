@@ -129,6 +129,13 @@ namespace xgpu::vulkan
         };
         texture_heap                    m_Heap;
         upload_queue                    m_Upload;                       // the streaming lane (xgpu_vulkan_upload.h)
+        // Device-local memory in blocks (xgpu_vulkan_vram.cpp): textures with data, render targets, GPU_READ buffers
+        std::mutex                      m_VRAMLock;
+        std::deque<vram_block>          m_VRAMBlocks;
+        std::atomic<int>                m_nVRAMDedicated    { 0 };
+        vram_allocation                 AllocVRAM           ( const VkMemoryRequirements& Req, bool bImage ) noexcept;
+        void                            FreeVRAM            ( vram_allocation& A ) noexcept;
+        virtual xgpu::device::memory_stats getMemoryStats   ( void ) noexcept override;
         std::atomic<std::uint64_t>      m_nMainQueueWaits   { 0 };     // vkQueueWaitIdle on the main queue (the setup command buffer: readbacks, region updates)
         virtual xgpu::timeline_point    FlushUploads        ( void ) noexcept override { return { m_Upload.Flush() }; }
         virtual bool                    isDone              ( xgpu::timeline_point P ) noexcept override { return m_Upload.isDone(P.m_Value); }

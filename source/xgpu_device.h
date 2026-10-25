@@ -135,6 +135,15 @@ namespace xgpu
         [[nodiscard]] XGPU_INLINE timeline_point FlushUploads   ( void ) noexcept;
         [[nodiscard]] XGPU_INLINE bool           isDone         ( timeline_point Point ) noexcept;
         XGPU_INLINE void                         Wait           ( timeline_point Point ) noexcept;
+        // Diagnostics: the device-local blocks (64 MB, OffsetAllocator ranges), the ranges in them, the allocations of their own (past 16 MB)
+        struct memory_stats
+        {
+            int             m_nBlocks       = 0;
+            int             m_nRanges       = 0;
+            int             m_nDedicated    = 0;
+            std::uint64_t   m_FreeBytes     = 0;
+        };
+        [[nodiscard]] XGPU_INLINE memory_stats   getMemoryStats ( void ) noexcept;
         // Diagnostics: how many times the main queue was waited idle (readbacks and region updates still do; uploads never)
         [[nodiscard]] XGPU_INLINE std::uint64_t  getMainQueueWaits( void ) const noexcept;
 

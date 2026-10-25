@@ -22,6 +22,8 @@ namespace xgpu::vulkan
     struct frame_semaphores;
 }
 
+#include "../OffsetAllocator/offsetAllocator_inline.hpp"     // sebbbi/OffsetAllocator (MIT): the VRAM blocks' ranges
+#include "xgpu_vulkan_vram.h"
 #include "xgpu_vulkan_local_storage.h"
 #include "xgpu_vulkan_instance.h"
 #include "xgpu_vulkan_shader.h"

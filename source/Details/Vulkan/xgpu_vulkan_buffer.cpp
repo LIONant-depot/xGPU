@@ -213,24 +213,18 @@ namespace xgpu::vulkan
         }
 
         VkMemoryRequirements req;
-        vkGetBufferMemoryRequirements(m_Device->m_VKDevice, m_VKBuffer, &req);
+        vkGetBufferMemoryRequirements(m_Device->m_VKDevice, VKFinalBuffer, &req);
 
         m_Device->m_BufferMemoryAlignment = (m_Device->m_BufferMemoryAlignment > req.alignment) ? m_Device->m_BufferMemoryAlignment : req.alignment;
-        VkMemoryAllocateInfo AllocInfo
-        { .sType            = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO
-        , .allocationSize   = req.size
-        , .memoryTypeIndex  = 0
-        };
-        m_Device->getMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, AllocInfo.memoryTypeIndex);
-
-        VkDeviceMemory VKFinalBufferMemory;
-        if (auto VKErr = vkAllocateMemory(m_Device->m_VKDevice, &AllocInfo, m_Device->m_Instance->m_pVKAllocator, &VKFinalBufferMemory); VKErr)
+        // A range of a device-local block (device::AllocVRAM), or its own allocation when it is large
+        m_VRAM = m_Device->AllocVRAM(req, false);
+        if (!m_VRAM.isValid())
         {
-            m_Device->m_Instance->ReportError(VKErr, "Fail to Allocate Memory for local Buffer");
+            vkDestroyBuffer(m_Device->m_VKDevice, VKFinalBuffer, m_Device->m_Instance->m_pVKAllocator);
             return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to Allocate Memory for local Buffer");
         }
 
-        if (auto VKErr = vkBindBufferMemory(m_Device->m_VKDevice, VKFinalBuffer, VKFinalBufferMemory, 0); VKErr)
+        if (auto VKErr = vkBindBufferMemory(m_Device->m_VKDevice, VKFinalBuffer, m_VRAM.m_Memory, m_VRAM.m_Offset); VKErr)
         {
             m_Device->m_Instance->ReportError(VKErr, "Fail to Bind Memory for local Buffer");
             return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to Bind Memory for local Buffer");
@@ -242,7 +236,7 @@ namespace xgpu::vulkan
         //
         if( auto Err = m_Device->m_Upload.UploadBuffer(m_VKBuffer, m_VKBufferMemory, VKFinalBuffer, ByteSize); Err ) return Err;
 
-        m_VKBufferMemory = VKFinalBufferMemory;
+        m_VKBufferMemory = VK_NULL_HANDLE;      // (the host one is the upload queue's to free now)
         m_VKBuffer       = VKFinalBuffer;
 
         // By setting this guy to zero we are saying that we should not need to touch this memory again
@@ -394,6 +388,7 @@ namespace xgpu::vulkan
             vkFreeMemory(m_Device->m_VKDevice, m_VKBufferMemory, m_Device->m_Instance->m_pVKAllocator );
             m_VKBufferMemory = VK_NULL_HANDLE;
         }
+        m_Device->FreeVRAM(m_VRAM);
     }
 
     //----------------------------------------------------------------------------------
