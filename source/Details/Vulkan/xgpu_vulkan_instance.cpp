@@ -195,7 +195,10 @@ namespace xgpu::vulkan
         // A generic vertex shader (position, normal, tangent, uv, ... for every material) paired with the fragment shader of one material that
         // reads only some of it: legal, and the shader compiler drops the unused inputs from the fragment shader on purpose (optimization
         // for performance). There is nothing to fix in any one pipeline, so this performance hint is not reported; everything else is.
-        if ( !(flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) && pMsg && std::string_view(pMsg).find("WARNING-Shader-OutputNotConsumed") != std::string_view::npos )
+        // Newer layers call it Undefined-Value-ShaderOutputNotConsumed, and also use it for a fragment shader's color written in a pass
+        // without a color attachment (xLIONRender's masked shadow casters: the material's shader, depth only) - the spec discards those writes.
+        if ( !(flags & VK_DEBUG_REPORT_ERROR_BIT_EXT) && pMsg && ( std::string_view(pMsg).find("WARNING-Shader-OutputNotConsumed") != std::string_view::npos
+                                                                || std::string_view(pMsg).find("Undefined-Value-ShaderOutputNotConsumed") != std::string_view::npos ) )
             return false;
 
         if (flags & VK_DEBUG_REPORT_ERROR_BIT_EXT)
