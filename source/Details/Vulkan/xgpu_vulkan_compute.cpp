@@ -6,11 +6,11 @@ namespace xgpu::vulkan
         m_nBuffers = Setup.m_nBuffers;
         m_PushSize = static_cast<std::uint32_t>(Setup.m_PushConstantsSize);
         if( Setup.m_pShader == nullptr || Setup.m_pShader->m_Private == nullptr ) return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: no shader");
-        if( m_nBuffers < 0 || m_nBuffers > 8 )                                    return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: 0 to 8 storage buffers");
+        if( m_nBuffers < 0 || m_nBuffers > max_buffers_v )                        return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: 0 to 16 storage buffers");
         if( m_PushSize > 128 )                                                    return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: more than 128 bytes of push constants");
         const auto& Shader = *static_cast<const vulkan::shader*>(Setup.m_pShader->m_Private.get());
 
-        std::array<VkDescriptorSetLayoutBinding, 8> Bindings{};
+        std::array<VkDescriptorSetLayoutBinding, max_buffers_v> Bindings{};
         for( int i = 0; i < m_nBuffers; ++i )
             Bindings[i] = { .binding = static_cast<std::uint32_t>(i), .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
         const VkDescriptorSetLayoutCreateInfo LayoutInfo
@@ -58,8 +58,8 @@ namespace xgpu::vulkan
                 if( !m_bReportedSetOverflow ) { m_bReportedSetOverflow = true; m_Device->m_Instance->ReportError("xGPU: a frame ran out of descriptor sets (compute); the dispatch is skipped"); }
                 return;
             }
-            std::array<VkDescriptorBufferInfo, 8> Infos{};
-            std::array<VkWriteDescriptorSet, 8>   Writes{};
+            std::array<VkDescriptorBufferInfo, compute::max_buffers_v> Infos{};
+            std::array<VkWriteDescriptorSet, compute::max_buffers_v>   Writes{};
             for( int i = 0; i < C.m_nBuffers; ++i )
             {
                 Infos[i]  = { .buffer = static_cast<vulkan::buffer*>(Buffers[i]->m_Private.get())->m_VKBuffer, .offset = 0, .range = VK_WHOLE_SIZE };

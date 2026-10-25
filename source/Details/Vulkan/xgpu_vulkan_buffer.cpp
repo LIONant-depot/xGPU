@@ -199,6 +199,7 @@ namespace xgpu::vulkan
                                                                     : VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
                                                                )
                                                                | VK_BUFFER_USAGE_TRANSFER_DST_BIT
+                                                               | VK_BUFFER_USAGE_TRANSFER_SRC_BIT     // (a source of window::CopyBuffer too: one device-local buffer into another)
                                                              )
         , .sharingMode  = VK_SHARING_MODE_EXCLUSIVE
         };
