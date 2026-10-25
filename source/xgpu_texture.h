@@ -1,5 +1,20 @@
 namespace xgpu
 {
+    // What a shader reads a texture and a sampler by (texture_table, XGPU_TEXTURE / XGPU_SAMPLER): small values, 0 never valid. A
+    // texture gets its id when it is created and keeps it until it is destroyed (the id is reused only after that has retired)
+    struct texture_id
+    {
+        std::uint32_t   m_Value = 0;
+        constexpr bool  isValid     ( void ) const noexcept { return m_Value != 0; }
+        constexpr bool  operator==  ( const texture_id& ) const noexcept = default;
+    };
+    struct sampler_id
+    {
+        std::uint32_t   m_Value = 0;
+        constexpr bool  isValid     ( void ) const noexcept { return m_Value != 0; }
+        constexpr bool  operator==  ( const sampler_id& ) const noexcept = default;
+    };
+
     struct texture
     {
         enum class address_mode : std::uint8_t
@@ -94,6 +109,12 @@ namespace xgpu
 
         inline
         std::array<address_mode,3>  getAdressModes                      ( void ) const noexcept;
+        // Its index in the device's texture heap (texture_table, the material's parameter block)
+        inline
+        texture_id                  getID                               ( void ) const noexcept;
+        // Its own sampler: the device's sampler table entry for its address modes (device::getSampler), a material slot's default
+        inline
+        sampler_id                  getSampler                          ( void ) const noexcept;
 
         inline                     ~texture                             ( void ) noexcept;
 

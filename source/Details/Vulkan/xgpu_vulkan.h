@@ -35,4 +35,5 @@ namespace xgpu::vulkan
 #include "xgpu_vulkan_descriptor_pool_ring.h"
 #include "xgpu_vulkan_device.h"
 #include "xgpu_vulkan_window.h"
+#include "xgpu_vulkan_texture_table.h"
 

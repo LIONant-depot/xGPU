@@ -35,6 +35,7 @@ namespace xgpu::vulkan
         inline static constexpr int sampler_set_index_v = 0;
         inline static constexpr int static_set_index_v = 1;
         inline static constexpr int dynamic_set_index_v = 2;
+        inline static constexpr int texture_set_index_v = 3;
 
         using stages_array                 = std::array<std::shared_ptr<xgpu::vulkan::shader>, xgpu::shader::type::count_v>;
         using stages_createinfo_array      = std::array<VkPipelineShaderStageCreateInfo,       xgpu::shader::type::count_v>;
@@ -44,7 +45,8 @@ namespace xgpu::vulkan
         std::shared_ptr<device>                             m_Device                        {};
         std::shared_ptr<vulkan::vertex_descriptor>          m_VertexDesciptor               {};
         int                                                 m_nVKDescriptorSetLayout        { 0 };
-        std::array<VkDescriptorSetLayout, 3>                m_VKDescriptorSetLayout         {};
+        std::array<VkDescriptorSetLayout, 4>                m_VKDescriptorSetLayout         {};     // [3]: the device's texture table layout (not owned)
+        int                                                 m_nTextureSlots                 { 0 };  // pipeline::setup::m_nTextureSlots
         VkPipelineLayout                                    m_VKPipelineLayout              {};
         VkGraphicsPipelineCreateInfo                        m_VkPipelineCreateInfo          {};
         VkPipelineInputAssemblyStateCreateInfo              m_VkInputAssemblyState          {};

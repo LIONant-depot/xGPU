@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <bit>
 #include <fstream>
 #include <format>
 
@@ -18,4 +19,5 @@
 #include "Details/Vulkan/xgpu_vulkan_buffer.cpp"
 #include "Details/Vulkan/xgpu_vulkan_timestamps.cpp"
 #include "Details/Vulkan/xgpu_vulkan_compute.cpp"
+#include "Details/Vulkan/xgpu_vulkan_texture_table.cpp"
 

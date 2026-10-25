@@ -42,6 +42,7 @@ namespace xgpu::details
     struct shader_handle;
     struct vertex_descriptor_handle;
     struct texture_handle;
+    struct texture_table_handle;
     struct texture_instance_handle;
     struct buffer_handle;
     struct renderpass_handle;
@@ -129,6 +130,7 @@ namespace xgpu
 #include "xgpu_keyboard.h"
 #include "xgpu_vertex_descriptor.h"
 #include "xgpu_texture.h"
+#include "xgpu_texture_table.h"
 #include "xgpu_buffer.h"
 #include "xgpu_shader.h"
 #include "xgpu_pipeline.h"
@@ -156,6 +158,7 @@ namespace xgpu
 #include "Details/xgpu_device_inline.h"
 #include "Details/xgpu_shader_inline.h"
 #include "Details/xgpu_texture_inline.h"
+#include "Details/xgpu_texture_table_inline.h"
 #include "Details/xgpu_renderpass_inline.h"
 #include "Details/xgpu_timestamps_inline.h"
 #include "Details/xgpu_compute_inline.h"

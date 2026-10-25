@@ -232,7 +232,7 @@ namespace xgpu::vulkan
         ,   .applicationVersion = 1
         ,   .pEngineName        = "xGPU::Vulkan"
         ,   .engineVersion      = 1
-        ,   .apiVersion         = VK_API_VERSION_1_3     // a 1.2 device still works (the filter below): only the 1.3 features are off (device::m_bDynamicVertexStride)
+        ,   .apiVersion         = VK_API_VERSION_1_3     // the minimum: devices below it are filtered out (CreateDevice)
         };
 
         //
@@ -379,11 +379,16 @@ namespace xgpu::vulkan
         {
             VkPhysicalDeviceProperties DeviceProperties;
             vkGetPhysicalDeviceProperties(PhysicalDevices[i], &DeviceProperties);
-            if( DeviceProperties.apiVersion < VK_API_VERSION_1_2 )
+            if( DeviceProperties.apiVersion < VK_API_VERSION_1_3 )
             {
                 PhysicalDevices.erase(PhysicalDevices.begin() + i);
                 i--;
             }
+        }
+        if( PhysicalDevices.empty() )
+        {
+            ReportError("xGPU needs a Vulkan 1.3 device: every device found is older (update the driver)");
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "xGPU needs a Vulkan 1.3 device: every device found is older (update the driver)");
         }
 
         //

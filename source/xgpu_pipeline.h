@@ -203,6 +203,9 @@ namespace xgpu
             pipeline::primitive                 m_Primitive         {};
             pipeline::depth_stencil             m_DepthStencil      {};
             pipeline::blend                     m_Blend             {};
+            // Reads a texture_table at set 3 (cmd_buffer::setTextureTable): bindless, the device's heaps; otherwise this many combined
+            // image samplers (the tables used with it have as many slots). 0: no texture table
+            std::uint8_t                        m_nTextureSlots     { 0 };
         };
 
         inline ~pipeline ( void ) noexcept;

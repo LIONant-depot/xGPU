@@ -76,9 +76,16 @@ namespace xgpu
             virtual void Destroy(buffer&& Buffer)                       noexcept = 0;
             virtual void Destroy(window&& Window)                       noexcept = 0;
             virtual void Destroy(renderpass&& RenderPass)               noexcept = 0;
+            virtual void Destroy(texture_table&& Table)                 noexcept = 0;
+            virtual device::error*          Create                  ( xgpu::texture_table&                  Table
+                                                                    , const xgpu::texture_table::setup&     Setup
+                                                                    , std::shared_ptr<device_handle>&       SharedDevice
+                                                                    ) noexcept = 0;
+            virtual sampler_id              getSampler              ( const pipeline::sampler& Desc )       noexcept = 0;
 
             virtual void Shutdown(void)                                 noexcept = 0;
             virtual std::uint64_t getFrameIndex(void) const             noexcept = 0;
+            virtual bool          isBindless(void) const                noexcept = 0;
         };
     }
 
@@ -277,6 +284,20 @@ namespace xgpu
     {
         m_Private->Destroy( std::move(Window) ); 
     }
+    void device::Destroy(texture_table&& Table)                 noexcept
+    {
+        m_Private->Destroy( std::move(Table) );
+    }
+    [[nodiscard]] XGPU_INLINE
+    device::error* device::Create( texture_table& Table, const texture_table::setup& Setup ) noexcept
+    {
+        return m_Private->Create( Table, Setup, m_Private );
+    }
+    [[nodiscard]] XGPU_INLINE
+    sampler_id device::getSampler( const pipeline::sampler& Desc ) noexcept
+    {
+        return m_Private->getSampler(Desc);
+    }
     void device::Destroy(renderpass&& Renderpass)               noexcept
     {
         m_Private->Destroy( std::move(Renderpass) ); 
@@ -293,6 +314,14 @@ namespace xgpu
     std::uint64_t device::getFrameIndex( void ) const noexcept
     {
         return m_Private->getFrameIndex();
+    }
+
+    //------------------------------------------------------------------------------------------------
+
+    XGPU_INLINE
+    bool device::isBindless( void ) const noexcept
+    {
+        return m_Private->isBindless();
     }
 
 }

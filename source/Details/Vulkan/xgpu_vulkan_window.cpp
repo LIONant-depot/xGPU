@@ -1141,6 +1141,7 @@ namespace xgpu::vulkan
         CB.m_VKCommandBuffer    = m_Frames[m_FrameIndex].m_VKCommandBuffer;
         CB.m_VKPipelineLayout   = nullptr;
         CB.m_nStridedStreams    = 0;
+        BoundForget();
     }
 
     //------------------------------------------------------------------------------------------------------------------------
@@ -1209,6 +1210,7 @@ namespace xgpu::vulkan
         CB.m_VKCommandBuffer    = Frame.m_VKCommandBuffer;
         CB.m_VKPipelineLayout   = nullptr;
         CB.m_nStridedStreams    = 0;
+        BoundForget();
     }
 
     //------------------------------------------------------------------------------------------------------------------------
@@ -1558,23 +1560,30 @@ namespace xgpu::vulkan
         //
         // Bind pipeline
         //
-        vkCmdBindPipeline(CB.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, PerRenderPass.m_VKPipeline);
-
+        // (the same pipeline again - materials sharing one - keeps its binding, its layout and the sets bound with it)
         const auto& Pipe = *PerRenderPass.m_pPipelineInstance->m_Pipeline;
         CB.m_VKPipelineLayout = Pipe.m_VKPipelineLayout;
-
-        // A static stride pipeline bound in between overwrote the streams' dynamic strides
-        if( Pipe.m_bDynamicStride && CB.m_nStridedStreams )
+        if( m_BoundVKPipeline != PerRenderPass.m_VKPipeline )
         {
-            const std::array<VkDeviceSize, 8> Offsets{};
-            vkCmdBindVertexBuffers2(CB.m_VKCommandBuffer, 0, CB.m_nStridedStreams, CB.m_StridedVKBuffers.data(), Offsets.data(), nullptr, CB.m_StridedStrides.data());
+            vkCmdBindPipeline(CB.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, PerRenderPass.m_VKPipeline);
+            m_BoundVKPipeline = PerRenderPass.m_VKPipeline;
+            m_BoundSet0 = m_BoundSet1 = m_BoundSet3 = VK_NULL_HANDLE;
+
+            // A static stride pipeline bound in between overwrote the streams' dynamic strides
+            if( Pipe.m_bDynamicStride && CB.m_nStridedStreams )
+            {
+                const std::array<VkDeviceSize, 8> Offsets{};
+                vkCmdBindVertexBuffers2(CB.m_VKCommandBuffer, 0, CB.m_nStridedStreams, CB.m_StridedVKBuffers.data(), Offsets.data(), nullptr, CB.m_StridedStrides.data());
+            }
         }
 
         //
         // Bind descriptor set: set 0 (samplers), if present
         //
         assert (PerRenderPass.m_VKDescriptorSet[0] != VK_NULL_HANDLE);
+        if( m_BoundSet0 != PerRenderPass.m_VKDescriptorSet[0] )
         {
+            m_BoundSet0 = PerRenderPass.m_VKDescriptorSet[0];
             vkCmdBindDescriptorSets
             ( CB.m_VKCommandBuffer
             , VK_PIPELINE_BIND_POINT_GRAPHICS
@@ -1649,7 +1658,11 @@ namespace xgpu::vulkan
             }
 
             // Bind set 1
-            if (staticSet != VK_NULL_HANDLE) vkCmdBindDescriptorSets(CB.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, CB.m_VKPipelineLayout, Pipe.static_set_index_v, 1, &staticSet, 0, nullptr);
+            if (staticSet != VK_NULL_HANDLE && staticSet != m_BoundSet1)
+            {
+                vkCmdBindDescriptorSets(CB.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, CB.m_VKPipelineLayout, Pipe.static_set_index_v, 1, &staticSet, 0, nullptr);
+                m_BoundSet1 = staticSet;
+            }
         }
 
         //
@@ -1669,6 +1682,21 @@ namespace xgpu::vulkan
         }
 
         CB.m_ActivePipelineInstance = PerRenderPass;
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+
+    // Set 3 of the bound pipeline: the device's heaps (bindless: the same set for every table) or the table's own set
+    void window::setTextureTable( xgpu::cmd_buffer& CmdBuffer, xgpu::texture_table& Table ) noexcept
+    {
+        auto&       CB  = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
+        const auto& T   = static_cast<const vulkan::texture_table&>(*Table.m_Private);
+        assert(CB.m_ActivePipelineInstance.m_pPipelineInstance && CB.m_ActivePipelineInstance.m_pPipelineInstance->m_Pipeline->m_nTextureSlots > 0);
+        assert(m_Device->m_bBindless || CB.m_ActivePipelineInstance.m_pPipelineInstance->m_Pipeline->m_nTextureSlots == static_cast<int>(T.m_Slots.size()));
+        const VkDescriptorSet Set = m_Device->m_bBindless ? m_Device->m_Heap.m_Set : T.m_VKSet;
+        if( Set == VK_NULL_HANDLE || Set == m_BoundSet3 ) return;
+        vkCmdBindDescriptorSets(CB.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, CB.m_VKPipelineLayout, pipeline::texture_set_index_v, 1, &Set, 0, nullptr);
+        m_BoundSet3 = Set;
     }
 
     //------------------------------------------------------------------------------------------------------------------------
@@ -1752,7 +1780,6 @@ namespace xgpu::vulkan
 
     void window::setStreamingBuffers(xgpu::cmd_buffer& CmdBuffer, std::span<xgpu::buffer* const> Buffers, std::uint32_t ConstantStreams, int StartingElementIndex ) noexcept
     {
-        assert(m_Device->m_bDynamicVertexStride);
         auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
 
         auto iStart = 0u;

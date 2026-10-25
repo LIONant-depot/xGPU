@@ -68,6 +68,13 @@ namespace xgpu
         [[nodiscard]] XGPU_INLINE device::error* Create         ( compute&                          Compute
                                                                 , const compute::setup&             Setup
                                                                 ) noexcept;
+        [[nodiscard]] XGPU_INLINE device::error* Create         ( texture_table&                    Table
+                                                                , const texture_table::setup&       Setup
+                                                                ) noexcept;
+
+        // The sampler table's entry for Desc: one per distinct description, for the device's lifetime (an invalid id: the table is full)
+        [[nodiscard]] XGPU_INLINE sampler_id     getSampler     ( const pipeline::sampler&          Desc
+                                                                ) noexcept;
 
         // Writes Source into the [OffsetX,OffsetY]..[+Width,+Height] sub-rectangle of Texture's mip 0 (only -
         // no mips/array layers/cubemaps), leaving the rest of the texture untouched. Texture must already be
@@ -108,9 +115,13 @@ namespace xgpu
         XGPU_INLINE void                         Destroy        ( buffer&&                          Buffer )           noexcept;
         XGPU_INLINE void                         Destroy        ( window&&                          Window )           noexcept;
         XGPU_INLINE void                         Destroy        ( renderpass&&                      Renderpass )       noexcept;
+        XGPU_INLINE void                         Destroy        ( texture_table&&                   Table )            noexcept;
         XGPU_INLINE void                         Shutdown       ( void ) noexcept;
         // Advances once per page flip: for data a user keeps one copy of per frame in flight (index % frames in flight)
         [[nodiscard]] XGPU_INLINE std::uint64_t  getFrameIndex  ( void ) const noexcept;
+        // Whether textures and samplers are read by index from the global tables (descriptor indexing) or through per-material
+        // sets built from the same ids. Callers write the same code for both: diagnostics and tests only
+        [[nodiscard]] XGPU_INLINE bool           isBindless     ( void ) const noexcept;
 
         std::shared_ptr<details::device_handle>   m_Private;
     };

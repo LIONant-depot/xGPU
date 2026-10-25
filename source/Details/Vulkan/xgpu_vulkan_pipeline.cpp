@@ -438,7 +438,12 @@ namespace xgpu::vulkan
             return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create dynamic UBO Descriptor Set Layout");
         }
 
-        m_nVKDescriptorSetLayout = 3;
+        m_nVKDescriptorSetLayout = 3;       // (the ones it owns)
+
+        // Set 3: the texture table (the device's layout, shared by every pipeline that reads one)
+        m_nTextureSlots = Setup.m_nTextureSlots;
+        if( m_nTextureSlots > 0 && (m_VKDescriptorSetLayout[texture_set_index_v] = m_Device->TextureTableLayout(m_nTextureSlots)) == VK_NULL_HANDLE )
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to get the texture table's set layout");
 
         //
         // Set the push constants for this pipeline
@@ -474,7 +479,7 @@ namespace xgpu::vulkan
             ,   .pNext = nullptr
 
                 // Set the descriptors
-            ,   .setLayoutCount = static_cast<uint32_t>(m_nVKDescriptorSetLayout)
+            ,   .setLayoutCount = static_cast<uint32_t>(m_nVKDescriptorSetLayout + (m_nTextureSlots > 0 ? 1 : 0))
             ,   .pSetLayouts = m_VKDescriptorSetLayout.data()
 
                 // Push constant ranges are part of the pipeline layout
@@ -503,7 +508,6 @@ namespace xgpu::vulkan
         m_bDynamicStride     = m_VertexDesciptor->m_bDynamicStride;
         if( m_bDynamicStride )
         {
-            if( !m_Device->m_bDynamicVertexStride ) return VGPU_ERROR(xgpu::device::error::FAILURE, "A dynamic stride vertex descriptor needs a Vulkan 1.3 device");
             m_VKDyanmicStates[2] = VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE;
         }
         m_VKDynamicStateCreateInfo = VkPipelineDynamicStateCreateInfo

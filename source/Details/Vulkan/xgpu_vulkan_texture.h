@@ -27,6 +27,8 @@ namespace xgpu::vulkan
         virtual std::array<xgpu::texture::address_mode, 3> getAdressModes(void)                 const   noexcept override;
 
         virtual void                                DeathMarch(xgpu::texture&& buffer)                  noexcept override;
+        virtual xgpu::texture_id                    getID               (void)                  const   noexcept override { return { m_ID }; }
+        virtual xgpu::sampler_id                    getSampler          (void)                  const   noexcept override { return m_SamplerID; }
 
         std::shared_ptr<vulkan::device> m_Device                {};
         VkImage                         m_VKImage               {};
@@ -41,6 +43,8 @@ namespace xgpu::vulkan
         VkFormat                        m_VKFormat              {};
         std::array<xgpu::texture::address_mode, 3> m_AdressModes {};
         bool                            m_bCubeMap              {};
+        std::uint32_t                   m_ID                    {};     // device::AllocTextureID: its texture_id
+        xgpu::sampler_id                m_SamplerID             {};     // its address modes' entry in the sampler table
 
         // Whether the image actually rests at SHADER_READ_ONLY_OPTIMAL right now (true once Initialize's own
         // "with data" staging path has run, or after any UpdateRegion) - the "empty" (m_nMips==0, used for

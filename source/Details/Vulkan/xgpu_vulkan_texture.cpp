@@ -9,6 +9,8 @@ namespace xgpu::vulkan
     //---------------------------------------------------------------------------------------
     texture::~texture(void) noexcept
     {
+        if (m_Device == nullptr) return;
+        m_Device->FreeTextureID(m_ID);
         if (m_VKView)         vkDestroyImageView    (m_Device->m_VKDevice, m_VKView, m_Device->m_Instance->m_pVKAllocator);
         if (m_VKImage)        vkDestroyImage        (m_Device->m_VKDevice, m_VKImage, m_Device->m_Instance->m_pVKAllocator);
         if (m_VKDeviceMemory) vkFreeMemory          (m_Device->m_VKDevice, m_VKDeviceMemory, m_Device->m_Instance->m_pVKAllocator );
@@ -1050,8 +1052,9 @@ namespace xgpu::vulkan
     void texture::DeathMarch(xgpu::texture&& Texture) noexcept
     {
         if (!m_Device) return;
+        // The device stays (as pipeline::DeathMarch): the destructor destroys the image through it and frees the texture's id - resetting
+        // it here left a texture whose last handle was dropped (no device::Destroy) to destroy its image through a null device
         m_Device->Destroy(std::move(Texture));
-        m_Device.reset();
     }
 
 }

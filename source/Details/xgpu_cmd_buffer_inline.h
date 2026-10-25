@@ -79,6 +79,14 @@ namespace xgpu
 
     //--------------------------------------------------------------------------------------
 
+    cmd_buffer& cmd_buffer::setTextureTable( xgpu::texture_table& Table ) noexcept
+    {
+        m_pWindow->setTextureTable(*this, Table);
+        return *this;
+    }
+
+    //--------------------------------------------------------------------------------------
+
     cmd_buffer& cmd_buffer::setViewport( float x, float y, float w, float h, float minDepth, float maxDepth ) noexcept
     {
         m_pWindow->setViewport(*this, x,y,w,h,minDepth,maxDepth);

@@ -11,6 +11,8 @@ namespace xgpu
             virtual bool                                isCubemap               (void)                  const   noexcept = 0;
             virtual std::array<texture::address_mode, 3> getAdressModes         (void)                  const   noexcept = 0;
             virtual void                                DeathMarch              (xgpu::texture&&)               noexcept = 0;
+            virtual texture_id                          getID                   (void)                  const   noexcept = 0;
+            virtual sampler_id                          getSampler              (void)                  const   noexcept = 0;
         };
     }
 
@@ -44,6 +46,18 @@ namespace xgpu
     std::array<texture::address_mode, 3> texture::getAdressModes(void) const noexcept
     {
         return m_Private->getAdressModes();
+    }
+
+    //-----------------------------------------------------------------------------
+    texture_id texture::getID(void) const noexcept
+    {
+        return m_Private->getID();
+    }
+
+    //-----------------------------------------------------------------------------
+    sampler_id texture::getSampler(void) const noexcept
+    {
+        return m_Private->getSampler();
     }
 
     texture::~texture(void) noexcept

@@ -64,24 +64,48 @@ namespace xgpu::vulkan
         Features.shaderCullDistance = true;
         Features.samplerAnisotropy  = true;
 
-        // Host query reset (core in 1.2) lets vulkan::timestamps recycle its queries from the CPU, so a timestamp
-        // can be written anywhere in a frame, including inside a render pass (vkCmdResetQueryPool can't be)
-        VkPhysicalDeviceHostQueryResetFeatures HostQueryReset{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_QUERY_RESET_FEATURES };
+        // Vulkan 1.3 is the minimum (instance.cpp filters the devices): timeline semaphores and synchronization2 are core and
+        // always on. Host query reset lets vulkan::timestamps recycle its queries from the CPU, so a timestamp can be written
+        // anywhere in a frame, including inside a render pass (vkCmdResetQueryPool can't be).
+        // Bindless (descriptor indexing): one global array of sampled images and one of samplers, indexed by texture_id /
+        // sampler_id, partially bound and updated while bound. Every feature it needs, or the device uses the per-material sets
+        // (XGPU_NO_BINDLESS forces those, to test them)
+        VkPhysicalDeviceVulkan13Features Has13{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
+        VkPhysicalDeviceVulkan12Features Has12{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .pNext = &Has13 };
         {
-            VkPhysicalDeviceFeatures2 Features2{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &HostQueryReset };
+            VkPhysicalDeviceFeatures2 Features2{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &Has12 };
             vkGetPhysicalDeviceFeatures2( Device.m_VKPhysicalDevice, &Features2 );
-            Device.m_bHostQueryReset = HostQueryReset.hostQueryReset == VK_TRUE;
         }
+        if( !Has12.timelineSemaphore || !Has13.synchronization2 || !Has13.dynamicRendering )
+        {
+            Device.m_Instance->ReportError("xGPU needs a Vulkan 1.3 device (timeline semaphores, synchronization2, dynamic rendering)");
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "xGPU needs a Vulkan 1.3 device (timeline semaphores, synchronization2, dynamic rendering)");
+        }
+        Device.m_bHostQueryReset = Has12.hostQueryReset == VK_TRUE;
+        Device.m_bBindless       = Has12.runtimeDescriptorArray && Has12.descriptorBindingPartiallyBound
+                                && Has12.descriptorBindingSampledImageUpdateAfterBind && Has12.descriptorBindingUpdateUnusedWhilePending
+                                && Has12.shaderSampledImageArrayNonUniformIndexing
+                                && std::getenv("XGPU_NO_BINDLESS") == nullptr;
+
+        VkPhysicalDeviceVulkan13Features Use13{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES
+                                              , .synchronization2 = VK_TRUE, .dynamicRendering = VK_TRUE };
+        VkPhysicalDeviceVulkan12Features Use12{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .pNext = &Use13
+                                              , .shaderSampledImageArrayNonUniformIndexing    = Device.m_bBindless
+                                              , .descriptorBindingSampledImageUpdateAfterBind = Device.m_bBindless
+                                              , .descriptorBindingUpdateUnusedWhilePending    = Device.m_bBindless
+                                              , .descriptorBindingPartiallyBound              = Device.m_bBindless
+                                              , .runtimeDescriptorArray                       = Device.m_bBindless
+                                              , .hostQueryReset                               = Has12.hostQueryReset
+                                              , .timelineSemaphore                            = VK_TRUE };
 
         static constexpr auto       enabledExtensions   = std::array
         { VK_KHR_SWAPCHAIN_EXTENSION_NAME
-        , VK_EXT_DESCRIPTOR_INDEXING_EXTENSION_NAME
 //        ,   VK_NV_GLSL_SHADER_EXTENSION_NAME  // nVidia useful extension to be able to load GLSL shaders
         };
         VkDeviceCreateInfo          deviceCreateInfo
         {
             .sType                      = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO
-        ,   .pNext                      = Device.m_bHostQueryReset ? &HostQueryReset : nullptr
+        ,   .pNext                      = &Use12
         ,   .queueCreateInfoCount       = bOwnTransferFamily ? static_cast<uint32_t>(queueCreateInfo.size()) : 1u      // one family: it may be listed only once
         ,   .pQueueCreateInfos          = queueCreateInfo.data()
         ,   .enabledLayerCount          = 0
@@ -155,15 +179,15 @@ namespace xgpu::vulkan
         //
         vkGetPhysicalDeviceMemoryProperties(m_VKPhysicalDevice, &m_VKDeviceMemoryProperties);
         vkGetPhysicalDeviceProperties(m_VKPhysicalDevice, &m_VKPhysicalDeviceProperties);
-        m_bDynamicVertexStride = m_VKPhysicalDeviceProperties.apiVersion >= VK_API_VERSION_1_3;
 
         // Which GPU/driver the validation messages are about (on WSLg: "Microsoft Direct3D12 (...)" = Mesa Dozen, or llvmpipe)
         if (m_Instance->m_bValidation)
-            std::fprintf(stderr, "[xGPU] Vulkan device: %s (API %u.%u.%u), maxPushConstantsSize %u\n"
+            std::fprintf(stderr, "[xGPU] Vulkan device: %s (API %u.%u.%u), maxPushConstantsSize %u, %s\n"
                 , m_VKPhysicalDeviceProperties.deviceName
                 , VK_API_VERSION_MAJOR(m_VKPhysicalDeviceProperties.apiVersion), VK_API_VERSION_MINOR(m_VKPhysicalDeviceProperties.apiVersion)
                 , VK_API_VERSION_PATCH(m_VKPhysicalDeviceProperties.apiVersion)
-                , m_VKPhysicalDeviceProperties.limits.maxPushConstantsSize );
+                , m_VKPhysicalDeviceProperties.limits.maxPushConstantsSize
+                , m_bBindless ? "bindless" : "per-material sets" );
         
         //
         // Create the Pipeline Cache
@@ -229,6 +253,8 @@ namespace xgpu::vulkan
             }
         }
 
+        // The texture heap (bindless) and the ids' registry
+        if( auto Err = InitHeap(); Err ) return Err;
 
         return nullptr;
     }
@@ -401,6 +427,8 @@ namespace xgpu::vulkan
         auto I = std::make_shared<xgpu::vulkan::texture>();
         if( auto Err = I->Initialize( std::reinterpret_pointer_cast<xgpu::vulkan::device>(SharedDevice), Setup ); Err )
             return Err;
+        I->m_SamplerID = getSampler({ .m_AddressMode = Setup.m_AdressModes });
+        I->m_ID        = AllocTextureID(I);
         Texture.m_Private = I;
         return nullptr;
     }
@@ -619,13 +647,25 @@ namespace xgpu::vulkan
             DeathMarch.m_RenderPass.clear();
         }
 
+        if (false == DeathMarch.m_TextureTable.empty())
+        {
+            // Moved out first: a table's textures, released with it, may queue themselves (m_Texture below)
+            auto Tables = std::move(DeathMarch.m_TextureTable);
+            DeathMarch.m_TextureTable.clear();
+            for (auto& E : Tables) E.m_Private.reset();
+        }
+
+        for (auto& [Pool, Set] : DeathMarch.m_TableSets) FreeTableSet(Pool, Set);
+        DeathMarch.m_TableSets.clear();
+
         if (false == DeathMarch.m_Texture.empty())
         {
-            for (auto& E : DeathMarch.m_Texture)
+            auto Textures = std::move(DeathMarch.m_Texture);
+            DeathMarch.m_Texture.clear();
+            for (auto& E : Textures)
             {
                 E.m_Private.reset();
             }
-            DeathMarch.m_Texture.clear();
         }
 
     }

@@ -99,6 +99,7 @@ namespace xgpu::vulkan
                                                                             ) noexcept override;
         virtual
         void                                    DrawIndexedIndirect         ( xgpu::cmd_buffer& CmdBuffer, xgpu::buffer& Commands, int FirstCommand, int Count ) noexcept override;
+        void                                    setTextureTable             ( xgpu::cmd_buffer& CmdBuffer, xgpu::texture_table& Table ) noexcept override;
         virtual
         void                                    setViewport                 ( xgpu::cmd_buffer& CmdBuffer
                                                                             , float x
@@ -242,6 +243,13 @@ namespace xgpu::vulkan
         };
         std::unordered_map<set_key, VkDescriptorSet, set_key_hash> m_FrameSets{};
         bool                                    m_bReportedSetOverflow  {false};
+        // What setPipelineInstance last bound in the frame's command buffer (graphics): the same pipeline or set again is skipped.
+        // Forgotten at each render pass start and command buffer (BoundForget)
+        VkPipeline                              m_BoundVKPipeline       {VK_NULL_HANDLE};
+        VkDescriptorSet                         m_BoundSet0             {VK_NULL_HANDLE};
+        VkDescriptorSet                         m_BoundSet1             {VK_NULL_HANDLE};
+        VkDescriptorSet                         m_BoundSet3             {VK_NULL_HANDLE};       // the texture table (setTextureTable)
+        void                                    BoundForget             ( void ) noexcept { m_BoundVKPipeline = VK_NULL_HANDLE; m_BoundSet0 = m_BoundSet1 = m_BoundSet3 = VK_NULL_HANDLE; }
 
     };
 }
