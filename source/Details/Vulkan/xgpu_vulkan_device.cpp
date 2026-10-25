@@ -31,7 +31,8 @@ namespace xgpu::vulkan
         }
 
         // A device with a single queue family (software drivers such as lavapipe, some integrated GPUs): the transfers share the main queue
-        if( Device.m_TransferQueueIndex == 0xffffffff ) Device.m_TransferQueueIndex = Device.m_MainQueueIndex;
+        // (XGPU_ONE_QUEUE_FAMILY: the same on any device, to test that path)
+        if( Device.m_TransferQueueIndex == 0xffffffff || std::getenv("XGPU_ONE_QUEUE_FAMILY") ) Device.m_TransferQueueIndex = Device.m_MainQueueIndex;
         const bool bOwnTransferFamily = Device.m_TransferQueueIndex != Device.m_MainQueueIndex;
 
         //
@@ -182,12 +183,13 @@ namespace xgpu::vulkan
 
         // Which GPU/driver the validation messages are about (on WSLg: "Microsoft Direct3D12 (...)" = Mesa Dozen, or llvmpipe)
         if (m_Instance->m_bValidation)
-            std::fprintf(stderr, "[xGPU] Vulkan device: %s (API %u.%u.%u), maxPushConstantsSize %u, %s\n"
+            std::fprintf(stderr, "[xGPU] Vulkan device: %s (API %u.%u.%u), maxPushConstantsSize %u, %s, uploads on %s\n"
                 , m_VKPhysicalDeviceProperties.deviceName
                 , VK_API_VERSION_MAJOR(m_VKPhysicalDeviceProperties.apiVersion), VK_API_VERSION_MINOR(m_VKPhysicalDeviceProperties.apiVersion)
                 , VK_API_VERSION_PATCH(m_VKPhysicalDeviceProperties.apiVersion)
                 , m_VKPhysicalDeviceProperties.limits.maxPushConstantsSize
-                , m_bBindless ? "bindless" : "per-material sets" );
+                , m_bBindless ? "bindless" : "per-material sets"
+                , m_TransferQueueIndex != m_MainQueueIndex ? "a transfer queue (ownership transfers)" : "the main queue family" );
         
         //
         // Create the Pipeline Cache
@@ -255,6 +257,9 @@ namespace xgpu::vulkan
 
         // The texture heap (bindless) and the ids' registry
         if( auto Err = InitHeap(); Err ) return Err;
+
+        // The streaming lane: textures and buffers created with data are copied on the transfer queue
+        if( auto Err = m_Upload.Init(*this); Err ) return Err;
 
         return nullptr;
     }
@@ -668,6 +673,16 @@ namespace xgpu::vulkan
             }
         }
 
+    }
+
+    void device::UploadSubmitInfo( std::vector<VkCommandBufferSubmitInfo>& CmdBuffers, std::vector<VkSemaphoreSubmitInfo>& Waits, std::vector<VkSemaphoreSubmitInfo>& Signals ) noexcept
+    {
+        std::vector<VkCommandBuffer> Acquires;
+        std::uint64_t WaitValue = 0, AcquireSignal = 0;
+        m_Upload.TakeAcquires(Acquires, WaitValue, AcquireSignal);
+        for( auto C : Acquires ) CmdBuffers.push_back({ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, .commandBuffer = C });
+        if( WaitValue )     Waits.push_back  ({ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = m_Upload.m_Timeline, .value = WaitValue, .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT });
+        if( AcquireSignal ) Signals.push_back({ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = m_Upload.m_AcquireTimeline, .value = AcquireSignal, .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT });
     }
 
     void device::Shutdown(void) noexcept

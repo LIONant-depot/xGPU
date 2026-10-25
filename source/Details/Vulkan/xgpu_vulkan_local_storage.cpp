@@ -13,19 +13,28 @@ namespace xgpu::vulkan
             return VGPU_ERROR( xgpu::device::error::FAILURE, "Failed to end the per thread command buffer" );
         }
 
-        VkSubmitInfo SubmitInfo
-        {
-            .sType              = VK_STRUCTURE_TYPE_SUBMIT_INFO
-        ,   .commandBufferCount = 1
-        ,   .pCommandBuffers    = &m_VKSetupCmdBuffer
-        };        
+        // The uploads before it: their acquires first, their timeline waited on
+        std::vector<VkCommandBufferSubmitInfo> Cmds;
+        std::vector<VkSemaphoreSubmitInfo>     Waits, Signals;
+        m_pDevice->UploadSubmitInfo(Cmds, Waits, Signals);
+        Cmds.push_back({ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, .commandBuffer = m_VKSetupCmdBuffer });
+        const VkSubmitInfo2 SubmitInfo
+        { .sType                    = VK_STRUCTURE_TYPE_SUBMIT_INFO_2
+        , .waitSemaphoreInfoCount   = static_cast<std::uint32_t>(Waits.size())
+        , .pWaitSemaphoreInfos      = Waits.data()
+        , .commandBufferInfoCount   = static_cast<std::uint32_t>(Cmds.size())
+        , .pCommandBufferInfos      = Cmds.data()
+        , .signalSemaphoreInfoCount = static_cast<std::uint32_t>(Signals.size())
+        , .pSignalSemaphoreInfos    = Signals.data()
+        };
 
         //
-        // Submit to queue and wait (note that only one thread at a time can do this)
+        // Submit to queue and wait (note that only one thread at a time can do this): readbacks and region updates only - uploads never
         //
         {
             std::lock_guard Lk(m_pDevice->m_VKMainQueue);
-            if( auto VKErr = vkQueueSubmit(m_pDevice->m_VKMainQueue.get(), 1, &SubmitInfo, VK_NULL_HANDLE); VKErr )
+            ++m_pDevice->m_nMainQueueWaits;
+            if( auto VKErr = vkQueueSubmit2(m_pDevice->m_VKMainQueue.get(), 1, &SubmitInfo, VK_NULL_HANDLE); VKErr )
             {
                 m_pDevice->m_Instance->ReportError(VKErr, "Fail to submit the per thread command buffer");
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to submit the per thread command buffer");

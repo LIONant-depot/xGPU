@@ -323,77 +323,8 @@ namespace xgpu::vulkan
         //
         else if( bUseStaging )
         {
-            // Create a host-visible staging buffer that contains the raw image data
-            // This buffer is used as a transfer source for the buffer copy
-            VkBuffer           StagingBuffer;
-            VkBufferCreateInfo BufferCreateInfo
-            {
-                .sType          = VkStructureType::VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
-            ,   .pNext          = nullptr
-            ,   .flags          = 0
-            ,   .size           = Setup.m_AllFacesData.size()
-            ,   .usage          = VK_BUFFER_USAGE_TRANSFER_SRC_BIT
-            ,   .sharingMode    = VK_SHARING_MODE_EXCLUSIVE
-            };
-                
-            if( auto VKErr = vkCreateBuffer( m_Device->m_VKDevice
-                                           , &BufferCreateInfo
-                                           , m_Device->m_Instance->m_pVKAllocator
-                                           , &StagingBuffer); VKErr )
-            {
-                m_Device->m_Instance->ReportError( VKErr, "Fail to create a staging buffer while creating a texture" );
-                return VGPU_ERROR( xgpu::device::error::FAILURE, "Fail to create a staging buffer while creating a texture" );
-            }
-
-            // Get memory requirements for the staging buffer (alignment, memory type bits)
-            vkGetBufferMemoryRequirements( m_Device->m_VKDevice, StagingBuffer, &MemoryRequirements );
-            MemoryAllocInfo.allocationSize = MemoryRequirements.size;
-            assert(MemoryAllocInfo.allocationSize >= MemoryRequirements.size);
-
-            // Get memory type index for a host visible buffer
-            m_Device->getMemoryType( MemoryRequirements.memoryTypeBits
-                                   , VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
-                                   , MemoryAllocInfo.memoryTypeIndex );
-
-            VkDeviceMemory  StagingMemory{};
-            if( auto VKErr = vkAllocateMemory( m_Device->m_VKDevice
-                                             , &MemoryAllocInfo
-                                             , m_Device->m_Instance->m_pVKAllocator
-                                             , &StagingMemory ); VKErr )
-            {
-                m_Device->m_Instance->ReportError( VKErr, "Fail to allocated memory for the texture" );
-                return VGPU_ERROR( xgpu::device::error::FAILURE, "Fail to allocated memory for the texture" );
-            }
-
-            if( auto VKErr = vkBindBufferMemory( m_Device->m_VKDevice
-                                               , StagingBuffer
-                                               , StagingMemory
-                                               , 0 ); VKErr )
-            {
-                m_Device->m_Instance->ReportError(VKErr, "Fail to bind with the allocated memory for the texture");
-                return VGPU_ERROR( xgpu::device::error::FAILURE, "Fail to bind with the allocated memory for the texture");
-            }
-
-            //
-            // Copy texture data into staging buffer
-            //
-
-            // Get System pointer 
-            std::byte* pData{ nullptr };
-            if( auto VKErr = vkMapMemory( m_Device->m_VKDevice
-                                        , StagingMemory
-                                        , 0
-                                        , MemoryRequirements.size
-                                        , 0
-                                        , (void **)&pData ); VKErr )
-            {
-                m_Device->m_Instance->ReportError(VKErr, "Fail to map with the allocated memory for the texture");
-                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to map with the allocated memory for the texture");
-            }
-            
-            assert(MemoryRequirements.size >= Setup.m_AllFacesData.size() );
-            memcpy(pData, Setup.m_AllFacesData.data(), Setup.m_AllFacesData.size());
-            vkUnmapMemory( m_Device->m_VKDevice, StagingMemory );
+            // The data goes through the device's upload queue (the transfer queue's staging ring, xgpu_vulkan_upload.h): the regions'
+            // offsets are into Setup.m_AllFacesData, moved to the ring by UploadImage
 
             // Setup buffer copy regions for each mip level
             std::vector<VkBufferImageCopy>  BufferCopyRegions{};
@@ -512,43 +443,10 @@ namespace xgpu::vulkan
             ,   .layerCount     = Setup.m_FaceCount
             };
 
-            // Optimal image will be used as destination for the copy, so we must transfer from our
-            // initial undefined image layout to the transfer destination layout
-            if (auto [PerDevice, Error] = m_Device->m_Instance->getLocalStorage().getOrCreatePerDevice(*m_Device); Error) return Error;
-            else
-            {
-                setImageLayout(PerDevice.m_VKSetupCmdBuffer
-                              , m_VKImage
-                              , VK_IMAGE_ASPECT_COLOR_BIT
-                              , VK_IMAGE_LAYOUT_UNDEFINED
-                              , VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-                              , SubresourceRange );
-
-                // Copy mip levels from staging buffer
-                vkCmdCopyBufferToImage(PerDevice.m_VKSetupCmdBuffer
-                                      , StagingBuffer
-                                      , m_VKImage
-                                      , VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-                                      , static_cast<uint32_t>(BufferCopyRegions.size())
-                                      , BufferCopyRegions.data() );
-
-                OutImageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-
-                // Change texture image layout to shader read after all mip levels have been copied
-                setImageLayout(PerDevice.m_VKSetupCmdBuffer
-                              , m_VKImage
-                              , VK_IMAGE_ASPECT_COLOR_BIT
-                              , VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
-                              , OutImageLayout
-                              , SubresourceRange );
-
-                // Clean up staging resources
-                PerDevice.FlushVKSetupCommandBuffer();
-
-                // Clean up the staging buffer
-                vkDestroyBuffer( m_Device->m_VKDevice, StagingBuffer, m_Device->m_Instance->m_pVKAllocator );
-                vkFreeMemory( m_Device->m_VKDevice, StagingMemory, m_Device->m_Instance->m_pVKAllocator);
-            }
+            // Copied on the transfer queue, ending in SHADER_READ_ONLY for the main queue: no wait here, the frames wait on the GPU
+            if( auto Err = m_Device->m_Upload.UploadImage(m_VKImage, SubresourceRange, Setup.m_AllFacesData, BufferCopyRegions); Err ) return Err;
+            OutImageLayout   = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            m_bContentReady  = true;
         }
         else
         {

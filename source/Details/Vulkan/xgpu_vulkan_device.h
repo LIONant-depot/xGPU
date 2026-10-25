@@ -128,6 +128,15 @@ namespace xgpu::vulkan
             xgpu::texture                                       m_White;            // non-bindless: an invalid slot's texture
         };
         texture_heap                    m_Heap;
+        upload_queue                    m_Upload;                       // the streaming lane (xgpu_vulkan_upload.h)
+        std::atomic<std::uint64_t>      m_nMainQueueWaits   { 0 };     // vkQueueWaitIdle on the main queue (the setup command buffer: readbacks, region updates)
+        virtual xgpu::timeline_point    FlushUploads        ( void ) noexcept override { return { m_Upload.Flush() }; }
+        virtual bool                    isDone              ( xgpu::timeline_point P ) noexcept override { return m_Upload.isDone(P.m_Value); }
+        virtual void                    Wait                ( xgpu::timeline_point P ) noexcept override { m_Upload.Wait(P.m_Value); }
+        virtual std::uint64_t           getMainQueueWaits   ( void ) const noexcept override { return m_nMainQueueWaits.load(); }
+        // For a main-queue submission (EndFrame, the setup command buffer): the uploads' acquires to run first (CmdBuffers), the waits
+        // and signals to add. Call before taking the main queue's lock
+        void                            UploadSubmitInfo    ( std::vector<VkCommandBufferSubmitInfo>& CmdBuffers, std::vector<VkSemaphoreSubmitInfo>& Waits, std::vector<VkSemaphoreSubmitInfo>& Signals ) noexcept;
         xgpu::device::error*            InitHeap            ( void ) noexcept;
         std::uint32_t                   AllocTextureID      ( const std::shared_ptr<vulkan::texture>& T ) noexcept;
         void                            FreeTextureID       ( std::uint32_t ID ) noexcept;

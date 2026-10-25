@@ -237,35 +237,10 @@ namespace xgpu::vulkan
         }
 
         //
-        // Transfer the memory
+        // Transfer the memory: copied on the transfer queue (the upload queue frees the host buffer when its batch is done); the frames
+        // wait on the GPU, nothing waits here
         //
-        if (auto [PerDevice, Error] = m_Device->m_Instance->getLocalStorage().getOrCreatePerDevice(*m_Device); Error) return Error;
-        else
-        {
-            auto CopyRegions = std::array
-            {   VkBufferCopy
-                { .srcOffset  = 0
-                , .dstOffset  = 0
-                , .size       = ByteSize
-                }
-            };
-
-            vkCmdCopyBuffer
-            ( PerDevice.m_VKSetupCmdBuffer
-            , m_VKBuffer
-            , VKFinalBuffer
-            , static_cast<std::uint32_t>(CopyRegions.size())
-            , CopyRegions.data()
-            );
-
-            PerDevice.FlushVKSetupCommandBuffer();
-        }
-
-        //
-        // Free the staging buffers and set the final ones
-        //
-        vkDestroyBuffer( m_Device->m_VKDevice, m_VKBuffer, m_Device->m_Instance->m_pVKAllocator );
-        vkFreeMemory( m_Device->m_VKDevice, m_VKBufferMemory, m_Device->m_Instance->m_pVKAllocator );
+        if( auto Err = m_Device->m_Upload.UploadBuffer(m_VKBuffer, m_VKBufferMemory, VKFinalBuffer, ByteSize); Err ) return Err;
 
         m_VKBufferMemory = VKFinalBufferMemory;
         m_VKBuffer       = VKFinalBuffer;

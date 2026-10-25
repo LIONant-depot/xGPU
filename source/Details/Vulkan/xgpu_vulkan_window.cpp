@@ -1394,22 +1394,25 @@ namespace xgpu::vulkan
         }
 
         //
-        // Submit the frame into the queue for processing
+        // Submit the frame into the queue for processing: the uploads flushed (their acquires run first) and waited on by the GPU
         //
-        VkPipelineStageFlags WaitStage  = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        VkSubmitInfo         SubmitInfo = 
-        { .sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO
-        , .waitSemaphoreCount   = 1
-        , .pWaitSemaphores      = &Semaphore.m_VKImageAcquiredSemaphore
-        , .pWaitDstStageMask    = &WaitStage
-        , .commandBufferCount   = 1
-        , .pCommandBuffers      = &Frame.m_VKCommandBuffer
-        , .signalSemaphoreCount = 1
-        , .pSignalSemaphores    = &Semaphore.m_VKRenderCompleteSemaphore
+        std::vector<VkCommandBufferSubmitInfo> Cmds;
+        std::vector<VkSemaphoreSubmitInfo>     Waits  { { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = Semaphore.m_VKImageAcquiredSemaphore, .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT } };
+        std::vector<VkSemaphoreSubmitInfo>     Signals{ { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = Semaphore.m_VKRenderCompleteSemaphore, .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT } };
+        m_Device->UploadSubmitInfo(Cmds, Waits, Signals);
+        Cmds.push_back({ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, .commandBuffer = Frame.m_VKCommandBuffer });
+        const VkSubmitInfo2 SubmitInfo
+        { .sType                    = VK_STRUCTURE_TYPE_SUBMIT_INFO_2
+        , .waitSemaphoreInfoCount   = static_cast<std::uint32_t>(Waits.size())
+        , .pWaitSemaphoreInfos      = Waits.data()
+        , .commandBufferInfoCount   = static_cast<std::uint32_t>(Cmds.size())
+        , .pCommandBufferInfos      = Cmds.data()
+        , .signalSemaphoreInfoCount = static_cast<std::uint32_t>(Signals.size())
+        , .pSignalSemaphoreInfos    = Signals.data()
         };
 
         std::lock_guard Lk(m_Device->m_VKMainQueue);
-        if( auto VKErr = vkQueueSubmit( m_Device->m_VKMainQueue.get(), 1, &SubmitInfo, Frame.m_VKFence ); VKErr )
+        if( auto VKErr = vkQueueSubmit2( m_Device->m_VKMainQueue.get(), 1, &SubmitInfo, Frame.m_VKFence ); VKErr )
         {
             m_Device->m_Instance->ReportError(VKErr, "vkQueueSubmit");
             assert(false);

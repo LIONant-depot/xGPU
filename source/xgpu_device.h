@@ -1,5 +1,11 @@
 namespace xgpu
 {
+    // A point on the upload timeline (device::FlushUploads): done once the GPU passed it
+    struct timeline_point
+    {
+        std::uint64_t   m_Value = 0;
+    };
+
     struct device
     {
         enum class error : std::uint8_t
@@ -122,6 +128,15 @@ namespace xgpu
         // Whether textures and samplers are read by index from the global tables (descriptor indexing) or through per-material
         // sets built from the same ids. Callers write the same code for both: diagnostics and tests only
         [[nodiscard]] XGPU_INLINE bool           isBindless     ( void ) const noexcept;
+
+        // The streaming lane: a texture or buffer created with data is copied on the transfer queue, never by stalling the main queue; every
+        // frame (and anything else submitted to the main queue) waits on the GPU for the uploads flushed before it. FlushUploads sends what
+        // is recorded now and returns its point (the window's frames flush by themselves); isDone / Wait: for tools and tests
+        [[nodiscard]] XGPU_INLINE timeline_point FlushUploads   ( void ) noexcept;
+        [[nodiscard]] XGPU_INLINE bool           isDone         ( timeline_point Point ) noexcept;
+        XGPU_INLINE void                         Wait           ( timeline_point Point ) noexcept;
+        // Diagnostics: how many times the main queue was waited idle (readbacks and region updates still do; uploads never)
+        [[nodiscard]] XGPU_INLINE std::uint64_t  getMainQueueWaits( void ) const noexcept;
 
         std::shared_ptr<details::device_handle>   m_Private;
     };
