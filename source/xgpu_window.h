@@ -45,6 +45,8 @@ namespace xgpu
         // CopyBuffer): Buffers are its storage buffers in binding order, pPush its push constants. It waits for the earlier work on the
         // buffers (draws, copies, the host's writes, other dispatches); later shaders, copies and a readback after the frame see its writes
         XGPU_INLINE                 void                Dispatch                ( compute& Compute, std::span<buffer* const> Buffers, const void* pPush, std::size_t PushSize, int X, int Y = 1, int Z = 1 ) noexcept;
+        // The same with its textures (compute::setup::m_nTextures): it also waits for the passes that rendered them
+        XGPU_INLINE                 void                Dispatch                ( compute& Compute, std::span<buffer* const> Buffers, std::span<const texture* const> Textures, const void* pPush, std::size_t PushSize, int X, int Y = 1, int Z = 1 ) noexcept;
 
         // Registers Dest/Width/Height to receive the current frame's back-buffer pixels - one packed
         // uint32 per pixel (B8G8R8A8 byte order in memory, so 0xAARRGGBB when read as a hex integer on

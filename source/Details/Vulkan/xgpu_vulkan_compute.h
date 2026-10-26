@@ -9,10 +9,14 @@ namespace xgpu::vulkan
         virtual                        ~compute     ( void ) noexcept override;
 
         std::shared_ptr<device>     m_Device            {};
+        static constexpr int        max_textures_v      = 8;           // sampled textures (set 1, bindings 0..)
         VkDescriptorSetLayout       m_VKSetLayout       {};
+        VkDescriptorSetLayout       m_VKTextureLayout   {};            // (m_nTextures > 0)
+        VkSampler                   m_VKSampler         {};            //   its textures' sampler: nearest, clamped (texelFetch reads)
         VkPipelineLayout            m_VKPipelineLayout  {};
         VkPipeline                  m_VKPipeline        {};
         int                         m_nBuffers          {};
+        int                         m_nTextures         {};
         std::uint32_t               m_PushSize          {};
     };
 }

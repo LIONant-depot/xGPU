@@ -20,7 +20,7 @@ namespace xgpu
             virtual     void                            CopyBuffer              ( const xgpu::buffer& Src, xgpu::buffer& Dst, std::span<const xgpu::buffer::copy> Regions ) noexcept = 0;
             virtual     void                            CopyTextureToBuffer     ( const xgpu::texture& Src, xgpu::buffer& Dst ) noexcept = 0;
             virtual     void                            WriteTimestamp          ( xgpu::timestamps& Timestamps, int Index ) noexcept = 0;
-            virtual     void                            Dispatch                ( xgpu::compute& Compute, std::span<xgpu::buffer* const> Buffers, const void* pPush, std::size_t PushSize, int X, int Y, int Z ) noexcept = 0;
+            virtual     void                            Dispatch                ( xgpu::compute& Compute, std::span<xgpu::buffer* const> Buffers, std::span<const xgpu::texture* const> Textures, const void* pPush, std::size_t PushSize, int X, int Y, int Z ) noexcept = 0;
             virtual     void                            CmdRenderBegin          ( xgpu::cmd_buffer& CmdBuffer )                             noexcept = 0;
             virtual     void                            CmdRenderBegin          ( xgpu::cmd_buffer& CmdBuffer, const xgpu::renderpass& Renderpass )                      noexcept = 0;
             virtual     void                            CmdRenderEnd            ( xgpu::cmd_buffer& CmdBuffer )                             noexcept = 0;
@@ -158,7 +158,15 @@ namespace xgpu
     XGPU_INLINE
     void window::Dispatch( compute& Compute, std::span<buffer* const> Buffers, const void* pPush, std::size_t PushSize, int X, int Y, int Z ) noexcept
     {
-        m_Private->Dispatch(Compute, Buffers, pPush, PushSize, X, Y, Z);
+        m_Private->Dispatch(Compute, Buffers, {}, pPush, PushSize, X, Y, Z);
+    }
+
+    //--------------------------------------------------------------------------------------
+
+    XGPU_INLINE
+    void window::Dispatch( compute& Compute, std::span<buffer* const> Buffers, std::span<const texture* const> Textures, const void* pPush, std::size_t PushSize, int X, int Y, int Z ) noexcept
+    {
+        m_Private->Dispatch(Compute, Buffers, Textures, pPush, PushSize, X, Y, Z);
     }
 
     //--------------------------------------------------------------------------
