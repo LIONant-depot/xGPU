@@ -31,6 +31,7 @@ namespace xgpu
             virtual     void                            setStreamingBuffers     ( xgpu::cmd_buffer& CmdBuffer, std::span<xgpu::buffer* const> Buffers, std::uint32_t ConstantStreams, int StartingElementIndex)noexcept = 0;
             virtual     void                            DrawInstance            ( xgpu::cmd_buffer& CmdBuffer, int InstanceCount, int IndexCount, int FirstInstance, int FirstIndex, int VertexOffset ) noexcept = 0;
             virtual     void                            DrawIndexedIndirect     ( xgpu::cmd_buffer& CmdBuffer, xgpu::buffer& Commands, int FirstCommand, int Count ) noexcept = 0;
+            virtual     void                            DrawIndexedIndirectCount( xgpu::cmd_buffer& CmdBuffer, xgpu::buffer& Commands, int FirstCommand, xgpu::buffer& Counts, int CountEntry, int MaxCount ) noexcept = 0;
             virtual     void                            setTextureTable         ( xgpu::cmd_buffer& CmdBuffer, xgpu::texture_table& Table ) noexcept = 0;
             virtual     void                            setViewport             ( xgpu::cmd_buffer& CmdBuffer, float x, float y, float w, float h, float minDepth, float maxDepth ) noexcept = 0;
             virtual     void                            setScissor              ( xgpu::cmd_buffer& CmdBuffer, int x, int y, int w, int h )                              noexcept = 0;

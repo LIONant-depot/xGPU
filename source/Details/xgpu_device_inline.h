@@ -86,6 +86,7 @@ namespace xgpu
             virtual void Shutdown(void)                                 noexcept = 0;
             virtual std::uint64_t getFrameIndex(void) const             noexcept = 0;
             virtual bool          isBindless(void) const                noexcept = 0;
+            virtual bool          hasDrawIndirectCount(void) const      noexcept = 0;
             virtual timeline_point FlushUploads(void)                   noexcept = 0;
             virtual bool          isDone(timeline_point P)              noexcept = 0;
             virtual void          Wait(timeline_point P)                noexcept = 0;
@@ -327,6 +328,12 @@ namespace xgpu
     bool device::isBindless( void ) const noexcept
     {
         return m_Private->isBindless();
+    }
+
+    XGPU_INLINE
+    bool device::hasDrawIndirectCount( void ) const noexcept
+    {
+        return m_Private->hasDrawIndirectCount();
     }
 
     XGPU_INLINE timeline_point device::FlushUploads( void ) noexcept               { return m_Private->FlushUploads(); }

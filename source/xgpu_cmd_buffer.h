@@ -25,6 +25,9 @@ namespace xgpu
         // Count indexed draws in one call, their commands in a storage buffer from FirstCommand: 5 words each (index count, instance count,
         // first index, vertex offset, first instance: VkDrawIndexedIndirectCommand); the vertex shader tells them apart by gl_InstanceIndex
         XGPU_INLINE     cmd_buffer&     DrawIndexedIndirect         ( xgpu::buffer& Commands, int FirstCommand, int Count ) noexcept;
+        // The same with the count read on the GPU: Counts' entry CountEntry (a uint32), at most MaxCount (device::hasDrawIndirectCount) - a
+        // compute pass that culls writes the commands it keeps and their count
+        XGPU_INLINE     cmd_buffer&     DrawIndexedIndirectCount    ( xgpu::buffer& Commands, int FirstCommand, xgpu::buffer& Counts, int CountEntry, int MaxCount ) noexcept;
         // The textures the next draws read (set 3 of a pipeline made with m_nTextureSlots): after setPipelineInstance
         XGPU_INLINE     cmd_buffer&     setTextureTable             ( xgpu::texture_table& Table ) noexcept;
         XGPU_INLINE     cmd_buffer&     setDepthBias                ( float ConstantFactor, float DepthBiasClamp, float DepthBiasSlope) noexcept;

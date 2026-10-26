@@ -1901,6 +1901,22 @@ namespace xgpu::vulkan
 
     //------------------------------------------------------------------------------------------------------------------------
 
+    void window::DrawIndexedIndirectCount( xgpu::cmd_buffer& CmdBuffer, xgpu::buffer& Commands, int FirstCommand, xgpu::buffer& Counts, int CountEntry, int MaxCount ) noexcept
+    {
+        if( MaxCount <= 0 ) return;
+        assert(m_Device->m_bDrawIndirectCount);
+        auto&       CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
+        const auto& B  = *static_cast<const xgpu::vulkan::buffer*>(Commands.m_Private.get());
+        const auto& C  = *static_cast<const xgpu::vulkan::buffer*>(Counts.m_Private.get());
+        applyDynamicOffsets(CmdBuffer);
+        constexpr std::uint32_t Stride = sizeof(VkDrawIndexedIndirectCommand);
+        vkCmdDrawIndexedIndirectCount(CB.m_VKCommandBuffer, B.m_VKBuffer, VkDeviceSize(FirstCommand) * Stride, C.m_VKBuffer, VkDeviceSize(CountEntry) * sizeof(std::uint32_t), std::uint32_t(MaxCount), Stride);
+        CB.m_nDynamicOffsets = 0;
+        CB.m_DynamicDirty = false;
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+
     void window::setPushConstants(xgpu::cmd_buffer& CmdBuffer, const void* pData, std::size_t Size ) noexcept
     {
         auto& CB    = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);

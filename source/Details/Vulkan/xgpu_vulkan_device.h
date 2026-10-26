@@ -95,6 +95,7 @@ namespace xgpu::vulkan
         virtual void                    Shutdown            ( void ) noexcept override;
         virtual std::uint64_t           getFrameIndex       ( void ) const noexcept override { return static_cast<std::uint64_t>(m_FrameIndex); }
         virtual bool                    isBindless          ( void ) const noexcept override { return m_bBindless; }
+        virtual bool                    hasDrawIndirectCount( void ) const noexcept override { return m_bDrawIndirectCount; }
 
         virtual void                    Destroy             ( xgpu::texture&& Texture )                     noexcept override;
         virtual void                    Destroy             ( xgpu::pipeline_instance&& PipelineInstance )  noexcept override;
@@ -184,6 +185,7 @@ namespace xgpu::vulkan
         lock_object<VkDescriptorPool>                   m_LockedVKDescriptorPool    {};
         int                                             m_FrameIndex                = 0;
         bool                                            m_bHostQueryReset           = false;    // VkPhysicalDeviceHostQueryResetFeatures, needed by vulkan::timestamps
+        bool                                            m_bDrawIndirectCount        = false;    // VkPhysicalDeviceVulkan12Features::drawIndirectCount: xgpu::device::hasDrawIndirectCount
         bool                                            m_bBindless                 = false;    // descriptor indexing on (CreateGraphicsDevice): xgpu::device::isBindless
         std::array<death_march,2>                       m_DeathMarchList            {};
         // The frames submitted and not waited yet (every window's): the CPU's first write into a GPU buffer waits them (WaitInFlight)

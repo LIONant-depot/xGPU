@@ -79,6 +79,14 @@ namespace xgpu
 
     //--------------------------------------------------------------------------------------
 
+    cmd_buffer& cmd_buffer::DrawIndexedIndirectCount( xgpu::buffer& Commands, int FirstCommand, xgpu::buffer& Counts, int CountEntry, int MaxCount ) noexcept
+    {
+        m_pWindow->DrawIndexedIndirectCount(*this, Commands, FirstCommand, Counts, CountEntry, MaxCount);
+        return *this;
+    }
+
+    //--------------------------------------------------------------------------------------
+
     cmd_buffer& cmd_buffer::setTextureTable( xgpu::texture_table& Table ) noexcept
     {
         m_pWindow->setTextureTable(*this, Table);

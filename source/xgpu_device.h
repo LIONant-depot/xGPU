@@ -128,6 +128,8 @@ namespace xgpu
         // Whether textures and samplers are read by index from the global tables (descriptor indexing) or through per-material
         // sets built from the same ids. Callers write the same code for both: diagnostics and tests only
         [[nodiscard]] XGPU_INLINE bool           isBindless     ( void ) const noexcept;
+        // Whether cmd_buffer::DrawIndexedIndirectCount can be used (the count read from a buffer: Vulkan 1.2's drawIndirectCount)
+        [[nodiscard]] XGPU_INLINE bool           hasDrawIndirectCount( void ) const noexcept;
 
         // The streaming lane: a texture or buffer created with data is copied on the transfer queue, never by stalling the main queue; every
         // frame (and anything else submitted to the main queue) waits on the GPU for the uploads flushed before it. FlushUploads sends what

@@ -91,6 +91,7 @@ namespace xgpu::vulkan
         VkPhysicalDeviceVulkan13Features Use13{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES
                                               , .synchronization2 = VK_TRUE, .dynamicRendering = VK_TRUE };
         VkPhysicalDeviceVulkan12Features Use12{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .pNext = &Use13
+                                              , .drawIndirectCount                            = Has12.drawIndirectCount
                                               , .shaderSampledImageArrayNonUniformIndexing    = Device.m_bBindless
                                               , .descriptorBindingSampledImageUpdateAfterBind = Device.m_bBindless
                                               , .descriptorBindingUpdateUnusedWhilePending    = Device.m_bBindless
@@ -98,6 +99,7 @@ namespace xgpu::vulkan
                                               , .runtimeDescriptorArray                       = Device.m_bBindless
                                               , .hostQueryReset                               = Has12.hostQueryReset
                                               , .timelineSemaphore                            = VK_TRUE };
+        Device.m_bDrawIndirectCount = Has12.drawIndirectCount == VK_TRUE;
 
         static constexpr auto       enabledExtensions   = std::array
         { VK_KHR_SWAPCHAIN_EXTENSION_NAME

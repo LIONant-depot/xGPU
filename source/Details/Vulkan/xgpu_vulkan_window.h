@@ -99,6 +99,7 @@ namespace xgpu::vulkan
                                                                             ) noexcept override;
         virtual
         void                                    DrawIndexedIndirect         ( xgpu::cmd_buffer& CmdBuffer, xgpu::buffer& Commands, int FirstCommand, int Count ) noexcept override;
+        void                                    DrawIndexedIndirectCount    ( xgpu::cmd_buffer& CmdBuffer, xgpu::buffer& Commands, int FirstCommand, xgpu::buffer& Counts, int CountEntry, int MaxCount ) noexcept override;
         void                                    setTextureTable             ( xgpu::cmd_buffer& CmdBuffer, xgpu::texture_table& Table ) noexcept override;
         virtual
         void                                    setViewport                 ( xgpu::cmd_buffer& CmdBuffer
