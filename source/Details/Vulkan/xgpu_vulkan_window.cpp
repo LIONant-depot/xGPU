@@ -2132,4 +2132,42 @@ namespace xgpu::vulkan
         };
         vkCmdPipelineBarrier(Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, ShaderStages, 0, 1, &After, 0, nullptr, 0, nullptr);
     }
+
+    //----------------------------------------------------------------------------------------------------------
+
+    void window::CopyTextureToBuffer( const xgpu::texture& Src, xgpu::buffer& Dst ) noexcept
+    {
+        const auto& T = *static_cast<const xgpu::vulkan::texture*>(Src.m_Private.get());
+        auto&       D = *static_cast<xgpu::vulkan::buffer*>(Dst.m_Private.get());
+        const bool  isDepth = T.m_VKFormat == VK_FORMAT_D32_SFLOAT || T.m_VKFormat == VK_FORMAT_D16_UNORM || T.m_VKFormat == VK_FORMAT_D24_UNORM_S8_UINT
+                           || T.m_VKFormat == VK_FORMAT_D32_SFLOAT_S8_UINT;
+        const VkImageAspectFlags Aspect  = isDepth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+        const VkImageLayout      Resting = isDepth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;   // (xgpu_vulkan_renderpass.cpp finalLayout)
+        const VkPipelineStageFlags Writers = isDepth ? VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT : VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        const VkAccessFlags        WriteAccess = isDepth ? VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT : VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+        auto&       Frame = m_Frames[m_FrameIndex];
+        constexpr auto ShaderStages = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+
+        const VkImageSubresourceRange Range{ .aspectMask = Aspect, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 };
+        const VkImageMemoryBarrier ToSrc
+        { .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .srcAccessMask = WriteAccess, .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT
+        , .oldLayout = Resting, .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+        , .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .image = T.m_VKImage, .subresourceRange = Range };
+        // (and Dst: earlier shaders finish reading it - write after read)
+        vkCmdPipelineBarrier(Frame.m_VKCommandBuffer, Writers | ShaderStages, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 1, &ToSrc);
+
+        const VkBufferImageCopy Region
+        { .bufferOffset = 0, .bufferRowLength = 0, .bufferImageHeight = 0
+        , .imageSubresource = { .aspectMask = Aspect, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1 }
+        , .imageOffset = { 0, 0, 0 }, .imageExtent = { T.m_Width, T.m_Height, 1 } };
+        vkCmdCopyImageToBuffer(Frame.m_VKCommandBuffer, T.m_VKImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, D.m_VKBuffer, 1, &Region);
+
+        // Back where the pass left it (a later pass loads or samples it); later shaders and copies see Dst
+        const VkImageMemoryBarrier Back
+        { .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .srcAccessMask = 0, .dstAccessMask = WriteAccess | VK_ACCESS_SHADER_READ_BIT
+        , .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, .newLayout = Resting
+        , .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .image = T.m_VKImage, .subresourceRange = Range };
+        const VkMemoryBarrier After{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT, .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT };
+        vkCmdPipelineBarrier(Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, Writers | ShaderStages | VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 1, &After, 0, nullptr, 1, &Back);
+    }
 }

@@ -158,6 +158,7 @@ namespace xgpu::vulkan
                                                                             ) noexcept;
         virtual
         void                                    CopyBuffer                  ( const xgpu::buffer& Src, xgpu::buffer& Dst, std::span<const xgpu::buffer::copy> Regions ) noexcept override;
+        void                                    CopyTextureToBuffer         ( const xgpu::texture& Src, xgpu::buffer& Dst ) noexcept override;
         virtual
         void                                    Dispatch                    ( xgpu::compute& Compute, std::span<xgpu::buffer* const> Buffers, const void* pPush, std::size_t PushSize, int X, int Y, int Z ) noexcept override;   // xgpu_vulkan_compute.cpp
         void                                    WriteTimestamp              ( xgpu::timestamps& Timestamps, int Index ) noexcept override;

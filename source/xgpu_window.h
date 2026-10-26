@@ -35,6 +35,10 @@ namespace xgpu
         // shader reads of earlier commands (frames still in flight included), and later shaders see its result. For
         // keeping a device-local (GPU_READ) buffer up to date with deltas written by the CPU into a ring.
         XGPU_INLINE                 void                CopyBuffer              ( const buffer& Src, buffer& Dst, std::span<const buffer::copy> Regions ) noexcept;
+        // Records a GPU copy of Src's mip 0 (a render pass's attachment, resting where the pass left it: depth at its read-only layout, color
+        // at shader-read) into Dst from its entry 0, texels packed in rows (a DEPTH_F32's: a float each). Between render passes, as
+        // CopyBuffer: it waits for the pass that wrote Src; later shaders and copies see Dst, and a later pass can load or sample Src
+        XGPU_INLINE                 void                CopyTextureToBuffer     ( const texture& Src, buffer& Dst ) noexcept;
         // A GPU timestamp between render passes (cmd_buffer::WriteTimestamp is the one inside a pass) - see xgpu_timestamps.h
         XGPU_INLINE                 void                WriteTimestamp          ( timestamps& Timestamps, int Index ) noexcept;
         // Runs Compute over X x Y x Z work groups in this frame's command buffer, at this point of the frame (between render passes, as
