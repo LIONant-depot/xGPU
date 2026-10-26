@@ -1,3 +1,4 @@
+#include <filesystem>
 #include <chrono>
 namespace xgpu::vulkan
 {
@@ -1363,8 +1364,33 @@ namespace xgpu::vulkan
 
     //------------------------------------------------------------------------------------------------------------------------
 
+#if defined(_WIN32)
+    // Measurement (a GPU frame profile): run under RenderDoc (ENABLE_VULKAN_RENDERDOC_CAPTURE=1 loads its layer); when the file
+    // XGPU_RENDERDOC_TRIGGER names appears, the next frame is captured (into XGPU_RENDERDOC_CAPTURE_PATH, a file name template) and the file
+    // is removed - RenderDoc's in-app API (renderdoc_app.h: RENDERDOC_GetAPI 1.1.2: SetCaptureFilePathTemplate entry 11, TriggerCapture 15)
+    static void RenderDocCaptureAt( std::uint64_t Frame ) noexcept
+    {
+        static const char* pTrigger = std::getenv("XGPU_RENDERDOC_TRIGGER");
+        if( pTrigger == nullptr || Frame % 16 ) return;
+        std::error_code Ec;
+        if( !std::filesystem::exists(pTrigger, Ec) || !std::filesystem::remove(pTrigger, Ec) ) return;
+        const HMODULE Module = GetModuleHandleA("renderdoc.dll");
+        if( Module == nullptr ) return;
+        using get_api = int(*)(int, void**);
+        const auto GetAPI = reinterpret_cast<get_api>(reinterpret_cast<void*>(GetProcAddress(Module, "RENDERDOC_GetAPI")));
+        void** pAPI = nullptr;
+        if( GetAPI == nullptr || GetAPI(10102, reinterpret_cast<void**>(&pAPI)) == 0 || pAPI == nullptr ) return;
+        if( const char* pPath = std::getenv("XGPU_RENDERDOC_CAPTURE_PATH") ) reinterpret_cast<void(*)(const char*)>(pAPI[11])(pPath);
+        reinterpret_cast<void(*)()>(pAPI[15])();
+    }
+#endif
+
     xgpu::device::error* window::EndFrame(void) noexcept
     {
+#if defined(_WIN32)
+        static std::uint64_t s_nEndFrames = 0;
+        RenderDocCaptureAt(s_nEndFrames++);
+#endif
         auto& Frame     = m_Frames[m_FrameIndex];
         auto& Semaphore = m_FrameSemaphores[m_SemaphoreIndex];
 
