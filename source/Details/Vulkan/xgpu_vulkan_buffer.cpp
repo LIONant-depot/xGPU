@@ -46,6 +46,7 @@ namespace xgpu::vulkan
 
         m_Type   = Setup.m_Type;
         m_Usage  = Setup.m_Usage;
+        m_bWriteOnly = Setup.m_bWriteOnly;
 
         VkDeviceSize ByteSize = EntryByteSize * Setup.m_EntryCount;
         ByteSize = ((ByteSize - 1) / m_Device->m_BufferMemoryAlignment + 1) * m_Device->m_BufferMemoryAlignment;
@@ -91,7 +92,18 @@ namespace xgpu::vulkan
         // would have succeeded.
         m_Device->getMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, AllocInfo.memoryTypeIndex );
 
-        if( auto VKErr = vkAllocateMemory(m_Device->m_VKDevice, &AllocInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKBufferMemory); VKErr )
+        // write-only: device-local where the CPU can map it (the GPU's reads stay on the card - the light cells read 7x faster); the BAR
+        // heap full or none: host memory as above
+        const std::uint32_t HostType = AllocInfo.memoryTypeIndex;
+        const bool bDevice = Setup.m_bWriteOnly && m_Usage == xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ
+            && m_Device->getMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, AllocInfo.memoryTypeIndex);
+        VkResult VKErr = bDevice ? vkAllocateMemory(m_Device->m_VKDevice, &AllocInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKBufferMemory) : VK_ERROR_OUT_OF_DEVICE_MEMORY;
+        if( VKErr != VK_SUCCESS )
+        {
+            AllocInfo.memoryTypeIndex = HostType;
+            VKErr = vkAllocateMemory(m_Device->m_VKDevice, &AllocInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKBufferMemory);
+        }
+        if( VKErr )
         {
             m_Device->m_Instance->ReportError(VKErr, "Fail to Allocate Memory for Buffer");
             return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to Allocate Memory for Buffer");
@@ -305,6 +317,7 @@ namespace xgpu::vulkan
         , .m_Usage          = m_Usage
         , .m_EntryByteSize  = m_EntrySizeBytes
         , .m_EntryCount     = NewEntryCount
+        , .m_bWriteOnly     = m_bWriteOnly
         };
 
         Destroy();

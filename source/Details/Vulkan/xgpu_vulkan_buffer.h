@@ -33,5 +33,6 @@ namespace xgpu::vulkan
         int                         m_EntrySizeBytes    {};
         xgpu::buffer::type          m_Type              {};
         xgpu::buffer::setup::usage  m_Usage             {};
+        bool                        m_bWriteOnly        {};
     };
 }

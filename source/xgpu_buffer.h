@@ -35,6 +35,8 @@ namespace xgpu
             int                  m_EntryByteSize {-1};
             int                  m_EntryCount    {-1};
             std::optional<void*> m_pData         {};
+            bool                 m_bWriteOnly    { false };     // (CPU_WRITE_GPU_READ the CPU writes, reads rarely - uncached, slow: device-local memory
+                                                                //  it can map where the device has it - resizable BAR - for the GPU's reads; else as before)
         };
 
         template< typename T_CALLBACK >
