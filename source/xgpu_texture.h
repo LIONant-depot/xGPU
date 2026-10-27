@@ -64,6 +64,8 @@ namespace xgpu
         ,   DEPTH_U24_STENCIL_U8
         ,   DEPTH_F32
         ,   DEPTH_F32_STENCIL_U8
+        ,   A2B10G10R10_UNORM       // packed 32 bits (appended: the values above are stored in resources)
+        ,   B10G11R11_UFLOAT        // packed 32 bits, unsigned floats (HDR color without alpha)
         ,   ENUM_COUNT
         ,   DEFAULT = R8G8B8A8_UNORM
         };

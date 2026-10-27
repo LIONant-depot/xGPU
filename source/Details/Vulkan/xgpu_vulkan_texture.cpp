@@ -83,6 +83,8 @@ namespace xgpu::vulkan
             FormatTable[(int)xgpu::texture::format::DEPTH_U24_STENCIL_U8]       = texture_format  { VK_FORMAT_D24_UNORM_S8_UINT         , VK_FORMAT_UNDEFINED                  };
             FormatTable[(int)xgpu::texture::format::DEPTH_F32           ]       = texture_format  { VK_FORMAT_D32_SFLOAT                , VK_FORMAT_UNDEFINED                  };
             FormatTable[(int)xgpu::texture::format::DEPTH_F32_STENCIL_U8]       = texture_format  { VK_FORMAT_D32_SFLOAT_S8_UINT        , VK_FORMAT_UNDEFINED                  };
+            FormatTable[(int)xgpu::texture::format::A2B10G10R10_UNORM   ]       = texture_format  { VK_FORMAT_A2B10G10R10_UNORM_PACK32  , VK_FORMAT_UNDEFINED                  };
+            FormatTable[(int)xgpu::texture::format::B10G11R11_UFLOAT    ]       = texture_format  { VK_FORMAT_B10G11R11_UFLOAT_PACK32   , VK_FORMAT_UNDEFINED                  };
 
             return FormatTable;
         }();  
@@ -791,7 +793,8 @@ namespace xgpu::vulkan
         case fmt::R16_SFLOAT:                                                           return 2;
         case fmt::R8G8B8_UNORM:                                                         return 3;
         case fmt::B8G8R8A8_UNORM: case fmt::B8G8R8U8_UNORM: case fmt::R8G8B8U8_UNORM:
-        case fmt::R8G8B8A8_UNORM: case fmt::R16G16_SFLOAT:  case fmt::R32_SFLOAT:       return 4;
+        case fmt::R8G8B8A8_UNORM: case fmt::R16G16_SFLOAT:  case fmt::R32_SFLOAT:
+        case fmt::A2B10G10R10_UNORM: case fmt::B10G11R11_UFLOAT:                        return 4;
         case fmt::R16G16B16A16_SFLOAT: case fmt::R32G32_SFLOAT:                         return 8;
         case fmt::R32G32B32_SFLOAT:                                                     return 12;
         case fmt::R32G32B32A32_SFLOAT:                                                  return 16;
