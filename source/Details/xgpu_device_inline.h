@@ -273,26 +273,32 @@ namespace xgpu
     void device::Destroy(pipeline_instance&& PipelineInstance)  noexcept 
     { 
         m_Private->Destroy( std::move(PipelineInstance) );
+        PipelineInstance.m_Private.reset();         // (the handles have no move: the queue took a copy - the caller's reference goes too, or its m_Private still says "alive")
     }
     void device::Destroy(pipeline&& Pipeline)                   noexcept 
     {
-        m_Private->Destroy( std::move(Pipeline) ); 
+        m_Private->Destroy( std::move(Pipeline) );
+        Pipeline.m_Private.reset();
     }
     void device::Destroy(texture&& Texture)                     noexcept 
     {
         m_Private->Destroy( std::move(Texture) );
+        Texture.m_Private.reset();
     }
     void device::Destroy(buffer&& Buffer)                       noexcept
     {
         m_Private->Destroy( std::move(Buffer) );
+        Buffer.m_Private.reset();
     }
     void device::Destroy(window&& Window)                       noexcept
     {
-        m_Private->Destroy( std::move(Window) ); 
+        m_Private->Destroy( std::move(Window) );
+        Window.m_Private.reset();
     }
     void device::Destroy(texture_table&& Table)                 noexcept
     {
         m_Private->Destroy( std::move(Table) );
+        Table.m_Private.reset();
     }
     [[nodiscard]] XGPU_INLINE
     device::error* device::Create( texture_table& Table, const texture_table::setup& Setup ) noexcept
@@ -306,7 +312,8 @@ namespace xgpu
     }
     void device::Destroy(renderpass&& Renderpass)               noexcept
     {
-        m_Private->Destroy( std::move(Renderpass) ); 
+        m_Private->Destroy( std::move(Renderpass) );
+        Renderpass.m_Private.reset();
     }
 
     void device::Shutdown( void ) noexcept
