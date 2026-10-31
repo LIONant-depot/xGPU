@@ -19,7 +19,13 @@ namespace xgpu::vulkan
             const VkMemoryAllocateInfo Info{ .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, .allocationSize = Req.size, .memoryTypeIndex = Type };
             vram_allocation D;
             if( auto VKErr = vkAllocateMemory(m_VKDevice, &Info, m_Instance->m_pVKAllocator, &D.m_Memory); VKErr ) m_Instance->ReportError(VKErr, "Fail to allocate device memory");
-            else ++m_nVRAMDedicated;
+            else
+            {
+                ++m_nVRAMDedicated;
+                const auto Id = reinterpret_cast<std::uint64_t>(D.m_Memory);     // (the profiler's memory map: a region of its own, all of it one allocation)
+                XPROFILE_MEM_REGION("VRAM", Id, Req.size);
+                XPROFILE_MEM_ALLOC("VRAM", Id, 0, Req.size, bImage ? "image (own allocation)" : "buffer (own allocation)");
+            }
             return D;
         };
         if( Req.size > vram_dedicated_v ) return Dedicated();
@@ -38,6 +44,7 @@ namespace xgpu::vulkan
             A.m_iBlock = i;
             A.m_Range  = R;
             ++B.m_nLive;
+            XPROFILE_MEM_ALLOC("VRAM", std::uint64_t(i) + 1, A.m_Offset, Req.size, bImage ? "image" : "buffer");
             return true;
         };
 
@@ -56,6 +63,7 @@ namespace xgpu::vulkan
         B.m_bImage  = bImage;
         B.m_nLive   = 0;
         B.m_pAlloc  = std::make_unique<OffsetAllocator::Allocator>(static_cast<std::uint32_t>(vram_block_v / vram_unit_v));
+        XPROFILE_MEM_REGION("VRAM", std::uint64_t(iNew) + 1, vram_block_v);      // (the profiler's memory map: block i is region i + 1)
         Take(iNew);
         return A;
     }
@@ -67,6 +75,7 @@ namespace xgpu::vulkan
         if( !A.isValid() ) return;
         if( A.m_iBlock < 0 )
         {
+            XPROFILE_MEM_REGION("VRAM", reinterpret_cast<std::uint64_t>(A.m_Memory), 0);
             vkFreeMemory(m_VKDevice, A.m_Memory, m_Instance->m_pVKAllocator);
             --m_nVRAMDedicated;
         }
@@ -75,6 +84,7 @@ namespace xgpu::vulkan
             std::lock_guard Lk(m_VRAMLock);
             auto& B = m_VRAMBlocks[A.m_iBlock];
             B.m_pAlloc->free(A.m_Range);
+            XPROFILE_MEM_FREE("VRAM", std::uint64_t(A.m_iBlock) + 1, A.m_Offset);
             if( --B.m_nLive == 0 )
             {
                 bool bOtherEmpty = false;
@@ -82,6 +92,7 @@ namespace xgpu::vulkan
                 if( bOtherEmpty )
                 {
                     vkFreeMemory(m_VKDevice, B.m_Memory, m_Instance->m_pVKAllocator);
+                    XPROFILE_MEM_REGION("VRAM", std::uint64_t(A.m_iBlock) + 1, 0);
                     B.m_Memory = VK_NULL_HANDLE;
                     B.m_pAlloc.reset();
                 }
