@@ -437,7 +437,9 @@ namespace xgpu::vulkan
             };
 
             // Copied on the transfer queue, ending in SHADER_READ_ONLY for the main queue: no wait here, the frames wait on the GPU
-            if( auto Err = m_Device->m_Upload.UploadImage(m_VKImage, SubresourceRange, Setup.m_AllFacesData, BufferCopyRegions); Err ) return Err;
+            const std::span<const std::byte> AllFaces[] = { Setup.m_AllFacesData };
+            const auto Pieces = Setup.m_MipFaceData.empty() ? std::span<const std::span<const std::byte>>{ AllFaces } : Setup.m_MipFaceData;
+            if( auto Err = m_Device->m_Upload.UploadImage(m_VKImage, SubresourceRange, Pieces, BufferCopyRegions); Err ) return Err;
             OutImageLayout   = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
             m_bContentReady  = true;
         }

@@ -35,7 +35,8 @@ namespace xgpu::vulkan
 
         xgpu::device::error*    Init            ( device& Device ) noexcept;
         // A texture's mips (the regions point into Data) into its image; it ends in SHADER_READ_ONLY_OPTIMAL, owned by the main family
-        xgpu::device::error*    UploadImage     ( VkImage Image, VkImageSubresourceRange Range, std::span<const std::byte> Data, std::span<VkBufferImageCopy> Regions ) noexcept;
+        // the image's bytes in one or more pieces, copied to the ring one after another (Regions' offsets are into that concatenation)
+        xgpu::device::error*    UploadImage     ( VkImage Image, VkImageSubresourceRange Range, std::span<const std::span<const std::byte>> Pieces, std::span<VkBufferImageCopy> Regions ) noexcept;
         // Bytes of a host staging buffer into a device-local one (the staging buffer is freed when the batch retires)
         xgpu::device::error*    UploadBuffer    ( VkBuffer Staging, VkDeviceMemory StagingMemory, VkBuffer Dst, VkDeviceSize Bytes ) noexcept;
         std::uint64_t           Flush           ( void ) noexcept;                     // the timeline value the main queue waits on

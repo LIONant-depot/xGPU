@@ -67,24 +67,27 @@ namespace xgpu::tools::bitmap
             return Table;
         }();
 
+    // MipFaceData (optional): the pixels in pieces, one per face and mip (face * mips + mip), when they are not one block in the bitmap
+    // - the bitmap then only describes the texture (size, format, faces, flags) and its pixels are not read
     inline
-    xgpu::device::error* Create( xgpu::texture& Texture, xgpu::device& Device, const xbitmap& Bitmap ) noexcept
+    xgpu::device::error* Create( xgpu::texture& Texture, xgpu::device& Device, const xbitmap& Bitmap, std::span<const std::span<const std::byte>> MipFaceData = {} ) noexcept
     {
-        static constexpr auto Do = [](xgpu::texture& Texture, xgpu::device& Device, const xbitmap& Bitmap) -> xgpu::device::error*
+        static constexpr auto Do = [](xgpu::texture& Texture, xgpu::device& Device, const xbitmap& Bitmap, std::span<const std::span<const std::byte>> MipFaceData) -> xgpu::device::error*
         {
             xgpu::texture::setup                             Setup;
             std::array<xgpu::texture::setup::mip_size,  20>  Mips;
 
             for (int i = 0, end = Bitmap.getMipCount(); i < end; ++i)
             {
-                Mips[i].m_SizeInBytes = Bitmap.getMipSize(i);
+                Mips[i].m_SizeInBytes = MipFaceData.empty() ? Bitmap.getMipSize(i) : static_cast<std::uint32_t>(MipFaceData[i].size());
             }
 
             Setup.m_Format              = getFormat(Bitmap.getFormat());
             Setup.m_Height              = Bitmap.getHeight();
             Setup.m_Width               = Bitmap.getWidth();
             Setup.m_MipSizes            = std::span{ Mips.data(), static_cast<std::size_t>(Bitmap.getMipCount())};
-            Setup.m_AllFacesData        = { Bitmap.getMip<const std::byte>(0).data(), Bitmap.getFrameSize() };      // the pixels of every face (frame 0): getDataSize() also counts the mip offset table in front of getMip(0), so it read past the end
+            if (MipFaceData.empty()) Setup.m_AllFacesData = { Bitmap.getMip<const std::byte>(0).data(), Bitmap.getFrameSize() };      // the pixels of every face (frame 0): getDataSize() also counts the mip offset table in front of getMip(0), so it read past the end
+            else                     Setup.m_MipFaceData  = MipFaceData;
             Setup.m_FaceCount           = Bitmap.getFaceCount();
             Setup.m_isGamma             = !Bitmap.isLinearSpace();
             Setup.m_isCubemap           = Bitmap.isCubemap();
@@ -115,11 +118,11 @@ namespace xgpu::tools::bitmap
                 C.m_A = 0xff;
             }
 
-            return Do(Texture, Device, Temp);
+            return Do(Texture, Device, Temp, {});       // (its own expanded pixels)
         }
         else
         {
-            return Do(Texture, Device, Bitmap);
+            return Do(Texture, Device, Bitmap, MipFaceData);
         }
 
         return nullptr;

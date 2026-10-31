@@ -92,6 +92,8 @@ namespace xgpu
             int                                     m_Height                { -1 };
             std::span<const mip_size>               m_MipSizes              {};
             std::span<const std::byte>              m_AllFacesData          {};
+            std::span<const std::span<const std::byte>> m_MipFaceData       {};     // instead of m_AllFacesData: the same bytes in pieces, one per face and mip
+                                                                                    // (face * mips + mip), copied to the staging ring one after another
             std::uint32_t                           m_FaceCount             {1};
             bool                                    m_isGamma               { true };
             bool                                    m_isCubemap             { false };

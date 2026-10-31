@@ -183,12 +183,14 @@ namespace xgpu::vulkan
 
     //------------------------------------------------------------------------------------------------------------------------
 
-    xgpu::device::error* upload_queue::UploadImage( VkImage Image, VkImageSubresourceRange Range, std::span<const std::byte> Data, std::span<VkBufferImageCopy> Regions ) noexcept
+    xgpu::device::error* upload_queue::UploadImage( VkImage Image, VkImageSubresourceRange Range, std::span<const std::span<const std::byte>> Pieces, std::span<VkBufferImageCopy> Regions ) noexcept
     {
         std::lock_guard Lk(m_Lock);
+        std::size_t Size = 0;
+        for( const auto& P : Pieces ) Size += P.size();
         staging S;
-        if( auto Err = Reserve(Data.size(), S); Err ) return Err;
-        std::memcpy(S.m_pData, Data.data(), Data.size());
+        if( auto Err = Reserve(Size, S); Err ) return Err;
+        for( std::size_t At = 0; const auto& P : Pieces ) { std::memcpy(static_cast<std::byte*>(S.m_pData) + At, P.data(), P.size()); At += P.size(); }
         for( auto& R : Regions ) R.bufferOffset += S.m_Offset;
 
         auto& B = *Open();
