@@ -101,10 +101,16 @@ namespace xgpu::vulkan
                                               , .timelineSemaphore                            = VK_TRUE };
         Device.m_bDrawIndirectCount = Has12.drawIndirectCount == VK_TRUE;
 
-        static constexpr auto       enabledExtensions   = std::array
-        { VK_KHR_SWAPCHAIN_EXTENSION_NAME
-//        ,   VK_NV_GLSL_SHADER_EXTENSION_NAME  // nVidia useful extension to be able to load GLSL shaders
-        };
+        // VK_EXT_memory_budget where the GPU has it: the driver's budget and usage per heap (the profiler's memory maps: device::ReportMemoryHeaps)
+        std::vector<const char*>    enabledExtensions   { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+        {
+            std::uint32_t n = 0;
+            vkEnumerateDeviceExtensionProperties(Device.m_VKPhysicalDevice, nullptr, &n, nullptr);
+            std::vector<VkExtensionProperties> Available(n);
+            vkEnumerateDeviceExtensionProperties(Device.m_VKPhysicalDevice, nullptr, &n, Available.data());
+            for( const auto& E : Available ) if( std::strcmp(E.extensionName, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) == 0 ) Device.m_bMemoryBudget = true;
+            if( Device.m_bMemoryBudget ) enabledExtensions.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+        }
         VkDeviceCreateInfo          deviceCreateInfo
         {
             .sType                      = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO
@@ -800,6 +806,28 @@ namespace xgpu::vulkan
         if( m_pProfileContext ) { TracyVkDestroy(static_cast<tracy::VkCtx*>(m_pProfileContext)); m_pProfileContext = nullptr; }
     #endif
         DeathMarch();
+    }
+
+    //----------------------------------------------------------------------------------------------------------
+    // The memory heaps as the profiler's memory spaces: VRAM (the device-local heaps), System RAM (the others) - each one's size and, with
+    // VK_EXT_memory_budget, the driver's budget and usage for this process (the maps then show the rest of the card, not only xGPU's blocks)
+
+    void device::ReportMemoryHeaps( void ) noexcept
+    {
+        VkPhysicalDeviceMemoryBudgetPropertiesEXT Budget{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT };
+        VkPhysicalDeviceMemoryProperties2         Props { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2, .pNext = m_bMemoryBudget ? &Budget : nullptr };
+        vkGetPhysicalDeviceMemoryProperties2(m_VKPhysicalDevice, &Props);
+        std::uint64_t Size[2]{}, Bud[2]{}, Use[2]{};
+        for( std::uint32_t i = 0; i < Props.memoryProperties.memoryHeapCount; ++i )
+        {
+            const auto& H = Props.memoryProperties.memoryHeaps[i];
+            const int   s = (H.flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) ? 0 : 1;
+            Size[s] += H.size;
+            Bud[s]  += m_bMemoryBudget ? Budget.heapBudget[i] : H.size;
+            Use[s]  += m_bMemoryBudget ? Budget.heapUsage[i]  : 0;
+        }
+        XPROFILE_MEM_SPACE("VRAM", Size[0], Bud[0], Use[0]);
+        XPROFILE_MEM_SPACE("System RAM", Size[1], Bud[1], Use[1]);
     }
 
     //----------------------------------------------------------------------------------------------------------

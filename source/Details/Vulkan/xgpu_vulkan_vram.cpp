@@ -8,7 +8,7 @@ namespace xgpu::vulkan
     // ponytail: one lock for every block; a lock per block when loader threads contend
     //------------------------------------------------------------------------------------------------------------------------
 
-    vram_allocation device::AllocVRAM( const VkMemoryRequirements& Req, bool bImage ) noexcept
+    vram_allocation device::AllocVRAM( const VkMemoryRequirements& Req, bool bImage, const char* pName ) noexcept
     {
         vram_allocation A;
         std::uint32_t   Type = 0;
@@ -18,7 +18,7 @@ namespace xgpu::vulkan
         {
             const VkMemoryAllocateInfo Info{ .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, .allocationSize = Req.size, .memoryTypeIndex = Type };
             vram_allocation D;
-            if( auto VKErr = AllocMemory(Info, D.m_Memory, bImage ? "image (own allocation)" : "buffer (own allocation)"); VKErr ) m_Instance->ReportError(VKErr, "Fail to allocate device memory");
+            if( auto VKErr = AllocMemory(Info, D.m_Memory, pName ? pName : bImage ? "image (own allocation)" : "buffer (own allocation)"); VKErr ) m_Instance->ReportError(VKErr, "Fail to allocate device memory");
             else ++m_nVRAMDedicated;
             return D;
         };
@@ -38,7 +38,7 @@ namespace xgpu::vulkan
             A.m_iBlock = i;
             A.m_Range  = R;
             ++B.m_nLive;
-            XPROFILE_MEM_ALLOC(MemoryKind(B.m_Type), std::uint64_t(i) + 1, A.m_Offset, Req.size, bImage ? "image" : "buffer");
+            XPROFILE_MEM_ALLOC(MemoryKind(B.m_Type), std::uint64_t(i) + 1, A.m_Offset, Req.size, pName ? pName : bImage ? "image" : "buffer");
             return true;
         };
 

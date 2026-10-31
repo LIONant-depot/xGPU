@@ -142,11 +142,14 @@ namespace xgpu::vulkan
         std::mutex                      m_VRAMLock;
         std::deque<vram_block>          m_VRAMBlocks;
         std::atomic<int>                m_nVRAMDedicated    { 0 };
-        vram_allocation                 AllocVRAM           ( const VkMemoryRequirements& Req, bool bImage ) noexcept;
+        vram_allocation                 AllocVRAM           ( const VkMemoryRequirements& Req, bool bImage, const char* pName = nullptr ) noexcept;     // pName: the memory map's label
         void                            FreeVRAM            ( vram_allocation& A ) noexcept;
         VkResult                        AllocMemory         ( const VkMemoryAllocateInfo& Info, VkDeviceMemory& Out, const char* pTag ) noexcept;     // vkAllocateMemory + the profiler's memory map
         void                            FreeMemory          ( VkDeviceMemory Memory ) noexcept;
         const char*                     MemoryKind          ( std::uint32_t Type ) const noexcept;      // the memory map's pool of a memory type
+        void                            ReportMemoryHeaps   ( void ) noexcept;                          // the heaps' size, budget, usage to the profiler
+        bool                            m_bMemoryBudget     = false;                                    // VK_EXT_memory_budget enabled
+        int                             m_HeapReportFrame   = -1;
         virtual xgpu::device::memory_stats getMemoryStats   ( void ) noexcept override;
         std::atomic<std::uint64_t>      m_nMainQueueWaits   { 0 };     // vkQueueWaitIdle on the main queue (the setup command buffer: readbacks, region updates)
         virtual xgpu::timeline_point    FlushUploads        ( void ) noexcept override { return { m_Upload.Flush() }; }

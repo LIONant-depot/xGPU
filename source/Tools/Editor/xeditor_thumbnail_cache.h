@@ -158,7 +158,7 @@ namespace xeditor
             // a shader computation - a UNORM/linear atlas would show visibly washed-out colors next to the
             // type-icon atlas it sits beside in the same browser row.
             (void)Ok(Device.Create(m_AtlasTexture, { .m_Format = xgpu::texture::format::R8G8B8A8_UNORM
-                , .m_Width = s_Cols * s_CellPixels, .m_Height = s_Rows * s_CellPixels, .m_isGamma = true }));
+                , .m_Width = s_Cols * s_CellPixels, .m_Height = s_Rows * s_CellPixels, .m_isGamma = true, .m_pName = "UI: thumbnail atlas" }));
             for (int i = s_MaxCells - 1; i >= 0; --i) m_FreeCells.push_back(i);
         }
 
@@ -284,7 +284,7 @@ namespace xeditor
             if (!pRenderer) pRenderer = RendererIt->second();
             if (!pRenderer->Init(Device)) return false;
 
-            if (!Ok(Device.Create(Flight.m_Scratch, { .m_Format = xgpu::texture::format::R8G8B8A8_UNORM, .m_Width = s_CellPixels, .m_Height = s_CellPixels, .m_isGamma = false }))) return false;
+            if (!Ok(Device.Create(Flight.m_Scratch, { .m_Format = xgpu::texture::format::R8G8B8A8_UNORM, .m_Width = s_CellPixels, .m_Height = s_CellPixels, .m_isGamma = false, .m_pName = "UI: thumbnail scratch" }))) return false;
 
             if (!m_pWindow) { Device.Destroy(std::move(Flight.m_Scratch)); return false; }   // headless host, no window to record with - see Init()'s own comment
 

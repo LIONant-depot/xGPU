@@ -100,6 +100,7 @@ namespace xgpu
             std::uint32_t                           m_FirstMip              {0};
             bool                                    m_isGamma               { true };
             bool                                    m_isCubemap             { false };
+            const char*                             m_pName                 { nullptr };   // what it is - "Category: detail", a literal (the profiler's memory map; null: image)
         };
 
         inline

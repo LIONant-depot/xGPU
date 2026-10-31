@@ -304,7 +304,7 @@ namespace xgpu::vulkan
                                 , MemoryAllocInfo.memoryTypeIndex );
 
             // A range of a device-local block of the device (AllocVRAM), or its own allocation when it is large
-            m_VRAM = m_Device->AllocVRAM(MemoryRequirements, true);
+            m_VRAM = m_Device->AllocVRAM(MemoryRequirements, true, Setup.m_pName);
             if( !m_VRAM.isValid() )
             {
                 m_Device->m_Instance->ReportError("Fail to allocate the necesary memory for the texture in vram with zero mips");
@@ -415,7 +415,7 @@ namespace xgpu::vulkan
                                 , MemoryAllocInfo.memoryTypeIndex );
 
             // A range of a device-local block of the device (AllocVRAM), or its own allocation when it is large
-            m_VRAM = m_Device->AllocVRAM(MemoryRequirements, true);
+            m_VRAM = m_Device->AllocVRAM(MemoryRequirements, true, Setup.m_pName);
             if( !m_VRAM.isValid() )
             {
                 m_Device->m_Instance->ReportError("Fail to allocate the necesary memory for the texture in vram");

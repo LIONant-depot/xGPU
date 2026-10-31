@@ -78,7 +78,7 @@ namespace xeditor
             if (!Ok(Device.Create(m_MeshVD, xgpu::vertex_descriptor::setup{ .m_VertexSize = sizeof(e19::draw_vert), .m_Attributes = Attributes }))) return false;
 
             if (!Ok(Device.Create(m_LightUBO, { .m_Type = xgpu::buffer::type::UNIFORM, .m_Usage = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ
-                , .m_EntryByteSize = sizeof(ubo_lighting), .m_EntryCount = 4 }))) return false;
+                , .m_EntryByteSize = sizeof(ubo_lighting), .m_EntryCount = 4, .m_pName = "UI: mesh preview lighting" }))) return false;
 
             // The background: a textured 2D plane
             xgpu::vertex_descriptor VD2D;

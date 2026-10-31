@@ -45,6 +45,7 @@ namespace xgpu::vulkan
         }
 
         m_Type   = Setup.m_Type;
+        m_pName  = Setup.m_pName;
         m_Usage  = Setup.m_Usage;
         m_bWriteOnly = Setup.m_bWriteOnly;
 
@@ -97,11 +98,11 @@ namespace xgpu::vulkan
         const std::uint32_t HostType = AllocInfo.memoryTypeIndex;
         const bool bDevice = Setup.m_bWriteOnly && m_Usage == xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ
             && m_Device->getMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, AllocInfo.memoryTypeIndex);
-        VkResult VKErr = bDevice ? m_Device->AllocMemory(AllocInfo, m_VKBufferMemory, "buffer (own allocation)") : VK_ERROR_OUT_OF_DEVICE_MEMORY;
+        VkResult VKErr = bDevice ? m_Device->AllocMemory(AllocInfo, m_VKBufferMemory, m_pName ? m_pName : "buffer (own allocation)") : VK_ERROR_OUT_OF_DEVICE_MEMORY;
         if( VKErr != VK_SUCCESS )
         {
             AllocInfo.memoryTypeIndex = HostType;
-            VKErr = m_Device->AllocMemory(AllocInfo, m_VKBufferMemory, "buffer (own allocation)");
+            VKErr = m_Device->AllocMemory(AllocInfo, m_VKBufferMemory, m_pName ? m_pName : "buffer (own allocation)");
         }
         if( VKErr )
         {
@@ -229,7 +230,7 @@ namespace xgpu::vulkan
 
         m_Device->m_BufferMemoryAlignment = (m_Device->m_BufferMemoryAlignment > req.alignment) ? m_Device->m_BufferMemoryAlignment : req.alignment;
         // A range of a device-local block (device::AllocVRAM), or its own allocation when it is large
-        m_VRAM = m_Device->AllocVRAM(req, false);
+        m_VRAM = m_Device->AllocVRAM(req, false, m_pName);
         if (!m_VRAM.isValid())
         {
             vkDestroyBuffer(m_Device->m_VKDevice, VKFinalBuffer, m_Device->m_Instance->m_pVKAllocator);

@@ -96,6 +96,7 @@ namespace xgpu::tools::bitmap
             Setup.m_isCubemap           = Bitmap.isCubemap();
             Setup.m_AdressModes[0]      = table_xbmp_to_xgpu_address_mode_v[static_cast<int>(Bitmap.getUWrapMode())];
             Setup.m_AdressModes[1]      = table_xbmp_to_xgpu_address_mode_v[static_cast<int>(Bitmap.getVWrapMode())];
+            Setup.m_pName               = "Textures: bitmap";
 
             if (auto Err = Device.Create(Texture, Setup); Err)
                 return Err;

@@ -15,14 +15,8 @@
     #define XPROFILE_MEM_ALLOC(POOL, REGION, OFFSET, SIZE, TAG) do {} while (0)
     #define XPROFILE_MEM_FREE(POOL, REGION, OFFSET)             do {} while (0)
 #endif
-
-#ifndef XPROFILE_SCOPE
-    #define XPROFILE_SCOPE(NAME)
-#endif
-#ifndef XPROFILE_MEM_REGION
-    #define XPROFILE_MEM_REGION(POOL, REGION, SIZE)             do {} while (0)
-    #define XPROFILE_MEM_ALLOC(POOL, REGION, OFFSET, SIZE, TAG) do {} while (0)
-    #define XPROFILE_MEM_FREE(POOL, REGION, OFFSET)             do {} while (0)
+#ifndef XPROFILE_MEM_SPACE
+    #define XPROFILE_MEM_SPACE(SPACE, SIZE, BUDGET, USAGE)      do {} while (0)
 #endif
 
 #if defined(XLION_PROFILE) && XLION_PROFILE

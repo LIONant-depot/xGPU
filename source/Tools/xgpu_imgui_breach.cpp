@@ -771,6 +771,7 @@ struct window_info
             , .m_Usage          = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ
             , .m_EntryByteSize  = sizeof(ImDrawVert)
             , .m_EntryCount     = 3 * 1000
+            , .m_pName          = "UI: ImGui vertices"
             };
 
             for( auto& Prim : m_PrimitiveBuffers )
@@ -786,6 +787,7 @@ struct window_info
             , .m_Usage          = xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ
             , .m_EntryByteSize  = sizeof(ImDrawIdx)
             , .m_EntryCount     = 3 * 1000
+            , .m_pName          = "UI: ImGui indices"
             };
 
             for (auto& Prim : m_PrimitiveBuffers)
@@ -1068,6 +1070,7 @@ struct breach_instance : window_info
             Setup.m_Width       = width;
             Setup.m_MipSizes    = Mip;
             Setup.m_AllFacesData = std::span{ reinterpret_cast<const std::byte*>(pixels), Mip[0].m_SizeInBytes * sizeof(char) };
+            Setup.m_pName       = "UI: ImGui fonts";
 
             if (auto Err = m_Shared->m_Device.Create(Texture, Setup); Err)
                 return Err;
