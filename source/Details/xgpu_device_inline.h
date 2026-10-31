@@ -41,6 +41,11 @@ namespace xgpu
                                                                     , std::shared_ptr<device_handle>&       SharedDevice
                                                                     ) noexcept = 0;
 
+            virtual device::error*          ExtendTexture           ( xgpu::texture&                        Out
+                                                                    , xgpu::texture&                        Src
+                                                                    , std::span<const std::span<const std::byte>> MipFaceData
+                                                                    ) noexcept = 0;
+
             virtual device::error*          UpdateTexture           ( xgpu::texture&                        Texture
                                                                     , int                                    OffsetX
                                                                     , int                                    OffsetY
@@ -198,6 +203,19 @@ namespace xgpu
     ) noexcept
     {
         return m_Private->Create( Buffer, Setup, m_Private );
+    }
+
+    //------------------------------------------------------------------------------------------------
+
+    [[nodiscard]] XGPU_INLINE
+    device::error*
+    device::ExtendTexture
+    ( texture&                                      Out
+    , texture&                                      Src
+    , std::span<const std::span<const std::byte>>  MipFaceData
+    ) noexcept
+    {
+        return m_Private->ExtendTexture(Out, Src, MipFaceData);
     }
 
     //------------------------------------------------------------------------------------------------

@@ -12,6 +12,7 @@ namespace xgpu::vulkan
         if (m_Device == nullptr) return;
         m_Device->FreeTextureID(m_ID);
         if (m_VKView)         vkDestroyImageView    (m_Device->m_VKDevice, m_VKView, m_Device->m_Instance->m_pVKAllocator);
+        if (m_pImageOwner)    return;                   // (another texture's image: it goes with that one)
         if (m_VKImage)        vkDestroyImage        (m_Device->m_VKDevice, m_VKImage, m_Device->m_Instance->m_pVKAllocator);
         if (m_VKDeviceMemory) vkFreeMemory          (m_Device->m_VKDevice, m_VKDeviceMemory, m_Device->m_Instance->m_pVKAllocator );
         if (m_VRAM.isValid()) m_Device->FreeVRAM(m_VRAM);
@@ -336,6 +337,7 @@ namespace xgpu::vulkan
 
                 for (std::uint32_t i = 0; i < m_nMips; i++)
                 {
+                    if (i < Setup.m_FirstMip) { Width = std::max(1, Width >> 1); Height = std::max(1, Height >> 1); continue; }     // (not given: ExtendTexture)
                     BufferCopyRegions.emplace_back
                     (
                         VkBufferImageCopy
@@ -431,10 +433,11 @@ namespace xgpu::vulkan
             VkImageSubresourceRange SubresourceRange
             {
                 .aspectMask     = VK_IMAGE_ASPECT_COLOR_BIT
-            ,   .baseMipLevel   = 0
-            ,   .levelCount     = m_nMips
+            ,   .baseMipLevel   = Setup.m_FirstMip              // (the mips above: ExtendTexture, later)
+            ,   .levelCount     = m_nMips - Setup.m_FirstMip
             ,   .layerCount     = Setup.m_FaceCount
             };
+            m_FirstMip = static_cast<std::uint8_t>(Setup.m_FirstMip);
 
             // Copied on the transfer queue, ending in SHADER_READ_ONLY for the main queue: no wait here, the frames wait on the GPU
             const std::span<const std::byte> AllFaces[] = { Setup.m_AllFacesData };
@@ -608,10 +611,10 @@ namespace xgpu::vulkan
         ,   .subresourceRange
             {
                 .aspectMask     = isDepth ? std::uint32_t(VK_IMAGE_ASPECT_DEPTH_BIT) | (xgpu::texture::isStencil(m_Format)?VK_IMAGE_ASPECT_STENCIL_BIT:0) : VK_IMAGE_ASPECT_COLOR_BIT
-            ,   .baseMipLevel   = 0
+            ,   .baseMipLevel   = m_FirstMip                    // (only the mips that are in)
                 // Linear tiling usually won't support mip maps
                 // Only set mip map count if optimal tiling is used
-            ,   .levelCount     = (bUseStaging) ? static_cast<std::uint32_t>(m_nMips) : 1u
+            ,   .levelCount     = (bUseStaging) ? static_cast<std::uint32_t>(m_nMips - m_FirstMip) : 1u
             ,   .baseArrayLayer = 0
             ,   .layerCount     = Setup.m_FaceCount
             }

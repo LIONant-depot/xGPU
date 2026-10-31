@@ -86,6 +86,15 @@ namespace xgpu
         // no mips/array layers/cubemaps), leaving the rest of the texture untouched. Texture must already be
         // created (with the same format as Source implies) and not currently in use by an in-flight command
         // buffer. General-purpose - any atlas or streaming/dynamic texture content, not tied to one feature.
+        // Src was created with setup::m_FirstMip > 0 (its image holds every mip, only those from m_FirstMip are in and shown): uploads the
+        // mips above (MipFaceData: per face, mips 0..m_FirstMip-1, face-major) into the same image and makes Out a texture of all its mips -
+        // its own view and texture_id, the image shared (it lives while either texture does). Out is usable at once: the frames wait for
+        // the upload on the GPU, as for any created texture; Src keeps showing its mips meanwhile (no other mip of the image is touched).
+        [[nodiscard]] XGPU_INLINE device::error* ExtendTexture  ( texture&                          Out
+                                                                , texture&                          Src
+                                                                , std::span<const std::span<const std::byte>> MipFaceData
+                                                                ) noexcept;
+
         [[nodiscard]] XGPU_INLINE device::error* UpdateTexture  ( texture&                          Texture
                                                                 , int                                OffsetX
                                                                 , int                                OffsetY

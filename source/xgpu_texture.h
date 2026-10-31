@@ -95,6 +95,9 @@ namespace xgpu
             std::span<const std::span<const std::byte>> m_MipFaceData       {};     // instead of m_AllFacesData: the same bytes in pieces, one per face and mip
                                                                                     // (face * mips + mip), copied to the staging ring one after another
             std::uint32_t                           m_FaceCount             {1};
+            // >0: the image holds every mip of m_MipSizes but gets (and shows) only the mips from this one - the data's pieces start here
+            // (per face, mips m_FirstMip..); device::ExtendTexture uploads the ones above later, into the same image (a streamed texture)
+            std::uint32_t                           m_FirstMip              {0};
             bool                                    m_isGamma               { true };
             bool                                    m_isCubemap             { false };
         };

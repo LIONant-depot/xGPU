@@ -442,6 +442,63 @@ namespace xgpu::vulkan
 
     //----------------------------------------------------------------------------------------------------------
 
+    // The mips above Src's first into Src's image (its other mips untouched: Src keeps being drawn meanwhile), then Out: a new view of all
+    // of them with its own id. Out holds Src (m_pImageOwner), whose destruction frees the image: it goes with the last of the two.
+    // ponytail: Src's own view and id live as long as Out does (one descriptor slot more per streamed texture)
+    xgpu::device::error* device::ExtendTexture
+    ( xgpu::texture&                                Out
+    , xgpu::texture&                                Src
+    , std::span<const std::span<const std::byte>>  MipFaceData
+    ) noexcept
+    {
+        auto pSrc = std::static_pointer_cast<xgpu::vulkan::texture>(Src.m_Private);
+        if (!pSrc || pSrc->m_FirstMip == 0 || !pSrc->m_VKImage) return VGPU_ERROR(xgpu::device::error::FAILURE, "ExtendTexture: the texture has no mips to add");
+        const std::uint32_t First = pSrc->m_FirstMip, nFaces = pSrc->m_ArrayCount;
+        if (MipFaceData.size() != std::size_t(First) * nFaces) return VGPU_ERROR(xgpu::device::error::FAILURE, "ExtendTexture: one piece per face and mip above the first is expected");
+
+        std::vector<VkBufferImageCopy> Regions;
+        std::uint64_t Offset = 0;
+        for (std::uint32_t f = 0; f < nFaces; ++f)
+            for (std::uint32_t m = 0; m < First; ++m)
+            {
+                Regions.push_back({ .bufferOffset = Offset
+                                  , .imageSubresource{ .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = m, .baseArrayLayer = f, .layerCount = 1 }
+                                  , .imageExtent{ std::max(1u, std::uint32_t(pSrc->m_Width) >> m), std::max(1u, std::uint32_t(pSrc->m_Height) >> m), 1 } });
+                Offset += MipFaceData[f * First + m].size();
+            }
+        if (auto Err = m_Upload.UploadImage(pSrc->m_VKImage, { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = First, .layerCount = nFaces }, MipFaceData, Regions); Err) return Err;
+
+        auto I = std::make_shared<xgpu::vulkan::texture>();
+        I->m_Device      = pSrc->m_Device;
+        I->m_VKImage     = pSrc->m_VKImage;
+        I->m_Width       = pSrc->m_Width;
+        I->m_Height      = pSrc->m_Height;
+        I->m_ArrayCount  = pSrc->m_ArrayCount;
+        I->m_nMips       = pSrc->m_nMips;
+        I->m_Format      = pSrc->m_Format;
+        I->m_VKFormat    = pSrc->m_VKFormat;
+        I->m_AdressModes = pSrc->m_AdressModes;
+        I->m_bCubeMap    = pSrc->m_bCubeMap;
+        I->m_SamplerID   = pSrc->m_SamplerID;
+        I->m_bContentReady = true;
+        I->m_pImageOwner = pSrc;
+        const VkImageViewCreateInfo ViewInfo{ .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO, .image = I->m_VKImage
+                                            , .viewType = I->m_bCubeMap ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D, .format = I->m_VKFormat
+                                            , .components = { VK_COMPONENT_SWIZZLE_R, VK_COMPONENT_SWIZZLE_G, VK_COMPONENT_SWIZZLE_B, VK_COMPONENT_SWIZZLE_A }
+                                            , .subresourceRange{ .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = I->m_nMips, .baseArrayLayer = 0, .layerCount = nFaces } };
+        if (auto VKErr = vkCreateImageView(m_VKDevice, &ViewInfo, m_Instance->m_pVKAllocator, &I->m_VKView); VKErr)
+        {
+            m_Instance->ReportError(VKErr, "ExtendTexture: fail to create the image view");
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "ExtendTexture: fail to create the image view");
+        }
+        I->m_VKDescriptorImageInfo = { .imageView = I->m_VKView, .imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+        I->m_ID = AllocTextureID(I);
+        Out.m_Private = I;
+        return nullptr;
+    }
+
+    //----------------------------------------------------------------------------------------------------------
+
     xgpu::device::error* device::UpdateTexture
     ( xgpu::texture&                Texture
     , int                           OffsetX

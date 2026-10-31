@@ -63,6 +63,11 @@ namespace xgpu::vulkan
                                                             , std::shared_ptr<device_handle>&           SharedDevice
                                                             ) noexcept override;
 
+        virtual xgpu::device::error*    ExtendTexture       ( xgpu::texture&                            Out
+                                                            , xgpu::texture&                            Src
+                                                            , std::span<const std::span<const std::byte>> MipFaceData
+                                                            ) noexcept override;
+
         virtual xgpu::device::error*    UpdateTexture       ( xgpu::texture&                            Texture
                                                             , int                                        OffsetX
                                                             , int                                        OffsetY
