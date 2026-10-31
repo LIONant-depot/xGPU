@@ -41,11 +41,24 @@ namespace e05
         {
             m_FileName.clear();
             m_MipMapSizes.clear();
-            if (m_pBitmap && m_pBitmap != &m_BitmapData)
+            if (m_pBitmap && m_pBitmap != &m_BitmapData && !m_bBorrowed)
             {
                 xserializer::default_memory_handler_v.Free(xserializer::mem_type{ .m_bUnique = true }, m_pBitmap);
             }
-            m_pBitmap = &m_BitmapData;
+            m_pBitmap   = &m_BitmapData;
+            m_bBorrowed = false;
+        }
+
+        // Shows a bitmap loaded by someone else (it must outlive this, or the next clear/Load)
+        void Borrow( std::wstring_view FileName, const xbitmap& Bitmap, std::size_t FileSize ) noexcept
+        {
+            clear();
+            m_FileName  = FileName;
+            m_FileName  = m_FileName.substr(m_FileName.find_last_of(L"/\\") + 1);
+            m_FileSize  = FileSize;
+            m_pBitmap   = const_cast<xbitmap*>(&Bitmap);
+            m_bBorrowed = true;
+            SetMipMapSizes();
         }
 
         ~bitmap_inspector()
@@ -121,9 +134,11 @@ namespace e05
                 m_FileSize = file.tellg();
             }
 
-            //
-            // Set the mipmap sizes
-            //
+            SetMipMapSizes();
+        }
+
+        void SetMipMapSizes() noexcept
+        {
             m_MipMapSizes.resize(m_pBitmap->getMipCount());
             for (int i = 0; i < m_pBitmap->getMipCount(); ++i)
             {
@@ -137,6 +152,7 @@ namespace e05
         xbitmap                 m_BitmapData;
         xbitmap*                m_pBitmap = &m_BitmapData;
         std::vector<ivec2>      m_MipMapSizes;
+        bool                    m_bBorrowed = false;
 
         constexpr static bool isNotValid(const e05::bitmap_inspector& O) noexcept
         {
