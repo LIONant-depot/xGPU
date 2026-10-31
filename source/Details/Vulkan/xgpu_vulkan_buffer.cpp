@@ -318,6 +318,7 @@ namespace xgpu::vulkan
         , .m_Usage          = m_Usage
         , .m_EntryByteSize  = m_EntrySizeBytes
         , .m_EntryCount     = NewEntryCount
+        , .m_pName          = m_pName
         , .m_bWriteOnly     = m_bWriteOnly
         };
 
@@ -328,9 +329,12 @@ namespace xgpu::vulkan
 
     //----------------------------------------------------------------------------------
 
+    // The Vulkan buffer and its memory go with the object - the deferred destroy's second release (DeathMarch) ends here. It was empty: every
+    // buffer ever destroyed kept its memory (a closed Level's whole renderer: ~460 MB of VRAM and shared RAM, found with the profiler's memory map,
+    // 2026-11-01); only Resize freed one
     buffer::~buffer(void) noexcept
     {
-
+        if( m_Device ) Destroy();
     }
 
     //----------------------------------------------------------------------------------
@@ -409,8 +413,8 @@ namespace xgpu::vulkan
 
     void buffer::DeathMarch(xgpu::buffer&& Buffer) noexcept
     {
-        if (!m_Device) return;
+        if (m_bQueued) return;              // (the deferred destroy releasing it: the destructor frees it)
+        m_bQueued = true;
         m_Device->Destroy(std::move(Buffer));
-        m_Device.reset();
     }
 }

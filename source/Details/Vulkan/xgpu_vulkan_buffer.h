@@ -19,6 +19,7 @@ namespace xgpu::vulkan
                 int                     getSizeBytes            () { return m_ByteSize; }
 
         std::shared_ptr<device>     m_Device            {};
+        bool                        m_bQueued           = false;    // handed to the device's deferred destroy (DeathMarch): the next last release frees it
         std::atomic<int>            m_CurrentOffset     {};     // For uniform buffers
         std::byte*                  m_pVMapMemory       {};
         VkBuffer                    m_VKBuffer          {};
