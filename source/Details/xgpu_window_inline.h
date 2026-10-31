@@ -20,6 +20,8 @@ namespace xgpu
             virtual     void                            CopyBuffer              ( const xgpu::buffer& Src, xgpu::buffer& Dst, std::span<const xgpu::buffer::copy> Regions ) noexcept = 0;
             virtual     void                            CopyTextureToBuffer     ( const xgpu::texture& Src, xgpu::buffer& Dst ) noexcept = 0;
             virtual     void                            WriteTimestamp          ( xgpu::timestamps& Timestamps, int Index ) noexcept = 0;
+            virtual     void                            BeginGPUZone            ( const void* pWhere ) noexcept = 0;
+            virtual     void                            EndGPUZone              ( void ) noexcept = 0;
             virtual     void                            Dispatch                ( xgpu::compute& Compute, std::span<xgpu::buffer* const> Buffers, std::span<const xgpu::texture* const> Textures, const void* pPush, std::size_t PushSize, int X, int Y, int Z ) noexcept = 0;
             virtual     void                            CmdRenderBegin          ( xgpu::cmd_buffer& CmdBuffer )                             noexcept = 0;
             virtual     void                            CmdRenderBegin          ( xgpu::cmd_buffer& CmdBuffer, const xgpu::renderpass& Renderpass )                      noexcept = 0;
@@ -41,6 +43,8 @@ namespace xgpu
 
             virtual     void                            setDepthBias            ( xgpu::cmd_buffer& CmdBuffer, float ConstantFactor, float DepthBiasClamp, float DepthBiasSlope) noexcept = 0;
             virtual     void                            WriteTimestamp          ( xgpu::cmd_buffer& CmdBuffer, xgpu::timestamps& Timestamps, int Index ) noexcept = 0;
+            virtual     void                            BeginGPUZone            ( xgpu::cmd_buffer& CmdBuffer, const void* pWhere ) noexcept = 0;
+            virtual     void                            EndGPUZone              ( xgpu::cmd_buffer& CmdBuffer ) noexcept = 0;
             virtual     bool                            isMinimized             ( void ) const                                              noexcept = 0;
             virtual     void                            setClearColor           ( float R, float G, float B, float A )                      noexcept = 0;
             virtual     std::size_t                     getSystemWindowHandle   ( void ) const                                              noexcept = 0;
@@ -151,6 +155,22 @@ namespace xgpu
     void window::WriteTimestamp( timestamps& Timestamps, int Index ) noexcept
     {
         m_Private->WriteTimestamp(Timestamps, Index);
+    }
+
+    //------------------------------------------------------------------------------------------------
+
+    XGPU_INLINE
+    void window::BeginGPUZone( const void* pWhere ) noexcept
+    {
+        m_Private->BeginGPUZone(pWhere);
+    }
+
+    //------------------------------------------------------------------------------------------------
+
+    XGPU_INLINE
+    void window::EndGPUZone( void ) noexcept
+    {
+        m_Private->EndGPUZone();
     }
 
     //------------------------------------------------------------------------------------------------

@@ -162,6 +162,11 @@ namespace xgpu::vulkan
         virtual
         void                                    Dispatch                    ( xgpu::compute& Compute, std::span<xgpu::buffer* const> Buffers, std::span<const xgpu::texture* const> Textures, const void* pPush, std::size_t PushSize, int X, int Y, int Z ) noexcept override;   // xgpu_vulkan_compute.cpp
         void                                    WriteTimestamp              ( xgpu::timestamps& Timestamps, int Index ) noexcept override;
+        void                                    BeginGPUZone                ( const void* pWhere ) noexcept override;
+        void                                    EndGPUZone                  ( void ) noexcept override;
+        void                                    BeginGPUZone                ( xgpu::cmd_buffer& CmdBuffer, const void* pWhere ) noexcept override;
+        void                                    EndGPUZone                  ( xgpu::cmd_buffer& CmdBuffer ) noexcept override;
+        void                                    BeginGPUZone                ( VkCommandBuffer Cmd, const void* pWhere ) noexcept;
         virtual
         bool                                    ReadbackTexture             ( const xgpu::texture&        Texture
                                                                             , std::vector<std::uint32_t>&  Dest
@@ -223,6 +228,7 @@ namespace xgpu::vulkan
         std::vector<VkDescriptorType>           m_RingTypes             {};
         std::vector<std::uint8_t>               m_SlotInFlight          {};     // per image: its frame submitted and not waited yet
         VkFence                                 m_VKPrevFence           {};     // the frame submitted last: the next EndFrame waits it
+        gpu_zone_stack                          m_GPUZones              {};     // the profiler's open GPU zones (xgpu_vulkan_profile.h)
         std::unordered_map<VkDescriptorType, descriptor_pool_ring>& Rings( void ) noexcept;     // this frame's (m_FrameIndex)
 
         // This frame's descriptor sets by content (layout + buffers): a draw that binds the same buffers as an earlier one reuses

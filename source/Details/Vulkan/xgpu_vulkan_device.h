@@ -192,6 +192,9 @@ namespace xgpu::vulkan
         bool                                            m_bHostQueryReset           = false;    // VkPhysicalDeviceHostQueryResetFeatures, needed by vulkan::timestamps
         bool                                            m_bDrawIndirectCount        = false;    // VkPhysicalDeviceVulkan12Features::drawIndirectCount: xgpu::device::hasDrawIndirectCount
         bool                                            m_bBindless                 = false;    // descriptor indexing on (CreateGraphicsDevice): xgpu::device::isBindless
+        void*                                           m_pProfileContext           = nullptr;  // the profiler's Vulkan context on the main queue (tracy::VkCtx; xgpu_vulkan_profile.h): made by ProfileContext
+        void*                                           ProfileContext              ( void ) noexcept;          // made on the first call with the profiler on (it submits and waits once); nullptr: no profiler
+        int                                             m_ProfileCollectedFrame     = -1;       // the device frame its results were last collected in (once a frame, whatever the windows)
         std::array<death_march,2>                       m_DeathMarchList            {};
         // The frames submitted and not waited yet (every window's): the CPU's first write into a GPU buffer waits them (WaitInFlight)
         std::mutex                                      m_InFlightLock              {};

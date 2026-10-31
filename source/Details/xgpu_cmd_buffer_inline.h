@@ -154,4 +154,22 @@ namespace xgpu
         m_pWindow->WriteTimestamp(*this, Timestamps, Index);
         return *this;
     }
+
+    //-----------------------------------------------------------------------------
+
+    XGPU_INLINE
+    cmd_buffer& cmd_buffer::BeginGPUZone( const void* pWhere ) noexcept
+    {
+        m_pWindow->BeginGPUZone(*this, pWhere);
+        return *this;
+    }
+
+    //-----------------------------------------------------------------------------
+
+    XGPU_INLINE
+    cmd_buffer& cmd_buffer::EndGPUZone( void ) noexcept
+    {
+        m_pWindow->EndGPUZone(*this);
+        return *this;
+    }
 }

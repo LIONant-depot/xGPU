@@ -32,6 +32,9 @@ namespace xgpu
         XGPU_INLINE     cmd_buffer&     setTextureTable             ( xgpu::texture_table& Table ) noexcept;
         XGPU_INLINE     cmd_buffer&     setDepthBias                ( float ConstantFactor, float DepthBiasClamp, float DepthBiasSlope) noexcept;
         XGPU_INLINE     cmd_buffer&     WriteTimestamp              ( xgpu::timestamps& Timestamps, int Index ) noexcept;   // see xgpu_timestamps.h
+        // A profiler zone on the GPU inside a render pass (window::BeginGPUZone is the one between passes); pairs, last-in first-out
+        XGPU_INLINE     cmd_buffer&     BeginGPUZone                ( const void* pWhere ) noexcept;
+        XGPU_INLINE     cmd_buffer&     EndGPUZone                  ( void ) noexcept;
         XGPU_INLINE     void            Release                     ( void )                                noexcept;
 
         details::window_handle*         m_pWindow { nullptr };

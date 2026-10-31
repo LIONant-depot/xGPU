@@ -748,7 +748,38 @@ namespace xgpu::vulkan
     {
         vkDeviceWaitIdle(m_VKDevice);
 
+    #if XGPU_PROFILE
+        if( m_pProfileContext ) { TracyVkDestroy(static_cast<tracy::VkCtx*>(m_pProfileContext)); m_pProfileContext = nullptr; }
+    #endif
         DeathMarch();
+    }
+
+    //----------------------------------------------------------------------------------------------------------
+    // The profiler's Vulkan context on the main queue (xgpu_vulkan_profile.h): made on the first frame with the profiler on - Tracy
+    // calibrates it with a command buffer of its own, submitted on the main queue and waited (once; the queue's lock held)
+    void* device::ProfileContext(void) noexcept
+    {
+    #if XGPU_PROFILE
+        if( m_pProfileContext || !xprofile::isEnabled() ) return m_pProfileContext;
+        VkCommandPool   Pool{};
+        VkCommandBuffer Cmd{};
+        const VkCommandPoolCreateInfo PoolInfo{ .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT, .queueFamilyIndex = m_MainQueueIndex };
+        if( vkCreateCommandPool(m_VKDevice, &PoolInfo, m_Instance->m_pVKAllocator, &Pool) ) return nullptr;
+        const VkCommandBufferAllocateInfo Alloc{ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, .commandPool = Pool, .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY, .commandBufferCount = 1 };
+        if( !vkAllocateCommandBuffers(m_VKDevice, &Alloc, &Cmd) )
+        {
+            std::lock_guard Lk(m_VKMainQueue);
+            if( auto* p = tracy::CreateVkContext(m_VKPhysicalDevice, m_VKDevice, m_VKMainQueue.get(), Cmd, nullptr, nullptr) )     // (TracyVkContext's own macro ends in ';')
+            {
+                TracyVkContextName(p, "GPU: main queue", 15);
+                m_pProfileContext = p;
+            }
+        }
+        vkDestroyCommandPool(m_VKDevice, Pool, m_Instance->m_pVKAllocator);
+        return m_pProfileContext;
+    #else
+        return nullptr;
+    #endif
     }
 }
 

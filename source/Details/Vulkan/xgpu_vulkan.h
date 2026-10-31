@@ -37,6 +37,7 @@ namespace xgpu::vulkan
 #include "xgpu_vulkan_compute.h"
 #include "xgpu_vulkan_descriptor_pool_ring.h"
 #include "xgpu_vulkan_upload.h"
+#include "xgpu_vulkan_profile.h"                 // the profiler's GPU zones (xprofile / Tracy, where it is part of the build)
 #include "xgpu_vulkan_device.h"
 #include "xgpu_vulkan_window.h"
 #include "xgpu_vulkan_texture_table.h"

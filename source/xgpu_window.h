@@ -41,6 +41,10 @@ namespace xgpu
         XGPU_INLINE                 void                CopyTextureToBuffer     ( const texture& Src, buffer& Dst ) noexcept;
         // A GPU timestamp between render passes (cmd_buffer::WriteTimestamp is the one inside a pass) - see xgpu_timestamps.h
         XGPU_INLINE                 void                WriteTimestamp          ( timestamps& Timestamps, int Index ) noexcept;
+        // A profiler zone on the GPU between render passes (xprofile's XPROFILE_GPU_SCOPE: pWhere its location); Begin/End in pairs, nested
+        // last-in first-out, in this frame. Nothing when the build has no profiler or it is off
+        XGPU_INLINE                 void                BeginGPUZone            ( const void* pWhere ) noexcept;
+        XGPU_INLINE                 void                EndGPUZone              ( void ) noexcept;
         // Runs Compute over X x Y x Z work groups in this frame's command buffer, at this point of the frame (between render passes, as
         // CopyBuffer): Buffers are its storage buffers in binding order, pPush its push constants. It waits for the earlier work on the
         // buffers (draws, copies, the host's writes, other dispatches); later shaders, copies and a readback after the frame see its writes

@@ -1323,6 +1323,16 @@ namespace xgpu::vulkan
             // The frame in flight's writes before anything of this one (the frames used to be ordered by EndFrame's wait)
             const VkMemoryBarrier Barrier{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT, .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT };
             vkCmdPipelineBarrier( Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &Barrier, 0, nullptr, 0, nullptr );
+
+        #if XGPU_PROFILE
+            // the profiler's GPU zones of the frames done: collected at the start of a command buffer, once a device frame (several windows)
+            if( xprofile::isEnabled() && m_Device->m_ProfileCollectedFrame != m_Device->m_FrameIndex )
+                if( auto* pCtx = static_cast<tracy::VkCtx*>(m_Device->ProfileContext()) )
+                {
+                    TracyVkCollect(pCtx, Frame.m_VKCommandBuffer);
+                    m_Device->m_ProfileCollectedFrame = m_Device->m_FrameIndex;
+                }
+        #endif
         }
 
         
@@ -2069,6 +2079,42 @@ namespace xgpu::vulkan
     void window::WriteTimestamp(xgpu::timestamps& Timestamps, int Index) noexcept
     {
         static_cast<vulkan::timestamps&>(*Timestamps.m_Private).Write(m_Frames[m_FrameIndex].m_VKCommandBuffer, Index);
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+    // The profiler's GPU zones (xgpu_vulkan_profile.h): a tracy::VkCtxScope in a slot of m_GPUZones (it writes its begin timestamp now,
+    // its end one when the slot is destroyed); a zone begun with the profiler off, or past the slots, is a placeholder that ends nothing
+
+    void window::BeginGPUZone(VkCommandBuffer Cmd, const void* pWhere) noexcept
+    {
+        auto& Z = m_GPUZones;
+        if( Z.m_Count >= gpu_zone_stack::max_v ) { ++Z.m_Count; return; }
+        Z.m_bLive[Z.m_Count] = false;
+    #if XGPU_PROFILE
+        static_assert(sizeof(tracy::VkCtxScope) <= gpu_zone_stack::slot_size_v && alignof(tracy::VkCtxScope) <= 16);
+        if( pWhere && xprofile::isEnabled() )
+            if( auto* pCtx = static_cast<tracy::VkCtx*>(m_Device->ProfileContext()) )
+            {
+                new (Z.m_Memory.data() + Z.m_Count * gpu_zone_stack::slot_size_v) tracy::VkCtxScope(pCtx, static_cast<const tracy::SourceLocationData*>(pWhere), Cmd, true);
+                Z.m_bLive[Z.m_Count] = true;
+            }
+    #endif
+        ++Z.m_Count;
+    }
+
+    void window::BeginGPUZone(const void* pWhere) noexcept                              { BeginGPUZone(m_Frames[m_FrameIndex].m_VKCommandBuffer, pWhere); }
+    void window::BeginGPUZone(xgpu::cmd_buffer& CmdBuffer, const void* pWhere) noexcept { BeginGPUZone(reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory).m_VKCommandBuffer, pWhere); }
+    void window::EndGPUZone(xgpu::cmd_buffer&) noexcept                                 { EndGPUZone(); }
+
+    void window::EndGPUZone(void) noexcept
+    {
+        auto& Z = m_GPUZones;
+        if( Z.m_Count == 0 ) return;
+        if( --Z.m_Count >= gpu_zone_stack::max_v || !Z.m_bLive[Z.m_Count] ) return;
+    #if XGPU_PROFILE
+        std::launder(reinterpret_cast<tracy::VkCtxScope*>(Z.m_Memory.data() + Z.m_Count * gpu_zone_stack::slot_size_v))->~VkCtxScope();
+    #endif
+        Z.m_bLive[Z.m_Count] = false;
     }
 
     //------------------------------------------------------------------------------------------------------------------------
