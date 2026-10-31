@@ -46,6 +46,9 @@ namespace xgpu
                                                                     , std::span<const std::span<const std::byte>> MipFaceData
                                                                     ) noexcept = 0;
 
+            virtual void                    LoadPipelineCache       ( std::wstring_view Path ) noexcept = 0;
+            virtual device::error*          SavePipelineCache       ( std::wstring_view Path ) noexcept = 0;
+
             virtual device::error*          UpdateTexture           ( xgpu::texture&                        Texture
                                                                     , int                                    OffsetX
                                                                     , int                                    OffsetY
@@ -216,6 +219,22 @@ namespace xgpu
     ) noexcept
     {
         return m_Private->ExtendTexture(Out, Src, MipFaceData);
+    }
+
+    //------------------------------------------------------------------------------------------------
+
+    XGPU_INLINE
+    void device::LoadPipelineCache( std::wstring_view Path ) noexcept
+    {
+        m_Private->LoadPipelineCache(Path);
+    }
+
+    //------------------------------------------------------------------------------------------------
+
+    [[nodiscard]] XGPU_INLINE
+    device::error* device::SavePipelineCache( std::wstring_view Path ) noexcept
+    {
+        return m_Private->SavePipelineCache(Path);
     }
 
     //------------------------------------------------------------------------------------------------

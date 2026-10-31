@@ -95,6 +95,12 @@ namespace xgpu
                                                                 , std::span<const std::span<const std::byte>> MipFaceData
                                                                 ) noexcept;
 
+        // The pipelines made so far, kept between runs: Load merges a file saved by Save into the device's pipeline cache (none yet, or
+        // one from another GPU or driver: nothing loaded, not an error), so a pipeline made before is not compiled again on first use.
+        // XGPU_NO_PIPELINE_CACHE=1: Load loads nothing (to measure without it).
+        XGPU_INLINE void                         LoadPipelineCache  ( std::wstring_view Path ) noexcept;
+        [[nodiscard]] XGPU_INLINE device::error* SavePipelineCache  ( std::wstring_view Path ) noexcept;
+
         [[nodiscard]] XGPU_INLINE device::error* UpdateTexture  ( texture&                          Texture
                                                                 , int                                OffsetX
                                                                 , int                                OffsetY

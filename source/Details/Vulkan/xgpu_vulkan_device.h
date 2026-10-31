@@ -68,6 +68,9 @@ namespace xgpu::vulkan
                                                             , std::span<const std::span<const std::byte>> MipFaceData
                                                             ) noexcept override;
 
+        virtual void                    LoadPipelineCache   ( std::wstring_view Path ) noexcept override;
+        virtual xgpu::device::error*    SavePipelineCache   ( std::wstring_view Path ) noexcept override;
+
         virtual xgpu::device::error*    UpdateTexture       ( xgpu::texture&                            Texture
                                                             , int                                        OffsetX
                                                             , int                                        OffsetY
@@ -184,7 +187,7 @@ namespace xgpu::vulkan
         xgpu::lock_object<VkQueue>                      m_VKMainQueue               {};
         xgpu::lock_object<VkQueue>                      m_VKTransferQueue           {};
         VkPhysicalDeviceMemoryProperties                m_VKDeviceMemoryProperties  {};
-        VkPipelineCache                                 m_VKPipelineCache           {};  // ??
+        VkPipelineCache                                 m_VKPipelineCache           {};  // every pipeline made goes through it; Load/SavePipelineCache keep it between runs
         VkDeviceSize                                    m_BufferMemoryAlignment     {256};
         VkPhysicalDeviceProperties                      m_VKPhysicalDeviceProperties{};
         lock_object<VkDescriptorPool>                   m_LockedVKDescriptorPool    {};

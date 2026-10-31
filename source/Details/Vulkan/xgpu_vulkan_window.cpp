@@ -1544,6 +1544,7 @@ namespace xgpu::vulkan
 
                 // Create rendering pipeline
                 VkPipeline vkPipeline = VK_NULL_HANDLE;
+                XPROFILE_SCOPE("xGPU: make a graphics pipeline");
                 if (auto VKErr = vkCreateGraphicsPipelines
                     ( m_Device->m_VKDevice
                     , m_Device->m_VKPipelineCache

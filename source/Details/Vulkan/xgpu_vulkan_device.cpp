@@ -441,6 +441,54 @@ namespace xgpu::vulkan
     }
 
     //----------------------------------------------------------------------------------------------------------
+    // The pipeline cache kept between runs. The file's header (VkPipelineCacheHeaderVersionOne) is checked here against this GPU and
+    // driver before the driver sees it - drivers should reject a foreign cache themselves, not every one does it well.
+
+    void device::LoadPipelineCache( std::wstring_view Path ) noexcept
+    {
+        if( std::getenv("XGPU_NO_PIPELINE_CACHE") ) return;
+        std::ifstream File( std::filesystem::path(Path), std::ios::binary );
+        if( !File ) return;
+        const std::vector<char> Data( (std::istreambuf_iterator<char>(File)), std::istreambuf_iterator<char>() );
+
+        VkPipelineCacheHeaderVersionOne Header{};
+        if( Data.size() < sizeof(Header) ) return;
+        std::memcpy( &Header, Data.data(), sizeof(Header) );
+        if(    Header.headerVersion != VK_PIPELINE_CACHE_HEADER_VERSION_ONE
+            || Header.vendorID      != m_VKPhysicalDeviceProperties.vendorID
+            || Header.deviceID      != m_VKPhysicalDeviceProperties.deviceID
+            || std::memcmp( Header.pipelineCacheUUID, m_VKPhysicalDeviceProperties.pipelineCacheUUID, VK_UUID_SIZE ) ) return;
+
+        const VkPipelineCacheCreateInfo Info{ .sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO, .initialDataSize = Data.size(), .pInitialData = Data.data() };
+        VkPipelineCache Loaded{};
+        if( vkCreatePipelineCache( m_VKDevice, &Info, m_Instance->m_pVKAllocator, &Loaded ) ) return;
+        vkMergePipelineCaches( m_VKDevice, m_VKPipelineCache, 1, &Loaded );
+        vkDestroyPipelineCache( m_VKDevice, Loaded, m_Instance->m_pVKAllocator );
+    }
+
+    //----------------------------------------------------------------------------------------------------------
+
+    xgpu::device::error* device::SavePipelineCache( std::wstring_view Path ) noexcept
+    {
+        std::size_t Size = 0;
+        if( vkGetPipelineCacheData( m_VKDevice, m_VKPipelineCache, &Size, nullptr ) ) return VGPU_ERROR(xgpu::device::error::FAILURE, "SavePipelineCache: could not read the pipeline cache");
+        std::vector<char> Data( Size );
+        if( vkGetPipelineCacheData( m_VKDevice, m_VKPipelineCache, &Size, Data.data() ) ) return VGPU_ERROR(xgpu::device::error::FAILURE, "SavePipelineCache: could not read the pipeline cache");
+
+        // written aside and then put in place: a run that dies while saving leaves the old file, not half of one
+        const std::filesystem::path Final( Path ), Temp( std::wstring(Path) + L".tmp" );
+        std::error_code Ec;
+        std::filesystem::create_directories( Final.parent_path(), Ec );
+        {
+            std::ofstream File( Temp, std::ios::binary | std::ios::trunc );
+            if( !File.write( Data.data(), static_cast<std::streamsize>(Size) ) ) return VGPU_ERROR(xgpu::device::error::FAILURE, "SavePipelineCache: could not write the file");
+        }
+        std::filesystem::rename( Temp, Final, Ec );
+        if( Ec ) return VGPU_ERROR(xgpu::device::error::FAILURE, "SavePipelineCache: could not replace the file");
+        return nullptr;
+    }
+
+    //----------------------------------------------------------------------------------------------------------
 
     // The mips above Src's first into Src's image (its other mips untouched: Src keeps being drawn meanwhile), then Out: a new view of all
     // of them with its own id. Out holds Src (m_pImageOwner), whose destruction frees the image: it goes with the last of the two.

@@ -47,7 +47,8 @@ namespace xgpu::vulkan
         VkPipelineShaderStageCreateInfo Stage = Shader.m_ShaderStageCreateInfo;
         if( Stage.stage != VK_SHADER_STAGE_COMPUTE_BIT ) return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: the shader is not a compute shader");
         const VkComputePipelineCreateInfo PipelineInfo{ .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, .stage = Stage, .layout = m_VKPipelineLayout };
-        if( vkCreateComputePipelines(m_Device->m_VKDevice, VK_NULL_HANDLE, 1, &PipelineInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKPipeline) )
+        XPROFILE_SCOPE("xGPU: make a compute pipeline");
+        if( vkCreateComputePipelines(m_Device->m_VKDevice, m_Device->m_VKPipelineCache, 1, &PipelineInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKPipeline) )
             return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: vkCreateComputePipelines failed");
         return nullptr;
     }

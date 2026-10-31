@@ -7,6 +7,14 @@
     #include "xprofile.h"
 #endif
 
+#ifndef XPROFILE_SCOPE
+    #define XPROFILE_SCOPE(NAME)
+#endif
+
+#ifndef XPROFILE_SCOPE
+    #define XPROFILE_SCOPE(NAME)
+#endif
+
 #if defined(XLION_PROFILE) && XLION_PROFILE
     #define XGPU_PROFILE 1
     #include "tracy/TracyVulkan.hpp"

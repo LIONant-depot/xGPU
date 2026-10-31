@@ -8,6 +8,8 @@
 #include <unordered_map>
 #include <deque>
 #include <source_location>
+#include <filesystem>
+#include <fstream>
 
 #ifdef CreateWindow
 #undef CreateWindow
