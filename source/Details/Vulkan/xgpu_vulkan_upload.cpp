@@ -46,7 +46,7 @@ namespace xgpu::vulkan
         vkGetBufferMemoryRequirements(Device.m_VKDevice, m_Ring, &Req);
         VkMemoryAllocateInfo AllocInfo{ .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, .allocationSize = Req.size };
         Device.getMemoryType(Req.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, AllocInfo.memoryTypeIndex);
-        if( vkAllocateMemory(Device.m_VKDevice, &AllocInfo, pAlloc, &m_RingMemory) || vkBindBufferMemory(Device.m_VKDevice, m_Ring, m_RingMemory, 0)
+        if( Device.AllocMemory(AllocInfo, m_RingMemory, "upload ring") || vkBindBufferMemory(Device.m_VKDevice, m_Ring, m_RingMemory, 0)
          || vkMapMemory(Device.m_VKDevice, m_RingMemory, 0, m_RingSize, 0, reinterpret_cast<void**>(&m_pRing)) )
             return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to allocate the upload ring");
         return nullptr;
@@ -59,9 +59,9 @@ namespace xgpu::vulkan
         if( m_pDevice == nullptr ) return;
         auto  VKDevice = m_pDevice->m_VKDevice;
         auto* pAlloc   = m_pDevice->m_Instance->m_pVKAllocator;
-        for( auto& B : m_Batches ) for( auto& [Buf, Mem] : B.m_Free ) { vkDestroyBuffer(VKDevice, Buf, pAlloc); vkFreeMemory(VKDevice, Mem, pAlloc); }
+        for( auto& B : m_Batches ) for( auto& [Buf, Mem] : B.m_Free ) { vkDestroyBuffer(VKDevice, Buf, pAlloc); m_pDevice->FreeMemory(Mem); }
         vkDestroyBuffer(VKDevice, m_Ring, pAlloc);
-        vkFreeMemory(VKDevice, m_RingMemory, pAlloc);
+        m_pDevice->FreeMemory(m_RingMemory);
         vkDestroyCommandPool(VKDevice, m_TransferPool, pAlloc);
         vkDestroyCommandPool(VKDevice, m_AcquirePool, pAlloc);
         vkDestroySemaphore(VKDevice, m_Timeline, pAlloc);
@@ -82,7 +82,7 @@ namespace xgpu::vulkan
             auto& B = m_Batches[m_InFlight.front()];
             if( B.m_Value > Done ) break;
             if( B.m_bAcquires && (B.m_AcquireValue == 0 || B.m_AcquireValue > AcquireDone) ) break;
-            for( auto& [Buf, Mem] : B.m_Free ) { vkDestroyBuffer(m_pDevice->m_VKDevice, Buf, m_pDevice->m_Instance->m_pVKAllocator); vkFreeMemory(m_pDevice->m_VKDevice, Mem, m_pDevice->m_Instance->m_pVKAllocator); }
+            for( auto& [Buf, Mem] : B.m_Free ) { vkDestroyBuffer(m_pDevice->m_VKDevice, Buf, m_pDevice->m_Instance->m_pVKAllocator); m_pDevice->FreeMemory(Mem); }
             B.m_Free.clear();
             m_Tail          = B.m_RingEnd;
             B.m_Value       = 0;
@@ -150,7 +150,7 @@ namespace xgpu::vulkan
             VkMemoryAllocateInfo Alloc{ .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, .allocationSize = Req.size };
             m_pDevice->getMemoryType(Req.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, Alloc.memoryTypeIndex);
             VkDeviceMemory Memory;
-            if( vkAllocateMemory(m_pDevice->m_VKDevice, &Alloc, pAlloc, &Memory) ) { vkDestroyBuffer(m_pDevice->m_VKDevice, Buffer, pAlloc); return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to allocate an upload's own staging buffer"); }
+            if( m_pDevice->AllocMemory(Alloc, Memory, "upload staging") ) { vkDestroyBuffer(m_pDevice->m_VKDevice, Buffer, pAlloc); return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to allocate an upload's own staging buffer"); }
             vkBindBufferMemory(m_pDevice->m_VKDevice, Buffer, Memory, 0);
             vkMapMemory(m_pDevice->m_VKDevice, Memory, 0, Size, 0, reinterpret_cast<void**>(&Out.m_pData));
             Out.m_Buffer = Buffer;

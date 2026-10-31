@@ -188,7 +188,7 @@ namespace xgpu::vulkan
         , .memoryTypeIndex  = MemoryIndex
         };
 
-        if( auto VKErr = vkAllocateMemory( m_Device->m_VKDevice, &AllocInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKDepthbufferMemory ); VKErr ) 
+        if( auto VKErr = m_Device->AllocMemory(AllocInfo, m_VKDepthbufferMemory, "depth buffer"); VKErr ) 
         {
             m_Device->m_Instance->ReportError(VKErr, "Fail to allocate memory for the zbuffer");
             return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to allocate memory for the zbuffer");
@@ -260,7 +260,7 @@ namespace xgpu::vulkan
             //
             vkDestroyImageView(m_Device->m_VKDevice, m_VKDepthbufferView, m_Device->m_Instance->m_pVKAllocator );
             vkDestroyImage( m_Device->m_VKDevice, m_VKDepthbuffer, m_Device->m_Instance->m_pVKAllocator );
-            vkFreeMemory( m_Device->m_VKDevice, m_VKDepthbufferMemory, m_Device->m_Instance->m_pVKAllocator );
+            m_Device->FreeMemory(m_VKDepthbufferMemory);
         }
 
         //
@@ -954,7 +954,7 @@ namespace xgpu::vulkan
             };
             m_Device->getMemoryType(MemoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, MemoryAllocInfo.memoryTypeIndex);
 
-            if (auto VKErr = vkAllocateMemory(m_Device->m_VKDevice, &MemoryAllocInfo, m_Device->m_Instance->m_pVKAllocator, &ReadbackMemory); VKErr)
+            if (auto VKErr = m_Device->AllocMemory(MemoryAllocInfo, ReadbackMemory, "readback"); VKErr)
             {
                 m_Device->m_Instance->ReportError(VKErr, "Fail to allocate memory for the screenshot readback buffer");
                 assert(false);
@@ -967,7 +967,7 @@ namespace xgpu::vulkan
             {
                 m_Device->m_Instance->ReportError(VKErr, "Fail to bind memory for the screenshot readback buffer");
                 assert(false);
-                vkFreeMemory(m_Device->m_VKDevice, ReadbackMemory, m_Device->m_Instance->m_pVKAllocator);
+                m_Device->FreeMemory(ReadbackMemory);
                 vkDestroyBuffer(m_Device->m_VKDevice, ReadbackBuffer, m_Device->m_Instance->m_pVKAllocator);
                 Dest.clear(); Width = 0; Height = 0;
                 return;
@@ -1056,7 +1056,7 @@ namespace xgpu::vulkan
             }
         }
 
-        vkFreeMemory  (m_Device->m_VKDevice, ReadbackMemory, m_Device->m_Instance->m_pVKAllocator);
+        m_Device->FreeMemory(ReadbackMemory);
         vkDestroyBuffer(m_Device->m_VKDevice, ReadbackBuffer, m_Device->m_Instance->m_pVKAllocator);
     }
 
@@ -2165,7 +2165,7 @@ namespace xgpu::vulkan
             //
             vkDestroyImageView(m_Device->m_VKDevice, m_VKDepthbufferView, m_Device->m_Instance->m_pVKAllocator);
             vkDestroyImage(m_Device->m_VKDevice, m_VKDepthbuffer, m_Device->m_Instance->m_pVKAllocator);
-            vkFreeMemory(m_Device->m_VKDevice, m_VKDepthbufferMemory, m_Device->m_Instance->m_pVKAllocator);
+            m_Device->FreeMemory(m_VKDepthbufferMemory);
         }
         vkDestroySwapchainKHR(m_Device->m_VKDevice, m_VKSwapchain, nullptr);
         vkDestroyRenderPass(m_Device->m_VKDevice, m_VKRenderPass, nullptr);

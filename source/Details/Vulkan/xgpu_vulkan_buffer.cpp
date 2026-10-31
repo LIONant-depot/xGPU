@@ -97,11 +97,11 @@ namespace xgpu::vulkan
         const std::uint32_t HostType = AllocInfo.memoryTypeIndex;
         const bool bDevice = Setup.m_bWriteOnly && m_Usage == xgpu::buffer::setup::usage::CPU_WRITE_GPU_READ
             && m_Device->getMemoryType(req.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, AllocInfo.memoryTypeIndex);
-        VkResult VKErr = bDevice ? vkAllocateMemory(m_Device->m_VKDevice, &AllocInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKBufferMemory) : VK_ERROR_OUT_OF_DEVICE_MEMORY;
+        VkResult VKErr = bDevice ? m_Device->AllocMemory(AllocInfo, m_VKBufferMemory, "buffer (own allocation)") : VK_ERROR_OUT_OF_DEVICE_MEMORY;
         if( VKErr != VK_SUCCESS )
         {
             AllocInfo.memoryTypeIndex = HostType;
-            VKErr = vkAllocateMemory(m_Device->m_VKDevice, &AllocInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKBufferMemory);
+            VKErr = m_Device->AllocMemory(AllocInfo, m_VKBufferMemory, "buffer (own allocation)");
         }
         if( VKErr )
         {
@@ -398,7 +398,7 @@ namespace xgpu::vulkan
 
         if(m_VKBufferMemory)
         {
-            vkFreeMemory(m_Device->m_VKDevice, m_VKBufferMemory, m_Device->m_Instance->m_pVKAllocator );
+            m_Device->FreeMemory(m_VKBufferMemory);
             m_VKBufferMemory = VK_NULL_HANDLE;
         }
         m_Device->FreeVRAM(m_VRAM);

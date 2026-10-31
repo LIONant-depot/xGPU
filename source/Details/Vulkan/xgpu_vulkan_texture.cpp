@@ -14,7 +14,7 @@ namespace xgpu::vulkan
         if (m_VKView)         vkDestroyImageView    (m_Device->m_VKDevice, m_VKView, m_Device->m_Instance->m_pVKAllocator);
         if (m_pImageOwner)    return;                   // (another texture's image: it goes with that one)
         if (m_VKImage)        vkDestroyImage        (m_Device->m_VKDevice, m_VKImage, m_Device->m_Instance->m_pVKAllocator);
-        if (m_VKDeviceMemory) vkFreeMemory          (m_Device->m_VKDevice, m_VKDeviceMemory, m_Device->m_Instance->m_pVKAllocator );
+        if (m_VKDeviceMemory) m_Device->FreeMemory(m_VKDeviceMemory);
         if (m_VRAM.isValid()) m_Device->FreeVRAM(m_VRAM);
     }
 
@@ -499,11 +499,7 @@ namespace xgpu::vulkan
 
             // Allocate host memory
             VkDeviceMemory MappableMemory{};
-            if( auto VKErr = vkAllocateMemory( m_Device->m_VKDevice
-                                             , &MemoryAllocInfo
-                                             , m_Device->m_Instance->m_pVKAllocator
-                                             , &MappableMemory
-                                             ); VKErr )
+            if( auto VKErr = m_Device->AllocMemory(MemoryAllocInfo, MappableMemory, "image (CPU mappable)"); VKErr )
             {
                 m_Device->m_Instance->ReportError(VKErr, "Fail to allocate memory for the mappable Image for the texture");
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to allocate memory for the mappable Image for the texture");
@@ -686,7 +682,7 @@ namespace xgpu::vulkan
             VkMemoryAllocateInfo MemoryAllocInfo{ .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, .allocationSize = MemoryRequirements.size };
             m_Device->getMemoryType(MemoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT, MemoryAllocInfo.memoryTypeIndex);
 
-            if (auto VKErr = vkAllocateMemory(m_Device->m_VKDevice, &MemoryAllocInfo, m_Device->m_Instance->m_pVKAllocator, &StagingMemory); VKErr)
+            if (auto VKErr = m_Device->AllocMemory(MemoryAllocInfo, StagingMemory, "staging"); VKErr)
             {
                 m_Device->m_Instance->ReportError(VKErr, "Fail to allocate memory for the texture-region staging buffer");
                 vkDestroyBuffer(m_Device->m_VKDevice, StagingBuffer, m_Device->m_Instance->m_pVKAllocator);
@@ -696,7 +692,7 @@ namespace xgpu::vulkan
             if (auto VKErr = vkBindBufferMemory(m_Device->m_VKDevice, StagingBuffer, StagingMemory, 0); VKErr)
             {
                 m_Device->m_Instance->ReportError(VKErr, "Fail to bind memory for the texture-region staging buffer");
-                vkFreeMemory(m_Device->m_VKDevice, StagingMemory, m_Device->m_Instance->m_pVKAllocator);
+                m_Device->FreeMemory(StagingMemory);
                 vkDestroyBuffer(m_Device->m_VKDevice, StagingBuffer, m_Device->m_Instance->m_pVKAllocator);
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to bind memory for the texture-region staging buffer");
             }
@@ -705,7 +701,7 @@ namespace xgpu::vulkan
             if (auto VKErr = vkMapMemory(m_Device->m_VKDevice, StagingMemory, 0, MemoryRequirements.size, 0, &pData); VKErr)
             {
                 m_Device->m_Instance->ReportError(VKErr, "Fail to map the texture-region staging buffer");
-                vkFreeMemory(m_Device->m_VKDevice, StagingMemory, m_Device->m_Instance->m_pVKAllocator);
+                m_Device->FreeMemory(StagingMemory);
                 vkDestroyBuffer(m_Device->m_VKDevice, StagingBuffer, m_Device->m_Instance->m_pVKAllocator);
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to map the texture-region staging buffer");
             }
@@ -715,7 +711,7 @@ namespace xgpu::vulkan
 
         if (auto [PerDevice, Error] = m_Device->m_Instance->getLocalStorage().getOrCreatePerDevice(*m_Device); Error)
         {
-            vkFreeMemory(m_Device->m_VKDevice, StagingMemory, m_Device->m_Instance->m_pVKAllocator);
+            m_Device->FreeMemory(StagingMemory);
             vkDestroyBuffer(m_Device->m_VKDevice, StagingBuffer, m_Device->m_Instance->m_pVKAllocator);
             return Error;
         }
@@ -775,7 +771,7 @@ namespace xgpu::vulkan
             m_bContentReady = true;   // the image genuinely rests at SHADER_READ_ONLY_OPTIMAL now, either way
         }
 
-        vkFreeMemory(m_Device->m_VKDevice, StagingMemory, m_Device->m_Instance->m_pVKAllocator);
+        m_Device->FreeMemory(StagingMemory);
         vkDestroyBuffer(m_Device->m_VKDevice, StagingBuffer, m_Device->m_Instance->m_pVKAllocator);
         return nullptr;
     }
@@ -860,7 +856,7 @@ namespace xgpu::vulkan
             VkMemoryAllocateInfo MemoryAllocInfo{ .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, .allocationSize = MemoryRequirements.size };
             m_Device->getMemoryType(MemoryRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, MemoryAllocInfo.memoryTypeIndex);
 
-            if (auto VKErr = vkAllocateMemory(m_Device->m_VKDevice, &MemoryAllocInfo, m_Device->m_Instance->m_pVKAllocator, &ReadbackMemory); VKErr)
+            if (auto VKErr = m_Device->AllocMemory(MemoryAllocInfo, ReadbackMemory, "readback"); VKErr)
             {
                 m_Device->m_Instance->ReportError(VKErr, "Fail to allocate memory for the texture readback buffer");
                 vkDestroyBuffer(m_Device->m_VKDevice, ReadbackBuffer, m_Device->m_Instance->m_pVKAllocator);
@@ -870,7 +866,7 @@ namespace xgpu::vulkan
             if (auto VKErr = vkBindBufferMemory(m_Device->m_VKDevice, ReadbackBuffer, ReadbackMemory, 0); VKErr)
             {
                 m_Device->m_Instance->ReportError(VKErr, "Fail to bind memory for the texture readback buffer");
-                vkFreeMemory(m_Device->m_VKDevice, ReadbackMemory, m_Device->m_Instance->m_pVKAllocator);
+                m_Device->FreeMemory(ReadbackMemory);
                 vkDestroyBuffer(m_Device->m_VKDevice, ReadbackBuffer, m_Device->m_Instance->m_pVKAllocator);
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to bind memory for the texture readback buffer");
             }
@@ -878,7 +874,7 @@ namespace xgpu::vulkan
 
         if (auto [PerDevice, Error] = m_Device->m_Instance->getLocalStorage().getOrCreatePerDevice(*m_Device); Error)
         {
-            vkFreeMemory(m_Device->m_VKDevice, ReadbackMemory, m_Device->m_Instance->m_pVKAllocator);
+            m_Device->FreeMemory(ReadbackMemory);
             vkDestroyBuffer(m_Device->m_VKDevice, ReadbackBuffer, m_Device->m_Instance->m_pVKAllocator);
             return Error;
         }
@@ -941,7 +937,7 @@ namespace xgpu::vulkan
             vkUnmapMemory(m_Device->m_VKDevice, ReadbackMemory);
         }
 
-        vkFreeMemory(m_Device->m_VKDevice, ReadbackMemory, m_Device->m_Instance->m_pVKAllocator);
+        m_Device->FreeMemory(ReadbackMemory);
         vkDestroyBuffer(m_Device->m_VKDevice, ReadbackBuffer, m_Device->m_Instance->m_pVKAllocator);
         return Result;
     }
