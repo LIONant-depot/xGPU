@@ -2,7 +2,9 @@ namespace xgpu::vulkan
 {
     //------------------------------------------------------------------------------------------------------------------------
     // Device-local memory: few large allocations (drivers cap them around 4096) instead of one per resource. The blocks of a memory type
-    // are tried in order; none with room: a new one. Freed ranges merge (OffsetAllocator); an empty block is kept for the next ones.
+    // are tried in order; none with room: a new one (in a released block's slot when there is one). Freed ranges merge (OffsetAllocator);
+    // a block that empties goes back to the driver unless it is the only empty one of its kind (kept for the next ones) - textures moving
+    // to fewer mips (xtexture residency) must give the memory back, not only free it inside xGPU.
     // ponytail: one lock for every block; a lock per block when loader threads contend
     //------------------------------------------------------------------------------------------------------------------------
 
@@ -28,7 +30,7 @@ namespace xgpu::vulkan
         const auto Take = [&](int i) -> bool
         {
             auto& B = m_VRAMBlocks[i];
-            if( B.m_Type != Type || B.m_bImage != bImage ) return false;
+            if( !B.m_Memory || B.m_Type != Type || B.m_bImage != bImage ) return false;
             const auto R = B.m_pAlloc->allocate(Units);
             if( R.offset == OffsetAllocator::Allocation::NO_SPACE ) return false;
             A.m_Memory = B.m_Memory;
@@ -45,12 +47,16 @@ namespace xgpu::vulkan
         const VkMemoryAllocateInfo Info{ .sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO, .allocationSize = vram_block_v, .memoryTypeIndex = Type };
         VkDeviceMemory Memory;
         if( vkAllocateMemory(m_VKDevice, &Info, m_Instance->m_pVKAllocator, &Memory) ) return Dedicated();     // (no room for a block: the range alone)
-        auto& B     = m_VRAMBlocks.emplace_back();
+        int iNew = 0;
+        while( iNew < static_cast<int>(m_VRAMBlocks.size()) && m_VRAMBlocks[iNew].m_Memory ) ++iNew;
+        if( iNew == static_cast<int>(m_VRAMBlocks.size()) ) m_VRAMBlocks.emplace_back();
+        auto& B     = m_VRAMBlocks[iNew];
         B.m_Memory  = Memory;
         B.m_Type    = Type;
         B.m_bImage  = bImage;
+        B.m_nLive   = 0;
         B.m_pAlloc  = std::make_unique<OffsetAllocator::Allocator>(static_cast<std::uint32_t>(vram_block_v / vram_unit_v));
-        Take(static_cast<int>(m_VRAMBlocks.size()) - 1);
+        Take(iNew);
         return A;
     }
 
@@ -69,7 +75,17 @@ namespace xgpu::vulkan
             std::lock_guard Lk(m_VRAMLock);
             auto& B = m_VRAMBlocks[A.m_iBlock];
             B.m_pAlloc->free(A.m_Range);
-            --B.m_nLive;
+            if( --B.m_nLive == 0 )
+            {
+                bool bOtherEmpty = false;
+                for( const auto& O : m_VRAMBlocks ) bOtherEmpty |= &O != &B && O.m_Memory && O.m_nLive == 0 && O.m_Type == B.m_Type && O.m_bImage == B.m_bImage;
+                if( bOtherEmpty )
+                {
+                    vkFreeMemory(m_VKDevice, B.m_Memory, m_Instance->m_pVKAllocator);
+                    B.m_Memory = VK_NULL_HANDLE;
+                    B.m_pAlloc.reset();
+                }
+            }
         }
         A = {};
     }
@@ -79,8 +95,8 @@ namespace xgpu::vulkan
     xgpu::device::memory_stats device::getMemoryStats( void ) noexcept
     {
         std::lock_guard Lk(m_VRAMLock);
-        xgpu::device::memory_stats S{ .m_nBlocks = static_cast<int>(m_VRAMBlocks.size()), .m_nDedicated = m_nVRAMDedicated.load() };
-        for( const auto& B : m_VRAMBlocks ) { S.m_nRanges += B.m_nLive; S.m_FreeBytes += std::uint64_t(B.m_pAlloc->storageReport().totalFreeSpace) * vram_unit_v; }
+        xgpu::device::memory_stats S{ .m_nDedicated = m_nVRAMDedicated.load() };
+        for( const auto& B : m_VRAMBlocks ) if( B.m_Memory ) { ++S.m_nBlocks; S.m_nRanges += B.m_nLive; S.m_FreeBytes += std::uint64_t(B.m_pAlloc->storageReport().totalFreeSpace) * vram_unit_v; }
         return S;
     }
 }
