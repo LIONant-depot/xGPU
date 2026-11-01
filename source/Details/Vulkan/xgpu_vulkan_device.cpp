@@ -650,6 +650,7 @@ namespace xgpu::vulkan
     {
         std::lock_guard Lk(m_InFlightLock);        // (held while waiting: a window resets a fence only after RemoveInFlight)
         if( m_InFlight.empty() ) return;
+        XPROFILE_SCOPE("xGPU: wait for the frame in flight");      // (a CPU write into a buffer the GPU may read: who pays the GPU's frame)
         vkWaitForFences( m_VKDevice, static_cast<std::uint32_t>(m_InFlight.size()), m_InFlight.data(), VK_TRUE, UINT64_MAX );
         m_InFlight.clear();
         if( m_LastDoneFrame < m_FrameIndex - 1 ) m_LastDoneFrame = m_FrameIndex - 1;      // (every frame submitted: the one being recorded is m_FrameIndex)
