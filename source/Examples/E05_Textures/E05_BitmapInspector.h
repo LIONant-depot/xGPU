@@ -183,15 +183,12 @@ namespace e05
             return std::format( "{} bytes", &result[j+1]);
         }
 
-        bool m_bShowFileName = true;        // (false: a host shows the resource itself - the texture editor's RscTexture)
-
         XPROPERTY_DEF
         ( "Bitmap Info", bitmap_inspector
         , obj_member_ro
             < "FileName"
             , &bitmap_inspector::m_FileName
-            , member_help<"The file name of the image">
-            , member_dynamic_flags<+[](const bitmap_inspector& O) { xproperty::flags::type F{}; F.m_bDontShow = !O.m_bShowFileName; return F; }
+            , member_help<"The file name of the image"
             >>
         , obj_member_ro
             < "Size"
