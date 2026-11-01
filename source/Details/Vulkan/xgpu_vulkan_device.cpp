@@ -827,7 +827,7 @@ namespace xgpu::vulkan
             Use[s]  += m_bMemoryBudget ? Budget.heapUsage[i]  : 0;
         }
         XPROFILE_MEM_SPACE("VRAM", Size[0], Bud[0], Use[0]);
-        XPROFILE_MEM_SPACE("System RAM", Size[1], Bud[1], Use[1]);
+        // (System RAM: xprofile asks the OS - the driver counts only GPU allocations there)
     }
 
     //----------------------------------------------------------------------------------------------------------
