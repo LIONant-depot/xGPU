@@ -60,12 +60,32 @@ namespace xgpu
         return m_Private->getSampler();
     }
 
+    void texture::Release(void) noexcept
+    {
+        if (!m_Private) return;
+        if (m_Private.use_count() == 1) m_Private->DeathMarch(std::move(*this));
+        m_Private.reset();
+    }
+
+    texture& texture::operator=(const texture& Other) noexcept
+    {
+        auto Keep = Other.m_Private;
+        Release();
+        m_Private = std::move(Keep);
+        return *this;
+    }
+
+    texture& texture::operator=(texture&& Other) noexcept
+    {
+        auto Keep = std::move(Other.m_Private);
+        Release();
+        m_Private = std::move(Keep);
+        return *this;
+    }
+
     texture::~texture(void) noexcept
     {
-        if (m_Private.use_count() > 1) return;
-        if (!m_Private) return;
-        m_Private->DeathMarch(std::move(*this));
-        m_Private.reset();
+        Release();
     }
 }
 

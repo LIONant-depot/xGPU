@@ -124,7 +124,14 @@ namespace xgpu
         inline
         sampler_id                  getSampler                          ( void ) const noexcept;
 
+                                    texture                             ( void ) noexcept = default;
+                                    texture                             ( const texture& ) noexcept = default;
+                                    texture                             ( texture&& ) noexcept = default;
+        // Assigning over a handle lets go of the old image as the destructor does - through the deferred destroy (as xgpu::buffer)
+        inline texture&             operator=                           ( const texture& Other ) noexcept;
+        inline texture&             operator=                           ( texture&& Other ) noexcept;
         inline                     ~texture                             ( void ) noexcept;
+        inline void                 Release                             ( void ) noexcept;      // the last handle: into the device's deferred destroy
 
         std::shared_ptr<details::texture_handle> m_Private;
     };

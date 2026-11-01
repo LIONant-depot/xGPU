@@ -67,8 +67,21 @@ namespace xgpu
         [[nodiscard]]
         error*              getMappedVirtualMemory  ( T*& Pointer ) noexcept;
 
+                            buffer                  ( void ) noexcept = default;
+                            buffer                  ( const buffer& ) noexcept = default;
+                            buffer                  ( buffer&& ) noexcept = default;
+        // Assigning over a handle lets go of the old buffer as the destructor does - through the deferred destroy (B = {} freed a buffer
+        // a recorded upload still used, at once)
+        XGPU_INLINE
+        buffer&             operator=               ( const buffer& Other ) noexcept;
+        XGPU_INLINE
+        buffer&             operator=               ( buffer&& Other ) noexcept;
+
         XGPU_INLINE
                            ~buffer                  ( void ) noexcept;
+
+        XGPU_INLINE
+        void                Release                 ( void ) noexcept;      // the last handle: into the device's deferred destroy
 
         std::shared_ptr<details::buffer_handle> m_Private{};
     };
