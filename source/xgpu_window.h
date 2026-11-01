@@ -39,6 +39,9 @@ namespace xgpu
         // at shader-read) into Dst from its entry 0, texels packed in rows (a DEPTH_F32's: a float each). Between render passes, as
         // CopyBuffer: it waits for the pass that wrote Src; later shaders and copies see Dst, and a later pass can load or sample Src
         XGPU_INLINE                 void                CopyTextureToBuffer     ( const texture& Src, buffer& Dst ) noexcept;
+        // Src's first Width x Height texels (mip 0, colour, at shader-read) into Dst's (the same format), between render passes: it waits
+        // for the passes that wrote Src and that read Dst; both are at shader-read after it, later shaders see Dst
+        XGPU_INLINE                 void                CopyTexture             ( const texture& Src, texture& Dst, int Width, int Height ) noexcept;
         // A GPU timestamp between render passes (cmd_buffer::WriteTimestamp is the one inside a pass) - see xgpu_timestamps.h
         XGPU_INLINE                 void                WriteTimestamp          ( timestamps& Timestamps, int Index ) noexcept;
         // A profiler zone on the GPU between render passes (xprofile's XPROFILE_GPU_SCOPE: pWhere its location); Begin/End in pairs, nested

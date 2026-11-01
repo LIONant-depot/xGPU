@@ -19,6 +19,7 @@ namespace xgpu
             virtual     bool                            ReadbackTexture         ( const xgpu::texture& Texture, std::vector<std::uint32_t>& Dest, int& Width, int& Height, bool& bDone ) noexcept = 0;
             virtual     void                            CopyBuffer              ( const xgpu::buffer& Src, xgpu::buffer& Dst, std::span<const xgpu::buffer::copy> Regions ) noexcept = 0;
             virtual     void                            CopyTextureToBuffer     ( const xgpu::texture& Src, xgpu::buffer& Dst ) noexcept = 0;
+            virtual     void                            CopyTexture             ( const xgpu::texture& Src, xgpu::texture& Dst, int Width, int Height ) noexcept = 0;
             virtual     void                            WriteTimestamp          ( xgpu::timestamps& Timestamps, int Index ) noexcept = 0;
             virtual     void                            BeginGPUZone            ( const void* pWhere ) noexcept = 0;
             virtual     void                            EndGPUZone              ( void ) noexcept = 0;
@@ -147,6 +148,12 @@ namespace xgpu
     void window::CopyTextureToBuffer( const texture& Src, buffer& Dst ) noexcept
     {
         m_Private->CopyTextureToBuffer(Src, Dst);
+    }
+
+    XGPU_INLINE
+    void window::CopyTexture( const texture& Src, texture& Dst, int Width, int Height ) noexcept
+    {
+        m_Private->CopyTexture(Src, Dst, Width, Height);
     }
 
     //------------------------------------------------------------------------------------------------

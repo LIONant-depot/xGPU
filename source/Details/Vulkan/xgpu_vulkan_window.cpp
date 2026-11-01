@@ -2210,6 +2210,42 @@ namespace xgpu::vulkan
 
     //----------------------------------------------------------------------------------------------------------
 
+    void window::CopyTexture( const xgpu::texture& Src, xgpu::texture& Dst, int Width, int Height ) noexcept
+    {
+        const auto& S = *static_cast<const xgpu::vulkan::texture*>(Src.m_Private.get());
+        const auto& D = *static_cast<const xgpu::vulkan::texture*>(Dst.m_Private.get());
+        auto&       Frame = m_Frames[m_FrameIndex];
+        constexpr auto ShaderStages = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+        const VkImageSubresourceRange Range{ .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 };
+        // Src: the pass that wrote it done; Dst: the shaders that read it done (write after read)
+        const VkImageMemoryBarrier To[2]
+        { { .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, .dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT
+          , .oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL
+          , .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .image = S.m_VKImage, .subresourceRange = Range }
+        , { .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .srcAccessMask = VK_ACCESS_SHADER_READ_BIT, .dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT
+          , .oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL
+          , .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .image = D.m_VKImage, .subresourceRange = Range } };
+        vkCmdPipelineBarrier(Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | ShaderStages, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 2, To);
+
+        const VkImageCopy Region
+        { .srcSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1 }, .srcOffset = { 0, 0, 0 }
+        , .dstSubresource = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .mipLevel = 0, .baseArrayLayer = 0, .layerCount = 1 }, .dstOffset = { 0, 0, 0 }
+        , .extent = { std::uint32_t(std::min<int>(Width, std::min(S.m_Width, D.m_Width))), std::uint32_t(std::min<int>(Height, std::min(S.m_Height, D.m_Height))), 1 } };
+        vkCmdCopyImage(Frame.m_VKCommandBuffer, S.m_VKImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, D.m_VKImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &Region);
+
+        // Both back at shader-read (Src may be a pass's attachment again: its writes wait for the copy's read)
+        const VkImageMemoryBarrier Back[2]
+        { { .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .srcAccessMask = 0, .dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT
+          , .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+          , .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .image = S.m_VKImage, .subresourceRange = Range }
+        , { .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT, .dstAccessMask = VK_ACCESS_SHADER_READ_BIT
+          , .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
+          , .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .image = D.m_VKImage, .subresourceRange = Range } };
+        vkCmdPipelineBarrier(Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | ShaderStages, 0, 0, nullptr, 0, nullptr, 2, Back);
+    }
+
+    //----------------------------------------------------------------------------------------------------------
+
     void window::CopyTextureToBuffer( const xgpu::texture& Src, xgpu::buffer& Dst ) noexcept
     {
         const auto& T = *static_cast<const xgpu::vulkan::texture*>(Src.m_Private.get());
