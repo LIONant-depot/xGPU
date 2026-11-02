@@ -67,6 +67,7 @@ namespace xgpu
         ,   A2B10G10R10_UNORM       // packed 32 bits (appended: the values above are stored in resources)
         ,   B10G11R11_UFLOAT        // packed 32 bits, unsigned floats (HDR color without alpha)
         ,   R32_UINT                // one 32 bit unsigned integer (packed data a shader reads with texelFetch: usampler2D)
+        ,   R32G32_UINT             // two 32 bit unsigned integers (packed data a shader reads with texelFetch: usampler2D)
         ,   ENUM_COUNT
         ,   DEFAULT = R8G8B8A8_UNORM
         };
