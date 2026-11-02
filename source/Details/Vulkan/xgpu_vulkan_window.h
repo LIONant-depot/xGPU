@@ -258,6 +258,7 @@ namespace xgpu::vulkan
         VkDescriptorSet                         m_BoundSet0             {VK_NULL_HANDLE};
         VkDescriptorSet                         m_BoundSet1             {VK_NULL_HANDLE};
         VkDescriptorSet                         m_BoundSet3             {VK_NULL_HANDLE};       // the texture table (setTextureTable)
+        VkPipelineLayout                        m_BoundSet3Layout       {VK_NULL_HANDLE};       // ... under this layout
         void                                    BoundForget             ( void ) noexcept { m_BoundVKPipeline = VK_NULL_HANDLE; m_BoundSet0 = m_BoundSet1 = m_BoundSet3 = VK_NULL_HANDLE; }
 
     };

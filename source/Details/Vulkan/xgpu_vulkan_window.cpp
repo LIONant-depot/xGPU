@@ -1736,9 +1736,10 @@ namespace xgpu::vulkan
         assert(CB.m_ActivePipelineInstance.m_pPipelineInstance && CB.m_ActivePipelineInstance.m_pPipelineInstance->m_Pipeline->m_nTextureSlots > 0);
         assert(m_Device->m_bBindless || CB.m_ActivePipelineInstance.m_pPipelineInstance->m_Pipeline->m_nTextureSlots == static_cast<int>(T.m_Slots.size()));
         const VkDescriptorSet Set = m_Device->m_bBindless ? m_Device->m_Heap.m_Set : T.m_VKSet;
-        if( Set == VK_NULL_HANDLE || Set == m_BoundSet3 ) return;
+        // (the layout too: a pipeline whose layout differs, by its push constants say, doesn't keep the set bound under another's)
+        if( Set == VK_NULL_HANDLE || (Set == m_BoundSet3 && CB.m_VKPipelineLayout == m_BoundSet3Layout) ) return;
         vkCmdBindDescriptorSets(CB.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, CB.m_VKPipelineLayout, pipeline::texture_set_index_v, 1, &Set, 0, nullptr);
-        m_BoundSet3 = Set;
+        m_BoundSet3 = Set; m_BoundSet3Layout = CB.m_VKPipelineLayout;
     }
 
     //------------------------------------------------------------------------------------------------------------------------
