@@ -101,6 +101,10 @@ namespace xgpu
             std::uint32_t                           m_FirstMip              {0};
             bool                                    m_isGamma               { true };
             bool                                    m_isCubemap             { false };
+            // A render target (no data) a compute shader writes too (compute::setup::m_nImages). m_bStorageAfterPass: a render pass draws it before
+            // the first dispatch, which keeps what it drew; otherwise the first dispatch starts from nothing
+            bool                                    m_bStorage              { false };
+            bool                                    m_bStorageAfterPass     { false };
             const char*                             m_pName                 { nullptr };   // what it is - "Category: detail", a literal (the profiler's memory map; null: image)
         };
 

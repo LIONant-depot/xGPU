@@ -12,6 +12,8 @@ namespace xgpu::vulkan
         static constexpr int        max_textures_v      = 8;           // sampled textures (set 1, bindings 0..)
         VkDescriptorSetLayout       m_VKSetLayout       {};
         VkDescriptorSetLayout       m_VKTextureLayout   {};            // (m_nTextures > 0)
+        VkDescriptorSetLayout       m_VKImageLayout     {};            // (m_nImages > 0; an empty one at set 1 when it has no textures)
+        int                         m_nImages           {};
         VkSampler                   m_VKSampler         {};            //   its textures' sampler: nearest, clamped (texelFetch reads)
         VkPipelineLayout            m_VKPipelineLayout  {};
         VkPipeline                  m_VKPipeline        {};

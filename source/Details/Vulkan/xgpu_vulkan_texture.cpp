@@ -259,6 +259,7 @@ namespace xgpu::vulkan
         //
         // If we do not have anything to copy then we assume the user wants to simply create the texture
         //
+        m_bStorage = Setup.m_bStorage; m_bStorageAfterPass = Setup.m_bStorageAfterPass;
         const bool isDepth = Setup.m_Format >= xgpu::texture::format::DEPTH_U16 && Setup.m_Format <= xgpu::texture::format::DEPTH_F32_STENCIL_U8;
         if( m_nMips == 0 )
         {
@@ -279,7 +280,7 @@ namespace xgpu::vulkan
             ,   .arrayLayers    = 1
             ,   .samples        = VK_SAMPLE_COUNT_1_BIT
             ,   .tiling         = VK_IMAGE_TILING_OPTIMAL
-            ,   .usage          = std::uint32_t(isDepth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT
+            ,   .usage          = std::uint32_t(isDepth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | (Setup.m_bStorage ? VK_IMAGE_USAGE_STORAGE_BIT : 0)) | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT
             ,   .sharingMode    = VK_SHARING_MODE_EXCLUSIVE
             ,   .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED
             };

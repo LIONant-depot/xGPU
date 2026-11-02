@@ -52,6 +52,9 @@ namespace xgpu
         // CopyBuffer): Buffers are its storage buffers in binding order, pPush its push constants. It waits for the earlier work on the
         // buffers (draws, copies, the host's writes, other dispatches); later shaders, copies and a readback after the frame see its writes
         XGPU_INLINE                 void                Dispatch                ( compute& Compute, std::span<buffer* const> Buffers, const void* pPush, std::size_t PushSize, int X, int Y = 1, int Z = 1 ) noexcept;
+        // The same with its storage images too (compute::setup::m_nImages): each in the general layout for the dispatch, sampled again after it,
+        // where a finished render pass also leaves a target
+        XGPU_INLINE                 void                Dispatch                ( compute& Compute, std::span<buffer* const> Buffers, std::span<const texture* const> Textures, std::span<const texture* const> Images, const void* pPush, std::size_t PushSize, int X, int Y = 1, int Z = 1 ) noexcept;
         // The same with its textures (compute::setup::m_nTextures): it also waits for the passes that rendered them
         XGPU_INLINE                 void                Dispatch                ( compute& Compute, std::span<buffer* const> Buffers, std::span<const texture* const> Textures, const void* pPush, std::size_t PushSize, int X, int Y = 1, int Z = 1 ) noexcept;
 

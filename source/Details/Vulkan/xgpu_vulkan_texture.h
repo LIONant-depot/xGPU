@@ -56,5 +56,7 @@ namespace xgpu::vulkan
         // finalLayout does the real transition later), but UpdateRegion's own barrier needs to know which of
         // the two is actually true for ITS "from" layout, since it runs outside any render pass.
         bool                            m_bContentReady         {};
+        bool                            m_bStorage              {};     // setup::m_bStorage
+        bool                            m_bStorageAfterPass     {};     // setup::m_bStorageAfterPass
     };
 }

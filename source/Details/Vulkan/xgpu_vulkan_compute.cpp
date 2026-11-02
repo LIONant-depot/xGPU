@@ -5,11 +5,13 @@ namespace xgpu::vulkan
         m_Device   = std::move(Device);
         m_nBuffers  = Setup.m_nBuffers;
         m_nTextures = Setup.m_nTextures;
+        m_nImages   = Setup.m_nImages;
         m_PushSize = static_cast<std::uint32_t>(Setup.m_PushConstantsSize);
         if( Setup.m_pShader == nullptr || Setup.m_pShader->m_Private == nullptr ) return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: no shader");
         if( m_nBuffers < 0 || m_nBuffers > max_buffers_v )                        return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: 0 to 16 storage buffers");
         if( m_PushSize > 128 )                                                    return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: more than 128 bytes of push constants");
         if( m_nTextures < 0 || m_nTextures > max_textures_v )                     return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: 0 to 8 textures");
+        if( m_nImages < 0 || m_nImages > max_textures_v )                         return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: 0 to 8 storage images");
         const auto& Shader = *static_cast<const vulkan::shader*>(Setup.m_pShader->m_Private.get());
 
         std::array<VkDescriptorSetLayoutBinding, max_buffers_v> Bindings{};
@@ -36,10 +38,27 @@ namespace xgpu::vulkan
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: vkCreateSampler failed");
         }
 
+        if( m_nImages )
+        {
+            std::array<VkDescriptorSetLayoutBinding, max_textures_v> ImageBindings{};
+            for( int i = 0; i < m_nImages; ++i )
+                ImageBindings[i] = { .binding = static_cast<std::uint32_t>(i), .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .descriptorCount = 1, .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT };
+            const VkDescriptorSetLayoutCreateInfo ImageInfo
+            { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO, .bindingCount = static_cast<std::uint32_t>(m_nImages), .pBindings = ImageBindings.data() };
+            if( vkCreateDescriptorSetLayout(m_Device->m_VKDevice, &ImageInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKImageLayout) )
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: vkCreateDescriptorSetLayout (images) failed");
+            if( !m_nTextures )          // (set 1 still needs a layout: an empty one)
+            {
+                const VkDescriptorSetLayoutCreateInfo Empty{ .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
+                if( vkCreateDescriptorSetLayout(m_Device->m_VKDevice, &Empty, m_Device->m_Instance->m_pVKAllocator, &m_VKTextureLayout) )
+                    return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: vkCreateDescriptorSetLayout (no textures) failed");
+            }
+        }
+
         const VkPushConstantRange Push{ .stageFlags = VK_SHADER_STAGE_COMPUTE_BIT, .offset = 0, .size = m_PushSize };
-        const std::array SetLayouts{ m_VKSetLayout, m_VKTextureLayout };
+        const std::array SetLayouts{ m_VKSetLayout, m_VKTextureLayout, m_VKImageLayout };
         const VkPipelineLayoutCreateInfo PipelineLayoutInfo
-        { .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, .setLayoutCount = m_nTextures ? 2u : 1u, .pSetLayouts = SetLayouts.data()
+        { .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO, .setLayoutCount = m_nImages ? 3u : m_nTextures ? 2u : 1u, .pSetLayouts = SetLayouts.data()
         , .pushConstantRangeCount = m_PushSize ? 1u : 0u, .pPushConstantRanges = m_PushSize ? &Push : nullptr };
         if( vkCreatePipelineLayout(m_Device->m_VKDevice, &PipelineLayoutInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKPipelineLayout) )
             return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: vkCreatePipelineLayout failed");
@@ -61,15 +80,16 @@ namespace xgpu::vulkan
         if( m_VKPipelineLayout ) vkDestroyPipelineLayout(m_Device->m_VKDevice, m_VKPipelineLayout, m_Device->m_Instance->m_pVKAllocator);
         if( m_VKSetLayout )      vkDestroyDescriptorSetLayout(m_Device->m_VKDevice, m_VKSetLayout, m_Device->m_Instance->m_pVKAllocator);
         if( m_VKTextureLayout )  vkDestroyDescriptorSetLayout(m_Device->m_VKDevice, m_VKTextureLayout, m_Device->m_Instance->m_pVKAllocator);
+        if( m_VKImageLayout )    vkDestroyDescriptorSetLayout(m_Device->m_VKDevice, m_VKImageLayout, m_Device->m_Instance->m_pVKAllocator);
         if( m_VKSampler )        vkDestroySampler(m_Device->m_VKDevice, m_VKSampler, m_Device->m_Instance->m_pVKAllocator);
     }
 
     //----------------------------------------------------------------------------------------------------------
 
-    void window::Dispatch( xgpu::compute& Compute, std::span<xgpu::buffer* const> Buffers, std::span<const xgpu::texture* const> Textures, const void* pPush, std::size_t PushSize, int X, int Y, int Z ) noexcept
+    void window::Dispatch( xgpu::compute& Compute, std::span<xgpu::buffer* const> Buffers, std::span<const xgpu::texture* const> Textures, std::span<const xgpu::texture* const> Images, const void* pPush, std::size_t PushSize, int X, int Y, int Z ) noexcept
     {
         auto& C = *static_cast<vulkan::compute*>(Compute.m_Private.get());
-        assert(static_cast<int>(Buffers.size()) == C.m_nBuffers && static_cast<int>(Textures.size()) == C.m_nTextures && PushSize <= C.m_PushSize);
+        assert(static_cast<int>(Buffers.size()) == C.m_nBuffers && static_cast<int>(Textures.size()) == C.m_nTextures && static_cast<int>(Images.size()) == C.m_nImages && PushSize <= C.m_PushSize);
         auto& Frame = m_Frames[m_FrameIndex];
 
         VkDescriptorSet Set = VK_NULL_HANDLE;
@@ -110,6 +130,37 @@ namespace xgpu::vulkan
             vkUpdateDescriptorSets(m_Device->m_VKDevice, static_cast<std::uint32_t>(C.m_nTextures), Writes.data(), 0, nullptr);
         }
 
+        VkDescriptorSet ImageSet = VK_NULL_HANDLE;
+        std::array<VkImageMemoryBarrier, compute::max_textures_v> ToGeneral{}, ToSampled{};
+        if( C.m_nImages )
+        {
+            if( (ImageSet = Rings()[VK_DESCRIPTOR_TYPE_STORAGE_IMAGE].alloc(m_Device->m_VKDevice, C.m_VKImageLayout)) == VK_NULL_HANDLE )
+            {
+                if( !m_bReportedSetOverflow ) { m_bReportedSetOverflow = true; m_Device->m_Instance->ReportError("xGPU: a frame ran out of descriptor sets (compute images); the dispatch is skipped"); }
+                return;
+            }
+            std::array<VkDescriptorImageInfo, compute::max_textures_v> Infos{};
+            std::array<VkWriteDescriptorSet, compute::max_textures_v> Writes{};
+            constexpr VkImageSubresourceRange All{ .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 };
+            for( int i = 0; i < C.m_nImages; ++i )
+            {
+                auto& T = *const_cast<vulkan::texture*>(static_cast<const vulkan::texture*>(Images[i]->m_Private.get()));
+                assert(T.m_bStorage);
+                Infos[i]  = { .imageView = T.m_VKDescriptorImageInfo.imageView, .imageLayout = VK_IMAGE_LAYOUT_GENERAL };
+                Writes[i] = { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = ImageSet, .dstBinding = static_cast<std::uint32_t>(i), .descriptorCount = 1
+                            , .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .pImageInfo = &Infos[i] };
+                ToGeneral[i] = { .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT
+                               , .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT
+                               , .oldLayout = T.m_bContentReady || T.m_bStorageAfterPass ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED, .newLayout = VK_IMAGE_LAYOUT_GENERAL
+                               , .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .image = T.m_VKImage, .subresourceRange = All };
+                ToSampled[i] = ToGeneral[i];
+                ToSampled[i].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT; ToSampled[i].dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+                ToSampled[i].oldLayout = VK_IMAGE_LAYOUT_GENERAL; ToSampled[i].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+                T.m_bContentReady = true;
+            }
+            vkUpdateDescriptorSets(m_Device->m_VKDevice, static_cast<std::uint32_t>(C.m_nImages), Writes.data(), 0, nullptr);
+        }
+
         // Earlier work (draws, copies, the host's writes, other dispatches) is done with the buffers before this one writes them
         // (DRAW_INDIRECT: a buffer of draw commands it rewrites may still be read by earlier indirect draws, and later ones read what it wrote)
         // (the attachment stages: a texture it reads was rendered by an earlier pass, and a later pass may render into it again)
@@ -121,11 +172,12 @@ namespace xgpu::vulkan
         , .srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT
                          | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
         , .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT };
-        vkCmdPipelineBarrier(Frame.m_VKCommandBuffer, Before, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &In, 0, nullptr, 0, nullptr);
+        vkCmdPipelineBarrier(Frame.m_VKCommandBuffer, Before, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &In, 0, nullptr, static_cast<std::uint32_t>(C.m_nImages), ToGeneral.data());
 
         vkCmdBindPipeline(Frame.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, C.m_VKPipeline);
         if( Set != VK_NULL_HANDLE ) vkCmdBindDescriptorSets(Frame.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, C.m_VKPipelineLayout, 0, 1, &Set, 0, nullptr);
         if( TextureSet != VK_NULL_HANDLE ) vkCmdBindDescriptorSets(Frame.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, C.m_VKPipelineLayout, 1, 1, &TextureSet, 0, nullptr);
+        if( ImageSet != VK_NULL_HANDLE ) vkCmdBindDescriptorSets(Frame.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, C.m_VKPipelineLayout, 2, 1, &ImageSet, 0, nullptr);
         if( PushSize ) vkCmdPushConstants(Frame.m_VKCommandBuffer, C.m_VKPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, static_cast<std::uint32_t>(PushSize), pPush);
         vkCmdDispatch(Frame.m_VKCommandBuffer, static_cast<std::uint32_t>(X), static_cast<std::uint32_t>(Y), static_cast<std::uint32_t>(Z));
 
@@ -133,6 +185,6 @@ namespace xgpu::vulkan
         const VkMemoryBarrier Out
         { .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT
         , .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_HOST_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT };
-        vkCmdPipelineBarrier(Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, Before, 0, 1, &Out, 0, nullptr, 0, nullptr);
+        vkCmdPipelineBarrier(Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, Before, 0, 1, &Out, 0, nullptr, static_cast<std::uint32_t>(C.m_nImages), ToSampled.data());
     }
 }
