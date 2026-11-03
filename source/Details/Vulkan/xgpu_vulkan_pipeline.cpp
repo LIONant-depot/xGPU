@@ -45,9 +45,6 @@ namespace xgpu::vulkan
 
     pipeline::~pipeline( void )
     {
-        for (int i = 0; i < m_nSamplers; ++i)
-            if (m_VKSamplers[i]) vkDestroySampler(m_Device->m_VKDevice, m_VKSamplers[i], m_Device->m_Instance->m_pVKAllocator);
-
         for (int i = 0; i < m_nVKDescriptorSetLayout; ++i)
             if (m_VKDescriptorSetLayout[i]) vkDestroyDescriptorSetLayout(m_Device->m_VKDevice, m_VKDescriptorSetLayout[i], m_Device->m_Instance->m_pVKAllocator);
 
@@ -291,32 +288,10 @@ namespace xgpu::vulkan
         m_nSamplers = static_cast<int>(Setup.m_Samplers.size());
         for (int i = 0; i < m_nSamplers; ++i)
         {
-            auto& Sampler = Setup.m_Samplers[i];
-
-            VkSamplerCreateInfo SamplerInfo
-            { .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO
-            , .magFilter = ConvertSampler(Sampler.m_MipmapMag)
-            , .minFilter = ConvertSampler(Sampler.m_MipmapMin)
-            , .mipmapMode = ConvertMipmapMode(Sampler.m_MipmapMode)
-            , .addressModeU = ConvertAddressMode(Sampler.m_AddressMode[0])
-            , .addressModeV = ConvertAddressMode(Sampler.m_AddressMode[1])
-            , .addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT
-            , .mipLodBias = 0.0f
-            , .anisotropyEnable = Sampler.m_MaxAnisotropy > 0 ? VK_TRUE : VK_FALSE
-            , .maxAnisotropy = static_cast<float>(Sampler.m_MaxAnisotropy)
-            , .compareEnable = VK_FALSE
-            , .compareOp = VK_COMPARE_OP_NEVER
-            , .minLod = 0.0f
-            , .maxLod = VK_LOD_CLAMP_NONE
-            , .borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_WHITE
-            , .unnormalizedCoordinates = VK_FALSE
-            };
-
-            if (auto VKErr = vkCreateSampler(m_Device->m_VKDevice, &SamplerInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKSamplers[i]); VKErr)
-            {
-                m_Device->m_Instance->ReportError(VKErr, "Fail to create a Sampler in the pipeline");
-                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a Sampler in the pipeline");
-            }
+            // The device's table: one per distinct description. One per pipeline ran out (4000 samplers on the Bistro's materials). W is repeat, as a pipeline's always was
+            auto Sampler = Setup.m_Samplers[i];
+            Sampler.m_AddressMode[2] = xgpu::pipeline::sampler::address_mode::TILE;
+            m_VKSamplers[i] = m_Device->getVKSampler(m_Device->getSampler(Sampler).m_Value);
         }
 
         //
