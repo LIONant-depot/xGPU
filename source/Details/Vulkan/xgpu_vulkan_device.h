@@ -148,6 +148,7 @@ namespace xgpu::vulkan
         void                            FreeMemory          ( VkDeviceMemory Memory ) noexcept;
         const char*                     MemoryKind          ( std::uint32_t Type ) const noexcept;      // the memory map's pool of a memory type
         void                            ReportMemoryHeaps   ( void ) noexcept;                          // the heaps' size, budget, usage to the profiler
+        bool                            m_bPipelineStats    = false;                              // XGPU_PIPELINE_STATS=<file>: each compute pipeline's driver statistics go there
         bool                            m_bMemoryBudget     = false;                                    // VK_EXT_memory_budget enabled
         int                             m_HeapReportFrame   = -1;
         virtual xgpu::device::memory_stats getMemoryStats   ( void ) noexcept override;

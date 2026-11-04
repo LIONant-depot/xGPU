@@ -103,6 +103,7 @@ namespace xgpu::vulkan
 
         // VK_EXT_memory_budget where the GPU has it: the driver's budget and usage per heap (the profiler's memory maps: device::ReportMemoryHeaps)
         std::vector<const char*>    enabledExtensions   { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+        VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR UseStats{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_EXECUTABLE_PROPERTIES_FEATURES_KHR, .pipelineExecutableInfo = VK_TRUE };
         {
             std::uint32_t n = 0;
             vkEnumerateDeviceExtensionProperties(Device.m_VKPhysicalDevice, nullptr, &n, nullptr);
@@ -110,6 +111,13 @@ namespace xgpu::vulkan
             vkEnumerateDeviceExtensionProperties(Device.m_VKPhysicalDevice, nullptr, &n, Available.data());
             for( const auto& E : Available ) if( std::strcmp(E.extensionName, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) == 0 ) Device.m_bMemoryBudget = true;
             if( Device.m_bMemoryBudget ) enabledExtensions.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+            if( std::getenv("XGPU_PIPELINE_STATS") )
+                for( const auto& E : Available ) if( std::strcmp(E.extensionName, VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME) == 0 )
+                {
+                    Device.m_bPipelineStats = true;
+                    enabledExtensions.push_back(VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME);
+                    Use13.pNext = &UseStats;
+                }
         }
         VkDeviceCreateInfo          deviceCreateInfo
         {

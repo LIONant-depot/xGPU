@@ -1,5 +1,48 @@
 namespace xgpu::vulkan
 {
+    // XGPU_PIPELINE_STATS=<file>: what the driver says about a compute pipeline, appended (a measuring tool: a pipeline is named only by its bindings and its order)
+    static void WritePipelineStats( device& D, VkPipeline Pipeline, int nBuffers, int nTextures, int nImages, std::uint32_t PushSize ) noexcept
+    {
+        const auto pProps = reinterpret_cast<PFN_vkGetPipelineExecutablePropertiesKHR>(vkGetDeviceProcAddr(D.m_VKDevice, "vkGetPipelineExecutablePropertiesKHR"));
+        const auto pStats = reinterpret_cast<PFN_vkGetPipelineExecutableStatisticsKHR>(vkGetDeviceProcAddr(D.m_VKDevice, "vkGetPipelineExecutableStatisticsKHR"));
+        const auto pIR    = reinterpret_cast<PFN_vkGetPipelineExecutableInternalRepresentationsKHR>(vkGetDeviceProcAddr(D.m_VKDevice, "vkGetPipelineExecutableInternalRepresentationsKHR"));
+        FILE* pFile = pProps && pStats && pIR ? std::fopen(std::getenv("XGPU_PIPELINE_STATS"), "a") : nullptr;
+        if( !pFile ) return;
+        static int s_Index = 0;
+        std::fprintf(pFile, "pipeline %d: buffers %d textures %d images %d push %u\n", s_Index++, nBuffers, nTextures, nImages, PushSize);
+        const VkPipelineInfoKHR Info{ .sType = VK_STRUCTURE_TYPE_PIPELINE_INFO_KHR, .pipeline = Pipeline };
+        std::uint32_t n = 0;
+        pProps(D.m_VKDevice, &Info, &n, nullptr);
+        std::vector<VkPipelineExecutablePropertiesKHR> Props(n, { .sType = VK_STRUCTURE_TYPE_PIPELINE_EXECUTABLE_PROPERTIES_KHR });
+        pProps(D.m_VKDevice, &Info, &n, Props.data());
+        for( std::uint32_t e = 0; e < n; ++e )
+        {
+            std::fprintf(pFile, "  executable %s (subgroup %u)\n", Props[e].name, Props[e].subgroupSize);
+            const VkPipelineExecutableInfoKHR Exe{ .sType = VK_STRUCTURE_TYPE_PIPELINE_EXECUTABLE_INFO_KHR, .pipeline = Pipeline, .executableIndex = e };
+            std::uint32_t m = 0;
+            pStats(D.m_VKDevice, &Exe, &m, nullptr);
+            std::vector<VkPipelineExecutableStatisticKHR> Stats(m, { .sType = VK_STRUCTURE_TYPE_PIPELINE_EXECUTABLE_STATISTIC_KHR });
+            pStats(D.m_VKDevice, &Exe, &m, Stats.data());
+            for( const auto& S : Stats )
+            {
+                std::fprintf(pFile, "    %s: ", S.name);
+                switch( S.format )
+                {
+                case VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_BOOL32_KHR:  std::fprintf(pFile, "%u\n", S.value.b32); break;
+                case VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_INT64_KHR:   std::fprintf(pFile, "%lld\n", static_cast<long long>(S.value.i64)); break;
+                case VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_UINT64_KHR:  std::fprintf(pFile, "%llu\n", static_cast<unsigned long long>(S.value.u64)); break;
+                default:                                                  std::fprintf(pFile, "%f\n", S.value.f64); break;
+                }
+            }
+            std::uint32_t r = 0;
+            pIR(D.m_VKDevice, &Exe, &r, nullptr);
+            std::vector<VkPipelineExecutableInternalRepresentationKHR> IR(r, { .sType = VK_STRUCTURE_TYPE_PIPELINE_EXECUTABLE_INTERNAL_REPRESENTATION_KHR });
+            pIR(D.m_VKDevice, &Exe, &r, IR.data());
+            for( const auto& I : IR ) std::fprintf(pFile, "    representation %s: %zu bytes\n", I.name, I.dataSize);
+        }
+        std::fclose(pFile);
+    }
+
     xgpu::device::error* compute::Initialize( std::shared_ptr<device>&& Device, const xgpu::compute::setup& Setup ) noexcept
     {
         m_Device   = std::move(Device);
@@ -65,10 +108,13 @@ namespace xgpu::vulkan
 
         VkPipelineShaderStageCreateInfo Stage = Shader.m_ShaderStageCreateInfo;
         if( Stage.stage != VK_SHADER_STAGE_COMPUTE_BIT ) return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: the shader is not a compute shader");
-        const VkComputePipelineCreateInfo PipelineInfo{ .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO, .stage = Stage, .layout = m_VKPipelineLayout };
+        const VkComputePipelineCreateInfo PipelineInfo{ .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO
+        , .flags = m_Device->m_bPipelineStats ? VkPipelineCreateFlags(VK_PIPELINE_CREATE_CAPTURE_STATISTICS_BIT_KHR | VK_PIPELINE_CREATE_CAPTURE_INTERNAL_REPRESENTATIONS_BIT_KHR) : VkPipelineCreateFlags(0)
+        , .stage = Stage, .layout = m_VKPipelineLayout };
         XPROFILE_SCOPE("xGPU: make a compute pipeline");
-        if( vkCreateComputePipelines(m_Device->m_VKDevice, m_Device->m_VKPipelineCache, 1, &PipelineInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKPipeline) )
+        if( vkCreateComputePipelines(m_Device->m_VKDevice, m_Device->m_bPipelineStats ? VK_NULL_HANDLE : m_Device->m_VKPipelineCache, 1, &PipelineInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKPipeline) )
             return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: vkCreateComputePipelines failed");
+        if( m_Device->m_bPipelineStats ) WritePipelineStats( *m_Device, m_VKPipeline, m_nBuffers, m_nTextures, m_nImages, m_PushSize );
         return nullptr;
     }
 
