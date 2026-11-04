@@ -107,10 +107,11 @@ namespace xgpu::vulkan
         dependencies[0].dstAccessMask   = AttachmentAccess;
         dependencies[0].dependencyFlags = 0;
 
-        dependencies[1].srcStageMask    = AttachmentStages;
-        dependencies[1].dstStageMask    = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT | AttachmentStages;
-        dependencies[1].srcAccessMask   = AttachmentWrites;
-        dependencies[1].dstAccessMask   = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_TRANSFER_READ_BIT | AttachmentAccess;
+        // (and what its fragment shaders wrote to storage buffers, the half size GI's: a later pass read it unflushed, black squares on the moto, Tomas 2026-11-04)
+        dependencies[1].srcStageMask    = AttachmentStages | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+        dependencies[1].dstStageMask    = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_TRANSFER_BIT | AttachmentStages;
+        dependencies[1].srcAccessMask   = AttachmentWrites | VK_ACCESS_SHADER_WRITE_BIT;
+        dependencies[1].dstAccessMask   = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT | AttachmentAccess;
         dependencies[1].dependencyFlags = 0;
 
         VkRenderPassCreateInfo renderPassCreateInfo =

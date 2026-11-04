@@ -2204,7 +2204,7 @@ namespace xgpu::vulkan
         const VkMemoryBarrier After
         { .sType         = VK_STRUCTURE_TYPE_MEMORY_BARRIER
         , .srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT
-        , .dstAccessMask = VK_ACCESS_SHADER_READ_BIT
+        , .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT        // (a pass may write over the copy: the half size GI over its zeros)
         };
         vkCmdPipelineBarrier(Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_TRANSFER_BIT, ShaderStages, 0, 1, &After, 0, nullptr, 0, nullptr);
     }
