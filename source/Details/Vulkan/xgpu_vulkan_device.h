@@ -213,6 +213,7 @@ namespace xgpu::vulkan
         void                                            AddInFlight                 ( VkFence Fence ) noexcept;
         void                                            RemoveInFlight              ( VkFence Fence ) noexcept;
         void                                            WaitInFlight                ( void ) noexcept;
+        void                                            WaitFences                  ( std::uint32_t Count, const VkFence* pFences, const char* pWho ) noexcept;
         mati_per_renderpass_map                         m_PipeLineInstanceMap       {};
         mat_per_renderpass_map                          m_PipeLineMap               {};
     };

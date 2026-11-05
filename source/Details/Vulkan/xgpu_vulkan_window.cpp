@@ -1295,7 +1295,7 @@ namespace xgpu::vulkan
             if( m_SlotInFlight[m_FrameIndex] )
             {
                 m_Device->RemoveInFlight(Frame.m_VKFence);
-                vkWaitForFences( m_Device->m_VKDevice, 1, &Frame.m_VKFence, VK_TRUE, UINT64_MAX );
+                m_Device->WaitFences( 1, &Frame.m_VKFence, "BeginFrame" );
                 m_SlotInFlight[m_FrameIndex] = 0;
                 if( m_VKPrevFence == Frame.m_VKFence ) m_VKPrevFence = VK_NULL_HANDLE;
             }
@@ -1464,14 +1464,14 @@ namespace xgpu::vulkan
         const auto TWait = std::chrono::steady_clock::now();
         if( s_SlotOk(m_SlotInFlight, m_FrameIndex) && (s_bSerial || m_pPendingScreenshotDest || !m_PendingReadbacks.empty()) )
         {
-            vkWaitForFences(m_Device->m_VKDevice, 1, &Frame.m_VKFence, VK_TRUE, UINT64_MAX);
+            m_Device->WaitFences( 1, &Frame.m_VKFence, "EndFrame copy back" );
             m_Device->WaitInFlight();
             m_VKPrevFence = VK_NULL_HANDLE;
             m_Device->m_LastDoneFrame = m_Device->m_FrameIndex;      // (this one too: PageFlip moves the device's frame on)
         }
         else
         {
-            if( m_VKPrevFence != VK_NULL_HANDLE ) vkWaitForFences(m_Device->m_VKDevice, 1, &m_VKPrevFence, VK_TRUE, UINT64_MAX);
+            if( m_VKPrevFence != VK_NULL_HANDLE ) m_Device->WaitFences( 1, &m_VKPrevFence, "EndFrame" );
             if( m_Device->m_LastDoneFrame < m_Device->m_FrameIndex - 1 ) m_Device->m_LastDoneFrame = m_Device->m_FrameIndex - 1;
             m_SlotInFlight[m_FrameIndex] = 1;
             m_Device->AddInFlight(Frame.m_VKFence);

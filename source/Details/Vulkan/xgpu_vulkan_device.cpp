@@ -654,12 +654,30 @@ namespace xgpu::vulkan
         std::erase(m_InFlight, Fence);
     }
 
+    // A frame's fence, without a limit. Over 5 s something is stuck (the editor froze here with an idle GPU and no driver reset, 2026-11-05):
+    // say what it could be. Uploads all done means the frame can only be waiting for its swapchain image.
+    void device::WaitFences( std::uint32_t Count, const VkFence* pFences, const char* pWho ) noexcept
+    {
+        while( vkWaitForFences( m_VKDevice, Count, pFences, VK_TRUE, 5'000'000'000ull ) == VK_TIMEOUT )
+        {
+            std::uint64_t Done = 0, AcquireDone = 0;
+            vkGetSemaphoreCounterValue(m_VKDevice, m_Upload.m_Timeline, &Done);
+            vkGetSemaphoreCounterValue(m_VKDevice, m_Upload.m_AcquireTimeline, &AcquireDone);
+            std::printf("[xGPU] FENCESTUCK %s: %u fences, first status %d; uploads %llu of %llu done, acquires %llu of %llu; device frame %llu\n"
+                , pWho, Count, static_cast<int>(vkGetFenceStatus(m_VKDevice, pFences[0]))
+                , static_cast<unsigned long long>(Done), static_cast<unsigned long long>(m_Upload.m_Flushed)
+                , static_cast<unsigned long long>(AcquireDone), static_cast<unsigned long long>(m_Upload.m_Acquired)
+                , static_cast<unsigned long long>(m_FrameIndex));
+            std::fflush(stdout);
+        }
+    }
+
     void device::WaitInFlight( void ) noexcept
     {
         std::lock_guard Lk(m_InFlightLock);        // (held while waiting: a window resets a fence only after RemoveInFlight)
         if( m_InFlight.empty() ) return;
         XPROFILE_SCOPE("xGPU: wait for the frame in flight");      // (a CPU write into a buffer the GPU may read: who pays the GPU's frame)
-        vkWaitForFences( m_VKDevice, static_cast<std::uint32_t>(m_InFlight.size()), m_InFlight.data(), VK_TRUE, UINT64_MAX );
+        WaitFences( static_cast<std::uint32_t>(m_InFlight.size()), m_InFlight.data(), "WaitInFlight" );
         m_InFlight.clear();
         if( m_LastDoneFrame < m_FrameIndex - 1 ) m_LastDoneFrame = m_FrameIndex - 1;      // (every frame submitted: the one being recorded is m_FrameIndex)
     }
