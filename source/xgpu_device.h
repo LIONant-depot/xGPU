@@ -145,6 +145,12 @@ namespace xgpu
         [[nodiscard]] XGPU_INLINE bool           isBindless     ( void ) const noexcept;
         // Whether cmd_buffer::DrawIndexedIndirectCount can be used (the count read from a buffer: Vulkan 1.2's drawIndirectCount)
         [[nodiscard]] XGPU_INLINE bool           hasDrawIndirectCount( void ) const noexcept;
+        // The largest storage buffer a shader can see whole (VkPhysicalDeviceLimits::maxStorageBufferRange: llvmpipe 128 MB, most desktop GPUs 4 GB):
+        // buffer creation refuses a storage buffer past it; a user that grows a buffer with slack keeps the slack under it
+        [[nodiscard]] XGPU_INLINE std::uint64_t  getMaxStorageBufferBytes( void ) const noexcept;
+        // The most work groups one window::Dispatch can have along X (VkPhysicalDeviceLimits::maxComputeWorkGroupCount[0]: llvmpipe and many GPUs 65535):
+        // a 1D grid past it is the caller's to split (an offset of its own in the push constants); Dispatch refuses it
+        [[nodiscard]] XGPU_INLINE std::uint32_t  getMaxComputeGroupsX( void ) const noexcept;
 
         // The streaming lane: a texture or buffer created with data is copied on the transfer queue, never by stalling the main queue; every
         // frame (and anything else submitted to the main queue) waits on the GPU for the uploads flushed before it. FlushUploads sends what

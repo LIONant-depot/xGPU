@@ -1681,7 +1681,7 @@ namespace xgpu::vulkan
                 bufInfos[bindIdx] = 
                 { .buffer           = Buffer.m_VKBuffer
                 , .offset           = 0
-                , .range            = VK_WHOLE_SIZE
+                , .range            = Buffer.m_Type == xgpu::buffer::type::STORAGE ? Buffer.StorageRange() : VK_WHOLE_SIZE
                 };
                 writes[writeCount] = 
                 { .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET

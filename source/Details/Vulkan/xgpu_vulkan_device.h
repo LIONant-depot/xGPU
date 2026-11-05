@@ -103,6 +103,8 @@ namespace xgpu::vulkan
         virtual void                    Shutdown            ( void ) noexcept override;
         virtual std::uint64_t           getFrameIndex       ( void ) const noexcept override { return static_cast<std::uint64_t>(m_FrameIndex); }
         virtual bool                    isBindless          ( void ) const noexcept override { return m_bBindless; }
+        virtual std::uint64_t           getMaxStorageBufferBytes( void ) const noexcept override { return m_VKPhysicalDeviceProperties.limits.maxStorageBufferRange; }
+        virtual std::uint32_t           getMaxComputeGroupsX    ( void ) const noexcept override { return m_VKPhysicalDeviceProperties.limits.maxComputeWorkGroupCount[0]; }
         virtual bool                    hasDrawIndirectCount( void ) const noexcept override { return m_bDrawIndirectCount; }
 
         virtual void                    Destroy             ( xgpu::texture&& Texture )                     noexcept override;

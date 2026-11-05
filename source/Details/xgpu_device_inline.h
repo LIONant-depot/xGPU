@@ -94,6 +94,8 @@ namespace xgpu
             virtual void Shutdown(void)                                 noexcept = 0;
             virtual std::uint64_t getFrameIndex(void) const             noexcept = 0;
             virtual bool          isBindless(void) const                noexcept = 0;
+            virtual std::uint64_t getMaxStorageBufferBytes(void) const  noexcept = 0;
+            virtual std::uint32_t getMaxComputeGroupsX(void) const      noexcept = 0;
             virtual bool          hasDrawIndirectCount(void) const      noexcept = 0;
             virtual timeline_point FlushUploads(void)                   noexcept = 0;
             virtual bool          isDone(timeline_point P)              noexcept = 0;
@@ -384,6 +386,8 @@ namespace xgpu
     XGPU_INLINE bool           device::isDone( timeline_point P ) noexcept         { return m_Private->isDone(P); }
     XGPU_INLINE void           device::Wait( timeline_point P ) noexcept           { m_Private->Wait(P); }
     XGPU_INLINE std::uint64_t  device::getMainQueueWaits( void ) const noexcept    { return m_Private->getMainQueueWaits(); }
+    XGPU_INLINE std::uint64_t  device::getMaxStorageBufferBytes( void ) const noexcept { return m_Private->getMaxStorageBufferBytes(); }
+    XGPU_INLINE std::uint32_t  device::getMaxComputeGroupsX( void ) const noexcept     { return m_Private->getMaxComputeGroupsX(); }
     XGPU_INLINE device::memory_stats device::getMemoryStats( void ) noexcept        { return m_Private->getMemoryStats(); }
 
 }
