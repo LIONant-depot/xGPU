@@ -94,6 +94,7 @@ namespace xgpu
             virtual void Shutdown(void)                                 noexcept = 0;
             virtual std::uint64_t getFrameIndex(void) const             noexcept = 0;
             virtual bool          isBindless(void) const                noexcept = 0;
+            virtual bool          isDozenCompat(void) const             noexcept = 0;
             virtual std::uint64_t getMaxStorageBufferBytes(void) const  noexcept = 0;
             virtual std::uint32_t getMaxComputeGroupsX(void) const      noexcept = 0;
             virtual bool          hasDrawIndirectCount(void) const      noexcept = 0;
@@ -374,6 +375,12 @@ namespace xgpu
     bool device::isBindless( void ) const noexcept
     {
         return m_Private->isBindless();
+    }
+
+    XGPU_INLINE
+    bool device::isDozenCompat( void ) const noexcept
+    {
+        return m_Private->isDozenCompat();
     }
 
     XGPU_INLINE

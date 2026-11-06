@@ -1616,7 +1616,9 @@ namespace xgpu::vulkan
             {
                 const std::array<VkDeviceSize, 8> Offsets{};
 #if defined(__linux__)
-                // LION patch (Linux/WSL only): see setStreamingBuffers. Remove when Dozen supports 1.3.
+                // LION patch (WSL + Dozen only): see setStreamingBuffers.
+                // Native Linux and Windows use the standard Vulkan 1.3 path.
+                // Remove when Dozen advertises Vulkan 1.3.
                 if( !m_Device->m_bVertexBindingStrideDynamic )
                     vkCmdBindVertexBuffers(CB.m_VKCommandBuffer, 0, CB.m_nStridedStreams, CB.m_StridedVKBuffers.data(), Offsets.data());
                 else
@@ -1851,11 +1853,12 @@ namespace xgpu::vulkan
 
         const std::array<VkDeviceSize, 8> Offsets{};
 #if defined(__linux__)
-        // LION patch (Linux/WSL only): vkCmdBindVertexBuffers2 needs
+        // LION patch (WSL + Dozen only): vkCmdBindVertexBuffers2 needs
         // VK_EXT_extended_dynamic_state, which Dozen does not expose. Bind with the
         // 1.0 command; strides come from the pipeline. A ConstantStreams (stride 0)
         // fetch needs enough repeated elements in that buffer (xLIONRender's dummy
-        // colour / UV1 streams). Remove when Dozen advertises Vulkan 1.3.
+        // colour / UV1 streams). Native Linux and Windows use the standard Vulkan 1.3 path.
+        // Remove when Dozen advertises Vulkan 1.3.
         if( !m_Device->m_bVertexBindingStrideDynamic )
         {
             vkCmdBindVertexBuffers(CB.m_VKCommandBuffer, 0, nStreams, CB.m_StridedVKBuffers.data(), Offsets.data());

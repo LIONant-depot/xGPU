@@ -232,7 +232,7 @@ namespace xgpu::vulkan
         ,   .applicationVersion = 1
         ,   .pEngineName        = "xGPU::Vulkan"
         ,   .engineVersion      = 1
-        ,   .apiVersion         = VK_API_VERSION_1_3     // instance API 1.3 everywhere; CollectPhysicalDevices filters devices (Windows: 1.3+; Linux: also a 1.2 device with the KHR extensions we use)
+        ,   .apiVersion         = VK_API_VERSION_1_3     // instance API 1.3 everywhere; CollectPhysicalDevices keeps 1.3+ devices (and under WSL only, Mesa Dozen at 1.2 with the KHR extensions we use)
         };
 
         //
@@ -355,12 +355,12 @@ namespace xgpu::vulkan
     //------------------------------------------------------------------------------------------------------------------
 
 #if defined(__linux__)
-    // LION patch (Linux/WSL only): Dozen (Mesa dzn) reports Vulkan 1.2 while exposing
-    // the 1.3 features we actually use as KHR extensions. Windows keeps the 1.3 floor.
-    // xGPU does not use VK_KHR_maintenance4 (it calls vkGetBufferMemoryRequirements /
-    // vkGetImageMemoryRequirements, not the device-level maintenance4 queries).
+    // LION patch (WSL + Dozen only): Dozen (Mesa dzn) reports Vulkan 1.2 while exposing
+    // the 1.3 features we actually use as KHR extensions. Native Linux and Windows use
+    // the standard Vulkan 1.3 path. xGPU does not use VK_KHR_maintenance4 (it calls
+    // vkGetBufferMemoryRequirements / vkGetImageMemoryRequirements).
     // Remove when Dozen advertises Vulkan 1.3.
-    static bool DeviceHasLinuxVk12Compat( VkPhysicalDevice PhysicalDevice ) noexcept
+    static bool DeviceHasDozenCompatFeatures( VkPhysicalDevice PhysicalDevice ) noexcept
     {
         std::uint32_t n = 0;
         vkEnumerateDeviceExtensionProperties(PhysicalDevice, nullptr, &n, nullptr);
@@ -411,10 +411,13 @@ namespace xgpu::vulkan
             if( DeviceProperties.apiVersion >= VK_API_VERSION_1_3 )
                 continue;
 #if defined(__linux__)
-            // LION patch (Linux/WSL only): accept a Vulkan 1.2 device that exposes
-            // synchronization2 + dynamic rendering + timeline semaphores (Dozen).
+            // LION patch (WSL + Dozen only): accept that 1.2 device when it exposes
+            // synchronization2 + dynamic rendering + timeline semaphores.
+            // Native Linux and Windows use the standard Vulkan 1.3 path.
             // Remove when Dozen advertises Vulkan 1.3.
-            if( DeviceProperties.apiVersion >= VK_API_VERSION_1_2 && DeviceHasLinuxVk12Compat(PhysicalDevices[i]) )
+            if( DeviceProperties.apiVersion >= VK_API_VERSION_1_2
+             && xgpu_DeviceIsDozenCompat(PhysicalDevices[i])
+             && DeviceHasDozenCompatFeatures(PhysicalDevices[i]) )
                 continue;
 #endif
             PhysicalDevices.erase(PhysicalDevices.begin() + i);
@@ -422,25 +425,9 @@ namespace xgpu::vulkan
         }
         if( PhysicalDevices.empty() )
         {
-#if defined(__linux__)
-            ReportError("xGPU needs a Vulkan 1.3 device, or a Vulkan 1.2 device with VK_KHR_synchronization2 and VK_KHR_dynamic_rendering");
-            return VGPU_ERROR(xgpu::device::error::FAILURE, "xGPU needs a Vulkan 1.3 device, or a Vulkan 1.2 device with VK_KHR_synchronization2 and VK_KHR_dynamic_rendering");
-#else
             ReportError("xGPU needs a Vulkan 1.3 device: every device found is older (update the driver)");
             return VGPU_ERROR(xgpu::device::error::FAILURE, "xGPU needs a Vulkan 1.3 device: every device found is older (update the driver)");
-#endif
         }
-
-#if defined(__linux__)
-        // LION patch (Linux/WSL only): prefer a real GPU (Dozen reports DISCRETE_GPU) over
-        // llvmpipe (CPU) when both qualify. Remove when Dozen advertises Vulkan 1.3.
-        std::stable_partition( PhysicalDevices.begin(), PhysicalDevices.end(), []( VkPhysicalDevice pd )
-        {
-            VkPhysicalDeviceProperties p{};
-            vkGetPhysicalDeviceProperties(pd, &p);
-            return p.deviceType != VK_PHYSICAL_DEVICE_TYPE_CPU;
-        });
-#endif
 
         //
         // Filter out base of the expected Discreateness
@@ -563,10 +550,11 @@ namespace xgpu::vulkan
                 }
             }
 #if defined(__linux__)
-            // LION patch (Linux/WSL only): stop at the first device we created.
-            // CollectPhysicalDevices already put a real GPU ahead of llvmpipe; without
-            // this the loop would overwrite it with the next ICD.
-            if( Device.m_Private.get() ) break;
+            // LION patch (WSL + Dozen only): stop after creating that device so a later
+            // 1.3 ICD (llvmpipe) cannot overwrite it. A 1.3 device (native NVIDIA, llvmpipe)
+            // uses the same loop as Windows. Native Linux and Windows use the standard
+            // Vulkan 1.3 path. Remove when Dozen advertises Vulkan 1.3.
+            if( Device.m_Private.get() && xgpu_DeviceIsDozenCompat(PhysicalDevice) ) break;
 #endif
         }
 

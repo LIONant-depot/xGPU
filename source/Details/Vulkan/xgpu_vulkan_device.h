@@ -103,6 +103,7 @@ namespace xgpu::vulkan
         virtual void                    Shutdown            ( void ) noexcept override;
         virtual std::uint64_t           getFrameIndex       ( void ) const noexcept override { return static_cast<std::uint64_t>(m_FrameIndex); }
         virtual bool                    isBindless          ( void ) const noexcept override { return m_bBindless; }
+        virtual bool                    isDozenCompat       ( void ) const noexcept override { return m_bDozenCompat; }
         virtual std::uint64_t           getMaxStorageBufferBytes( void ) const noexcept override { return m_VKPhysicalDeviceProperties.limits.maxStorageBufferRange; }
         virtual std::uint32_t           getMaxComputeGroupsX    ( void ) const noexcept override { return m_VKPhysicalDeviceProperties.limits.maxComputeWorkGroupCount[0]; }
         virtual bool                    hasDrawIndirectCount( void ) const noexcept override { return m_bDrawIndirectCount; }
@@ -204,9 +205,11 @@ namespace xgpu::vulkan
         bool                                            m_bHostQueryReset           = false;    // VkPhysicalDeviceHostQueryResetFeatures, needed by vulkan::timestamps
         bool                                            m_bDrawIndirectCount        = false;    // VkPhysicalDeviceVulkan12Features::drawIndirectCount: xgpu::device::hasDrawIndirectCount
         bool                                            m_bBindless                 = false;    // descriptor indexing on (CreateGraphicsDevice): xgpu::device::isBindless
+        bool                                            m_bDozenCompat              = false;    // device::isDozenCompat: true only under WSL on Mesa Dozen at Vulkan 1.2
 #if defined(__linux__)
-        // LION patch (Linux/WSL only): false on Dozen (no VK_EXT_extended_dynamic_state).
+        // LION patch (WSL + Dozen only): false on that device (no VK_EXT_extended_dynamic_state).
         // vkCmdBindVertexBuffers2 / VERTEX_INPUT_BINDING_STRIDE need it or Vulkan 1.3.
+        // Native Linux and Windows use the standard Vulkan 1.3 path.
         // Remove when Dozen advertises Vulkan 1.3.
         bool                                            m_bVertexBindingStrideDynamic = true;
 #endif

@@ -143,6 +143,9 @@ namespace xgpu
         // Whether textures and samplers are read by index from the global tables (descriptor indexing) or through per-material
         // sets built from the same ids. Callers write the same code for both: diagnostics and tests only
         [[nodiscard]] XGPU_INLINE bool           isBindless     ( void ) const noexcept;
+        // True only under WSL on Mesa Dozen while it reports Vulkan 1.2 (no core 1.3, no bind-time vertex strides).
+        // Native Linux and Windows are always false. Remove when Dozen advertises Vulkan 1.3.
+        [[nodiscard]] XGPU_INLINE bool           isDozenCompat  ( void ) const noexcept;
         // Whether cmd_buffer::DrawIndexedIndirectCount can be used (the count read from a buffer: Vulkan 1.2's drawIndirectCount)
         [[nodiscard]] XGPU_INLINE bool           hasDrawIndirectCount( void ) const noexcept;
         // The largest storage buffer a shader can see whole (VkPhysicalDeviceLimits::maxStorageBufferRange: llvmpipe 128 MB, most desktop GPUs 4 GB):

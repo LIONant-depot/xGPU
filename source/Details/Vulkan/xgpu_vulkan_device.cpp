@@ -74,15 +74,15 @@ namespace xgpu::vulkan
         VkPhysicalDeviceVulkan13Features Has13{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
         VkPhysicalDeviceVulkan12Features Has12{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .pNext = &Has13 };
 #if defined(__linux__)
-        // LION patch (Linux/WSL only): Dozen (Mesa dzn) reports Vulkan 1.2 and does not fill
+        // LION patch (WSL + Dozen only): Dozen (Mesa dzn) reports Vulkan 1.2 and does not fill
         // VkPhysicalDeviceVulkan13Features. Query the same features via their KHR structs.
+        // Native Linux and Windows use the standard Vulkan 1.3 path.
         // Remove when Dozen advertises Vulkan 1.3.
-        VkPhysicalDeviceProperties PhysProps{};
-        vkGetPhysicalDeviceProperties( Device.m_VKPhysicalDevice, &PhysProps );
         VkPhysicalDeviceSynchronization2FeaturesKHR HasSync2{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR, .pNext = &Has13 };
         VkPhysicalDeviceDynamicRenderingFeaturesKHR HasDynRend{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR, .pNext = &HasSync2 };
-        const bool bLinuxVk12Compat = PhysProps.apiVersion < VK_API_VERSION_1_3;
-        if( bLinuxVk12Compat )
+        Device.m_bDozenCompat = xgpu_DeviceIsDozenCompat(Device.m_VKPhysicalDevice);
+        Device.m_bVertexBindingStrideDynamic = !Device.m_bDozenCompat;
+        if( Device.m_bDozenCompat )
             Has12.pNext = &HasDynRend;
 #endif
         {
@@ -91,12 +91,12 @@ namespace xgpu::vulkan
         }
         const VkBool32 hasSync2 =
 #if defined(__linux__)
-            bLinuxVk12Compat ? HasSync2.synchronization2 :
+            Device.m_bDozenCompat ? HasSync2.synchronization2 :
 #endif
             Has13.synchronization2;
         const VkBool32 hasDynRend =
 #if defined(__linux__)
-            bLinuxVk12Compat ? HasDynRend.dynamicRendering :
+            Device.m_bDozenCompat ? HasDynRend.dynamicRendering :
 #endif
             Has13.dynamicRendering;
         if( !Has12.timelineSemaphore || !hasSync2 || !hasDynRend )
@@ -122,11 +122,13 @@ namespace xgpu::vulkan
                                               , .hostQueryReset                               = Has12.hostQueryReset
                                               , .timelineSemaphore                            = VK_TRUE };
 #if defined(__linux__)
-        // LION patch (Linux/WSL only): a 1.2 ICD does not understand Vulkan13Features;
+        // LION patch (WSL + Dozen only): a 1.2 ICD does not understand Vulkan13Features;
         // enable synchronization2 and dynamic rendering through their KHR structs.
+        // Native Linux and Windows use the standard Vulkan 1.3 path.
+        // Remove when Dozen advertises Vulkan 1.3.
         VkPhysicalDeviceSynchronization2FeaturesKHR UseSync2{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR, .synchronization2 = VK_TRUE };
         VkPhysicalDeviceDynamicRenderingFeaturesKHR UseDynRend{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR, .pNext = &UseSync2, .dynamicRendering = VK_TRUE };
-        if( bLinuxVk12Compat )
+        if( Device.m_bDozenCompat )
             Use12.pNext = &UseDynRend;
 #endif
         Device.m_bDrawIndirectCount = Has12.drawIndirectCount == VK_TRUE;
@@ -142,21 +144,20 @@ namespace xgpu::vulkan
             for( const auto& E : Available ) if( std::strcmp(E.extensionName, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) == 0 ) Device.m_bMemoryBudget = true;
             if( Device.m_bMemoryBudget ) enabledExtensions.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
 #if defined(__linux__)
-            // LION patch (Linux/WSL only): enable the KHR forms of the 1.3 features we use.
+            // LION patch (WSL + Dozen only): enable the KHR forms of the 1.3 features we use.
             // maintenance4 is absent on Dozen and unused (vkGetBuffer/ImageMemoryRequirements).
             // VK_EXT_extended_dynamic_state is also absent: vertex streams use static strides.
-            if( bLinuxVk12Compat )
+            // Native Linux and Windows use the standard Vulkan 1.3 path.
+            if( Device.m_bDozenCompat )
             {
-                bool hasSync2Ext = false, hasDynExt = false, hasEDS = false;
+                bool hasSync2Ext = false, hasDynExt = false;
                 for( const auto& E : Available )
                 {
                     if( std::strcmp(E.extensionName, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME) == 0 ) hasSync2Ext = true;
                     if( std::strcmp(E.extensionName, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME) == 0 ) hasDynExt = true;
-                    if( std::strcmp(E.extensionName, VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME) == 0 ) hasEDS = true;
                 }
                 if( hasSync2Ext ) enabledExtensions.push_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
                 if( hasDynExt )   enabledExtensions.push_back(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
-                Device.m_bVertexBindingStrideDynamic = hasEDS;
             }
 #endif
             if( std::getenv("XGPU_PIPELINE_STATS") )
@@ -166,7 +167,7 @@ namespace xgpu::vulkan
                     enabledExtensions.push_back(VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME);
                     Use13.pNext = &UseStats;
 #if defined(__linux__)
-                    if( bLinuxVk12Compat ) UseSync2.pNext = &UseStats;
+                    if( Device.m_bDozenCompat ) UseSync2.pNext = &UseStats;
 #endif
                 }
         }
@@ -201,10 +202,11 @@ namespace xgpu::vulkan
         }
 
 #if defined(__linux__)
-        // LION patch (Linux/WSL only): a 1.2 ICD does not provide the core 1.3 entry
-        // points; load the KHR names the extension enabled above. Remove when Dozen
-        // advertises Vulkan 1.3.
-        if( bLinuxVk12Compat )
+        // LION patch (WSL + Dozen only): a 1.2 ICD does not provide the core 1.3 entry
+        // points; load the KHR names the extension enabled above.
+        // Native Linux and Windows use the standard Vulkan 1.3 path.
+        // Remove when Dozen advertises Vulkan 1.3.
+        if( Device.m_bDozenCompat )
         {
             if( auto p = reinterpret_cast<PFN_vkQueueSubmit2>(vkGetDeviceProcAddr(Device.m_VKDevice, "vkQueueSubmit2KHR")) )
                 xgpu_disp_vkQueueSubmit2 = p;
