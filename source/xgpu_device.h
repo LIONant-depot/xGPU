@@ -148,6 +148,8 @@ namespace xgpu
         [[nodiscard]] XGPU_INLINE bool           isDozenCompat  ( void ) const noexcept;
         // Whether cmd_buffer::DrawIndexedIndirectCount can be used (the count read from a buffer: Vulkan 1.2's drawIndirectCount)
         [[nodiscard]] XGPU_INLINE bool           hasDrawIndirectCount( void ) const noexcept;
+        // Whether shaders may use GroupNonUniformClustered (subgroupClusteredAdd/Min): VK_SUBGROUP_FEATURE_CLUSTERED_BIT
+        [[nodiscard]] XGPU_INLINE bool           hasSubgroupClustered( void ) const noexcept;
         // The largest storage buffer a shader can see whole (VkPhysicalDeviceLimits::maxStorageBufferRange: llvmpipe 128 MB, most desktop GPUs 4 GB):
         // buffer creation refuses a storage buffer past it; a user that grows a buffer with slack keeps the slack under it
         [[nodiscard]] XGPU_INLINE std::uint64_t  getMaxStorageBufferBytes( void ) const noexcept;

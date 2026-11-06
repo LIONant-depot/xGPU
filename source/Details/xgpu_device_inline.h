@@ -98,6 +98,7 @@ namespace xgpu
             virtual std::uint64_t getMaxStorageBufferBytes(void) const  noexcept = 0;
             virtual std::uint32_t getMaxComputeGroupsX(void) const      noexcept = 0;
             virtual bool          hasDrawIndirectCount(void) const      noexcept = 0;
+            virtual bool          hasSubgroupClustered(void) const      noexcept = 0;
             virtual timeline_point FlushUploads(void)                   noexcept = 0;
             virtual bool          isDone(timeline_point P)              noexcept = 0;
             virtual void          Wait(timeline_point P)                noexcept = 0;
@@ -387,6 +388,12 @@ namespace xgpu
     bool device::hasDrawIndirectCount( void ) const noexcept
     {
         return m_Private->hasDrawIndirectCount();
+    }
+
+    XGPU_INLINE
+    bool device::hasSubgroupClustered( void ) const noexcept
+    {
+        return m_Private->hasSubgroupClustered();
     }
 
     XGPU_INLINE timeline_point device::FlushUploads( void ) noexcept               { return m_Private->FlushUploads(); }

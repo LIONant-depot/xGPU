@@ -107,6 +107,7 @@ namespace xgpu::vulkan
         virtual std::uint64_t           getMaxStorageBufferBytes( void ) const noexcept override { return m_VKPhysicalDeviceProperties.limits.maxStorageBufferRange; }
         virtual std::uint32_t           getMaxComputeGroupsX    ( void ) const noexcept override { return m_VKPhysicalDeviceProperties.limits.maxComputeWorkGroupCount[0]; }
         virtual bool                    hasDrawIndirectCount( void ) const noexcept override { return m_bDrawIndirectCount; }
+        virtual bool                    hasSubgroupClustered( void ) const noexcept override { return m_bSubgroupClustered; }
 
         virtual void                    Destroy             ( xgpu::texture&& Texture )                     noexcept override;
         virtual void                    Destroy             ( xgpu::pipeline_instance&& PipelineInstance )  noexcept override;
@@ -211,6 +212,7 @@ namespace xgpu::vulkan
         int                                             m_FrameIndex                = 0;
         bool                                            m_bHostQueryReset           = false;    // VkPhysicalDeviceHostQueryResetFeatures, needed by vulkan::timestamps
         bool                                            m_bDrawIndirectCount        = false;    // VkPhysicalDeviceVulkan12Features::drawIndirectCount: xgpu::device::hasDrawIndirectCount
+        bool                                            m_bSubgroupClustered        = false;    // VkPhysicalDeviceSubgroupProperties::supportedOperations & CLUSTERED: device::hasSubgroupClustered
         bool                                            m_bBindless                 = false;    // descriptor indexing on (CreateGraphicsDevice): xgpu::device::isBindless
         bool                                            m_bDozenCompat              = false;    // device::isDozenCompat: true only under WSL on Mesa Dozen at Vulkan 1.2
 #if defined(__linux__)

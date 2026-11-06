@@ -362,15 +362,22 @@ namespace xgpu::vulkan
         //
         vkGetPhysicalDeviceMemoryProperties(m_VKPhysicalDevice, &m_VKDeviceMemoryProperties);
         vkGetPhysicalDeviceProperties(m_VKPhysicalDevice, &m_VKPhysicalDeviceProperties);
+        {
+            VkPhysicalDeviceSubgroupProperties SubgroupProps{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES };
+            VkPhysicalDeviceProperties2        Props2{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = &SubgroupProps };
+            vkGetPhysicalDeviceProperties2(m_VKPhysicalDevice, &Props2);
+            m_bSubgroupClustered = (SubgroupProps.supportedOperations & VK_SUBGROUP_FEATURE_CLUSTERED_BIT) != 0;
+        }
 
         // Which GPU/driver the validation messages are about (on WSLg: "Microsoft Direct3D12 (...)" = Mesa Dozen, or llvmpipe)
         if (m_Instance->m_bValidation)
-            std::fprintf(stderr, "[xGPU] Vulkan device: %s (API %u.%u.%u), maxPushConstantsSize %u, %s, uploads on %s\n"
+            std::fprintf(stderr, "[xGPU] Vulkan device: %s (API %u.%u.%u), maxPushConstantsSize %u, %s, %s, uploads on %s\n"
                 , m_VKPhysicalDeviceProperties.deviceName
                 , VK_API_VERSION_MAJOR(m_VKPhysicalDeviceProperties.apiVersion), VK_API_VERSION_MINOR(m_VKPhysicalDeviceProperties.apiVersion)
                 , VK_API_VERSION_PATCH(m_VKPhysicalDeviceProperties.apiVersion)
                 , m_VKPhysicalDeviceProperties.limits.maxPushConstantsSize
                 , m_bBindless ? "bindless" : "per-material sets"
+                , m_bSubgroupClustered ? "subgroup clustered" : "no subgroup clustered"
                 , m_TransferQueueIndex != m_MainQueueIndex ? "a transfer queue (ownership transfers)" : "the main queue family" );
         
         //
