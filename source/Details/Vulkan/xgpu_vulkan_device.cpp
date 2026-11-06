@@ -816,7 +816,7 @@ namespace xgpu::vulkan
     {
         std::lock_guard Lk(m_InFlightLock);        // (held while waiting: a window resets a fence only after RemoveInFlight)
         if( m_InFlight.empty() ) return;
-        XPROFILE_SCOPE("xGPU: wait for the frame in flight");      // (a CPU write into a buffer the GPU may read: who pays the GPU's frame)
+        XPROFILE_SCOPE("xGPU: CPU idle, waiting for the GPU (GPU bound)");      // (a CPU write into a buffer the GPU may read waits for the frame in flight: one frame in flight, so when the GPU is the slower side the CPU waits here - whichever zone it lands in, it is not that zone's work, Tomas read it as CPU bound 2026-11-07)
         WaitFences( static_cast<std::uint32_t>(m_InFlight.size()), m_InFlight.data(), "WaitInFlight" );
         m_InFlight.clear();
         if( m_LastDoneFrame < m_FrameIndex - 1 ) m_LastDoneFrame = m_FrameIndex - 1;      // (every frame submitted: the one being recorded is m_FrameIndex)
