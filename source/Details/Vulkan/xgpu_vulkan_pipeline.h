@@ -1,4 +1,5 @@
 #include <atomic>
+#include <vector>
 
 namespace xgpu::vulkan
 {
@@ -13,6 +14,8 @@ namespace xgpu::vulkan
     struct pipeline : xgpu::details::pipeline_handle
     {
         std::uint64_t m_Serial = NextCacheSerial();
+        std::uint64_t m_StateHash {};            // shader bytecode + graphics state (not the object serial)
+        std::vector<std::uint64_t> m_CachedPipelineKeys {};  // m_PipeLineMap keys this object created or reused
 
         xgpu::device::error* Initialize     ( std::shared_ptr<device>&&    Device
                                             , const xgpu::pipeline::setup& Setup
@@ -30,6 +33,7 @@ namespace xgpu::vulkan
         {
             pipeline*       m_pPipeline;
             VkPipeline      m_VKPipeline;
+            std::uint32_t   m_nUsers    { 1 };  // xgpu::pipeline objects that reused this compiled VkPipeline
         };
 
         inline static constexpr int sampler_set_index_v = 0;

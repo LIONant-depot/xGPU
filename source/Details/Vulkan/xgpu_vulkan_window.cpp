@@ -621,6 +621,8 @@ namespace xgpu::vulkan
         ,   .pDependencies      = SubpassDependency.data()
         };
 
+        m_RenderPassCompatKey = RenderPassCompatKey( CreateInfo );
+
         if( auto VKErr = vkCreateRenderPass( m_Device->m_VKDevice, &CreateInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKRenderPass ); VKErr )
         {
             m_Device->m_Instance->ReportError(VKErr, "Unable to create a render pass for the window");
@@ -638,6 +640,7 @@ namespace xgpu::vulkan
             vkDestroyRenderPass(m_Device->m_VKDevice, m_VKRenderPass, m_Device->m_Instance->m_pVKAllocator);
 
         m_VKRenderPass = VK_NULL_HANDLE;
+        m_RenderPassCompatKey = 0;
         return nullptr;
     }
 
@@ -1532,8 +1535,16 @@ namespace xgpu::vulkan
             //
             // See if we have already created this material
             //
-            // The render pass is an address (they are rarely remade); the pipeline is its serial. Mixed, so two different pairs do not meet by accident.
-            std::uint64_t pipelineKey = (reinterpret_cast<std::uint64_t>(CB.m_VKActiveRenderPass) * 0x9E3779B97F4A7C15ull) ^ (PipelineInstance.m_Pipeline->m_Serial * 0xC2B2AE3D27D4EB4Full);
+            // Key by render-pass compatibility (formats / subpass structure, not the VkRenderPass
+            // pointer) and by the pipeline's graphics-state hash (shader bytecode and raster/blend/
+            // depth/vertex/layout state, not the object serial). A second editor window or
+            // xlionrender::instance used to miss this cache for every shader and block the main
+            // thread in vkCreateGraphicsPipelines (Dozen's SPIR-V to DXIL compile can take tens of
+            // seconds). Compatible render passes may share a VkPipeline.
+            const std::uint64_t CompatKey = CB.m_pActiveRenderPass
+                ? CB.m_pActiveRenderPass->m_RenderPassCompatKey
+                : m_RenderPassCompatKey;
+            std::uint64_t pipelineKey = (CompatKey * 0x9E3779B97F4A7C15ull) ^ (Pipe.m_StateHash * 0xC2B2AE3D27D4EB4Full);
             auto itPipeline = m_Device->m_PipeLineMap.find(pipelineKey);
             if (itPipeline == m_Device->m_PipeLineMap.end())
             {
@@ -1570,14 +1581,22 @@ namespace xgpu::vulkan
                 pipeline::per_renderpass PipelinePerRP
                 { .m_pPipeline  = PipelineInstance.m_Pipeline.get()
                 , .m_VKPipeline = vkPipeline
+                , .m_nUsers     = 1
                 };
                 m_Device->m_PipeLineMap.emplace(std::pair{ pipelineKey, PipelinePerRP });
                 PerRenderPass.m_VKPipeline = vkPipeline;
+                PipelineInstance.m_Pipeline->m_CachedPipelineKeys.push_back(pipelineKey);
             }
             else
             {
                 // Set the pipeline
                 PerRenderPass.m_VKPipeline = itPipeline->second.m_VKPipeline;
+                auto& Keys = PipelineInstance.m_Pipeline->m_CachedPipelineKeys;
+                if( std::find(Keys.begin(), Keys.end(), pipelineKey) == Keys.end() )
+                {
+                    ++itPipeline->second.m_nUsers;
+                    Keys.push_back(pipelineKey);
+                }
             }
 
             //

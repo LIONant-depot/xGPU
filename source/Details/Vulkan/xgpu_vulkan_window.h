@@ -196,6 +196,7 @@ namespace xgpu::vulkan
         VkImageView                             m_VKDepthbufferView     {};
         VkDeviceMemory                          m_VKDepthbufferMemory   {};
         VkRenderPass                            m_VKRenderPass          {};
+        std::uint64_t                           m_RenderPassCompatKey   {};
         VkPipeline                              m_VKPipeline            {};
         VkSurfaceFormatKHR                      m_VKSurfaceFormat       {};
         VkFormat                                m_VKDepthFormat         {};

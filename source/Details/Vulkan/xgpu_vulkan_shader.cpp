@@ -51,6 +51,16 @@ namespace xgpu::vulkan
 
         }, Setup.m_Sharer ); Err ) return Err;
 
+        m_BytecodeHash = HashBytes( 14695981039346656037ull, ShaderCreateInfo.pCode, ShaderCreateInfo.codeSize );
+        if( const char* Entry = Setup.m_EntryPoint; Entry )
+        {
+            std::size_t n = 0;
+            while( Entry[n] ) ++n;
+            m_BytecodeHash = HashBytes( m_BytecodeHash, Entry, n );
+        }
+        m_BytecodeHash = HashMix( m_BytecodeHash, static_cast<std::uint64_t>(Setup.m_Type) );
+        if( m_BytecodeHash == 0 ) m_BytecodeHash = 1;
+
         if( auto VKErr = vkCreateShaderModule( m_Device->m_VKDevice
                                              , &ShaderCreateInfo
                                              , m_Device->m_Instance->m_pVKAllocator

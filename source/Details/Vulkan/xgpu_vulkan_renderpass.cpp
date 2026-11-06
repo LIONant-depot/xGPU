@@ -124,6 +124,8 @@ namespace xgpu::vulkan
         , .pDependencies    = dependencies.data()
         };
 
+        m_RenderPassCompatKey = RenderPassCompatKey( renderPassCreateInfo );
+
         if(auto VKErr = vkCreateRenderPass( Device->m_VKDevice, &renderPassCreateInfo, nullptr, &m_VKRenderPass ) )
         {
             m_Device->m_Instance->ReportError(VKErr, "Fail to create a vulkan renderpass");

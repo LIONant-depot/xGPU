@@ -521,6 +521,80 @@ namespace xgpu::vulkan
         //
         m_VkPipelineCreateInfo.renderPass = 0;
 
+        // Fingerprint of the graphics state so a later pipeline object with the same shaders and
+        // state can reuse a compiled VkPipeline (a second editor session / renderer used to create
+        // every PSO again). The render-pass compatibility key is mixed in at first bind.
+        m_StateHash = 14695981039346656037ull;
+        auto Mix = [&]( std::uint64_t v ) { m_StateHash = HashMix( m_StateHash, v ); };
+        auto MixF = [&]( float f ) { Mix( std::bit_cast<std::uint32_t>( f ) ); };
+        for( int i = 0; i < m_nShaderStages; ++i )
+        {
+            Mix( m_ShaderStages[i]->m_BytecodeHash );
+            Mix( static_cast<std::uint64_t>( m_ShaderStagesCreateInfo[i].stage ) );
+        }
+        Mix( static_cast<std::uint64_t>( m_VkInputAssemblyState.topology ) );
+        Mix( m_VkRasterizationState.polygonMode );
+        Mix( m_VkRasterizationState.cullMode );
+        Mix( m_VkRasterizationState.frontFace );
+        Mix( m_VkRasterizationState.depthClampEnable );
+        Mix( m_VkRasterizationState.rasterizerDiscardEnable );
+        Mix( m_VkRasterizationState.depthBiasEnable );
+        MixF( m_VkRasterizationState.depthBiasConstantFactor );
+        MixF( m_VkRasterizationState.depthBiasSlopeFactor );
+        MixF( m_VkRasterizationState.depthBiasClamp );
+        MixF( m_VkRasterizationState.lineWidth );
+        Mix( m_lVkBlendAttachmentState[0].blendEnable );
+        Mix( m_lVkBlendAttachmentState[0].srcColorBlendFactor );
+        Mix( m_lVkBlendAttachmentState[0].dstColorBlendFactor );
+        Mix( m_lVkBlendAttachmentState[0].colorBlendOp );
+        Mix( m_lVkBlendAttachmentState[0].srcAlphaBlendFactor );
+        Mix( m_lVkBlendAttachmentState[0].dstAlphaBlendFactor );
+        Mix( m_lVkBlendAttachmentState[0].alphaBlendOp );
+        Mix( m_lVkBlendAttachmentState[0].colorWriteMask );
+        Mix( m_VkMultisampleState.rasterizationSamples );
+        Mix( m_VkDepthStencilState.depthTestEnable );
+        Mix( m_VkDepthStencilState.depthWriteEnable );
+        Mix( m_VkDepthStencilState.depthCompareOp );
+        Mix( m_VkDepthStencilState.depthBoundsTestEnable );
+        Mix( m_VkDepthStencilState.stencilTestEnable );
+        Mix( m_VkDepthStencilState.front.compareOp );
+        Mix( m_VkDepthStencilState.front.depthFailOp );
+        Mix( m_VkDepthStencilState.front.failOp );
+        Mix( m_VkDepthStencilState.front.passOp );
+        Mix( m_VkDepthStencilState.front.reference );
+        Mix( m_VkDepthStencilState.front.compareMask );
+        Mix( m_VkDepthStencilState.back.compareOp );
+        Mix( m_VkDepthStencilState.back.depthFailOp );
+        Mix( m_VkDepthStencilState.back.failOp );
+        Mix( m_VkDepthStencilState.back.passOp );
+        Mix( m_VkDepthStencilState.back.reference );
+        Mix( m_VkDepthStencilState.back.compareMask );
+        MixF( m_VkDepthStencilState.minDepthBounds );
+        MixF( m_VkDepthStencilState.maxDepthBounds );
+        Mix( static_cast<std::uint64_t>( m_nSamplers ) );
+        Mix( static_cast<std::uint64_t>( m_nTextureSlots ) );
+        Mix( static_cast<std::uint64_t>( m_nUniformBuffers ) );
+        Mix( static_cast<std::uint64_t>( Setup.m_PushConstantsSize ) );
+        Mix( m_bDynamicStride ? 1u : 0u );
+        for( int i = 0; i < m_nUniformBuffers; ++i )
+        {
+            Mix( static_cast<std::uint64_t>( m_UniformsBinds[i].m_BindIndex ) );
+            Mix( static_cast<std::uint64_t>( m_UniformsBinds[i].m_Type ) );
+            m_StateHash = HashBytes( m_StateHash, &m_UniformsBinds[i].m_Usage, sizeof( m_UniformsBinds[i].m_Usage ) );
+        }
+        if( m_VertexDesciptor )
+        {
+            Mix( static_cast<std::uint64_t>( m_VertexDesciptor->m_VKTopology ) );
+            const auto& VI = m_VertexDesciptor->m_VKInputStageCreateInfo;
+            Mix( VI.vertexBindingDescriptionCount );
+            Mix( VI.vertexAttributeDescriptionCount );
+            if( VI.pVertexBindingDescriptions && VI.vertexBindingDescriptionCount )
+                m_StateHash = HashBytes( m_StateHash, VI.pVertexBindingDescriptions, sizeof( VkVertexInputBindingDescription ) * VI.vertexBindingDescriptionCount );
+            if( VI.pVertexAttributeDescriptions && VI.vertexAttributeDescriptionCount )
+                m_StateHash = HashBytes( m_StateHash, VI.pVertexAttributeDescriptions, sizeof( VkVertexInputAttributeDescription ) * VI.vertexAttributeDescriptionCount );
+        }
+        if( m_StateHash == 0 ) m_StateHash = 1;
+
         return nullptr;
     }
 

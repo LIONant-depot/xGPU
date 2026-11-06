@@ -899,17 +899,24 @@ namespace xgpu::vulkan
             {
                 if (E.m_Private.use_count() == 1)
                 {
-                    for (auto it = m_PipeLineMap.begin(); it != m_PipeLineMap.end(); )
+                    auto* pPipe = static_cast<xgpu::vulkan::pipeline*>(E.m_Private.get());
+                    for (const auto Key : pPipe->m_CachedPipelineKeys)
                     {
-                        if (it->second.m_pPipeline == E.m_Private.get())
+                        if (auto it = m_PipeLineMap.find(Key); it != m_PipeLineMap.end())
                         {
-                            it = m_PipeLineMap.erase(it); // erase returns the next iterator
-                        }
-                        else
-                        {
-                            ++it;
+                            if (it->second.m_nUsers > 1)
+                            {
+                                --it->second.m_nUsers;
+                            }
+                            else
+                            {
+                                if (it->second.m_VKPipeline)
+                                    vkDestroyPipeline(m_VKDevice, it->second.m_VKPipeline, m_Instance->m_pVKAllocator);
+                                m_PipeLineMap.erase(it);
+                            }
                         }
                     }
+                    pPipe->m_CachedPipelineKeys.clear();
                 }
                 E.m_Private.reset();
             }
