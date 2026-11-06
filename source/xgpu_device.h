@@ -143,8 +143,19 @@ namespace xgpu
         // Whether textures and samplers are read by index from the global tables (descriptor indexing) or through per-material
         // sets built from the same ids. Callers write the same code for both: diagnostics and tests only
         [[nodiscard]] XGPU_INLINE bool           isBindless     ( void ) const noexcept;
+        // True only under WSL on Mesa Dozen while it reports Vulkan 1.2 (no core 1.3, no bind-time vertex strides).
+        // Native Linux and Windows are always false. Remove when Dozen advertises Vulkan 1.3.
+        [[nodiscard]] XGPU_INLINE bool           isDozenCompat  ( void ) const noexcept;
         // Whether cmd_buffer::DrawIndexedIndirectCount can be used (the count read from a buffer: Vulkan 1.2's drawIndirectCount)
         [[nodiscard]] XGPU_INLINE bool           hasDrawIndirectCount( void ) const noexcept;
+        // Whether shaders may use GroupNonUniformClustered (subgroupClusteredAdd/Min): VK_SUBGROUP_FEATURE_CLUSTERED_BIT
+        [[nodiscard]] XGPU_INLINE bool           hasSubgroupClustered( void ) const noexcept;
+        // The largest storage buffer a shader can see whole (VkPhysicalDeviceLimits::maxStorageBufferRange: llvmpipe 128 MB, most desktop GPUs 4 GB):
+        // buffer creation refuses a storage buffer past it; a user that grows a buffer with slack keeps the slack under it
+        [[nodiscard]] XGPU_INLINE std::uint64_t  getMaxStorageBufferBytes( void ) const noexcept;
+        // The most work groups one window::Dispatch can have along X (VkPhysicalDeviceLimits::maxComputeWorkGroupCount[0]: llvmpipe and many GPUs 65535):
+        // a 1D grid past it is the caller's to split (an offset of its own in the push constants); Dispatch refuses it
+        [[nodiscard]] XGPU_INLINE std::uint32_t  getMaxComputeGroupsX( void ) const noexcept;
 
         // The streaming lane: a texture or buffer created with data is copied on the transfer queue, never by stalling the main queue; every
         // frame (and anything else submitted to the main queue) waits on the GPU for the uploads flushed before it. FlushUploads sends what

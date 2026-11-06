@@ -1616,6 +1616,14 @@ namespace xgpu::vulkan
             if( Pipe.m_bDynamicStride && CB.m_nStridedStreams )
             {
                 const std::array<VkDeviceSize, 8> Offsets{};
+#if defined(__linux__)
+                // LION patch (WSL + Dozen only): see setStreamingBuffers.
+                // Native Linux and Windows use the standard Vulkan 1.3 path.
+                // Remove when Dozen advertises Vulkan 1.3.
+                if( !m_Device->m_bVertexBindingStrideDynamic )
+                    vkCmdBindVertexBuffers(CB.m_VKCommandBuffer, 0, CB.m_nStridedStreams, CB.m_StridedVKBuffers.data(), Offsets.data());
+                else
+#endif
                 vkCmdBindVertexBuffers2(CB.m_VKCommandBuffer, 0, CB.m_nStridedStreams, CB.m_StridedVKBuffers.data(), Offsets.data(), nullptr, CB.m_StridedStrides.data());
             }
         }
@@ -1682,7 +1690,7 @@ namespace xgpu::vulkan
                 bufInfos[bindIdx] = 
                 { .buffer           = Buffer.m_VKBuffer
                 , .offset           = 0
-                , .range            = VK_WHOLE_SIZE
+                , .range            = Buffer.m_Type == xgpu::buffer::type::STORAGE ? Buffer.StorageRange() : VK_WHOLE_SIZE
                 };
                 writes[writeCount] = 
                 { .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET
@@ -1845,6 +1853,20 @@ namespace xgpu::vulkan
         CB.m_nStridedStreams = nStreams;
 
         const std::array<VkDeviceSize, 8> Offsets{};
+#if defined(__linux__)
+        // LION patch (WSL + Dozen only): vkCmdBindVertexBuffers2 needs
+        // VK_EXT_extended_dynamic_state, which Dozen does not expose. Bind with the
+        // 1.0 command; strides come from the pipeline. A ConstantStreams (stride 0)
+        // fetch needs enough repeated elements in that buffer (xLIONRender's dummy
+        // colour / UV1 streams). Native Linux and Windows use the standard Vulkan 1.3 path.
+        // Remove when Dozen advertises Vulkan 1.3.
+        if( !m_Device->m_bVertexBindingStrideDynamic )
+        {
+            vkCmdBindVertexBuffers(CB.m_VKCommandBuffer, 0, nStreams, CB.m_StridedVKBuffers.data(), Offsets.data());
+            CB.m_nStridedStreams = 0;
+        }
+        else
+#endif
         vkCmdBindVertexBuffers2(CB.m_VKCommandBuffer, 0, nStreams, CB.m_StridedVKBuffers.data(), Offsets.data(), nullptr, CB.m_StridedStrides.data());
     }
 

@@ -252,6 +252,7 @@ namespace xgpu::vulkan
         };
         std::unordered_map<set_key, VkDescriptorSet, set_key_hash> m_FrameSets{};
         bool                                    m_bReportedSetOverflow  {false};
+        bool                                    m_bReportedGridOverflow {false};        // Dispatch: a grid past maxComputeWorkGroupCount, said once
         // What setPipelineInstance last bound in the frame's command buffer (graphics): the same pipeline or set again is skipped.
         // Forgotten at each render pass start and command buffer (BoundForget)
         VkPipeline                              m_BoundVKPipeline       {VK_NULL_HANDLE};

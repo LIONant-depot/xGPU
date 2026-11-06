@@ -36,13 +36,11 @@ namespace xgpu::vulkan
         {
             std::lock_guard Lk(m_Device->m_LockedVKDescriptorPool);
             VkDescriptorSet allocatedSet = VK_NULL_HANDLE;
-            VkDescriptorSetAllocateInfo alloc{
-                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-                .descriptorPool = m_Device->m_LockedVKDescriptorPool.get(),
-                .descriptorSetCount = 1,
-                .pSetLayouts = &m_Pipeline->m_VKDescriptorSetLayout[pipeline::sampler_set_index_v]
-            };
-            if (auto err = vkAllocateDescriptorSets(m_Device->m_VKDevice, &alloc, &allocatedSet)) {
+            if (auto err = m_Device->AllocateSamplerDescriptorSet(
+                    m_Pipeline->m_VKDescriptorSetLayout[pipeline::sampler_set_index_v],
+                    allocatedSet,
+                    m_VKSamplerPool))
+            {
                 m_Device->m_Instance->ReportError(err, "vkAllocateDescriptorSets");
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to allocate sampler descriptor set");
             }
@@ -58,10 +56,25 @@ namespace xgpu::vulkan
             std::array<VkWriteDescriptorSet, 16>   writes{};
             std::array<VkDescriptorImageInfo, 16>  imageInfos{};
 
+            VkDescriptorImageInfo DummyImage{};
+            if( auto* pWhite = static_cast<vulkan::texture*>(m_Device->m_Heap.m_White.m_Private.get()) )
+                DummyImage = pWhite->m_VKDescriptorImageInfo;
+            const VkSampler DummySampler = m_Device->m_Heap.m_DefaultSampler;
+
             for (int i = 0; i < m_Pipeline->m_nSamplers; ++i)
             {
-                imageInfos[i]         = m_TexturesBinds[i]->m_VKDescriptorImageInfo;
-                imageInfos[i].sampler = m_Pipeline->m_VKSamplers[i];
+                // Dozen inspects each combined-image-sampler's image view at bind
+                // (dzn+0x136a6b / +0x136a6f ? SIGSEGV at 0x8 / 0x30 if the view or its
+                // inner object is null). vkUpdateDescriptorSets with a null view is
+                // skipped there, so the slot would stay unwritten. A dummy 1x1 view
+                // (and sampler) keeps every binding valid on every device.
+                if( m_TexturesBinds[i] && m_TexturesBinds[i]->m_VKDescriptorImageInfo.imageView != VK_NULL_HANDLE )
+                    imageInfos[i] = m_TexturesBinds[i]->m_VKDescriptorImageInfo;
+                else
+                    imageInfos[i] = DummyImage;
+                imageInfos[i].sampler = m_Pipeline->m_VKSamplers[i] != VK_NULL_HANDLE
+                                      ? m_Pipeline->m_VKSamplers[i]
+                                      : DummySampler;
 
                 writes[i] = VkWriteDescriptorSet
                 { .sType            = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET

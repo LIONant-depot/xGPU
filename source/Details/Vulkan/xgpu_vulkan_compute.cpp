@@ -136,6 +136,14 @@ namespace xgpu::vulkan
     void window::Dispatch( xgpu::compute& Compute, std::span<xgpu::buffer* const> Buffers, std::span<const xgpu::texture* const> Textures, std::span<const xgpu::texture* const> Images, const void* pPush, std::size_t PushSize, int X, int Y, int Z ) noexcept
     {
         auto& C = *static_cast<vulkan::compute*>(Compute.m_Private.get());
+        // A grid past the device's maxComputeWorkGroupCount (llvmpipe and many GPUs: 65535 in X) is invalid: the dispatch is skipped, said once
+        // (device::getMaxComputeGroupsX: the caller splits it, with an offset of its own)
+        if( const auto& Max = m_Device->m_VKPhysicalDeviceProperties.limits.maxComputeWorkGroupCount
+          ; std::uint32_t(X) > Max[0] || std::uint32_t(Y) > Max[1] || std::uint32_t(Z) > Max[2] )
+        {
+            if( !m_bReportedGridOverflow ) { m_bReportedGridOverflow = true; m_Device->m_Instance->ReportError(std::format("xGPU: a dispatch of {} x {} x {} work groups is past this device's maxComputeWorkGroupCount ({} x {} x {}): skipped", X, Y, Z, Max[0], Max[1], Max[2])); }
+            return;
+        }
         assert(static_cast<int>(Buffers.size()) == C.m_nBuffers && static_cast<int>(Textures.size()) == C.m_nTextures && static_cast<int>(Images.size()) == C.m_nImages && PushSize <= C.m_PushSize);
         auto& Frame = m_Frames[m_FrameIndex];
 
@@ -151,7 +159,7 @@ namespace xgpu::vulkan
             std::array<VkWriteDescriptorSet, compute::max_buffers_v>   Writes{};
             for( int i = 0; i < C.m_nBuffers; ++i )
             {
-                Infos[i]  = { .buffer = static_cast<vulkan::buffer*>(Buffers[i]->m_Private.get())->m_VKBuffer, .offset = 0, .range = VK_WHOLE_SIZE };
+                Infos[i]  = { .buffer = static_cast<vulkan::buffer*>(Buffers[i]->m_Private.get())->m_VKBuffer, .offset = 0, .range = static_cast<vulkan::buffer*>(Buffers[i]->m_Private.get())->StorageRange() };
                 Writes[i] = { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = Set, .dstBinding = static_cast<std::uint32_t>(i), .descriptorCount = 1
                             , .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, .pBufferInfo = &Infos[i] };
             }

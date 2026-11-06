@@ -30,6 +30,7 @@ namespace xgpu::vulkan
         std::shared_ptr<vulkan::device>                     m_Device                {};
 
         VkDescriptorSet                                     m_VKSamplerSet{ VK_NULL_HANDLE };
+        VkDescriptorPool                                    m_VKSamplerPool{ VK_NULL_HANDLE }; // the pool AllocateSamplerDescriptorSet took it from
         VkDescriptorSet                                     m_VKDynamicSet{ VK_NULL_HANDLE };
     };
 }

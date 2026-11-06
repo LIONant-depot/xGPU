@@ -50,6 +50,16 @@ namespace xgpu::vulkan
         m_bWriteOnly = Setup.m_bWriteOnly;
 
         VkDeviceSize ByteSize = EntryByteSize * Setup.m_EntryCount;
+
+        // A storage buffer is bound whole (window: the draws' and the dispatches' descriptors): one past the device's maxStorageBufferRange (llvmpipe:
+        // 128 MB; most desktop GPUs: 4 GB) could not be seen by a shader past that range - it is refused here, by name, instead of reading out of bounds
+        if( Setup.m_Type == xgpu::buffer::type::STORAGE && ByteSize > m_Device->m_VKPhysicalDeviceProperties.limits.maxStorageBufferRange )
+        {
+            m_Device->m_Instance->ReportError(std::format("xGPU: the storage buffer '{}' is {} bytes, past this device's maxStorageBufferRange ({} bytes)"
+                                                         , Setup.m_pName ? Setup.m_pName : "(no name)", std::uint64_t(ByteSize), m_Device->m_VKPhysicalDeviceProperties.limits.maxStorageBufferRange));
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "A storage buffer past the device's maxStorageBufferRange");
+        }
+
         ByteSize = ((ByteSize - 1) / m_Device->m_BufferMemoryAlignment + 1) * m_Device->m_BufferMemoryAlignment;
         VkBufferCreateInfo BufferInfo
         { .sType         = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO
@@ -304,6 +314,14 @@ namespace xgpu::vulkan
     int buffer::getEntryCount(void) const noexcept
     {
         return m_nEntries;
+    }
+
+    //----------------------------------------------------------------------------------
+
+    VkDeviceSize buffer::StorageRange() const noexcept
+    {
+        const VkDeviceSize Max = m_Device->m_VKPhysicalDeviceProperties.limits.maxStorageBufferRange;
+        return static_cast<VkDeviceSize>(m_ByteSize) > Max ? Max : VK_WHOLE_SIZE;
     }
 
     //----------------------------------------------------------------------------------

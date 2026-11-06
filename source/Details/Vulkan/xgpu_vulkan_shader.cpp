@@ -26,8 +26,14 @@ namespace xgpu::vulkan
                     return VGPU_ERROR(xgpu::device::error::FAILURE, "Failed to load shader");
                 }
 
+                // (the buffer sized by the file: it was allocated from codeSize before codeSize was set - 0 bytes - and the file read past it)
                 const auto Size = static_cast<std::size_t>(File.tellg());
-                ShaderFile                  = std::make_unique<char[]>(ShaderCreateInfo.codeSize);
+                if( Size == 0 || Size % sizeof(std::uint32_t) )
+                {
+                    m_Device->m_Instance->ReportError( std::format( "Shader {} is not SPIR-V ({} bytes, not a whole number of 32-bit words)", Type.m_pValue, Size ) );
+                    return VGPU_ERROR(xgpu::device::error::FAILURE, "Shader file is not SPIR-V");
+                }
+                ShaderFile                  = std::make_unique<char[]>(Size);
                 ShaderCreateInfo.pCode      = reinterpret_cast<std::uint32_t*>(ShaderFile.get());
                 ShaderCreateInfo.codeSize   = Size;
 

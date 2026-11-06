@@ -481,6 +481,15 @@ namespace xgpu::vulkan
         m_VKDyanmicStates[0] = VK_DYNAMIC_STATE_VIEWPORT;
         m_VKDyanmicStates[1] = VK_DYNAMIC_STATE_SCISSOR;
         m_bDynamicStride     = m_VertexDesciptor->m_bDynamicStride;
+#if defined(__linux__)
+        // LION patch (WSL + Dozen only): Dozen has no VK_EXT_extended_dynamic_state, so
+        // VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE and vkCmdBindVertexBuffers2 are
+        // unavailable. The pipeline keeps the vertex descriptor's static strides.
+        // Native Linux and Windows use the standard Vulkan 1.3 path.
+        // Remove when Dozen advertises Vulkan 1.3.
+        if( !m_Device->m_bVertexBindingStrideDynamic )
+            m_bDynamicStride = false;
+#endif
         if( m_bDynamicStride )
         {
             m_VKDyanmicStates[2] = VK_DYNAMIC_STATE_VERTEX_INPUT_BINDING_STRIDE;

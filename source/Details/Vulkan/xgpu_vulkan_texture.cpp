@@ -648,10 +648,8 @@ namespace xgpu::vulkan
         m_VKDescriptorImageInfo.imageView   = m_VKView;
         m_VKDescriptorImageInfo.imageLayout = isDepth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-        // True only for the "with data" staging path above (OutImageLayout was set there, right after its
-        // own real UNDEFINED->TRANSFER_DST_OPTIMAL->SHADER_READ_ONLY_OPTIMAL transitions) - the "empty"
-        // (m_nMips==0) path's image genuinely stays at UNDEFINED despite the descriptor above, see this
-        // field's own comment in the header.
+        // True when the image really rests at SHADER_READ_ONLY_OPTIMAL: the "with data" paths, and the empty (m_nMips==0) color
+        // targets (transitioned at creation above); an empty depth target stays at UNDEFINED until its first pass.
         m_bContentReady = (OutImageLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
 
         return nullptr;

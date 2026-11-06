@@ -5,6 +5,93 @@ namespace xgpu::vulkan
 
     device::~device(void) noexcept
     {
+        for (auto Pool : m_AdditionalSamplerPools)
+        {
+            if (Pool != VK_NULL_HANDLE)
+                vkDestroyDescriptorPool(m_VKDevice, Pool, m_Instance->m_pVKAllocator);
+        }
+        m_AdditionalSamplerPools.clear();
+    }
+
+    VkDescriptorPool device::CreateSamplerDescriptorPool(void) noexcept
+    {
+        // One COMBINED_IMAGE_SAMPLER set per pipeline instance (up to 16 texture slots;
+        // xlionrender lit pipelines use 13). Descriptors must be maxSets * slots: a pool of
+        // 1024 descriptors and 1024 maxSets only fits 1-sampler sets. Dozen tracks this
+        // strictly (and adds per-set alignment in its bindless path). A single pool is still
+        // not enough for a full project, so AllocateSamplerDescriptorSet creates another
+        // when this one returns OUT_OF_POOL_MEMORY or FRAGMENTED_POOL. Required on every
+        // Vulkan device, not only Dozen.
+        constexpr auto max_sets_per_pool_v             = 4096u;
+        constexpr auto max_samplers_per_set_v          = 16u;
+        constexpr auto combined_descriptors_per_pool_v = max_sets_per_pool_v * max_samplers_per_set_v;
+
+        const VkDescriptorPoolSize PoolSizes[] =
+        {   { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, combined_descriptors_per_pool_v }
+        };
+
+        const VkDescriptorPoolCreateInfo PoolCreateInfo =
+        { .sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO
+        , .flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT
+        , .maxSets       = max_sets_per_pool_v
+        , .poolSizeCount = 1
+        , .pPoolSizes    = PoolSizes
+        };
+
+        VkDescriptorPool Pool = VK_NULL_HANDLE;
+        if (auto VKErr = vkCreateDescriptorPool(m_VKDevice, &PoolCreateInfo, m_Instance->m_pVKAllocator, &Pool); VKErr)
+        {
+            m_Instance->ReportError(VKErr, "Fail to create a Descriptor Pool");
+            return VK_NULL_HANDLE;
+        }
+        return Pool;
+    }
+
+    VkResult device::AllocateSamplerDescriptorSet(VkDescriptorSetLayout Layout, VkDescriptorSet& OutSet, VkDescriptorPool& OutPool) noexcept
+    {
+        // Caller holds m_LockedVKDescriptorPool.
+        constexpr std::size_t max_sampler_descriptor_pools_v = 16; // first + 15 additional
+
+        const auto TryOne = [&](VkDescriptorPool Pool) -> VkResult
+        {
+            OutSet = VK_NULL_HANDLE;
+            const VkDescriptorSetAllocateInfo Alloc
+            { .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO
+            , .descriptorPool     = Pool
+            , .descriptorSetCount = 1
+            , .pSetLayouts        = &Layout
+            };
+            const VkResult Err = vkAllocateDescriptorSets(m_VKDevice, &Alloc, &OutSet);
+            if (Err == VK_SUCCESS)
+                OutPool = Pool;
+            return Err;
+        };
+
+        // Newest extra pool first so a full earlier pool is not probed (and logged) on every later allocate.
+        VkResult Err = VK_ERROR_OUT_OF_POOL_MEMORY;
+        for (auto It = m_AdditionalSamplerPools.rbegin(); It != m_AdditionalSamplerPools.rend(); ++It)
+        {
+            Err = TryOne(*It);
+            if (Err == VK_SUCCESS)
+                return VK_SUCCESS;
+            if (Err != VK_ERROR_OUT_OF_POOL_MEMORY && Err != VK_ERROR_FRAGMENTED_POOL)
+                return Err;
+        }
+
+        Err = TryOne(m_LockedVKDescriptorPool.get());
+        if (Err == VK_SUCCESS)
+            return VK_SUCCESS;
+        if (Err != VK_ERROR_OUT_OF_POOL_MEMORY && Err != VK_ERROR_FRAGMENTED_POOL)
+            return Err;
+
+        if (1 + m_AdditionalSamplerPools.size() >= max_sampler_descriptor_pools_v)
+            return VK_ERROR_OUT_OF_POOL_MEMORY;
+
+        const VkDescriptorPool NewPool = CreateSamplerDescriptorPool();
+        if (NewPool == VK_NULL_HANDLE)
+            return VK_ERROR_OUT_OF_HOST_MEMORY;
+        m_AdditionalSamplerPools.push_back(NewPool);
+        return TryOne(NewPool);
     }
 
     //----------------------------------------------------------------------------------------------------------
@@ -66,7 +153,7 @@ namespace xgpu::vulkan
         Features.shaderCullDistance = true;
         Features.samplerAnisotropy  = true;
 
-        // Vulkan 1.3 is the minimum (instance.cpp filters the devices): timeline semaphores and synchronization2 are core and
+        // Vulkan 1.3 is the minimum on Windows (instance.cpp filters the devices): timeline semaphores and synchronization2 are core and
         // always on. Host query reset lets vulkan::timestamps recycle its queries from the CPU, so a timestamp can be written
         // anywhere in a frame, including inside a render pass (vkCmdResetQueryPool can't be).
         // Bindless (descriptor indexing): one global array of sampled images and one of samplers, indexed by texture_id /
@@ -74,11 +161,33 @@ namespace xgpu::vulkan
         // (XGPU_NO_BINDLESS forces those, to test them)
         VkPhysicalDeviceVulkan13Features Has13{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
         VkPhysicalDeviceVulkan12Features Has12{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .pNext = &Has13 };
+#if defined(__linux__)
+        // LION patch (WSL + Dozen only): Dozen (Mesa dzn) reports Vulkan 1.2 and does not fill
+        // VkPhysicalDeviceVulkan13Features. Query the same features via their KHR structs.
+        // Native Linux and Windows use the standard Vulkan 1.3 path.
+        // Remove when Dozen advertises Vulkan 1.3.
+        VkPhysicalDeviceSynchronization2FeaturesKHR HasSync2{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR, .pNext = &Has13 };
+        VkPhysicalDeviceDynamicRenderingFeaturesKHR HasDynRend{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR, .pNext = &HasSync2 };
+        Device.m_bDozenCompat = xgpu_DeviceIsDozenCompat(Device.m_VKPhysicalDevice);
+        Device.m_bVertexBindingStrideDynamic = !Device.m_bDozenCompat;
+        if( Device.m_bDozenCompat )
+            Has12.pNext = &HasDynRend;
+#endif
         {
             VkPhysicalDeviceFeatures2 Features2{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &Has12 };
             vkGetPhysicalDeviceFeatures2( Device.m_VKPhysicalDevice, &Features2 );
         }
-        if( !Has12.timelineSemaphore || !Has13.synchronization2 || !Has13.dynamicRendering )
+        const VkBool32 hasSync2 =
+#if defined(__linux__)
+            Device.m_bDozenCompat ? HasSync2.synchronization2 :
+#endif
+            Has13.synchronization2;
+        const VkBool32 hasDynRend =
+#if defined(__linux__)
+            Device.m_bDozenCompat ? HasDynRend.dynamicRendering :
+#endif
+            Has13.dynamicRendering;
+        if( !Has12.timelineSemaphore || !hasSync2 || !hasDynRend )
         {
             Device.m_Instance->ReportError("xGPU needs a Vulkan 1.3 device (timeline semaphores, synchronization2, dynamic rendering)");
             return VGPU_ERROR(xgpu::device::error::FAILURE, "xGPU needs a Vulkan 1.3 device (timeline semaphores, synchronization2, dynamic rendering)");
@@ -88,6 +197,19 @@ namespace xgpu::vulkan
                                 && Has12.descriptorBindingSampledImageUpdateAfterBind && Has12.descriptorBindingUpdateUnusedWhilePending
                                 && Has12.shaderSampledImageArrayNonUniformIndexing
                                 && xgpu::details::Env("XGPU_NO_BINDLESS") == nullptr;
+#if defined(__linux__)
+        // LION patch (WSL + Dozen only): Dozen's bindless DXIL path looks up
+        // dx.types.ResourceProperties at bind/draw (libvulkan_dzn.so+0x136a6b
+        // reads object+0x8, +0x136a6f reads that+0x30) and SIGSEGVs when either
+        // pointer is null. Every crash so far (DrawPairs, setTextureTable,
+        // setPipelineInstance in probe/tail/main) is that dereference of a
+        // material or pipeline-instance set. Per-material sets write every
+        // slot (BuildSet / pipeline_instance), so the views exist.
+        // Native Linux and Windows keep the bindless heap.
+        // Remove when Dozen's bindless resource annotation is null-safe.
+        if( Device.m_bDozenCompat )
+            Device.m_bBindless = false;
+#endif
 
         VkPhysicalDeviceVulkan13Features Use13{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES
                                               , .synchronization2 = VK_TRUE, .dynamicRendering = VK_TRUE };
@@ -100,6 +222,16 @@ namespace xgpu::vulkan
                                               , .runtimeDescriptorArray                       = Device.m_bBindless
                                               , .hostQueryReset                               = Has12.hostQueryReset
                                               , .timelineSemaphore                            = VK_TRUE };
+#if defined(__linux__)
+        // LION patch (WSL + Dozen only): a 1.2 ICD does not understand Vulkan13Features;
+        // enable synchronization2 and dynamic rendering through their KHR structs.
+        // Native Linux and Windows use the standard Vulkan 1.3 path.
+        // Remove when Dozen advertises Vulkan 1.3.
+        VkPhysicalDeviceSynchronization2FeaturesKHR UseSync2{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR, .synchronization2 = VK_TRUE };
+        VkPhysicalDeviceDynamicRenderingFeaturesKHR UseDynRend{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR, .pNext = &UseSync2, .dynamicRendering = VK_TRUE };
+        if( Device.m_bDozenCompat )
+            Use12.pNext = &UseDynRend;
+#endif
         Device.m_bDrawIndirectCount = Has12.drawIndirectCount == VK_TRUE;
 
         // VK_EXT_memory_budget where the GPU has it: the driver's budget and usage per heap (the profiler's memory maps: device::ReportMemoryHeaps)
@@ -112,12 +244,32 @@ namespace xgpu::vulkan
             vkEnumerateDeviceExtensionProperties(Device.m_VKPhysicalDevice, nullptr, &n, Available.data());
             for( const auto& E : Available ) if( std::strcmp(E.extensionName, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) == 0 ) Device.m_bMemoryBudget = true;
             if( Device.m_bMemoryBudget ) enabledExtensions.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+#if defined(__linux__)
+            // LION patch (WSL + Dozen only): enable the KHR forms of the 1.3 features we use.
+            // maintenance4 is absent on Dozen and unused (vkGetBuffer/ImageMemoryRequirements).
+            // VK_EXT_extended_dynamic_state is also absent: vertex streams use static strides.
+            // Native Linux and Windows use the standard Vulkan 1.3 path.
+            if( Device.m_bDozenCompat )
+            {
+                bool hasSync2Ext = false, hasDynExt = false;
+                for( const auto& E : Available )
+                {
+                    if( std::strcmp(E.extensionName, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME) == 0 ) hasSync2Ext = true;
+                    if( std::strcmp(E.extensionName, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME) == 0 ) hasDynExt = true;
+                }
+                if( hasSync2Ext ) enabledExtensions.push_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
+                if( hasDynExt )   enabledExtensions.push_back(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
+            }
+#endif
             if( xgpu::details::Env("XGPU_PIPELINE_STATS") )
                 for( const auto& E : Available ) if( std::strcmp(E.extensionName, VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME) == 0 )
                 {
                     Device.m_bPipelineStats = true;
                     enabledExtensions.push_back(VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME);
                     Use13.pNext = &UseStats;
+#if defined(__linux__)
+                    if( Device.m_bDozenCompat ) UseSync2.pNext = &UseStats;
+#endif
                 }
         }
         VkDeviceCreateInfo          deviceCreateInfo
@@ -149,6 +301,20 @@ namespace xgpu::vulkan
             Device.m_Instance->ReportError(VKErr, "Fail to create the Vulkan Graphical Device");
             return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create the Vulkan Graphical Device" );
         }
+
+#if defined(__linux__)
+        // LION patch (WSL + Dozen only): a 1.2 ICD does not provide the core 1.3 entry
+        // points; load the KHR names the extension enabled above.
+        // Native Linux and Windows use the standard Vulkan 1.3 path.
+        // Remove when Dozen advertises Vulkan 1.3.
+        if( Device.m_bDozenCompat )
+        {
+            if( auto p = reinterpret_cast<PFN_vkQueueSubmit2>(vkGetDeviceProcAddr(Device.m_VKDevice, "vkQueueSubmit2KHR")) )
+                xgpu_disp_vkQueueSubmit2 = p;
+            if( auto p = reinterpret_cast<PFN_vkCmdPipelineBarrier2>(vkGetDeviceProcAddr(Device.m_VKDevice, "vkCmdPipelineBarrier2KHR")) )
+                xgpu_disp_vkCmdPipelineBarrier2 = p;
+        }
+#endif
 
         return nullptr;
     }
@@ -197,15 +363,22 @@ namespace xgpu::vulkan
         //
         vkGetPhysicalDeviceMemoryProperties(m_VKPhysicalDevice, &m_VKDeviceMemoryProperties);
         vkGetPhysicalDeviceProperties(m_VKPhysicalDevice, &m_VKPhysicalDeviceProperties);
+        {
+            VkPhysicalDeviceSubgroupProperties SubgroupProps{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES };
+            VkPhysicalDeviceProperties2        Props2{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = &SubgroupProps };
+            vkGetPhysicalDeviceProperties2(m_VKPhysicalDevice, &Props2);
+            m_bSubgroupClustered = (SubgroupProps.supportedOperations & VK_SUBGROUP_FEATURE_CLUSTERED_BIT) != 0;
+        }
 
         // Which GPU/driver the validation messages are about (on WSLg: "Microsoft Direct3D12 (...)" = Mesa Dozen, or llvmpipe)
         if (m_Instance->m_bValidation)
-            std::fprintf(stderr, "[xGPU] Vulkan device: %s (API %u.%u.%u), maxPushConstantsSize %u, %s, uploads on %s\n"
+            std::fprintf(stderr, "[xGPU] Vulkan device: %s (API %u.%u.%u), maxPushConstantsSize %u, %s, %s, uploads on %s\n"
                 , m_VKPhysicalDeviceProperties.deviceName
                 , VK_API_VERSION_MAJOR(m_VKPhysicalDeviceProperties.apiVersion), VK_API_VERSION_MINOR(m_VKPhysicalDeviceProperties.apiVersion)
                 , VK_API_VERSION_PATCH(m_VKPhysicalDeviceProperties.apiVersion)
                 , m_VKPhysicalDeviceProperties.limits.maxPushConstantsSize
                 , m_bBindless ? "bindless" : "per-material sets"
+                , m_bSubgroupClustered ? "subgroup clustered" : "no subgroup clustered"
                 , m_TransferQueueIndex != m_MainQueueIndex ? "a transfer queue (ownership transfers)" : "the main queue family" );
         
         //
@@ -226,53 +399,16 @@ namespace xgpu::vulkan
         }
 
         //
-        // Create DecriptorPool for pipelines
-        // We could create different pools with different set counts to remove fragmentation from the pools
-        //  So when even we need two textures we allocate from the ( 2 * max_descriptors_per_pool_v ) pool
-        // When doing multi-thread this could be a contention point
+        // Descriptor pool for pipeline instances: CreateSamplerDescriptorPool /
+        // AllocateSamplerDescriptorSet (another pool when one is full).
         //
         {
-            constexpr auto max_descriptors_per_pool_v = 1024u;
-            
-            const auto PoolSizes = std::array
-            {   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER,                   max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,    max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,             max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,             max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER,      max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER,      max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,            max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,            max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,    max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,    max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT,          max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,    max_descriptors_per_pool_v }
-            };
-
-            
-//            for (auto t : PoolSizes)
-//                m_DescriptorRings[t.type].Init(m_VKDevice, t.type, m_Instance->m_pVKAllocator );
-
-
-            VkDescriptorPoolCreateInfo PoolCreateInfo = 
-            { .sType            = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO
-            , .flags            = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT
-            , .maxSets          = static_cast<uint32_t>(1024)
-            , .poolSizeCount    = static_cast<uint32_t>(PoolSizes.size())
-            , .pPoolSizes       = PoolSizes.data()
-            };
-
-            {
-                std::lock_guard Lk( m_LockedVKDescriptorPool );
-                if (auto VKErr = vkCreateDescriptorPool(m_VKDevice, &PoolCreateInfo, m_Instance->m_pVKAllocator, &m_LockedVKDescriptorPool.get()); VKErr)
-                {
-                    m_Instance->ReportError(VKErr, "Fail to create a Descriptor Pool");
-                    return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a Descriptor Pool");
-                }
-            }
+            std::lock_guard Lk( m_LockedVKDescriptorPool );
+            m_LockedVKDescriptorPool.get() = CreateSamplerDescriptorPool();
+            if (m_LockedVKDescriptorPool.get() == VK_NULL_HANDLE)
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a Descriptor Pool");
         }
 
-        // The texture heap (bindless) and the ids' registry
         if( auto Err = InitHeap(); Err ) return Err;
 
         // The streaming lane: textures and buffers created with data are copied on the transfer queue
@@ -366,6 +502,7 @@ namespace xgpu::vulkan
     , std::shared_ptr<device_handle>&   SharedDevice
     ) noexcept
     {
+        if( auto Err = EnsureHeapDefaults(SharedDevice); Err ) return Err;
         auto Pl = std::make_shared<xgpu::vulkan::pipeline>();
         if ( auto Err = Pl->Initialize
         ( std::reinterpret_pointer_cast<xgpu::vulkan::device>(SharedDevice)
@@ -399,6 +536,7 @@ namespace xgpu::vulkan
     , std::shared_ptr<device_handle>&       SharedDevice
     ) noexcept
     {
+        if( auto Err = EnsureHeapDefaults(SharedDevice); Err ) return Err;
         auto PI = std::make_unique<xgpu::vulkan::pipeline_instance>();
         if( auto Err = PI->Initialize
         ( std::reinterpret_pointer_cast<xgpu::vulkan::device>(SharedDevice)
@@ -446,6 +584,7 @@ namespace xgpu::vulkan
     , std::shared_ptr<device_handle>&   SharedDevice
     ) noexcept
     {
+        if( auto Err = EnsureHeapDefaults(SharedDevice); Err ) return Err;
         auto I = std::make_shared<xgpu::vulkan::texture>();
         if( auto Err = I->Initialize( std::reinterpret_pointer_cast<xgpu::vulkan::device>(SharedDevice), Setup ); Err )
             return Err;
@@ -728,18 +867,25 @@ namespace xgpu::vulkan
                     {
                         std::lock_guard Lk(m_LockedVKDescriptorPool);
                         auto* pInstance = static_cast<xgpu::vulkan::pipeline_instance*>(E.m_Private.get());
+                        const auto SamplerPool = pInstance->m_VKSamplerPool != VK_NULL_HANDLE
+                                               ? pInstance->m_VKSamplerPool
+                                               : m_LockedVKDescriptorPool.get();
                         if (auto It = m_PipeLineInstanceMap.find(pInstance->m_Serial); It != m_PipeLineInstanceMap.end())
                         {
-                            // the cached sets: [0] is the instance's sampler set (window.cpp), the others its per render pass sets
-                            vkFreeDescriptorSets(m_VKDevice, m_LockedVKDescriptorPool.get(), static_cast<std::uint32_t>(pInstance->m_Pipeline->m_nVKDescriptorSetLayout), It->second.m_VKDescriptorSet.data());
+                            // Only [0] is a sampler-pool set (window.cpp copies m_VKSamplerSet there).
+                            // [1] and [2] stay VK_NULL_HANDLE; vkFreeDescriptorSets must not be passed
+                            // those, or a set allocated from another pool.
+                            if (It->second.m_VKDescriptorSet[0] != VK_NULL_HANDLE)
+                                vkFreeDescriptorSets(m_VKDevice, SamplerPool, 1, &It->second.m_VKDescriptorSet[0]);
                             m_PipeLineInstanceMap.erase(It);
                         }
                         else if (pInstance->m_VKSamplerSet != VK_NULL_HANDLE)
                         {
-                            // never drawn: no cache entry - its sampler set (allocated in Initialize) was leaking, and the pool holds 1024 sets
-                            vkFreeDescriptorSets(m_VKDevice, m_LockedVKDescriptorPool.get(), 1, &pInstance->m_VKSamplerSet);
+                            // never drawn: no cache entry - its sampler set (allocated in Initialize) was leaking
+                            vkFreeDescriptorSets(m_VKDevice, SamplerPool, 1, &pInstance->m_VKSamplerSet);
                         }
-                        pInstance->m_VKSamplerSet = VK_NULL_HANDLE;
+                        pInstance->m_VKSamplerSet  = VK_NULL_HANDLE;
+                        pInstance->m_VKSamplerPool = VK_NULL_HANDLE;
                     }
                 }
                 E.m_Private.reset();

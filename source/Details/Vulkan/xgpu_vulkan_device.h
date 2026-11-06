@@ -103,7 +103,11 @@ namespace xgpu::vulkan
         virtual void                    Shutdown            ( void ) noexcept override;
         virtual std::uint64_t           getFrameIndex       ( void ) const noexcept override { return static_cast<std::uint64_t>(m_FrameIndex); }
         virtual bool                    isBindless          ( void ) const noexcept override { return m_bBindless; }
+        virtual bool                    isDozenCompat       ( void ) const noexcept override { return m_bDozenCompat; }
+        virtual std::uint64_t           getMaxStorageBufferBytes( void ) const noexcept override { return m_VKPhysicalDeviceProperties.limits.maxStorageBufferRange; }
+        virtual std::uint32_t           getMaxComputeGroupsX    ( void ) const noexcept override { return m_VKPhysicalDeviceProperties.limits.maxComputeWorkGroupCount[0]; }
         virtual bool                    hasDrawIndirectCount( void ) const noexcept override { return m_bDrawIndirectCount; }
+        virtual bool                    hasSubgroupClustered( void ) const noexcept override { return m_bSubgroupClustered; }
 
         virtual void                    Destroy             ( xgpu::texture&& Texture )                     noexcept override;
         virtual void                    Destroy             ( xgpu::pipeline_instance&& PipelineInstance )  noexcept override;
@@ -134,7 +138,10 @@ namespace xgpu::vulkan
             VkDescriptorPool                                    m_Pool      {};
             VkDescriptorSet                                     m_Set       {};
             std::uint32_t                                       m_nTextures = 0, m_nSamplers = 0;
-            xgpu::texture                                       m_White;            // non-bindless: an invalid slot's texture
+            xgpu::texture                                       m_White;            // 1x1 white: invalid slots, and the bindless heap's unused entries
+            VkSampler                                           m_DefaultSampler {}; // written into every bindless sampler slot (id 0 included)
+            bool                                                m_bDefaultsFilled  = false;
+            bool                                                m_bDefaultsFilling = false;
         };
         texture_heap                    m_Heap;
         upload_queue                    m_Upload;                       // the streaming lane (xgpu_vulkan_upload.h)
@@ -161,6 +168,7 @@ namespace xgpu::vulkan
         // and signals to add. Call before taking the main queue's lock
         void                            UploadSubmitInfo    ( std::vector<VkCommandBufferSubmitInfo>& CmdBuffers, std::vector<VkSemaphoreSubmitInfo>& Waits, std::vector<VkSemaphoreSubmitInfo>& Signals ) noexcept;
         xgpu::device::error*            InitHeap            ( void ) noexcept;
+        xgpu::device::error*            EnsureHeapDefaults  ( std::shared_ptr<device_handle>& SharedDevice ) noexcept;
         std::uint32_t                   AllocTextureID      ( const std::shared_ptr<vulkan::texture>& T ) noexcept;
         void                            FreeTextureID       ( std::uint32_t ID ) noexcept;
         std::shared_ptr<vulkan::texture> getTexture         ( std::uint32_t ID ) noexcept;
@@ -198,10 +206,22 @@ namespace xgpu::vulkan
         VkDeviceSize                                    m_BufferMemoryAlignment     {256};
         VkPhysicalDeviceProperties                      m_VKPhysicalDeviceProperties{};
         lock_object<VkDescriptorPool>                   m_LockedVKDescriptorPool    {};
+        std::vector<VkDescriptorPool>                   m_AdditionalSamplerPools    {}; // grown when the first pool is full
+        VkDescriptorPool                                CreateSamplerDescriptorPool (void) noexcept;
+        VkResult                                        AllocateSamplerDescriptorSet(VkDescriptorSetLayout Layout, VkDescriptorSet& OutSet, VkDescriptorPool& OutPool) noexcept;
         int                                             m_FrameIndex                = 0;
         bool                                            m_bHostQueryReset           = false;    // VkPhysicalDeviceHostQueryResetFeatures, needed by vulkan::timestamps
         bool                                            m_bDrawIndirectCount        = false;    // VkPhysicalDeviceVulkan12Features::drawIndirectCount: xgpu::device::hasDrawIndirectCount
+        bool                                            m_bSubgroupClustered        = false;    // VkPhysicalDeviceSubgroupProperties::supportedOperations & CLUSTERED: device::hasSubgroupClustered
         bool                                            m_bBindless                 = false;    // descriptor indexing on (CreateGraphicsDevice): xgpu::device::isBindless
+        bool                                            m_bDozenCompat              = false;    // device::isDozenCompat: true only under WSL on Mesa Dozen at Vulkan 1.2
+#if defined(__linux__)
+        // LION patch (WSL + Dozen only): false on that device (no VK_EXT_extended_dynamic_state).
+        // vkCmdBindVertexBuffers2 / VERTEX_INPUT_BINDING_STRIDE need it or Vulkan 1.3.
+        // Native Linux and Windows use the standard Vulkan 1.3 path.
+        // Remove when Dozen advertises Vulkan 1.3.
+        bool                                            m_bVertexBindingStrideDynamic = true;
+#endif
         void*                                           m_pProfileContext           = nullptr;  // the profiler's Vulkan context on the main queue (tracy::VkCtx; xgpu_vulkan_profile.h): made by ProfileContext
         void*                                           ProfileContext              ( void ) noexcept;          // made on the first call with the profiler on (it submits and waits once); nullptr: no profiler
         int                                             m_ProfileCollectedFrame     = -1;       // the device frame its results were last collected in (once a frame, whatever the windows)

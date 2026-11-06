@@ -17,6 +17,8 @@ namespace xgpu::vulkan
         virtual void                    DeathMarch              ( xgpu::buffer&& buffer )                                               noexcept override;
 
                 int                     getSizeBytes            () { return m_ByteSize; }
+                // A storage descriptor's range: the whole buffer, or the device's maxStorageBufferRange when only the allocation's alignment padding goes past it (Create refuses data past it)
+                VkDeviceSize            StorageRange            () const noexcept;
 
         std::shared_ptr<device>     m_Device            {};
         bool                        m_bQueued           = false;    // handed to the device's deferred destroy (DeathMarch): the next last release frees it
