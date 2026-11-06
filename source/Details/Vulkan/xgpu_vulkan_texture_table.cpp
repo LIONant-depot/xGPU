@@ -59,6 +59,45 @@ namespace xgpu::vulkan
 
     //----------------------------------------------------------------------------------------------------------
 
+    // A 1x1 white texture and a default sampler: pipeline_instance writes these when a
+    // slot's image view or sampler is null (Dozen skips vkUpdateDescriptorSets with a
+    // null view, then SIGSEGVs if it later inspects that slot). A freed bindless id is
+    // rewritten with the white view so the heap does not keep a destroyed handle.
+    xgpu::device::error* device::EnsureHeapDefaults( std::shared_ptr<device_handle>& SharedDevice ) noexcept
+    {
+        {
+            std::lock_guard Lk(m_Heap.m_Lock);
+            if( m_Heap.m_bDefaultsFilled || m_Heap.m_bDefaultsFilling ) return nullptr;
+            m_Heap.m_bDefaultsFilling = true;
+        }
+
+        if( m_Heap.m_White.m_Private == nullptr )
+        {
+            const std::uint32_t White = 0xffffffffu;
+            const auto          Mips  = std::array{ xgpu::texture::setup::mip_size{ sizeof(White) } };
+            if( auto Err = Create(m_Heap.m_White, { .m_Format = xgpu::texture::format::R8G8B8A8_UNORM, .m_Width = 1, .m_Height = 1, .m_MipSizes = Mips
+                                                  , .m_AllFacesData = { reinterpret_cast<const std::byte*>(&White), sizeof(White) }, .m_isGamma = false }, SharedDevice); Err )
+            {
+                std::lock_guard Lk(m_Heap.m_Lock);
+                m_Heap.m_bDefaultsFilling = false;
+                return Err;
+            }
+        }
+
+        const auto DefaultID = getSampler({});
+        {
+            std::lock_guard Lk(m_Heap.m_Lock);
+            if( m_Heap.m_DefaultSampler == VK_NULL_HANDLE )
+                m_Heap.m_DefaultSampler = (DefaultID.m_Value < m_Heap.m_Samplers.size()) ? m_Heap.m_Samplers[DefaultID.m_Value] : VK_NULL_HANDLE;
+            m_Heap.m_bDefaultsFilled  = true;
+            m_Heap.m_bDefaultsFilling = false;
+        }
+        return nullptr;
+    }
+
+
+    //----------------------------------------------------------------------------------------------------------
+
     // A new texture's id (its slot in the heap's arrays, written now on a bindless device). A freed id is taken again only after the
     // texture that had it was destroyed, which the device's death march already delays past the frames that could read it
     std::uint32_t device::AllocTextureID( const std::shared_ptr<vulkan::texture>& T ) noexcept
@@ -97,7 +136,25 @@ namespace xgpu::vulkan
         if( ID == 0 ) return;
         std::lock_guard Lk(m_Heap.m_Lock);
         m_Heap.m_Textures[ID].reset();
-        m_Heap.m_Free.push_back(ID);        // the heap keeps the old descriptor until the id is written again: partially bound, never read
+        m_Heap.m_Free.push_back(ID);
+        // Replace the freed slot's descriptor with the dummy: the old image view is about to be
+        // destroyed (texture::~texture calls this, then vkDestroyImageView). Leaving it would be a
+        // dangling handle for a driver that inspects heap entries at bind.
+        if( m_bBindless && m_Heap.m_bDefaultsFilled && m_Heap.m_Set != VK_NULL_HANDLE )
+        {
+            auto* pWhite = static_cast<vulkan::texture*>(m_Heap.m_White.m_Private.get());
+            if( pWhite && pWhite->m_VKDescriptorImageInfo.imageView != VK_NULL_HANDLE && pWhite->m_ID != ID )
+            {
+                const VkDescriptorImageInfo Info = pWhite->m_VKDescriptorImageInfo;
+                const VkWriteDescriptorSet  Writes[] =
+                { VkWriteDescriptorSet{ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = m_Heap.m_Set, .dstBinding = 0
+                                      , .dstArrayElement = ID, .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .pImageInfo = &Info }
+                , VkWriteDescriptorSet{ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = m_Heap.m_Set, .dstBinding = 1
+                                      , .dstArrayElement = ID, .descriptorCount = 1, .descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, .pImageInfo = &Info }
+                };
+                vkUpdateDescriptorSets(m_VKDevice, 2, Writes, 0, nullptr);
+            }
+        }
     }
 
     //----------------------------------------------------------------------------------------------------------
@@ -240,6 +297,7 @@ namespace xgpu::vulkan
     , std::shared_ptr<device_handle>&       SharedDevice
     ) noexcept
     {
+        if( auto Err = EnsureHeapDefaults(SharedDevice); Err ) return Err;
         // An invalid slot's texture (white), made the first time a table needs it
         if( m_bBindless == false && m_Heap.m_White.m_Private == nullptr )
         {

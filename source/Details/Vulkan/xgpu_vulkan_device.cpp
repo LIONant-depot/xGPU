@@ -196,6 +196,19 @@ namespace xgpu::vulkan
                                 && Has12.descriptorBindingSampledImageUpdateAfterBind && Has12.descriptorBindingUpdateUnusedWhilePending
                                 && Has12.shaderSampledImageArrayNonUniformIndexing
                                 && std::getenv("XGPU_NO_BINDLESS") == nullptr;
+#if defined(__linux__)
+        // LION patch (WSL + Dozen only): Dozen's bindless DXIL path looks up
+        // dx.types.ResourceProperties at bind/draw (libvulkan_dzn.so+0x136a6b
+        // reads object+0x8, +0x136a6f reads that+0x30) and SIGSEGVs when either
+        // pointer is null. Every crash so far (DrawPairs, setTextureTable,
+        // setPipelineInstance in probe/tail/main) is that dereference of a
+        // material or pipeline-instance set. Per-material sets write every
+        // slot (BuildSet / pipeline_instance), so the views exist.
+        // Native Linux and Windows keep the bindless heap.
+        // Remove when Dozen's bindless resource annotation is null-safe.
+        if( Device.m_bDozenCompat )
+            Device.m_bBindless = false;
+#endif
 
         VkPhysicalDeviceVulkan13Features Use13{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES
                                               , .synchronization2 = VK_TRUE, .dynamicRendering = VK_TRUE };
@@ -481,6 +494,7 @@ namespace xgpu::vulkan
     , std::shared_ptr<device_handle>&   SharedDevice
     ) noexcept
     {
+        if( auto Err = EnsureHeapDefaults(SharedDevice); Err ) return Err;
         auto Pl = std::make_shared<xgpu::vulkan::pipeline>();
         if ( auto Err = Pl->Initialize
         ( std::reinterpret_pointer_cast<xgpu::vulkan::device>(SharedDevice)
@@ -514,6 +528,7 @@ namespace xgpu::vulkan
     , std::shared_ptr<device_handle>&       SharedDevice
     ) noexcept
     {
+        if( auto Err = EnsureHeapDefaults(SharedDevice); Err ) return Err;
         auto PI = std::make_unique<xgpu::vulkan::pipeline_instance>();
         if( auto Err = PI->Initialize
         ( std::reinterpret_pointer_cast<xgpu::vulkan::device>(SharedDevice)
@@ -561,6 +576,7 @@ namespace xgpu::vulkan
     , std::shared_ptr<device_handle>&   SharedDevice
     ) noexcept
     {
+        if( auto Err = EnsureHeapDefaults(SharedDevice); Err ) return Err;
         auto I = std::make_shared<xgpu::vulkan::texture>();
         if( auto Err = I->Initialize( std::reinterpret_pointer_cast<xgpu::vulkan::device>(SharedDevice), Setup ); Err )
             return Err;
@@ -830,8 +846,11 @@ namespace xgpu::vulkan
                                                : m_LockedVKDescriptorPool.get();
                         if (auto It = m_PipeLineInstanceMap.find(pInstance->m_Serial); It != m_PipeLineInstanceMap.end())
                         {
-                            // the cached sets: [0] is the instance's sampler set (window.cpp), the others its per render pass sets
-                            vkFreeDescriptorSets(m_VKDevice, SamplerPool, static_cast<std::uint32_t>(pInstance->m_Pipeline->m_nVKDescriptorSetLayout), It->second.m_VKDescriptorSet.data());
+                            // Only [0] is a sampler-pool set (window.cpp copies m_VKSamplerSet there).
+                            // [1] and [2] stay VK_NULL_HANDLE; vkFreeDescriptorSets must not be passed
+                            // those, or a set allocated from another pool.
+                            if (It->second.m_VKDescriptorSet[0] != VK_NULL_HANDLE)
+                                vkFreeDescriptorSets(m_VKDevice, SamplerPool, 1, &It->second.m_VKDescriptorSet[0]);
                             m_PipeLineInstanceMap.erase(It);
                         }
                         else if (pInstance->m_VKSamplerSet != VK_NULL_HANDLE)

@@ -137,7 +137,10 @@ namespace xgpu::vulkan
             VkDescriptorPool                                    m_Pool      {};
             VkDescriptorSet                                     m_Set       {};
             std::uint32_t                                       m_nTextures = 0, m_nSamplers = 0;
-            xgpu::texture                                       m_White;            // non-bindless: an invalid slot's texture
+            xgpu::texture                                       m_White;            // 1x1 white: invalid slots, and the bindless heap's unused entries
+            VkSampler                                           m_DefaultSampler {}; // written into every bindless sampler slot (id 0 included)
+            bool                                                m_bDefaultsFilled  = false;
+            bool                                                m_bDefaultsFilling = false;
         };
         texture_heap                    m_Heap;
         upload_queue                    m_Upload;                       // the streaming lane (xgpu_vulkan_upload.h)
@@ -164,6 +167,7 @@ namespace xgpu::vulkan
         // and signals to add. Call before taking the main queue's lock
         void                            UploadSubmitInfo    ( std::vector<VkCommandBufferSubmitInfo>& CmdBuffers, std::vector<VkSemaphoreSubmitInfo>& Waits, std::vector<VkSemaphoreSubmitInfo>& Signals ) noexcept;
         xgpu::device::error*            InitHeap            ( void ) noexcept;
+        xgpu::device::error*            EnsureHeapDefaults  ( std::shared_ptr<device_handle>& SharedDevice ) noexcept;
         std::uint32_t                   AllocTextureID      ( const std::shared_ptr<vulkan::texture>& T ) noexcept;
         void                            FreeTextureID       ( std::uint32_t ID ) noexcept;
         std::shared_ptr<vulkan::texture> getTexture         ( std::uint32_t ID ) noexcept;
