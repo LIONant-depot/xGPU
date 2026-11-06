@@ -201,6 +201,9 @@ namespace xgpu::vulkan
         VkDeviceSize                                    m_BufferMemoryAlignment     {256};
         VkPhysicalDeviceProperties                      m_VKPhysicalDeviceProperties{};
         lock_object<VkDescriptorPool>                   m_LockedVKDescriptorPool    {};
+        std::vector<VkDescriptorPool>                   m_AdditionalSamplerPools    {}; // grown when the first pool is full
+        VkDescriptorPool                                CreateSamplerDescriptorPool (void) noexcept;
+        VkResult                                        AllocateSamplerDescriptorSet(VkDescriptorSetLayout Layout, VkDescriptorSet& OutSet, VkDescriptorPool& OutPool) noexcept;
         int                                             m_FrameIndex                = 0;
         bool                                            m_bHostQueryReset           = false;    // VkPhysicalDeviceHostQueryResetFeatures, needed by vulkan::timestamps
         bool                                            m_bDrawIndirectCount        = false;    // VkPhysicalDeviceVulkan12Features::drawIndirectCount: xgpu::device::hasDrawIndirectCount

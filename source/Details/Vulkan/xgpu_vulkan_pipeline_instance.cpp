@@ -36,13 +36,11 @@ namespace xgpu::vulkan
         {
             std::lock_guard Lk(m_Device->m_LockedVKDescriptorPool);
             VkDescriptorSet allocatedSet = VK_NULL_HANDLE;
-            VkDescriptorSetAllocateInfo alloc{
-                .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-                .descriptorPool = m_Device->m_LockedVKDescriptorPool.get(),
-                .descriptorSetCount = 1,
-                .pSetLayouts = &m_Pipeline->m_VKDescriptorSetLayout[pipeline::sampler_set_index_v]
-            };
-            if (auto err = vkAllocateDescriptorSets(m_Device->m_VKDevice, &alloc, &allocatedSet)) {
+            if (auto err = m_Device->AllocateSamplerDescriptorSet(
+                    m_Pipeline->m_VKDescriptorSetLayout[pipeline::sampler_set_index_v],
+                    allocatedSet,
+                    m_VKSamplerPool))
+            {
                 m_Device->m_Instance->ReportError(err, "vkAllocateDescriptorSets");
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to allocate sampler descriptor set");
             }

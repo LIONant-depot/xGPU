@@ -4,6 +4,93 @@ namespace xgpu::vulkan
 
     device::~device(void) noexcept
     {
+        for (auto Pool : m_AdditionalSamplerPools)
+        {
+            if (Pool != VK_NULL_HANDLE)
+                vkDestroyDescriptorPool(m_VKDevice, Pool, m_Instance->m_pVKAllocator);
+        }
+        m_AdditionalSamplerPools.clear();
+    }
+
+    VkDescriptorPool device::CreateSamplerDescriptorPool(void) noexcept
+    {
+        // One COMBINED_IMAGE_SAMPLER set per pipeline instance (up to 16 texture slots;
+        // xlionrender lit pipelines use 13). Descriptors must be maxSets * slots: a pool of
+        // 1024 descriptors and 1024 maxSets only fits 1-sampler sets. Dozen tracks this
+        // strictly (and adds per-set alignment in its bindless path). A single pool is still
+        // not enough for a full project, so AllocateSamplerDescriptorSet creates another
+        // when this one returns OUT_OF_POOL_MEMORY or FRAGMENTED_POOL. Required on every
+        // Vulkan device, not only Dozen.
+        constexpr auto max_sets_per_pool_v             = 4096u;
+        constexpr auto max_samplers_per_set_v          = 16u;
+        constexpr auto combined_descriptors_per_pool_v = max_sets_per_pool_v * max_samplers_per_set_v;
+
+        const VkDescriptorPoolSize PoolSizes[] =
+        {   { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, combined_descriptors_per_pool_v }
+        };
+
+        const VkDescriptorPoolCreateInfo PoolCreateInfo =
+        { .sType         = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO
+        , .flags         = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT
+        , .maxSets       = max_sets_per_pool_v
+        , .poolSizeCount = 1
+        , .pPoolSizes    = PoolSizes
+        };
+
+        VkDescriptorPool Pool = VK_NULL_HANDLE;
+        if (auto VKErr = vkCreateDescriptorPool(m_VKDevice, &PoolCreateInfo, m_Instance->m_pVKAllocator, &Pool); VKErr)
+        {
+            m_Instance->ReportError(VKErr, "Fail to create a Descriptor Pool");
+            return VK_NULL_HANDLE;
+        }
+        return Pool;
+    }
+
+    VkResult device::AllocateSamplerDescriptorSet(VkDescriptorSetLayout Layout, VkDescriptorSet& OutSet, VkDescriptorPool& OutPool) noexcept
+    {
+        // Caller holds m_LockedVKDescriptorPool.
+        constexpr std::size_t max_sampler_descriptor_pools_v = 16; // first + 15 additional
+
+        const auto TryOne = [&](VkDescriptorPool Pool) -> VkResult
+        {
+            OutSet = VK_NULL_HANDLE;
+            const VkDescriptorSetAllocateInfo Alloc
+            { .sType              = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO
+            , .descriptorPool     = Pool
+            , .descriptorSetCount = 1
+            , .pSetLayouts        = &Layout
+            };
+            const VkResult Err = vkAllocateDescriptorSets(m_VKDevice, &Alloc, &OutSet);
+            if (Err == VK_SUCCESS)
+                OutPool = Pool;
+            return Err;
+        };
+
+        // Newest extra pool first so a full earlier pool is not probed (and logged) on every later allocate.
+        VkResult Err = VK_ERROR_OUT_OF_POOL_MEMORY;
+        for (auto It = m_AdditionalSamplerPools.rbegin(); It != m_AdditionalSamplerPools.rend(); ++It)
+        {
+            Err = TryOne(*It);
+            if (Err == VK_SUCCESS)
+                return VK_SUCCESS;
+            if (Err != VK_ERROR_OUT_OF_POOL_MEMORY && Err != VK_ERROR_FRAGMENTED_POOL)
+                return Err;
+        }
+
+        Err = TryOne(m_LockedVKDescriptorPool.get());
+        if (Err == VK_SUCCESS)
+            return VK_SUCCESS;
+        if (Err != VK_ERROR_OUT_OF_POOL_MEMORY && Err != VK_ERROR_FRAGMENTED_POOL)
+            return Err;
+
+        if (1 + m_AdditionalSamplerPools.size() >= max_sampler_descriptor_pools_v)
+            return VK_ERROR_OUT_OF_POOL_MEMORY;
+
+        const VkDescriptorPool NewPool = CreateSamplerDescriptorPool();
+        if (NewPool == VK_NULL_HANDLE)
+            return VK_ERROR_OUT_OF_HOST_MEMORY;
+        m_AdditionalSamplerPools.push_back(NewPool);
+        return TryOne(NewPool);
     }
 
     //----------------------------------------------------------------------------------------------------------
@@ -291,53 +378,16 @@ namespace xgpu::vulkan
         }
 
         //
-        // Create DecriptorPool for pipelines
-        // We could create different pools with different set counts to remove fragmentation from the pools
-        //  So when even we need two textures we allocate from the ( 2 * max_descriptors_per_pool_v ) pool
-        // When doing multi-thread this could be a contention point
+        // Descriptor pool for pipeline instances: CreateSamplerDescriptorPool /
+        // AllocateSamplerDescriptorSet (another pool when one is full).
         //
         {
-            constexpr auto max_descriptors_per_pool_v = 1024u;
-            
-            const auto PoolSizes = std::array
-            {   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLER,                   max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,    max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE,             max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,             max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER,      max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER,      max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,            max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,            max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,    max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC,    max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT,          max_descriptors_per_pool_v }
-            ,   VkDescriptorPoolSize{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC,    max_descriptors_per_pool_v }
-            };
-
-            
-//            for (auto t : PoolSizes)
-//                m_DescriptorRings[t.type].Init(m_VKDevice, t.type, m_Instance->m_pVKAllocator );
-
-
-            VkDescriptorPoolCreateInfo PoolCreateInfo = 
-            { .sType            = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO
-            , .flags            = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT
-            , .maxSets          = static_cast<uint32_t>(1024)
-            , .poolSizeCount    = static_cast<uint32_t>(PoolSizes.size())
-            , .pPoolSizes       = PoolSizes.data()
-            };
-
-            {
-                std::lock_guard Lk( m_LockedVKDescriptorPool );
-                if (auto VKErr = vkCreateDescriptorPool(m_VKDevice, &PoolCreateInfo, m_Instance->m_pVKAllocator, &m_LockedVKDescriptorPool.get()); VKErr)
-                {
-                    m_Instance->ReportError(VKErr, "Fail to create a Descriptor Pool");
-                    return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a Descriptor Pool");
-                }
-            }
+            std::lock_guard Lk( m_LockedVKDescriptorPool );
+            m_LockedVKDescriptorPool.get() = CreateSamplerDescriptorPool();
+            if (m_LockedVKDescriptorPool.get() == VK_NULL_HANDLE)
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a Descriptor Pool");
         }
 
-        // The texture heap (bindless) and the ids' registry
         if( auto Err = InitHeap(); Err ) return Err;
 
         // The streaming lane: textures and buffers created with data are copied on the transfer queue
@@ -775,18 +825,22 @@ namespace xgpu::vulkan
                     {
                         std::lock_guard Lk(m_LockedVKDescriptorPool);
                         auto* pInstance = static_cast<xgpu::vulkan::pipeline_instance*>(E.m_Private.get());
+                        const auto SamplerPool = pInstance->m_VKSamplerPool != VK_NULL_HANDLE
+                                               ? pInstance->m_VKSamplerPool
+                                               : m_LockedVKDescriptorPool.get();
                         if (auto It = m_PipeLineInstanceMap.find(pInstance->m_Serial); It != m_PipeLineInstanceMap.end())
                         {
                             // the cached sets: [0] is the instance's sampler set (window.cpp), the others its per render pass sets
-                            vkFreeDescriptorSets(m_VKDevice, m_LockedVKDescriptorPool.get(), static_cast<std::uint32_t>(pInstance->m_Pipeline->m_nVKDescriptorSetLayout), It->second.m_VKDescriptorSet.data());
+                            vkFreeDescriptorSets(m_VKDevice, SamplerPool, static_cast<std::uint32_t>(pInstance->m_Pipeline->m_nVKDescriptorSetLayout), It->second.m_VKDescriptorSet.data());
                             m_PipeLineInstanceMap.erase(It);
                         }
                         else if (pInstance->m_VKSamplerSet != VK_NULL_HANDLE)
                         {
-                            // never drawn: no cache entry - its sampler set (allocated in Initialize) was leaking, and the pool holds 1024 sets
-                            vkFreeDescriptorSets(m_VKDevice, m_LockedVKDescriptorPool.get(), 1, &pInstance->m_VKSamplerSet);
+                            // never drawn: no cache entry - its sampler set (allocated in Initialize) was leaking
+                            vkFreeDescriptorSets(m_VKDevice, SamplerPool, 1, &pInstance->m_VKSamplerSet);
                         }
-                        pInstance->m_VKSamplerSet = VK_NULL_HANDLE;
+                        pInstance->m_VKSamplerSet  = VK_NULL_HANDLE;
+                        pInstance->m_VKSamplerPool = VK_NULL_HANDLE;
                     }
                 }
                 E.m_Private.reset();
