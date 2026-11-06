@@ -204,6 +204,12 @@ namespace xgpu::vulkan
         bool                                            m_bHostQueryReset           = false;    // VkPhysicalDeviceHostQueryResetFeatures, needed by vulkan::timestamps
         bool                                            m_bDrawIndirectCount        = false;    // VkPhysicalDeviceVulkan12Features::drawIndirectCount: xgpu::device::hasDrawIndirectCount
         bool                                            m_bBindless                 = false;    // descriptor indexing on (CreateGraphicsDevice): xgpu::device::isBindless
+#if defined(__linux__)
+        // LION patch (Linux/WSL only): false on Dozen (no VK_EXT_extended_dynamic_state).
+        // vkCmdBindVertexBuffers2 / VERTEX_INPUT_BINDING_STRIDE need it or Vulkan 1.3.
+        // Remove when Dozen advertises Vulkan 1.3.
+        bool                                            m_bVertexBindingStrideDynamic = true;
+#endif
         void*                                           m_pProfileContext           = nullptr;  // the profiler's Vulkan context on the main queue (tracy::VkCtx; xgpu_vulkan_profile.h): made by ProfileContext
         void*                                           ProfileContext              ( void ) noexcept;          // made on the first call with the profiler on (it submits and waits once); nullptr: no profiler
         int                                             m_ProfileCollectedFrame     = -1;       // the device frame its results were last collected in (once a frame, whatever the windows)

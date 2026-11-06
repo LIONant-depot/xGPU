@@ -65,7 +65,7 @@ namespace xgpu::vulkan
         Features.shaderCullDistance = true;
         Features.samplerAnisotropy  = true;
 
-        // Vulkan 1.3 is the minimum (instance.cpp filters the devices): timeline semaphores and synchronization2 are core and
+        // Vulkan 1.3 is the minimum on Windows (instance.cpp filters the devices): timeline semaphores and synchronization2 are core and
         // always on. Host query reset lets vulkan::timestamps recycle its queries from the CPU, so a timestamp can be written
         // anywhere in a frame, including inside a render pass (vkCmdResetQueryPool can't be).
         // Bindless (descriptor indexing): one global array of sampled images and one of samplers, indexed by texture_id /
@@ -73,11 +73,33 @@ namespace xgpu::vulkan
         // (XGPU_NO_BINDLESS forces those, to test them)
         VkPhysicalDeviceVulkan13Features Has13{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES };
         VkPhysicalDeviceVulkan12Features Has12{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES, .pNext = &Has13 };
+#if defined(__linux__)
+        // LION patch (Linux/WSL only): Dozen (Mesa dzn) reports Vulkan 1.2 and does not fill
+        // VkPhysicalDeviceVulkan13Features. Query the same features via their KHR structs.
+        // Remove when Dozen advertises Vulkan 1.3.
+        VkPhysicalDeviceProperties PhysProps{};
+        vkGetPhysicalDeviceProperties( Device.m_VKPhysicalDevice, &PhysProps );
+        VkPhysicalDeviceSynchronization2FeaturesKHR HasSync2{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR, .pNext = &Has13 };
+        VkPhysicalDeviceDynamicRenderingFeaturesKHR HasDynRend{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR, .pNext = &HasSync2 };
+        const bool bLinuxVk12Compat = PhysProps.apiVersion < VK_API_VERSION_1_3;
+        if( bLinuxVk12Compat )
+            Has12.pNext = &HasDynRend;
+#endif
         {
             VkPhysicalDeviceFeatures2 Features2{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = &Has12 };
             vkGetPhysicalDeviceFeatures2( Device.m_VKPhysicalDevice, &Features2 );
         }
-        if( !Has12.timelineSemaphore || !Has13.synchronization2 || !Has13.dynamicRendering )
+        const VkBool32 hasSync2 =
+#if defined(__linux__)
+            bLinuxVk12Compat ? HasSync2.synchronization2 :
+#endif
+            Has13.synchronization2;
+        const VkBool32 hasDynRend =
+#if defined(__linux__)
+            bLinuxVk12Compat ? HasDynRend.dynamicRendering :
+#endif
+            Has13.dynamicRendering;
+        if( !Has12.timelineSemaphore || !hasSync2 || !hasDynRend )
         {
             Device.m_Instance->ReportError("xGPU needs a Vulkan 1.3 device (timeline semaphores, synchronization2, dynamic rendering)");
             return VGPU_ERROR(xgpu::device::error::FAILURE, "xGPU needs a Vulkan 1.3 device (timeline semaphores, synchronization2, dynamic rendering)");
@@ -99,6 +121,14 @@ namespace xgpu::vulkan
                                               , .runtimeDescriptorArray                       = Device.m_bBindless
                                               , .hostQueryReset                               = Has12.hostQueryReset
                                               , .timelineSemaphore                            = VK_TRUE };
+#if defined(__linux__)
+        // LION patch (Linux/WSL only): a 1.2 ICD does not understand Vulkan13Features;
+        // enable synchronization2 and dynamic rendering through their KHR structs.
+        VkPhysicalDeviceSynchronization2FeaturesKHR UseSync2{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SYNCHRONIZATION_2_FEATURES_KHR, .synchronization2 = VK_TRUE };
+        VkPhysicalDeviceDynamicRenderingFeaturesKHR UseDynRend{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DYNAMIC_RENDERING_FEATURES_KHR, .pNext = &UseSync2, .dynamicRendering = VK_TRUE };
+        if( bLinuxVk12Compat )
+            Use12.pNext = &UseDynRend;
+#endif
         Device.m_bDrawIndirectCount = Has12.drawIndirectCount == VK_TRUE;
 
         // VK_EXT_memory_budget where the GPU has it: the driver's budget and usage per heap (the profiler's memory maps: device::ReportMemoryHeaps)
@@ -111,12 +141,33 @@ namespace xgpu::vulkan
             vkEnumerateDeviceExtensionProperties(Device.m_VKPhysicalDevice, nullptr, &n, Available.data());
             for( const auto& E : Available ) if( std::strcmp(E.extensionName, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) == 0 ) Device.m_bMemoryBudget = true;
             if( Device.m_bMemoryBudget ) enabledExtensions.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
+#if defined(__linux__)
+            // LION patch (Linux/WSL only): enable the KHR forms of the 1.3 features we use.
+            // maintenance4 is absent on Dozen and unused (vkGetBuffer/ImageMemoryRequirements).
+            // VK_EXT_extended_dynamic_state is also absent: vertex streams use static strides.
+            if( bLinuxVk12Compat )
+            {
+                bool hasSync2Ext = false, hasDynExt = false, hasEDS = false;
+                for( const auto& E : Available )
+                {
+                    if( std::strcmp(E.extensionName, VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME) == 0 ) hasSync2Ext = true;
+                    if( std::strcmp(E.extensionName, VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME) == 0 ) hasDynExt = true;
+                    if( std::strcmp(E.extensionName, VK_EXT_EXTENDED_DYNAMIC_STATE_EXTENSION_NAME) == 0 ) hasEDS = true;
+                }
+                if( hasSync2Ext ) enabledExtensions.push_back(VK_KHR_SYNCHRONIZATION_2_EXTENSION_NAME);
+                if( hasDynExt )   enabledExtensions.push_back(VK_KHR_DYNAMIC_RENDERING_EXTENSION_NAME);
+                Device.m_bVertexBindingStrideDynamic = hasEDS;
+            }
+#endif
             if( std::getenv("XGPU_PIPELINE_STATS") )
                 for( const auto& E : Available ) if( std::strcmp(E.extensionName, VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME) == 0 )
                 {
                     Device.m_bPipelineStats = true;
                     enabledExtensions.push_back(VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME);
                     Use13.pNext = &UseStats;
+#if defined(__linux__)
+                    if( bLinuxVk12Compat ) UseSync2.pNext = &UseStats;
+#endif
                 }
         }
         VkDeviceCreateInfo          deviceCreateInfo
@@ -148,6 +199,19 @@ namespace xgpu::vulkan
             Device.m_Instance->ReportError(VKErr, "Fail to create the Vulkan Graphical Device");
             return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create the Vulkan Graphical Device" );
         }
+
+#if defined(__linux__)
+        // LION patch (Linux/WSL only): a 1.2 ICD does not provide the core 1.3 entry
+        // points; load the KHR names the extension enabled above. Remove when Dozen
+        // advertises Vulkan 1.3.
+        if( bLinuxVk12Compat )
+        {
+            if( auto p = reinterpret_cast<PFN_vkQueueSubmit2>(vkGetDeviceProcAddr(Device.m_VKDevice, "vkQueueSubmit2KHR")) )
+                xgpu_disp_vkQueueSubmit2 = p;
+            if( auto p = reinterpret_cast<PFN_vkCmdPipelineBarrier2>(vkGetDeviceProcAddr(Device.m_VKDevice, "vkCmdPipelineBarrier2KHR")) )
+                xgpu_disp_vkCmdPipelineBarrier2 = p;
+        }
+#endif
 
         return nullptr;
     }

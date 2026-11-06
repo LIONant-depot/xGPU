@@ -3,6 +3,27 @@
 #define VK_USE_PLATFORM_WIN32_KHR
 #endif
 #include <vulkan/vulkan.h>
+
+#if defined(__linux__)
+// LION patch (Linux/WSL only): Dozen (Mesa dzn) reports Vulkan 1.2 and implements
+// synchronization2 only as the KHR entry points, which libvulkan does not export
+// for linking. Capture the loader's core 1.3 symbols (llvmpipe), then on a 1.2
+// device replace them with vkGetDeviceProcAddr("...KHR"). Windows is unchanged.
+// Remove when Dozen advertises Vulkan 1.3.
+inline PFN_vkQueueSubmit2        xgpu_disp_vkQueueSubmit2        = vkQueueSubmit2;
+inline PFN_vkCmdPipelineBarrier2 xgpu_disp_vkCmdPipelineBarrier2 = vkCmdPipelineBarrier2;
+inline VkResult xgpu_lion_vkQueueSubmit2(VkQueue q, uint32_t n, const VkSubmitInfo2* infos, VkFence fence)
+{
+    return xgpu_disp_vkQueueSubmit2(q, n, infos, fence);
+}
+inline void xgpu_lion_vkCmdPipelineBarrier2(VkCommandBuffer cmd, const VkDependencyInfo* dep)
+{
+    xgpu_disp_vkCmdPipelineBarrier2(cmd, dep);
+}
+#define vkQueueSubmit2        xgpu_lion_vkQueueSubmit2
+#define vkCmdPipelineBarrier2 xgpu_lion_vkCmdPipelineBarrier2
+#endif
+
 #include <mutex>
 #include <thread>
 #include <unordered_map>
