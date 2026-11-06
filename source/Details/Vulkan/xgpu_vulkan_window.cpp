@@ -1,3 +1,4 @@
+#include "../xgpu_env.h"
 #include <filesystem>
 #include <chrono>
 namespace xgpu::vulkan
@@ -1382,7 +1383,7 @@ namespace xgpu::vulkan
     // is removed - RenderDoc's in-app API (renderdoc_app.h: RENDERDOC_GetAPI 1.1.2: SetCaptureFilePathTemplate entry 11, TriggerCapture 15)
     static void RenderDocCaptureAt( std::uint64_t Frame ) noexcept
     {
-        static const char* pTrigger = std::getenv("XGPU_RENDERDOC_TRIGGER");
+        static const char* pTrigger = xgpu::details::Env("XGPU_RENDERDOC_TRIGGER");
         if( pTrigger == nullptr || Frame % 16 ) return;
         std::error_code Ec;
         if( !std::filesystem::exists(pTrigger, Ec) || !std::filesystem::remove(pTrigger, Ec) ) return;
@@ -1392,7 +1393,7 @@ namespace xgpu::vulkan
         const auto GetAPI = reinterpret_cast<get_api>(reinterpret_cast<void*>(GetProcAddress(Module, "RENDERDOC_GetAPI")));
         void** pAPI = nullptr;
         if( GetAPI == nullptr || GetAPI(10102, reinterpret_cast<void**>(&pAPI)) == 0 || pAPI == nullptr ) return;
-        if( const char* pPath = std::getenv("XGPU_RENDERDOC_CAPTURE_PATH") ) reinterpret_cast<void(*)(const char*)>(pAPI[11])(pPath);
+        if( const char* pPath = xgpu::details::Env("XGPU_RENDERDOC_CAPTURE_PATH") ) reinterpret_cast<void(*)(const char*)>(pAPI[11])(pPath);
         reinterpret_cast<void(*)()>(pAPI[15])();
     }
 #endif
@@ -1459,8 +1460,8 @@ namespace xgpu::vulkan
         // One frame in flight: this frame runs on the GPU while the CPU records the next; the one submitted before it is waited
         // here (so at most one is ever in flight). A frame with a copy back (a screenshot, a readback: PageFlip copies right after)
         // waits for itself, as every frame did before (XGPU_SERIAL_FRAMES: always). Measurement (XLION_FRAME_TIMES): the wait's mean
-        static const bool s_bSerial = std::getenv("XGPU_SERIAL_FRAMES") != nullptr;
-        static const bool s_bTimes  = std::getenv("XLION_FRAME_TIMES") != nullptr;
+        static const bool s_bSerial = xgpu::details::Env("XGPU_SERIAL_FRAMES") != nullptr;
+        static const bool s_bTimes  = xgpu::details::Env("XLION_FRAME_TIMES") != nullptr;
         const auto TWait = std::chrono::steady_clock::now();
         if( s_SlotOk(m_SlotInFlight, m_FrameIndex) && (s_bSerial || m_pPendingScreenshotDest || !m_PendingReadbacks.empty()) )
         {

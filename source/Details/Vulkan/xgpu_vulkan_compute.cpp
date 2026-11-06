@@ -1,3 +1,4 @@
+#include "../xgpu_env.h"
 namespace xgpu::vulkan
 {
     // XGPU_PIPELINE_STATS=<file>: what the driver says about a compute pipeline, appended (a measuring tool: a pipeline is named only by its bindings and its order)
@@ -6,7 +7,7 @@ namespace xgpu::vulkan
         const auto pProps = reinterpret_cast<PFN_vkGetPipelineExecutablePropertiesKHR>(vkGetDeviceProcAddr(D.m_VKDevice, "vkGetPipelineExecutablePropertiesKHR"));
         const auto pStats = reinterpret_cast<PFN_vkGetPipelineExecutableStatisticsKHR>(vkGetDeviceProcAddr(D.m_VKDevice, "vkGetPipelineExecutableStatisticsKHR"));
         const auto pIR    = reinterpret_cast<PFN_vkGetPipelineExecutableInternalRepresentationsKHR>(vkGetDeviceProcAddr(D.m_VKDevice, "vkGetPipelineExecutableInternalRepresentationsKHR"));
-        FILE* pFile = pProps && pStats && pIR ? std::fopen(std::getenv("XGPU_PIPELINE_STATS"), "a") : nullptr;
+        FILE* pFile = pProps && pStats && pIR ? xgpu::details::Open(xgpu::details::Env("XGPU_PIPELINE_STATS"), "a") : nullptr;
         if( !pFile ) return;
         static int s_Index = 0;
         std::fprintf(pFile, "pipeline %d: buffers %d textures %d images %d push %u\n", s_Index++, nBuffers, nTextures, nImages, PushSize);

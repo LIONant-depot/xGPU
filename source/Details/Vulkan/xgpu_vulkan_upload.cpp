@@ -1,3 +1,4 @@
+#include "../xgpu_env.h"
 namespace xgpu::vulkan
 {
     //------------------------------------------------------------------------------------------------------------------------
@@ -37,7 +38,7 @@ namespace xgpu::vulkan
         }
 
         // The staging ring: host visible and coherent, mapped for good (XGPU_UPLOAD_RING_MB: its size, 64 MB by default)
-        const char* pMB = std::getenv("XGPU_UPLOAD_RING_MB");
+        const char* pMB = xgpu::details::Env("XGPU_UPLOAD_RING_MB");
         m_RingSize = std::uint64_t(pMB ? std::max(1, std::atoi(pMB)) : 64) << 20;
         const VkBufferCreateInfo BufferInfo{ .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO, .size = m_RingSize, .usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT, .sharingMode = VK_SHARING_MODE_EXCLUSIVE };
         if( auto VKErr = vkCreateBuffer(Device.m_VKDevice, &BufferInfo, pAlloc, &m_Ring); VKErr )

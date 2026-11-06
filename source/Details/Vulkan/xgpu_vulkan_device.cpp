@@ -1,3 +1,4 @@
+#include "../xgpu_env.h"
 namespace xgpu::vulkan
 {
     //----------------------------------------------------------------------------------------------------------
@@ -32,7 +33,7 @@ namespace xgpu::vulkan
 
         // A device with a single queue family (software drivers such as lavapipe, some integrated GPUs): the transfers share the main queue
         // (XGPU_ONE_QUEUE_FAMILY: the same on any device, to test that path)
-        if( Device.m_TransferQueueIndex == 0xffffffff || std::getenv("XGPU_ONE_QUEUE_FAMILY") ) Device.m_TransferQueueIndex = Device.m_MainQueueIndex;
+        if( Device.m_TransferQueueIndex == 0xffffffff || xgpu::details::Env("XGPU_ONE_QUEUE_FAMILY") ) Device.m_TransferQueueIndex = Device.m_MainQueueIndex;
         const bool bOwnTransferFamily = Device.m_TransferQueueIndex != Device.m_MainQueueIndex;
 
         //
@@ -86,7 +87,7 @@ namespace xgpu::vulkan
         Device.m_bBindless       = Has12.runtimeDescriptorArray && Has12.descriptorBindingPartiallyBound
                                 && Has12.descriptorBindingSampledImageUpdateAfterBind && Has12.descriptorBindingUpdateUnusedWhilePending
                                 && Has12.shaderSampledImageArrayNonUniformIndexing
-                                && std::getenv("XGPU_NO_BINDLESS") == nullptr;
+                                && xgpu::details::Env("XGPU_NO_BINDLESS") == nullptr;
 
         VkPhysicalDeviceVulkan13Features Use13{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_3_FEATURES
                                               , .synchronization2 = VK_TRUE, .dynamicRendering = VK_TRUE };
@@ -111,7 +112,7 @@ namespace xgpu::vulkan
             vkEnumerateDeviceExtensionProperties(Device.m_VKPhysicalDevice, nullptr, &n, Available.data());
             for( const auto& E : Available ) if( std::strcmp(E.extensionName, VK_EXT_MEMORY_BUDGET_EXTENSION_NAME) == 0 ) Device.m_bMemoryBudget = true;
             if( Device.m_bMemoryBudget ) enabledExtensions.push_back(VK_EXT_MEMORY_BUDGET_EXTENSION_NAME);
-            if( std::getenv("XGPU_PIPELINE_STATS") )
+            if( xgpu::details::Env("XGPU_PIPELINE_STATS") )
                 for( const auto& E : Available ) if( std::strcmp(E.extensionName, VK_KHR_PIPELINE_EXECUTABLE_PROPERTIES_EXTENSION_NAME) == 0 )
                 {
                     Device.m_bPipelineStats = true;
@@ -460,7 +461,7 @@ namespace xgpu::vulkan
 
     void device::LoadPipelineCache( std::wstring_view Path ) noexcept
     {
-        if( std::getenv("XGPU_NO_PIPELINE_CACHE") ) return;
+        if( xgpu::details::Env("XGPU_NO_PIPELINE_CACHE") ) return;
         std::ifstream File( std::filesystem::path(Path), std::ios::binary );
         if( !File ) return;
         const std::vector<char> Data( (std::istreambuf_iterator<char>(File)), std::istreambuf_iterator<char>() );
