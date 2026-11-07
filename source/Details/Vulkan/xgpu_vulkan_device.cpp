@@ -863,6 +863,8 @@ namespace xgpu::vulkan
     {
 
         m_FrameIndex++;
+        static const bool s_bLeakLog = xgpu::details::Env("XGPU_LEAK_LOG") != nullptr;      // (measurement: what the device keeps, every 600 frames)
+        if( s_bLeakLog && m_FrameIndex % 600 == 0 ) { extern std::atomic<std::uint64_t> g_ShaderModules, g_ShaderBytes; std::printf("XGPULEAK pipelines %zu, pipeline instances %zu, extra sampler pools %zu, shader modules made %llu (%.1f MB)\n", m_PipeLineMap.size(), m_PipeLineInstanceMap.size(), m_AdditionalSamplerPools.size(), (unsigned long long)g_ShaderModules.load(), double(g_ShaderBytes.load()) / 1048576.0); std::fflush(stdout); }
 
         auto& DeathMarch = m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()];
 

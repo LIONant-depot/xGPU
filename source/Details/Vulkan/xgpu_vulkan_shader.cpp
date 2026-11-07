@@ -1,3 +1,4 @@
+std::atomic<std::uint64_t> g_ShaderModules{ 0 }, g_ShaderBytes{ 0 };      // (shader modules made, ever: XGPU_LEAK_LOG)
 namespace xgpu::vulkan
 {
     //-------------------------------------------------------------------------
@@ -61,6 +62,7 @@ namespace xgpu::vulkan
         m_BytecodeHash = HashMix( m_BytecodeHash, static_cast<std::uint64_t>(Setup.m_Type) );
         if( m_BytecodeHash == 0 ) m_BytecodeHash = 1;
 
+        g_ShaderModules.fetch_add(1); g_ShaderBytes.fetch_add(ShaderCreateInfo.codeSize);      // (XGPU_LEAK_LOG)
         if( auto VKErr = vkCreateShaderModule( m_Device->m_VKDevice
                                              , &ShaderCreateInfo
                                              , m_Device->m_Instance->m_pVKAllocator
