@@ -7,6 +7,7 @@ namespace xgpu::vulkan
     , const xgpu::renderpass::setup&    Setup
     ) noexcept
     {
+        m_VKDevice = Device->m_VKDevice;
         std::array<VkAttachmentDescription, xgpu::renderpass::max_attachments_v> attachmentDescs{};
         std::array<VkAttachmentReference,   xgpu::renderpass::max_attachments_v> colorReferences{};
         std::array<VkImageView,             xgpu::renderpass::max_attachments_v> attachments{};
@@ -32,7 +33,7 @@ namespace xgpu::vulkan
                 // Simple validation
                 if( H != Texture.m_Height || W != Texture.m_Width )
                 {
-                    m_Device->m_Instance->ReportError( "All attachments for a render pass must have the same resolution");
+                    Device->m_Instance->ReportError( "All attachments for a render pass must have the same resolution");
                     return VGPU_ERROR(xgpu::device::error::FAILURE, "All attachments for a render pass must have the same resolution");
                 }
             }
@@ -128,7 +129,7 @@ namespace xgpu::vulkan
 
         if(auto VKErr = vkCreateRenderPass( Device->m_VKDevice, &renderPassCreateInfo, nullptr, &m_VKRenderPass ) )
         {
-            m_Device->m_Instance->ReportError(VKErr, "Fail to create a vulkan renderpass");
+            Device->m_Instance->ReportError(VKErr, "Fail to create a vulkan renderpass");
             return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a vulkan renderpass");
         }
 
@@ -147,7 +148,7 @@ namespace xgpu::vulkan
         };
         if (auto VKErr = vkCreateFramebuffer(Device->m_VKDevice, &framebufCreateInfo, nullptr, &m_VKFrameBuffer))
         {
-            m_Device->m_Instance->ReportError(VKErr, "Fail to create a vulkan frame buffer");
+            Device->m_Instance->ReportError(VKErr, "Fail to create a vulkan frame buffer");
             return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to create a vulkan frame buffer");
         }
 
@@ -190,7 +191,10 @@ namespace xgpu::vulkan
 
     renderpass::~renderpass(void) noexcept
     {
-        vkDestroyRenderPass(m_Device->m_VKDevice, m_VKRenderPass, nullptr);
-        vkDestroyFramebuffer(m_Device->m_VKDevice, m_VKFrameBuffer, nullptr);
+        // (m_VKDevice, not m_Device: DeathMarch hands this to the device's death march and drops m_Device - a render pass destroyed at run
+        // time, the views' passes rebuilt when Play starts, read a null m_Device here: an access violation, 2026-11-07)
+        if (m_VKDevice == VK_NULL_HANDLE) return;
+        vkDestroyRenderPass(m_VKDevice, m_VKRenderPass, nullptr);
+        vkDestroyFramebuffer(m_VKDevice, m_VKFrameBuffer, nullptr);
     }
 }

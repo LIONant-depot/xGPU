@@ -75,6 +75,7 @@ namespace xgpu::vulkan
         std::uint64_t                                       m_RenderPassCompatKey   {};
         VkFramebuffer                                       m_VKFrameBuffer         {};
         std::shared_ptr<vulkan::device>                     m_Device                {};
+        VkDevice                                            m_VKDevice              {};     // (the destructor's: DeathMarch drops m_Device before the device's death march destroys it)
         std::array< std::shared_ptr<vulkan::texture>, 16>   m_TextureAttachments    {};
                                             
     };
