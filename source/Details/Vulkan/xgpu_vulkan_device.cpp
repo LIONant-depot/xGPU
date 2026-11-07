@@ -236,6 +236,7 @@ namespace xgpu::vulkan
 
         // VK_EXT_memory_budget where the GPU has it: the driver's budget and usage per heap (the profiler's memory maps: device::ReportMemoryHeaps)
         std::vector<const char*>    enabledExtensions   { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+        VkPhysicalDeviceShaderClockFeaturesKHR UseClock{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CLOCK_FEATURES_KHR, .shaderSubgroupClock = VK_TRUE };
         VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR UseStats{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_EXECUTABLE_PROPERTIES_FEATURES_KHR, .pipelineExecutableInfo = VK_TRUE };
         {
             std::uint32_t n = 0;
@@ -271,6 +272,13 @@ namespace xgpu::vulkan
                     if( Device.m_bDozenCompat ) UseSync2.pNext = &UseStats;
 #endif
                 }
+            // VK_KHR_shader_clock where the GPU has it: a shader may read its subgroup's clock (xLIONRender's XLION_HEAT: a pass's cost per pixel)
+            for( const auto& E : Available ) if( std::strcmp(E.extensionName, VK_KHR_SHADER_CLOCK_EXTENSION_NAME) == 0 )
+            {
+                enabledExtensions.push_back(VK_KHR_SHADER_CLOCK_EXTENSION_NAME);
+                UseClock.pNext = Use12.pNext;
+                Use12.pNext    = &UseClock;
+            }
         }
         VkDeviceCreateInfo          deviceCreateInfo
         {
