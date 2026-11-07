@@ -22,9 +22,6 @@ namespace xgpu::vulkan
         xgpu::device::error* Initialize ( std::shared_ptr<vulkan::device>&& Device
                                         , const xgpu::shader::setup&        Setup
                                         ) noexcept;
-        // Its module when the last reference goes (the pipelines that use it hold one; no command buffer reads a module). Nothing
-        // destroyed them: every renderer made since start-up kept its modules - the editor grew ~100 MB a Play/Stop (2026-11-08)
-                                        ~shader     ( void ) noexcept override;
 
         std::shared_ptr<vulkan::device> m_Device                {};
         VkShaderModule                  m_VKShaderModule        {};

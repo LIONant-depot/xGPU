@@ -112,11 +112,4 @@ namespace xgpu::vulkan
 
 
 
-
-    //------------------------------------------------------------------------------------------------------------------------
-
-    shader::~shader( void ) noexcept
-    {
-        if( m_Device && m_VKShaderModule ) vkDestroyShaderModule(m_Device->m_VKDevice, m_VKShaderModule, m_Device->m_Instance->m_pVKAllocator);
-    }
 }
