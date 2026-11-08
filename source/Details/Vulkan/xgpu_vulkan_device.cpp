@@ -1,3 +1,4 @@
+#include <chrono>
 #include "../xgpu_env.h"
 namespace xgpu::vulkan
 {
@@ -837,7 +838,10 @@ namespace xgpu::vulkan
         std::lock_guard Lk(m_InFlightLock);        // (held while waiting: a window resets a fence only after RemoveInFlight)
         if( m_InFlight.empty() ) return;
         XPROFILE_SCOPE("xGPU: CPU idle, waiting for the GPU (GPU bound)");      // (a CPU write into a buffer the GPU may read waits for the frame in flight: one frame in flight, so when the GPU is the slower side the CPU waits here - whichever zone it lands in, it is not that zone's work, Tomas read it as CPU bound 2026-11-07)
+        static const bool s_bLog = xgpu::details::Env("XGPU_WAIT_LOG") != nullptr;      // (measurement: a wait that blocked, 1 ms or more - the CPU stalled on the GPU mid-frame: 2026-11-08's 14 ms in a MemoryMap)
+        const auto T0 = std::chrono::steady_clock::now();
         WaitFences( static_cast<std::uint32_t>(m_InFlight.size()), m_InFlight.data(), "WaitInFlight" );
+        if( s_bLog ) if( const double Ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - T0).count(); Ms >= 1.0 ) { std::printf("[xGPU] WAITINFLIGHT %.2f ms (frame %llu): a MemoryMap, Resize or destroy waited for the frame in flight\n", Ms, static_cast<unsigned long long>(m_FrameIndex)); std::fflush(stdout); }
         m_InFlight.clear();
         m_InFlightSerials.clear();
         if( m_LastDoneFrame < m_FrameIndex - 1 ) m_LastDoneFrame = m_FrameIndex - 1;      // (every frame submitted: the one being recorded is m_FrameIndex)

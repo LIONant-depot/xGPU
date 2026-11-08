@@ -150,7 +150,13 @@ namespace xgpu::vulkan
 
     xgpu::device::error* buffer::MapLock( void*& pMemory, int StartIndex, int Count, bool bWaitInFlight ) noexcept
     {
-        if( bWaitInFlight ) m_Device->WaitInFlight();          // the frame in flight may still read what is about to be written (MemoryMapFrameRegion: not)
+        if( bWaitInFlight )          // the frame in flight may still read what is about to be written (MemoryMapFrameRegion: not)
+        {
+            static const bool s_bLog = xgpu::details::Env("XGPU_WAIT_LOG") != nullptr;
+            const auto T0 = std::chrono::steady_clock::now();
+            m_Device->WaitInFlight();
+            if( s_bLog ) if( const double Ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - T0).count(); Ms >= 1.0 ) { std::printf("[xGPU] MAPWAIT %.2f ms: %s\n", Ms, m_pName ? m_pName : "(no name)"); std::fflush(stdout); }
+        }
         assert(StartIndex < m_nEntries);
         assert((StartIndex+Count) <= m_nEntries);
         assert(m_ByteSize);
@@ -173,23 +179,43 @@ namespace xgpu::vulkan
               }
             : ComputeAlignedRange( m_VKBufferMemory, m_Device->m_VKPhysicalDeviceProperties.limits.nonCoherentAtomSize, static_cast<VkDeviceSize>(m_ByteSize), RawOffset, RawSize );
 
-        void* pMappedBase;
-        if( auto VKErr = vkMapMemory
-        ( m_Device->m_VKDevice
-        , m_VKBufferMemory
-        , Range.offset
-        , Range.size
-        , 0
-        , &pMappedBase
-        ); VKErr )
+        // A buffer the CPU writes or reads (not GPU_READ's staging copy) is mapped once, the first time, and stays mapped until Destroy:
+        // its memory is host-visible and coherent, so a pointer into it is all a write or a read needs - no map, unmap or transfer each call
+        // (Tomas 2026-11-08). GPU_READ maps its staging memory for the one copy and unmaps it (MapUnlock)
+        if( m_Usage != xgpu::buffer::setup::usage::GPU_READ )
         {
-            m_Device->m_Instance->ReportError(VKErr, "Fail to Map Memory from Buffer");
-            return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to Map Memory from Buffer");
+            if( m_pVMapMemory == nullptr )
+            {
+                void* pWhole;
+                if( auto VKErr = vkMapMemory( m_Device->m_VKDevice, m_VKBufferMemory, 0, VK_WHOLE_SIZE, 0, &pWhole ); VKErr )
+                {
+                    m_Device->m_Instance->ReportError(VKErr, "Fail to Map Memory from Buffer");
+                    return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to Map Memory from Buffer");
+                }
+                m_pVMapMemory = reinterpret_cast<std::byte*>(pWhole);
+            }
+            pMemory = m_pVMapMemory + RawOffset;
         }
+        else
+        {
+            void* pMappedBase;
+            if( auto VKErr = vkMapMemory
+            ( m_Device->m_VKDevice
+            , m_VKBufferMemory
+            , Range.offset
+            , Range.size
+            , 0
+            , &pMappedBase
+            ); VKErr )
+            {
+                m_Device->m_Instance->ReportError(VKErr, "Fail to Map Memory from Buffer");
+                return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to Map Memory from Buffer");
+            }
 
-        // The caller expects a pointer to their logical StartIndex, which can differ from
-        // Range.offset once that offset gets rounded down to a nonCoherentAtomSize boundary.
-        pMemory = reinterpret_cast<std::byte*>(pMappedBase) + (RawOffset - Range.offset);
+            // The caller expects a pointer to their logical StartIndex, which can differ from
+            // Range.offset once that offset gets rounded down to a nonCoherentAtomSize boundary.
+            pMemory = reinterpret_cast<std::byte*>(pMappedBase) + (RawOffset - Range.offset);
+        }
 
         // Belt-and-suspenders on top of always allocating HOST_COHERENT memory now (see Create):
         // guarantees this map sees whatever the GPU most recently wrote, rather than relying
@@ -299,7 +325,7 @@ namespace xgpu::vulkan
             return VGPU_ERROR(xgpu::device::error::FAILURE, "Fail to Map Memory from Buffer");
         }
 
-        vkUnmapMemory(m_Device->m_VKDevice, m_VKBufferMemory);
+        if( m_pVMapMemory == nullptr ) vkUnmapMemory(m_Device->m_VKDevice, m_VKBufferMemory);      // (a persistent mapping stays: Destroy)
 
         if (m_Usage == xgpu::buffer::setup::usage::GPU_READ && m_ByteSize)
         {
@@ -382,7 +408,7 @@ namespace xgpu::vulkan
         }
         // The ring comes back to the first entry the frame before wrote (the frame in flight's: one at most, window::EndFrame): wait for it
         if (m_AllocFrame != m_Device->m_FrameIndex) { m_PrevFrameStart = m_FrameStart; m_FrameStart = V; m_AllocFrame = m_Device->m_FrameIndex; }
-        if (V == m_PrevFrameStart) m_Device->WaitInFlight();
+        if (V == m_PrevFrameStart) { static const bool s_bLog = xgpu::details::Env("XGPU_WAIT_LOG") != nullptr; const auto T0 = std::chrono::steady_clock::now(); m_Device->WaitInFlight(); if( s_bLog ) if( const double Ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - T0).count(); Ms >= 1.0 ) { std::printf("[xGPU] RINGWAIT %.2f ms: %s (the dynamic ring came round to the frame in flight's entries)\n", Ms, m_pName ? m_pName : "(no name)"); std::fflush(stdout); } }
 
         m_LastOffset = V * m_EntrySizeBytes;
 

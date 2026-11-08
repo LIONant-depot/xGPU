@@ -842,9 +842,9 @@ struct window_info
             //
             // Copy over the vertices
             //
-            (void)Prim.m_VertexBuffer.MemoryMap( 0, Prim.m_VertexBuffer.getEntryCount(), [&](void* pV)
+            (void)Prim.m_VertexBuffer.MemoryMapFrameRegion( 0, Prim.m_VertexBuffer.getEntryCount(), [&](void* pV)      // (two sets, one a frame, one frame in flight: this set is not read - no wait)
             {
-                (void)Prim.m_IndexBuffer.MemoryMap(0, Prim.m_IndexBuffer.getEntryCount(), [&](void* pI)
+                (void)Prim.m_IndexBuffer.MemoryMapFrameRegion(0, Prim.m_IndexBuffer.getEntryCount(), [&](void* pI)
                 {
                     auto pVertex = reinterpret_cast<ImDrawVert*>(pV);
                     auto pIndex  = reinterpret_cast<ImDrawIdx*>(pI);
