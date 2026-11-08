@@ -1089,6 +1089,12 @@ namespace xgpu::vulkan
             , .pClearValues     = m_bClearOnRender ? m_VKClearValue.data() : nullptr
             };
             vkCmdBeginRenderPass(Frame.m_VKCommandBuffer, &RenderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+            if( m_FrameMap.m_bOn )
+            {
+                auto& E = m_FrameMap.Add("pass"); E.m_Name = "the window (swapchain)"; E.m_Writes.push_back("the window (swapchain)");
+                E.m_Q0 = m_FrameMap.Stamp(Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
+                m_FrameMap.m_Open = int(m_FrameMap.m_Entries.size()) - 1;
+            }
 
             //
             // Set the default viewport
@@ -1159,6 +1165,14 @@ namespace xgpu::vulkan
         auto& Frame      = m_Frames[m_FrameIndex];
 
         vkCmdBeginRenderPass(Frame.m_VKCommandBuffer, &RenderPass.m_VKRenderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+        if( m_FrameMap.m_bOn )
+        {
+            auto& E = m_FrameMap.Add("pass");
+            for( const auto& pT : RenderPass.m_TextureAttachments ) if( pT ) E.m_Writes.push_back(frame_map::Name(pT->m_pName));
+            E.m_Name = E.m_Writes.empty() ? std::string("pass") : E.m_Writes[0];
+            E.m_Q0 = m_FrameMap.Stamp(Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
+            m_FrameMap.m_Open = int(m_FrameMap.m_Entries.size()) - 1;
+        }
 
         const auto width    = (float)RenderPass.m_TextureAttachments[0]->m_Width;
         const auto height   = (float)RenderPass.m_TextureAttachments[0]->m_Height;
@@ -1327,6 +1341,7 @@ namespace xgpu::vulkan
             // The frame in flight's writes before anything of this one (the frames used to be ordered by EndFrame's wait)
             const VkMemoryBarrier Barrier{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT, .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT };
             vkCmdPipelineBarrier( Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &Barrier, 0, nullptr, 0, nullptr );
+            m_FrameMap.Begin(m_Device->m_VKDevice, m_Device->m_Instance->m_pVKAllocator, Frame.m_VKCommandBuffer, m_Device->m_FrameMapArm);
 
             // the memory heaps (size, the driver's budget and usage) for the profiler's memory maps: every 30 device frames
             if( m_Device->m_FrameIndex % 30 == 0 && m_Device->m_HeapReportFrame != m_Device->m_FrameIndex ) { m_Device->m_HeapReportFrame = m_Device->m_FrameIndex; m_Device->ReportMemoryHeaps(); }
@@ -1355,6 +1370,7 @@ namespace xgpu::vulkan
             auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
 
             // Officially end the pass
+            if( auto* pE = m_FrameMap.Current() ) { pE->m_Q1 = m_FrameMap.Stamp(CB.m_VKCommandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT); m_FrameMap.m_Open = -1; }
             vkCmdEndRenderPass(CB.m_VKCommandBuffer);
         }
         assert(m_BeginState>0);
@@ -1459,6 +1475,7 @@ namespace xgpu::vulkan
             m_Device->m_Instance->ReportError(VKErr, "vkQueueSubmit");
             assert(false);
         }
+        m_FrameMap.End(m_Device->m_VKDevice, int(reinterpret_cast<std::uintptr_t>(this) & 0xFFFF), m_Device->m_VKPhysicalDeviceProperties.limits.timestampPeriod);
 
         // One frame in flight: this frame runs on the GPU while the CPU records the next; the one submitted before it is waited
         // here (so at most one is ever in flight). A frame with a copy back (a screenshot, a readback: PageFlip copies right after)
@@ -1517,6 +1534,11 @@ namespace xgpu::vulkan
         auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
         auto& PipelineInstance = static_cast<xgpu::vulkan::pipeline_instance&>(*Instance.m_Private);
         pipeline_instance::per_renderpass PerRenderPass{};
+        if( auto* pE = m_FrameMap.Current() )
+        {
+            for( const auto& pT : PipelineInstance.m_TexturesBinds ) if( pT ) pE->m_Reads.push_back(frame_map::Name(pT->m_pName));
+            for( auto* pB : StaticBuffers ) if( pB ) pE->m_RW.push_back(frame_map::Name(static_cast<const vulkan::buffer*>(pB->m_Private.get())->m_pName));
+        }
 
         //
         // Create the render pipeline if we have not done so yet
@@ -1952,6 +1974,7 @@ namespace xgpu::vulkan
 
     void window::DrawInstance(xgpu::cmd_buffer& CmdBuffer, int InstanceCount, int IndexCount, int FirstInstance, int FirstIndex, int VertexOffset) noexcept
     {
+        if( auto* pE = m_FrameMap.Current() ) ++pE->m_Draws;
         auto& CB    = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
 
         // Last minute to set the uniform buffers...
@@ -1978,6 +2001,7 @@ namespace xgpu::vulkan
     void window::DrawIndexedIndirect( xgpu::cmd_buffer& CmdBuffer, xgpu::buffer& Commands, int FirstCommand, int Count ) noexcept
     {
         if( Count <= 0 ) return;
+        if( auto* pE = m_FrameMap.Current() ) ++pE->m_Indirect;
         auto&       CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
         const auto& B  = *static_cast<const xgpu::vulkan::buffer*>(Commands.m_Private.get());
         applyDynamicOffsets(CmdBuffer);
@@ -1993,6 +2017,7 @@ namespace xgpu::vulkan
     {
         if( MaxCount <= 0 ) return;
         assert(m_Device->m_bDrawIndirectCount);
+        if( auto* pE = m_FrameMap.Current() ) ++pE->m_Indirect;
         auto&       CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
         const auto& B  = *static_cast<const xgpu::vulkan::buffer*>(Commands.m_Private.get());
         const auto& C  = *static_cast<const xgpu::vulkan::buffer*>(Counts.m_Private.get());
@@ -2231,6 +2256,7 @@ namespace xgpu::vulkan
         const auto& S = *static_cast<const xgpu::vulkan::buffer*>(Src.m_Private.get());
         auto&       D = *static_cast<xgpu::vulkan::buffer*>(Dst.m_Private.get());
         assert(S.m_EntrySizeBytes == D.m_EntrySizeBytes);
+        if( m_FrameMap.m_bOn && m_FrameMap.m_Open < 0 ) { auto& E = m_FrameMap.Add("copy"); E.m_Name = "copy " + frame_map::Name(S.m_pName); E.m_Reads.push_back(frame_map::Name(S.m_pName)); E.m_Writes.push_back(frame_map::Name(D.m_pName)); }
 
         std::vector<VkBufferCopy> Copies;
         Copies.reserve(Regions.size());
@@ -2264,6 +2290,7 @@ namespace xgpu::vulkan
         const auto& S = *static_cast<const xgpu::vulkan::texture*>(Src.m_Private.get());
         const auto& D = *static_cast<const xgpu::vulkan::texture*>(Dst.m_Private.get());
         auto&       Frame = m_Frames[m_FrameIndex];
+        if( m_FrameMap.m_bOn && m_FrameMap.m_Open < 0 ) { auto& E = m_FrameMap.Add("copy"); E.m_Name = "copy " + frame_map::Name(S.m_pName); E.m_Reads.push_back(frame_map::Name(S.m_pName)); E.m_Writes.push_back(frame_map::Name(D.m_pName)); }
         constexpr auto ShaderStages = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
         const VkImageSubresourceRange Range{ .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 };
         // Src: the pass that wrote it done; Dst: the shaders that read it done (write after read)

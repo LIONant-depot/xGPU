@@ -209,6 +209,7 @@ namespace xgpu::vulkan
     ) noexcept
     {
         m_Device = Device;
+        m_pName = Setup.m_pName;
         m_bCubeMap = Setup.m_isCubemap;
         m_AdressModes = Setup.m_AdressModes;
 

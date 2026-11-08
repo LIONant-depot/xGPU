@@ -45,6 +45,7 @@ namespace xgpu::vulkan
         std::array<xgpu::texture::address_mode, 3> m_AdressModes {};
         bool                            m_bCubeMap              {};
         std::uint32_t                   m_ID                    {};     // device::AllocTextureID: its texture_id
+        const char*                     m_pName                 {};     // setup::m_pName (the frame map)
         std::uint8_t                    m_FirstMip              {};     // setup::m_FirstMip: the image's mips above it are not in yet (not in the view)
         std::shared_ptr<texture>        m_pImageOwner           {};     // device::ExtendTexture: the texture whose image this one shows (it destroys the image, not this one)
         xgpu::sampler_id                m_SamplerID             {};     // its address modes' entry in the sampler table

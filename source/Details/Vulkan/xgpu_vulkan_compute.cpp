@@ -46,6 +46,7 @@ namespace xgpu::vulkan
 
     xgpu::device::error* compute::Initialize( std::shared_ptr<device>&& Device, const xgpu::compute::setup& Setup ) noexcept
     {
+        m_pName = Setup.m_pName;
         m_Device   = std::move(Device);
         m_nBuffers  = Setup.m_nBuffers;
         m_nTextures = Setup.m_nTextures;
@@ -147,6 +148,17 @@ namespace xgpu::vulkan
         assert(static_cast<int>(Buffers.size()) == C.m_nBuffers && static_cast<int>(Textures.size()) == C.m_nTextures && static_cast<int>(Images.size()) == C.m_nImages && PushSize <= C.m_PushSize);
         auto& Frame = m_Frames[m_FrameIndex];
 
+        // (the frame map: this dispatch, its buffers (read or written: not known here), textures read, images written)
+        bool bMap = false;
+        if( m_FrameMap.m_bOn )
+        {
+            auto& E = m_FrameMap.Add("dispatch"); bMap = true;
+            E.m_Name = frame_map::Name(C.m_pName);
+            for( auto* pB : Buffers )  if( pB ) E.m_RW.push_back(frame_map::Name(static_cast<const vulkan::buffer*>(pB->m_Private.get())->m_pName));
+            for( auto* pT : Textures ) if( pT ) E.m_Reads.push_back(frame_map::Name(static_cast<const vulkan::texture*>(pT->m_Private.get())->m_pName));
+            for( auto* pI : Images )   if( pI ) E.m_Writes.push_back(frame_map::Name(static_cast<const vulkan::texture*>(pI->m_Private.get())->m_pName));
+        }
+
         // (measurement, XGPU_BARRIER_LOG: dispatches a device frame, each with its two full barriers, and the storage images' layout flips)
         static const bool s_bBarrierLog = xgpu::details::Env("XGPU_BARRIER_LOG") != nullptr;
         if( s_bBarrierLog )
@@ -244,7 +256,9 @@ namespace xgpu::vulkan
         if( TextureSet != VK_NULL_HANDLE ) vkCmdBindDescriptorSets(Frame.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, C.m_VKPipelineLayout, 1, 1, &TextureSet, 0, nullptr);
         if( ImageSet != VK_NULL_HANDLE ) vkCmdBindDescriptorSets(Frame.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, C.m_VKPipelineLayout, 2, 1, &ImageSet, 0, nullptr);
         if( PushSize ) vkCmdPushConstants(Frame.m_VKCommandBuffer, C.m_VKPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, static_cast<std::uint32_t>(PushSize), pPush);
+        if( bMap ) m_FrameMap.m_Entries.back().m_Q0 = m_FrameMap.Stamp(Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
         vkCmdDispatch(Frame.m_VKCommandBuffer, static_cast<std::uint32_t>(X), static_cast<std::uint32_t>(Y), static_cast<std::uint32_t>(Z));
+        if( bMap ) m_FrameMap.m_Entries.back().m_Q1 = m_FrameMap.Stamp(Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 
         // Later shaders, copies and the host (a readback after the frame) see what it wrote
         const VkMemoryBarrier Out

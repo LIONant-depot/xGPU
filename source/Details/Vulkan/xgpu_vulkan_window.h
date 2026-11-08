@@ -231,6 +231,7 @@ namespace xgpu::vulkan
         std::vector<std::uint8_t>               m_SlotInFlight          {};     // per image: its frame submitted and not waited yet
         VkFence                                 m_VKPrevFence           {};     // the frame submitted last: the next EndFrame waits it
         gpu_zone_stack                          m_GPUZones              {};     // the profiler's open GPU zones (xgpu_vulkan_profile.h)
+        frame_map                               m_FrameMap              {};     // (measurement: XGPU_FRAME_MAP, xgpu_vulkan_frame_map.h)
         std::unordered_map<VkDescriptorType, descriptor_pool_ring>& Rings( void ) noexcept;     // this frame's (m_FrameIndex)
 
         // This frame's descriptor sets by content (layout + buffers): a draw that binds the same buffers as an earlier one reuses

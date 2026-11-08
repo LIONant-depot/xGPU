@@ -9,6 +9,7 @@ namespace xgpu::vulkan
         virtual                        ~compute     ( void ) noexcept override;
 
         std::shared_ptr<device>     m_Device            {};
+        const char*                 m_pName             {};            // setup::m_pName (the frame map)
         static constexpr int        max_textures_v      = 8;           // sampled textures (set 1, bindings 0..)
         VkDescriptorSetLayout       m_VKSetLayout       {};
         VkDescriptorSetLayout       m_VKTextureLayout   {};            // (m_nTextures > 0)

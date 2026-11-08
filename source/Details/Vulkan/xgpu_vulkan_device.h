@@ -240,6 +240,7 @@ namespace xgpu::vulkan
         std::mutex                                      m_InFlightLock              {};
         std::vector<VkFence>                            m_InFlight                  {};
         std::vector<std::uint64_t>                      m_InFlightSerials           {};         // (each m_InFlight fence's submission serial)
+        std::uint64_t                                   m_FrameMapArm               {0};        // (the frame map's trigger: every window records its next frame once)
         std::atomic<int>                                m_LastDoneFrame             {-1};      // the newest m_FrameIndex known complete (its fence waited)
         void                                            AddInFlight                 ( VkFence Fence ) noexcept;
         void                                            RemoveInFlight              ( VkFence Fence ) noexcept;

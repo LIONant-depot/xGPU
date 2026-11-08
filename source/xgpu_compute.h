@@ -13,6 +13,7 @@ namespace xgpu
             int             m_nTextures         { 0 };
             int             m_nImages           { 0 };
             std::size_t     m_PushConstantsSize { 0 };          // bytes (at most 128: the minimum every device guarantees)
+            const char*     m_pName             { nullptr };    // (a string that lives as long as it: the frame map's label)
         };
 
         std::shared_ptr<details::compute_handle> m_Private;
