@@ -155,12 +155,32 @@ namespace xgpu::vulkan
         // MemoryMapFrameRegion: a slot of a ring of 3 slots a device frame (xLIONRender's ring_frames_v): the frame 3 back used it last.
         // One window: done already. Several (a frame in flight each): wait for it - no more (2026-11-08: Play's device lost without this)
         if( !bWaitInFlight ) m_Device->WaitFramesUpTo( static_cast<std::int64_t>(m_Device->m_FrameIndex) - 3 );
-        // Every map waits for the frames in flight by default again (2026-11-08): about a dozen MemoryMapFrameRegion callers (the GI's stage,
+        // and for the frame that last wrote an overlapping region (C25: written at the same offset every frame - read by that frame)
+        static const bool s_bNoRegionWait = xgpu::details::Env("XGPU_NO_REGION_WAIT") != nullptr;      // (measurement: C25's repro check)
+        if( !bWaitInFlight && !s_bNoRegionWait )
+        {
+            const int First = StartIndex, End = StartIndex + Count;
+            std::int64_t Wait = -1;
+            for( int k = 0; k < m_nWritten; ++k ) if( m_Written[k].m_First < End && First < m_Written[k].m_End && m_Written[k].m_Frame != static_cast<std::int64_t>(m_Device->m_FrameIndex) ) Wait = std::max(Wait, m_Written[k].m_Frame);
+            if( Wait >= 0 )
+            {
+                static const bool s_bLog = xgpu::details::Env("XGPU_WAIT_LOG") != nullptr;
+                const auto T0 = std::chrono::steady_clock::now();
+                m_Device->WaitFramesUpTo(Wait);
+                if( s_bLog ) if( const double Ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - T0).count(); Ms >= 1.0 ) { std::printf("[xGPU] REGIONWAIT %.2f ms: %s (its region written again: one slot)\n", Ms, m_pName ? m_pName : "(no name)"); std::fflush(stdout); }
+            }
+            // (this write: replaces the entries it covers, else the oldest)
+            int k = 0;
+            for( ; k < m_nWritten; ++k ) if( m_Written[k].m_First == First && m_Written[k].m_End == End ) break;
+            if( k == m_nWritten ) { if( m_nWritten < static_cast<int>(m_Written.size()) ) ++m_nWritten; else { for( int j = 1; j < m_nWritten; ++j ) m_Written[j - 1] = m_Written[j]; k = m_nWritten - 1; } }
+            m_Written[k] = { First, End, static_cast<std::int64_t>(m_Device->m_FrameIndex) };
+        }
+        // (2026-11-08, C25) About a dozen MemoryMapFrameRegion callers (the GI's stage,
         // run and job buffers, its sun map) rewrite the same region every frame and were only safe because an earlier wait in the frame
-        // drained the GPU - without it Tomas's editor lost the device. XGPU_FORCE_MAP_WAIT=0: the fast path (no wait for a frame region),
-        // to be the default once those callers have a slot a frame or MemoryMapAfterFrame. A name's part: only those buffers wait
+        // drained the GPU - without it Tomas's editor lost the device; a frame region now waits for the frame that last wrote an overlapping
+        // region (m_Written, above). XGPU_FORCE_MAP_WAIT=1: every map waits as before (a name's part: only those buffers) - for bisecting
         static const char* s_pForceWait = xgpu::details::Env("XGPU_FORCE_MAP_WAIT");
-        if( s_pForceWait == nullptr || s_pForceWait[0] == '1' || (s_pForceWait[0] != '0' && m_pName && std::strstr(m_pName, s_pForceWait)) ) bWaitInFlight = true;
+        if( s_pForceWait && (s_pForceWait[0] == '1' || (s_pForceWait[0] != '0' && m_pName && std::strstr(m_pName, s_pForceWait))) ) bWaitInFlight = true;
         if( bWaitInFlight )          // the frame in flight may still read what is about to be written (MemoryMapFrameRegion: not)
         {
             static const bool s_bLog = xgpu::details::Env("XGPU_WAIT_LOG") != nullptr;

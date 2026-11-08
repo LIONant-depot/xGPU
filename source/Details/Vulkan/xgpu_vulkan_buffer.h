@@ -25,6 +25,12 @@ namespace xgpu::vulkan
         bool                        m_bQueued           = false;    // handed to the device's deferred destroy (DeathMarch): the next last release frees it
         std::atomic<int>            m_CurrentOffset     {};     // For uniform buffers
         std::byte*                  m_pVMapMemory       {};
+        // The regions the CPU wrote through a frame-region map and the device frame that wrote each (the frame that then read it): a new
+        // write of an overlapping region waits for that frame only (C25: a buffer rewritten at the same offset every frame; a ring's
+        // slots never overlap the frame in flight's). Oldest first, a few kept
+        struct written { int m_First = 0, m_End = 0; std::int64_t m_Frame = -1; };
+        std::array<written, 16>     m_Written           {};
+        int                         m_nWritten          {0};
         VkBuffer                    m_VKBuffer          {};
         VkDeviceMemory              m_VKBufferMemory    {};     // host-visible (a GPU_READ buffer's until its data is copied over)
         const char*                 m_pName             = nullptr;  // setup::m_pName
