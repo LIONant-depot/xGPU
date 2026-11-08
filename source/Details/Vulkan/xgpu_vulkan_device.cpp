@@ -800,6 +800,7 @@ namespace xgpu::vulkan
         std::lock_guard Lk(m_InFlightLock);
         m_InFlight.push_back(Fence);
         m_InFlightSerials.push_back(++m_SubmitSerial);
+        m_InFlightFrames.push_back(m_FrameIndex);
         // (seal what was retired since the last submission: the frame just submitted, or an earlier one, is the last that can use it)
         const auto& C = m_Collecting;
         if( !(C.m_Texture.empty() && C.m_PipelineInstance.empty() && C.m_Pipeline.empty() && C.m_RenderPass.empty() && C.m_Buffer.empty() && C.m_Window.empty() && C.m_TextureTable.empty() && C.m_TableSets.empty()) )
@@ -812,7 +813,20 @@ namespace xgpu::vulkan
     void device::RemoveInFlight( VkFence Fence ) noexcept
     {
         std::lock_guard Lk(m_InFlightLock);
-        for( std::size_t i = 0; i < m_InFlight.size(); ) if( m_InFlight[i] == Fence ) { m_InFlight.erase(m_InFlight.begin() + i); m_InFlightSerials.erase(m_InFlightSerials.begin() + i); } else ++i;
+        for( std::size_t i = 0; i < m_InFlight.size(); ) if( m_InFlight[i] == Fence ) { m_InFlight.erase(m_InFlight.begin() + i); m_InFlightSerials.erase(m_InFlightSerials.begin() + i); m_InFlightFrames.erase(m_InFlightFrames.begin() + i); } else ++i;
+    }
+
+    // The frames up to F done (their fences waited): a ring with a slot a device frame writes its slot without waiting for the frames in
+    // flight, only for the one that used the slot last. One window: that frame is always done already (one in flight); several windows
+    // (each its own frame in flight, the device's frame moving at every window's flip): it may not be - Play's crash, 2026-11-08
+    void device::WaitFramesUpTo( std::int64_t F ) noexcept
+    {
+        std::lock_guard Lk(m_InFlightLock);
+        std::vector<VkFence> Wait;
+        for( std::size_t i = 0; i < m_InFlight.size(); ++i ) if( m_InFlightFrames[i] <= F ) Wait.push_back(m_InFlight[i]);
+        if( Wait.empty() ) return;
+        WaitFences( static_cast<std::uint32_t>(Wait.size()), Wait.data(), "WaitFramesUpTo" );
+        for( std::size_t i = 0; i < m_InFlight.size(); ) if( m_InFlightFrames[i] <= F ) { m_InFlight.erase(m_InFlight.begin() + i); m_InFlightSerials.erase(m_InFlightSerials.begin() + i); m_InFlightFrames.erase(m_InFlightFrames.begin() + i); } else ++i;
     }
 
     // A frame's fence, without a limit. Over 5 s something is stuck (the editor froze here with an idle GPU and no driver reset, 2026-11-05):
@@ -844,6 +858,7 @@ namespace xgpu::vulkan
         if( s_bLog ) if( const double Ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - T0).count(); Ms >= 1.0 ) { std::printf("[xGPU] WAITINFLIGHT %.2f ms (frame %llu): a MemoryMap, Resize or destroy waited for the frame in flight\n", Ms, static_cast<unsigned long long>(m_FrameIndex)); std::fflush(stdout); }
         m_InFlight.clear();
         m_InFlightSerials.clear();
+        m_InFlightFrames.clear();
         if( m_LastDoneFrame < m_FrameIndex - 1 ) m_LastDoneFrame = m_FrameIndex - 1;      // (every frame submitted: the one being recorded is m_FrameIndex)
     }
 

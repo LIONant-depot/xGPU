@@ -148,8 +148,15 @@ namespace xgpu::vulkan
 
     //----------------------------------------------------------------------------------
 
+    void buffer::WaitFramesUpTo( std::int64_t Frame ) noexcept { m_Device->WaitFramesUpTo(Frame); }
+
     xgpu::device::error* buffer::MapLock( void*& pMemory, int StartIndex, int Count, bool bWaitInFlight ) noexcept
     {
+        // MemoryMapFrameRegion: a slot of a ring of 3 slots a device frame (xLIONRender's ring_frames_v): the frame 3 back used it last.
+        // One window: done already. Several (a frame in flight each): wait for it - no more (2026-11-08: Play's device lost without this)
+        if( !bWaitInFlight ) m_Device->WaitFramesUpTo( static_cast<std::int64_t>(m_Device->m_FrameIndex) - 3 );
+        static const char* s_pForceWait = xgpu::details::Env("XGPU_FORCE_MAP_WAIT");      // (measurement: maps wait as before 2026-11-08 - every one, or those whose name holds the value)
+        if( s_pForceWait && (s_pForceWait[0] == '1' || (m_pName && std::strstr(m_pName, s_pForceWait))) ) bWaitInFlight = true;
         if( bWaitInFlight )          // the frame in flight may still read what is about to be written (MemoryMapFrameRegion: not)
         {
             static const bool s_bLog = xgpu::details::Env("XGPU_WAIT_LOG") != nullptr;

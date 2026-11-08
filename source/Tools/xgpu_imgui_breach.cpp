@@ -711,6 +711,7 @@ struct window_info
     {
         xgpu::buffer                m_VertexBuffer{};
         xgpu::buffer                m_IndexBuffer{};
+        std::int64_t                m_Frame{-1};            // the device frame that last wrote (and drew) this set: written again after it is done
     };
 
     std::shared_ptr<share_resources>    m_Shared            {};
@@ -842,8 +843,11 @@ struct window_info
             //
             // Copy over the vertices
             //
-            (void)Prim.m_VertexBuffer.MemoryMapFrameRegion( 0, Prim.m_VertexBuffer.getEntryCount(), [&](void* pV)      // (two sets, one a frame, one frame in flight: this set is not read - no wait)
+            // (the frame that last drew from this set waited, only it: MemoryMap's wait for every frame in flight cost the editor 13-14 ms a
+            // frame; with no wait at all a set was rewritten while drawn - Play's device lost, 2026-11-08)
+            (void)Prim.m_VertexBuffer.MemoryMapAfterFrame( Prim.m_Frame, 0, Prim.m_VertexBuffer.getEntryCount(), [&](void* pV)
             {
+                Prim.m_Frame = static_cast<std::int64_t>(m_Shared->m_Device.getFrameIndex());
                 (void)Prim.m_IndexBuffer.MemoryMapFrameRegion(0, Prim.m_IndexBuffer.getEntryCount(), [&](void* pI)
                 {
                     auto pVertex = reinterpret_cast<ImDrawVert*>(pV);

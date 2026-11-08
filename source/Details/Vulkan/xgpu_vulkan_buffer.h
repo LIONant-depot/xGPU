@@ -6,6 +6,7 @@ namespace xgpu::vulkan
                 xgpu::device::error*    Initialize              ( std::shared_ptr<device>&& Device, const xgpu::buffer::setup& Setup )  noexcept;
         virtual xgpu::device::error*    MapLock                 ( void*& pMemory, int StartIndex, int Count, bool bWaitInFlight = true ) noexcept override;
         virtual xgpu::device::error*    MapUnlock               ( int StartIndex, int Count )                                           noexcept override;
+        virtual void                    WaitFramesUpTo          ( std::int64_t Frame )                                                  noexcept override;
         virtual int                     getEntryCount           ( void ) const                                                          noexcept override;
         virtual xgpu::buffer::error*    Resize                  ( int NewEntryCount )                                                   noexcept override;
                 xgpu::device::error*    TransferToDestination   ( void )                                                                noexcept;

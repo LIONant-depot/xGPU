@@ -50,6 +50,12 @@ namespace xgpu
         [[nodiscard]]
         error*              MemoryMapFrameRegion    ( int StartIndex, int Count, T_CALLBACK&& Callback ) noexcept;
 
+        // MemoryMap after the device frame Frame is done (only that frame's submission and the ones before it waited): for a region the
+        // caller knows was last read by that frame (a set of buffers used in turn: write each after the frame that last used it)
+        template< typename T_CALLBACK >
+        [[nodiscard]]
+        error*              MemoryMapAfterFrame     ( std::int64_t Frame, int StartIndex, int Count, T_CALLBACK&& Callback ) noexcept;
+
         [[nodiscard]] XGPU_INLINE
         
         int                 getEntryCount           ( void ) const noexcept;

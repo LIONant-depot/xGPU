@@ -12,6 +12,7 @@ namespace xgpu
             virtual xgpu::buffer::error*                Resize          ( int NewEntryCount )                           noexcept = 0;
             virtual void                                DeathMarch      ( xgpu::buffer&& )                              noexcept = 0;
             virtual void*                               allocEntry      (void)                                          noexcept = 0;
+            virtual void                                WaitFramesUpTo  ( std::int64_t Frame )                          noexcept = 0;
         };
     }
 
@@ -37,6 +38,15 @@ namespace xgpu
         Callback(pMemory);
         if (auto pErr = m_Private->MapUnlock( StartIndex, Count ); pErr) return reinterpret_cast<xgpu::buffer::error*>(pErr);
         return nullptr;
+    }
+
+    //--------------------------------------------------------------------------------------------------------
+
+    template< typename T_CALLBACK >
+    xgpu::buffer::error* buffer::MemoryMapAfterFrame(std::int64_t Frame, int StartIndex, int Count, T_CALLBACK&& Callback) noexcept
+    {
+        m_Private->WaitFramesUpTo(Frame);
+        return MemoryMapFrameRegion(StartIndex, Count, std::forward<T_CALLBACK>(Callback));
     }
 
     //--------------------------------------------------------------------------------------------------------
