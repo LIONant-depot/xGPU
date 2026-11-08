@@ -127,13 +127,16 @@ namespace xgpu::vulkan
         // Prepare our queues
         //
         static const std::array     queuePriorities    = {    0.0f };
+        // the main family's second queue: dispatches beside the frame (window::BeginAsyncCompute); one family, no ownership to move
+        static const std::array     mainPriorities     = {    0.0f, 0.0f };
+        Device.m_bAsyncCompute = DeviceProperties[Device.m_MainQueueIndex].queueCount >= 2 && xgpu::details::Env("XGPU_NO_ASYNC") == nullptr;
         auto queueCreateInfo = std::array
         {   VkDeviceQueueCreateInfo 
             {
                 .sType              = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO
             ,   .queueFamilyIndex   = Device.m_MainQueueIndex
-            ,   .queueCount         = static_cast<std::uint32_t>(queuePriorities.size())
-            ,   .pQueuePriorities   = queuePriorities.data()
+            ,   .queueCount         = Device.m_bAsyncCompute ? 2u : 1u
+            ,   .pQueuePriorities   = mainPriorities.data()
             }
         ,   VkDeviceQueueCreateInfo
             {
@@ -363,6 +366,7 @@ namespace xgpu::vulkan
         {
             std::scoped_lock Lks(m_VKMainQueue, m_VKTransferQueue);
             vkGetDeviceQueue(m_VKDevice, MainQueueIndex,       0, &m_VKMainQueue.get());
+            if( m_bAsyncCompute ) vkGetDeviceQueue(m_VKDevice, MainQueueIndex, 1, &m_VKAsyncQueue.get());
             vkGetDeviceQueue(m_VKDevice, m_TransferQueueIndex, 0, &m_VKTransferQueue.get());
         }
         

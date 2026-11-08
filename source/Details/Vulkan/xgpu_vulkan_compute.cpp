@@ -2,7 +2,8 @@
 namespace xgpu::vulkan
 {
     // XGPU_PIPELINE_STATS=<file>: what the driver says about a compute pipeline, appended (a measuring tool: a pipeline is named only by its bindings and its order)
-    static void WritePipelineStats( device& D, VkPipeline Pipeline, int nBuffers, int nTextures, int nImages, std::uint32_t PushSize ) noexcept
+    // (also the graphics pipelines': window::setPipelineInstance, labelled by their pass and state)
+    void WritePipelineStats( device& D, VkPipeline Pipeline, const std::string& Label ) noexcept
     {
         const auto pProps = reinterpret_cast<PFN_vkGetPipelineExecutablePropertiesKHR>(vkGetDeviceProcAddr(D.m_VKDevice, "vkGetPipelineExecutablePropertiesKHR"));
         const auto pStats = reinterpret_cast<PFN_vkGetPipelineExecutableStatisticsKHR>(vkGetDeviceProcAddr(D.m_VKDevice, "vkGetPipelineExecutableStatisticsKHR"));
@@ -10,7 +11,7 @@ namespace xgpu::vulkan
         FILE* pFile = pProps && pStats && pIR ? xgpu::details::Open(xgpu::details::Env("XGPU_PIPELINE_STATS"), "a") : nullptr;
         if( !pFile ) return;
         static int s_Index = 0;
-        std::fprintf(pFile, "pipeline %d: buffers %d textures %d images %d push %u\n", s_Index++, nBuffers, nTextures, nImages, PushSize);
+        std::fprintf(pFile, "pipeline %d: %s\n", s_Index++, Label.c_str());
         const VkPipelineInfoKHR Info{ .sType = VK_STRUCTURE_TYPE_PIPELINE_INFO_KHR, .pipeline = Pipeline };
         std::uint32_t n = 0;
         pProps(D.m_VKDevice, &Info, &n, nullptr);
@@ -116,7 +117,7 @@ namespace xgpu::vulkan
         XPROFILE_SCOPE("xGPU: make a compute pipeline");
         if( vkCreateComputePipelines(m_Device->m_VKDevice, m_Device->m_bPipelineStats ? VK_NULL_HANDLE : m_Device->m_VKPipelineCache, 1, &PipelineInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKPipeline) )
             return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: vkCreateComputePipelines failed");
-        if( m_Device->m_bPipelineStats ) WritePipelineStats( *m_Device, m_VKPipeline, m_nBuffers, m_nTextures, m_nImages, m_PushSize );
+        if( m_Device->m_bPipelineStats ) WritePipelineStats( *m_Device, m_VKPipeline, std::format("compute {} (buffers {} textures {} images {} push {})", m_pName ? m_pName : "(no name)", m_nBuffers, m_nTextures, m_nImages, m_PushSize) );
         return nullptr;
     }
 
@@ -146,7 +147,7 @@ namespace xgpu::vulkan
             return;
         }
         assert(static_cast<int>(Buffers.size()) == C.m_nBuffers && static_cast<int>(Textures.size()) == C.m_nTextures && static_cast<int>(Images.size()) == C.m_nImages && PushSize <= C.m_PushSize);
-        auto& Frame = m_Frames[m_FrameIndex];
+        const VkCommandBuffer Cmd = RecordingCmd();       // (the frame's, or its async section's)
 
         // (the frame map: this dispatch, its buffers (read or written: not known here), textures read, images written)
         bool bMap = false;
@@ -249,21 +250,21 @@ namespace xgpu::vulkan
         , .srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT
                          | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
         , .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT };
-        vkCmdPipelineBarrier(Frame.m_VKCommandBuffer, Before, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &In, 0, nullptr, static_cast<std::uint32_t>(C.m_nImages), ToGeneral.data());
+        vkCmdPipelineBarrier(Cmd, Before, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &In, 0, nullptr, static_cast<std::uint32_t>(C.m_nImages), ToGeneral.data());
 
-        vkCmdBindPipeline(Frame.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, C.m_VKPipeline);
-        if( Set != VK_NULL_HANDLE ) vkCmdBindDescriptorSets(Frame.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, C.m_VKPipelineLayout, 0, 1, &Set, 0, nullptr);
-        if( TextureSet != VK_NULL_HANDLE ) vkCmdBindDescriptorSets(Frame.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, C.m_VKPipelineLayout, 1, 1, &TextureSet, 0, nullptr);
-        if( ImageSet != VK_NULL_HANDLE ) vkCmdBindDescriptorSets(Frame.m_VKCommandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, C.m_VKPipelineLayout, 2, 1, &ImageSet, 0, nullptr);
-        if( PushSize ) vkCmdPushConstants(Frame.m_VKCommandBuffer, C.m_VKPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, static_cast<std::uint32_t>(PushSize), pPush);
-        if( bMap ) m_FrameMap.m_Entries.back().m_Q0 = m_FrameMap.Stamp(Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
-        vkCmdDispatch(Frame.m_VKCommandBuffer, static_cast<std::uint32_t>(X), static_cast<std::uint32_t>(Y), static_cast<std::uint32_t>(Z));
-        if( bMap ) m_FrameMap.m_Entries.back().m_Q1 = m_FrameMap.Stamp(Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        vkCmdBindPipeline(Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, C.m_VKPipeline);
+        if( Set != VK_NULL_HANDLE ) vkCmdBindDescriptorSets(Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, C.m_VKPipelineLayout, 0, 1, &Set, 0, nullptr);
+        if( TextureSet != VK_NULL_HANDLE ) vkCmdBindDescriptorSets(Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, C.m_VKPipelineLayout, 1, 1, &TextureSet, 0, nullptr);
+        if( ImageSet != VK_NULL_HANDLE ) vkCmdBindDescriptorSets(Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, C.m_VKPipelineLayout, 2, 1, &ImageSet, 0, nullptr);
+        if( PushSize ) vkCmdPushConstants(Cmd, C.m_VKPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, static_cast<std::uint32_t>(PushSize), pPush);
+        if( bMap ) m_FrameMap.m_Entries.back().m_Q0 = m_FrameMap.Stamp(Cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
+        vkCmdDispatch(Cmd, static_cast<std::uint32_t>(X), static_cast<std::uint32_t>(Y), static_cast<std::uint32_t>(Z));
+        if( bMap ) m_FrameMap.m_Entries.back().m_Q1 = m_FrameMap.Stamp(Cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 
         // Later shaders, copies and the host (a readback after the frame) see what it wrote
         const VkMemoryBarrier Out
         { .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT
         , .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_HOST_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT };
-        vkCmdPipelineBarrier(Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, Before, 0, 1, &Out, 0, nullptr, static_cast<std::uint32_t>(C.m_nImages), ToSampled.data());
+        vkCmdPipelineBarrier(Cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, Before, 0, 1, &Out, 0, nullptr, static_cast<std::uint32_t>(C.m_nImages), ToSampled.data());
     }
 }

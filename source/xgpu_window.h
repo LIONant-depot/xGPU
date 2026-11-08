@@ -44,6 +44,12 @@ namespace xgpu
         XGPU_INLINE                 void                CopyTexture             ( const texture& Src, texture& Dst, int Width, int Height ) noexcept;
         // A GPU timestamp between render passes (cmd_buffer::WriteTimestamp is the one inside a pass) - see xgpu_timestamps.h
         XGPU_INLINE                 void                WriteTimestamp          ( timestamps& Timestamps, int Index ) noexcept;
+        // A section of dispatches (and timestamps) that runs beside the rest of the frame, on a second queue: what is recorded before it is
+        // submitted first and the section waits for it; the frame's later work does not wait for the section, the next frame does (before
+        // anything of its own). Between render passes; false: no second queue (XGPU_NO_ASYNC, or one queue only) - the dispatches run in
+        // the frame as usual. The section must not touch what the rest of this frame uses
+        XGPU_INLINE                 bool                BeginAsyncCompute       ( void ) noexcept;
+        XGPU_INLINE                 void                EndAsyncCompute         ( void ) noexcept;
         // A profiler zone on the GPU between render passes (xprofile's XPROFILE_GPU_SCOPE: pWhere its location); Begin/End in pairs, nested
         // last-in first-out, in this frame. Nothing when the build has no profiler or it is off
         XGPU_INLINE                 void                BeginGPUZone            ( const void* pWhere ) noexcept;

@@ -7,7 +7,10 @@ namespace xgpu::vulkan
     struct frame
     {
         VkCommandPool       m_VKCommandPool     {};
-        VkCommandBuffer     m_VKCommandBuffer   {};
+        VkCommandBuffer     m_VKCommandBuffer   {};     // the one recording: A, or B after an async section began
+        VkCommandBuffer     m_VKCommandBufferA  {};
+        VkCommandBuffer     m_VKCommandBufferB  {};     // the frame after its async section began (BeginAsyncCompute)
+        VkCommandBuffer     m_VKAsyncCmd        {};     // the async section's (the same pool: one family)
         VkFence             m_VKFence           {};
         VkImage             m_VKBackbuffer      {};
         VkImageView         m_VKBackbufferView  {};
@@ -477,6 +480,17 @@ namespace xgpu::vulkan
                 ,   .level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY
                 ,   .commandBufferCount = 1
                 };
+                VkCommandBuffer More[2]{};
+                VkCommandBufferAllocateInfo MoreInfo = CreateInfo; MoreInfo.commandBufferCount = 2;
+                if( vkAllocateCommandBuffers( m_Device->m_VKDevice, &MoreInfo, More ) == VK_SUCCESS ) { Frame.m_VKCommandBufferB = More[0]; Frame.m_VKAsyncCmd = More[1]; }
+                if( m_AsyncTL == VK_NULL_HANDLE && m_Device->m_bAsyncCompute )
+                {
+                    VkSemaphoreTypeCreateInfo T{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO, .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE, .initialValue = 0 };
+                    const VkSemaphoreCreateInfo S{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, .pNext = &T };
+                    vkCreateSemaphore(m_Device->m_VKDevice, &S, pAllocator, &m_SplitTL);
+                    vkCreateSemaphore(m_Device->m_VKDevice, &S, pAllocator, &m_AsyncTL);
+                    m_SplitValue = m_AsyncValue = 0;
+                }
                 if( auto VKErr = vkAllocateCommandBuffers( m_Device->m_VKDevice, &CreateInfo, &Frame.m_VKCommandBuffer ); VKErr )
                 {
                     m_Device->m_Instance->ReportError(VKErr, "Unable to create a Frame's Command Buffer");
@@ -1320,6 +1334,9 @@ namespace xgpu::vulkan
             for (auto& [type, ring] : Rings()) ring.AdvanceAndReset(m_Device->m_VKDevice);
             m_FrameSets.clear();
 
+            if( Frame.m_VKCommandBufferA == VK_NULL_HANDLE ) Frame.m_VKCommandBufferA = Frame.m_VKCommandBuffer;
+            Frame.m_VKCommandBuffer = Frame.m_VKCommandBufferA;      // (B and the async section's: this pool, reset with it)
+            m_bAsyncThisFrame = false; m_bAsyncRec = false;
             if( auto VKErr = vkResetCommandPool(m_Device->m_VKDevice, Frame.m_VKCommandPool, 0); VKErr )
             {
                 // TODO: Report Error???
@@ -1458,6 +1475,9 @@ namespace xgpu::vulkan
         std::vector<VkSemaphoreSubmitInfo>     Waits  { { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = Semaphore.m_VKImageAcquiredSemaphore, .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT } };
         std::vector<VkSemaphoreSubmitInfo>     Signals{ { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = Semaphore.m_VKRenderCompleteSemaphore, .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT } };
         m_Device->UploadSubmitInfo(Cmds, Waits, Signals);
+        if( m_bAsyncRec ) EndAsyncCompute();
+        // (no async section this frame: the last one, if any, before anything of this one; with one, the frame's first part waited it)
+        if( !m_bAsyncThisFrame && m_AsyncValue ) Waits.push_back({ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = m_AsyncTL, .value = m_AsyncValue, .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT });
         Cmds.push_back({ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, .commandBuffer = Frame.m_VKCommandBuffer });
         const VkSubmitInfo2 SubmitInfo
         { .sType                    = VK_STRUCTURE_TYPE_SUBMIT_INFO_2
@@ -1470,10 +1490,17 @@ namespace xgpu::vulkan
         };
 
         std::lock_guard Lk(m_Device->m_VKMainQueue);
-        if( auto VKErr = vkQueueSubmit2( m_Device->m_VKMainQueue.get(), 1, &SubmitInfo, Frame.m_VKFence ); VKErr )
+        if( auto VKErr = vkQueueSubmit2( m_Device->m_VKMainQueue.get(), 1, &SubmitInfo, m_bAsyncThisFrame ? VK_NULL_HANDLE : Frame.m_VKFence ); VKErr )
         {
             m_Device->m_Instance->ReportError(VKErr, "vkQueueSubmit");
             assert(false);
+        }
+        if( m_bAsyncThisFrame )
+        {
+            // the frame's fence once its async section is done too (what retires on it, its descriptor sets, may be in that section)
+            const VkSemaphoreSubmitInfo W{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = m_AsyncTL, .value = m_AsyncValue, .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT };
+            const VkSubmitInfo2 Fence{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2, .waitSemaphoreInfoCount = 1, .pWaitSemaphoreInfos = &W };
+            if( auto VKErr = vkQueueSubmit2( m_Device->m_VKMainQueue.get(), 1, &Fence, Frame.m_VKFence ); VKErr ) { m_Device->m_Instance->ReportError(VKErr, "vkQueueSubmit (the frame's fence)"); assert(false); }
         }
         m_FrameMap.End(m_Device->m_VKDevice, int(reinterpret_cast<std::uintptr_t>(this) & 0xFFFF), m_Device->m_VKPhysicalDeviceProperties.limits.timestampPeriod);
 
@@ -1581,6 +1608,7 @@ namespace xgpu::vulkan
                 //
                 auto VKPipelineCreateInfo = Pipe.m_VkPipelineCreateInfo;
                 VKPipelineCreateInfo.renderPass = CB.m_VKActiveRenderPass;
+                if( m_Device->m_bPipelineStats ) VKPipelineCreateInfo.flags |= VK_PIPELINE_CREATE_CAPTURE_STATISTICS_BIT_KHR;
 
                 const_cast<VkPipelineColorBlendStateCreateInfo*>(VKPipelineCreateInfo.pColorBlendState)->attachmentCount = CB.m_pActiveRenderPass ? CB.m_pActiveRenderPass->m_nColorAttachments : 1u;
 
@@ -1589,7 +1617,7 @@ namespace xgpu::vulkan
                 XPROFILE_SCOPE("xGPU: make a graphics pipeline");
                 if (auto VKErr = vkCreateGraphicsPipelines
                     ( m_Device->m_VKDevice
-                    , m_Device->m_VKPipelineCache
+                    , m_Device->m_bPipelineStats ? VK_NULL_HANDLE : m_Device->m_VKPipelineCache
                     , 1
                     , &VKPipelineCreateInfo
                     , m_Device->m_Instance->m_pVKAllocator
@@ -1603,6 +1631,12 @@ namespace xgpu::vulkan
                     return;
                 }
 
+                if( m_Device->m_bPipelineStats )
+                {
+                    const auto* pRP = CB.m_pActiveRenderPass;
+                    const char* pTarget = pRP && pRP->m_TextureAttachments[0] ? pRP->m_TextureAttachments[0]->m_pName : "the window";
+                    WritePipelineStats(*m_Device, vkPipeline, std::format("graphics {} state {:016x} samplers {}", pTarget ? pTarget : "(no name)", Pipe.m_StateHash, Pipe.m_nSamplers));
+                }
                 //
                 // Cache this Pipeline
                 //
@@ -2155,7 +2189,63 @@ namespace xgpu::vulkan
 
     void window::WriteTimestamp(xgpu::timestamps& Timestamps, int Index) noexcept
     {
-        static_cast<vulkan::timestamps&>(*Timestamps.m_Private).Write(m_Frames[m_FrameIndex].m_VKCommandBuffer, Index);
+        static_cast<vulkan::timestamps&>(*Timestamps.m_Private).Write(RecordingCmd(), Index);
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+
+    VkCommandBuffer window::RecordingCmd( void ) noexcept
+    {
+        auto& Frame = m_Frames[m_FrameIndex];
+        return m_bAsyncRec ? Frame.m_VKAsyncCmd : Frame.m_VKCommandBuffer;
+    }
+
+    //------------------------------------------------------------------------------------------------------------------------
+    // The async section: the frame so far submitted (part A: the uploads' acquires, the last section waited), the frame goes on in B; the
+    // section's dispatches go to their own command buffer, submitted on the second queue after A (EndAsyncCompute). The frame's fence
+    // follows both (EndFrame)
+
+    bool window::BeginAsyncCompute( void ) noexcept
+    {
+        if( !m_Device->m_bAsyncCompute || m_bAsyncRec || m_bAsyncThisFrame || m_BeginState != 1 || m_AsyncTL == VK_NULL_HANDLE ) return false;
+        auto& Frame = m_Frames[m_FrameIndex];
+        if( Frame.m_VKCommandBufferB == VK_NULL_HANDLE || Frame.m_VKAsyncCmd == VK_NULL_HANDLE ) return false;
+        if( auto VKErr = vkEndCommandBuffer(Frame.m_VKCommandBuffer); VKErr ) { m_Device->m_Instance->ReportError(VKErr, "vkEndCommandBuffer (part A)"); return false; }
+        std::vector<VkCommandBufferSubmitInfo> Cmds;
+        std::vector<VkSemaphoreSubmitInfo>     Waits, Signals;
+        m_Device->UploadSubmitInfo(Cmds, Waits, Signals);
+        Cmds.push_back({ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, .commandBuffer = Frame.m_VKCommandBuffer });
+        if( m_AsyncValue ) Waits.push_back({ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = m_AsyncTL, .value = m_AsyncValue, .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT });
+        Signals.push_back({ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = m_SplitTL, .value = ++m_SplitValue, .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT });
+        const VkSubmitInfo2 Submit{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2, .waitSemaphoreInfoCount = std::uint32_t(Waits.size()), .pWaitSemaphoreInfos = Waits.data()
+                                  , .commandBufferInfoCount = std::uint32_t(Cmds.size()), .pCommandBufferInfos = Cmds.data()
+                                  , .signalSemaphoreInfoCount = std::uint32_t(Signals.size()), .pSignalSemaphoreInfos = Signals.data() };
+        {
+            std::lock_guard Lk(m_Device->m_VKMainQueue);
+            if( auto VKErr = vkQueueSubmit2(m_Device->m_VKMainQueue.get(), 1, &Submit, VK_NULL_HANDLE); VKErr ) { m_Device->m_Instance->ReportError(VKErr, "vkQueueSubmit (part A)"); assert(false); }
+        }
+        const VkCommandBufferBeginInfo Begin{ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT };
+        Frame.m_VKCommandBuffer = Frame.m_VKCommandBufferB;
+        vkBeginCommandBuffer(Frame.m_VKCommandBuffer, &Begin);
+        BoundForget();
+        vkBeginCommandBuffer(Frame.m_VKAsyncCmd, &Begin);
+        m_bAsyncRec = m_bAsyncThisFrame = true;
+        return true;
+    }
+
+    void window::EndAsyncCompute( void ) noexcept
+    {
+        if( !m_bAsyncRec ) return;
+        m_bAsyncRec = false;
+        auto& Frame = m_Frames[m_FrameIndex];
+        vkEndCommandBuffer(Frame.m_VKAsyncCmd);
+        const VkSemaphoreSubmitInfo   Wait  { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = m_SplitTL, .value = m_SplitValue, .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT };
+        const VkSemaphoreSubmitInfo   Signal{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = m_AsyncTL, .value = ++m_AsyncValue, .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT };
+        const VkCommandBufferSubmitInfo Cmd { .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, .commandBuffer = Frame.m_VKAsyncCmd };
+        const VkSubmitInfo2 Submit{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2, .waitSemaphoreInfoCount = 1, .pWaitSemaphoreInfos = &Wait, .commandBufferInfoCount = 1, .pCommandBufferInfos = &Cmd
+                                  , .signalSemaphoreInfoCount = 1, .pSignalSemaphoreInfos = &Signal };
+        std::lock_guard Lk(m_Device->m_VKAsyncQueue);
+        if( auto VKErr = vkQueueSubmit2(m_Device->m_VKAsyncQueue.get(), 1, &Submit, VK_NULL_HANDLE); VKErr ) { m_Device->m_Instance->ReportError(VKErr, "vkQueueSubmit (async section)"); assert(false); }
     }
 
     //------------------------------------------------------------------------------------------------------------------------

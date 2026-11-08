@@ -21,6 +21,8 @@ namespace xgpu
             virtual     void                            CopyTextureToBuffer     ( const xgpu::texture& Src, xgpu::buffer& Dst ) noexcept = 0;
             virtual     void                            CopyTexture             ( const xgpu::texture& Src, xgpu::texture& Dst, int Width, int Height ) noexcept = 0;
             virtual     void                            WriteTimestamp          ( xgpu::timestamps& Timestamps, int Index ) noexcept = 0;
+            virtual     bool                            BeginAsyncCompute       ( void ) noexcept { return false; }
+            virtual     void                            EndAsyncCompute         ( void ) noexcept {}
             virtual     void                            BeginGPUZone            ( const void* pWhere ) noexcept = 0;
             virtual     void                            EndGPUZone              ( void ) noexcept = 0;
             virtual     void                            Dispatch                ( xgpu::compute& Compute, std::span<xgpu::buffer* const> Buffers, std::span<const xgpu::texture* const> Textures, std::span<const xgpu::texture* const> Images, const void* pPush, std::size_t PushSize, int X, int Y, int Z ) noexcept = 0;
@@ -162,6 +164,18 @@ namespace xgpu
     void window::WriteTimestamp( timestamps& Timestamps, int Index ) noexcept
     {
         m_Private->WriteTimestamp(Timestamps, Index);
+    }
+
+    XGPU_INLINE
+    bool window::BeginAsyncCompute( void ) noexcept
+    {
+        return m_Private->BeginAsyncCompute();
+    }
+
+    XGPU_INLINE
+    void window::EndAsyncCompute( void ) noexcept
+    {
+        m_Private->EndAsyncCompute();
     }
 
     //------------------------------------------------------------------------------------------------

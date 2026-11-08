@@ -232,6 +232,16 @@ namespace xgpu::vulkan
         VkFence                                 m_VKPrevFence           {};     // the frame submitted last: the next EndFrame waits it
         gpu_zone_stack                          m_GPUZones              {};     // the profiler's open GPU zones (xgpu_vulkan_profile.h)
         frame_map                               m_FrameMap              {};     // (measurement: XGPU_FRAME_MAP, xgpu_vulkan_frame_map.h)
+        // The async section (BeginAsyncCompute): timeline semaphores - the frame's part before it done (split), the section done (async)
+        VkSemaphore                             m_SplitTL               {};
+        VkSemaphore                             m_AsyncTL               {};
+        std::uint64_t                           m_SplitValue            {0};
+        std::uint64_t                           m_AsyncValue            {0};    // the last section submitted
+        bool                                    m_bAsyncRec             {false};        // dispatches go to the section's command buffer
+        bool                                    m_bAsyncThisFrame       {false};
+        VkCommandBuffer                         RecordingCmd            ( void ) noexcept;  // the frame's command buffer, or the section's
+                    bool                        BeginAsyncCompute       ( void ) noexcept override;
+                    void                        EndAsyncCompute         ( void ) noexcept override;
         std::unordered_map<VkDescriptorType, descriptor_pool_ring>& Rings( void ) noexcept;     // this frame's (m_FrameIndex)
 
         // This frame's descriptor sets by content (layout + buffers): a draw that binds the same buffers as an earlier one reuses

@@ -200,6 +200,8 @@ namespace xgpu::vulkan
         std::uint32_t                                   m_MainQueueIndex            {0xffffffff};
         std::uint32_t                                   m_TransferQueueIndex        {0xffffffff};
         xgpu::lock_object<VkQueue>                      m_VKMainQueue               {};
+        xgpu::lock_object<VkQueue>                      m_VKAsyncQueue              {};         // the main family's second queue (window::BeginAsyncCompute)
+        bool                                            m_bAsyncCompute             {false};
         xgpu::lock_object<VkQueue>                      m_VKTransferQueue           {};
         VkPhysicalDeviceMemoryProperties                m_VKDeviceMemoryProperties  {};
         VkPipelineCache                                 m_VKPipelineCache           {};  // every pipeline made goes through it; Load/SavePipelineCache keep it between runs
@@ -249,4 +251,6 @@ namespace xgpu::vulkan
         mati_per_renderpass_map                         m_PipeLineInstanceMap       {};
         mat_per_renderpass_map                          m_PipeLineMap               {};
     };
+    // XGPU_PIPELINE_STATS: the driver's statistics of a pipeline, appended under Label (xgpu_vulkan_compute.cpp)
+    void WritePipelineStats( device& D, VkPipeline Pipeline, const std::string& Label ) noexcept;
 }
