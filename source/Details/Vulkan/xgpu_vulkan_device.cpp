@@ -749,11 +749,12 @@ namespace xgpu::vulkan
     , std::vector<std::byte>&      Dest
     , int&                          Width
     , int&                          Height
+    , int X, int Y, int RegionW, int RegionH
     ) noexcept
     {
         auto pTexture = static_cast<xgpu::vulkan::texture*>(Texture.m_Private.get());
         if (!pTexture) return VGPU_ERROR(xgpu::device::error::FAILURE, "ReadTexture: the texture has not been created");
-        return pTexture->ReadbackRaw(Dest, Width, Height);
+        return pTexture->ReadbackRaw(Dest, Width, Height, X, Y, RegionW, RegionH);
     }
 
     //----------------------------------------------------------------------------------------------------------

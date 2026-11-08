@@ -841,13 +841,20 @@ namespace xgpu::vulkan
     ( std::vector<std::byte>&      Dest
     , int&                          Width
     , int&                          Height
+    , int                           X
+    , int                           Y
+    , int                           RegionW
+    , int                           RegionH
     ) noexcept
     {
         const int TexelSize = getTexelSize(m_Format);
         if( TexelSize == 0 ) return VGPU_ERROR(xgpu::device::error::FAILURE, "Readback only supports uncompressed color formats");
+        const bool bRegion = RegionW > 0 && RegionH > 0;
+        if( bRegion && (X < 0 || Y < 0 || X + RegionW > int(m_Width) || Y + RegionH > int(m_Height)) ) return VGPU_ERROR(xgpu::device::error::FAILURE, "Readback region outside the texture");
+        if( !bRegion ) X = Y = 0;
 
-        const std::uint32_t W        = m_Width;
-        const std::uint32_t H        = m_Height;
+        const std::uint32_t W        = bRegion ? std::uint32_t(RegionW) : m_Width;
+        const std::uint32_t H        = bRegion ? std::uint32_t(RegionH) : m_Height;
         const VkDeviceSize  DataSize = VkDeviceSize(W) * VkDeviceSize(H) * TexelSize;
 
         VkBuffer        ReadbackBuffer{};
@@ -922,7 +929,7 @@ namespace xgpu::vulkan
             , .bufferRowLength   = 0
             , .bufferImageHeight = 0
             , .imageSubresource  = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1 }
-            , .imageOffset       = { 0, 0, 0 }
+            , .imageOffset       = { X, Y, 0 }
             , .imageExtent       = { W, H, 1 }
             };
             vkCmdCopyImageToBuffer(PerDevice.m_VKSetupCmdBuffer, m_VKImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, ReadbackBuffer, 1, &Region);

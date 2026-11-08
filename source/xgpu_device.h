@@ -123,11 +123,13 @@ namespace xgpu
 
         // Same as above but returns mip 0's texels exactly as stored, in the texture's own format (e.g. 8 bytes per
         // texel of half floats for R16G16B16A16_SFLOAT) - for numerical comparisons of HDR render targets.
-        // Uncompressed color formats only.
+        // Uncompressed color formats only. RegionW x RegionH texels from (X, Y) when given (a click's one texel: PickPixel); Width and
+        // Height are then the region's
         [[nodiscard]] XGPU_INLINE device::error* ReadTexture    ( const texture&                    Texture
                                                                 , std::vector<std::byte>&           Dest
                                                                 , int&                               Width
                                                                 , int&                               Height
+                                                                , int X = 0, int Y = 0, int RegionW = 0, int RegionH = 0
                                                                 ) noexcept;
 
         XGPU_INLINE void                         Destroy        ( pipeline_instance&&               PipelineInstance ) noexcept;

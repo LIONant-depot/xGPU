@@ -67,6 +67,7 @@ namespace xgpu
                                                                     , std::vector<std::byte>&               Dest
                                                                     , int&                                   Width
                                                                     , int&                                   Height
+                                                                    , int X, int Y, int RegionW, int RegionH
                                                                     ) noexcept = 0;
 
             virtual device::error*          Create                  ( xgpu::timestamps&                     Timestamps
@@ -280,9 +281,10 @@ namespace xgpu
     , std::vector<std::byte>&      Dest
     , int&                          Width
     , int&                          Height
+    , int X, int Y, int RegionW, int RegionH
     ) noexcept
     {
-        return m_Private->ReadTexture(Texture, Dest, Width, Height);
+        return m_Private->ReadTexture(Texture, Dest, Width, Height, X, Y, RegionW, RegionH);
     }
 
     //------------------------------------------------------------------------------------------------

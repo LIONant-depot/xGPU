@@ -89,6 +89,7 @@ namespace xgpu::vulkan
                                                             , std::vector<std::byte>&                   Dest
                                                             , int&                                       Width
                                                             , int&                                       Height
+                                                            , int X, int Y, int RegionW, int RegionH
                                                             ) noexcept override;
         virtual xgpu::device::error*    Create              ( xgpu::timestamps&                         Timestamps
                                                             , const xgpu::timestamps::setup&            Setup
