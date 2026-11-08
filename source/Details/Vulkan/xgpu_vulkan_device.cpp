@@ -794,12 +794,20 @@ namespace xgpu::vulkan
     {
         std::lock_guard Lk(m_InFlightLock);
         m_InFlight.push_back(Fence);
+        m_InFlightSerials.push_back(++m_SubmitSerial);
+        // (seal what was retired since the last submission: the frame just submitted, or an earlier one, is the last that can use it)
+        const auto& C = m_Collecting;
+        if( !(C.m_Texture.empty() && C.m_PipelineInstance.empty() && C.m_Pipeline.empty() && C.m_RenderPass.empty() && C.m_Buffer.empty() && C.m_Window.empty() && C.m_TextureTable.empty() && C.m_TableSets.empty()) )
+        {
+            m_Retired.push_back({ m_SubmitSerial, std::move(m_Collecting) });
+            m_Collecting = {};
+        }
     }
 
     void device::RemoveInFlight( VkFence Fence ) noexcept
     {
         std::lock_guard Lk(m_InFlightLock);
-        std::erase(m_InFlight, Fence);
+        for( std::size_t i = 0; i < m_InFlight.size(); ) if( m_InFlight[i] == Fence ) { m_InFlight.erase(m_InFlight.begin() + i); m_InFlightSerials.erase(m_InFlightSerials.begin() + i); } else ++i;
     }
 
     // A frame's fence, without a limit. Over 5 s something is stuck (the editor froze here with an idle GPU and no driver reset, 2026-11-05):
@@ -827,6 +835,7 @@ namespace xgpu::vulkan
         XPROFILE_SCOPE("xGPU: CPU idle, waiting for the GPU (GPU bound)");      // (a CPU write into a buffer the GPU may read waits for the frame in flight: one frame in flight, so when the GPU is the slower side the CPU waits here - whichever zone it lands in, it is not that zone's work, Tomas read it as CPU bound 2026-11-07)
         WaitFences( static_cast<std::uint32_t>(m_InFlight.size()), m_InFlight.data(), "WaitInFlight" );
         m_InFlight.clear();
+        m_InFlightSerials.clear();
         if( m_LastDoneFrame < m_FrameIndex - 1 ) m_LastDoneFrame = m_FrameIndex - 1;      // (every frame submitted: the one being recorded is m_FrameIndex)
     }
 
@@ -834,27 +843,27 @@ namespace xgpu::vulkan
 
     void device::Destroy(xgpu::texture&& Texture)                     noexcept 
     { 
-        m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Texture.push_back(std::move(Texture)); 
+        m_Collecting.m_Texture.push_back(std::move(Texture)); 
     }
     void device::Destroy(xgpu::pipeline_instance&& PipelineInstance)  noexcept 
     { 
-        m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_PipelineInstance.push_back(std::move(PipelineInstance));
+        m_Collecting.m_PipelineInstance.push_back(std::move(PipelineInstance));
     }
     void device::Destroy(xgpu::pipeline&& Pipeline)                   noexcept 
     { 
-        m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Pipeline.push_back(std::move(Pipeline)); 
+        m_Collecting.m_Pipeline.push_back(std::move(Pipeline)); 
     }
     void device::Destroy(xgpu::renderpass&& RenderPass)               noexcept
     {
-        m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_RenderPass.push_back(std::move(RenderPass));
+        m_Collecting.m_RenderPass.push_back(std::move(RenderPass));
     }
     void device::Destroy(xgpu::buffer&& Buffer)                       noexcept
     {
-        m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Buffer.push_back(std::move(Buffer));
+        m_Collecting.m_Buffer.push_back(std::move(Buffer));
     }
     void device::Destroy(xgpu::window&& Window)                       noexcept
     {
-        m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_Window.push_back(std::move(Window));
+        m_Collecting.m_Window.push_back(std::move(Window));
     }
 
     //----------------------------------------------------------------------------------------------------------
@@ -866,7 +875,19 @@ namespace xgpu::vulkan
         static const bool s_bLeakLog = xgpu::details::Env("XGPU_LEAK_LOG") != nullptr;      // (measurement: what the device keeps, every 600 frames)
         if( s_bLeakLog && m_FrameIndex % 600 == 0 ) { extern std::atomic<std::uint64_t> g_ShaderModules, g_ShaderBytes; std::printf("XGPULEAK pipelines %zu, pipeline instances %zu, extra sampler pools %zu, shader modules made %llu (%.1f MB)\n", m_PipeLineMap.size(), m_PipeLineInstanceMap.size(), m_AdditionalSamplerPools.size(), (unsigned long long)g_ShaderModules.load(), double(g_ShaderBytes.load()) / 1048576.0); std::fflush(stdout); }
 
-        auto& DeathMarch = m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()];
+        // the batches every frame up to their serial is done with (none of those still in flight)
+        std::uint64_t Oldest;
+        { std::lock_guard Lk(m_InFlightLock); Oldest = m_SubmitSerial + 1; for( auto S : m_InFlightSerials ) Oldest = std::min(Oldest, S); }
+        while( !m_Retired.empty() && m_Retired.front().m_Serial < Oldest )
+        {
+            auto B = std::move(m_Retired.front());
+            m_Retired.pop_front();
+            ProcessDeathMarch(B.m_Objects);
+        }
+    }
+
+    void device::ProcessDeathMarch( death_march& DeathMarch ) noexcept
+    {
 
         if (false == DeathMarch.m_PipelineInstance.empty())
         {
@@ -996,7 +1017,9 @@ namespace xgpu::vulkan
     #if XGPU_PROFILE
         if( m_pProfileContext ) { TracyVkDestroy(static_cast<tracy::VkCtx*>(m_pProfileContext)); m_pProfileContext = nullptr; }
     #endif
-        DeathMarch();
+        // (the GPU idle: everything retired goes now)
+        while( !m_Retired.empty() ) { auto B = std::move(m_Retired.front()); m_Retired.pop_front(); ProcessDeathMarch(B.m_Objects); }
+        ProcessDeathMarch(m_Collecting);
     }
 
     //----------------------------------------------------------------------------------------------------------

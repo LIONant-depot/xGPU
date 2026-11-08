@@ -225,10 +225,21 @@ namespace xgpu::vulkan
         void*                                           m_pProfileContext           = nullptr;  // the profiler's Vulkan context on the main queue (tracy::VkCtx; xgpu_vulkan_profile.h): made by ProfileContext
         void*                                           ProfileContext              ( void ) noexcept;          // made on the first call with the profiler on (it submits and waits once); nullptr: no profiler
         int                                             m_ProfileCollectedFrame     = -1;       // the device frame its results were last collected in (once a frame, whatever the windows)
-        std::array<death_march,2>                       m_DeathMarchList            {};
+        // Retired objects (Destroy) are freed once the GPU is done with every frame that could use them - not after a count of page flips: every
+        // window's flip moved that count, and with several windows (Play adds one) an object went while a submitted frame still read it (the
+        // editor's crash inside the driver after Play/Stop, 2026-11-08). Collected until the next frame submission (AddInFlight), which seals them
+        // with its serial: the frame being recorded when they were retired is that one or an earlier one; freed when no frame up to that serial is
+        // still in flight (DeathMarch)
+        struct retired_batch { std::uint64_t m_Serial; death_march m_Objects; };
+        death_march                                     m_Collecting                {};
+        std::deque<retired_batch>                       m_Retired                   {};
+        std::uint64_t                                   m_SubmitSerial              {0};        // the frame submissions so far (AddInFlight)
+        death_march&                                    Collecting                  ( void ) noexcept { return m_Collecting; }
+        void                                            ProcessDeathMarch           ( death_march& D ) noexcept;
         // The frames submitted and not waited yet (every window's): the CPU's first write into a GPU buffer waits them (WaitInFlight)
         std::mutex                                      m_InFlightLock              {};
         std::vector<VkFence>                            m_InFlight                  {};
+        std::vector<std::uint64_t>                      m_InFlightSerials           {};         // (each m_InFlight fence's submission serial)
         std::atomic<int>                                m_LastDoneFrame             {-1};      // the newest m_FrameIndex known complete (its fence waited)
         void                                            AddInFlight                 ( VkFence Fence ) noexcept;
         void                                            RemoveInFlight              ( VkFence Fence ) noexcept;

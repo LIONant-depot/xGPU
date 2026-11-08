@@ -1545,6 +1545,12 @@ namespace xgpu::vulkan
                 ? CB.m_pActiveRenderPass->m_RenderPassCompatKey
                 : m_RenderPassCompatKey;
             std::uint64_t pipelineKey = (CompatKey * 0x9E3779B97F4A7C15ull) ^ (Pipe.m_StateHash * 0xC2B2AE3D27D4EB4Full);
+            // A VkPipeline per pipeline object by default, none shared between pipeline objects of equal state (the engine copies'): shared,
+            // the editor crashed inside the driver after Play/Stop (2026-11-08: 1 run in 1 to 6 of level_smoke, at draws and destroys; a run
+            // per pipeline object, or one that never destroys retired pipelines, 12/12 and 8/8 clean). The cause inside the sharing is not found;
+            // XGPU_PIPELINE_SHARE=1 shares again (a second editor window or renderer then reuses compiled pipelines)
+            static const bool s_bShare = xgpu::details::Env("XGPU_PIPELINE_SHARE") != nullptr;
+            if( !s_bShare ) pipelineKey ^= Pipe.m_Serial * 0x165667B19E3779F9ull;
             auto itPipeline = m_Device->m_PipeLineMap.find(pipelineKey);
             if (itPipeline == m_Device->m_PipeLineMap.end())
             {

@@ -147,6 +147,16 @@ namespace xgpu::vulkan
         assert(static_cast<int>(Buffers.size()) == C.m_nBuffers && static_cast<int>(Textures.size()) == C.m_nTextures && static_cast<int>(Images.size()) == C.m_nImages && PushSize <= C.m_PushSize);
         auto& Frame = m_Frames[m_FrameIndex];
 
+        // (measurement, XGPU_BARRIER_LOG: dispatches a device frame, each with its two full barriers, and the storage images' layout flips)
+        static const bool s_bBarrierLog = xgpu::details::Env("XGPU_BARRIER_LOG") != nullptr;
+        if( s_bBarrierLog )
+        {
+            static std::uint64_t s_Frame = 0, s_First = 0, s_Dispatches = 0, s_Images = 0;
+            const std::uint64_t F = m_Device->getFrameIndex();
+            if( F != s_Frame ) { s_Frame = F; if( s_First == 0 ) s_First = F; else if( F - s_First >= 120 ) { std::printf("XGPU_BARRIERS a frame: %.1f dispatches (%.1f full barriers), %.1f storage-image layout flips\n", double(s_Dispatches) / double(F - s_First), 2.0 * double(s_Dispatches) / double(F - s_First), 2.0 * double(s_Images) / double(F - s_First)); std::fflush(stdout); s_First = F; s_Dispatches = s_Images = 0; } }
+            ++s_Dispatches; s_Images += std::uint64_t(C.m_nImages);
+        }
+
         VkDescriptorSet Set = VK_NULL_HANDLE;
         if( C.m_nBuffers )
         {

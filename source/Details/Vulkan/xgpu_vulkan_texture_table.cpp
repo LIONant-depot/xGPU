@@ -318,7 +318,7 @@ namespace xgpu::vulkan
 
     void device::Destroy( xgpu::texture_table&& Table ) noexcept
     {
-        m_DeathMarchList[m_FrameIndex % m_DeathMarchList.size()].m_TextureTable.push_back(std::move(Table));
+        m_Collecting.m_TextureTable.push_back(std::move(Table));
     }
 
     //----------------------------------------------------------------------------------------------------------
@@ -377,7 +377,7 @@ namespace xgpu::vulkan
 
         // The old set may still be read by the frame in flight: freed by the death march
         if( m_VKSet != VK_NULL_HANDLE )
-            m_Device->m_DeathMarchList[m_Device->m_FrameIndex % m_Device->m_DeathMarchList.size()].m_TableSets.push_back({ m_VKPool, m_VKSet });
+            m_Device->m_Collecting.m_TableSets.push_back({ m_VKPool, m_VKSet });
         m_VKSet  = Set;
         m_VKPool = Pool;
         return nullptr;
