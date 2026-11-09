@@ -39,6 +39,8 @@ namespace xgpu::vulkan
         xgpu::device::error*    UploadImage     ( VkImage Image, VkImageSubresourceRange Range, std::span<const std::span<const std::byte>> Pieces, std::span<VkBufferImageCopy> Regions ) noexcept;
         // Bytes of a host staging buffer into a device-local one (the staging buffer is freed when the batch retires)
         xgpu::device::error*    UploadBuffer    ( VkBuffer Staging, VkDeviceMemory StagingMemory, VkBuffer Dst, VkDeviceSize Bytes ) noexcept;
+        // A new image to its resting layout (from UNDEFINED, no data): a barrier in the open batch, the main queue acquires it as an upload's
+        void                    TransitionImage ( VkImage Image, VkImageSubresourceRange Range, VkImageLayout NewLayout ) noexcept;
         std::uint64_t           Flush           ( void ) noexcept;                     // the timeline value the main queue waits on
         // For a main-queue submission: the batches' acquires to run first, the timeline value to wait on, the acquire timeline value to
         // signal (0: no acquire)

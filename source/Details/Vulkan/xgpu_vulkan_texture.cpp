@@ -322,17 +322,12 @@ namespace xgpu::vulkan
             }
             // Its resting layout now, not at its first pass: a target sampled before anything drew it (a history, a feedback read) was
             // UNDEFINED there while its descriptor said SHADER_READ_ONLY - Vulkan validation's InvalidImageLayout at startup (xLION_Docs C2)
-            if (auto [PerDevice, Error] = m_Device->m_Instance->getLocalStorage().getOrCreatePerDevice(*m_Device); Error == nullptr)
-            {
-                const VkImageMemoryBarrier ToRest
-                { .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .srcAccessMask = 0, .dstAccessMask = VK_ACCESS_SHADER_READ_BIT
-                , .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED, .newLayout = isDepth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL
-                , .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .image = m_VKImage
-                , .subresourceRange = { .aspectMask = isDepth ? std::uint32_t(VK_IMAGE_ASPECT_DEPTH_BIT) | (xgpu::texture::isStencil(Setup.m_Format) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0) : VK_IMAGE_ASPECT_COLOR_BIT                                      , .baseMipLevel = 0, .levelCount = VK_REMAINING_MIP_LEVELS, .baseArrayLayer = 0, .layerCount = VK_REMAINING_ARRAY_LAYERS } };
-                vkCmdPipelineBarrier(PerDevice.m_VKSetupCmdBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 0, nullptr, 0, nullptr, 1, &ToRest);
-                PerDevice.FlushVKSetupCommandBuffer();
-                if (!isDepth) OutImageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-            }
+            // (on the upload queue: the frames that use it wait for its batch, as for a texture with data)
+            m_Device->m_Upload.TransitionImage(m_VKImage
+                , { .aspectMask = isDepth ? std::uint32_t(VK_IMAGE_ASPECT_DEPTH_BIT) | (xgpu::texture::isStencil(Setup.m_Format) ? VK_IMAGE_ASPECT_STENCIL_BIT : 0) : VK_IMAGE_ASPECT_COLOR_BIT
+                  , .baseMipLevel = 0, .levelCount = VK_REMAINING_MIP_LEVELS, .baseArrayLayer = 0, .layerCount = VK_REMAINING_ARRAY_LAYERS }
+                , isDepth ? VK_IMAGE_LAYOUT_DEPTH_STENCIL_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            if (!isDepth) OutImageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         }
         //
         // If we have a normal texture with data

@@ -228,6 +228,35 @@ namespace xgpu::vulkan
 
     //------------------------------------------------------------------------------------------------------------------------
 
+    // A render target's first layout, set on the transfer queue with the uploads: the setup command buffer's submit and queue wait did it
+    // before - a wait per target, and the driver kept 12 allocations of each one made (xlionrender_test_instance_churn: a renderer's Init
+    // ~850, the editor's Play/Stop ~150 MB a round, 2026-11-09)
+    void upload_queue::TransitionImage( VkImage Image, VkImageSubresourceRange Range, VkImageLayout NewLayout ) noexcept
+    {
+        std::lock_guard Lk(m_Lock);
+        auto& B = *Open();
+        const auto Barrier = [&](VkCommandBuffer Cmd, const VkImageMemoryBarrier2& IB)
+        {
+            const VkDependencyInfo Dep{ .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO, .imageMemoryBarrierCount = 1, .pImageMemoryBarriers = &IB };
+            vkCmdPipelineBarrier2(Cmd, &Dep);
+        };
+        const std::uint32_t Src = m_bOwnFamily ? m_pDevice->m_TransferQueueIndex : VK_QUEUE_FAMILY_IGNORED;
+        const std::uint32_t Dst = m_bOwnFamily ? m_pDevice->m_MainQueueIndex     : VK_QUEUE_FAMILY_IGNORED;
+        Barrier(B.m_Transfer, { .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2, .srcStageMask = VK_PIPELINE_STAGE_2_NONE, .srcAccessMask = VK_ACCESS_2_NONE
+                              , .dstStageMask = m_bOwnFamily ? VK_PIPELINE_STAGE_2_NONE : VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, .dstAccessMask = m_bOwnFamily ? VK_ACCESS_2_NONE : VK_ACCESS_2_MEMORY_READ_BIT
+                              , .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED, .newLayout = NewLayout
+                              , .srcQueueFamilyIndex = Src, .dstQueueFamilyIndex = Dst, .image = Image, .subresourceRange = Range });
+        if( m_bOwnFamily )
+        {
+            Barrier(B.m_Acquire, { .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2, .srcStageMask = VK_PIPELINE_STAGE_2_NONE, .srcAccessMask = VK_ACCESS_2_NONE
+                                 , .dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT, .dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT
+                                 , .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED, .newLayout = NewLayout
+                                 , .srcQueueFamilyIndex = Src, .dstQueueFamilyIndex = Dst, .image = Image, .subresourceRange = Range });
+            B.m_bAcquires = true;
+        }
+        ++B.m_nCommands;
+    }
+
     xgpu::device::error* upload_queue::UploadBuffer( VkBuffer Staging, VkDeviceMemory StagingMemory, VkBuffer Dst, VkDeviceSize Bytes ) noexcept
     {
         std::lock_guard Lk(m_Lock);

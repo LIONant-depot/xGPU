@@ -1,6 +1,74 @@
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <dbghelp.h>
+#pragma comment(lib, "dbghelp.lib")
+#include <unordered_map>
 namespace xgpu::vulkan
 {
     //------------------------------------------------------------------------------------
+    // XGPU_ALLOC_STATS (diagnosis): the driver's host allocations through counting callbacks - live bytes and count per allocation scope
+    // (command, object, cache, device, instance); xgpu::PrintVulkanAllocStats prints them
+    namespace alloc_stats
+    {
+        struct header { std::size_t m_Size, m_Align; int m_Scope; int m_Pad; int m_Stack; int m_Pad2; };
+        inline std::atomic<std::int64_t> s_Bytes[5], s_Count[5];
+        struct stack { void* m_Frames[40]{}; int m_n = 0; std::int64_t m_Live = 0, m_Bytes = 0; };
+        inline std::mutex s_StackLock;
+        inline std::vector<stack> s_Stacks;
+        inline std::unordered_map<std::uint64_t, int> s_StackIds;
+        inline int StackOf(std::size_t Size) noexcept      // (XGPU_ALLOC_STATS=2: each allocation's caller kept, the live ones listed by it)
+        {
+            static const bool s_b = std::getenv("XGPU_ALLOC_STATS") && std::atoi(std::getenv("XGPU_ALLOC_STATS")) >= 2;
+            if (!s_b) return -1;
+            stack S; ULONG Hash = 0;
+            S.m_n = CaptureStackBackTrace(3, 40, S.m_Frames, &Hash);
+            std::lock_guard Lk(s_StackLock);
+            auto [It, bNew] = s_StackIds.try_emplace(Hash, int(s_Stacks.size()));
+            if (bNew) s_Stacks.push_back(S);
+            auto& R = s_Stacks[std::size_t(It->second)]; ++R.m_Live; R.m_Bytes += std::int64_t(Size);
+            return It->second;
+        }
+        inline void StackFree(int i, std::size_t Size) noexcept
+        {
+            if (i < 0) return;
+            std::lock_guard Lk(s_StackLock);
+            --s_Stacks[std::size_t(i)].m_Live; s_Stacks[std::size_t(i)].m_Bytes -= std::int64_t(Size);
+        }
+        inline void* Alloc(std::size_t Size, std::size_t Align, int Scope) noexcept
+        {
+            Align = std::max<std::size_t>(Align, alignof(header));
+            const std::size_t Off = (sizeof(header) + Align - 1) / Align * Align;
+            auto* pRaw = static_cast<std::byte*>(_aligned_malloc(Size + Off, Align));
+            if (!pRaw) return nullptr;
+            auto* p = pRaw + Off;
+            auto* h = reinterpret_cast<header*>(p) - 1;
+            h->m_Size = Size; h->m_Align = Align; h->m_Scope = Scope; h->m_Pad = int(Off); h->m_Stack = StackOf(Size);
+            s_Bytes[Scope] += std::int64_t(Size); ++s_Count[Scope];
+            return p;
+        }
+        inline void Free(void* p) noexcept
+        {
+            if (!p) return;
+            auto* h = reinterpret_cast<header*>(p) - 1;
+            s_Bytes[h->m_Scope] -= std::int64_t(h->m_Size); --s_Count[h->m_Scope];
+            StackFree(h->m_Stack, h->m_Size);
+            _aligned_free(static_cast<std::byte*>(p) - h->m_Pad);
+        }
+        inline VKAPI_ATTR void* VKAPI_CALL CbAlloc(void*, std::size_t Size, std::size_t Align, VkSystemAllocationScope Scope) { return Alloc(Size, Align, int(Scope) % 5); }
+        inline VKAPI_ATTR void* VKAPI_CALL CbRealloc(void*, void* pOld, std::size_t Size, std::size_t Align, VkSystemAllocationScope Scope)
+        {
+            if (!pOld) return Alloc(Size, Align, int(Scope) % 5);
+            if (Size == 0) { Free(pOld); return nullptr; }
+            auto* h = reinterpret_cast<header*>(pOld) - 1;
+            void* pNew = Alloc(Size, Align, h->m_Scope);
+            if (pNew) { std::memcpy(pNew, pOld, std::min(Size, h->m_Size)); Free(pOld); }
+            return pNew;
+        }
+        inline VKAPI_ATTR void VKAPI_CALL CbFree(void*, void* p) { Free(p); }
+        inline VkAllocationCallbacks s_Callbacks{ nullptr, CbAlloc, CbRealloc, CbFree, nullptr, nullptr };
+    }
 
     local_storage& instance::getLocalStorage( void ) noexcept
     {
@@ -307,7 +375,8 @@ namespace xgpu::vulkan
         //
         // Ready to create the instance now
         //
-        if (VkResult Res = vkCreateInstance( &InstanceInfo, nullptr, &m_VKInstance ); Res)
+        if( std::getenv("XGPU_ALLOC_STATS") ) m_pVKAllocator = &alloc_stats::s_Callbacks;
+        if (VkResult Res = vkCreateInstance( &InstanceInfo, m_pVKAllocator, &m_VKInstance ); Res)
         {
             ReportError(Res, "Fail to create the Vulkan Instance" );
             return VGPU_ERROR( xgpu::instance::error::FAILURE, "Fail to create the Vulkan Instance" );
@@ -611,4 +680,42 @@ xgpu::instance::error* CreateInstanceVulkan( xgpu::instance& Instance, const xgp
     Instance.m_Private = std::move(VGPUInst); //std::static_pointer_cast<xgpu::details::instance_handle>( std::make_shared<xgpu::vulkan_instance>() );
 
     return nullptr;
+}
+
+namespace xgpu
+{
+    void PrintVulkanAllocStats( const char* pLabel ) noexcept
+    {
+        using namespace xgpu::vulkan::alloc_stats;
+        std::printf("XGPUALLOC %s: command %.2f MB (%lld), object %.2f MB (%lld), cache %.2f MB (%lld), device %.2f MB (%lld), instance %.2f MB (%lld)\n", pLabel
+            , s_Bytes[0] / 1048576.0, (long long)s_Count[0].load(), s_Bytes[1] / 1048576.0, (long long)s_Count[1].load(), s_Bytes[2] / 1048576.0, (long long)s_Count[2].load()
+            , s_Bytes[3] / 1048576.0, (long long)s_Count[3].load(), s_Bytes[4] / 1048576.0, (long long)s_Count[4].load());
+        // the callers with the most live allocations (XGPU_ALLOC_STATS=2), their first frames outside the driver and xGPU's allocator
+        std::vector<std::pair<std::int64_t, int>> Top;
+        {
+            std::lock_guard Lk(s_StackLock);
+            for (int i = 0; i < int(s_Stacks.size()); ++i) if (s_Stacks[std::size_t(i)].m_Live > 0) Top.push_back({ s_Stacks[std::size_t(i)].m_Live, i });
+        }
+        std::sort(Top.rbegin(), Top.rend());
+        static bool s_bSym = false;
+        if (!Top.empty() && !s_bSym) { s_bSym = true; SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS); SymInitialize(GetCurrentProcess(), nullptr, TRUE); }
+        for (std::size_t k = 0; k < std::min<std::size_t>(Top.size(), 12); ++k)
+        {
+            const auto& S = s_Stacks[std::size_t(Top[k].second)];
+            std::string Line;
+            int nShown = 0;
+            for (int f = 0; f < S.m_n && nShown < 6; ++f)
+            {
+                alignas(SYMBOL_INFO) char Buf[sizeof(SYMBOL_INFO) + 256]{};
+                auto* pSym = reinterpret_cast<SYMBOL_INFO*>(Buf); pSym->SizeOfStruct = sizeof(SYMBOL_INFO); pSym->MaxNameLen = 255;
+                DWORD64 Disp = 0;
+                if (!SymFromAddr(GetCurrentProcess(), DWORD64(S.m_Frames[f]), &Disp, pSym)) continue;
+                const std::string_view N = pSym->Name;
+                if (N.find("alloc_stats") != std::string_view::npos || N.rfind("vk", 0) == 0 || N.rfind("Base", 0) == 0 || N.rfind("Rtl", 0) == 0 || N.rfind("std::", 0) == 0) continue;
+                Line += std::string(N.substr(0, 70)) + " <- "; ++nShown;
+            }
+            std::printf("XGPUALLOC   %lld live (%.2f MB): %s\n", (long long)S.m_Live, S.m_Bytes / 1048576.0, Line.c_str());
+        }
+        std::fflush(stdout);
+    }
 }
