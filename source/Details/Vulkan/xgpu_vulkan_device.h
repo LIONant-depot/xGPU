@@ -205,6 +205,7 @@ namespace xgpu::vulkan
         bool                                            m_bAsyncCompute             {false};
         xgpu::lock_object<VkQueue>                      m_VKTransferQueue           {};
         VkPhysicalDeviceMemoryProperties                m_VKDeviceMemoryProperties  {};
+        std::size_t                                     m_SavedCacheSize            = 0;     // the pipeline cache's size at its last save (SavePipelineCache writes only when it grew)
         VkPipelineCache                                 m_VKPipelineCache           {};  // every pipeline made goes through it; Load/SavePipelineCache keep it between runs
         VkDeviceSize                                    m_BufferMemoryAlignment     {256};
         VkPhysicalDeviceProperties                      m_VKPhysicalDeviceProperties{};

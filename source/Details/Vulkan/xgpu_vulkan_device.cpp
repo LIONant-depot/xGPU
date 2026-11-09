@@ -639,6 +639,7 @@ namespace xgpu::vulkan
     {
         std::size_t Size = 0;
         if( vkGetPipelineCacheData( m_VKDevice, m_VKPipelineCache, &Size, nullptr ) ) return VGPU_ERROR(xgpu::device::error::FAILURE, "SavePipelineCache: could not read the pipeline cache");
+        if( Size == m_SavedCacheSize ) return nullptr;      // (nothing new since the last save: a caller may save every few seconds)
         std::vector<char> Data( Size );
         if( vkGetPipelineCacheData( m_VKDevice, m_VKPipelineCache, &Size, Data.data() ) ) return VGPU_ERROR(xgpu::device::error::FAILURE, "SavePipelineCache: could not read the pipeline cache");
 
@@ -652,6 +653,7 @@ namespace xgpu::vulkan
         }
         std::filesystem::rename( Temp, Final, Ec );
         if( Ec ) return VGPU_ERROR(xgpu::device::error::FAILURE, "SavePipelineCache: could not replace the file");
+        m_SavedCacheSize = Size;
         return nullptr;
     }
 
