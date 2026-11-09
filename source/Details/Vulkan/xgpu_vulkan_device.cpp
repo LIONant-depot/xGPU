@@ -365,7 +365,7 @@ namespace xgpu::vulkan
         // Get all the queues
         //
         {
-            std::scoped_lock Lks(m_VKMainQueue, m_VKTransferQueue);
+            std::scoped_lock Lks(m_VKMainQueue, m_VKTransferQueue, m_VKAsyncQueue);      // (every queue written here: Debug asserts a get() not under its lock)
             vkGetDeviceQueue(m_VKDevice, MainQueueIndex,       0, &m_VKMainQueue.get());
             if( m_bAsyncCompute ) vkGetDeviceQueue(m_VKDevice, MainQueueIndex, 1, &m_VKAsyncQueue.get());
             vkGetDeviceQueue(m_VKDevice, m_TransferQueueIndex, 0, &m_VKTransferQueue.get());
