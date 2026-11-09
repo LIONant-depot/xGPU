@@ -1,6 +1,74 @@
 #include "../xgpu_env.h"
 namespace xgpu::vulkan
 {
+    namespace
+    {
+        // What a dispatch outside an explicit-sync section waits for (draws, copies, the host's writes, other dispatches; DRAW_INDIRECT: a
+        // buffer of draw commands it rewrites may still be read by earlier indirect draws, and later ones read what it wrote; the attachment
+        // stages: a texture it reads was rendered by an earlier pass, and a later pass may render into it again), and makes its writes visible to
+        constexpr VkPipelineStageFlags dispatch_neighbours_v = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT
+                                                             | VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT
+                                                             | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+        constexpr VkMemoryBarrier dispatch_in_v
+        { .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER
+        , .srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT
+                         | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
+        , .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT };
+        constexpr VkMemoryBarrier dispatch_out_v
+        { .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT
+        , .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_HOST_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT };
+
+        // A storage image from where it rests between operations (sampled, or nothing yet) to the general layout
+        VkImageMemoryBarrier ToGeneralBarrier( const vulkan::texture& T ) noexcept
+        {
+            return { .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT
+                   , .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT
+                   , .oldLayout = T.m_bContentReady || T.m_bStorageAfterPass ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED, .newLayout = VK_IMAGE_LAYOUT_GENERAL
+                   , .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .image = T.m_VKImage
+                   , .subresourceRange = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 } };
+        }
+    }
+
+    // (R1a) The explicit-sync section: one barrier in (all earlier work; the section's storage images to general), none per dispatch
+    void window::BeginExplicitSync( std::span<const xgpu::texture* const> Images ) noexcept
+    {
+        assert(!m_bExplicitSync);
+        m_bExplicitSync = true; m_GeneralImages.clear();
+        std::array<VkImageMemoryBarrier, 16> To{};
+        std::uint32_t n = 0;
+        for( auto* pI : Images ) if( pI && pI->m_Private && n < To.size() )
+        {
+            auto& T = *const_cast<vulkan::texture*>(static_cast<const vulkan::texture*>(pI->m_Private.get()));
+            if( std::find(m_GeneralImages.begin(), m_GeneralImages.end(), &T) != m_GeneralImages.end() ) continue;
+            To[n++] = ToGeneralBarrier(T); m_GeneralImages.push_back(&T); T.m_bContentReady = true;
+        }
+        vkCmdPipelineBarrier(RecordingCmd(), dispatch_neighbours_v, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &dispatch_in_v, 0, nullptr, n, To.data());
+        ++m_PendingBarriers;
+    }
+    // A dispatch reads or overwrites what an earlier one in the section touched
+    void window::ComputeBarrier( void ) noexcept
+    {
+        assert(m_bExplicitSync);
+        constexpr VkMemoryBarrier B{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT, .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT };
+        vkCmdPipelineBarrier(RecordingCmd(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &B, 0, nullptr, 0, nullptr);
+        ++m_PendingBarriers;
+    }
+    // Out: the section's writes visible to everything after, its images sampled again
+    void window::EndExplicitSync( void ) noexcept
+    {
+        assert(m_bExplicitSync);
+        std::vector<VkImageMemoryBarrier> Back;
+        for( auto* pT : m_GeneralImages )
+        {
+            auto B = ToGeneralBarrier(*pT);
+            B.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT; B.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT;
+            B.oldLayout = VK_IMAGE_LAYOUT_GENERAL; B.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+            Back.push_back(B);
+        }
+        vkCmdPipelineBarrier(RecordingCmd(), VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, dispatch_neighbours_v, 0, 1, &dispatch_out_v, 0, nullptr, static_cast<std::uint32_t>(Back.size()), Back.data());
+        if( m_FrameMap.m_bOn && !m_FrameMap.m_Entries.empty() ) m_FrameMap.m_Entries.back().m_Barriers += 1;
+        m_bExplicitSync = false; m_GeneralImages.clear(); m_PendingBarriers = 0;
+    }
     // XGPU_PIPELINE_STATS=<file>: what the driver says about a compute pipeline, appended (a measuring tool: a pipeline is named only by its bindings and its order)
     // (also the graphics pipelines': window::setPipelineInstance, labelled by their pass and state)
     void WritePipelineStats( device& D, VkPipeline Pipeline, const std::string& Label ) noexcept
@@ -154,7 +222,7 @@ namespace xgpu::vulkan
         bool bMap = false;
         if( m_FrameMap.m_bOn )
         {
-            auto& E = m_FrameMap.Add("dispatch"); bMap = true; E.m_Barriers = 2;      // (In and Out, below)
+            auto& E = m_FrameMap.Add("dispatch"); bMap = true; E.m_Barriers = m_bExplicitSync ? m_PendingBarriers : 2;      // (In and Out, below; in a section: the caller's since the last dispatch)
             E.m_Name = frame_map::Name(C.m_pName);
             for( std::size_t b = 0; b < Buffers.size(); ++b ) if( auto* pB = Buffers[b] )      // (read only: the shader's readonly buffers)
                 ((C.m_ReadOnlyBuffers >> b) & 1u ? E.m_Reads : E.m_RW).push_back(frame_map::Name(static_cast<const vulkan::buffer*>(pB->m_Private.get())->m_pName));
@@ -203,7 +271,8 @@ namespace xgpu::vulkan
             for( int i = 0; i < C.m_nTextures; ++i )
             {
                 const auto& T = *static_cast<const vulkan::texture*>(Textures[i]->m_Private.get());
-                Infos[i]  = { .sampler = C.m_VKSampler, .imageView = T.m_VKDescriptorImageInfo.imageView, .imageLayout = T.m_VKDescriptorImageInfo.imageLayout };
+                const bool bGeneral = m_bExplicitSync && std::find(m_GeneralImages.begin(), m_GeneralImages.end(), &T) != m_GeneralImages.end();      // (a section's image: still general)
+                Infos[i]  = { .sampler = C.m_VKSampler, .imageView = T.m_VKDescriptorImageInfo.imageView, .imageLayout = bGeneral ? VK_IMAGE_LAYOUT_GENERAL : T.m_VKDescriptorImageInfo.imageLayout };
                 Writes[i] = { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = TextureSet, .dstBinding = static_cast<std::uint32_t>(i), .descriptorCount = 1
                             , .descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, .pImageInfo = &Infos[i] };
             }
@@ -212,6 +281,7 @@ namespace xgpu::vulkan
 
         VkDescriptorSet ImageSet = VK_NULL_HANDLE;
         std::array<VkImageMemoryBarrier, compute::max_textures_v> ToGeneral{}, ToSampled{};
+        std::uint32_t nToGeneral = 0;
         if( C.m_nImages )
         {
             if( (ImageSet = Rings()[VK_DESCRIPTOR_TYPE_STORAGE_IMAGE].alloc(m_Device->m_VKDevice, C.m_VKImageLayout)) == VK_NULL_HANDLE )
@@ -221,7 +291,6 @@ namespace xgpu::vulkan
             }
             std::array<VkDescriptorImageInfo, compute::max_textures_v> Infos{};
             std::array<VkWriteDescriptorSet, compute::max_textures_v> Writes{};
-            constexpr VkImageSubresourceRange All{ .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .levelCount = 1, .layerCount = 1 };
             for( int i = 0; i < C.m_nImages; ++i )
             {
                 auto& T = *const_cast<vulkan::texture*>(static_cast<const vulkan::texture*>(Images[i]->m_Private.get()));
@@ -229,10 +298,12 @@ namespace xgpu::vulkan
                 Infos[i]  = { .imageView = T.m_VKDescriptorImageInfo.imageView, .imageLayout = VK_IMAGE_LAYOUT_GENERAL };
                 Writes[i] = { .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = ImageSet, .dstBinding = static_cast<std::uint32_t>(i), .descriptorCount = 1
                             , .descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, .pImageInfo = &Infos[i] };
-                ToGeneral[i] = { .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER, .srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT
-                               , .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT
-                               , .oldLayout = T.m_bContentReady || T.m_bStorageAfterPass ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_UNDEFINED, .newLayout = VK_IMAGE_LAYOUT_GENERAL
-                               , .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED, .image = T.m_VKImage, .subresourceRange = All };
+                if( m_bExplicitSync )      // (a section: an image Begin did not list goes general now and stays so until End)
+                {
+                    if( std::find(m_GeneralImages.begin(), m_GeneralImages.end(), &T) == m_GeneralImages.end() ) { ToGeneral[nToGeneral++] = ToGeneralBarrier(T); m_GeneralImages.push_back(&T); T.m_bContentReady = true; }
+                    continue;
+                }
+                ToGeneral[i] = ToGeneralBarrier(T); ++nToGeneral;
                 ToSampled[i] = ToGeneral[i];
                 ToSampled[i].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT; ToSampled[i].dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT;
                 ToSampled[i].oldLayout = VK_IMAGE_LAYOUT_GENERAL; ToSampled[i].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -241,18 +312,10 @@ namespace xgpu::vulkan
             vkUpdateDescriptorSets(m_Device->m_VKDevice, static_cast<std::uint32_t>(C.m_nImages), Writes.data(), 0, nullptr);
         }
 
-        // Earlier work (draws, copies, the host's writes, other dispatches) is done with the buffers before this one writes them
-        // (DRAW_INDIRECT: a buffer of draw commands it rewrites may still be read by earlier indirect draws, and later ones read what it wrote)
-        // (the attachment stages: a texture it reads was rendered by an earlier pass, and a later pass may render into it again)
-        constexpr VkPipelineStageFlags Before = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT
-                                              | VK_PIPELINE_STAGE_TRANSFER_BIT | VK_PIPELINE_STAGE_HOST_BIT | VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT
-                                              | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-        const VkMemoryBarrier In
-        { .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER
-        , .srcAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_WRITE_BIT | VK_ACCESS_HOST_WRITE_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT
-                         | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT
-        , .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT };
-        vkCmdPipelineBarrier(Cmd, Before, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &In, 0, nullptr, static_cast<std::uint32_t>(C.m_nImages), ToGeneral.data());
+        // Earlier work is done with the buffers and images before this one touches them (dispatch_in_v); in a section: only an image's
+        // first move to general (the caller's ComputeBarrier orders the rest)
+        if( !m_bExplicitSync ) vkCmdPipelineBarrier(Cmd, dispatch_neighbours_v, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &dispatch_in_v, 0, nullptr, static_cast<std::uint32_t>(C.m_nImages), ToGeneral.data());
+        else { if( nToGeneral ) { vkCmdPipelineBarrier(Cmd, dispatch_neighbours_v, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &dispatch_in_v, 0, nullptr, nToGeneral, ToGeneral.data()); if( bMap ) ++m_FrameMap.m_Entries.back().m_Barriers; } m_PendingBarriers = 0; }
 
         vkCmdBindPipeline(Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, C.m_VKPipeline);
         if( Set != VK_NULL_HANDLE ) vkCmdBindDescriptorSets(Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, C.m_VKPipelineLayout, 0, 1, &Set, 0, nullptr);
@@ -263,10 +326,7 @@ namespace xgpu::vulkan
         vkCmdDispatch(Cmd, static_cast<std::uint32_t>(X), static_cast<std::uint32_t>(Y), static_cast<std::uint32_t>(Z));
         if( bMap ) m_FrameMap.m_Entries.back().m_Q1 = m_FrameMap.Stamp(Cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 
-        // Later shaders, copies and the host (a readback after the frame) see what it wrote
-        const VkMemoryBarrier Out
-        { .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT
-        , .dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_TRANSFER_READ_BIT | VK_ACCESS_HOST_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT };
-        vkCmdPipelineBarrier(Cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, Before, 0, 1, &Out, 0, nullptr, static_cast<std::uint32_t>(C.m_nImages), ToSampled.data());
+        // Later shaders, copies and the host (a readback after the frame) see what it wrote (a section: at its End)
+        if( !m_bExplicitSync ) vkCmdPipelineBarrier(Cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, dispatch_neighbours_v, 0, 1, &dispatch_out_v, 0, nullptr, static_cast<std::uint32_t>(C.m_nImages), ToSampled.data());
     }
 }

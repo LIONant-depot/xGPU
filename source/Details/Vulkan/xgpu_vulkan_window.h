@@ -242,6 +242,9 @@ namespace xgpu::vulkan
         VkCommandBuffer                         RecordingCmd            ( void ) noexcept;  // the frame's command buffer, or the section's
                     bool                        BeginAsyncCompute       ( void ) noexcept override;
                     void                        EndAsyncCompute         ( void ) noexcept override;
+                    void                        BeginExplicitSync       ( std::span<const xgpu::texture* const> Images ) noexcept override;    // xgpu_vulkan_compute.cpp
+                    void                        ComputeBarrier          ( void ) noexcept override;
+                    void                        EndExplicitSync         ( void ) noexcept override;
         std::unordered_map<VkDescriptorType, descriptor_pool_ring>& Rings( void ) noexcept;     // this frame's (m_FrameIndex)
 
         // This frame's descriptor sets by content (layout + buffers): a draw that binds the same buffers as an earlier one reuses
@@ -265,6 +268,9 @@ namespace xgpu::vulkan
         std::unordered_map<set_key, VkDescriptorSet, set_key_hash> m_FrameSets{};
         bool                                    m_bReportedSetOverflow  {false};
         bool                                    m_bReportedGridOverflow {false};        // Dispatch: a grid past maxComputeWorkGroupCount, said once
+        bool                                    m_bExplicitSync         {false};        // inside BeginExplicitSync .. EndExplicitSync
+        std::vector<vulkan::texture*>           m_GeneralImages         {};             //   the storage images it holds in the general layout
+        int                                     m_PendingBarriers       {0};            //   barriers put in since the last dispatch (the frame map's count)
         // What setPipelineInstance last bound in the frame's command buffer (graphics): the same pipeline or set again is skipped.
         // Forgotten at each render pass start and command buffer (BoundForget)
         VkPipeline                              m_BoundVKPipeline       {VK_NULL_HANDLE};

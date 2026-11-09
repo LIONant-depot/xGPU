@@ -50,6 +50,14 @@ namespace xgpu
         // the frame as usual. The section must not touch what the rest of this frame uses
         XGPU_INLINE                 bool                BeginAsyncCompute       ( void ) noexcept;
         XGPU_INLINE                 void                EndAsyncCompute         ( void ) noexcept;
+        // An explicit-sync section (the render graph's managed scopes, R1a): Begin waits for all earlier work once and puts Images (the
+        // storage images the section writes) in the general layout; inside, Dispatch puts in no barriers of its own and leaves its storage
+        // images general (sampled reads of them too) - the caller orders the dispatches with ComputeBarrier where one reads or overwrites
+        // what an earlier one touched; End makes the section's writes visible to everything after and samples the images again.
+        // Dispatches only (no copies or render passes inside)
+        XGPU_INLINE                 void                BeginExplicitSync       ( std::span<const texture* const> Images ) noexcept;
+        XGPU_INLINE                 void                ComputeBarrier          ( void ) noexcept;
+        XGPU_INLINE                 void                EndExplicitSync         ( void ) noexcept;
         // A profiler zone on the GPU between render passes (xprofile's XPROFILE_GPU_SCOPE: pWhere its location); Begin/End in pairs, nested
         // last-in first-out, in this frame. Nothing when the build has no profiler or it is off
         XGPU_INLINE                 void                BeginGPUZone            ( const void* pWhere ) noexcept;
