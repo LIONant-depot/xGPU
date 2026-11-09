@@ -154,7 +154,7 @@ namespace xgpu::vulkan
         bool bMap = false;
         if( m_FrameMap.m_bOn )
         {
-            auto& E = m_FrameMap.Add("dispatch"); bMap = true;
+            auto& E = m_FrameMap.Add("dispatch"); bMap = true; E.m_Barriers = 2;      // (In and Out, below)
             E.m_Name = frame_map::Name(C.m_pName);
             for( std::size_t b = 0; b < Buffers.size(); ++b ) if( auto* pB = Buffers[b] )      // (read only: the shader's readonly buffers)
                 ((C.m_ReadOnlyBuffers >> b) & 1u ? E.m_Reads : E.m_RW).push_back(frame_map::Name(static_cast<const vulkan::buffer*>(pB->m_Private.get())->m_pName));

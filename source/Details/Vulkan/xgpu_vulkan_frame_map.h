@@ -23,6 +23,7 @@ namespace xgpu::vulkan
             std::vector<std::string>    m_RW        {};         // storage buffers: read or written, not known
             int                         m_Draws     = 0;
             int                         m_Indirect  = 0;
+            int                         m_Barriers  = 0;        // pipeline barriers xGPU put in for it (R1a: what the render graph's own will replace)
             std::uint32_t               m_Q0        = ~0u, m_Q1 = ~0u;
         };
         static constexpr std::uint32_t max_queries_v = 8192;
@@ -87,7 +88,7 @@ namespace xgpu::vulkan
             for( std::size_t i = 0; i < m_Entries.size(); ++i )
             {
                 const auto& E = m_Entries[i];
-                std::fprintf(f, "%s{\"kind\":\"%s\",\"name\":\"%s\",\"t0\":%.4f,\"t1\":%.4f,\"draws\":%d,\"indirect\":%d,\"reads\":[", i ? "," : "", E.m_pKind, Esc(E.m_Name).c_str(), Ms(E.m_Q0), Ms(E.m_Q1), E.m_Draws, E.m_Indirect);
+                std::fprintf(f, "%s{\"kind\":\"%s\",\"name\":\"%s\",\"t0\":%.4f,\"t1\":%.4f,\"draws\":%d,\"indirect\":%d,\"barriers\":%d,\"reads\":[", i ? "," : "", E.m_pKind, Esc(E.m_Name).c_str(), Ms(E.m_Q0), Ms(E.m_Q1), E.m_Draws, E.m_Indirect, E.m_Barriers);
                 for( std::size_t r = 0; r < E.m_Reads.size(); ++r ) std::fprintf(f, "%s\"%s\"", r ? "," : "", Esc(E.m_Reads[r]).c_str());
                 std::fprintf(f, "],\"writes\":[");
                 for( std::size_t w = 0; w < E.m_Writes.size(); ++w ) std::fprintf(f, "%s\"%s\"", w ? "," : "", Esc(E.m_Writes[w]).c_str());

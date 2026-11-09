@@ -2352,7 +2352,7 @@ namespace xgpu::vulkan
         const auto& S = *static_cast<const xgpu::vulkan::buffer*>(Src.m_Private.get());
         auto&       D = *static_cast<xgpu::vulkan::buffer*>(Dst.m_Private.get());
         assert(S.m_EntrySizeBytes == D.m_EntrySizeBytes);
-        if( m_FrameMap.m_bOn && m_FrameMap.m_Open < 0 ) { auto& E = m_FrameMap.Add("copy"); E.m_Name = "copy " + frame_map::Name(S.m_pName); E.m_Reads.push_back(frame_map::Name(S.m_pName)); E.m_Writes.push_back(frame_map::Name(D.m_pName)); }
+        if( m_FrameMap.m_bOn && m_FrameMap.m_Open < 0 ) { auto& E = m_FrameMap.Add("copy"); E.m_Barriers = 2; E.m_Name = "copy " + frame_map::Name(S.m_pName); E.m_Reads.push_back(frame_map::Name(S.m_pName)); E.m_Writes.push_back(frame_map::Name(D.m_pName)); }
 
         std::vector<VkBufferCopy> Copies;
         Copies.reserve(Regions.size());
@@ -2386,7 +2386,7 @@ namespace xgpu::vulkan
         const auto& S = *static_cast<const xgpu::vulkan::texture*>(Src.m_Private.get());
         const auto& D = *static_cast<const xgpu::vulkan::texture*>(Dst.m_Private.get());
         auto&       Frame = m_Frames[m_FrameIndex];
-        if( m_FrameMap.m_bOn && m_FrameMap.m_Open < 0 ) { auto& E = m_FrameMap.Add("copy"); E.m_Name = "copy " + frame_map::Name(S.m_pName); E.m_Reads.push_back(frame_map::Name(S.m_pName)); E.m_Writes.push_back(frame_map::Name(D.m_pName)); }
+        if( m_FrameMap.m_bOn && m_FrameMap.m_Open < 0 ) { auto& E = m_FrameMap.Add("copy"); E.m_Barriers = 2; E.m_Name = "copy " + frame_map::Name(S.m_pName); E.m_Reads.push_back(frame_map::Name(S.m_pName)); E.m_Writes.push_back(frame_map::Name(D.m_pName)); }
         constexpr auto ShaderStages = VK_PIPELINE_STAGE_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
         const VkImageSubresourceRange Range{ .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 };
         // Src: the pass that wrote it done; Dst: the shaders that read it done (write after read)
