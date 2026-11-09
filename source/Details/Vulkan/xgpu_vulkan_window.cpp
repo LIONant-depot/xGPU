@@ -1564,7 +1564,11 @@ namespace xgpu::vulkan
         if( auto* pE = m_FrameMap.Current() )
         {
             for( const auto& pT : PipelineInstance.m_TexturesBinds ) if( pT ) pE->m_Reads.push_back(frame_map::Name(pT->m_pName));
-            for( auto* pB : StaticBuffers ) if( pB ) pE->m_RW.push_back(frame_map::Name(static_cast<const vulkan::buffer*>(pB->m_Private.get())->m_pName));
+            for( auto* pB : StaticBuffers ) if( pB )
+            {
+                const auto* pVB = static_cast<const vulkan::buffer*>(pB->m_Private.get());
+                pE->m_RW.push_back(pVB->m_pName && *pVB->m_pName ? frame_map::Name(pVB->m_pName) : "(no name: " + std::to_string(pVB->m_nEntries) + " x " + std::to_string(pVB->m_EntrySizeBytes) + " bytes)");      // (an unnamed buffer: its size to find it by)
+            }
         }
 
         //
