@@ -1451,6 +1451,21 @@ namespace xgpu::vulkan
         else
         {
             assert(m_BeginState == 1);
+            // A frame that never drew to the window (its main render pass not begun: a tool rendering offscreen only): the back-buffer is
+            // still in the layout it was acquired in - presenting it so is invalid (VUID-VkPresentInfoKHR-pImageIndices-01430, C21). Its
+            // contents are undefined anyway: moved to PRESENT_SRC_KHR from UNDEFINED
+            const VkImageMemoryBarrier ToPresent
+            { .sType                = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER
+            , .srcAccessMask        = 0
+            , .dstAccessMask        = 0
+            , .oldLayout            = VK_IMAGE_LAYOUT_UNDEFINED
+            , .newLayout            = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
+            , .srcQueueFamilyIndex  = VK_QUEUE_FAMILY_IGNORED
+            , .dstQueueFamilyIndex  = VK_QUEUE_FAMILY_IGNORED
+            , .image                = Frame.m_VKBackbuffer
+            , .subresourceRange     = { .aspectMask = VK_IMAGE_ASPECT_COLOR_BIT, .baseMipLevel = 0, .levelCount = 1, .baseArrayLayer = 0, .layerCount = 1 }
+            };
+            vkCmdPipelineBarrier(Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, 0, 0, nullptr, 0, nullptr, 1, &ToPresent);
         }
         m_BeginState = 0;
 
