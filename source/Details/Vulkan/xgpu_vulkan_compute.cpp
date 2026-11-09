@@ -50,6 +50,7 @@ namespace xgpu::vulkan
         m_pName = Setup.m_pName;
         m_Device   = std::move(Device);
         m_nBuffers  = Setup.m_nBuffers;
+        if( Setup.m_pShader && Setup.m_pShader->m_Private ) m_ReadOnlyBuffers = static_cast<const vulkan::shader*>(Setup.m_pShader->m_Private.get())->m_ReadOnlyBuffers;
         m_nTextures = Setup.m_nTextures;
         m_nImages   = Setup.m_nImages;
         m_PushSize = static_cast<std::uint32_t>(Setup.m_PushConstantsSize);
@@ -155,7 +156,8 @@ namespace xgpu::vulkan
         {
             auto& E = m_FrameMap.Add("dispatch"); bMap = true;
             E.m_Name = frame_map::Name(C.m_pName);
-            for( auto* pB : Buffers )  if( pB ) E.m_RW.push_back(frame_map::Name(static_cast<const vulkan::buffer*>(pB->m_Private.get())->m_pName));
+            for( std::size_t b = 0; b < Buffers.size(); ++b ) if( auto* pB = Buffers[b] )      // (read only: the shader's readonly buffers)
+                ((C.m_ReadOnlyBuffers >> b) & 1u ? E.m_Reads : E.m_RW).push_back(frame_map::Name(static_cast<const vulkan::buffer*>(pB->m_Private.get())->m_pName));
             for( auto* pT : Textures ) if( pT ) E.m_Reads.push_back(frame_map::Name(static_cast<const vulkan::texture*>(pT->m_Private.get())->m_pName));
             for( auto* pI : Images )   if( pI ) E.m_Writes.push_back(frame_map::Name(static_cast<const vulkan::texture*>(pI->m_Private.get())->m_pName));
         }

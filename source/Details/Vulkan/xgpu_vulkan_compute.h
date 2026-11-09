@@ -19,6 +19,7 @@ namespace xgpu::vulkan
         VkPipelineLayout            m_VKPipelineLayout  {};
         VkPipeline                  m_VKPipeline        {};
         int                         m_nBuffers          {};
+        std::uint32_t               m_ReadOnlyBuffers   {};            // (the shader's NonWritable storage buffers: the frame map's reads)
         int                         m_nTextures         {};
         std::uint32_t               m_PushSize          {};
     };

@@ -1,3 +1,5 @@
+#include <unordered_map>
+#include <unordered_set>
 std::atomic<std::uint64_t> g_ShaderModules{ 0 }, g_ShaderBytes{ 0 };      // (shader modules made, ever: XGPU_LEAK_LOG)
 namespace xgpu::vulkan
 {
@@ -53,6 +55,43 @@ namespace xgpu::vulkan
         }, Setup.m_Sharer ); Err ) return Err;
 
         m_BytecodeHash = HashBytes( 14695981039346656037ull, ShaderCreateInfo.pCode, ShaderCreateInfo.codeSize );
+
+        // Which of set 0's storage buffers the shader only reads: a variable decorated NonWritable, or one whose block's members all are
+        // (glslang's readonly buffer) - so the frame map, and the render graph's audit, tell reads from writes
+        {
+            const auto* W = ShaderCreateInfo.pCode;
+            const std::size_t nW = ShaderCreateInfo.codeSize / 4;
+            std::unordered_map<std::uint32_t, std::uint32_t> Binding, Set, PtrType, VarPtr, StructMembers, StructNW;
+            std::unordered_set<std::uint32_t> VarNW;
+            for( std::size_t i = 5; i < nW; )
+            {
+                const std::uint32_t n = W[i] >> 16, Op = W[i] & 0xFFFFu;
+                if( n == 0 || i + n > nW ) break;
+                if( Op == 71 && n >= 3 )        // OpDecorate target decoration [operand]
+                {
+                    if( W[i + 2] == 33 && n >= 4 ) Binding[W[i + 1]] = W[i + 3];
+                    else if( W[i + 2] == 34 && n >= 4 ) Set[W[i + 1]] = W[i + 3];
+                    else if( W[i + 2] == 24 ) VarNW.insert(W[i + 1]);
+                }
+                else if( Op == 72 && n >= 4 && W[i + 3] == 24 ) ++StructNW[W[i + 1]];       // OpMemberDecorate struct member NonWritable
+                else if( Op == 30 ) StructMembers[W[i + 1]] = n - 2;                         // OpTypeStruct id members...
+                else if( Op == 32 && n >= 4 ) PtrType[W[i + 1]] = W[i + 3];                  // OpTypePointer id class type
+                else if( Op == 59 && n >= 4 ) VarPtr[W[i + 2]] = W[i + 1];                   // OpVariable type id class
+                i += n;
+            }
+            for( const auto& [Var, Ptr] : VarPtr )
+            {
+                const auto B = Binding.find(Var); if( B == Binding.end() || B->second >= 32 ) continue;
+                const auto S = Set.find(Var); if( S != Set.end() && S->second != 0 ) continue;
+                bool bRO = VarNW.count(Var) != 0;
+                if( !bRO ) if( const auto P = PtrType.find(Ptr); P != PtrType.end() )
+                {
+                    const auto M = StructMembers.find(P->second), N = StructNW.find(P->second);
+                    bRO = M != StructMembers.end() && N != StructNW.end() && M->second > 0 && N->second >= M->second;
+                }
+                if( bRO ) m_ReadOnlyBuffers |= 1u << B->second;
+            }
+        }
         if( const char* Entry = Setup.m_EntryPoint; Entry )
         {
             std::size_t n = 0;

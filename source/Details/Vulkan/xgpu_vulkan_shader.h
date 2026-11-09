@@ -29,6 +29,7 @@ namespace xgpu::vulkan
         std::shared_ptr<vulkan::device> m_Device                {};
         VkShaderModule                  m_VKShaderModule        {};
         std::uint64_t                   m_BytecodeHash          {};     // SPIR-V + entry: equivalent shaders share a compiled VkPipeline
+        std::uint32_t                   m_ReadOnlyBuffers       {};     // set 0's storage buffer bindings the SPIR-V marks NonWritable (GLSL readonly), a bit each: the frame map's reads
         VkPipelineShaderStageCreateInfo m_ShaderStageCreateInfo {};
         std::atomic_int                 m_nPipelines            { 0 };
     };
