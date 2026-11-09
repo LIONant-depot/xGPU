@@ -30,6 +30,8 @@ namespace xgpu::vulkan
         VkShaderModule                  m_VKShaderModule        {};
         std::uint64_t                   m_BytecodeHash          {};     // SPIR-V + entry: equivalent shaders share a compiled VkPipeline
         std::uint32_t                   m_ReadOnlyBuffers       {};     // set 0's storage buffer bindings the SPIR-V marks NonWritable (GLSL readonly), a bit each: the frame map's reads
+        std::uint32_t                   m_Set1Declared          {};     // set 1's buffer bindings the shader declares, and of those the ones it writes (graphics: the pipeline's static
+        std::uint32_t                   m_Set1Written           {};     //   buffers - written if any stage writes them)
         VkPipelineShaderStageCreateInfo m_ShaderStageCreateInfo {};
         std::atomic_int                 m_nPipelines            { 0 };
     };

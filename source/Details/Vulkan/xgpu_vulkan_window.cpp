@@ -1564,10 +1564,12 @@ namespace xgpu::vulkan
         if( auto* pE = m_FrameMap.Current() )
         {
             for( const auto& pT : PipelineInstance.m_TexturesBinds ) if( pT ) pE->m_Reads.push_back(frame_map::Name(pT->m_pName));
-            for( auto* pB : StaticBuffers ) if( pB )
+            for( std::size_t b = 0; b < StaticBuffers.size(); ++b ) if( auto* pB = StaticBuffers[b] )
             {
                 const auto* pVB = static_cast<const vulkan::buffer*>(pB->m_Private.get());
-                pE->m_RW.push_back(pVB->m_pName && *pVB->m_pName ? frame_map::Name(pVB->m_pName) : "(no name: " + std::to_string(pVB->m_nEntries) + " x " + std::to_string(pVB->m_EntrySizeBytes) + " bytes)");      // (an unnamed buffer: its size to find it by)
+                const int   Bind = PipelineInstance.m_Pipeline ? PipelineInstance.m_Pipeline->getStaticBindIndex(static_cast<int>(b)) : -1;
+                const bool  bRead = Bind >= 0 && Bind < 32 && ((PipelineInstance.m_Pipeline->m_StaticWritten >> Bind) & 1u) == 0;      // (no stage writes it: a read)
+                (bRead ? pE->m_Reads : pE->m_RW).push_back(pVB->m_pName && *pVB->m_pName ? frame_map::Name(pVB->m_pName) : "(no name: " + std::to_string(pVB->m_nEntries) + " x " + std::to_string(pVB->m_EntrySizeBytes) + " bytes)");      // (an unnamed buffer: its size to find it by)
             }
         }
 

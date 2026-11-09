@@ -282,6 +282,7 @@ namespace xgpu::vulkan
             m_ShaderStages[m_nShaderStages] = std::reinterpret_pointer_cast<xgpu::vulkan::shader>(std::move(F));
             m_ShaderStagesCreateInfo[m_nShaderStages] = m_ShaderStages[m_nShaderStages]->m_ShaderStageCreateInfo;
             m_ShaderStagesCreateInfo[m_nShaderStages].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+            m_StaticWritten |= m_ShaderStages[m_nShaderStages]->m_Set1Written;
             ++m_nShaderStages;
         }
 

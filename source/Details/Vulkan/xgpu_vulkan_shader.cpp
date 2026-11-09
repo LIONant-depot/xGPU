@@ -61,7 +61,7 @@ namespace xgpu::vulkan
         {
             const auto* W = ShaderCreateInfo.pCode;
             const std::size_t nW = ShaderCreateInfo.codeSize / 4;
-            std::unordered_map<std::uint32_t, std::uint32_t> Binding, Set, PtrType, VarPtr, StructMembers, StructNW;
+            std::unordered_map<std::uint32_t, std::uint32_t> Binding, Set, PtrType, VarPtr, VarClass, StructMembers, StructNW;
             std::unordered_set<std::uint32_t> VarNW;
             for( std::size_t i = 5; i < nW; )
             {
@@ -76,20 +76,23 @@ namespace xgpu::vulkan
                 else if( Op == 72 && n >= 4 && W[i + 3] == 24 ) ++StructNW[W[i + 1]];       // OpMemberDecorate struct member NonWritable
                 else if( Op == 30 ) StructMembers[W[i + 1]] = n - 2;                         // OpTypeStruct id members...
                 else if( Op == 32 && n >= 4 ) PtrType[W[i + 1]] = W[i + 3];                  // OpTypePointer id class type
-                else if( Op == 59 && n >= 4 ) VarPtr[W[i + 2]] = W[i + 1];                   // OpVariable type id class
+                else if( Op == 59 && n >= 4 ) { VarPtr[W[i + 2]] = W[i + 1]; VarClass[W[i + 2]] = W[i + 3]; }     // OpVariable type id class
                 i += n;
             }
             for( const auto& [Var, Ptr] : VarPtr )
             {
                 const auto B = Binding.find(Var); if( B == Binding.end() || B->second >= 32 ) continue;
-                const auto S = Set.find(Var); if( S != Set.end() && S->second != 0 ) continue;
-                bool bRO = VarNW.count(Var) != 0;
+                const auto S = Set.find(Var);
+                const std::uint32_t SetIndex = S == Set.end() ? 0u : S->second;
+                if( SetIndex > 1 ) continue;
+                bool bRO = VarNW.count(Var) != 0 || VarClass[Var] == 2u;      // (class Uniform: a uniform block - read only; storage buffers are class StorageBuffer)
                 if( !bRO ) if( const auto P = PtrType.find(Ptr); P != PtrType.end() )
                 {
                     const auto M = StructMembers.find(P->second), N = StructNW.find(P->second);
                     bRO = M != StructMembers.end() && N != StructNW.end() && M->second > 0 && N->second >= M->second;
                 }
-                if( bRO ) m_ReadOnlyBuffers |= 1u << B->second;
+                if( SetIndex == 0 ) { if( bRO ) m_ReadOnlyBuffers |= 1u << B->second; }
+                else { m_Set1Declared |= 1u << B->second; if( !bRO ) m_Set1Written |= 1u << B->second; }
             }
         }
         if( const char* Entry = Setup.m_EntryPoint; Entry )

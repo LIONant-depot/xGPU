@@ -71,6 +71,7 @@ namespace xgpu::vulkan
         std::atomic_int                                     m_nPipelineInstances            {0};
         std::array<xgpu::pipeline::uniform_binds,16>        m_UniformsBinds                 {};
         std::span<xgpu::pipeline::uniform_binds>            m_StaticView                    {};
+        std::uint32_t                                       m_StaticWritten                 {};     // (set 1's bindings a stage writes: the frame map's read-write, the rest reads)
         std::span<xgpu::pipeline::uniform_binds>            m_DynamicView                   {};
 //        std::array<xgpu::shader::type,5>                    m_UniformBufferBits             {};
         int                                                 m_nUniformBuffers               {0};
