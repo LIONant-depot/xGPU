@@ -217,6 +217,7 @@ namespace xgpu::vulkan
         }
         assert(static_cast<int>(Buffers.size()) == C.m_nBuffers && static_cast<int>(Textures.size()) == C.m_nTextures && static_cast<int>(Images.size()) == C.m_nImages && PushSize <= C.m_PushSize);
         const VkCommandBuffer Cmd = RecordingCmd();       // (the frame's, or its async section's)
+        m_Device->Checkpoint(Cmd, "dispatch", C.m_pName);
 
         // (the frame map: this dispatch, its buffers (read or written: not known here), textures read, images written)
         bool bMap = false;

@@ -1,3 +1,5 @@
+#include <mutex>
+#include <unordered_set>
 #include <chrono>
 #include "../xgpu_env.h"
 namespace xgpu::vulkan
@@ -240,6 +242,7 @@ namespace xgpu::vulkan
 
         // VK_EXT_memory_budget where the GPU has it: the driver's budget and usage per heap (the profiler's memory maps: device::ReportMemoryHeaps)
         std::vector<const char*>    enabledExtensions   { VK_KHR_SWAPCHAIN_EXTENSION_NAME };
+        bool                        bCheckpoints        = false;
         VkPhysicalDeviceShaderClockFeaturesKHR UseClock{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_CLOCK_FEATURES_KHR, .shaderSubgroupClock = VK_TRUE };
         VkPhysicalDevicePipelineExecutablePropertiesFeaturesKHR UseStats{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PIPELINE_EXECUTABLE_PROPERTIES_FEATURES_KHR, .pipelineExecutableInfo = VK_TRUE };
         {
@@ -276,6 +279,8 @@ namespace xgpu::vulkan
                     if( Device.m_bDozenCompat ) UseSync2.pNext = &UseStats;
 #endif
                 }
+            if( xgpu::details::Env("XGPU_CHECKPOINTS") )
+                for( const auto& E : Available ) if( std::strcmp(E.extensionName, VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME) == 0 ) { enabledExtensions.push_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME); bCheckpoints = true; }
             // VK_KHR_shader_clock where the GPU has it: a shader may read its subgroup's clock (xLIONRender's XLION_HEAT: a pass's cost per pixel)
             for( const auto& E : Available ) if( std::strcmp(E.extensionName, VK_KHR_SHADER_CLOCK_EXTENSION_NAME) == 0 )
             {
@@ -328,7 +333,50 @@ namespace xgpu::vulkan
         }
 #endif
 
+        if( bCheckpoints )
+        {
+            Device.m_pCmdSetCheckpoint = reinterpret_cast<PFN_vkCmdSetCheckpointNV>(vkGetDeviceProcAddr(Device.m_VKDevice, "vkCmdSetCheckpointNV"));
+            Device.m_pGetCheckpoints   = reinterpret_cast<PFN_vkGetQueueCheckpointDataNV>(vkGetDeviceProcAddr(Device.m_VKDevice, "vkGetQueueCheckpointDataNV"));
+            std::printf("[xGPU] CHECKPOINTS on: %s\n", Device.m_pCmdSetCheckpoint && Device.m_pGetCheckpoints ? "every dispatch and render pass" : "the entry points are missing"); std::fflush(stdout);
+        }
         return nullptr;
+    }
+
+    //----------------------------------------------------------------------------------------------------------
+
+    // A checkpoint's marker: its text, kept for the device's life (the driver gives the pointer back)
+    static std::mutex s_CheckpointLock; static std::unordered_set<std::string> s_CheckpointNames;
+    void device::Checkpoint( VkCommandBuffer Cmd, const char* pKind, const char* pName ) noexcept
+    {
+        if( m_pCmdSetCheckpoint == nullptr ) return;
+        auto& s_Lock = s_CheckpointLock; auto& s_Names = s_CheckpointNames;
+        const char* p;
+        { std::lock_guard Lk(s_Lock); p = s_Names.emplace(std::string(pKind) + " #" + std::to_string(m_CheckpointSeq++) + ": " + (pName ? pName : "(no name)")).first->c_str(); }
+        m_pCmdSetCheckpoint(Cmd, p);
+    }
+
+    void device::PrintCheckpoints( void ) noexcept
+    {
+        if( m_pGetCheckpoints == nullptr ) return;
+        const auto Print = [&](VkQueue Q, const char* pQueue)
+        {
+            if( Q == VK_NULL_HANDLE ) return;
+            std::uint32_t n = 0; m_pGetCheckpoints(Q, &n, nullptr);
+            std::vector<VkCheckpointDataNV> D(n, VkCheckpointDataNV{ .sType = VK_STRUCTURE_TYPE_CHECKPOINT_DATA_NV });
+            m_pGetCheckpoints(Q, &n, D.data());
+            for( std::uint32_t i = 0; i < n; ++i ) std::printf("[xGPU] CHECKPOINT %s queue, stage 0x%x: %s\n", pQueue, unsigned(D[i].stage), D[i].pCheckpointMarker ? static_cast<const char*>(D[i].pCheckpointMarker) : "(none)");
+            if( n == 0 ) std::printf("[xGPU] CHECKPOINT %s queue: none reported\n", pQueue);
+        };
+        {   // every marker seen, by its order in a frame: what each number is
+            std::lock_guard Lk(s_CheckpointLock);
+            std::vector<std::pair<int, std::string>> All;
+            for( const auto& N : s_CheckpointNames ) { const auto h = N.find('#'); All.emplace_back(h == std::string::npos ? -1 : std::atoi(N.c_str() + h + 1), N); }
+            std::sort(All.begin(), All.end());
+            for( const auto& [k, N] : All ) std::printf("[xGPU] CHECKPOINT NAME %s\n", N.c_str());
+        }
+        Print(m_VKMainQueue.get(), "main");
+        Print(m_VKAsyncQueue.get(), "async");
+        std::fflush(stdout);
     }
 
     //----------------------------------------------------------------------------------------------------------
@@ -847,6 +895,7 @@ namespace xgpu::vulkan
                 , static_cast<unsigned long long>(AcquireDone), static_cast<unsigned long long>(m_Upload.m_Acquired)
                 , static_cast<unsigned long long>(m_FrameIndex));
             std::fflush(stdout);
+            static bool s_bPrinted = false; if( !s_bPrinted ) { s_bPrinted = true; PrintCheckpoints(); }
         }
     }
 

@@ -439,6 +439,11 @@ namespace xgpu::vulkan
         }
         // The ring comes back to the first entry the frame before wrote (the frame in flight's: one at most, window::EndFrame): wait for it
         if (m_AllocFrame != m_Device->m_FrameIndex) { m_PrevFrameStart = m_FrameStart; m_FrameStart = V; m_AllocFrame = m_Device->m_FrameIndex; }
+        else if (V == m_FrameStart)     // (C30's probe, 2026-11-10: the ring came round to this frame's own first entry - its earlier entries, not yet read by the GPU, written again)
+        {
+            static std::atomic<int> s_nOverflow{ 0 };
+            if (s_nOverflow++ < 20) { std::printf("[xGPU] RINGOVERFLOW %s: one frame used more than the ring's %d entries (its first ones written again before the GPU read them)\n", m_pName ? m_pName : "(no name)", m_nEntries); std::fflush(stdout); }
+        }
         if (V == m_PrevFrameStart) { static const bool s_bLog = xgpu::details::Env("XGPU_WAIT_LOG") != nullptr; const auto T0 = std::chrono::steady_clock::now(); m_Device->WaitInFlight(); if( s_bLog ) if( const double Ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - T0).count(); Ms >= 1.0 ) { std::printf("[xGPU] RINGWAIT %.2f ms: %s (the dynamic ring came round to the frame in flight's entries)\n", Ms, m_pName ? m_pName : "(no name)"); std::fflush(stdout); } }
 
         m_LastOffset = V * m_EntrySizeBytes;

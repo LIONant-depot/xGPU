@@ -158,6 +158,13 @@ namespace xgpu::vulkan
         void                            ReportMemoryHeaps   ( void ) noexcept;                          // the heaps' size, budget, usage to the profiler
         bool                            m_bPipelineStats    = false;                              // XGPU_PIPELINE_STATS=<file>: each compute pipeline's driver statistics go there
         bool                            m_bMemoryBudget     = false;                                    // VK_EXT_memory_budget enabled
+        // XGPU_CHECKPOINTS=1 (VK_NV_device_diagnostic_checkpoints, C30 2026-11-10): each dispatch and render pass leaves a checkpoint;
+        // a stuck fence (WaitFences) prints the last ones each queue reached - which pass the GPU never finished
+        PFN_vkCmdSetCheckpointNV        m_pCmdSetCheckpoint = nullptr;
+        PFN_vkGetQueueCheckpointDataNV  m_pGetCheckpoints   = nullptr;
+        int                             m_CheckpointSeq     = 0;        // (the frame's order: window::BeginFrame sets it to 0 - a pass named twice in a frame told apart)
+        void                            Checkpoint          ( VkCommandBuffer Cmd, const char* pKind, const char* pName ) noexcept;
+        void                            PrintCheckpoints    ( void ) noexcept;
         int                             m_HeapReportFrame   = -1;
         virtual xgpu::device::memory_stats getMemoryStats   ( void ) noexcept override;
         std::atomic<std::uint64_t>      m_nMainQueueWaits   { 0 };     // vkQueueWaitIdle on the main queue (the setup command buffer: readbacks, region updates)

@@ -1179,6 +1179,7 @@ namespace xgpu::vulkan
         auto& Frame      = m_Frames[m_FrameIndex];
 
         vkCmdBeginRenderPass(Frame.m_VKCommandBuffer, &RenderPass.m_VKRenderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+        if( m_Device->m_pCmdSetCheckpoint ) m_Device->Checkpoint(Frame.m_VKCommandBuffer, "pass", RenderPass.m_TextureAttachments.empty() || !RenderPass.m_TextureAttachments[0] ? nullptr : RenderPass.m_TextureAttachments[0]->m_pName);
         if( m_FrameMap.m_bOn )
         {
             auto& E = m_FrameMap.Add("pass");
@@ -1337,6 +1338,7 @@ namespace xgpu::vulkan
             if( Frame.m_VKCommandBufferA == VK_NULL_HANDLE ) Frame.m_VKCommandBufferA = Frame.m_VKCommandBuffer;
             Frame.m_VKCommandBuffer = Frame.m_VKCommandBufferA;      // (B and the async section's: this pool, reset with it)
             m_bAsyncThisFrame = false; m_bAsyncRec = false;
+            m_Device->m_CheckpointSeq = 0;
             if( auto VKErr = vkResetCommandPool(m_Device->m_VKDevice, Frame.m_VKCommandPool, 0); VKErr )
             {
                 // TODO: Report Error???
