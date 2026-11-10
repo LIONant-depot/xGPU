@@ -243,6 +243,17 @@ namespace xgpu::vulkan
             ++s_Dispatches; s_Images += std::uint64_t(C.m_nImages);
         }
 
+        // (C30 diagnostic, XGPU_DESC_WAIT="<compute name part>[:t]": the frame in flight waited for before this dispatch's descriptor writes - ":t"
+        // before its texture set's only)
+        static const char* s_pDescWait = xgpu::details::Env("XGPU_DESC_WAIT");
+        // ("name#k": only the k-th such dispatch of the device frame, from 0)
+        static const std::string s_Name = s_pDescWait ? std::string(s_pDescWait).substr(0, std::string(s_pDescWait).find_first_of(":#")) : std::string();
+        static const int s_K = s_pDescWait && std::strchr(s_pDescWait, '#') ? std::atoi(std::strchr(s_pDescWait, '#') + 1) : -1;
+        static std::uint64_t s_KFrame = ~0ull; static int s_KCount = 0;
+        bool bDescWait = s_pDescWait && C.m_pName && std::strstr(C.m_pName, s_Name.c_str());
+        if( bDescWait && s_K >= 0 ) { if( s_KFrame != m_Device->getFrameIndex() ) { s_KFrame = m_Device->getFrameIndex(); s_KCount = 0; } bDescWait = (s_KCount++ == s_K); }
+        const bool bDescWaitTex = bDescWait && std::strchr(s_pDescWait, ':') != nullptr;
+        if( bDescWait && !bDescWaitTex ) m_Device->WaitInFlight();
         VkDescriptorSet Set = VK_NULL_HANDLE;
         if( C.m_nBuffers )
         {
@@ -261,6 +272,7 @@ namespace xgpu::vulkan
             }
             vkUpdateDescriptorSets(m_Device->m_VKDevice, static_cast<std::uint32_t>(C.m_nBuffers), Writes.data(), 0, nullptr);
         }
+        if( bDescWaitTex ) m_Device->WaitInFlight();
         VkDescriptorSet TextureSet = VK_NULL_HANDLE;
         if( C.m_nTextures )
         {
