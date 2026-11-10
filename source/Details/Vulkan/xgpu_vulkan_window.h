@@ -268,6 +268,9 @@ namespace xgpu::vulkan
         std::unordered_map<set_key, VkDescriptorSet, set_key_hash> m_FrameSets{};
         bool                                    m_bReportedSetOverflow  {false};
         bool                                    m_bReportedGridOverflow {false};        // Dispatch: a grid past maxComputeWorkGroupCount, said once
+        xgpu::buffer*                           m_pIndirectArgs         {nullptr};      // DispatchIndirect: the next Dispatch's group counts (buffer, byte offset)
+        std::uint32_t                           m_IndirectOffset        {0};
+        void                                    SetIndirect             ( xgpu::buffer* pArgs, std::uint32_t ByteOffset ) noexcept override { m_pIndirectArgs = pArgs; m_IndirectOffset = ByteOffset; }
         bool                                    m_bExplicitSync         {false};        // inside BeginExplicitSync .. EndExplicitSync
         std::vector<vulkan::texture*>           m_GeneralImages         {};             //   the storage images it holds in the general layout
         int                                     m_PendingBarriers       {0};            //   barriers put in since the last dispatch (the frame map's count)

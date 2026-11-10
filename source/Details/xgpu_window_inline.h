@@ -29,6 +29,7 @@ namespace xgpu
             virtual     void                            BeginGPUZone            ( const void* pWhere ) noexcept = 0;
             virtual     void                            EndGPUZone              ( void ) noexcept = 0;
             virtual     void                            Dispatch                ( xgpu::compute& Compute, std::span<xgpu::buffer* const> Buffers, std::span<const xgpu::texture* const> Textures, std::span<const xgpu::texture* const> Images, const void* pPush, std::size_t PushSize, int X, int Y, int Z ) noexcept = 0;
+            virtual     void                            SetIndirect             ( xgpu::buffer* pArgs, std::uint32_t ByteOffset ) noexcept = 0;      // (the next Dispatch's group counts from there)
             virtual     void                            CmdRenderBegin          ( xgpu::cmd_buffer& CmdBuffer )                             noexcept = 0;
             virtual     void                            CmdRenderBegin          ( xgpu::cmd_buffer& CmdBuffer, const xgpu::renderpass& Renderpass )                      noexcept = 0;
             virtual     void                            CmdRenderEnd            ( xgpu::cmd_buffer& CmdBuffer )                             noexcept = 0;
@@ -207,6 +208,13 @@ namespace xgpu
     void window::Dispatch( compute& Compute, std::span<buffer* const> Buffers, std::span<const texture* const> Textures, std::span<const texture* const> Images, const void* pPush, std::size_t PushSize, int X, int Y, int Z ) noexcept
     {
         m_Private->Dispatch(Compute, Buffers, Textures, Images, pPush, PushSize, X, Y, Z);
+    }
+
+    XGPU_INLINE
+    void window::DispatchIndirect( compute& Compute, std::span<buffer* const> Buffers, std::span<const texture* const> Textures, std::span<const texture* const> Images, const void* pPush, std::size_t PushSize, buffer& Args, std::uint32_t ByteOffset ) noexcept
+    {
+        m_Private->SetIndirect(&Args, ByteOffset);
+        m_Private->Dispatch(Compute, Buffers, Textures, Images, pPush, PushSize, 1, 1, 1);
     }
 
     //--------------------------------------------------------------------------------------
