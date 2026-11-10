@@ -155,6 +155,10 @@ namespace xgpu::vulkan
         // MemoryMapFrameRegion: a slot of a ring of 3 slots a device frame (xLIONRender's ring_frames_v): the frame 3 back used it last.
         // One window: done already. Several (a frame in flight each): wait for it - no more (2026-11-08: Play's device lost without this)
         if( !bWaitInFlight ) m_Device->WaitFramesUpTo( static_cast<std::int64_t>(m_Device->m_FrameIndex) - 3 );
+        {   // (C30 diagnostic, XGPU_MAP_ORDER=<device frame>: every map of that frame, in order - where a forced wait sits in the frame)
+            static const long long s_OrderFrame = [] { const char* p = xgpu::details::Env("XGPU_MAP_ORDER"); return p ? std::atoll(p) : -1ll; }();
+            if( s_OrderFrame >= 0 && static_cast<long long>(m_Device->m_FrameIndex) == s_OrderFrame ) { std::printf("[xGPU] MAPORDER %s %s %d+%d\n", bWaitInFlight ? "map" : "region", m_pName ? m_pName : "(no name)", StartIndex, Count); std::fflush(stdout); }
+        }
         // and for the frame that last wrote an overlapping region (C25: written at the same offset every frame - read by that frame)
         static const bool s_bNoRegionWait = xgpu::details::Env("XGPU_NO_REGION_WAIT") != nullptr;      // (measurement: C25's repro check)
         if( !bWaitInFlight && !s_bNoRegionWait )
@@ -162,6 +166,9 @@ namespace xgpu::vulkan
             const int First = StartIndex, End = StartIndex + Count;
             std::int64_t Wait = -1;
             for( int k = 0; k < m_nWritten; ++k ) if( m_Written[k].m_First < End && First < m_Written[k].m_End && m_Written[k].m_Frame != static_cast<std::int64_t>(m_Device->m_FrameIndex) ) Wait = std::max(Wait, m_Written[k].m_Frame);
+            // (C30: a region dropped from the list - more than it holds in a frame - may be this one: its frame waited too. Lost, a write
+            // over a region the frame in flight still read went unwaited: a skinned mover's page list torn under the material's lamp-map loop)
+            if( m_DroppedFrame >= 0 && m_DroppedFrame != static_cast<std::int64_t>(m_Device->m_FrameIndex) && m_DroppedFirst < End && First < m_DroppedEnd ) Wait = std::max(Wait, m_DroppedFrame);
             if( Wait >= 0 )
             {
                 static const bool s_bLog = xgpu::details::Env("XGPU_WAIT_LOG") != nullptr;
@@ -172,7 +179,25 @@ namespace xgpu::vulkan
             // (this write: replaces the entries it covers, else the oldest)
             int k = 0;
             for( ; k < m_nWritten; ++k ) if( m_Written[k].m_First == First && m_Written[k].m_End == End ) break;
-            if( k == m_nWritten ) { if( m_nWritten < static_cast<int>(m_Written.size()) ) ++m_nWritten; else { for( int j = 1; j < m_nWritten; ++j ) m_Written[j - 1] = m_Written[j]; k = m_nWritten - 1; } }
+            if( k == m_nWritten )
+            {
+                if( m_nWritten < static_cast<int>(m_Written.size()) ) ++m_nWritten;
+                else
+                {
+                    // (C30 diagnostic, XGPU_WAIT_LOG: the oldest entry dropped while its frame may still be in flight - a later write over it would not wait)
+                    static const bool s_bEvictLog = xgpu::details::Env("XGPU_WAIT_LOG") != nullptr;
+                    if( s_bEvictLog && m_Written[0].m_Frame >= static_cast<std::int64_t>(m_Device->m_FrameIndex) - 1 )
+                    {
+                        static int s_n = 0;
+                        if( s_n++ < 20 ) { std::printf("[xGPU] REGIONEVICT %s: region %d..%d of frame %lld dropped at frame %d (more than %d regions a frame)\n", m_pName ? m_pName : "(no name)", m_Written[0].m_First, m_Written[0].m_End, static_cast<long long>(m_Written[0].m_Frame), m_Device->m_FrameIndex, int(m_Written.size())); std::fflush(stdout); }
+                    }
+                    const auto& D = m_Written[0];
+                    if( D.m_Frame > m_DroppedFrame && m_DroppedFrame < static_cast<std::int64_t>(m_Device->m_FrameIndex) - 3 ) { m_DroppedFirst = D.m_First; m_DroppedEnd = D.m_End; }     // (the old span's frames are done: a new span)
+                    else { m_DroppedFirst = std::min(m_DroppedFirst, D.m_First); m_DroppedEnd = std::max(m_DroppedEnd, D.m_End); }
+                    m_DroppedFrame = std::max(m_DroppedFrame, D.m_Frame);
+                    for( int j = 1; j < m_nWritten; ++j ) m_Written[j - 1] = m_Written[j]; k = m_nWritten - 1;
+                }
+            }
             m_Written[k] = { First, End, static_cast<std::int64_t>(m_Device->m_FrameIndex) };
         }
         // (2026-11-08, C25) About a dozen MemoryMapFrameRegion callers (the GI's stage,

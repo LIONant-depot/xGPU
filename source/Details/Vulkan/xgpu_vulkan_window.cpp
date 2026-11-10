@@ -795,7 +795,14 @@ namespace xgpu::vulkan
                                            , m_VKSurface
                                            , PresentModes );
 
-        if( false == Setup.m_bSyncOn )
+        // XGPU_VSYNC=1 (C22 diagnostic): FIFO whatever the window asked - each rendered frame shown once, at the display's beat. Without it a
+        // window without sync presents IMMEDIATE: frames shown as they finish (tearing), a moving camera's steps seen at an uneven cadence
+        static const bool s_bForceVSync = xgpu::details::Env("XGPU_VSYNC") != nullptr;
+        if( s_bForceVSync )
+        {
+            m_VKPresentMode = VK_PRESENT_MODE_FIFO_KHR;
+        }
+        else if( false == Setup.m_bSyncOn )
         {
             m_VKPresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
         }
@@ -875,7 +882,7 @@ namespace xgpu::vulkan
         VkPresentInfoKHR    Info        = 
         { .sType                = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR
         , .waitSemaphoreCount   = 1
-        , .pWaitSemaphores      = &Semaphore.m_VKRenderCompleteSemaphore
+        , .pWaitSemaphores      = &m_FrameSemaphores[m_FrameIndex].m_VKRenderCompleteSemaphore      // (the image's own: see EndFrame)
         , .swapchainCount       = 1
         , .pSwapchains          = &m_VKSwapchain
         , .pImageIndices        = &PresetIndex
@@ -1079,6 +1086,10 @@ namespace xgpu::vulkan
     }
 
     //------------------------------------------------------------------------------------------------------------------------
+
+    // (C30: XGPU_CHECKPOINTS=2 - a checkpoint at every draw and at every pass's end too: where inside a pass the GPU stopped)
+    static bool DrawCheckpoints( void ) noexcept { static const bool s_b = [] { const char* p = xgpu::details::Env("XGPU_CHECKPOINTS"); return p && std::atoi(p) >= 2; }(); return s_b; }
+    static thread_local std::string s_DrawTag;      // (the bound pipeline instance's first texture and its pointer: which material a draw is)
 
     void window::CmdRenderBegin(xgpu::cmd_buffer& xGPUCmdBuffer) noexcept
     {
@@ -1390,6 +1401,7 @@ namespace xgpu::vulkan
 
             // Officially end the pass
             if( auto* pE = m_FrameMap.Current() ) { pE->m_Q1 = m_FrameMap.Stamp(CB.m_VKCommandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT); m_FrameMap.m_Open = -1; }
+            if( m_Device->m_pCmdSetCheckpoint && DrawCheckpoints() ) m_Device->Checkpoint(CB.m_VKCommandBuffer, "pass end", nullptr);
             vkCmdEndRenderPass(CB.m_VKCommandBuffer);
         }
         assert(m_BeginState>0);
@@ -1488,9 +1500,12 @@ namespace xgpu::vulkan
         //
         // Submit the frame into the queue for processing: the uploads flushed (their acquires run first) and waited on by the GPU
         //
+        // (C30: the render-complete semaphore is the acquired IMAGE's, not the frame counter's: a present's wait on it is not covered by any
+        // fence, so it may only be signalled again once that image is acquired again - by frame counter, with images handed back out of order
+        // (IMMEDIATE), a semaphore with a present still waiting on it was signalled anew: undefined, a frame that never completed)
         std::vector<VkCommandBufferSubmitInfo> Cmds;
         std::vector<VkSemaphoreSubmitInfo>     Waits  { { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = Semaphore.m_VKImageAcquiredSemaphore, .stageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT } };
-        std::vector<VkSemaphoreSubmitInfo>     Signals{ { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = Semaphore.m_VKRenderCompleteSemaphore, .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT } };
+        std::vector<VkSemaphoreSubmitInfo>     Signals{ { .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = m_FrameSemaphores[m_FrameIndex].m_VKRenderCompleteSemaphore, .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT } };
         m_Device->UploadSubmitInfo(Cmds, Waits, Signals);
         if( m_bAsyncRec ) EndAsyncCompute();
         // (no async section this frame: the last one, if any, before anything of this one; with one, the frame's first part waited it)
@@ -1577,6 +1592,11 @@ namespace xgpu::vulkan
     {
         auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
         auto& PipelineInstance = static_cast<xgpu::vulkan::pipeline_instance&>(*Instance.m_Private);
+        if( DrawCheckpoints() )
+        {
+            s_DrawTag = "pi " + std::to_string(reinterpret_cast<std::uintptr_t>(&PipelineInstance) & 0xFFFFFF);
+            { int k = 0; for( const auto& pT : PipelineInstance.m_TexturesBinds ) { if( k++ >= 10 ) break; s_DrawTag += std::string(" | ") + (pT && pT->m_pName ? pT->m_pName : "-"); } }
+        }
         pipeline_instance::per_renderpass PerRenderPass{};
         if( auto* pE = m_FrameMap.Current() )
         {
@@ -2037,6 +2057,7 @@ namespace xgpu::vulkan
         // Last minute to set the uniform buffers...
         applyDynamicOffsets(CmdBuffer);
 
+        if( m_Device->m_pCmdSetCheckpoint && DrawCheckpoints() ) m_Device->Checkpoint(CB.m_VKCommandBuffer, "draw", (s_DrawTag + " idx " + std::to_string(IndexCount) + " first " + std::to_string(FirstIndex) + " vtx " + std::to_string(VertexOffset) + " inst " + std::to_string(InstanceCount) + "+" + std::to_string(FirstInstance)).c_str());
         //
         // Issue the draw call
         //
@@ -2055,6 +2076,7 @@ namespace xgpu::vulkan
 
     //------------------------------------------------------------------------------------------------------------------------
 
+
     void window::DrawIndexedIndirect( xgpu::cmd_buffer& CmdBuffer, xgpu::buffer& Commands, int FirstCommand, int Count ) noexcept
     {
         if( Count <= 0 ) return;
@@ -2063,6 +2085,7 @@ namespace xgpu::vulkan
         const auto& B  = *static_cast<const xgpu::vulkan::buffer*>(Commands.m_Private.get());
         applyDynamicOffsets(CmdBuffer);
         constexpr std::uint32_t Stride = sizeof(VkDrawIndexedIndirectCommand);
+        if( m_Device->m_pCmdSetCheckpoint && DrawCheckpoints() ) m_Device->Checkpoint(CB.m_VKCommandBuffer, "draw indirect", nullptr);
         vkCmdDrawIndexedIndirect(CB.m_VKCommandBuffer, B.m_VKBuffer, VkDeviceSize(FirstCommand) * Stride, std::uint32_t(Count), Stride);
         CB.m_nDynamicOffsets = 0;
         CB.m_DynamicDirty = false;
@@ -2080,6 +2103,7 @@ namespace xgpu::vulkan
         const auto& C  = *static_cast<const xgpu::vulkan::buffer*>(Counts.m_Private.get());
         applyDynamicOffsets(CmdBuffer);
         constexpr std::uint32_t Stride = sizeof(VkDrawIndexedIndirectCommand);
+        if( m_Device->m_pCmdSetCheckpoint && DrawCheckpoints() ) m_Device->Checkpoint(CB.m_VKCommandBuffer, "draw indirect count", nullptr);
         vkCmdDrawIndexedIndirectCount(CB.m_VKCommandBuffer, B.m_VKBuffer, VkDeviceSize(FirstCommand) * Stride, C.m_VKBuffer, VkDeviceSize(CountEntry) * sizeof(std::uint32_t), std::uint32_t(MaxCount), Stride);
         CB.m_nDynamicOffsets = 0;
         CB.m_DynamicDirty = false;

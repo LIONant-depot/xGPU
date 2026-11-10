@@ -367,6 +367,10 @@ namespace xgpu::vulkan
             for( std::uint32_t i = 0; i < n; ++i ) std::printf("[xGPU] CHECKPOINT %s queue, stage 0x%x: %s\n", pQueue, unsigned(D[i].stage), D[i].pCheckpointMarker ? static_cast<const char*>(D[i].pCheckpointMarker) : "(none)");
             if( n == 0 ) std::printf("[xGPU] CHECKPOINT %s queue: none reported\n", pQueue);
         };
+        Print(m_VKMainQueue.get(), "main");      // (first: the names below can be many - XGPU_CHECKPOINTS=2 names every draw)
+        Print(m_VKAsyncQueue.get(), "async");
+        std::fflush(stdout);
+        if( const char* p = xgpu::details::Env("XGPU_CHECKPOINTS"); p && std::atoi(p) >= 2 ) return;
         {   // every marker seen, by its order in a frame: what each number is
             std::lock_guard Lk(s_CheckpointLock);
             std::vector<std::pair<int, std::string>> All;
