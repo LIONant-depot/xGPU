@@ -121,6 +121,7 @@ namespace xgpu::vulkan
         if( Setup.m_pShader && Setup.m_pShader->m_Private ) m_ReadOnlyBuffers = static_cast<const vulkan::shader*>(Setup.m_pShader->m_Private.get())->m_ReadOnlyBuffers;
         m_nTextures = Setup.m_nTextures;
         m_nImages   = Setup.m_nImages;
+        const VkFilter Filter = Setup.m_bLinear ? VK_FILTER_LINEAR : VK_FILTER_NEAREST;
         m_PushSize = static_cast<std::uint32_t>(Setup.m_PushConstantsSize);
         if( Setup.m_pShader == nullptr || Setup.m_pShader->m_Private == nullptr ) return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: no shader");
         if( m_nBuffers < 0 || m_nBuffers > max_buffers_v )                        return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: 0 to 16 storage buffers");
@@ -146,7 +147,7 @@ namespace xgpu::vulkan
             if( vkCreateDescriptorSetLayout(m_Device->m_VKDevice, &TextureInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKTextureLayout) )
                 return VGPU_ERROR(xgpu::device::error::FAILURE, "compute: vkCreateDescriptorSetLayout (textures) failed");
             const VkSamplerCreateInfo SamplerInfo
-            { .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO, .magFilter = VK_FILTER_NEAREST, .minFilter = VK_FILTER_NEAREST, .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST
+            { .sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO, .magFilter = Filter, .minFilter = Filter, .mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST
             , .addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, .addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, .addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE
             , .maxLod = VK_LOD_CLAMP_NONE };
             if( vkCreateSampler(m_Device->m_VKDevice, &SamplerInfo, m_Device->m_Instance->m_pVKAllocator, &m_VKSampler) )
