@@ -230,7 +230,7 @@ namespace xgpu::vulkan
         // (diagnostic, C30: XGPU_PROGRESS - a timestamp before and after every dispatch and render pass, by window and image; FENCESTUCK reads
         // the stuck frame's availability without waiting: what the GPU had reached. Needs XGPU_DONE_TL)
         struct progress_frame { VkQueryPool m_Pool = VK_NULL_HANDLE; std::vector<std::string> m_Names; std::uint32_t m_Q = 0; };
-        static constexpr std::uint32_t                  progress_max_v              = 8192;
+        static constexpr std::uint32_t                  progress_max_v              = 65536;
         std::unordered_map<std::uint64_t, progress_frame> m_Progress                {};
         std::array<std::uint64_t, 8>                    m_SubmitKey                 {};
         static bool                                     ProgressOn                  ( void ) noexcept;

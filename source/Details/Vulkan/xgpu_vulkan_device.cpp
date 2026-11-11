@@ -1029,6 +1029,13 @@ namespace xgpu::vulkan
         std::uint32_t nDone = 0, First = P.m_Q;
         for( std::uint32_t q = 0; q < P.m_Q; ++q ) if( R[q].m_A ) ++nDone; else if( First == P.m_Q ) First = q;
         std::printf("[xGPU] PROGRESS submit %llu: %u of %u stamps written; the first missing #%u\n", static_cast<unsigned long long>(Value), nDone, P.m_Q, First);
+        // (the pass or dispatch it is in, and which draw of it)
+        for( std::uint32_t q = std::min(First, P.m_Q - 1), nDraws = 0; ; --q )
+        {
+            if( P.m_Names[q].starts_with("pass begins") || P.m_Names[q].starts_with("dispatch begins") ) { std::printf("[xGPU] PROGRESS   in #%u %s, its draw %u\n", q, P.m_Names[q].c_str(), nDraws); break; }
+            if( P.m_Names[q].starts_with("before draw") ) ++nDraws;
+            if( q == 0 ) break;
+        }
         const std::uint32_t From = First > 6 ? First - 6 : 0, To = std::min(P.m_Q, First + 10);
         for( std::uint32_t q = From; q < To; ++q ) std::printf("[xGPU] PROGRESS   #%u %s %s\n", q, R[q].m_A ? "done   " : "MISSING", P.m_Names[q].c_str());
         std::fflush(stdout);

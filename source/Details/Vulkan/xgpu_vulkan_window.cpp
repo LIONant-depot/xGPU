@@ -1344,6 +1344,13 @@ namespace xgpu::vulkan
                 m_SlotInFlight[m_FrameIndex] = 0;
                 if( m_VKPrevFence == Frame.m_VKFence ) m_VKPrevFence = VK_NULL_HANDLE;
             }
+            // (C30 diagnostic, XGPU_WAIT_LOG: how far this slot's last frame went into its descriptor pools, every 600 frames)
+            if( static const bool s_bRingLog = xgpu::details::Env("XGPU_WAIT_LOG") != nullptr; s_bRingLog && m_Device->m_FrameIndex % 600 == 0 )
+            {
+                std::string S = "[xGPU] DESCRINGS image " + std::to_string(m_FrameIndex) + ":";
+                for( auto& [type, ring] : Rings() ) S += " type " + std::to_string(int(type)) + " pool " + std::to_string(ring.m_Current) + " of " + std::to_string(ring.m_Pools.size());
+                std::printf("%s\n", S.c_str()); std::fflush(stdout);
+            }
             for (auto& [type, ring] : Rings()) ring.AdvanceAndReset(m_Device->m_VKDevice);
             m_FrameSets.clear();
 
@@ -1374,6 +1381,15 @@ namespace xgpu::vulkan
             vkCmdPipelineBarrier( Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &Barrier, 0, nullptr, 0, nullptr );
             m_FrameMap.Begin(m_Device->m_VKDevice, m_Device->m_Instance->m_pVKAllocator, Frame.m_VKCommandBuffer, m_Device->m_FrameMapArm);
             if( m_Device->ProgressOn() ) m_Device->ProgressBegin(Frame.m_VKCommandBuffer, ProgressKey());
+            // (C30 experiment, XGPU_PAD_CMDS=<n>: n state commands at the start of the frame - the rest of its commands n of them further along)
+            // (timestamps into a pool of their own: commands the driver must emit - state setting may be dropped as redundant)
+            if( static const int s_Pad = [] { const char* p = xgpu::details::Env("XGPU_PAD_CMDS"); return p ? std::atoi(p) : 0; }(); s_Pad > 0 )
+            {
+                static VkQueryPool s_PadPool = VK_NULL_HANDLE;
+                if( s_PadPool == VK_NULL_HANDLE ) { const VkQueryPoolCreateInfo Info{ .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO, .queryType = VK_QUERY_TYPE_TIMESTAMP, .queryCount = std::uint32_t(s_Pad) }; vkCreateQueryPool(m_Device->m_VKDevice, &Info, nullptr, &s_PadPool); }
+                vkCmdResetQueryPool(Frame.m_VKCommandBuffer, s_PadPool, 0, std::uint32_t(s_Pad));
+                for( int i = 0; i < s_Pad; ++i ) vkCmdWriteTimestamp(Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, s_PadPool, std::uint32_t(i));
+            }
 
             // the memory heaps (size, the driver's budget and usage) for the profiler's memory maps: every 30 device frames
             if( m_Device->m_FrameIndex % 30 == 0 && m_Device->m_HeapReportFrame != m_Device->m_FrameIndex ) { m_Device->m_HeapReportFrame = m_Device->m_FrameIndex; m_Device->ReportMemoryHeaps(); }
@@ -1590,8 +1606,9 @@ namespace xgpu::vulkan
         if (s_bTimes)
         {
             static double s_Sum = 0; static int s_n = 0;
+            static auto s_T0 = std::chrono::steady_clock::now();
             s_Sum += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - TWait).count();
-            if (++s_n == 120) { std::printf("FENCEWAIT %.2f ms (EndFrame's wait%s)\n", s_Sum / s_n, s_bSerial ? ", serial" : ": the frame before"); std::fflush(stdout); s_Sum = 0; s_n = 0; }
+            if (++s_n == 120) { const auto T1 = std::chrono::steady_clock::now(); std::printf("FENCEWAIT %.2f ms (EndFrame's wait%s); a frame every %.2f ms\n", s_Sum / s_n, s_bSerial ? ", serial" : ": the frame before", std::chrono::duration<double, std::milli>(T1 - s_T0).count() / s_n); std::fflush(stdout); s_Sum = 0; s_n = 0; s_T0 = T1; }
         }
 
         return nullptr;
@@ -2160,6 +2177,15 @@ namespace xgpu::vulkan
     void window::applyDynamicOffsets(xgpu::cmd_buffer& CmdBuffer) noexcept
     {
         auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
+
+        // (C30 diagnostic, XGPU_PROGRESS=2: every draw too - a bottom-of-pipe stamp before it: the draws before it finished)
+        if( static const bool s_bDraws = m_Device->ProgressOn() && xgpu::details::Env("XGPU_PROGRESS")[0] == '2'; s_bDraws && CB.m_ActivePipelineInstance.m_pPipelineInstance )
+        {
+            const auto& PI = *CB.m_ActivePipelineInstance.m_pPipelineInstance;
+            std::string N = "before draw, pipeline instance " + std::to_string(reinterpret_cast<std::uintptr_t>(&PI) & 0xFFFFFF);
+            { int k = 0; for( const auto& pT : PI.m_TexturesBinds ) { if( k++ >= 3 ) break; N += std::string(" | ") + (pT && pT->m_pName ? pT->m_pName : "-"); } }
+            m_Device->ProgressStamp(CB.m_VKCommandBuffer, ProgressKey(), VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, std::move(N));
+        }
 
         if (!CB.m_DynamicDirty || !CB.m_ActivePipelineInstance.m_pPipelineInstance)
             return;
