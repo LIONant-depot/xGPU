@@ -2,8 +2,73 @@
 #include <unordered_set>
 #include <chrono>
 #include "../xgpu_env.h"
+#if defined(_WIN32)
+#include <cstdio>
+#include <string>
+#include <vector>
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 namespace xgpu::vulkan
 {
+#if defined(_WIN32)
+    // NVIDIA Nsight Aftermath (C30), XGPU_AFTERMATH=<folder holding GFSDK_Aftermath_Lib.x64.dll>, measurement: when the GPU times out the driver hands over a crash
+    // dump, written there with its JSON decode (the active shaders, the fault, the device's state). The library is loaded by name: nothing links or ships with it
+    namespace aftermath
+    {
+        constexpr std::uint32_t version_v = 0x000021B, watch_vulkan_v = 0x2, decode_all_v = 0x3FFF, format_utf8_v = 0x2;
+        using dump_cb   = void(*)(const void*, std::uint32_t, void*);
+        using enable_fn = int(*)(std::uint32_t, std::uint32_t, std::uint32_t, dump_cb, void*, void*, void*, void*);
+        using create_fn = int(*)(std::uint32_t, const void*, std::uint32_t, void**);
+        using destroy_fn= int(*)(void*);
+        using json_fn   = int(*)(void*, std::uint32_t, std::uint32_t, void*, void*, void*, void*, std::uint32_t*);
+        using getjson_fn= int(*)(void*, std::uint32_t, char*);
+        static HMODULE      s_Lib = nullptr;
+        static std::string  s_Folder;
+
+        static void OnDump(const void* pDump, std::uint32_t Size, void*) noexcept
+        {
+            static int s_n = 0;
+            const std::string Base = s_Folder + "\\xlion_" + std::to_string(GetCurrentProcessId()) + "_" + std::to_string(s_n++);
+            if( FILE* f = std::fopen((Base + ".nv-gpudmp").c_str(), "wb") ) { std::fwrite(pDump, 1, Size, f); std::fclose(f); }
+            std::printf("[xGPU] AFTERMATH dump written: %s.nv-gpudmp (%u bytes)\n", Base.c_str(), Size); std::fflush(stdout);
+            const auto Create  = reinterpret_cast<create_fn>(GetProcAddress(s_Lib, "GFSDK_Aftermath_GpuCrashDump_CreateDecoder"));
+            const auto Destroy = reinterpret_cast<destroy_fn>(GetProcAddress(s_Lib, "GFSDK_Aftermath_GpuCrashDump_DestroyDecoder"));
+            const auto Json    = reinterpret_cast<json_fn>(GetProcAddress(s_Lib, "GFSDK_Aftermath_GpuCrashDump_GenerateJSON"));
+            const auto GetJson = reinterpret_cast<getjson_fn>(GetProcAddress(s_Lib, "GFSDK_Aftermath_GpuCrashDump_GetJSON"));
+            void* pDecoder = nullptr;
+            if( !Create || !Destroy || !Json || !GetJson || Create(version_v, pDump, Size, &pDecoder) != 1 ) { std::printf("[xGPU] AFTERMATH no decoder\n"); std::fflush(stdout); return; }
+            std::uint32_t JsonSize = 0;
+            if( Json(pDecoder, decode_all_v, format_utf8_v, nullptr, nullptr, nullptr, nullptr, &JsonSize) == 1 && JsonSize )
+            {
+                std::vector<char> Text(JsonSize);
+                if( GetJson(pDecoder, JsonSize, Text.data()) == 1 )
+                    if( FILE* f = std::fopen((Base + ".json").c_str(), "wb") ) { std::fwrite(Text.data(), 1, JsonSize ? JsonSize - 1 : 0, f); std::fclose(f); }
+            }
+            Destroy(pDecoder);
+            std::printf("[xGPU] AFTERMATH decoded: %s.json\n", Base.c_str()); std::fflush(stdout);
+        }
+
+        // Before the device is made; true: the device asks for the diagnostics
+        static bool Enable(void) noexcept
+        {
+            const char* pFolder = xgpu::details::Env("XGPU_AFTERMATH");
+            if( pFolder == nullptr ) return false;
+            s_Folder = pFolder;
+            s_Lib = LoadLibraryA((s_Folder + "\\GFSDK_Aftermath_Lib.x64.dll").c_str());
+            const auto Fn = s_Lib ? reinterpret_cast<enable_fn>(GetProcAddress(s_Lib, "GFSDK_Aftermath_EnableGpuCrashDumps")) : nullptr;
+            const int  R  = Fn ? Fn(version_v, watch_vulkan_v, 0u, &OnDump, nullptr, nullptr, nullptr, nullptr) : 0;
+            std::printf("[xGPU] AFTERMATH %s (result 0x%x)\n", R == 1 ? "on" : "could not start", unsigned(R)); std::fflush(stdout);
+            return R == 1;
+        }
+    }
+#endif
+
     //----------------------------------------------------------------------------------------------------------
 
     device::~device(void) noexcept
@@ -281,6 +346,13 @@ namespace xgpu::vulkan
                 }
             if( xgpu::details::Env("XGPU_CHECKPOINTS") )
                 for( const auto& E : Available ) if( std::strcmp(E.extensionName, VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME) == 0 ) { enabledExtensions.push_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME); bCheckpoints = true; }
+#if defined(_WIN32)
+            // (XGPU_AFTERMATH: the crash dumps' diagnostics on this device)
+            static VkDeviceDiagnosticsConfigCreateInfoNV s_Diag{ .sType = VK_STRUCTURE_TYPE_DEVICE_DIAGNOSTICS_CONFIG_CREATE_INFO_NV
+                                                               , .flags = VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_RESOURCE_TRACKING_BIT_NV | VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_AUTOMATIC_CHECKPOINTS_BIT_NV | VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_SHADER_DEBUG_INFO_BIT_NV };
+            if( aftermath::Enable() )
+                for( const auto& E : Available ) if( std::strcmp(E.extensionName, VK_NV_DEVICE_DIAGNOSTICS_CONFIG_EXTENSION_NAME) == 0 ) { enabledExtensions.push_back(VK_NV_DEVICE_DIAGNOSTICS_CONFIG_EXTENSION_NAME); s_Diag.pNext = Use12.pNext; Use12.pNext = &s_Diag; }
+#endif
             // VK_KHR_shader_clock where the GPU has it: a shader may read its subgroup's clock (xLIONRender's XLION_HEAT: a pass's cost per pixel)
             for( const auto& E : Available ) if( std::strcmp(E.extensionName, VK_KHR_SHADER_CLOCK_EXTENSION_NAME) == 0 )
             {
