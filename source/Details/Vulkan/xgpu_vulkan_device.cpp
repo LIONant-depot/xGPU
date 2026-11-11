@@ -1106,6 +1106,29 @@ namespace xgpu::vulkan
     {
 
         m_FrameIndex++;
+        if( static const bool s_bCount = xgpu::details::Env("XGPU_VK_COUNT") != nullptr; s_bCount )
+        {   // (the distinct pipelines this device frame bound and their shader code, from XGPU_PIPELINE_STATS: averaged, printed every 600 frames)
+            static double s_nPipes = 0, s_Bytes = 0, s_Unknown = 0, s_MaxBytes = 0; static int s_n = 0;
+            {
+                std::lock_guard Lk(xgpu_vkcount::g_CodeLock);
+                double Bytes = 0; int Unknown = 0;
+                for( const auto& [P, k] : xgpu_vkcount::g_FrameBound ) { const auto It = xgpu_vkcount::g_Code.find(P); if( It != xgpu_vkcount::g_Code.end() ) Bytes += double(It->second); else ++Unknown; }
+                // (once, the device frame XGPU_FRAMECODE_DUMP names: every pipeline it bound, its code and its label)
+                if( static const long long s_Dump = [] { const char* p = xgpu::details::Env("XGPU_FRAMECODE_DUMP"); return p ? std::atoll(p) : -1ll; }(); s_Dump >= 0 && (long long)m_FrameIndex >= s_Dump && xgpu_vkcount::g_FrameBound.size() > 20 )
+                {
+                    static bool s_bDone = false; if( s_bDone ) goto dumped; s_bDone = true;
+                    std::vector<std::pair<std::uint64_t, std::string>> L;
+                    for( const auto& [P, k] : xgpu_vkcount::g_FrameBound ) L.emplace_back(xgpu_vkcount::g_Code.count(P) ? xgpu_vkcount::g_Code[P] : 0, (xgpu_vkcount::g_Label.count(P) ? xgpu_vkcount::g_Label[P] : std::string("?")) + " x" + std::to_string(k));
+                    std::sort(L.rbegin(), L.rend());
+                    for( const auto& [b, s] : L ) std::printf("[xGPU] FRAMECODEDUMP %8llu %s\n", (unsigned long long)b, s.c_str());
+                    std::fflush(stdout);
+                }
+                dumped:;
+                s_nPipes += double(xgpu_vkcount::g_FrameBound.size()); s_Bytes += Bytes; s_Unknown += Unknown; s_MaxBytes = std::max(s_MaxBytes, Bytes);
+                xgpu_vkcount::g_FrameBound.clear();
+            }
+            if( ++s_n == 600 ) { std::printf("[xGPU] FRAMECODE a device frame binds %.0f distinct pipelines (%.0f without statistics), %.1f MB of shader code (most %.1f MB)\n", s_nPipes / s_n, s_Unknown / s_n, s_Bytes / s_n / 1048576.0, s_MaxBytes / 1048576.0); std::fflush(stdout); s_nPipes = s_Bytes = s_Unknown = s_MaxBytes = 0; s_n = 0; }
+        }
         if( static const bool s_bCount = xgpu::details::Env("XGPU_VK_COUNT") != nullptr; s_bCount && m_FrameIndex % 600 == 0 )
         {
             static std::uint64_t s_Last[xgpu_vkcount::count_v]{};

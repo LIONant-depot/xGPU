@@ -4,6 +4,8 @@
 #endif
 #include <vulkan/vulkan.h>
 #include <atomic>
+#include <mutex>
+#include <unordered_map>
 
 // (C30 diagnostic, XGPU_VK_COUNT: the object and descriptor calls counted - creates, destroys, frees, resets, updates - printed every 600
 // device frames by device::DeathMarch: which of them happen during play, while a frame is in flight)
@@ -43,7 +45,12 @@ namespace xgpu_vkcount
     inline void     DestroyDescriptorPool(VkDevice d, VkDescriptorPool x, const VkAllocationCallbacks* a) { ++g_Count[DESTROY_POOL]; ::vkDestroyDescriptorPool(d, x, a); }
     inline void     CmdBindDescriptorSets(VkCommandBuffer c, VkPipelineBindPoint bp, VkPipelineLayout l, uint32_t first, uint32_t n, const VkDescriptorSet* s, uint32_t nd, const uint32_t* d)
     { if( bp == VK_PIPELINE_BIND_POINT_GRAPHICS ) for( uint32_t i = first; i < first + n && i < 4; ++i ) ++g_Count[BIND_SET0 + int(i)]; ::vkCmdBindDescriptorSets(c, bp, l, first, n, s, nd, d); }
-    inline void     CmdBindPipeline(VkCommandBuffer c, VkPipelineBindPoint bp, VkPipeline p) { if( bp == VK_PIPELINE_BIND_POINT_GRAPHICS ) ++g_Count[BIND_PIPELINE]; ::vkCmdBindPipeline(c, bp, p); }
+    // (C30, XGPU_PIPELINE_STATS + XGPU_VK_COUNT: each pipeline's shader code bytes, from its statistics; the distinct pipelines a device frame binds)
+    inline std::mutex                                   g_CodeLock;
+    inline std::unordered_map<VkPipeline, std::uint64_t> g_Code;
+    inline std::unordered_map<VkPipeline, int>           g_FrameBound;
+    inline std::unordered_map<VkPipeline, std::string>   g_Label;
+    inline void     CmdBindPipeline(VkCommandBuffer c, VkPipelineBindPoint bp, VkPipeline p) { if( bp == VK_PIPELINE_BIND_POINT_GRAPHICS ) ++g_Count[BIND_PIPELINE]; { std::lock_guard Lk(g_CodeLock); ++g_FrameBound[p]; } ::vkCmdBindPipeline(c, bp, p); }
     inline void     CmdDrawIndexed(VkCommandBuffer c, uint32_t a, uint32_t b, uint32_t e, int32_t f, uint32_t g) { ++g_Count[DRAWS]; ::vkCmdDrawIndexed(c, a, b, e, f, g); }
     inline void     CmdDrawIndexedIndirect(VkCommandBuffer c, VkBuffer b, VkDeviceSize o, uint32_t n, uint32_t s) { ++g_Count[DRAWS]; ::vkCmdDrawIndexedIndirect(c, b, o, n, s); }
     inline void     CmdDrawIndexedIndirectCount(VkCommandBuffer c, VkBuffer b, VkDeviceSize o, VkBuffer cb, VkDeviceSize co, uint32_t m, uint32_t s) { ++g_Count[DRAWS]; ::vkCmdDrawIndexedIndirectCount(c, b, o, cb, co, m, s); }

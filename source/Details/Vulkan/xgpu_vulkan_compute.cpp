@@ -95,6 +95,7 @@ namespace xgpu::vulkan
             pStats(D.m_VKDevice, &Exe, &m, Stats.data());
             for( const auto& S : Stats )
             {
+                if( std::strcmp(S.name, "Binary Size") == 0 ) { std::lock_guard Lk(xgpu_vkcount::g_CodeLock); xgpu_vkcount::g_Code[Pipeline] += S.format == VK_PIPELINE_EXECUTABLE_STATISTIC_FORMAT_INT64_KHR ? std::uint64_t(S.value.i64) : S.value.u64; xgpu_vkcount::g_Label[Pipeline] = Label; }
                 std::fprintf(pFile, "    %s: ", S.name);
                 switch( S.format )
                 {
