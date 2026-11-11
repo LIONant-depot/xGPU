@@ -996,6 +996,22 @@ namespace xgpu::vulkan
 
     bool device::ProgressOn( void ) noexcept { static const bool b = xgpu::details::Env("XGPU_PROGRESS") != nullptr; return b; }
 
+    bool device::ReuseOn( void ) noexcept { static const bool b = xgpu::details::Env("XGPU_REUSE_CHECK") != nullptr && xgpu::details::Env("XGPU_DONE_TL") != nullptr; return b; }
+    std::uint64_t device::ReuseDone( void ) const noexcept
+    {
+        std::uint64_t Done = 0;
+        if( m_DoneTL != VK_NULL_HANDLE ) vkGetSemaphoreCounterValue(m_VKDevice, m_DoneTL, &Done);
+        return Done;
+    }
+    // (each distinct what + name reported 5 times, then counted; the counts every 600 device frames)
+    void device::ReuseReport( const char* pWhat, const char* pName, std::uint64_t Used, std::uint64_t Done ) noexcept
+    {
+        static std::mutex s_Lock; static std::unordered_map<std::string, std::uint64_t> s_Count;
+        std::lock_guard Lk(s_Lock);
+        const std::string K = std::string(pWhat) + " " + (pName ? pName : "(no name)");
+        if( s_Count[K]++ < 5 ) { std::printf("[xGPU] REUSE %s: used by submit %llu, finished %llu, now recording %llu\n", K.c_str(), (unsigned long long)Used, (unsigned long long)Done, (unsigned long long)ReuseNow()); std::fflush(stdout); }
+    }
+
     void device::ProgressBegin( VkCommandBuffer Cmd, std::uint64_t Key ) noexcept
     {
         auto& P = m_Progress[Key];

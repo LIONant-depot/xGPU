@@ -1628,6 +1628,8 @@ namespace xgpu::vulkan
 
         auto pBuffer = std::reinterpret_pointer_cast<vulkan::buffer>(Buffer.m_Private);
         std::uint32_t Offset = pBuffer->m_LastOffset;
+        // (C30, XGPU_REUSE_CHECK: the entry bound now - an earlier frame's, left as it was - is used by this frame too)
+        if( m_Device->ReuseOn() && !pBuffer->m_EntryUse.empty() && pBuffer->m_EntrySizeBytes ) pBuffer->m_EntryUse[std::size_t(Offset / std::uint32_t(pBuffer->m_EntrySizeBytes))] = m_Device->ReuseNow();
         CB.m_CurrentDynamicVKBuffers[index] = &Buffer;
         CB.m_CurrentDynamicOffsets[index] = Offset;
         CB.m_DynamicDirty = true;
@@ -1639,6 +1641,7 @@ namespace xgpu::vulkan
     {
         auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
         auto& PipelineInstance = static_cast<xgpu::vulkan::pipeline_instance&>(*Instance.m_Private);
+        if( m_Device->ReuseOn() ) for( auto* pB : StaticBuffers ) if( pB && pB->m_Private ) static_cast<vulkan::buffer*>(pB->m_Private.get())->m_BoundSubmit = m_Device->ReuseNow();
         if( DrawCheckpoints() )
         {
             s_DrawTag = "pi " + std::to_string(reinterpret_cast<std::uintptr_t>(&PipelineInstance) & 0xFFFFFF);

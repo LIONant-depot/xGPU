@@ -30,8 +30,11 @@ namespace xgpu::vulkan
 
     //----------------------------------------------------------------------------------
 
-    xgpu::device::error* buffer::Create(const xgpu::buffer::setup& Setup) noexcept
+    xgpu::device::error* buffer::Create(const xgpu::buffer::setup& SetupIn) noexcept
     {
+        // (C30 experiment, XGPU_UBO_RING_MULT=<k>: every dynamic UBO ring k times longer)
+        auto Setup = SetupIn;
+        if( static const int s_Mult = [] { const char* p = xgpu::details::Env("XGPU_UBO_RING_MULT"); return p ? std::atoi(p) : 1; }(); s_Mult > 1 && Setup.m_Type == xgpu::buffer::type::UNIFORM ) Setup.m_EntryCount *= s_Mult;
         assert(Setup.m_EntryCount >= 1 );
         assert(Setup.m_EntryByteSize > 0);
 
@@ -176,6 +179,19 @@ namespace xgpu::vulkan
                 m_Device->WaitFramesUpTo(Wait);
                 if( s_bLog ) if( const double Ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - T0).count(); Ms >= 1.0 ) { std::printf("[xGPU] REGIONWAIT %.2f ms: %s (its region written again: one slot)\n", Ms, m_pName ? m_pName : "(no name)"); std::fflush(stdout); }
             }
+            if( m_Device->ReuseOn() )
+            {
+                const auto Done = m_Device->ReuseDone(), Now = m_Device->ReuseNow();
+                for( int j = 0; j < m_nWritten; ++j ) if( m_Written[j].m_First < End && First < m_Written[j].m_End && m_WrittenSubmit[std::size_t(j)] > Done && m_WrittenSubmit[std::size_t(j)] != Now )
+                    { m_Device->ReuseReport("frame region rewritten", m_pName, m_WrittenSubmit[std::size_t(j)], Done); break; }
+                // (an unfinished frame bound this buffer and the region was written before it: that frame may read it - a ring's other slots report here too)
+                if( m_BoundSubmit > Done && m_BoundSubmit != Now )
+                {
+                    bool bOlder = true;
+                    for( int j = 0; j < m_nWritten; ++j ) if( m_Written[j].m_First < End && First < m_Written[j].m_End && m_WrittenSubmit[std::size_t(j)] >= m_BoundSubmit ) bOlder = false;
+                    if( bOlder ) m_Device->ReuseReport("frame region written while an unfinished frame binds the buffer", m_pName, m_BoundSubmit, Done);
+                }
+            }
             // (this write: replaces the entries it covers, else the oldest)
             int k = 0;
             for( ; k < m_nWritten; ++k ) if( m_Written[k].m_First == First && m_Written[k].m_End == End ) break;
@@ -195,10 +211,11 @@ namespace xgpu::vulkan
                     if( D.m_Frame > m_DroppedFrame && m_DroppedFrame < static_cast<std::int64_t>(m_Device->m_FrameIndex) - 3 ) { m_DroppedFirst = D.m_First; m_DroppedEnd = D.m_End; }     // (the old span's frames are done: a new span)
                     else { m_DroppedFirst = std::min(m_DroppedFirst, D.m_First); m_DroppedEnd = std::max(m_DroppedEnd, D.m_End); }
                     m_DroppedFrame = std::max(m_DroppedFrame, D.m_Frame);
-                    for( int j = 1; j < m_nWritten; ++j ) m_Written[j - 1] = m_Written[j]; k = m_nWritten - 1;
+                    for( int j = 1; j < m_nWritten; ++j ) { m_Written[j - 1] = m_Written[j]; m_WrittenSubmit[std::size_t(j - 1)] = m_WrittenSubmit[std::size_t(j)]; } k = m_nWritten - 1;
                 }
             }
             m_Written[k] = { First, End, static_cast<std::int64_t>(m_Device->m_FrameIndex) };
+            m_WrittenSubmit[std::size_t(k)] = m_Device->ReuseNow();
         }
         // (2026-11-08, C25) About a dozen MemoryMapFrameRegion callers (the GI's stage,
         // run and job buffers, its sun map) rewrite the same region every frame and were only safe because an earlier wait in the frame
@@ -470,6 +487,14 @@ namespace xgpu::vulkan
         {
             static std::atomic<int> s_nOverflow{ 0 };
             if (s_nOverflow++ < 20) { std::printf("[xGPU] RINGOVERFLOW %s: one frame used more than the ring's %d entries (its first ones written again before the GPU read them)\n", m_pName ? m_pName : "(no name)", m_nEntries); std::fflush(stdout); }
+        }
+        if (m_Device->ReuseOn())
+        {
+            if (m_EntryUse.size() != std::size_t(m_nEntries)) m_EntryUse.assign(std::size_t(m_nEntries), 0);
+            if (V == m_PrevFrameStart) m_Device->WaitInFlight();     // (the wait below, first: the check sees what it leaves)
+            const auto Used = m_EntryUse[std::size_t(V)], Done = m_Device->ReuseDone();
+            if (Used > Done && Used != m_Device->ReuseNow()) m_Device->ReuseReport("dynamic UBO entry rewritten", m_pName, Used, Done);
+            m_EntryUse[std::size_t(V)] = m_Device->ReuseNow();
         }
         if (V == m_PrevFrameStart) { static const bool s_bLog = xgpu::details::Env("XGPU_WAIT_LOG") != nullptr; const auto T0 = std::chrono::steady_clock::now(); m_Device->WaitInFlight(); if( s_bLog ) if( const double Ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - T0).count(); Ms >= 1.0 ) { std::printf("[xGPU] RINGWAIT %.2f ms: %s (the dynamic ring came round to the frame in flight's entries)\n", Ms, m_pName ? m_pName : "(no name)"); std::fflush(stdout); } }
 

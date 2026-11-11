@@ -234,6 +234,11 @@ namespace xgpu::vulkan
         std::unordered_map<std::uint64_t, progress_frame> m_Progress                {};
         std::array<std::uint64_t, 8>                    m_SubmitKey                 {};
         static bool                                     ProgressOn                  ( void ) noexcept;
+        // (C30, XGPU_REUSE_CHECK with XGPU_DONE_TL) the submit the frame being recorded will be, the last one finished, and a report
+        static bool                                     ReuseOn                     ( void ) noexcept;
+        std::uint64_t                                   ReuseNow                    ( void ) const noexcept { return m_DoneSubmitted + 1; }
+        std::uint64_t                                   ReuseDone                   ( void ) const noexcept;
+        void                                            ReuseReport                 ( const char* pWhat, const char* pName, std::uint64_t Used, std::uint64_t Done ) noexcept;
         void                                            ProgressBegin               ( VkCommandBuffer Cmd, std::uint64_t Key ) noexcept;
         void                                            ProgressStamp               ( VkCommandBuffer Cmd, std::uint64_t Key, VkPipelineStageFlagBits Stage, std::string&& Name ) noexcept;
         void                                            ProgressPrint               ( std::uint64_t Value ) noexcept;

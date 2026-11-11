@@ -47,5 +47,10 @@ namespace xgpu::vulkan
         xgpu::buffer::type          m_Type              {};
         xgpu::buffer::setup::usage  m_Usage             {};
         bool                        m_bWriteOnly        {};
+        // (C30 diagnostic, XGPU_REUSE_CHECK with XGPU_DONE_TL: the submit that last used each dynamic UBO entry, the last submit that bound
+        // the buffer, and each written region's submit - a write while that submit is unfinished is reported, nothing waits for it)
+        std::vector<std::uint64_t>  m_EntryUse          {};
+        std::uint64_t               m_BoundSubmit       = 0;
+        std::array<std::uint64_t, 64> m_WrittenSubmit   {};
     };
 }

@@ -219,6 +219,8 @@ namespace xgpu::vulkan
         }
         assert(static_cast<int>(Buffers.size()) == C.m_nBuffers && static_cast<int>(Textures.size()) == C.m_nTextures && static_cast<int>(Images.size()) == C.m_nImages && PushSize <= C.m_PushSize);
         const VkCommandBuffer Cmd = RecordingCmd();       // (the frame's, or its async section's)
+        if( m_Device->ReuseOn() ) { for( auto* pB : Buffers ) if( pB && pB->m_Private ) static_cast<vulkan::buffer*>(pB->m_Private.get())->m_BoundSubmit = m_Device->ReuseNow();
+                                    if( pIndirect && pIndirect->m_Private ) static_cast<vulkan::buffer*>(pIndirect->m_Private.get())->m_BoundSubmit = m_Device->ReuseNow(); }
         m_Device->Checkpoint(Cmd, "dispatch", C.m_pName);
 
         // (the frame map: this dispatch, its buffers (read or written: not known here), textures read, images written)
