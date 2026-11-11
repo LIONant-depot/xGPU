@@ -205,7 +205,9 @@ namespace xgpu::vulkan
         // drained the GPU - without it Tomas's editor lost the device; a frame region now waits for the frame that last wrote an overlapping
         // region (m_Written, above). XGPU_FORCE_MAP_WAIT=1: every map waits as before (a name's part: only those buffers) - for bisecting
         static const char* s_pForceWait = xgpu::details::Env("XGPU_FORCE_MAP_WAIT");
-        if( s_pForceWait && (s_pForceWait[0] == '1' || (s_pForceWait[0] != '0' && m_pName && std::strstr(m_pName, s_pForceWait))) ) bWaitInFlight = true;
+        // ("a|b|c": any of those name parts)
+        static const std::vector<std::string> s_ForceParts = [] { std::vector<std::string> V; if( s_pForceWait ) { std::string S = s_pForceWait; for( std::size_t a = 0, b; a <= S.size(); a = b + 1 ) { b = S.find('|', a); if( b == std::string::npos ) b = S.size(); if( b > a ) V.push_back(S.substr(a, b - a)); } } return V; }();
+        if( s_pForceWait && (s_pForceWait[0] == '1' || (s_pForceWait[0] != '0' && m_pName && std::ranges::any_of(s_ForceParts, [&](const std::string& s) { return std::strstr(m_pName, s.c_str()) != nullptr; }))) ) bWaitInFlight = true;
         if( bWaitInFlight )          // the frame in flight may still read what is about to be written (MemoryMapFrameRegion: not)
         {
             static const bool s_bLog = xgpu::details::Env("XGPU_WAIT_LOG") != nullptr;

@@ -970,9 +970,68 @@ namespace xgpu::vulkan
                 , static_cast<unsigned long long>(Done), static_cast<unsigned long long>(m_Upload.m_Flushed)
                 , static_cast<unsigned long long>(AcquireDone), static_cast<unsigned long long>(m_Upload.m_Acquired)
                 , static_cast<unsigned long long>(m_FrameIndex));
+            if( m_DoneTL != VK_NULL_HANDLE )
+            {
+                std::uint64_t Reached = 0, Started = 0;
+                vkGetSemaphoreCounterValue(m_VKDevice, m_DoneTL, &Reached);
+                vkGetSemaphoreCounterValue(m_VKDevice, m_StartTL, &Started);
+                std::printf("[xGPU] DONETL frames' submits: waits met %llu, finished %llu, of %llu\n", static_cast<unsigned long long>(Started), static_cast<unsigned long long>(Reached), static_cast<unsigned long long>(m_DoneSubmitted));
+                for( std::uint64_t v = Reached + 1; v <= m_DoneSubmitted && v <= Reached + 4; ++v ) std::printf("[xGPU] DONETL   %s\n", m_SubmitLog[v % m_SubmitLog.size()].c_str());
+                if( m_bMemoryBudget )
+                {
+                    VkPhysicalDeviceMemoryBudgetPropertiesEXT Budget{ .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_BUDGET_PROPERTIES_EXT };
+                    VkPhysicalDeviceMemoryProperties2         Props { .sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MEMORY_PROPERTIES_2, .pNext = &Budget };
+                    vkGetPhysicalDeviceMemoryProperties2(m_VKPhysicalDevice, &Props);
+                    for( std::uint32_t i = 0; i < Props.memoryProperties.memoryHeapCount; ++i )
+                        std::printf("[xGPU] HEAP %u%s: size %.0f MB, budget %.0f MB, used %.0f MB\n", i, (Props.memoryProperties.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) ? " (device)" : "", double(Props.memoryProperties.memoryHeaps[i].size) / 1048576.0, double(Budget.heapBudget[i]) / 1048576.0, double(Budget.heapUsage[i]) / 1048576.0);
+                }
+                static bool s_bProgressPrinted = false;
+                if( ProgressOn() && !s_bProgressPrinted ) { s_bProgressPrinted = true; ProgressPrint(Reached + 1); }
+            }
             std::fflush(stdout);
-            static bool s_bPrinted = false; if( !s_bPrinted ) { s_bPrinted = true; PrintCheckpoints(); }
+            // (the NV checkpoints are valid only after a device loss: read on a timeout they proved nothing, 2026-11-11)
+            static bool s_bPrinted = false; if( !s_bPrinted && xgpu::details::Env("XGPU_CHECKPOINTS_ON_STUCK") ) { s_bPrinted = true; PrintCheckpoints(); }
         }
+    }
+
+    bool device::ProgressOn( void ) noexcept { static const bool b = xgpu::details::Env("XGPU_PROGRESS") != nullptr; return b; }
+
+    void device::ProgressBegin( VkCommandBuffer Cmd, std::uint64_t Key ) noexcept
+    {
+        auto& P = m_Progress[Key];
+        if( P.m_Pool == VK_NULL_HANDLE )
+        {
+            const VkQueryPoolCreateInfo Info{ .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO, .queryType = VK_QUERY_TYPE_TIMESTAMP, .queryCount = progress_max_v };
+            if( vkCreateQueryPool(m_VKDevice, &Info, m_Instance->m_pVKAllocator, &P.m_Pool) != VK_SUCCESS ) { P.m_Pool = VK_NULL_HANDLE; return; }
+        }
+        vkCmdResetQueryPool(Cmd, P.m_Pool, 0, progress_max_v);
+        P.m_Names.clear();
+        P.m_Q = 0;
+    }
+
+    void device::ProgressStamp( VkCommandBuffer Cmd, std::uint64_t Key, VkPipelineStageFlagBits Stage, std::string&& Name ) noexcept
+    {
+        auto It = m_Progress.find(Key);
+        if( It == m_Progress.end() || It->second.m_Pool == VK_NULL_HANDLE || It->second.m_Q >= progress_max_v ) return;
+        vkCmdWriteTimestamp(Cmd, Stage, It->second.m_Pool, It->second.m_Q++);
+        It->second.m_Names.push_back(std::move(Name));
+    }
+
+    // The stuck frame (the submit of Value): each stamp written by the GPU or not, read without waiting; printed around the first missing one
+    void device::ProgressPrint( std::uint64_t Value ) noexcept
+    {
+        const auto It = m_Progress.find(m_SubmitKey[Value % m_SubmitKey.size()]);
+        if( It == m_Progress.end() || It->second.m_Q == 0 ) { std::printf("[xGPU] PROGRESS none for submit %llu\n", static_cast<unsigned long long>(Value)); return; }
+        const auto& P = It->second;
+        struct r { std::uint64_t m_T, m_A; };
+        std::vector<r> R(P.m_Q);
+        (void)vkGetQueryPoolResults(m_VKDevice, P.m_Pool, 0, P.m_Q, R.size() * sizeof(r), R.data(), sizeof(r), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WITH_AVAILABILITY_BIT);
+        std::uint32_t nDone = 0, First = P.m_Q;
+        for( std::uint32_t q = 0; q < P.m_Q; ++q ) if( R[q].m_A ) ++nDone; else if( First == P.m_Q ) First = q;
+        std::printf("[xGPU] PROGRESS submit %llu: %u of %u stamps written; the first missing #%u\n", static_cast<unsigned long long>(Value), nDone, P.m_Q, First);
+        const std::uint32_t From = First > 6 ? First - 6 : 0, To = std::min(P.m_Q, First + 10);
+        for( std::uint32_t q = From; q < To; ++q ) std::printf("[xGPU] PROGRESS   #%u %s %s\n", q, R[q].m_A ? "done   " : "MISSING", P.m_Names[q].c_str());
+        std::fflush(stdout);
     }
 
     void device::WaitInFlight( void ) noexcept

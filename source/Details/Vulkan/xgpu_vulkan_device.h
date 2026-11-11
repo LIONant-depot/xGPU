@@ -221,6 +221,22 @@ namespace xgpu::vulkan
         VkDescriptorPool                                CreateSamplerDescriptorPool (void) noexcept;
         VkResult                                        AllocateSamplerDescriptorSet(VkDescriptorSetLayout Layout, VkDescriptorSet& OutSet, VkDescriptorPool& OutPool) noexcept;
         int                                             m_FrameIndex                = 0;
+        // (diagnostic, C30: XGPU_DONE_TL - a timeline every frame's submit signals, independent of its fence, and what that submit waited on;
+        // FENCESTUCK prints both: did the GPU finish the frame whose fence never came?)
+        VkSemaphore                                     m_DoneTL                    = VK_NULL_HANDLE;
+        std::uint64_t                                   m_DoneSubmitted             = 0;
+        VkSemaphore                                     m_StartTL                   = VK_NULL_HANDLE;
+        std::array<std::string, 8>                      m_SubmitLog                 {};
+        // (diagnostic, C30: XGPU_PROGRESS - a timestamp before and after every dispatch and render pass, by window and image; FENCESTUCK reads
+        // the stuck frame's availability without waiting: what the GPU had reached. Needs XGPU_DONE_TL)
+        struct progress_frame { VkQueryPool m_Pool = VK_NULL_HANDLE; std::vector<std::string> m_Names; std::uint32_t m_Q = 0; };
+        static constexpr std::uint32_t                  progress_max_v              = 8192;
+        std::unordered_map<std::uint64_t, progress_frame> m_Progress                {};
+        std::array<std::uint64_t, 8>                    m_SubmitKey                 {};
+        static bool                                     ProgressOn                  ( void ) noexcept;
+        void                                            ProgressBegin               ( VkCommandBuffer Cmd, std::uint64_t Key ) noexcept;
+        void                                            ProgressStamp               ( VkCommandBuffer Cmd, std::uint64_t Key, VkPipelineStageFlagBits Stage, std::string&& Name ) noexcept;
+        void                                            ProgressPrint               ( std::uint64_t Value ) noexcept;
         bool                                            m_bHostQueryReset           = false;    // VkPhysicalDeviceHostQueryResetFeatures, needed by vulkan::timestamps
         bool                                            m_bDrawIndirectCount        = false;    // VkPhysicalDeviceVulkan12Features::drawIndirectCount: xgpu::device::hasDrawIndirectCount
         bool                                            m_bSubgroupClustered        = false;    // VkPhysicalDeviceSubgroupProperties::supportedOperations & CLUSTERED: device::hasSubgroupClustered

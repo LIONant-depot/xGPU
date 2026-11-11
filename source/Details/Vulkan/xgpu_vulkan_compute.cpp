@@ -338,9 +338,16 @@ namespace xgpu::vulkan
         if( ImageSet != VK_NULL_HANDLE ) vkCmdBindDescriptorSets(Cmd, VK_PIPELINE_BIND_POINT_COMPUTE, C.m_VKPipelineLayout, 2, 1, &ImageSet, 0, nullptr);
         if( PushSize ) vkCmdPushConstants(Cmd, C.m_VKPipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, static_cast<std::uint32_t>(PushSize), pPush);
         if( bMap ) m_FrameMap.m_Entries.back().m_Q0 = m_FrameMap.Stamp(Cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
+        if( m_Device->ProgressOn() )
+        {
+            std::string N = std::string(Cmd == m_Frames[m_FrameIndex].m_VKAsyncCmd ? "async dispatch begins " : "dispatch begins ") + (C.m_pName ? C.m_pName : "?") + std::format(" {}x{}x{}{} push", X, Y, Z, pIndirect ? " indirect" : "");
+            for( std::size_t i = 0; i + 4 <= std::min<std::size_t>(PushSize, 32); i += 4 ) { std::int32_t v; std::memcpy(&v, static_cast<const char*>(pPush) + i, 4); N += " " + std::to_string(v); }
+            m_Device->ProgressStamp(Cmd, ProgressKey(), VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, std::move(N));
+        }
         if( pIndirect ) { vkCmdDispatchIndirect(Cmd, static_cast<const vulkan::buffer*>(pIndirect->m_Private.get())->m_VKBuffer, IndirectOffset); if( bMap ) ++m_FrameMap.m_Entries.back().m_Indirect; }
         else            vkCmdDispatch(Cmd, static_cast<std::uint32_t>(X), static_cast<std::uint32_t>(Y), static_cast<std::uint32_t>(Z));
         if( bMap ) m_FrameMap.m_Entries.back().m_Q1 = m_FrameMap.Stamp(Cmd, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        if( m_Device->ProgressOn() ) m_Device->ProgressStamp(Cmd, ProgressKey(), VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, "dispatch ended");
 
         // Later shaders, copies and the host (a readback after the frame) see what it wrote (a section: at its End)
         if( !m_bExplicitSync ) vkCmdPipelineBarrier(Cmd, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, dispatch_neighbours_v, 0, 1, &dispatch_out_v, 0, nullptr, static_cast<std::uint32_t>(C.m_nImages), ToSampled.data());

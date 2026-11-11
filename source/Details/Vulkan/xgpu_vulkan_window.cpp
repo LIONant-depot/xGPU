@@ -1189,6 +1189,7 @@ namespace xgpu::vulkan
         auto& RenderPass = *std::reinterpret_pointer_cast<xgpu::vulkan::renderpass>(XGPURenderpass.m_Private).get();
         auto& Frame      = m_Frames[m_FrameIndex];
 
+        if( m_Device->ProgressOn() ) m_Device->ProgressStamp(Frame.m_VKCommandBuffer, ProgressKey(), VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, std::string("pass begins ") + (RenderPass.m_TextureAttachments.empty() || !RenderPass.m_TextureAttachments[0] || !RenderPass.m_TextureAttachments[0]->m_pName ? "?" : RenderPass.m_TextureAttachments[0]->m_pName));
         vkCmdBeginRenderPass(Frame.m_VKCommandBuffer, &RenderPass.m_VKRenderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
         if( m_Device->m_pCmdSetCheckpoint ) m_Device->Checkpoint(Frame.m_VKCommandBuffer, "pass", RenderPass.m_TextureAttachments.empty() || !RenderPass.m_TextureAttachments[0] ? nullptr : RenderPass.m_TextureAttachments[0]->m_pName);
         if( m_FrameMap.m_bOn )
@@ -1372,6 +1373,7 @@ namespace xgpu::vulkan
             const VkMemoryBarrier Barrier{ .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER, .srcAccessMask = VK_ACCESS_MEMORY_WRITE_BIT, .dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT };
             vkCmdPipelineBarrier( Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &Barrier, 0, nullptr, 0, nullptr );
             m_FrameMap.Begin(m_Device->m_VKDevice, m_Device->m_Instance->m_pVKAllocator, Frame.m_VKCommandBuffer, m_Device->m_FrameMapArm);
+            if( m_Device->ProgressOn() ) m_Device->ProgressBegin(Frame.m_VKCommandBuffer, ProgressKey());
 
             // the memory heaps (size, the driver's budget and usage) for the profiler's memory maps: every 30 device frames
             if( m_Device->m_FrameIndex % 30 == 0 && m_Device->m_HeapReportFrame != m_Device->m_FrameIndex ) { m_Device->m_HeapReportFrame = m_Device->m_FrameIndex; m_Device->ReportMemoryHeaps(); }
@@ -1403,6 +1405,7 @@ namespace xgpu::vulkan
             if( auto* pE = m_FrameMap.Current() ) { pE->m_Q1 = m_FrameMap.Stamp(CB.m_VKCommandBuffer, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT); m_FrameMap.m_Open = -1; }
             if( m_Device->m_pCmdSetCheckpoint && DrawCheckpoints() ) m_Device->Checkpoint(CB.m_VKCommandBuffer, "pass end", nullptr);
             vkCmdEndRenderPass(CB.m_VKCommandBuffer);
+            if( m_Device->ProgressOn() ) m_Device->ProgressStamp(CB.m_VKCommandBuffer, ProgressKey(), VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, "pass ended");
         }
         assert(m_BeginState>0);
     }
@@ -1511,6 +1514,33 @@ namespace xgpu::vulkan
         // (no async section this frame: the last one, if any, before anything of this one; with one, the frame's first part waited it)
         if( !m_bAsyncThisFrame && m_AsyncValue ) Waits.push_back({ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = m_AsyncTL, .value = m_AsyncValue, .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT });
         Cmds.push_back({ .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO, .commandBuffer = Frame.m_VKCommandBuffer });
+        if( static const bool s_bDoneTL = xgpu::details::Env("XGPU_DONE_TL") != nullptr; s_bDoneTL )
+        {
+            if( m_Device->m_DoneTL == VK_NULL_HANDLE )
+            {
+                VkSemaphoreTypeCreateInfo T{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO, .semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE, .initialValue = 0 };
+                const VkSemaphoreCreateInfo S{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO, .pNext = &T };
+                vkCreateSemaphore(m_Device->m_VKDevice, &S, m_Device->m_Instance->m_pVKAllocator, &m_Device->m_DoneTL);
+                vkCreateSemaphore(m_Device->m_VKDevice, &S, m_Device->m_Instance->m_pVKAllocator, &m_Device->m_StartTL);
+            }
+            const std::uint64_t V = ++m_Device->m_DoneSubmitted;
+            Signals.push_back({ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = m_Device->m_DoneTL, .value = V, .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT });
+            std::string D = "window " + std::to_string(reinterpret_cast<std::uintptr_t>(this) & 0xFFFF) + " image " + std::to_string(m_FrameIndex) + " sem " + std::to_string(m_SemaphoreIndex)
+                          + " async " + std::to_string(m_bAsyncThisFrame) + " cmds " + std::to_string(Cmds.size()) + " waits:";
+            for( const auto& W : Waits ) D += " " + std::to_string(reinterpret_cast<std::uintptr_t>(W.semaphore) & 0xFFFFFF) + "=" + std::to_string(W.value);
+            m_Device->m_SubmitLog[V % m_Device->m_SubmitLog.size()] = std::to_string(V) + ": " + D;
+            m_Device->m_SubmitKey[V % m_Device->m_SubmitKey.size()] = ProgressKey();
+            // the waits in a submit of their own that signals StartTL = V; the frame's commands wait for that: StartTL says the waits were met
+            const VkSemaphoreSubmitInfo Started{ .sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO, .semaphore = m_Device->m_StartTL, .value = V, .stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT };
+            const VkSubmitInfo2 Pre{ .sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2, .waitSemaphoreInfoCount = static_cast<std::uint32_t>(Waits.size()), .pWaitSemaphoreInfos = Waits.data()
+                                   , .signalSemaphoreInfoCount = 1, .pSignalSemaphoreInfos = &Started };
+            { std::lock_guard Lk(m_Device->m_VKMainQueue); vkQueueSubmit2(m_Device->m_VKMainQueue.get(), 1, &Pre, VK_NULL_HANDLE); }
+            Waits.assign(1, Started);
+        }
+        // (C30 experiment, XGPU_WAIT_BEFORE_SUBMIT: the frame in flight done before this one is submitted - the CPU still records while the GPU
+        // runs the last frame, but the GPU never has two frames queued: which overlap the hang needs)
+        if( static const bool s_bWaitBeforeSubmit = xgpu::details::Env("XGPU_WAIT_BEFORE_SUBMIT") != nullptr; s_bWaitBeforeSubmit && m_VKPrevFence != VK_NULL_HANDLE )
+            m_Device->WaitFences( 1, &m_VKPrevFence, "before submit" );
         const VkSubmitInfo2 SubmitInfo
         { .sType                    = VK_STRUCTURE_TYPE_SUBMIT_INFO_2
         , .waitSemaphoreInfoCount   = static_cast<std::uint32_t>(Waits.size())
