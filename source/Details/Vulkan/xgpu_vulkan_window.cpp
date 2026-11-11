@@ -1437,6 +1437,8 @@ namespace xgpu::vulkan
 
     std::unordered_map<VkDescriptorType, descriptor_pool_ring>& window::Rings( void ) noexcept
     {
+        // (C30 check: sets taken outside BeginFrame..EndFrame come from the pool of the image last submitted, which its frame may still use)
+        if( m_BeginState == 0 ) { static int s_n = 0; if( s_n++ < 10 ) { std::printf("[xGPU] OUTSIDEFRAME descriptor sets taken outside a frame (window %d, image %u, device frame %d)\n", int(reinterpret_cast<std::uintptr_t>(this) & 0xFFFF), m_FrameIndex, m_Device->m_FrameIndex); std::fflush(stdout); } }
         const std::size_t i = static_cast<std::size_t>(m_FrameIndex);
         if( m_SlotRings.size() <= i ) m_SlotRings.resize(i + 1);
         auto& R = m_SlotRings[i];
@@ -1571,6 +1573,8 @@ namespace xgpu::vulkan
         if( auto VKErr = vkQueueSubmit2( m_Device->m_VKMainQueue.get(), 1, &SubmitInfo, m_bAsyncThisFrame ? VK_NULL_HANDLE : Frame.m_VKFence ); VKErr )
         {
             m_Device->m_Instance->ReportError(VKErr, "vkQueueSubmit");
+            // (the device lost: the NV checkpoints are valid now - where each queue stopped, once)
+            if( static bool s_bLostPrinted = false; VKErr == VK_ERROR_DEVICE_LOST && !s_bLostPrinted ) { s_bLostPrinted = true; m_Device->PrintCheckpoints(); }
             assert(false);
         }
         if( m_bAsyncThisFrame )
@@ -1642,6 +1646,21 @@ namespace xgpu::vulkan
         auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
         auto& PipelineInstance = static_cast<xgpu::vulkan::pipeline_instance&>(*Instance.m_Private);
         if( m_Device->ReuseOn() ) for( auto* pB : StaticBuffers ) if( pB && pB->m_Private ) static_cast<vulkan::buffer*>(pB->m_Private.get())->m_BoundSubmit = m_Device->ReuseNow();
+        // (C30 diagnostic, XGPU_PI_NAMES: each pipeline instance's sampled textures, once per instance and render pass target - a texture also
+        // being an attachment of the pass it is drawn in would be a feedback loop)
+        if( static const bool s_bNames = xgpu::details::Env("XGPU_PI_NAMES") != nullptr; s_bNames )
+        {
+            static std::unordered_map<std::uint64_t, int> s_Seen;
+            const char* pTarget = CB.m_pActiveRenderPass && !CB.m_pActiveRenderPass->m_TextureAttachments.empty() && CB.m_pActiveRenderPass->m_TextureAttachments[0] ? CB.m_pActiveRenderPass->m_TextureAttachments[0]->m_pName : "the window";
+            const std::uint64_t Key = (std::uint64_t(reinterpret_cast<std::uintptr_t>(&PipelineInstance)) << 8) ^ std::uint64_t(reinterpret_cast<std::uintptr_t>(CB.m_pActiveRenderPass));
+            if( s_Seen.emplace(Key, 1).second )
+            {
+                std::string S = "[xGPU] PINAMES pass " + std::string(pTarget ? pTarget : "?") + " instance " + std::to_string(reinterpret_cast<std::uintptr_t>(&PipelineInstance) & 0xFFFFFF) + ":";
+                for( const auto& pT : PipelineInstance.m_TexturesBinds ) if( pT ) S += std::string(" | ") + (pT->m_pName ? pT->m_pName : "-");
+                if( CB.m_pActiveRenderPass ) { S += "  attachments:"; for( const auto& pA : CB.m_pActiveRenderPass->m_TextureAttachments ) if( pA ) S += std::string(" | ") + (pA->m_pName ? pA->m_pName : "-"); }
+                std::printf("%s\n", S.c_str()); std::fflush(stdout);
+            }
+        }
         if( DrawCheckpoints() )
         {
             s_DrawTag = "pi " + std::to_string(reinterpret_cast<std::uintptr_t>(&PipelineInstance) & 0xFFFFFF);
@@ -2302,6 +2321,8 @@ namespace xgpu::vulkan
 
     VkCommandBuffer window::RecordingCmd( void ) noexcept
     {
+        // (C30 check: a command recorded outside BeginFrame..EndFrame goes into the last frame's command buffer - submitted, maybe still running)
+        if( m_BeginState == 0 ) { static int s_n = 0; if( s_n++ < 10 ) { std::printf("[xGPU] OUTSIDEFRAME a command recorded outside a frame (window %d, image %u, device frame %d)\n", int(reinterpret_cast<std::uintptr_t>(this) & 0xFFFF), m_FrameIndex, m_Device->m_FrameIndex); std::fflush(stdout); } }
         auto& Frame = m_Frames[m_FrameIndex];
         return m_bAsyncRec ? Frame.m_VKAsyncCmd : Frame.m_VKCommandBuffer;
     }

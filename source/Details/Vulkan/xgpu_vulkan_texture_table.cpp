@@ -119,6 +119,8 @@ namespace xgpu::vulkan
             }
             H.m_Textures[ID] = T;
         }
+        // (C30 diagnostic, XGPU_WAIT_LOG: the heap's ids taken and freed, counted, printed every 600 device frames)
+        if( static const bool s_bLog = xgpu::details::Env("XGPU_WAIT_LOG") != nullptr; s_bLog ) { static std::uint64_t s_Frame = 0; static int s_nAlloc = 0; ++s_nAlloc; if( std::uint64_t(m_FrameIndex) / 600 != s_Frame ) { s_Frame = std::uint64_t(m_FrameIndex) / 600; std::printf("[xGPU] TEXIDS %d ids taken in the last 600 frames (id %u now, %s)\n", s_nAlloc, ID, T->m_pName ? T->m_pName : "(no name)"); std::fflush(stdout); s_nAlloc = 0; } }
         if( m_bBindless )
         {
             const VkWriteDescriptorSet Write{ .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET, .dstSet = H.m_Set, .dstBinding = T->m_bCubeMap ? 1u : 0u

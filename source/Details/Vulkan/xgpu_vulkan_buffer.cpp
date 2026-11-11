@@ -34,6 +34,13 @@ namespace xgpu::vulkan
     {
         // (C30 experiment, XGPU_UBO_RING_MULT=<k>: every dynamic UBO ring k times longer)
         auto Setup = SetupIn;
+        // (C30 diagnostic, XGPU_VK_COUNT: a buffer made during play - after 3000 device frames - named, with the device frame and the GPU's completion)
+        if( static const bool s_bCount = xgpu::details::Env("XGPU_VK_COUNT") != nullptr; s_bCount && m_Device && m_Device->m_FrameIndex > 3000 )
+        {
+            std::printf("[xGPU] BUFFERMADE %s: %d x %d bytes, usage %d, type %d, device frame %d, submits finished %llu of %llu\n", Setup.m_pName ? Setup.m_pName : "(no name)", Setup.m_EntryCount, Setup.m_EntryByteSize
+                       , int(Setup.m_Usage), int(Setup.m_Type), m_Device->m_FrameIndex, (unsigned long long)m_Device->ReuseDone(), (unsigned long long)m_Device->m_DoneSubmitted);
+            std::fflush(stdout);
+        }
         if( static const int s_Mult = [] { const char* p = xgpu::details::Env("XGPU_UBO_RING_MULT"); return p ? std::atoi(p) : 1; }(); s_Mult > 1 && Setup.m_Type == xgpu::buffer::type::UNIFORM ) Setup.m_EntryCount *= s_Mult;
         assert(Setup.m_EntryCount >= 1 );
         assert(Setup.m_EntryByteSize > 0);
@@ -521,6 +528,12 @@ namespace xgpu::vulkan
 
     void buffer::Destroy( void ) noexcept
     {
+        if( static const bool s_bCount = xgpu::details::Env("XGPU_VK_COUNT") != nullptr; s_bCount && m_Device && m_Device->m_FrameIndex > 3000 && m_VKBuffer )
+        {
+            std::printf("[xGPU] BUFFERFREED %s: %d bytes, device frame %d, submits finished %llu of %llu, last bound by submit %llu\n", m_pName ? m_pName : "(no name)", m_ByteSize, m_Device->m_FrameIndex
+                       , (unsigned long long)m_Device->ReuseDone(), (unsigned long long)m_Device->m_DoneSubmitted, (unsigned long long)m_BoundSubmit);
+            std::fflush(stdout);
+        }
         if(m_pVMapMemory)
         {
             vkUnmapMemory(m_Device->m_VKDevice, m_VKBufferMemory);

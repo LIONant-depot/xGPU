@@ -446,7 +446,8 @@ namespace xgpu::vulkan
         {   // every marker seen, by its order in a frame: what each number is
             std::lock_guard Lk(s_CheckpointLock);
             std::vector<std::pair<int, std::string>> All;
-            for( const auto& N : s_CheckpointNames ) { const auto h = N.find('#'); All.emplace_back(h == std::string::npos ? -1 : std::atoi(N.c_str() + h + 1), N); }
+            // (each with its address: the marker pointer an Aftermath dump's user markers show)
+            for( const auto& N : s_CheckpointNames ) { const auto h = N.find('#'); All.emplace_back(h == std::string::npos ? -1 : std::atoi(N.c_str() + h + 1), std::to_string(reinterpret_cast<std::uintptr_t>(N.c_str())) + " " + N); }
             std::sort(All.begin(), All.end());
             for( const auto& [k, N] : All ) std::printf("[xGPU] CHECKPOINT NAME %s\n", N.c_str());
         }
@@ -1105,6 +1106,13 @@ namespace xgpu::vulkan
     {
 
         m_FrameIndex++;
+        if( static const bool s_bCount = xgpu::details::Env("XGPU_VK_COUNT") != nullptr; s_bCount && m_FrameIndex % 600 == 0 )
+        {
+            static std::uint64_t s_Last[xgpu_vkcount::count_v]{};
+            std::string S = "[xGPU] VKCOUNT the last 600 device frames:";
+            for( int i = 0; i < xgpu_vkcount::count_v; ++i ) { const auto n = xgpu_vkcount::g_Count[i].load(); if( n != s_Last[i] ) S += std::string(" ") + xgpu_vkcount::Name(i) + " " + std::to_string(n - s_Last[i]); s_Last[i] = n; }
+            std::printf("%s\n", S.c_str()); std::fflush(stdout);
+        }
         static const bool s_bLeakLog = xgpu::details::Env("XGPU_LEAK_LOG") != nullptr;      // (measurement: what the device keeps, every 600 frames)
         if( s_bLeakLog && m_FrameIndex % 600 == 0 ) { extern std::atomic<std::uint64_t> g_ShaderModules, g_ShaderBytes; std::printf("XGPULEAK pipelines %zu, pipeline instances %zu, extra sampler pools %zu, shader modules made %llu (%.1f MB)\n", m_PipeLineMap.size(), m_PipeLineInstanceMap.size(), m_AdditionalSamplerPools.size(), (unsigned long long)g_ShaderModules.load(), double(g_ShaderBytes.load()) / 1048576.0); std::fflush(stdout); }
 
