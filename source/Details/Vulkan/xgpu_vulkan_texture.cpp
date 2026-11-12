@@ -223,6 +223,12 @@ namespace xgpu::vulkan
         m_nMips      = static_cast<std::uint8_t>(Setup.m_MipSizes.size());
         m_Width      = static_cast<std::uint16_t>(Setup.m_Width);
         m_Height     = static_cast<std::uint16_t>(Setup.m_Height);
+        m_Depth      = static_cast<std::uint16_t>(std::max(Setup.m_Depth, 1));
+        if( m_Depth > 1 && (!Setup.m_MipSizes.empty() || Setup.m_isCubemap || Setup.m_FaceCount != 1 || xgpu::texture::isDepth(Setup.m_Format)) )
+        {
+            m_Device->m_Instance->ReportError("A 3D texture takes no data, mips, faces or depth format: a compute shader fills it");
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "A 3D texture takes no data, mips, faces or depth format");
+        }
         m_ArrayCount = static_cast<std::uint16_t>(Setup.m_FaceCount);
         m_Format     = Setup.m_Format;
         
@@ -270,19 +276,19 @@ namespace xgpu::vulkan
             {
                 .sType          = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO
             ,   .pNext          = nullptr
-            ,   .imageType      = VK_IMAGE_TYPE_2D
+            ,   .imageType      = m_Depth > 1 ? VK_IMAGE_TYPE_3D : VK_IMAGE_TYPE_2D
             ,   .format         = m_VKFormat
             ,   .extent
                 {
                     .width      = static_cast<std::uint32_t>(Setup.m_Width)
                 ,   .height     = static_cast<std::uint32_t>(Setup.m_Height)
-                ,   .depth      = 1
+                ,   .depth      = m_Depth
                 }
             ,   .mipLevels      = m_nMips
             ,   .arrayLayers    = 1
             ,   .samples        = VK_SAMPLE_COUNT_1_BIT
             ,   .tiling         = VK_IMAGE_TILING_OPTIMAL
-            ,   .usage          = std::uint32_t(isDepth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | (Setup.m_bStorage ? VK_IMAGE_USAGE_STORAGE_BIT : 0)) | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT
+            ,   .usage          = std::uint32_t(isDepth ? VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT : (m_Depth > 1 ? 0 : VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT) | (Setup.m_bStorage ? VK_IMAGE_USAGE_STORAGE_BIT : 0)) | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT
             ,   .sharingMode    = VK_SHARING_MODE_EXCLUSIVE
             ,   .initialLayout  = VK_IMAGE_LAYOUT_UNDEFINED
             };
@@ -607,7 +613,7 @@ namespace xgpu::vulkan
             .sType              = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO
         ,   .pNext              = nullptr
         ,   .image              = m_VKImage
-        ,   .viewType           = Setup.m_isCubemap ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D
+        ,   .viewType           = m_Depth > 1 ? VK_IMAGE_VIEW_TYPE_3D : Setup.m_isCubemap ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D
         ,   .format             = m_VKFormat
         ,   .components         = 
             {

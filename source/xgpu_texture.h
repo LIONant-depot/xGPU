@@ -92,6 +92,7 @@ namespace xgpu
             std::array<address_mode,3>              m_AdressModes           { address_mode::TILE, address_mode::TILE, address_mode::TILE };
             int                                     m_Width                 { -1 };
             int                                     m_Height                { -1 };
+            int                                     m_Depth                 { 1 };      // > 1: a 3D texture (no data, no mips: a compute shader fills it - m_bStorage; sampled as sampler3D, written as image3D)
             std::span<const mip_size>               m_MipSizes              {};
             std::span<const std::byte>              m_AllFacesData          {};
             std::span<const std::span<const std::byte>> m_MipFaceData       {};     // instead of m_AllFacesData: the same bytes in pieces, one per face and mip

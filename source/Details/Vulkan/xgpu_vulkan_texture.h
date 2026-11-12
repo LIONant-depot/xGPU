@@ -38,6 +38,7 @@ namespace xgpu::vulkan
         VkDescriptorImageInfo           m_VKDescriptorImageInfo {};
         std::uint16_t                   m_Width                 {};
         std::uint16_t                   m_Height                {};
+        std::uint16_t                   m_Depth                 { 1 };      // (> 1: a 3D image and view)
         std::uint16_t                   m_ArrayCount            {};
         std::uint8_t                    m_nMips                 {};
         xgpu::texture::format           m_Format                {};
