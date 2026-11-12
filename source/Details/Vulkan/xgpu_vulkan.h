@@ -49,7 +49,6 @@ namespace xgpu_vkcount
     inline std::mutex                                   g_CodeLock;
     inline std::unordered_map<VkPipeline, std::uint64_t> g_Code;
     inline std::unordered_map<VkPipeline, int>           g_FrameBound;
-    inline std::unordered_map<VkPipeline, std::string>   g_Label;
     inline void     CmdBindPipeline(VkCommandBuffer c, VkPipelineBindPoint bp, VkPipeline p) { if( bp == VK_PIPELINE_BIND_POINT_GRAPHICS ) ++g_Count[BIND_PIPELINE]; { std::lock_guard Lk(g_CodeLock); ++g_FrameBound[p]; } ::vkCmdBindPipeline(c, bp, p); }
     inline void     CmdDrawIndexed(VkCommandBuffer c, uint32_t a, uint32_t b, uint32_t e, int32_t f, uint32_t g) { ++g_Count[DRAWS]; ::vkCmdDrawIndexed(c, a, b, e, f, g); }
     inline void     CmdDrawIndexedIndirect(VkCommandBuffer c, VkBuffer b, VkDeviceSize o, uint32_t n, uint32_t s) { ++g_Count[DRAWS]; ::vkCmdDrawIndexedIndirect(c, b, o, n, s); }

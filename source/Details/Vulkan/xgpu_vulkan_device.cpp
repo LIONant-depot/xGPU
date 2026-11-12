@@ -1113,17 +1113,6 @@ namespace xgpu::vulkan
                 std::lock_guard Lk(xgpu_vkcount::g_CodeLock);
                 double Bytes = 0; int Unknown = 0;
                 for( const auto& [P, k] : xgpu_vkcount::g_FrameBound ) { const auto It = xgpu_vkcount::g_Code.find(P); if( It != xgpu_vkcount::g_Code.end() ) Bytes += double(It->second); else ++Unknown; }
-                // (once, the device frame XGPU_FRAMECODE_DUMP names: every pipeline it bound, its code and its label)
-                if( static const long long s_Dump = [] { const char* p = xgpu::details::Env("XGPU_FRAMECODE_DUMP"); return p ? std::atoll(p) : -1ll; }(); s_Dump >= 0 && (long long)m_FrameIndex >= s_Dump && xgpu_vkcount::g_FrameBound.size() > 20 )
-                {
-                    static bool s_bDone = false; if( s_bDone ) goto dumped; s_bDone = true;
-                    std::vector<std::pair<std::uint64_t, std::string>> L;
-                    for( const auto& [P, k] : xgpu_vkcount::g_FrameBound ) L.emplace_back(xgpu_vkcount::g_Code.count(P) ? xgpu_vkcount::g_Code[P] : 0, (xgpu_vkcount::g_Label.count(P) ? xgpu_vkcount::g_Label[P] : std::string("?")) + " x" + std::to_string(k));
-                    std::sort(L.rbegin(), L.rend());
-                    for( const auto& [b, s] : L ) std::printf("[xGPU] FRAMECODEDUMP %8llu %s\n", (unsigned long long)b, s.c_str());
-                    std::fflush(stdout);
-                }
-                dumped:;
                 s_nPipes += double(xgpu_vkcount::g_FrameBound.size()); s_Bytes += Bytes; s_Unknown += Unknown; s_MaxBytes = std::max(s_MaxBytes, Bytes);
                 xgpu_vkcount::g_FrameBound.clear();
             }

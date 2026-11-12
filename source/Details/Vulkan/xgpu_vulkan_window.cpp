@@ -1381,15 +1381,6 @@ namespace xgpu::vulkan
             vkCmdPipelineBarrier( Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, 0, 1, &Barrier, 0, nullptr, 0, nullptr );
             m_FrameMap.Begin(m_Device->m_VKDevice, m_Device->m_Instance->m_pVKAllocator, Frame.m_VKCommandBuffer, m_Device->m_FrameMapArm);
             if( m_Device->ProgressOn() ) m_Device->ProgressBegin(Frame.m_VKCommandBuffer, ProgressKey());
-            // (C30 experiment, XGPU_PAD_CMDS=<n>: n state commands at the start of the frame - the rest of its commands n of them further along)
-            // (timestamps into a pool of their own: commands the driver must emit - state setting may be dropped as redundant)
-            if( static const int s_Pad = [] { const char* p = xgpu::details::Env("XGPU_PAD_CMDS"); return p ? std::atoi(p) : 0; }(); s_Pad > 0 )
-            {
-                static VkQueryPool s_PadPool = VK_NULL_HANDLE;
-                if( s_PadPool == VK_NULL_HANDLE ) { const VkQueryPoolCreateInfo Info{ .sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO, .queryType = VK_QUERY_TYPE_TIMESTAMP, .queryCount = std::uint32_t(s_Pad) }; vkCreateQueryPool(m_Device->m_VKDevice, &Info, nullptr, &s_PadPool); }
-                vkCmdResetQueryPool(Frame.m_VKCommandBuffer, s_PadPool, 0, std::uint32_t(s_Pad));
-                for( int i = 0; i < s_Pad; ++i ) vkCmdWriteTimestamp(Frame.m_VKCommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, s_PadPool, std::uint32_t(i));
-            }
 
             // the memory heaps (size, the driver's budget and usage) for the profiler's memory maps: every 30 device frames
             if( m_Device->m_FrameIndex % 30 == 0 && m_Device->m_HeapReportFrame != m_Device->m_FrameIndex ) { m_Device->m_HeapReportFrame = m_Device->m_FrameIndex; m_Device->ReportMemoryHeaps(); }
@@ -1555,10 +1546,6 @@ namespace xgpu::vulkan
             { std::lock_guard Lk(m_Device->m_VKMainQueue); vkQueueSubmit2(m_Device->m_VKMainQueue.get(), 1, &Pre, VK_NULL_HANDLE); }
             Waits.assign(1, Started);
         }
-        // (C30 experiment, XGPU_WAIT_BEFORE_SUBMIT: the frame in flight done before this one is submitted - the CPU still records while the GPU
-        // runs the last frame, but the GPU never has two frames queued: which overlap the hang needs)
-        if( static const bool s_bWaitBeforeSubmit = xgpu::details::Env("XGPU_WAIT_BEFORE_SUBMIT") != nullptr; s_bWaitBeforeSubmit && m_VKPrevFence != VK_NULL_HANDLE )
-            m_Device->WaitFences( 1, &m_VKPrevFence, "before submit" );
         const VkSubmitInfo2 SubmitInfo
         { .sType                    = VK_STRUCTURE_TYPE_SUBMIT_INFO_2
         , .waitSemaphoreInfoCount   = static_cast<std::uint32_t>(Waits.size())
@@ -1646,21 +1633,6 @@ namespace xgpu::vulkan
         auto& CB = reinterpret_cast<cmdbuffer&>(CmdBuffer.m_Memory);
         auto& PipelineInstance = static_cast<xgpu::vulkan::pipeline_instance&>(*Instance.m_Private);
         if( m_Device->ReuseOn() ) for( auto* pB : StaticBuffers ) if( pB && pB->m_Private ) static_cast<vulkan::buffer*>(pB->m_Private.get())->m_BoundSubmit = m_Device->ReuseNow();
-        // (C30 diagnostic, XGPU_PI_NAMES: each pipeline instance's sampled textures, once per instance and render pass target - a texture also
-        // being an attachment of the pass it is drawn in would be a feedback loop)
-        if( static const bool s_bNames = xgpu::details::Env("XGPU_PI_NAMES") != nullptr; s_bNames )
-        {
-            static std::unordered_map<std::uint64_t, int> s_Seen;
-            const char* pTarget = CB.m_pActiveRenderPass && !CB.m_pActiveRenderPass->m_TextureAttachments.empty() && CB.m_pActiveRenderPass->m_TextureAttachments[0] ? CB.m_pActiveRenderPass->m_TextureAttachments[0]->m_pName : "the window";
-            const std::uint64_t Key = (std::uint64_t(reinterpret_cast<std::uintptr_t>(&PipelineInstance)) << 8) ^ std::uint64_t(reinterpret_cast<std::uintptr_t>(CB.m_pActiveRenderPass));
-            if( s_Seen.emplace(Key, 1).second )
-            {
-                std::string S = "[xGPU] PINAMES pass " + std::string(pTarget ? pTarget : "?") + " instance " + std::to_string(reinterpret_cast<std::uintptr_t>(&PipelineInstance) & 0xFFFFFF) + ":";
-                for( const auto& pT : PipelineInstance.m_TexturesBinds ) if( pT ) S += std::string(" | ") + (pT->m_pName ? pT->m_pName : "-");
-                if( CB.m_pActiveRenderPass ) { S += "  attachments:"; for( const auto& pA : CB.m_pActiveRenderPass->m_TextureAttachments ) if( pA ) S += std::string(" | ") + (pA->m_pName ? pA->m_pName : "-"); }
-                std::printf("%s\n", S.c_str()); std::fflush(stdout);
-            }
-        }
         if( DrawCheckpoints() )
         {
             s_DrawTag = "pi " + std::to_string(reinterpret_cast<std::uintptr_t>(&PipelineInstance) & 0xFFFFFF);

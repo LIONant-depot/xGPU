@@ -32,7 +32,6 @@ namespace xgpu::vulkan
 
     xgpu::device::error* buffer::Create(const xgpu::buffer::setup& SetupIn) noexcept
     {
-        // (C30 experiment, XGPU_UBO_RING_MULT=<k>: every dynamic UBO ring k times longer)
         auto Setup = SetupIn;
         // (C30 diagnostic, XGPU_VK_COUNT: a buffer made during play - after 3000 device frames - named, with the device frame and the GPU's completion)
         if( static const bool s_bCount = xgpu::details::Env("XGPU_VK_COUNT") != nullptr; s_bCount && m_Device && m_Device->m_FrameIndex > 3000 )
@@ -41,7 +40,6 @@ namespace xgpu::vulkan
                        , int(Setup.m_Usage), int(Setup.m_Type), m_Device->m_FrameIndex, (unsigned long long)m_Device->ReuseDone(), (unsigned long long)m_Device->m_DoneSubmitted);
             std::fflush(stdout);
         }
-        if( static const int s_Mult = [] { const char* p = xgpu::details::Env("XGPU_UBO_RING_MULT"); return p ? std::atoi(p) : 1; }(); s_Mult > 1 && Setup.m_Type == xgpu::buffer::type::UNIFORM ) Setup.m_EntryCount *= s_Mult;
         assert(Setup.m_EntryCount >= 1 );
         assert(Setup.m_EntryByteSize > 0);
 
@@ -227,11 +225,9 @@ namespace xgpu::vulkan
         // (2026-11-08, C25) About a dozen MemoryMapFrameRegion callers (the GI's stage,
         // run and job buffers, its sun map) rewrite the same region every frame and were only safe because an earlier wait in the frame
         // drained the GPU - without it Tomas's editor lost the device; a frame region now waits for the frame that last wrote an overlapping
-        // region (m_Written, above). XGPU_FORCE_MAP_WAIT=1: every map waits as before (a name's part: only those buffers) - for bisecting
+        // region (m_Written, above). XGPU_FORCE_MAP_WAIT=1: every map waits as before - for bisecting
         static const char* s_pForceWait = xgpu::details::Env("XGPU_FORCE_MAP_WAIT");
-        // ("a|b|c": any of those name parts)
-        static const std::vector<std::string> s_ForceParts = [] { std::vector<std::string> V; if( s_pForceWait ) { std::string S = s_pForceWait; for( std::size_t a = 0, b; a <= S.size(); a = b + 1 ) { b = S.find('|', a); if( b == std::string::npos ) b = S.size(); if( b > a ) V.push_back(S.substr(a, b - a)); } } return V; }();
-        if( s_pForceWait && (s_pForceWait[0] == '1' || (s_pForceWait[0] != '0' && m_pName && std::ranges::any_of(s_ForceParts, [&](const std::string& s) { return std::strstr(m_pName, s.c_str()) != nullptr; }))) ) bWaitInFlight = true;
+        if( s_pForceWait && s_pForceWait[0] == '1' ) bWaitInFlight = true;
         if( bWaitInFlight )          // the frame in flight may still read what is about to be written (MemoryMapFrameRegion: not)
         {
             static const bool s_bLog = xgpu::details::Env("XGPU_WAIT_LOG") != nullptr;
