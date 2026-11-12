@@ -45,7 +45,10 @@ namespace xgpu
         error*              MemoryMap               ( int StartIndex, int Count, T_CALLBACK&& Callback ) noexcept;
 
         // MemoryMap without waiting for the frame in flight: for a region no submitted frame reads (this frame's slot of a ring that has a
-        // slot per frame in flight and one more). MemoryMap waits for that frame first: it may still read what is about to be written
+        // slot per frame in flight and one more). MemoryMap waits for that frame first: it may still read what is about to be written.
+        // xGPU waits only for the frame that last WROTE an overlapping region (data written and read by the same frame); it does not know
+        // which frames read a region. Data written once and read by the frames after it (a matrix written when it changes) is not a frame
+        // region: MemoryMap, or MemoryMapAfterFrame with the last frame that read it (C34; XGPU_REUSE_CHECK reports such a write)
         template< typename T_CALLBACK >
         [[nodiscard]]
         error*              MemoryMapFrameRegion    ( int StartIndex, int Count, T_CALLBACK&& Callback ) noexcept;
