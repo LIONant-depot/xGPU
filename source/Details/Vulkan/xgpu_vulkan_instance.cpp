@@ -5,6 +5,7 @@
 #include <dbghelp.h>
 #pragma comment(lib, "dbghelp.lib")
 #include <unordered_map>
+#include "../xgpu_env.h"
 namespace xgpu::vulkan
 {
     //------------------------------------------------------------------------------------
@@ -20,7 +21,7 @@ namespace xgpu::vulkan
         inline std::unordered_map<std::uint64_t, int> s_StackIds;
         inline int StackOf(std::size_t Size) noexcept      // (XGPU_ALLOC_STATS=2: each allocation's caller kept, the live ones listed by it)
         {
-            static const bool s_b = std::getenv("XGPU_ALLOC_STATS") && std::atoi(std::getenv("XGPU_ALLOC_STATS")) >= 2;
+            static const bool s_b = ::xgpu::details::Env("XGPU_ALLOC_STATS") && std::atoi(::xgpu::details::Env("XGPU_ALLOC_STATS")) >= 2;
             if (!s_b) return -1;
             stack S; ULONG Hash = 0;
             S.m_n = CaptureStackBackTrace(3, 40, S.m_Frames, &Hash);
@@ -375,7 +376,7 @@ namespace xgpu::vulkan
         //
         // Ready to create the instance now
         //
-        if( std::getenv("XGPU_ALLOC_STATS") ) m_pVKAllocator = &alloc_stats::s_Callbacks;
+        if( ::xgpu::details::Env("XGPU_ALLOC_STATS") ) m_pVKAllocator = &alloc_stats::s_Callbacks;
         if (VkResult Res = vkCreateInstance( &InstanceInfo, m_pVKAllocator, &m_VKInstance ); Res)
         {
             ReportError(Res, "Fail to create the Vulkan Instance" );

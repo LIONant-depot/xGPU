@@ -15,7 +15,7 @@ namespace xgpu
         // Fills NanoSeconds (resized to getCount()) with the GPU time of every slot of the newest finished frame.
         // Slots not written that frame are ~0ull. Values are absolute GPU ticks converted to ns: subtract two
         // slots to get a duration. Returns false (and leaves NanoSeconds untouched) when no new frame is ready.
-        XGPU_INLINE bool    getResults  ( std::vector<std::uint64_t>& NanoSeconds ) noexcept;
+        XGPU_INLINE bool    getResults  ( std::vector<std::uint64_t>& NanoSeconds, int* pFrame = nullptr ) noexcept;      // pFrame: the device frame index the results are from
         XGPU_INLINE int     getCount    ( void ) const noexcept;
 
         std::shared_ptr<details::timestamps_handle> m_Private;

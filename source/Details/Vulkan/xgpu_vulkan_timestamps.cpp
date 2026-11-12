@@ -80,7 +80,7 @@ namespace xgpu::vulkan
 
     //----------------------------------------------------------------------------------
 
-    bool timestamps::getResults( std::vector<std::uint64_t>& NanoSeconds ) noexcept
+    bool timestamps::getResults( std::vector<std::uint64_t>& NanoSeconds, int* pFrame ) noexcept
     {
         struct result { std::uint64_t m_Ticks, m_Available; };
         std::vector<result> Results(m_Count);
@@ -110,6 +110,7 @@ namespace xgpu::vulkan
             for( int q = 0; q < m_Count; ++q )
                 NanoSeconds[q] = pWritten[q] ? static_cast<std::uint64_t>( static_cast<double>(Results[q].m_Ticks & m_TickMask) * m_NsPerTick ) : ~0ull;
 
+            if( pFrame ) *pFrame = Set.m_Frame;
             vkResetQueryPool( m_Device->m_VKDevice, m_VKQueryPool, i * m_Count, m_Count );
             std::fill_n( &m_Written[i * m_Count], m_Count, std::uint8_t{0} );
             Set.m_Frame = -1;

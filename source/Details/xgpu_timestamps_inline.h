@@ -5,7 +5,7 @@ namespace xgpu
         struct timestamps_handle
         {
             virtual        ~timestamps_handle   ( void )                                    noexcept = default;
-            virtual bool    getResults          ( std::vector<std::uint64_t>& NanoSeconds ) noexcept = 0;
+            virtual bool    getResults          ( std::vector<std::uint64_t>& NanoSeconds, int* pFrame ) noexcept = 0;
             virtual int     getCount            ( void ) const                              noexcept = 0;
         };
     }
@@ -13,9 +13,9 @@ namespace xgpu
     //------------------------------------------------------------------------------------------------
 
     XGPU_INLINE
-    bool timestamps::getResults( std::vector<std::uint64_t>& NanoSeconds ) noexcept
+    bool timestamps::getResults( std::vector<std::uint64_t>& NanoSeconds, int* pFrame ) noexcept
     {
-        return m_Private->getResults(NanoSeconds);
+        return m_Private->getResults(NanoSeconds, pFrame);
     }
 
     //------------------------------------------------------------------------------------------------

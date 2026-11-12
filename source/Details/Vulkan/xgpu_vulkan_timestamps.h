@@ -15,7 +15,7 @@ namespace xgpu::vulkan
                 xgpu::device::error*    Initialize  ( std::shared_ptr<device>&& Device, const xgpu::timestamps::setup& Setup ) noexcept;
         virtual                        ~timestamps  ( void )                                    noexcept override;
                 void                    Write       ( VkCommandBuffer CmdBuffer, int Index )    noexcept;
-        virtual bool                    getResults  ( std::vector<std::uint64_t>& NanoSeconds ) noexcept override;
+        virtual bool                    getResults  ( std::vector<std::uint64_t>& NanoSeconds, int* pFrame ) noexcept override;
         virtual int                     getCount    ( void ) const                              noexcept override { return m_Count; }
 
         std::shared_ptr<device>             m_Device        {};

@@ -35,7 +35,7 @@ namespace xgpu::vulkan
         {
             static int s_n = 0;
             const std::string Base = s_Folder + "\\xlion_" + std::to_string(GetCurrentProcessId()) + "_" + std::to_string(s_n++);
-            if( FILE* f = std::fopen((Base + ".nv-gpudmp").c_str(), "wb") ) { std::fwrite(pDump, 1, Size, f); std::fclose(f); }
+            if( FILE* f = ::xgpu::details::Open((Base + ".nv-gpudmp").c_str(), "wb") ) { std::fwrite(pDump, 1, Size, f); std::fclose(f); }
             std::printf("[xGPU] AFTERMATH dump written: %s.nv-gpudmp (%u bytes)\n", Base.c_str(), Size); std::fflush(stdout);
             const auto Create  = reinterpret_cast<create_fn>(GetProcAddress(s_Lib, "GFSDK_Aftermath_GpuCrashDump_CreateDecoder"));
             const auto Destroy = reinterpret_cast<destroy_fn>(GetProcAddress(s_Lib, "GFSDK_Aftermath_GpuCrashDump_DestroyDecoder"));
@@ -48,7 +48,7 @@ namespace xgpu::vulkan
             {
                 std::vector<char> Text(JsonSize);
                 if( GetJson(pDecoder, JsonSize, Text.data()) == 1 )
-                    if( FILE* f = std::fopen((Base + ".json").c_str(), "wb") ) { std::fwrite(Text.data(), 1, JsonSize ? JsonSize - 1 : 0, f); std::fclose(f); }
+                    if( FILE* f = ::xgpu::details::Open((Base + ".json").c_str(), "wb") ) { std::fwrite(Text.data(), 1, JsonSize ? JsonSize - 1 : 0, f); std::fclose(f); }
             }
             Destroy(pDecoder);
             std::printf("[xGPU] AFTERMATH decoded: %s.json\n", Base.c_str()); std::fflush(stdout);
