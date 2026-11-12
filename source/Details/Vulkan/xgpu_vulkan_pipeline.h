@@ -43,7 +43,8 @@ namespace xgpu::vulkan
 
         using stages_array                 = std::array<std::shared_ptr<xgpu::vulkan::shader>, xgpu::shader::type::count_v>;
         using stages_createinfo_array      = std::array<VkPipelineShaderStageCreateInfo,       xgpu::shader::type::count_v>;
-        using samples_array                = std::array<VkSampler, 16>;
+        inline static constexpr int max_samplers_v = 32;     // (a pipeline's samplers: the GI gather with its 3D bricks takes 29)
+        using samples_array                = std::array<VkSampler, max_samplers_v>;
         using blend_attachment_state_array = std::array<VkPipelineColorBlendAttachmentState, xgpu::renderpass::max_attachments_v>;
 
         std::shared_ptr<device>                             m_Device                        {};

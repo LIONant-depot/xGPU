@@ -53,8 +53,8 @@ namespace xgpu::vulkan
         if (m_Pipeline->m_nSamplers > 0)
         {
             // Update the set
-            std::array<VkWriteDescriptorSet, 16>   writes{};
-            std::array<VkDescriptorImageInfo, 16>  imageInfos{};
+            std::array<VkWriteDescriptorSet, pipeline::max_samplers_v>   writes{};
+            std::array<VkDescriptorImageInfo, pipeline::max_samplers_v>  imageInfos{};
 
             VkDescriptorImageInfo DummyImage{};
             if( auto* pWhite = static_cast<vulkan::texture*>(m_Device->m_Heap.m_White.m_Private.get()) )

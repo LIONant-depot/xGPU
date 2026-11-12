@@ -287,6 +287,7 @@ namespace xgpu::vulkan
         }
 
         m_nSamplers = static_cast<int>(Setup.m_Samplers.size());
+        if( m_nSamplers > max_samplers_v ) return VGPU_ERROR(xgpu::device::error::FAILURE, "pipeline: more samplers than max_samplers_v");
         for (int i = 0; i < m_nSamplers; ++i)
         {
             // The device's table: one per distinct description. One per pipeline ran out (4000 samplers on the Bistro's materials). W is repeat, as a pipeline's always was
@@ -300,7 +301,7 @@ namespace xgpu::vulkan
         //
 
         // Always create 3 layouts, empty if no content
-        std::array<VkDescriptorSetLayoutBinding, 16> samplerBindings{}; // Max samplers
+        std::array<VkDescriptorSetLayoutBinding, max_samplers_v> samplerBindings{}; // Max samplers
         VkDescriptorSetLayoutCreateInfo samplerLayoutInfo = { .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
         if (m_nSamplers > 0) 
         {

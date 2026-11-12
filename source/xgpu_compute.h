@@ -14,6 +14,7 @@ namespace xgpu
             int             m_nImages           { 0 };
             std::size_t     m_PushConstantsSize { 0 };          // bytes (at most 128: the minimum every device guarantees)
             bool            m_bLinear           { false };      // the textures' sampler filters bilinear (textureLod between texels blends; texelFetch is unaffected) - else nearest
+            bool            m_bRepeat           { false };      // the textures' sampler wraps (REPEAT: a toroidal volume, the GI bricks) - else clamps to the edge
             const char*     m_pName             { nullptr };    // (a string that lives as long as it: the frame map's label)
         };
 

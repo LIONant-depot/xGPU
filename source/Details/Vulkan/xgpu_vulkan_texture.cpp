@@ -235,6 +235,8 @@ namespace xgpu::vulkan
         // Get device properites for the requested texture format
         VkFormatProperties  VKFormatProps{};
         vkGetPhysicalDeviceFormatProperties(m_Device->m_VKPhysicalDevice, m_VKFormat, &VKFormatProps );
+        if( Setup.m_bStorage && !(VKFormatProps.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) )      // (the caller picks another format: B10G11R11 storage is optional in Vulkan)
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "This format can not be a storage image on this device");
 
         // Only use linear tiling if requested (and supported by the device)
         // Support for linear tiling is mostly limited, so prefer to use

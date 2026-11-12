@@ -26,7 +26,7 @@ namespace xgpu::vulkan
         };
 
         std::shared_ptr<vulkan::pipeline>                   m_Pipeline              {};
-        std::array< std::shared_ptr<vulkan::texture>, 16>   m_TexturesBinds         {};
+        std::array< std::shared_ptr<vulkan::texture>, pipeline::max_samplers_v>   m_TexturesBinds         {};
         std::shared_ptr<vulkan::device>                     m_Device                {};
 
         VkDescriptorSet                                     m_VKSamplerSet{ VK_NULL_HANDLE };
