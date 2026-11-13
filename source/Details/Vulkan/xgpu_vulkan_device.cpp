@@ -348,8 +348,12 @@ namespace xgpu::vulkan
                 for( const auto& E : Available ) if( std::strcmp(E.extensionName, VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME) == 0 ) { enabledExtensions.push_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME); bCheckpoints = true; }
 #if defined(_WIN32)
             // (XGPU_AFTERMATH: the crash dumps' diagnostics on this device)
+            // (C47: the driver's automatic checkpoints cost ~12 ms of CPU a frame - Bistro Game wall 19.3 -> 31.6 ms, the GPU unchanged; shader debug info and
+            // resource tracking cost nothing. Off by default: XGPU_CHECKPOINTS=1 marks every pass and dispatch for free. XGPU_AFTERMATH_DIAG=<bits> overrides -
+            // shader debug info 1, resource tracking 2, automatic checkpoints 4, error reporting 8)
             static VkDeviceDiagnosticsConfigCreateInfoNV s_Diag{ .sType = VK_STRUCTURE_TYPE_DEVICE_DIAGNOSTICS_CONFIG_CREATE_INFO_NV
-                                                               , .flags = VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_RESOURCE_TRACKING_BIT_NV | VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_AUTOMATIC_CHECKPOINTS_BIT_NV | VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_SHADER_DEBUG_INFO_BIT_NV };
+                                                               , .flags = VkDeviceDiagnosticsConfigFlagsNV(xgpu::details::Env("XGPU_AFTERMATH_DIAG") ? std::atoi(xgpu::details::Env("XGPU_AFTERMATH_DIAG"))
+                                                                        : VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_RESOURCE_TRACKING_BIT_NV | VK_DEVICE_DIAGNOSTICS_CONFIG_ENABLE_SHADER_DEBUG_INFO_BIT_NV) };
             if( aftermath::Enable() )
                 for( const auto& E : Available ) if( std::strcmp(E.extensionName, VK_NV_DEVICE_DIAGNOSTICS_CONFIG_EXTENSION_NAME) == 0 ) { enabledExtensions.push_back(VK_NV_DEVICE_DIAGNOSTICS_CONFIG_EXTENSION_NAME); s_Diag.pNext = Use12.pNext; Use12.pNext = &s_Diag; }
 #endif
