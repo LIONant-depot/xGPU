@@ -7,6 +7,7 @@ namespace xgpu::windows
         switch( uMsg )
         {
         case WM_CLOSE:
+            if( xgpu::close_request::s_bAskFirst ) { xgpu::close_request::s_bRequested = true; return 0; }     // the application asks first
             PostMessage( hWnd, WM_QUIT, 0, 0 );  // should this be a call to PostQuitMessage instead?
             return 0;
 

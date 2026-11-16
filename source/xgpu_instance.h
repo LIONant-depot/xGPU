@@ -1,5 +1,13 @@
 namespace xgpu
 {
+    // The window's close button (Windows WM_CLOSE, X11 WM_DELETE_WINDOW). By default it ends ProcessInputEvents' loop at once. An application
+    // that asks first (an editor with unsaved work) sets s_bAskFirst: the close then only sets s_bRequested, and the application decides.
+    struct close_request
+    {
+        static inline std::atomic<bool> s_bAskFirst  { false };
+        static inline std::atomic<bool> s_bRequested { false };
+    };
+
     struct instance
     {
         enum class error : std::uint8_t

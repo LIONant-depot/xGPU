@@ -14,6 +14,7 @@
 #include<cassert>
 #include<cstring>
 #include<mutex>
+#include<atomic>
 #include<optional>
 
 //

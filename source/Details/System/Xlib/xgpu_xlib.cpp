@@ -420,7 +420,10 @@ namespace xgpu::xlib
         {
         case x::ClientMessage:
             if( E.xclient.message_type == C.m_WMProtocols && static_cast<Atom>(E.xclient.data.l[0]) == C.m_WMDeleteWindow )
+            {
+                if( xgpu::close_request::s_bAskFirst ) { xgpu::close_request::s_bRequested = true; break; }     // the application asks first
                 return false;           // the close button: ends the loop, same as WM_CLOSE -> WM_QUIT
+            }
             break;
 
         case x::MotionNotify:
