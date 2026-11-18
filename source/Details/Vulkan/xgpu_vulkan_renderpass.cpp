@@ -16,7 +16,13 @@ namespace xgpu::vulkan
         std::uint32_t nAttachments      = 0;
         std::uint32_t nColorAttachments = 0;
         
-        std::uint32_t W, H;
+        // The frame buffer's size is the attachments' size: a pass with none had none (W and H were left unset: /analyze C6001)
+        if( Setup.m_Attachments.empty() )
+        {
+            Device->m_Instance->ReportError( "A render pass needs at least one attachment");
+            return VGPU_ERROR(xgpu::device::error::FAILURE, "A render pass needs at least one attachment");
+        }
+        std::uint32_t W = 0, H = 0;
         for( auto& Attch : Setup.m_Attachments )
         {
             auto& Texture = *reinterpret_cast<xgpu::vulkan::texture*>(Attch.m_Texture.m_Private.get());
